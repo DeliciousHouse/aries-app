@@ -12,7 +12,7 @@ import type {
   MarketingReviewBundle,
   MarketingReviewPreviewCard,
   MarketingStageCard,
-  GetMarketingJobStatusResponse,
+  GetSocialContentJobStatusResponse,
   MarketingApiError,
   MarketingStage,
   PostMarketingJobApproveRequest,
@@ -22,7 +22,7 @@ import { useMarketingJobStatus } from '@/hooks/use-marketing-job-status';
 import StatusBadge from '../components/status-badge';
 
 type ApproveResult = ApproveJobResult | MarketingApiError;
-type JobStatusResult = GetMarketingJobStatusResponse | MarketingApiError;
+type JobStatusResult = GetSocialContentJobStatusResponse | MarketingApiError;
 type MarketingJobApproveScreenVariant = 'marketing' | 'social-content';
 const PLATFORM_VALUES = ['meta-ads', 'instagram', 'x', 'tiktok', 'youtube', 'linkedin', 'reddit'] as const;
 
@@ -56,7 +56,7 @@ const APPROVE_SCREEN_COPY: Record<
   }
 > = {
   marketing: {
-    headerEyebrow: 'Campaign approval',
+    headerEyebrow: 'Social content approval',
     headerTitle: 'Approval package',
     headerDescription: 'Review the current package, confirm what is ready, and move the campaign into the next approved stage.',
     controlTitle: 'Confirm the current campaign package',

@@ -55,7 +55,7 @@ test('defaultStageSummary: production + completed returns happy-path text', () =
 
 test('defaultStageSummary: strategy + completed returns happy-path text', () => {
   const summary = defaultStageSummary('strategy', 'completed', []);
-  assert.equal(summary, 'Campaign strategy is ready.');
+  assert.equal(summary, 'Social content strategy is ready.');
 });
 
 test('defaultStageSummary: research + completed returns happy-path text', () => {

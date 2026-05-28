@@ -6,7 +6,7 @@ import {
   resolveSocialContentAspectRatio,
 } from '@/backend/social-content/aspect-matrix';
 import { buildSocialContentWeeklyRequest } from '@/backend/social-content/workflow-request';
-import type { MarketingJobRuntimeDocument } from '@/backend/marketing/runtime-state';
+import type { SocialContentJobRuntimeDocument } from '@/backend/marketing/runtime-state';
 
 test('matrix: instagram + single_image -> 4:5 (portrait feed crop)', () => {
   assert.equal(
@@ -98,7 +98,7 @@ test('weekly workflow request emits 1:1 for meta-only image target channel', () 
       },
     },
     brand_kit: { brand_name: 'Brand Name' },
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 
   const request = buildSocialContentWeeklyRequest({
     doc,
@@ -133,7 +133,7 @@ test('weekly workflow request emits 4:5 for instagram-only image target channel'
       },
     },
     brand_kit: { brand_name: 'Brand Name' },
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 
   const request = buildSocialContentWeeklyRequest({
     doc,
@@ -166,7 +166,7 @@ test('weekly workflow request emits 4:5 for bundled meta+instagram (Instagram pr
       },
     },
     brand_kit: { brand_name: 'Brand Name' },
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 
   const request = buildSocialContentWeeklyRequest({
     doc,
@@ -201,7 +201,7 @@ test('weekly workflow request preserves video aspect_ratio at 9:16 regardless of
       },
     },
     brand_kit: { brand_name: 'Brand Name' },
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 
   const request = buildSocialContentWeeklyRequest({
     doc,

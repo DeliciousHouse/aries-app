@@ -15,8 +15,8 @@ import {
 
 import type {
   AriesAssetVersion,
-  AriesCampaign,
-  AriesCampaignStatus,
+  AriesPost,
+  AriesPostStatus,
   AriesChannelConnection,
   AriesItemStatus,
   AriesKpi,
@@ -141,7 +141,7 @@ export function MetricCard(props: DashboardHeroMetric) {
   );
 }
 
-export function StatusChip(props: { status: AriesCampaignStatus | AriesItemStatus; children?: React.ReactNode }) {
+export function StatusChip(props: { status: AriesPostStatus | AriesItemStatus; children?: React.ReactNode }) {
   const palette =
     props.status === 'live'
       ? 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100'
@@ -288,7 +288,7 @@ export function ScheduleCard(props: { item: AriesScheduleItem | null }) {
   );
 }
 
-export function CampaignSummaryCard(props: { campaign: AriesCampaign }) {
+export function CampaignSummaryCard(props: { campaign: AriesPost }) {
   return (
     <ShellPanel eyebrow="Active Campaign" title={props.campaign.name}>
       <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
@@ -331,7 +331,7 @@ function InfoTile(props: { label: string; value: string }) {
   );
 }
 
-export function CampaignStageRail(props: { campaign: AriesCampaign }) {
+export function CampaignStageRail(props: { campaign: AriesPost }) {
   const steps = [
     { key: 'plan', label: 'Plan', active: true, complete: true },
     {
@@ -371,7 +371,7 @@ export function CampaignStageRail(props: { campaign: AriesCampaign }) {
   );
 }
 
-export function AssetGallery(props: { campaign: AriesCampaign }) {
+export function AssetGallery(props: { campaign: AriesPost }) {
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
       {props.campaign.creative.assets.map((asset) => (

@@ -46,7 +46,7 @@ function buildCalendarDays(startIso?: string | null, endIso?: string | null): Da
 
 function contentCalendarLabel(isWeeklyMode: boolean, durationDays?: number | null): string {
   if (!isWeeklyMode) {
-    return 'Campaign calendar';
+    return 'Social content calendar';
   }
   return typeof durationDays === 'number' && Number.isFinite(durationDays) && durationDays > 0
     ? `${durationDays}-day content calendar`
@@ -59,10 +59,10 @@ export function calendarConsoleCopyForMode(isWeeklyMode: boolean, durationDays?:
     title: isWeeklyMode ? 'Weekly content plan' : 'Monthly content view',
     description: isWeeklyMode
       ? 'Review the weekly plan, scheduled posts, and linked preview assets for the current tenant.'
-      : 'Review the live campaign window, scheduled posts, and linked preview assets for the current tenant.',
-    daysLabel: isWeeklyMode ? 'Days in plan' : 'Days in campaign',
-    statusActionLabel: isWeeklyMode ? 'Open weekly content plan' : 'Open campaign status',
-    newActionLabel: isWeeklyMode ? 'Start weekly content plan' : 'Launch campaign',
+      : 'Review the live post window, scheduled posts, and linked preview assets for the current social content job.',
+    daysLabel: isWeeklyMode ? 'Days in plan' : 'Days in post window',
+    statusActionLabel: isWeeklyMode ? 'Open weekly content plan' : 'Open social content job status',
+    newActionLabel: isWeeklyMode ? 'Start weekly content plan' : 'Launch social content job',
   };
 }
 
@@ -72,20 +72,20 @@ export default function CalendarConsole(): JSX.Element {
   const tz = useTenantTimezone();
   const [windowStart, setWindowStart] = useState('');
   const [windowEnd, setWindowEnd] = useState('');
-  const campaign = latestJob.data;
-  const weeklyEvents = (campaign?.calendarEvents ?? []).filter(
+  const socialContentJob = latestJob.data;
+  const weeklyEvents = (socialContentJob?.calendarEvents ?? []).filter(
     (event): event is SocialContentCalendarEvent =>
       typeof event === 'object' && event !== null && 'dayIndex' in event && 'postType' in event,
   );
   const isWeeklyMode = weeklyEvents.length > 0;
-  const copy = calendarConsoleCopyForMode(isWeeklyMode, campaign?.durationDays ?? null);
-  const days = buildCalendarDays(campaign?.campaignWindow?.start, campaign?.campaignWindow?.end);
-  const windowLabel = campaign?.campaignWindow?.start && campaign?.campaignWindow?.end
-    ? `${formatInTenantZone(campaign.campaignWindow.start, tz)} ${tenantZoneAbbreviation(campaign.campaignWindow.start, tz)} to ${formatInTenantZone(campaign.campaignWindow.end, tz)} ${tenantZoneAbbreviation(campaign.campaignWindow.end, tz)}`
+  const copy = calendarConsoleCopyForMode(isWeeklyMode, socialContentJob?.durationDays ?? null);
+  const days = buildCalendarDays(socialContentJob?.postWindow?.start, socialContentJob?.postWindow?.end);
+  const windowLabel = socialContentJob?.postWindow?.start && socialContentJob?.postWindow?.end
+    ? `${formatInTenantZone(socialContentJob.postWindow.start, tz)} ${tenantZoneAbbreviation(socialContentJob.postWindow.start, tz)} to ${formatInTenantZone(socialContentJob.postWindow.end, tz)} ${tenantZoneAbbreviation(socialContentJob.postWindow.end, tz)}`
     : `${days[0]?.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) ?? 'Current month'}`;
 
   const eventsByDay = new Map<string, Array<MarketingCalendarEvent | SocialContentCalendarEvent>>();
-  for (const event of campaign?.calendarEvents ?? []) {
+  for (const event of socialContentJob?.calendarEvents ?? []) {
     const key = event.startsAt.slice(0, 10);
     const existing = eventsByDay.get(key) ?? [];
     existing.push(event);
@@ -116,7 +116,7 @@ export default function CalendarConsole(): JSX.Element {
             </p>
           </div>
           <div className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/70">
-            {copy.daysLabel}: <strong className="text-white">{campaign?.durationDays ?? 0}</strong>
+            {copy.daysLabel}: <strong className="text-white">{socialContentJob?.durationDays ?? 0}</strong>
           </div>
         </div>
       </div>
@@ -124,12 +124,12 @@ export default function CalendarConsole(): JSX.Element {
       <div className="grid xl:grid-cols-[1.25fr_0.75fr] gap-6">
         <div className="glass rounded-[2.5rem] p-8">
           {latestJob.isLoading ? (
-            <div className="text-white/60">Loading campaign calendar…</div>
+            <div className="text-white/60">Loading social content calendar…</div>
           ) : (
             <div className="space-y-6">
-              {!campaign ? (
+              {!socialContentJob ? (
                 <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-white/65">
-                  No active campaign found. Showing the current month so your team can still plan and verify schedule coverage.
+                  No active social content job found. Showing the current month so your team can still plan and verify schedule coverage.
                 </div>
               ) : null}
               <div className="flex items-center gap-3">
@@ -186,7 +186,7 @@ export default function CalendarConsole(): JSX.Element {
                   </div>
                 </div>
                 <p className="text-white/60 leading-relaxed">
-                  Keep the campaign calendar aligned with the latest workflow-backed schedule window.
+                  Keep the social content calendar aligned with the latest workflow-backed schedule window.
                 </p>
               </div>
 
@@ -232,13 +232,13 @@ export default function CalendarConsole(): JSX.Element {
           </div>
 
           <div className="glass rounded-[2.5rem] p-8">
-            <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-3">Campaign actions</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-3">Social content actions</p>
             <div className="flex flex-col gap-3">
-              <Link href={campaign ? `/marketing/job-status?jobId=${encodeURIComponent(campaign.jobId)}` : '/marketing/new-job'} className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all text-center">
-                {campaign ? copy.statusActionLabel : copy.newActionLabel}
+              <Link href={socialContentJob ? `/marketing/job-status?jobId=${encodeURIComponent(socialContentJob.jobId)}` : '/marketing/new-job'} className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all text-center">
+                {socialContentJob ? copy.statusActionLabel : copy.newActionLabel}
               </Link>
-              {campaign?.approval?.actionHref ? (
-                <Link href={campaign.approval.actionHref} className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all text-center">
+              {socialContentJob?.approval?.actionHref ? (
+                <Link href={socialContentJob.approval.actionHref} className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all text-center">
                   Open approval
                 </Link>
               ) : null}

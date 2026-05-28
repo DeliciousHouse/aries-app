@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { MarketingBrandKitReference, MarketingJobRuntimeDocument } from '../backend/marketing/runtime-state';
+import type { MarketingBrandKitReference, SocialContentJobRuntimeDocument } from '../backend/marketing/runtime-state';
 import { buildSocialContentWeeklyRequest } from '../backend/social-content/workflow-request';
 
 function makeRef(overrides: Partial<MarketingBrandKitReference> = {}): MarketingBrandKitReference {
@@ -25,7 +25,7 @@ function makeRef(overrides: Partial<MarketingBrandKitReference> = {}): Marketing
   };
 }
 
-function makeDoc(req: Record<string, unknown>, brandKit: MarketingBrandKitReference | null = null): MarketingJobRuntimeDocument {
+function makeDoc(req: Record<string, unknown>, brandKit: MarketingBrandKitReference | null = null): SocialContentJobRuntimeDocument {
   return {
     schema_name: 'marketing_job_runtime',
     schema_version: '1.0',
@@ -36,7 +36,7 @@ function makeDoc(req: Record<string, unknown>, brandKit: MarketingBrandKitRefere
     status: 'pending',
     current_stage: 'research',
     stage_order: ['research', 'strategy', 'production', 'publish'],
-    stages: {} as MarketingJobRuntimeDocument['stages'],
+    stages: {} as SocialContentJobRuntimeDocument['stages'],
     approvals: { current: null, history: [] },
     publish_config: { platforms: [], live_publish_platforms: [], video_render_platforms: [] },
     brand_kit: brandKit,
@@ -49,7 +49,7 @@ function makeDoc(req: Record<string, unknown>, brandKit: MarketingBrandKitRefere
     history: [],
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 }
 
 function buildWeeklyPayload(req: Record<string, unknown>, brandKit: MarketingBrandKitReference | null = null) {

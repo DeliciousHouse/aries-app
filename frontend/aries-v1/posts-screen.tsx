@@ -22,7 +22,7 @@ type InventoryItem = {
   typeLabel: string
   title: string
   summary: string
-  campaignName: string
+  postName: string
   funnelLabel: string
   destinationUrl: string | null
   previewUrl: string | null
@@ -83,7 +83,7 @@ function assetToInventory(asset: AriesDashboardAsset): InventoryItem {
             : 'Asset',
     title: asset.title,
     summary: asset.summary,
-    campaignName: asset.campaignName,
+    postName: asset.postName,
     funnelLabel: asset.funnelStage || asset.objective,
     destinationUrl: asset.destinationUrl,
     previewUrl: asset.thumbnailUrl || asset.previewUrl,
@@ -102,7 +102,7 @@ function postToInventory(post: AriesDashboardPost, assetsById: Map<string, Aries
     typeLabel: post.type === 'meta_ad' || post.type === 'pre_publish_ad' ? 'Ad / post' : 'Post concept',
     title: post.title,
     summary: post.summary,
-    campaignName: post.campaignName,
+    postName: post.postName,
     funnelLabel: post.funnelStage || post.objective,
     destinationUrl: post.destinationUrl,
     previewUrl: previewAsset?.thumbnailUrl || previewAsset?.previewUrl || null,
@@ -126,7 +126,7 @@ function publishToInventory(item: AriesDashboardPublishItem, assetsById: Map<str
           : 'Publish item',
     title: item.title,
     summary: item.summary,
-    campaignName: item.campaignName,
+    postName: item.postName,
     funnelLabel: item.funnelStage || item.objective,
     destinationUrl: item.destinationUrl,
     previewUrl: previewAsset?.thumbnailUrl || previewAsset?.previewUrl || null,
@@ -170,7 +170,7 @@ export default function AriesPostsScreen() {
     )
   }
 
-  if (!data || (data.campaigns.length === 0 && data.posts.length === 0 && data.assets.length === 0 && data.publishItems.length === 0)) {
+  if (!data || (data.socialContentJobs.length === 0 && data.posts.length === 0 && data.assets.length === 0 && data.publishItems.length === 0)) {
     return (
       <EmptyStatePanel
         title="No publish-ready inventory yet"
@@ -209,7 +209,7 @@ export default function AriesPostsScreen() {
         }
       >
         <div className="grid gap-4 md:grid-cols-4">
-          <Metric label="Campaigns" value={String(data.campaigns.length)} detail="Visible from proposal through paused platform state." />
+          <Metric label="Social content jobs" value={String(data.socialContentJobs.length)} detail="Visible from proposal through paused platform state." />
           <Metric label="Ready assets" value={String(readyCount)} detail="Images, scripts, and landing pages prepared for use." />
           <Metric label="Paused Meta ads" value={String(pausedCount)} detail="Created in Meta but intentionally not activated." />
           <Metric label="Publish items" value={String(data.publishItems.length)} detail="Pre-publish review and publish package entries." />
@@ -226,7 +226,7 @@ export default function AriesPostsScreen() {
                 <div key={item.id} className="flex items-start justify-between gap-4 rounded-[1.2rem] border border-white/8 bg-black/15 px-4 py-4">
                   <div className="space-y-1">
                     <p className="text-sm font-medium text-white">{item.title}</p>
-                    <p className="text-sm text-white/55">{item.campaignName} · {item.platformLabel}</p>
+                    <p className="text-sm text-white/55">{item.postName} · {item.platformLabel}</p>
                     <p className="text-sm text-white/45">{item.summary}</p>
                   </div>
                   <StatusChip status={item.status} />
@@ -262,7 +262,7 @@ export default function AriesPostsScreen() {
                       <div className="space-y-1">
                         <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{item.typeLabel}</p>
                         <h3 className="text-lg font-semibold text-white">{item.title}</h3>
-                        <p className="text-sm text-white/55">{item.campaignName} · {item.platformLabel}</p>
+                        <p className="text-sm text-white/55">{item.postName} · {item.platformLabel}</p>
                       </div>
                       <StatusChip status={item.status} />
                     </div>

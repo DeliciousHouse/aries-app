@@ -4,7 +4,7 @@ import {
 } from '@/backend/marketing/brand-kit';
 import {
   marketingBrandKitReferenceFromTenantBrandKit,
-  type MarketingJobRuntimeDocument,
+  type SocialContentJobRuntimeDocument,
 } from '@/backend/marketing/runtime-state';
 import {
   clampWeeklyWindowDays,
@@ -64,7 +64,7 @@ function clampCount(value: unknown, fallback: number, max: number): number {
   return Math.min(max, integerValue(value, fallback));
 }
 
-function requestRecord(doc: MarketingJobRuntimeDocument): UnknownRecord {
+function requestRecord(doc: SocialContentJobRuntimeDocument): UnknownRecord {
   const value = doc.inputs.request;
   return value && typeof value === 'object' && !Array.isArray(value)
     ? sanitizeWeeklySocialContentPayload(value as UnknownRecord)
@@ -156,7 +156,7 @@ function weeklySocialChannels(value: string[]): string[] {
 }
 
 export function buildSocialContentWeeklyRequest(input: {
-  doc: MarketingJobRuntimeDocument;
+  doc: SocialContentJobRuntimeDocument;
   ariesRunId: string;
   callbackUrl: string;
   regenerateCreative?: SocialContentRegenerateCreativeContext;
@@ -167,7 +167,7 @@ export function buildSocialContentWeeklyRequest(input: {
   const imageTargetChannels = weeklySocialChannels(configuredChannels);
   const brandKitPayload = buildBrandKitPayload(input.doc, brandKit, req);
   const requestedWindowDays = clampWeeklyWindowDays(
-    req.windowDays ?? req.campaignWindowDays ?? SOCIAL_CONTENT_DEFAULT_SCOPE.window_days,
+    req.windowDays ?? req.postWindowDays ?? SOCIAL_CONTENT_DEFAULT_SCOPE.window_days,
   );
   const imageCreativeCount = clampCount(
     req.imageCreativeCount ?? req.imageCreativesCount,
@@ -275,7 +275,7 @@ export type ProductionResumeContext = {
  * degrades to static brand profile data from the initial request.
  */
 export function buildProductionResumeContext(input: {
-  doc: MarketingJobRuntimeDocument;
+  doc: SocialContentJobRuntimeDocument;
   /** raw primary_output from doc.stages.research */
   researchOutput: Record<string, unknown> | null | undefined;
   /** raw primary_output from doc.stages.strategy */
@@ -297,7 +297,7 @@ export function buildProductionResumeContext(input: {
   const primaryChannel = resolveDominantImageChannel(imageTargetChannels);
   const aspectRatio = resolveSocialContentAspectRatio({ channel: primaryChannel, postType: 'single_image' });
   const windowDays = clampWeeklyWindowDays(
-    req.windowDays ?? req.campaignWindowDays ?? SOCIAL_CONTENT_DEFAULT_SCOPE.window_days,
+    req.windowDays ?? req.postWindowDays ?? SOCIAL_CONTENT_DEFAULT_SCOPE.window_days,
   );
   const imageCreativeCount = clampCount(
     req.imageCreativeCount ?? req.imageCreativesCount,
@@ -462,7 +462,7 @@ export function buildProductionResumeContext(input: {
 // in place. Throws Error('needs_brand_kit:<reason>') on any failure so the port
 // surfaces an operator-actionable error instead of crashing the run.
 export async function ensureFreshBrandKitForWeeklyRun(input: {
-  doc: MarketingJobRuntimeDocument;
+  doc: SocialContentJobRuntimeDocument;
   fetchImpl?: typeof fetch;
 }): Promise<{ refreshed: boolean; enriched: boolean }> {
   const brandUrl = typeof input.doc.inputs.brand_url === 'string' ? input.doc.inputs.brand_url.trim() : '';

@@ -40,11 +40,11 @@ async function withRuntimeEnv<T>(run: () => Promise<T>): Promise<T> {
 
 async function seedSocialJobWithImageCount(imageCreativeCount: number) {
   const {
-    createMarketingJobRuntimeDocument,
-    saveMarketingJobRuntime,
+    createSocialContentJobRuntimeDocument,
+    saveSocialContentJobRuntime,
   } = await import('../backend/marketing/runtime-state');
 
-  const doc = createMarketingJobRuntimeDocument({
+  const doc = createSocialContentJobRuntimeDocument({
     jobId: `mkt_unrecognized-${imageCreativeCount}-${Date.now()}`,
     tenantId: 'tenant-unrecognized',
     payload: {
@@ -71,7 +71,7 @@ async function seedSocialJobWithImageCount(imageCreativeCount: number) {
       style_vibe: null,
     },
   });
-  saveMarketingJobRuntime(doc.job_id, doc);
+  saveSocialContentJobRuntime(doc.job_id, doc);
   return doc;
 }
 
@@ -84,7 +84,7 @@ test('(d) callback with media_requests count=2 and artifacts:{} + image_creative
   await withRuntimeEnv(async () => {
     const { createExecutionRunRecord } = await import('../backend/execution/run-store');
     const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
 
     // imageCreativeCount=2 means 2 media_requests of type image.generate were sent to Hermes
     const doc = await seedSocialJobWithImageCount(2);
@@ -128,7 +128,7 @@ test('(d) callback with media_requests count=2 and artifacts:{} + image_creative
       ],
     });
 
-    const after = await loadMarketingJobRuntime(doc.job_id);
+    const after = await loadSocialContentJobRuntime(doc.job_id);
     assert.equal(
       after?.stages.production.status,
       'failed',
@@ -158,7 +158,7 @@ test('(d-variant) callback with media_requests count=2 and completely absent art
   await withRuntimeEnv(async () => {
     const { createExecutionRunRecord } = await import('../backend/execution/run-store');
     const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
 
     const doc = await seedSocialJobWithImageCount(2);
 
@@ -197,7 +197,7 @@ test('(d-variant) callback with media_requests count=2 and completely absent art
       ],
     });
 
-    const after = await loadMarketingJobRuntime(doc.job_id);
+    const after = await loadSocialContentJobRuntime(doc.job_id);
     assert.equal(
       after?.stages.production.status,
       'failed',
@@ -220,7 +220,7 @@ test('(e) callback with media_requests count=2 and artifacts.creative_assets of 
   await withRuntimeEnv(async () => {
     const { createExecutionRunRecord } = await import('../backend/execution/run-store');
     const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
 
     const doc = await seedSocialJobWithImageCount(2);
 
@@ -281,7 +281,7 @@ test('(e) callback with media_requests count=2 and artifacts.creative_assets of 
       ],
     });
 
-    const after = await loadMarketingJobRuntime(doc.job_id);
+    const after = await loadSocialContentJobRuntime(doc.job_id);
     // Should NOT be failed — production should reach awaiting_approval or completed
     assert.notEqual(
       after?.stages.production.status,
@@ -305,7 +305,7 @@ test('(e-variant) callback with artifacts.images shape of length 2 is also accep
   await withRuntimeEnv(async () => {
     const { createExecutionRunRecord } = await import('../backend/execution/run-store');
     const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
 
     const doc = await seedSocialJobWithImageCount(2);
 
@@ -362,7 +362,7 @@ test('(e-variant) callback with artifacts.images shape of length 2 is also accep
       ],
     });
 
-    const after = await loadMarketingJobRuntime(doc.job_id);
+    const after = await loadSocialContentJobRuntime(doc.job_id);
     assert.notEqual(
       after?.stages.production.status,
       'failed',
@@ -384,7 +384,7 @@ test('(f) callback with imageCreativeCount=0 does not trigger fail-loud check re
   await withRuntimeEnv(async () => {
     const { createExecutionRunRecord } = await import('../backend/execution/run-store');
     const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
 
     // imageCreativeCount=0 means no media_requests of type image.generate were sent
     const doc = await seedSocialJobWithImageCount(0);
@@ -426,7 +426,7 @@ test('(f) callback with imageCreativeCount=0 does not trigger fail-loud check re
       ],
     });
 
-    const after = await loadMarketingJobRuntime(doc.job_id);
+    const after = await loadSocialContentJobRuntime(doc.job_id);
     // Should NOT be failed — no images were requested so zero images is fine
     assert.notEqual(
       after?.stages.production.status,
@@ -444,15 +444,15 @@ test('(f) callback with imageCreativeCount=0 does not trigger fail-loud check re
 test('(f-variant) callback with absent imageCreativeCount field does not trigger fail-loud check', async () => {
   await withRuntimeEnv(async () => {
     const {
-      createMarketingJobRuntimeDocument,
-      saveMarketingJobRuntime,
+      createSocialContentJobRuntimeDocument,
+      saveSocialContentJobRuntime,
     } = await import('../backend/marketing/runtime-state');
     const { createExecutionRunRecord } = await import('../backend/execution/run-store');
     const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
 
     // Payload WITHOUT imageCreativeCount — legacy jobs that predate the field
-    const doc = createMarketingJobRuntimeDocument({
+    const doc = createSocialContentJobRuntimeDocument({
       jobId: `mkt_legacy-no-count-${Date.now()}`,
       tenantId: 'tenant-unrecognized',
       payload: {
@@ -479,7 +479,7 @@ test('(f-variant) callback with absent imageCreativeCount field does not trigger
         style_vibe: null,
       },
     });
-    saveMarketingJobRuntime(doc.job_id, doc);
+    saveSocialContentJobRuntime(doc.job_id, doc);
 
     const run = createExecutionRunRecord({
       provider: 'hermes',
@@ -515,7 +515,7 @@ test('(f-variant) callback with absent imageCreativeCount field does not trigger
       ],
     });
 
-    const after = await loadMarketingJobRuntime(doc.job_id);
+    const after = await loadSocialContentJobRuntime(doc.job_id);
     assert.notEqual(
       after?.stages.production.status,
       'failed',

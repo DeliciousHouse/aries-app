@@ -9,7 +9,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { buildSocialContentDashboardProjection } from '../../backend/social-content/dashboard-projection';
 import { writeSocialCopyArtifact } from '../../backend/social-content/social-copy-store';
 import type { MarketingDashboardAsset, MarketingDashboardPost } from '../../backend/marketing/dashboard-content';
-import type { MarketingJobRuntimeDocument } from '../../backend/marketing/runtime-state';
+import type { SocialContentJobRuntimeDocument } from '../../backend/marketing/runtime-state';
 import { DashboardAssetCard, DashboardPostCard } from '../../frontend/marketing/job-status';
 
 async function withRuntimeEnv<T>(run: () => Promise<T>): Promise<T> {
@@ -27,7 +27,7 @@ async function withRuntimeEnv<T>(run: () => Promise<T>): Promise<T> {
 
 function emptyDashboard() {
   return {
-    campaign: null,
+    post: null,
     posts: [],
     assets: [],
     publishItems: [],
@@ -46,7 +46,7 @@ function emptyDashboard() {
   };
 }
 
-function runtimeDoc(): MarketingJobRuntimeDocument {
+function runtimeDoc(): SocialContentJobRuntimeDocument {
   return {
     tenant_id: 'tenant_social_copy_projection',
     job_id: 'mkt_social_copy_projection',
@@ -99,7 +99,7 @@ function runtimeDoc(): MarketingJobRuntimeDocument {
       },
       publishingRequested: true,
     },
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 }
 
 test('dashboard projection surfaces finalized copy on posts and keeps asset fields single-sourced via relatedPostIds', async () => {
@@ -145,7 +145,7 @@ test('dashboard projection falls back cleanly when no finalized social-copy arti
 test('dashboard cards render finalized copy on posts and reverse-lookup linked post copy on assets', () => {
   const post: MarketingDashboardPost = {
     id: 'post-1',
-    campaignId: 'campaign-1',
+    postId: 'campaign-1',
     jobId: 'job-1',
     type: 'platform_post',
     title: 'Founder story',
@@ -156,7 +156,7 @@ test('dashboard cards render finalized copy on posts and reverse-lookup linked p
     copyWarnings: ['29 hashtags — at IG limit'],
     platform: 'instagram',
     platformLabel: 'Instagram',
-    campaignName: 'Bright Studio',
+    postName: 'Bright Studio',
     funnelStage: 'weekly_content',
     objective: 'Book appointments',
     destinationUrl: 'https://brand.example',
@@ -177,14 +177,14 @@ test('dashboard cards render finalized copy on posts and reverse-lookup linked p
 
   const asset: MarketingDashboardAsset = {
     id: 'asset-1',
-    campaignId: 'campaign-1',
+    postId: 'campaign-1',
     jobId: 'job-1',
     type: 'image_ad',
     title: 'Founder story image',
     summary: 'Asset summary stays unchanged.',
     platform: 'instagram',
     platformLabel: 'Instagram',
-    campaignName: 'Bright Studio',
+    postName: 'Bright Studio',
     funnelStage: 'weekly_content',
     objective: 'Book appointments',
     destinationUrl: 'https://brand.example',
@@ -227,14 +227,14 @@ test('dashboard cards render finalized copy on posts and reverse-lookup linked p
 test('dashboard asset card degrades cleanly when no related post is found', () => {
   const asset: MarketingDashboardAsset = {
     id: 'asset-2',
-    campaignId: 'campaign-1',
+    postId: 'campaign-1',
     jobId: 'job-1',
     type: 'image_ad',
     title: 'Founder story image',
     summary: 'Asset summary stays unchanged.',
     platform: 'instagram',
     platformLabel: 'Instagram',
-    campaignName: 'Bright Studio',
+    postName: 'Bright Studio',
     funnelStage: 'weekly_content',
     objective: 'Book appointments',
     destinationUrl: 'https://brand.example',

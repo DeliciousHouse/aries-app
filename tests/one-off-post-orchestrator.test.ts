@@ -2,17 +2,17 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildOneOffBriefForArgs } from '@/backend/marketing/orchestrator';
 import { ensureSocialContentRuntimeState } from '@/backend/social-content/runtime-state';
-import type { MarketingJobRuntimeDocument } from '@/backend/marketing/runtime-state';
+import type { SocialContentJobRuntimeDocument } from '@/backend/marketing/runtime-state';
 
 // Locks in the one_off_brief assembly so a regression silently dropping the
 // countdown or one of the three required fields gets caught before it ships
 // to Hermes. days_until_end is computed against Date.now() so we test the
 // shape and the deadline math separately.
 
-function baseDoc(overrides: Partial<MarketingJobRuntimeDocument> = {}): MarketingJobRuntimeDocument {
+function baseDoc(overrides: Partial<SocialContentJobRuntimeDocument> = {}): SocialContentJobRuntimeDocument {
   return {
-    schema_name: 'aries.marketing.job.runtime' as MarketingJobRuntimeDocument['schema_name'],
-    schema_version: '1.0.0' as MarketingJobRuntimeDocument['schema_version'],
+    schema_name: 'aries.marketing.job.runtime' as SocialContentJobRuntimeDocument['schema_name'],
+    schema_version: '1.0.0' as SocialContentJobRuntimeDocument['schema_version'],
     job_id: 'job-1',
     tenant_id: '42',
     job_type: 'weekly_social_content',
@@ -34,7 +34,7 @@ function baseDoc(overrides: Partial<MarketingJobRuntimeDocument> = {}): Marketin
       brand_url: '',
     },
     ...overrides,
-  } as MarketingJobRuntimeDocument;
+  } as SocialContentJobRuntimeDocument;
 }
 
 test('buildOneOffBriefForArgs returns null for weekly_social_content jobs', () => {
@@ -189,7 +189,7 @@ test('buildOneOffBriefForArgs returns null when oneOff field is not an object', 
 // Fix: pass publishingRequested=true explicitly when jobType===one_off_campaign.
 
 test('ensureSocialContentRuntimeState sets publishingRequested=true for one_off doc with no publish keys in payload', () => {
-  // Simulate what startMarketingJob does after the fix: call
+  // Simulate what startSocialContentJob does after the fix: call
   // ensureSocialContentRuntimeState with publishingRequested=true for one_off.
   const doc = baseDoc({
     job_type: 'one_off_campaign',
@@ -207,7 +207,7 @@ test('ensureSocialContentRuntimeState sets publishingRequested=true for one_off 
     },
   });
 
-  // This mirrors what the fixed startMarketingJob call site does:
+  // This mirrors what the fixed startSocialContentJob call site does:
   const runtime = ensureSocialContentRuntimeState(doc, {
     publishingRequested: doc.job_type === 'one_off_campaign' ? true : undefined,
   });

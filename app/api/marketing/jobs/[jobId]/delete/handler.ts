@@ -4,26 +4,26 @@ import { cancelAriesWorkflow } from '@/backend/execution';
 import { invalidateMarketingJobStatus } from '@/backend/marketing/jobs-status';
 import {
   isPipelineActive,
-  loadMarketingJobRuntime,
-  softDeleteMarketingJob,
+  loadSocialContentJobRuntime,
+  softDeleteSocialContentJob,
   restoreMarketingJob,
 } from '@/backend/marketing/runtime-state';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
 // Separate copy for each verb so a user hitting the restore endpoint
-// pre-onboarding doesn't see a misleading "before deleting a campaign"
+// pre-onboarding doesn't see a misleading "before deleting a social content job"
 // message. The status / reason are identical; only the user-facing message
 // differs per call site.
 const DELETE_ONBOARDING_REQUIRED = {
   status: 409,
   reason: 'onboarding_required',
-  message: 'Complete tenant onboarding before deleting a campaign.',
+  message: 'Complete tenant onboarding before deleting a social content job.',
 } as const;
 
 const RESTORE_ONBOARDING_REQUIRED = {
   status: 409,
   reason: 'onboarding_required',
-  message: 'Complete tenant onboarding before restoring a campaign.',
+  message: 'Complete tenant onboarding before restoring a social content job.',
 } as const;
 
 type DeletePermissionDecision =
@@ -34,8 +34,8 @@ type DeletePermissionDecision =
 /**
  * Encodes the delete / restore permission rule:
  *
- *   - tenant_admin users may delete or restore any campaign in their tenant
- *   - Any user may delete or restore a campaign they themselves created
+ *   - tenant_admin users may delete or restore any social content job in their tenant
+ *   - Any user may delete or restore a social content job they themselves created
  *     (tracked via `created_by` on the runtime document)
  *   - Everyone else is forbidden
  *
@@ -72,7 +72,7 @@ export async function handleDeleteMarketingJob(
     return tenantResult.response;
   }
 
-  const doc = await loadMarketingJobRuntime(jobId);
+  const doc = await loadSocialContentJobRuntime(jobId);
   if (!doc) {
     return NextResponse.json(
       { error: 'Campaign not found.', reason: 'marketing_job_not_found' },
@@ -98,7 +98,7 @@ export async function handleDeleteMarketingJob(
     }
     return NextResponse.json(
       {
-        error: 'You do not have permission to delete this campaign.',
+        error: 'You do not have permission to delete this social content job.',
         reason: 'marketing_job_delete_forbidden',
       },
       { status: 403 },
@@ -107,7 +107,7 @@ export async function handleDeleteMarketingJob(
 
   const wasActive = isPipelineActive(doc);
 
-  const updated = await softDeleteMarketingJob({
+  const updated = await softDeleteSocialContentJob({
     jobId,
     tenantId: tenantResult.tenantContext.tenantId,
     deletedBy: tenantResult.tenantContext.userId,
@@ -155,7 +155,7 @@ export async function handleRestoreMarketingJob(
     return tenantResult.response;
   }
 
-  const doc = await loadMarketingJobRuntime(jobId);
+  const doc = await loadSocialContentJobRuntime(jobId);
   if (!doc) {
     return NextResponse.json(
       { error: 'Campaign not found.', reason: 'marketing_job_not_found' },
@@ -182,7 +182,7 @@ export async function handleRestoreMarketingJob(
     }
     return NextResponse.json(
       {
-        error: 'You do not have permission to restore this campaign.',
+        error: 'You do not have permission to restore this social content job.',
         reason: 'marketing_job_restore_forbidden',
       },
       { status: 403 },

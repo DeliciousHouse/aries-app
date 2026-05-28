@@ -8,7 +8,7 @@ import pg from 'pg';
 import { synthesizePublishPostsFromContentPackage } from '../../backend/marketing/synthesize-publish-posts';
 import { findLatestMarketingApprovalRecord } from '../../backend/marketing/approval-store';
 import { UNSCHEDULED_POSTS_QUERY } from '../../app/api/social-content/scheduled-posts/route';
-import type { MarketingJobRuntimeDocument } from '../../backend/marketing/runtime-state';
+import type { SocialContentJobRuntimeDocument } from '../../backend/marketing/runtime-state';
 
 // Real-Postgres regression test for the publish-posts synthesizer.
 //
@@ -45,7 +45,7 @@ function dbConfigFromEnv(): pg.PoolConfig | null {
 
 // A minimal runtime document with a production-stage `content_package` of two
 // posts (one dual-platform, one single-platform) and no `publish_package`.
-function makeDoc(jobId: string, tenantId: number): MarketingJobRuntimeDocument {
+function makeDoc(jobId: string, tenantId: number): SocialContentJobRuntimeDocument {
   const stage = (name: string, primaryOutput: unknown) => ({
     stage: name,
     status: 'completed',
@@ -108,7 +108,7 @@ function makeDoc(jobId: string, tenantId: number): MarketingJobRuntimeDocument {
     history: [],
     errors: [],
     last_error: null,
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 }
 
 const dbConfig = dbConfigFromEnv();

@@ -3,9 +3,9 @@ import test from 'node:test';
 
 import { SOCIAL_COPY_FINALIZE_WORKFLOW_KEY } from '@/backend/social-content/defaults';
 import { buildSocialCopyFinalizeRequest } from '@/backend/social-content/copy-finalize-request';
-import type { MarketingJobRuntimeDocument } from '@/backend/marketing/runtime-state';
+import type { SocialContentJobRuntimeDocument } from '@/backend/marketing/runtime-state';
 
-function makeDoc(overrides: Record<string, unknown> = {}): MarketingJobRuntimeDocument {
+function makeDoc(overrides: Record<string, unknown> = {}): SocialContentJobRuntimeDocument {
   return {
     schema_name: 'marketing_job_runtime',
     schema_version: '1.0.0',
@@ -120,7 +120,7 @@ function makeDoc(overrides: Record<string, unknown> = {}): MarketingJobRuntimeDo
       },
     },
     ...overrides,
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 }
 
 test('buildSocialCopyFinalizeRequest exports the Aries-side workflow key', () => {

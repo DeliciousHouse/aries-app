@@ -10,7 +10,7 @@
  * frontend type catches up — pin every new value with a test in
  * `tests/aries-v1-labels.test.ts`.
  */
-import type { AriesCampaignStatus, AriesItemStatus } from '@/lib/api/aries-v1';
+import type { AriesPostStatus, AriesItemStatus } from '@/lib/api/aries-v1';
 
 /**
  * Render the per-platform dispatch status emitted by the scheduled-posts worker
@@ -58,7 +58,7 @@ export function formatDispatchStatusChip(status: string): string {
   }
 }
 
-const CAMPAIGN_STATUS_LABELS: Record<AriesCampaignStatus, string> = {
+const CAMPAIGN_STATUS_LABELS: Record<AriesPostStatus, string> = {
   draft: 'Draft',
   in_review: 'In review',
   approved: 'Approved',
@@ -76,7 +76,7 @@ const ITEM_STATUS_LABELS: Record<string, string> = {
 };
 
 /**
- * Render an AriesCampaignStatus or AriesItemStatus in the same casing the
+ * Render an AriesPostStatus or AriesItemStatus in the same casing the
  * StatusChip uses, without the `.replace('_', ' ')` lowercase trap.
  *
  * Returns a properly cased label for every known value and falls back to
@@ -84,14 +84,14 @@ const ITEM_STATUS_LABELS: Record<string, string> = {
  * replaces (calendar-presenter.tsx:344 + :394) rendered values like
  * "published to meta (paused)" instead of "Published to Meta (Paused)".
  */
-export function formatCampaignStatusLabel(status: string): string {
+export function formatPostStatusLabel(status: string): string {
   // Use Object.hasOwn (not `in`) so inherited Object.prototype keys like
   // 'toString', '__proto__', or 'constructor' can't accidentally route through
   // the label-map and return a non-string. A raw `in` check would resolve those
   // names against the prototype chain and index into the map, returning
   // undefined or a method reference.
   if (Object.hasOwn(CAMPAIGN_STATUS_LABELS, status)) {
-    return CAMPAIGN_STATUS_LABELS[status as AriesCampaignStatus];
+    return CAMPAIGN_STATUS_LABELS[status as AriesPostStatus];
   }
   if (Object.hasOwn(ITEM_STATUS_LABELS, status)) {
     return ITEM_STATUS_LABELS[status];

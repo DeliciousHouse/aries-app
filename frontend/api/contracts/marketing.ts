@@ -1,10 +1,10 @@
 export type {
   MarketingJobType,
   MarketingStage,
-  BrandCampaignPayload,
+  BrandPostPayload,
   PostMarketingJobsRequest,
   StartJobAccepted,
-  GetMarketingJobStatusResponse,
+  GetSocialContentJobStatusResponse,
   PostMarketingJobApproveRequest,
   ApproveJobResult,
   MarketingApiError as HardFailureError,

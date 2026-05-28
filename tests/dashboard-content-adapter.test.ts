@@ -255,21 +255,21 @@ test('dashboard adapter derives proposal-backed content and calendar without liv
     await writeRuntimeDoc(jobId, doc);
 
     const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
-    const { listMarketingCampaignsForTenant } = await import('../backend/marketing/runtime-views');
+    const { listSocialContentJobsForTenant } = await import('../backend/marketing/runtime-views');
 
     const content = await getMarketingDashboardContent(jobId, {
       referenceDate: new Date('2026-03-27T00:00:00.000Z'),
     });
-    const { campaigns } = await listMarketingCampaignsForTenant('tenant_dashboard');
+    const { posts: listPosts } = await listSocialContentJobsForTenant('tenant_dashboard');
 
-    assert.equal(content.campaigns.length, 1);
+    assert.equal(content.socialContentJobs.length, 1);
     assert.equal(content.posts.some((post) => post.provenance.sourceKind === 'proposal'), true);
     assert.equal(content.calendarEvents.length > 0, true);
     assert.equal(content.calendarEvents[0].provenance.isPlatformNative, false);
     assert.notEqual(content.calendarEvents[0].status, 'live');
-    assert.equal(campaigns.length, 1);
-    assert.equal(campaigns[0].dashboard.posts.length > 0, true);
-    assert.notEqual(campaigns[0].nextScheduled, 'Nothing scheduled yet');
+    assert.equal(listPosts.length, 1);
+    assert.equal(listPosts[0].dashboard.posts.length > 0, true);
+    assert.notEqual(listPosts[0].nextScheduled, 'Nothing scheduled yet');
   });
 });
 
@@ -325,7 +325,7 @@ test('dashboard adapter recovers proposal artifacts from live Lobster logs when 
 
     assert.equal(content.posts.some((post) => post.provenance.sourceKind === 'proposal'), true);
     assert.equal(content.assets.some((asset) => asset.type === 'proposal_document'), true);
-    assert.equal((content.campaigns[0]?.counts.proposalConcepts ?? 0) > 0, true);
+    assert.equal((content.socialContentJobs[0]?.counts.proposalConcepts ?? 0) > 0, true);
   });
 });
 
@@ -369,9 +369,9 @@ test('dashboard adapter uses human-readable campaign and proposal concept labels
       referenceDate: new Date('2026-03-27T00:00:00.000Z'),
     });
 
-    assert.equal(content.campaigns[0]?.name, 'Brand Example');
-    assert.equal(content.campaigns[0]?.objective, 'performance-first paid acquisition testing');
-    assert.equal(content.campaigns[0]?.summary, 'performance-first paid acquisition testing');
+    assert.equal(content.socialContentJobs[0]?.name, 'Brand Example');
+    assert.equal(content.socialContentJobs[0]?.objective, 'performance-first paid acquisition testing');
+    assert.equal(content.socialContentJobs[0]?.summary, 'performance-first paid acquisition testing');
     assert.equal(content.posts[0]?.title, 'Meta Ads concept');
     assert.equal(content.posts[0]?.summary, 'performance-first paid acquisition testing');
   });
@@ -590,7 +590,7 @@ test('dashboard adapter does not infer publish review content during strategy ap
       referenceDate: new Date('2026-03-27T00:00:00.000Z'),
     });
 
-    assert.equal(content.campaigns[0]?.name, 'Brand Example');
+    assert.equal(content.socialContentJobs[0]?.name, 'Brand Example');
     assert.equal(content.assets.length, 0);
     assert.equal(content.posts.length, 0);
     assert.equal(content.publishItems.length, 0);
@@ -617,9 +617,9 @@ test('dashboard adapter surfaces generated landing pages, image ads, scripts, an
     assert.equal(content.assets.some((asset) => asset.type === 'image_ad'), true);
     assert.equal(content.assets.some((asset) => asset.type === 'script'), true);
     assert.equal(content.posts.some((post) => post.provenance.sourceKind === 'creative_output'), true);
-    assert.equal(content.campaigns[0]?.counts.landingPages, 1);
-    assert.equal(content.campaigns[0]?.counts.imageAds, 1);
-    assert.equal(content.campaigns[0]?.counts.scripts, 1);
+    assert.equal(content.socialContentJobs[0]?.counts.landingPages, 1);
+    assert.equal(content.socialContentJobs[0]?.counts.imageAds, 1);
+    assert.equal(content.socialContentJobs[0]?.counts.scripts, 1);
   });
 });
 
@@ -660,8 +660,8 @@ test('dashboard adapter keeps campaign status in review while a live approval ch
     });
 
     assert.equal(content.assets.some((asset) => asset.provenance.sourceKind === 'creative_output'), true);
-    assert.equal(content.campaigns[0]?.status, 'in_review');
-    assert.equal(content.campaigns[0]?.compatibilityStatus, 'in_review');
+    assert.equal(content.socialContentJobs[0]?.status, 'in_review');
+    assert.equal(content.socialContentJobs[0]?.compatibilityStatus, 'in_review');
   });
 });
 
@@ -956,6 +956,6 @@ test('dashboard adapter surfaces rendered .mp4 video assets from veo contract fi
       `expected asset id to start with publish-video-${platformSlug}, got ${videoAsset!.id}`,
     );
     assert.equal(videoAsset!.contentType, 'video/mp4');
-    assert.equal((content.campaigns[0]?.counts as any).videoAds, 1);
+    assert.equal((content.socialContentJobs[0]?.counts as any).videoAds, 1);
   });
 });

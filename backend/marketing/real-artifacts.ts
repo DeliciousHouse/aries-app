@@ -8,7 +8,7 @@ import {
   resolveGeneratedAsset,
 } from './artifact-store';
 
-import type { MarketingJobRuntimeDocument } from './runtime-state';
+import type { SocialContentJobRuntimeDocument } from './runtime-state';
 
 export const ARTIFACT_UNAVAILABLE_TEXT = 'Unavailable: not present in generated artifacts.';
 export const ARTIFACT_INCOMPLETE_TEXT = 'Incomplete: generated artifacts do not yet contain this section.';
@@ -35,7 +35,7 @@ function stringArray(value: unknown): string[] {
     : [];
 }
 
-function slugify(value: string, fallback = 'campaign'): string {
+function slugify(value: string, fallback = 'social content'): string {
   const normalized = value
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
@@ -187,7 +187,7 @@ export function explicitArtifactValue(value: string | null | undefined, fallback
   return normalizeArtifactText(value) || fallback;
 }
 
-export function inferBrandSlug(runtimeDoc: MarketingJobRuntimeDocument): string {
+export function inferBrandSlug(runtimeDoc: SocialContentJobRuntimeDocument): string {
   const runtimeInputs = runtimeDoc.inputs as Record<string, unknown>;
   const runtimeRequest = recordValue(runtimeInputs.request);
   const candidateUrl =
@@ -201,18 +201,18 @@ export function inferBrandSlug(runtimeDoc: MarketingJobRuntimeDocument): string 
     stringValue(runtimeInputs.brandSlug) ||
     stringValue(runtimeInputs.brand_slug);
   if (explicitBrandSlug) {
-    return slugify(explicitBrandSlug, 'campaign');
+    return slugify(explicitBrandSlug, 'social content');
   }
 
   if (candidateUrl) {
     try {
-      return slugify(new URL(candidateUrl).hostname.replace(/^www\./, ''), slugify(runtimeDoc.tenant_id, 'campaign'));
+      return slugify(new URL(candidateUrl).hostname.replace(/^www\./, ''), slugify(runtimeDoc.tenant_id, 'social content'));
     } catch {}
   }
 
   return slugify(
     stringValue(runtimeInputs.brand_slug) || stringValue(runtimeDoc.tenant_id) || stringValue(runtimeDoc.brand_kit?.brand_name),
-    'campaign',
+    'social content',
   );
 }
 
@@ -288,7 +288,7 @@ export type LandingPageArtifactDetails = {
 
 export async function readLandingPageArtifactDetails(input: {
   path?: string | null;
-  runtimeDoc?: MarketingJobRuntimeDocument | null;
+  runtimeDoc?: SocialContentJobRuntimeDocument | null;
   brandSlug?: string | null;
 }): Promise<LandingPageArtifactDetails> {
   const brandSlug = stringValue(input.brandSlug) || (input.runtimeDoc ? inferBrandSlug(input.runtimeDoc) : '');
@@ -373,7 +373,7 @@ export type ScriptArtifactDetails = {
 export async function readScriptArtifactDetails(input: {
   metaScriptPath?: string | null;
   shortVideoScriptPath?: string | null;
-  runtimeDoc?: MarketingJobRuntimeDocument | null;
+  runtimeDoc?: SocialContentJobRuntimeDocument | null;
   brandSlug?: string | null;
 }): Promise<ScriptArtifactDetails> {
   const brandSlug = stringValue(input.brandSlug) || (input.runtimeDoc ? inferBrandSlug(input.runtimeDoc) : '');

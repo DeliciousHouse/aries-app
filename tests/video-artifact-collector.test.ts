@@ -5,8 +5,8 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { collectProductionReviewArtifacts } from '../backend/marketing/artifact-collector';
-import { createMarketingJobFacts } from '../backend/marketing/job-facts';
-import { createMarketingJobRuntimeDocument } from '../backend/marketing/runtime-state';
+import { createSocialContentJobFacts } from '../backend/marketing/job-facts';
+import { createSocialContentJobRuntimeDocument } from '../backend/marketing/runtime-state';
 
 async function writeJson(filePath: string, value: unknown) {
   await mkdir(path.dirname(filePath), { recursive: true });
@@ -22,7 +22,7 @@ test('collectProductionReviewArtifacts emits one video artifact per rendered var
   process.env.ARTIFACT_STAGE3_CACHE_DIR = tempRoot;
 
   try {
-    const runtimeDoc = createMarketingJobRuntimeDocument({
+    const runtimeDoc = createSocialContentJobRuntimeDocument({
       jobId,
       tenantId: 'tenant-video-artifacts',
       payload: {
@@ -111,7 +111,7 @@ test('collectProductionReviewArtifacts emits one video artifact per rendered var
     });
 
     const capture = await collectProductionReviewArtifacts(
-      createMarketingJobFacts(runtimeDoc, runId),
+      createSocialContentJobFacts(runtimeDoc, runId),
       { run_id: runId, job_id: jobId },
     );
     const videoArtifacts = capture.artifacts.filter(
@@ -153,7 +153,7 @@ test('collectProductionReviewArtifacts skips rate-limited video variants so revi
   process.env.ARTIFACT_STAGE3_CACHE_DIR = tempRoot;
 
   try {
-    const runtimeDoc = createMarketingJobRuntimeDocument({
+    const runtimeDoc = createSocialContentJobRuntimeDocument({
       jobId,
       tenantId: 'tenant-video-rate-limited-artifacts',
       payload: {
@@ -232,7 +232,7 @@ test('collectProductionReviewArtifacts skips rate-limited video variants so revi
     });
 
     const capture = await collectProductionReviewArtifacts(
-      createMarketingJobFacts(runtimeDoc, runId),
+      createSocialContentJobFacts(runtimeDoc, runId),
       { run_id: runId, job_id: jobId },
     );
     const videoArtifacts = capture.artifacts.filter(

@@ -116,7 +116,7 @@ function configuredWindowDayBounds(): { min: number; max: number } {
 }
 
 export function clampWeeklyWindowDays(value: unknown): number {
-  const requestedDays = parseInteger(value) ?? DEFAULT_SOCIAL_CONTENT_COUNTS.campaignWindowDays;
+  const requestedDays = parseInteger(value) ?? DEFAULT_SOCIAL_CONTENT_COUNTS.postWindowDays;
   const bounds = configuredWindowDayBounds();
   return Math.min(bounds.max, Math.max(bounds.min, requestedDays));
 }
@@ -177,8 +177,8 @@ export function normalizeWeeklySocialContentPayload(payload: Record<string, unkn
     })() ??
     DEFAULT_SOCIAL_CONTENT_COUNTS.videoRenderCount;
 
-  const campaignWindowDays = clampWeeklyWindowDays(
-    nextPayload.campaignWindowDays ?? nextPayload.windowDays,
+  const postWindowDays = clampWeeklyWindowDays(
+    nextPayload.postWindowDays ?? nextPayload.windowDays,
   );
 
   const channels = asStringArray(nextPayload.channels);
@@ -190,8 +190,8 @@ export function normalizeWeeklySocialContentPayload(payload: Record<string, unkn
       ? forbiddenPatterns
       : [...DEFAULT_SOCIAL_CONTENT_FORBIDDEN_PATTERNS];
 
-  nextPayload.campaignWindowDays = campaignWindowDays;
-  nextPayload.windowDays = campaignWindowDays;
+  nextPayload.postWindowDays = postWindowDays;
+  nextPayload.windowDays = postWindowDays;
   nextPayload.staticPostCount = Math.max(0, staticPostCount);
   nextPayload.imageCreativeCount = Math.min(MAX_IMAGE_CREATIVE_COUNT, Math.max(0, imageCreativeCount));
   nextPayload.videoScriptCount = Math.max(0, videoScriptCount);

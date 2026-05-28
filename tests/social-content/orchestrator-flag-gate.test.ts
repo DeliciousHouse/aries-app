@@ -20,16 +20,16 @@ async function withRuntimeEnv<T>(run: () => Promise<T>): Promise<T> {
 
 async function seedWeeklySocialDoc(jobId: string, options: { includeApprovedImages?: boolean } = {}) {
   const {
-    createMarketingJobRuntimeDocument,
+    createSocialContentJobRuntimeDocument,
     markStageCompleted,
-    saveMarketingJobRuntime,
+    saveSocialContentJobRuntime,
   } = await import('../../backend/marketing/runtime-state');
   const {
     ensureSocialContentRuntimeState,
     markSocialContentStageCompleted,
   } = await import('../../backend/social-content/runtime-state');
 
-  const doc = createMarketingJobRuntimeDocument({
+  const doc = createSocialContentJobRuntimeDocument({
     jobId,
     tenantId: 'tenant-social-copy-finalize',
     payload: {
@@ -120,14 +120,14 @@ async function seedWeeklySocialDoc(jobId: string, options: { includeApprovedImag
       },
     },
   });
-  saveMarketingJobRuntime(doc.job_id, doc);
+  saveSocialContentJobRuntime(doc.job_id, doc);
   return doc;
 }
 
 test('continueAfterCreativeReviewApproval preserves the legacy resume path when the finalize flag is off', async () => {
   await withRuntimeEnv(async () => {
     const orchestrator = await import('../../backend/marketing/orchestrator');
-    const { loadMarketingJobRuntime } = await import('../../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../../backend/marketing/runtime-state');
     const { readSocialContentRuntimeState } = await import('../../backend/social-content/runtime-state');
 
     const doc = await seedWeeklySocialDoc('job-social-copy-flag-off');
@@ -175,7 +175,7 @@ test('continueAfterCreativeReviewApproval preserves the legacy resume path when 
     assert.equal(resumeCalls.length, 1);
     assert.equal(resumeCalls[0]?.resumeToken, 'resume-token-off');
 
-    const reloaded = await loadMarketingJobRuntime(doc.job_id);
+    const reloaded = await loadSocialContentJobRuntime(doc.job_id);
     const socialRuntime = reloaded && readSocialContentRuntimeState(reloaded);
     assert.equal(socialRuntime?.stages.social_copy_finalize.status, 'completed');
     assert.equal(
@@ -190,7 +190,7 @@ test('continueAfterCreativeReviewApproval submits social copy finalize when the 
     process.env.ARIES_SOCIAL_COPY_FINALIZE_ENABLED = '1';
 
     const orchestrator = await import('../../backend/marketing/orchestrator');
-    const { loadMarketingJobRuntime, getStageRecord } = await import('../../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime, getStageRecord } = await import('../../backend/marketing/runtime-state');
     const { readSocialContentRuntimeState } = await import('../../backend/social-content/runtime-state');
 
     const doc = await seedWeeklySocialDoc('job-social-copy-flag-on');
@@ -217,7 +217,7 @@ test('continueAfterCreativeReviewApproval submits social copy finalize when the 
 
     assert.equal(submitterCalls, 1);
 
-    const reloaded = await loadMarketingJobRuntime(doc.job_id);
+    const reloaded = await loadSocialContentJobRuntime(doc.job_id);
     assert.ok(reloaded);
     if (!reloaded) return;
 
@@ -234,7 +234,7 @@ test('continueAfterCreativeReviewApproval skips the finalize submission when the
     process.env.ARIES_SOCIAL_COPY_FINALIZE_ENABLED = '1';
 
     const orchestrator = await import('../../backend/marketing/orchestrator');
-    const { loadMarketingJobRuntime } = await import('../../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../../backend/marketing/runtime-state');
     const { readSocialContentRuntimeState } = await import('../../backend/social-content/runtime-state');
 
     const doc = await seedWeeklySocialDoc('job-social-copy-no-images', { includeApprovedImages: false });
@@ -274,7 +274,7 @@ test('continueAfterCreativeReviewApproval skips the finalize submission when the
 
     assert.equal(resumeCalls.length, 1);
 
-    const reloaded = await loadMarketingJobRuntime(doc.job_id);
+    const reloaded = await loadSocialContentJobRuntime(doc.job_id);
     const socialRuntime = reloaded && readSocialContentRuntimeState(reloaded);
     assert.equal(socialRuntime?.stages.social_copy_finalize.status, 'completed');
     assert.equal(

@@ -9,8 +9,8 @@ import type { RuntimeReviewItem } from '@/backend/marketing/runtime-views';
 const FIXTURE_REVIEW_ITEM: RuntimeReviewItem = {
   id: 'job_test_t19::approval',
   jobId: 'job_test_t19',
-  campaignId: 'job_test_t19',
-  campaignName: 'Test Brand',
+  postId: 'job_test_t19',
+  postName: 'Test Brand',
   reviewType: 'creative',
   workflowState: 'creative_review_required',
   workflowStage: 'production',

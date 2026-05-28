@@ -99,7 +99,7 @@ export interface WeeklySocialContentPayload {
   facebookPageUrl?: string;
   adLibraryUrl?: string;
   channels: Array<'meta' | 'instagram' | 'linkedin' | 'x' | 'tiktok' | 'youtube'>;
-  campaignWindowDays: number;
+  postWindowDays: number;
   staticPostCount: number;
   imageCreativeCount: number;
   videoScriptCount: number;
@@ -128,7 +128,7 @@ export const DEFAULT_SOCIAL_CONTENT_FORBIDDEN_PATTERNS: string[] = [
 ];
 
 export const DEFAULT_SOCIAL_CONTENT_COUNTS = {
-  campaignWindowDays: 7 as const,
+  postWindowDays: 7 as const,
   staticPostCount: 7,
   imageCreativeCount: 6,
   videoScriptCount: 1,

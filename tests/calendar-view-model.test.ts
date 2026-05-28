@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { RuntimeCampaignListItem, ScheduledPostItem } from '../lib/api/aries-v1';
+import type { RuntimePostListItem, ScheduledPostItem } from '../lib/api/aries-v1';
 import { createCalendarViewModel } from '../frontend/aries-v1/view-models/calendar';
 
 /**
@@ -31,7 +31,7 @@ function buildScheduledPost(overrides: Partial<ScheduledPostItem> = {}): Schedul
   };
 }
 
-function buildCampaign(overrides: Partial<RuntimeCampaignListItem> = {}): RuntimeCampaignListItem {
+function buildCampaign(overrides: Partial<RuntimePostListItem> = {}): RuntimePostListItem {
   return {
     id: 'campaign-1',
     jobId: 'job-1',
@@ -66,7 +66,7 @@ function buildCampaign(overrides: Partial<RuntimeCampaignListItem> = {}): Runtim
     previewPosts: [],
     previewAssets: [],
     dashboard: {
-      campaign: null,
+      post: null,
       posts: [],
       assets: [],
       publishItems: [],
@@ -98,7 +98,7 @@ test('calendar view-model maps scheduled_posts rows into grid events', () => {
         dispatchStatus: 'dispatched',
       }),
     ],
-    campaigns: [buildCampaign()],
+    posts: [buildCampaign()],
     timeZone: 'America/New_York',
   });
 
@@ -116,7 +116,7 @@ test('calendar view-model day key is tenant-zone aware (11pm post lands on the t
   // 2026-04-16T03:00:00Z is 2026-04-15 23:00 in New York.
   const model = createCalendarViewModel({
     scheduledPosts: [buildScheduledPost({ scheduledFor: '2026-04-16T03:00:00.000Z' })],
-    campaigns: [],
+    posts: [],
     timeZone: 'America/New_York',
   });
   assert.equal(model.events[0].dayKey, '2026-04-15');
@@ -124,7 +124,7 @@ test('calendar view-model day key is tenant-zone aware (11pm post lands on the t
   // The same instant in Tokyo is Apr 16.
   const tokyoModel = createCalendarViewModel({
     scheduledPosts: [buildScheduledPost({ scheduledFor: '2026-04-16T03:00:00.000Z' })],
-    campaigns: [],
+    posts: [],
     timeZone: 'Asia/Tokyo',
   });
   assert.equal(tokyoModel.events[0].dayKey, '2026-04-16');
@@ -133,12 +133,12 @@ test('calendar view-model day key is tenant-zone aware (11pm post lands on the t
 test('calendar view-model keeps the campaign strip fed by runtime campaigns', () => {
   const model = createCalendarViewModel({
     scheduledPosts: [],
-    campaigns: [buildCampaign({ name: 'Spring Launch' })],
+    posts: [buildCampaign({ name: 'Spring Launch' })],
     timeZone: 'UTC',
   });
-  assert.equal(model.campaigns.length, 1);
-  assert.equal(model.campaigns[0].name, 'Spring Launch');
-  assert.equal(model.campaigns[0].href, '/dashboard/social-content/campaign-1');
+  assert.equal(model.posts.length, 1);
+  assert.equal(model.posts[0].name, 'Spring Launch');
+  assert.equal(model.posts[0].href, '/dashboard/social-content/campaign-1');
   // No scheduled posts -> empty grid (intentional A1 consequence).
   assert.equal(model.events.length, 0);
 });
@@ -146,7 +146,7 @@ test('calendar view-model keeps the campaign strip fed by runtime campaigns', ()
 test('calendar view-model surfaces the unscheduled backlog tray', () => {
   const model = createCalendarViewModel({
     scheduledPosts: [],
-    campaigns: [],
+    posts: [],
     unscheduledPosts: [
       {
         postId: '77',
@@ -170,7 +170,7 @@ test('calendar view-model surfaces the unscheduled backlog tray', () => {
 test('calendar view-model carries the resolved timezone through to the model', () => {
   const model = createCalendarViewModel({
     scheduledPosts: [],
-    campaigns: [],
+    posts: [],
     timeZone: 'America/Chicago',
   });
   assert.equal(model.timeZone, 'America/Chicago');

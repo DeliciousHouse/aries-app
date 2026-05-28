@@ -87,7 +87,7 @@ test('Docker operations docs avoid committing live benchmark identifiers', () =>
   assert.match(dockerDocs, /ARIES_PROCESS_MANAGER=cluster/);
   assert.match(dockerDocs, /ARIES_WEB_CONCURRENCY=4 DB_POOL_MAX=10/);
   assert.match(dockerDocs, /BASE_URL="https:\/\/<aries-host>"/);
-  assert.match(dockerDocs, /JOB_ID="<campaign-job-id>"/);
+  assert.match(dockerDocs, /JOB_ID="<social-content-job-id>"/);
   assert.doesNotMatch(dockerDocs, /aries\.sugarandleather\.com/);
   assert.doesNotMatch(dockerDocs, /mkt_[0-9a-f-]{36}/);
 });

@@ -17,7 +17,7 @@ test('onboarding resume materializes the isolated tenant and workspace after aut
   assert.match(source, /assignUserToOrganization/);
   assert.match(source, /tenantIsReusable/);
   assert.match(source, /updateBusinessProfileWithDiagnostics/);
-  assert.match(source, /startMarketingJob/);
+  assert.match(source, /startSocialContentJob/);
   assert.match(source, /materializedTenantId/);
   assert.match(source, /materializedJobId/);
   assert.match(source, /\/dashboard\/campaigns\/\$\{encodeURIComponent\(result\.jobId\)\}\?welcome=1/);

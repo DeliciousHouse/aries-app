@@ -11,7 +11,7 @@ import { enforceOnboardingGate } from '@/lib/onboarding-gate-server';
 export default async function SocialContentSegmentLayout({ children }: { children: ReactNode }) {
   await enforceOnboardingGate();
   return (
-    <AppShellLayout currentRouteId="campaigns" loginRedirectPath="/social-content">
+    <AppShellLayout currentRouteId="socialContent" loginRedirectPath="/social-content">
       {children}
     </AppShellLayout>
   );

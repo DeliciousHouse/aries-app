@@ -21,7 +21,7 @@ import {
   readScriptArtifactDetails,
 } from './real-artifacts';
 import { inferMarketingStageRunId, readMarketingStageStepPayload } from './stage-artifact-resolution';
-import type { MarketingJobRuntimeDocument } from './runtime-state';
+import type { SocialContentJobRuntimeDocument } from './runtime-state';
 import { loadValidatedMarketingProfileDocs } from './validated-profile-store';
 import { recordMatchesCurrentSource, sourceFingerprintFromRecord } from './brand-identity';
 
@@ -83,7 +83,7 @@ function stringValue(value: unknown, fallback = ''): string {
   return fallback;
 }
 
-function currentSourceUrl(runtimeDoc: MarketingJobRuntimeDocument | null | undefined): string | null {
+function currentSourceUrl(runtimeDoc: SocialContentJobRuntimeDocument | null | undefined): string | null {
   if (!runtimeDoc) {
     return null;
   }
@@ -250,7 +250,7 @@ function collectRenderedVideoArtifacts(params: {
 
 async function resolveRunId(
   primaryOutput: Record<string, unknown> | null,
-  runtimeDoc?: MarketingJobRuntimeDocument | null,
+  runtimeDoc?: SocialContentJobRuntimeDocument | null,
   stage?: 1 | 2 | 3 | 4,
 ): Promise<string | null> {
   return asString(primaryOutput?.run_id) || (runtimeDoc && stage ? await inferMarketingStageRunId(runtimeDoc, stage) : null);
@@ -278,7 +278,7 @@ export async function collectResearchStageArtifacts(
   const summary: MarketingStageSummary | null = {
     summary:
       stringValue(executive.market_positioning) ||
-      'Competitive research completed and the highest-signal campaign angles were captured.',
+      'Competitive research completed and the highest-signal social content angles were captured.',
     highlight: stringValue(executive.campaign_takeaway) || null,
   };
 
@@ -383,7 +383,7 @@ export async function collectStrategyReviewArtifacts(
       artifact({
         id: 'strategy-plan',
         stage: 'strategy',
-        title: 'Campaign strategy',
+        title: 'Social content strategy',
         category: 'brief',
         status: 'awaiting_approval',
         summary: summary.summary,
@@ -516,7 +516,7 @@ export async function collectProductionFinalizeArtifacts(primaryOutput: Record<s
 
 export async function collectPublishReviewArtifacts(
   primaryOutput: Record<string, unknown> | null,
-  runtimeDoc?: MarketingJobRuntimeDocument | null,
+  runtimeDoc?: SocialContentJobRuntimeDocument | null,
 ): Promise<StageCapture> {
   const preflightStep = runtimeDoc ? await readMarketingStageStepPayload(runtimeDoc, 4, 'performance_marketer_preflight') : null;
   const reviewStep = runtimeDoc ? await readMarketingStageStepPayload(runtimeDoc, 4, 'launch_review_preview') : null;
@@ -696,7 +696,7 @@ export async function collectPublishReviewArtifacts(
 
 export async function collectPublishFinalizeArtifacts(
   primaryOutput: Record<string, unknown> | null,
-  runtimeDoc?: MarketingJobRuntimeDocument | null,
+  runtimeDoc?: SocialContentJobRuntimeDocument | null,
 ): Promise<StageCapture> {
   const runId = await resolveRunId(primaryOutput);
   const tenantId = stringValue(runtimeDoc?.tenant_id);

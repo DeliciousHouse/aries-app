@@ -1,5 +1,5 @@
 import { HermesMarketingPort } from './ports/hermes';
-import type { MarketingJobRuntimeDocument, MarketingStage, MarketingStageArtifact } from './runtime-state';
+import type { SocialContentJobRuntimeDocument, MarketingStage, MarketingStageArtifact } from './runtime-state';
 import type { SocialContentApprovalStep } from '@/backend/social-content/types';
 
 /**
@@ -49,7 +49,7 @@ export type RegenerateCreativeContext = {
 
 export type MarketingPipelineRunInput = {
   jobId: string;
-  doc: MarketingJobRuntimeDocument;
+  doc: SocialContentJobRuntimeDocument;
   argsJson: string;
   /**
    * Optional timeout override. The Hermes port does not honor this field —
@@ -92,7 +92,7 @@ export type MarketingExecutionResult =
 export type MarketingPipelineNextStageInput = {
   jobId: string;
   tenantId: string;
-  doc: MarketingJobRuntimeDocument;
+  doc: SocialContentJobRuntimeDocument;
   stage: MarketingStage; // the NEXT stage to submit (strategy | production | publish)
 };
 

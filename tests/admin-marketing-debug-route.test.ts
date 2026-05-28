@@ -170,20 +170,20 @@ test('retry route handler is importable and exports POST', async () => {
   assert.ok(typeof mod.POST === 'function');
 });
 
-test('loadMarketingJobRuntime returns null for unknown job', async () => {
-  const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state.js');
+test('loadSocialContentJobRuntime returns null for unknown job', async () => {
+  const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state.js');
   await withEnv({ DATA_ROOT: tmpdir() }, async () => {
-    const result = await loadMarketingJobRuntime('mkt_nonexistent');
+    const result = await loadSocialContentJobRuntime('mkt_nonexistent');
     assert.equal(result, null);
   });
 });
 
-test('loadMarketingJobRuntime loads fixture job correctly', async () => {
-  const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state.js');
+test('loadSocialContentJobRuntime loads fixture job correctly', async () => {
+  const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state.js');
   const doc = makeJobDoc();
   await withJobFixture(doc, async (dataRoot) => {
     await withEnv({ DATA_ROOT: dataRoot }, async () => {
-      const loaded = await loadMarketingJobRuntime(String(doc.job_id));
+      const loaded = await loadSocialContentJobRuntime(String(doc.job_id));
       assert.ok(loaded !== null, 'job should be loaded');
       assert.equal(loaded!.job_id, doc.job_id);
       assert.equal(loaded!.status, 'failed_stale');

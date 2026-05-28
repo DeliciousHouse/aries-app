@@ -9,7 +9,7 @@ import { parseSocialContentWorkflowOutput, socialContentArtifactsFromProjection 
 import { normalizeWeeklySocialContentPayload } from '@/backend/social-content/payload';
 import { buildSocialContentWeeklyRequest } from '@/backend/social-content/workflow-request';
 import type { SocialContentCalendarEvent } from '@/backend/marketing/jobs-status';
-import type { MarketingJobRuntimeDocument } from '@/backend/marketing/runtime-state';
+import type { SocialContentJobRuntimeDocument } from '@/backend/marketing/runtime-state';
 import { calendarConsoleCopyForMode } from '@/frontend/app-shell/calendar-console';
 import {
   dashboardConsoleCopyForMode,
@@ -40,15 +40,15 @@ function stringValues(value: unknown): string[] {
 
 test('weekly payload defaults campaign window to 7 days', () => {
   const normalized = normalizeWeeklySocialContentPayload({});
-  assert.equal(normalized.campaignWindowDays, 7);
+  assert.equal(normalized.postWindowDays, 7);
   assert.equal(normalized.windowDays, 7);
 });
 
 test('weekly payload clamps campaign window to 1-14 days', () => {
-  const low = normalizeWeeklySocialContentPayload({ campaignWindowDays: 0 });
-  const high = normalizeWeeklySocialContentPayload({ campaignWindowDays: 30 });
-  assert.equal(low.campaignWindowDays, 1);
-  assert.equal(high.campaignWindowDays, 14);
+  const low = normalizeWeeklySocialContentPayload({ postWindowDays: 0 });
+  const high = normalizeWeeklySocialContentPayload({ postWindowDays: 30 });
+  assert.equal(low.postWindowDays, 1);
+  assert.equal(high.postWindowDays, 14);
 });
 
 test('weekly payload caps image/video generation counts', () => {
@@ -110,7 +110,7 @@ test('weekly workflow request uses default scope counts/channels', () => {
     brand_kit: {
       brand_name: 'Brand Name',
     },
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 
   const request = buildSocialContentWeeklyRequest({
     doc,
@@ -145,7 +145,7 @@ test('weekly workflow request forwards normalized forbidden visual patterns', ()
     brand_kit: {
       brand_name: 'Brand Name',
     },
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 
   const request = buildSocialContentWeeklyRequest({
     doc,
@@ -170,7 +170,7 @@ test('weekly workflow request uses normalized window and strips token query para
       facebook_page_url: '',
       ad_library_url: '',
       request: {
-        campaignWindowDays: 10,
+        postWindowDays: 10,
         visualReferences: [
           'https://assets.example/image.png?access_token=secret123&width=1024',
           'https://assets.example/video.mp4?token=abc',
@@ -180,7 +180,7 @@ test('weekly workflow request uses normalized window and strips token query para
     brand_kit: {
       brand_name: 'Brand Name',
     },
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 
   const request = buildSocialContentWeeklyRequest({
     doc,
@@ -198,12 +198,12 @@ test('weekly workflow request uses normalized window and strips token query para
 test('weekly job status defaults to a 7-day calendar and keeps events in range', async () => {
   await withRuntimeEnv(async () => {
     const {
-      createMarketingJobRuntimeDocument,
-      saveMarketingJobRuntime,
+      createSocialContentJobRuntimeDocument,
+      saveSocialContentJobRuntime,
     } = await import('@/backend/marketing/runtime-state');
     const { getMarketingJobStatus } = await import('@/backend/marketing/jobs-status');
 
-    const doc = createMarketingJobRuntimeDocument({
+    const doc = createSocialContentJobRuntimeDocument({
       jobId: 'mkt_weekly_default',
       tenantId: 'tenant_weekly_default',
       payload: {
@@ -230,7 +230,7 @@ test('weekly job status defaults to a 7-day calendar and keeps events in range',
         style_vibe: null,
       },
     });
-    saveMarketingJobRuntime(doc.job_id, doc);
+    saveSocialContentJobRuntime(doc.job_id, doc);
 
     const status = await getMarketingJobStatus(doc.job_id);
     const weeklyEvents = status.calendarEvents.filter(
@@ -246,9 +246,9 @@ test('weekly job status defaults to a 7-day calendar and keeps events in range',
   });
 });
 
-test('createMarketingJobRuntimeDocument derives job_type from payload.jobType', async () => {
+test('createSocialContentJobRuntimeDocument derives job_type from payload.jobType', async () => {
   await withRuntimeEnv(async () => {
-    const { createMarketingJobRuntimeDocument } = await import('@/backend/marketing/runtime-state');
+    const { createSocialContentJobRuntimeDocument } = await import('@/backend/marketing/runtime-state');
 
     const brandKit = {
       path: '/tmp/brand-kit.json',
@@ -268,7 +268,7 @@ test('createMarketingJobRuntimeDocument derives job_type from payload.jobType', 
       style_vibe: null,
     };
 
-    const weekly = createMarketingJobRuntimeDocument({
+    const weekly = createSocialContentJobRuntimeDocument({
       jobId: 'mkt_jobtype_weekly',
       tenantId: 'tenant_jobtype',
       payload: { jobType: 'weekly_social_content', brandUrl: 'https://brand.example' },
@@ -277,7 +277,7 @@ test('createMarketingJobRuntimeDocument derives job_type from payload.jobType', 
     assert.equal(weekly.job_type, 'weekly_social_content');
 
     // Absent jobType falls back to weekly_social_content.
-    const fallback = createMarketingJobRuntimeDocument({
+    const fallback = createSocialContentJobRuntimeDocument({
       jobId: 'mkt_jobtype_absent',
       tenantId: 'tenant_jobtype',
       payload: { brandUrl: 'https://brand.example' },
@@ -290,12 +290,12 @@ test('createMarketingJobRuntimeDocument derives job_type from payload.jobType', 
 test('weekly job status planned count equals requested static + script/render items', async () => {
   await withRuntimeEnv(async () => {
     const {
-      createMarketingJobRuntimeDocument,
-      saveMarketingJobRuntime,
+      createSocialContentJobRuntimeDocument,
+      saveSocialContentJobRuntime,
     } = await import('@/backend/marketing/runtime-state');
     const { getMarketingJobStatus } = await import('@/backend/marketing/jobs-status');
 
-    const doc = createMarketingJobRuntimeDocument({
+    const doc = createSocialContentJobRuntimeDocument({
       jobId: 'mkt_weekly_counts',
       tenantId: 'tenant_weekly_counts',
       payload: {
@@ -303,7 +303,7 @@ test('weekly job status planned count equals requested static + script/render it
         brandUrl: 'https://brand.example',
         businessType: 'local service',
         primaryGoal: 'Book appointments',
-        campaignWindowDays: 7,
+        postWindowDays: 7,
         staticPostCount: 5,
         videoScriptCount: 2,
         videoRenderCount: 1,
@@ -326,7 +326,7 @@ test('weekly job status planned count equals requested static + script/render it
         style_vibe: null,
       },
     });
-    saveMarketingJobRuntime(doc.job_id, doc);
+    saveSocialContentJobRuntime(doc.job_id, doc);
 
     const status = await getMarketingJobStatus(doc.job_id);
     assert.equal(status.plannedPostCount, 8);
@@ -336,12 +336,12 @@ test('weekly job status planned count equals requested static + script/render it
 test('social-content status response rewrites 30-day approval copy to weekly language', async () => {
   await withRuntimeEnv(async () => {
     const {
-      createMarketingJobRuntimeDocument,
-      saveMarketingJobRuntime,
+      createSocialContentJobRuntimeDocument,
+      saveSocialContentJobRuntime,
     } = await import('@/backend/marketing/runtime-state');
     const { handleGetMarketingJobStatus } = await import('@/app/api/marketing/jobs/[jobId]/handler');
 
-    const doc = createMarketingJobRuntimeDocument({
+    const doc = createSocialContentJobRuntimeDocument({
       jobId: 'mkt_weekly_copy',
       tenantId: 'tenant_weekly_copy',
       payload: {
@@ -383,7 +383,7 @@ test('social-content status response rewrites 30-day approval copy to weekly lan
       message: 'Stage 3 creative and the 30-day launch calendar are ready.',
       requested_at: new Date().toISOString(),
     };
-    saveMarketingJobRuntime(doc.job_id, doc);
+    saveSocialContentJobRuntime(doc.job_id, doc);
 
     const response = await handleGetMarketingJobStatus(
       doc.job_id,
@@ -456,12 +456,12 @@ test('custom weekly window copy uses the actual duration label', async () => {
 
   await withRuntimeEnv(async () => {
     const {
-      createMarketingJobRuntimeDocument,
-      saveMarketingJobRuntime,
+      createSocialContentJobRuntimeDocument,
+      saveSocialContentJobRuntime,
     } = await import('@/backend/marketing/runtime-state');
     const { handleGetMarketingJobStatus } = await import('@/app/api/marketing/jobs/[jobId]/handler');
 
-    const doc = createMarketingJobRuntimeDocument({
+    const doc = createSocialContentJobRuntimeDocument({
       jobId: 'mkt_weekly_10_day_copy',
       tenantId: 'tenant_weekly_10_day_copy',
       payload: {
@@ -469,7 +469,7 @@ test('custom weekly window copy uses the actual duration label', async () => {
         brandUrl: 'https://brand.example',
         businessType: 'local service',
         primaryGoal: 'Book appointments',
-        campaignWindowDays: 10,
+        postWindowDays: 10,
       },
       brandKit: {
         path: '/tmp/brand-kit.json',
@@ -489,7 +489,7 @@ test('custom weekly window copy uses the actual duration label', async () => {
         style_vibe: null,
       },
     });
-    saveMarketingJobRuntime(doc.job_id, doc);
+    saveSocialContentJobRuntime(doc.job_id, doc);
 
     const response = await handleGetMarketingJobStatus(
       doc.job_id,
@@ -512,12 +512,12 @@ test('custom weekly window copy uses the actual duration label', async () => {
 test('weekly needs-connection status points operators to Hermes media setup', async () => {
   await withRuntimeEnv(async () => {
     const {
-      createMarketingJobRuntimeDocument,
-      saveMarketingJobRuntime,
+      createSocialContentJobRuntimeDocument,
+      saveSocialContentJobRuntime,
     } = await import('@/backend/marketing/runtime-state');
     const { handleGetMarketingJobStatus } = await import('@/app/api/marketing/jobs/[jobId]/handler');
 
-    const doc = createMarketingJobRuntimeDocument({
+    const doc = createSocialContentJobRuntimeDocument({
       jobId: 'mkt_weekly_needs_connection',
       tenantId: 'tenant_weekly_needs_connection',
       payload: {
@@ -555,7 +555,7 @@ test('weekly needs-connection status points operators to Hermes media setup', as
       at: new Date().toISOString(),
       details: { reason: 'hermes_media_setup_required' },
     };
-    saveMarketingJobRuntime(doc.job_id, doc);
+    saveSocialContentJobRuntime(doc.job_id, doc);
 
     const response = await handleGetMarketingJobStatus(
       doc.job_id,
@@ -600,7 +600,7 @@ test('weekly workflow request includes abstract Hermes-owned media requests', ()
     brand_kit: {
       brand_name: 'Brand Name',
     },
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 
   const request = buildSocialContentWeeklyRequest({
     doc,
@@ -651,7 +651,7 @@ test('weekly workflow request filters image target channels to Hermes social cha
     brand_kit: {
       brand_name: 'Brand Name',
     },
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 
   const request = buildSocialContentWeeklyRequest({
     doc,
@@ -698,7 +698,7 @@ test('weekly workflow request redacts token-like text and media values', () => {
     brand_kit: {
       brand_name: 'Brand Name',
     },
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 
   const request = buildSocialContentWeeklyRequest({
     doc,
@@ -801,10 +801,10 @@ test('social content dashboard projection shows unique tenant-safe image preview
       },
       publishingRequested: true,
     },
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 
   const dashboard = buildSocialContentDashboardProjection(doc, {
-    campaign: null,
+    post: null,
     posts: [],
     assets: [],
     publishItems: [],
@@ -912,10 +912,10 @@ test('social content dashboard projection keeps rich weekly output when a later 
       },
       publishingRequested: true,
     },
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 
   const dashboard = buildSocialContentDashboardProjection(doc, {
-    campaign: null,
+    post: null,
     posts: [],
     assets: [],
     publishItems: [],
@@ -936,7 +936,7 @@ test('social content dashboard projection keeps rich weekly output when a later 
   assert.equal(dashboard.posts.length, 1);
   assert.equal(dashboard.assets.length, 2);
   assert.equal(dashboard.publishItems.length, 1);
-  assert.equal(dashboard.campaign?.counts.scripts, 1);
+  assert.equal(dashboard.post?.counts.scripts, 1);
   assert.notEqual(dashboard.assets[0].id, 'tenant_dashboard_partial_stage-image');
   assert.equal(dashboard.posts[0].previewAssetId, dashboard.assets[0].id);
   assert.equal(dashboard.assets[0].previewUrl?.startsWith('data:image/svg+xml;base64,'), true);
@@ -1068,10 +1068,10 @@ test('social content dashboard projection includes playable rendered videos from
       },
       publishingRequested: true,
     },
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 
   const dashboard = buildSocialContentDashboardProjection(doc, {
-    campaign: null,
+    post: null,
     posts: [],
     assets: [],
     publishItems: [],
@@ -1096,7 +1096,7 @@ test('social content dashboard projection includes playable rendered videos from
   assert.equal(videoAssets[0].contentType, 'video/mp4');
   assert.equal(videoAssets[0].platform, 'tiktok');
   assert.equal(videoAssets[0].status, 'ready');
-  assert.equal(dashboard.campaign?.counts.videoAds, 1);
+  assert.equal(dashboard.post?.counts.videoAds, 1);
   assert.equal(JSON.stringify(dashboard).includes('token=secret'), false);
   assert.equal(JSON.stringify(dashboard).includes('tenant_dashboard_video_projection'), false);
 });

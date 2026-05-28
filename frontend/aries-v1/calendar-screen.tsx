@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { createAriesV1Api, type ScheduledPostsResponse } from '@/lib/api/aries-v1';
-import { useRuntimeCampaigns } from '@/hooks/use-runtime-campaigns';
+import { useRuntimePosts } from '@/hooks/use-runtime-social-content';
 import { useBusinessProfile } from '@/hooks/use-business-profile';
 import { useTenantTimezone } from '@/hooks/use-tenant-timezone';
 import CalendarPresenter from '@/frontend/aries-v1/presenters/calendar-presenter';
@@ -33,7 +33,7 @@ export default function AriesCalendarScreen() {
   const api = useMemo(() => createAriesV1Api({}), []);
   const range = useMemo(() => defaultRange(), []);
 
-  const campaigns = useRuntimeCampaigns({ autoLoad: true });
+  const campaigns = useRuntimePosts({ autoLoad: true });
   const businessProfile = useBusinessProfile({ autoLoad: true });
 
   const [schedule, setSchedule] = useState<ScheduledPostsResponse | null>(null);
@@ -123,7 +123,7 @@ export default function AriesCalendarScreen() {
 
   const model = createCalendarViewModel({
     scheduledPosts: schedule?.posts ?? [],
-    campaigns: campaigns.data?.campaigns ?? [],
+    posts: campaigns.data?.posts ?? [],
     unscheduledPosts: (schedule?.unscheduled ?? []).map((post) => ({
       postId: post.postId,
       jobId: post.jobId,

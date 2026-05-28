@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { buildSocialContentWeeklyRequest } from '../../backend/social-content/workflow-request';
-import type { MarketingJobRuntimeDocument } from '../../backend/marketing/runtime-state';
+import type { SocialContentJobRuntimeDocument } from '../../backend/marketing/runtime-state';
 
 const BRAND_URL = 'https://alecferrismusic.com/';
 const CALLBACK_URL = 'https://aries.example.com/api/internal/hermes/runs';
 
-function makeDoc(overrides: Partial<MarketingJobRuntimeDocument> = {}): MarketingJobRuntimeDocument {
+function makeDoc(overrides: Partial<SocialContentJobRuntimeDocument> = {}): SocialContentJobRuntimeDocument {
   const ts = new Date().toISOString();
   return {
     schema_name: 'marketing_job_state_schema',

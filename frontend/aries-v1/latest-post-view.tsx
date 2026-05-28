@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
-import { useRuntimeCampaigns } from '@/hooks/use-runtime-campaigns';
+import { useRuntimePosts } from '@/hooks/use-runtime-social-content';
 
 import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { EmptyStatePanel } from './components';
@@ -15,8 +15,8 @@ export default function AriesLatestCampaignView(props: {
   description: string;
 }) {
   const router = useRouter();
-  const campaigns = useRuntimeCampaigns({ autoLoad: true });
-  const latestCampaign = campaigns.data?.campaigns?.[0] ?? null;
+  const campaigns = useRuntimePosts({ autoLoad: true });
+  const latestCampaign = campaigns.data?.posts?.[0] ?? null;
 
   useEffect(() => {
     if (!latestCampaign) {

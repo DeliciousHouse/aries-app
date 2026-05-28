@@ -15,7 +15,7 @@ const DISPLAY_FILES = [
   'frontend/marketing/job-status.tsx',
   'frontend/app-shell/posts-console.tsx',
   'frontend/aries-v1/review-item.tsx',
-  'frontend/aries-v1/campaign-workspace.tsx',
+  'frontend/aries-v1/post-workspace.tsx',
   'frontend/app-shell/dashboard-console.tsx',
   'frontend/app-shell/calendar-console.tsx',
 ];

@@ -20,11 +20,11 @@ async function withRuntimeEnv<T>(run: () => Promise<T>): Promise<T> {
 
 async function seedMarketingJob() {
   const {
-    createMarketingJobRuntimeDocument,
-    saveMarketingJobRuntime,
+    createSocialContentJobRuntimeDocument,
+    saveSocialContentJobRuntime,
   } = await import('../backend/marketing/runtime-state');
 
-  const doc = createMarketingJobRuntimeDocument({
+  const doc = createSocialContentJobRuntimeDocument({
     jobId: 'job-hermes-callback',
     tenantId: 'tenant-hermes',
     payload: {
@@ -55,7 +55,7 @@ async function seedMarketingJob() {
       style_vibe: null,
     },
   });
-  saveMarketingJobRuntime(doc.job_id, doc);
+  saveSocialContentJobRuntime(doc.job_id, doc);
   return doc;
 }
 
@@ -67,7 +67,7 @@ test('Hermes marketing callbacks advance runtime docs and create provider-neutra
       listMarketingApprovalRecordsForJob,
       loadMarketingApprovalRecord,
     } = await import('../backend/marketing/approval-store');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
     const doc = await seedMarketingJob();
 
     const researchRun = createExecutionRunRecord({
@@ -122,7 +122,7 @@ test('Hermes marketing callbacks advance runtime docs and create provider-neutra
       duplicate: true,
     });
 
-    const afterResearch = await loadMarketingJobRuntime(doc.job_id);
+    const afterResearch = await loadSocialContentJobRuntime(doc.job_id);
     assert.equal(afterResearch?.stages.research.status, 'completed');
     assert.equal(afterResearch?.approvals.current?.stage, 'strategy');
     assert.equal(afterResearch?.approvals.current?.workflow_step_id, 'approve_stage_2');
@@ -160,7 +160,7 @@ test('Hermes marketing callbacks advance runtime docs and create provider-neutra
       output: [{ run_id: 'research-run-1', summary: 'Late running callback should be ignored' }],
     });
 
-    const afterLateRunning = await loadMarketingJobRuntime(doc.job_id);
+    const afterLateRunning = await loadSocialContentJobRuntime(doc.job_id);
     assert.equal(afterLateRunning?.stages.research.status, 'completed');
     assert.equal(afterLateRunning?.social_content_runtime?.currentStage, 'plan_review');
 
@@ -185,7 +185,7 @@ test('Hermes marketing callbacks advance runtime docs and create provider-neutra
       output: [{ run_id: 'publish-run-1', summary: 'Published' }],
     });
 
-    const afterPublish = await loadMarketingJobRuntime(doc.job_id);
+    const afterPublish = await loadSocialContentJobRuntime(doc.job_id);
     assert.equal(afterPublish?.stages.publish.status, 'completed');
     assert.equal(afterPublish?.state, 'completed');
     assert.equal(afterPublish?.status, 'completed');
@@ -208,7 +208,7 @@ test('Hermes marketing callbacks advance runtime docs and create provider-neutra
         message: 'Late failure should not regress completed runtime state.',
       },
     });
-    const afterLateFailure = await loadMarketingJobRuntime(doc.job_id);
+    const afterLateFailure = await loadSocialContentJobRuntime(doc.job_id);
     assert.equal(afterLateFailure?.state, 'completed');
     assert.equal(afterLateFailure?.status, 'completed');
     assert.equal(afterLateFailure?.stages.publish.status, 'completed');
@@ -226,7 +226,7 @@ test('Hermes marketing callbacks advance runtime docs and create provider-neutra
         message: 'Late cancellation should not regress completed runtime state.',
       },
     });
-    const afterLateCancellation = await loadMarketingJobRuntime(doc.job_id);
+    const afterLateCancellation = await loadSocialContentJobRuntime(doc.job_id);
     assert.equal(afterLateCancellation?.state, 'completed');
     assert.equal(afterLateCancellation?.status, 'completed');
     assert.equal(afterLateCancellation?.stages.publish.status, 'completed');
@@ -306,7 +306,7 @@ test('Hermes media setup failures move social content jobs to needs_connection',
   await withRuntimeEnv(async () => {
     const { createExecutionRunRecord } = await import('../backend/execution/run-store');
     const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
     const doc = await seedMarketingJob();
 
     const run = createExecutionRunRecord({
@@ -332,7 +332,7 @@ test('Hermes media setup failures move social content jobs to needs_connection',
       },
     });
 
-    const afterFailure = await loadMarketingJobRuntime(doc.job_id);
+    const afterFailure = await loadSocialContentJobRuntime(doc.job_id);
     assert.equal(afterFailure?.state, 'needs_connection');
     assert.equal(afterFailure?.status, 'needs_connection');
     assert.equal(afterFailure?.current_stage, 'production');
@@ -351,7 +351,7 @@ test('Hermes video_render callbacks ingest rendered media from the Hermes cache 
   await withRuntimeEnv(async () => {
     const { createExecutionRunRecord } = await import('../backend/execution/run-store');
     const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
     const hermesCacheRoot = await mkdtemp(path.join(tmpdir(), 'aries-hermes-video-cache-'));
     const previousHermesCacheDir = process.env.HERMES_CACHE_DIR;
     const doc = await seedMarketingJob();
@@ -403,7 +403,7 @@ test('Hermes video_render callbacks ingest rendered media from the Hermes cache 
         },
       });
 
-      const after = await loadMarketingJobRuntime(doc.job_id);
+      const after = await loadSocialContentJobRuntime(doc.job_id);
       const output = after?.stages.production.primary_output as Record<string, unknown> | null;
       const variant = (((output?.video_assets as Record<string, unknown> | undefined)?.platform_contracts as Array<Record<string, unknown>> | undefined)?.[0]
         ?.rendered_video_variants as Array<Record<string, unknown>> | undefined)?.[0];
@@ -500,7 +500,7 @@ test('Hermes one-shot multi-stage completion fans out into all four marketing st
   await withRuntimeEnv(async () => {
     const { createExecutionRunRecord } = await import('../backend/execution/run-store');
     const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
     const doc = await seedMarketingJob();
 
     const run = createExecutionRunRecord({
@@ -532,7 +532,7 @@ test('Hermes one-shot multi-stage completion fans out into all four marketing st
       duplicate: false,
     });
 
-    const after = await loadMarketingJobRuntime(doc.job_id);
+    const after = await loadSocialContentJobRuntime(doc.job_id);
     assert.equal(after?.stages.research.status, 'completed');
     assert.equal(after?.stages.research.run_id, 'rs-1');
     assert.equal(after?.stages.research.summary?.summary, 'Research done');
@@ -556,7 +556,7 @@ test('Hermes one-shot multi-stage completion advances social-content runtime sta
   await withRuntimeEnv(async () => {
     const { createExecutionRunRecord } = await import('../backend/execution/run-store');
     const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
     const doc = await seedMarketingJob();
 
     const run = createExecutionRunRecord({
@@ -582,7 +582,7 @@ test('Hermes one-shot multi-stage completion advances social-content runtime sta
       ],
     });
 
-    const runtime = (await loadMarketingJobRuntime(doc.job_id))?.social_content_runtime as {
+    const runtime = (await loadSocialContentJobRuntime(doc.job_id))?.social_content_runtime as {
       currentStage?: string;
       stages?: Record<string, { status?: string }>;
     } | undefined;

@@ -42,7 +42,7 @@ function MetricCard({
 
 function contentCalendarLabel(isWeeklyMode: boolean, durationDays?: number | null): string {
   if (!isWeeklyMode) {
-    return 'Campaign window';
+    return 'Post window';
   }
   return typeof durationDays === 'number' && Number.isFinite(durationDays) && durationDays > 0
     ? `${durationDays}-day content calendar`
@@ -63,27 +63,27 @@ export function dashboardConsoleCopyForMode(isWeeklyMode: boolean, durationDays?
     plannedPostsLabel: isWeeklyMode ? 'Posts planned' : 'Planned posts',
     plannedPostsMeta: isWeeklyMode
       ? 'Weekly content plan items scheduled in the current window.'
-      : 'Calendar-backed posts planned for the current tenant campaign.',
+      : 'Calendar-backed posts planned for the current social content job.',
     createdAssetsLabel: isWeeklyMode ? 'Creatives ready' : 'Created assets',
     createdAssetsMeta: isWeeklyMode
       ? 'Image creatives attached to weekly posts and ready for review.'
       : 'Generated or prepared posts/assets currently available for review.',
-    durationLabel: isWeeklyMode ? 'Video script ready' : 'Campaign days',
+    durationLabel: isWeeklyMode ? 'Video script ready' : 'Post window days',
     durationMeta: isWeeklyMode
       ? 'Video scripts completed and available in the weekly plan.'
-      : 'Inclusive duration of the current campaign window.',
+      : 'Inclusive duration of the current post window.',
     approvalLabel: isWeeklyMode ? calendarLabel : 'Approval required',
     approvalMeta: isWeeklyMode
       ? 'Current weekly calendar length in days.'
-      : 'Whether the latest campaign is waiting on an operator checkpoint.',
-    tenantTitle: isWeeklyMode ? 'Weekly content plan' : 'Latest brand campaign',
+      : 'Whether the latest social content job is waiting on an operator checkpoint.',
+    tenantTitle: isWeeklyMode ? 'Weekly content plan' : 'Latest social content job',
     emptyDescription: isWeeklyMode
       ? 'Start a weekly content plan to populate the dashboard with real creatives, dates, and post counts.'
-      : 'Launch the canonical brand campaign to populate the dashboard with real creatives, dates, and post counts.',
-    emptyActionLabel: isWeeklyMode ? 'Start weekly content plan' : 'Launch campaign',
+      : 'Launch a social content job to populate the dashboard with real creatives, dates, and post counts.',
+    emptyActionLabel: isWeeklyMode ? 'Start weekly content plan' : 'Launch social content job',
     windowLabel: calendarLabel,
-    statusActionLabel: isWeeklyMode ? 'Open weekly content plan' : 'Open campaign status',
-    newActionLabel: isWeeklyMode ? 'Start weekly content plan' : 'Launch campaign',
+    statusActionLabel: isWeeklyMode ? 'Open weekly content plan' : 'Open social content job status',
+    newActionLabel: isWeeklyMode ? 'Start weekly content plan' : 'Launch social content job',
   };
 }
 
@@ -99,9 +99,9 @@ export default function DashboardConsole(): JSX.Element {
       ? integrations.data.summary
       : { total: 0, connected: 0, not_connected: 0, attention_required: 0 };
   const workflows = tenantWorkflows.list.data ?? [];
-  const campaign = latestJob.data;
-  const gallery = campaign?.reviewBundle?.platformPreviews ?? [];
-  const weeklyEvents = (campaign?.calendarEvents ?? []).filter(
+  const socialContentJob = latestJob.data;
+  const gallery = socialContentJob?.reviewBundle?.platformPreviews ?? [];
+  const weeklyEvents = (socialContentJob?.calendarEvents ?? []).filter(
     (event): event is SocialContentCalendarEvent =>
       typeof event === 'object' && event !== null && 'dayIndex' in event && 'postType' in event,
   );
@@ -110,34 +110,34 @@ export default function DashboardConsole(): JSX.Element {
   const weeklyVideoScriptReadyCount = weeklyEvents.filter(
     (event) => event.postType === 'video_script' && event.status !== 'draft',
   ).length;
-  const copy = dashboardConsoleCopyForMode(isWeeklyMode, campaign?.durationDays ?? null);
+  const copy = dashboardConsoleCopyForMode(isWeeklyMode, socialContentJob?.durationDays ?? null);
   const strategyLinks =
-    campaign?.artifacts
+    socialContentJob?.artifacts
       ?.filter((artifact) => artifact.stage === 'strategy' && artifact.actionHref && artifact.actionLabel)
       .slice(0, 3) ?? [];
-  const approvalRequired = campaign?.approvalRequired ? 'Yes' : 'No';
+  const approvalRequired = socialContentJob?.approvalRequired ? 'Yes' : 'No';
 
   return (
     <div className="space-y-8">
       <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-6">
         <MetricCard
           label={copy.plannedPostsLabel}
-          value={String(campaign?.plannedPostCount ?? 0)}
+          value={String(socialContentJob?.plannedPostCount ?? 0)}
           meta={copy.plannedPostsMeta}
         />
         <MetricCard
           label={copy.createdAssetsLabel}
-          value={String(isWeeklyMode ? weeklyCreativeReadyCount : campaign?.createdPostCount ?? 0)}
+          value={String(isWeeklyMode ? weeklyCreativeReadyCount : socialContentJob?.createdPostCount ?? 0)}
           meta={copy.createdAssetsMeta}
         />
         <MetricCard
           label={copy.durationLabel}
-          value={String(isWeeklyMode ? weeklyVideoScriptReadyCount : campaign?.durationDays ?? 0)}
+          value={String(isWeeklyMode ? weeklyVideoScriptReadyCount : socialContentJob?.durationDays ?? 0)}
           meta={copy.durationMeta}
         />
         <MetricCard
           label={copy.approvalLabel}
-          value={isWeeklyMode ? String(campaign?.durationDays ?? 0) : approvalRequired}
+          value={isWeeklyMode ? String(socialContentJob?.durationDays ?? 0) : approvalRequired}
           meta={copy.approvalMeta}
         />
       </div>
@@ -149,22 +149,22 @@ export default function DashboardConsole(): JSX.Element {
               <Workflow className="w-6 h-6 text-primary" />
             </div>
             <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-white/35">Tenant campaign</p>
+              <p className="text-xs uppercase tracking-[0.24em] text-white/35">Social content job</p>
               <h2 className="text-2xl font-bold">{copy.tenantTitle}</h2>
             </div>
           </div>
 
           {latestJob.isLoading ? (
             <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-6 text-white/60">
-              Loading the latest tenant campaign…
+              Loading the latest social content job…
             </div>
           ) : latestJob.error ? (
             <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-6 text-white/60">
               {latestJob.error.message}
             </div>
-          ) : !campaign ? (
+          ) : !socialContentJob ? (
             <div className="rounded-[1.75rem] border border-white/10 bg-white/5 p-8 space-y-5">
-              <h3 className="text-xl font-semibold">No campaign has been launched yet</h3>
+              <h3 className="text-xl font-semibold">No social content job has been launched yet</h3>
               <p className="text-white/60 leading-relaxed">
                 {copy.emptyDescription}
               </p>
@@ -178,24 +178,24 @@ export default function DashboardConsole(): JSX.Element {
                 <div className="flex items-start justify-between gap-4 flex-wrap">
                   <div>
                     <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-2">Brand</p>
-                    <h3 className="text-3xl font-bold mb-2">{campaign.tenantName || 'Current tenant'}</h3>
-                    <p className="text-white/60 break-all">{campaign.brandWebsiteUrl || 'Brand website unavailable'}</p>
+                    <h3 className="text-3xl font-bold mb-2">{socialContentJob.tenantName || 'Current tenant'}</h3>
+                    <p className="text-white/60 break-all">{socialContentJob.brandWebsiteUrl || 'Brand website unavailable'}</p>
                   </div>
-                  <StatusBadge status={campaign.marketing_job_status as any} />
+                  <StatusBadge status={socialContentJob.marketing_job_status as any} />
                 </div>
-                {campaign.campaignWindow ? (
+                {socialContentJob.postWindow ? (
                   <div className="grid md:grid-cols-2 gap-4 mt-6">
                     <div className="rounded-[1.25rem] border border-white/10 bg-black/20 p-4">
                       <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-2">
                         {copy.windowLabel}
                       </p>
                       <p className="text-white/80">
-                        {campaign.campaignWindow.start ? `${formatInTenantZone(campaign.campaignWindow.start, tz)} ${tenantZoneAbbreviation(campaign.campaignWindow.start, tz)}` : 'n/a'} to {campaign.campaignWindow.end ? `${formatInTenantZone(campaign.campaignWindow.end, tz)} ${tenantZoneAbbreviation(campaign.campaignWindow.end, tz)}` : 'n/a'}
+                        {socialContentJob.postWindow.start ? `${formatInTenantZone(socialContentJob.postWindow.start, tz)} ${tenantZoneAbbreviation(socialContentJob.postWindow.start, tz)}` : 'n/a'} to {socialContentJob.postWindow.end ? `${formatInTenantZone(socialContentJob.postWindow.end, tz)} ${tenantZoneAbbreviation(socialContentJob.postWindow.end, tz)}` : 'n/a'}
                       </p>
                     </div>
                     <div className="rounded-[1.25rem] border border-white/10 bg-black/20 p-4">
                       <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-2">Next action</p>
-                      <p className="text-white/80">{campaign.nextStep.replace(/_/g, ' ')}</p>
+                      <p className="text-white/80">{socialContentJob.nextStep.replace(/_/g, ' ')}</p>
                     </div>
                   </div>
                 ) : null}
@@ -233,14 +233,14 @@ export default function DashboardConsole(): JSX.Element {
                 </div>
                 {gallery.length === 0 ? (
                   <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-6 text-white/60">
-                    No generated preview media is available yet for this campaign.
+                    No generated preview media is available yet for this social content job.
                   </div>
                 ) : (
                   <div className="grid md:grid-cols-2 gap-4">
                     {gallery.slice(0, 4).map((preview) => (
                       <Link
                         key={preview.id}
-                        href={`/marketing/job-approve?jobId=${encodeURIComponent(campaign.jobId)}&preview=${encodeURIComponent(preview.id)}`}
+                        href={`/marketing/job-approve?jobId=${encodeURIComponent(socialContentJob.jobId)}&preview=${encodeURIComponent(preview.id)}`}
                         className="rounded-[1.5rem] overflow-hidden border border-white/10 bg-white/5 hover:bg-white/10 transition-colors"
                       >
                         {preview.mediaAssets[0]?.contentType.startsWith('image/') ? (
@@ -314,7 +314,7 @@ export default function DashboardConsole(): JSX.Element {
                 <CalendarDays className="w-6 h-6 text-white" />
               </div>
               <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-white/35">Campaign surfaces</p>
+                <p className="text-xs uppercase tracking-[0.24em] text-white/35">Social content surfaces</p>
                 <h2 className="text-2xl font-bold">Open the workspace</h2>
               </div>
             </div>
@@ -322,11 +322,11 @@ export default function DashboardConsole(): JSX.Element {
               <Link href="/onboarding/start" className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2">
                 Start brand + competitor research <ArrowRight className="w-4 h-4" />
               </Link>
-              <Link href={campaign ? `/marketing/job-status?jobId=${encodeURIComponent(campaign.jobId)}` : '/marketing/new-job'} className="px-6 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 flex items-center justify-center gap-2">
-                {campaign ? copy.statusActionLabel : copy.newActionLabel} <ArrowRight className="w-4 h-4" />
+              <Link href={socialContentJob ? `/marketing/job-status?jobId=${encodeURIComponent(socialContentJob.jobId)}` : '/marketing/new-job'} className="px-6 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 flex items-center justify-center gap-2">
+                {socialContentJob ? copy.statusActionLabel : copy.newActionLabel} <ArrowRight className="w-4 h-4" />
               </Link>
-              {campaign?.approval?.actionHref ? (
-                <Link href={campaign.approval.actionHref} className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2">
+              {socialContentJob?.approval?.actionHref ? (
+                <Link href={socialContentJob.approval.actionHref} className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2">
                   Open approval checkpoint <Activity className="w-4 h-4" />
                 </Link>
               ) : null}

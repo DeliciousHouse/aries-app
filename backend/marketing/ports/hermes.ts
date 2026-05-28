@@ -37,7 +37,7 @@ import type {
   SubmitRawRunInput,
   SubmitRawRunResult,
 } from '../execution-port';
-import { loadMarketingJobRuntime, type MarketingJobRuntimeDocument, type MarketingStage } from '../runtime-state';
+import { loadSocialContentJobRuntime, type SocialContentJobRuntimeDocument, type MarketingStage } from '../runtime-state';
 import type { SocialContentApprovalStep } from '@/backend/social-content/types';
 
 type HermesCallbackTokenClient = {
@@ -48,7 +48,7 @@ type HermesMarketingEnv = Partial<Record<string, string | undefined>>;
 type HermesMarketingFetch = (input: string | URL, init?: RequestInit) => Promise<Response>;
 type HermesMarketingSleep = (ms: number) => Promise<void>;
 type HermesBrandKitRefresher = (input: {
-  doc: MarketingJobRuntimeDocument;
+  doc: SocialContentJobRuntimeDocument;
   fetchImpl?: typeof fetch;
 }) => Promise<{ refreshed: boolean; enriched: boolean }>;
 
@@ -128,7 +128,7 @@ function resumeStageFromInput(
  * Both weekly_social_content and one_off_campaign use this pipeline.
  * BRAND_CAMPAIGN_WORKFLOW_KEY (marketing_pipeline) is the only exception.
  */
-function usesPerStageProfilePipeline(doc?: MarketingJobRuntimeDocument): boolean {
+function usesPerStageProfilePipeline(doc?: SocialContentJobRuntimeDocument): boolean {
   const request = doc?.inputs?.request;
   if (!request || typeof request !== 'object' || Array.isArray(request)) {
     return false;
@@ -399,7 +399,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
   }
 
   private async refreshBrandKitOrFail(
-    doc: MarketingJobRuntimeDocument,
+    doc: SocialContentJobRuntimeDocument,
   ): Promise<MarketingExecutionResult | null> {
     try {
       await this.brandKitRefresher({ doc });
@@ -585,7 +585,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     input: {
       jobId?: string;
       tenantId?: string;
-      doc?: MarketingJobRuntimeDocument;
+      doc?: SocialContentJobRuntimeDocument;
       argsJson?: string;
       stage?: MarketingStage;
       approvalId?: string;
@@ -677,12 +677,12 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     // resume_token issued by one gateway cannot resume on another. To do that
     // we must carry the PRIOR stage's output as the new run's input, so load
     // the job doc for every weekly resume (not just the production resume).
-    // loadMarketingJobRuntime returns null if the doc is missing — the prompt
+    // loadSocialContentJobRuntime returns null if the doc is missing — the prompt
     // builders handle that gracefully and fall back to static brand data.
     const isWeeklyResume =
       action === 'resume' && workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY;
     const productionDoc = isWeeklyResume && input.jobId
-      ? await loadMarketingJobRuntime(input.jobId).catch(() => null)
+      ? await loadSocialContentJobRuntime(input.jobId).catch(() => null)
       : null;
 
     const payload = this.submissionPayload(
@@ -937,7 +937,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     input: {
       jobId?: string;
       tenantId?: string;
-      doc?: MarketingJobRuntimeDocument;
+      doc?: SocialContentJobRuntimeDocument;
       argsJson?: string;
       stage?: MarketingStage;
       approvalId?: string;
@@ -952,7 +952,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     callbackToken: string,
     memoryContextSnapshot?: ResearchMemoryContextEntry[],
     /** Pre-loaded marketing job doc, used for production-resume rich prompt injection. */
-    productionDoc?: MarketingJobRuntimeDocument | null,
+    productionDoc?: SocialContentJobRuntimeDocument | null,
   ): Record<string, unknown> {
     const callbackAuth = {
       type: 'internal_api_secret_bearer',
@@ -1179,7 +1179,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
 
   private workflowKeyFor(
     action: 'run' | 'resume',
-    input: { doc?: MarketingJobRuntimeDocument; workflowKey?: string },
+    input: { doc?: SocialContentJobRuntimeDocument; workflowKey?: string },
   ): string {
     if (action === 'resume' && input.workflowKey && input.workflowKey.trim().length > 0) {
       return input.workflowKey.trim();

@@ -20,16 +20,16 @@ async function withRuntimeEnv<T>(run: () => Promise<T>): Promise<T> {
 
 async function seedWeeklySocialDoc(jobId: string) {
   const {
-    createMarketingJobRuntimeDocument,
+    createSocialContentJobRuntimeDocument,
     markStageCompleted,
-    saveMarketingJobRuntime,
+    saveSocialContentJobRuntime,
   } = await import('../backend/marketing/runtime-state');
   const {
     ensureSocialContentRuntimeState,
     markSocialContentStageCompleted,
   } = await import('../backend/social-content/runtime-state');
 
-  const doc = createMarketingJobRuntimeDocument({
+  const doc = createSocialContentJobRuntimeDocument({
     jobId,
     tenantId: 'tenant-social-copy-finalize',
     payload: {
@@ -84,14 +84,14 @@ async function seedWeeklySocialDoc(jobId: string) {
   markSocialContentStageCompleted(doc, 'creative_review', {
     summary: 'Creative review approved.',
   });
-  saveMarketingJobRuntime(doc.job_id, doc);
+  saveSocialContentJobRuntime(doc.job_id, doc);
   return doc;
 }
 
 test('continueAfterCreativeReviewApproval preserves legacy resume path when finalize flag is off', async () => {
   await withRuntimeEnv(async () => {
     const orchestrator = await import('../backend/marketing/orchestrator');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
     const { readSocialContentRuntimeState } = await import('../backend/social-content/runtime-state');
 
     const doc = await seedWeeklySocialDoc('job-social-copy-flag-off');
@@ -140,7 +140,7 @@ test('continueAfterCreativeReviewApproval preserves legacy resume path when fina
     assert.equal(resumeCalls[0]?.resumeToken, 'resume-token-off');
     assert.equal(resumeCalls[0]?.stage, 'production');
 
-    const reloaded = await loadMarketingJobRuntime(doc.job_id);
+    const reloaded = await loadSocialContentJobRuntime(doc.job_id);
     assert.ok(reloaded, 'runtime doc should persist');
     if (!reloaded) return;
     const socialRuntime = readSocialContentRuntimeState(reloaded);
@@ -158,7 +158,7 @@ test('continueAfterCreativeReviewApproval submits social copy finalize when flag
     process.env.ARIES_SOCIAL_COPY_FINALIZE_ENABLED = '1';
 
     const orchestrator = await import('../backend/marketing/orchestrator');
-    const { loadMarketingJobRuntime, getStageRecord } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime, getStageRecord } = await import('../backend/marketing/runtime-state');
     const { readSocialContentRuntimeState } = await import('../backend/social-content/runtime-state');
 
     const doc = await seedWeeklySocialDoc('job-social-copy-flag-on');
@@ -185,7 +185,7 @@ test('continueAfterCreativeReviewApproval submits social copy finalize when flag
 
     assert.equal(submitterCalls, 1, 'finalize submission should happen exactly once');
 
-    const reloaded = await loadMarketingJobRuntime(doc.job_id);
+    const reloaded = await loadSocialContentJobRuntime(doc.job_id);
     assert.ok(reloaded, 'runtime doc should persist');
     if (!reloaded) return;
 

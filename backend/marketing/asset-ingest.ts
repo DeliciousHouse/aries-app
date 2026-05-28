@@ -278,7 +278,7 @@ function walkAndRewrite(node: unknown, ctx: IngestContext): unknown {
  * tenant-prefixed locations and copies bytes as needed. Tenant id is taken
  * from the explicit `tenantId` argument when supplied, else from
  * `doc.tenant_id`; both absent triggers an unscoped fallback that is safe
- * but never used in production (saveMarketingJobRuntime always passes a
+ * but never used in production (saveSocialContentJobRuntime always passes a
  * tenant-bearing doc).
  */
 export function ingestRuntimeDocAssets<T extends Record<string, unknown>>(

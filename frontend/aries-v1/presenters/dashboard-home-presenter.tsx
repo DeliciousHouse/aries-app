@@ -64,7 +64,7 @@ export default function DashboardHomePresenter({
       {
         label: 'Campaigns',
         value: campaignsMetric?.value || '0',
-        supporting: model.activeCampaign ? model.activeCampaign.stageLabel : 'No active campaign',
+        supporting: model.activePost ? model.activePost.stageLabel : 'No active campaign',
         icon: Layers3,
         glow: 'rgba(123,97,255,0.28)',
       },
@@ -261,13 +261,13 @@ export default function DashboardHomePresenter({
           <div className="hidden w-full max-w-[min(100%,22rem)] sm:max-w-md md:block md:max-w-[13rem] md:justify-self-end lg:col-span-3 lg:max-w-none lg:w-full lg:justify-self-end lg:self-end">
             <HeroSideCard
               eyebrow="Campaign Focus"
-              title={model.activeCampaign?.name || 'No active campaign yet'}
-              detail={model.activeCampaign?.summary || 'Create a campaign and Aries will start grounding this surface in live runtime data.'}
+              title={model.activePost?.name || 'No active campaign yet'}
+              detail={model.activePost?.summary || 'Create a campaign and Aries will start grounding this surface in live runtime data.'}
             >
-              {model.activeCampaign ? (
+              {model.activePost ? (
                 <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.22em] text-white/45">
-                  <span>{model.activeCampaign.stageLabel}</span>
-                  <span>{model.activeCampaign.pendingApprovals} pending approvals</span>
+                  <span>{model.activePost.stageLabel}</span>
+                  <span>{model.activePost.pendingApprovals} pending approvals</span>
                 </div>
               ) : null}
             </HeroSideCard>

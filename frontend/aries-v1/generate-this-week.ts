@@ -1,5 +1,5 @@
 import type { IntegrationCard } from '@/lib/api/integrations';
-import type { BusinessProfileView, RuntimeCampaignListItem } from '@/lib/api/aries-v1';
+import type { BusinessProfileView, RuntimePostListItem } from '@/lib/api/aries-v1';
 
 import { customerSafeActionErrorMessage, customerSafeUiErrorMessage } from './customer-safe-copy';
 
@@ -23,21 +23,21 @@ export type GenerateThisWeekGate =
   | 'no_meta_connection'
   | 'in_progress';
 
-export interface GenerateThisWeekCampaignSnapshot {
-  status: RuntimeCampaignListItem['status'];
-  dashboardStatus: RuntimeCampaignListItem['dashboardStatus'];
-  approvalRequired: RuntimeCampaignListItem['approvalRequired'];
+export interface GenerateThisWeekPostSnapshot {
+  status: RuntimePostListItem['status'];
+  dashboardStatus: RuntimePostListItem['dashboardStatus'];
+  approvalRequired: RuntimePostListItem['approvalRequired'];
   /** Raw execution state from the runtime doc. Terminal states ('completed',
    * 'failed', 'failed_stale') must not block the Generate gate even when the
    * workflow status falls back to 'draft'. */
-  executionState: RuntimeCampaignListItem['executionState'];
+  executionState: RuntimePostListItem['executionState'];
 }
 
 export interface GenerateThisWeekGateInputs {
   profile: BusinessProfileView | null;
   integrationCards: IntegrationCard[];
   integrationsPending?: boolean;
-  campaigns: GenerateThisWeekCampaignSnapshot[];
+  posts: GenerateThisWeekPostSnapshot[];
 }
 
 export interface GenerateThisWeekGateState {
@@ -74,7 +74,7 @@ function isTerminalExecutionState(executionState: string): boolean {
   );
 }
 
-function isInProgressCampaign(campaign: GenerateThisWeekCampaignSnapshot): boolean {
+function isInProgressCampaign(campaign: GenerateThisWeekPostSnapshot): boolean {
   // Terminal runs (completed, failed, failed_stale) must not block the gate
   // even when their workflow status still reads as 'draft'.
   if (isTerminalExecutionState(campaign.executionState)) {
@@ -102,7 +102,7 @@ function isInProgressCampaign(campaign: GenerateThisWeekCampaignSnapshot): boole
 export function evaluateGenerateThisWeekGate(
   args: GenerateThisWeekGateInputs,
 ): GenerateThisWeekGateState {
-  const inProgress = args.campaigns.some(isInProgressCampaign);
+  const inProgress = args.posts.some(isInProgressCampaign);
   if (inProgress) {
     return {
       gate: 'in_progress',

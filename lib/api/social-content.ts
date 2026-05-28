@@ -37,7 +37,7 @@ export interface WeeklySocialContentPayload {
   facebookPageUrl?: string;
   adLibraryUrl?: string;
   channels: Array<'meta' | 'instagram' | 'linkedin' | 'x' | 'tiktok' | 'youtube'>;
-  campaignWindowDays: number;
+  postWindowDays: number;
   staticPostCount: number;
   imageCreativeCount: number;
   videoScriptCount: number;

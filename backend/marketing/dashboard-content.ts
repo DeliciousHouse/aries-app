@@ -3,7 +3,7 @@ import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync } 
 import path from 'node:path'
 
 import { artifactOutputRoots, resolveGeneratedAsset } from './artifact-store'
-import type { MarketingCampaignWindow } from './jobs-status'
+import type { SocialContentWindow } from './jobs-status'
 import { extractPublishReviewBundle } from './publish-review'
 import { publishReviewLinkedAssetId, publishReviewMediaAssetId } from './publish-review-asset-ids'
 import {
@@ -14,9 +14,9 @@ import {
   asRecord,
   asString,
   asStringArray,
-  loadMarketingJobRuntime,
-  listMarketingJobIdsForTenant,
-  type MarketingJobRuntimeDocument,
+  loadSocialContentJobRuntime,
+  listSocialContentJobIdsForTenant,
+  type SocialContentJobRuntimeDocument,
   type MarketingStage,
 } from './runtime-state'
 import { readMarketingStageStepPayload } from './stage-artifact-resolution'
@@ -64,7 +64,7 @@ export type MarketingDashboardPublishItemType =
   | 'scheduled_post'
   | 'live_post'
 
-export type MarketingDashboardCampaignCompatibilityStatus =
+export type MarketingDashboardSocialContentJobCompatibilityStatus =
   | 'draft'
   | 'in_review'
   | 'approved'
@@ -85,14 +85,14 @@ export type MarketingDashboardProvenance = Omit<MarketingDashboardProvenanceInte
 
 type MarketingDashboardAssetInternal = {
   id: string
-  campaignId: string
+  postId: string
   jobId: string
   type: MarketingDashboardAssetType
   title: string
   summary: string
   platform: string
   platformLabel: string
-  campaignName: string
+  postName: string
   funnelStage: string | null
   objective: string
   destinationUrl: string | null
@@ -109,7 +109,7 @@ type MarketingDashboardAssetInternal = {
 
 type MarketingDashboardPostInternal = {
   id: string
-  campaignId: string
+  postId: string
   jobId: string
   type: MarketingDashboardPostType
   title: string
@@ -120,7 +120,7 @@ type MarketingDashboardPostInternal = {
   copyWarnings: string[]
   platform: string
   platformLabel: string
-  campaignName: string
+  postName: string
   funnelStage: string | null
   objective: string
   destinationUrl: string | null
@@ -135,14 +135,14 @@ type MarketingDashboardPostInternal = {
 
 type MarketingDashboardPublishItemInternal = {
   id: string
-  campaignId: string
+  postId: string
   jobId: string
   type: MarketingDashboardPublishItemType
   title: string
   summary: string
   platform: string
   platformLabel: string
-  campaignName: string
+  postName: string
   funnelStage: string | null
   objective: string
   destinationUrl: string | null
@@ -156,7 +156,7 @@ type MarketingDashboardPublishItemInternal = {
 
 type MarketingDashboardCalendarEventInternal = {
   id: string
-  campaignId: string
+  postId: string
   jobId: string
   title: string
   platform: string
@@ -165,7 +165,7 @@ type MarketingDashboardCalendarEventInternal = {
   endsAt: string | null
   status: MarketingDashboardItemStatus
   statusLabel: string
-  campaignName: string
+  postName: string
   funnelStage: string | null
   objective: string
   destinationUrl: string | null
@@ -175,18 +175,18 @@ type MarketingDashboardCalendarEventInternal = {
   provenance: MarketingDashboardProvenanceInternal
 }
 
-type MarketingDashboardCampaignInternal = {
+type MarketingDashboardSocialContentJobInternal = {
   id: string
   jobId: string
-  externalCampaignId: string
+  externalPostId: string
   name: string
   objective: string
   funnelStage: string | null
   summary: string
   stageLabel: string
   status: MarketingDashboardItemStatus
-  compatibilityStatus: MarketingDashboardCampaignCompatibilityStatus
-  campaignWindow: MarketingCampaignWindow | null
+  compatibilityStatus: MarketingDashboardSocialContentJobCompatibilityStatus
+  postWindow: SocialContentWindow | null
   updatedAt: string | null
   approvalRequired: boolean
   approvalActionHref?: string
@@ -229,7 +229,7 @@ export type MarketingDashboardCalendarEvent = Omit<MarketingDashboardCalendarEve
   provenance: MarketingDashboardProvenance
 }
 
-export type MarketingDashboardCampaign = Omit<MarketingDashboardCampaignInternal, 'provenance'> & {
+export type MarketingDashboardSocialContentJob = Omit<MarketingDashboardSocialContentJobInternal, 'provenance'> & {
   provenance: MarketingDashboardProvenance
 }
 
@@ -238,7 +238,7 @@ export type MarketingDashboardStatusSummary = {
 }
 
 type MarketingDashboardContentInternal = {
-  campaigns: MarketingDashboardCampaignInternal[]
+  socialContentJobs: MarketingDashboardSocialContentJobInternal[]
   posts: MarketingDashboardPostInternal[]
   assets: MarketingDashboardAssetInternal[]
   publishItems: MarketingDashboardPublishItemInternal[]
@@ -247,7 +247,7 @@ type MarketingDashboardContentInternal = {
 }
 
 export type MarketingDashboardContent = {
-  campaigns: MarketingDashboardCampaign[]
+  socialContentJobs: MarketingDashboardSocialContentJob[]
   posts: MarketingDashboardPost[]
   assets: MarketingDashboardAsset[]
   publishItems: MarketingDashboardPublishItem[]
@@ -255,8 +255,8 @@ export type MarketingDashboardContent = {
   statuses: MarketingDashboardStatusSummary
 }
 
-export type MarketingDashboardCampaignContent = {
-  campaign: MarketingDashboardCampaign | null
+export type MarketingDashboardSocialContentJobContent = {
+  post: MarketingDashboardSocialContentJob | null
   posts: MarketingDashboardPost[]
   assets: MarketingDashboardAsset[]
   publishItems: MarketingDashboardPublishItem[]
@@ -286,7 +286,7 @@ type CandidatePublishItem = Omit<MarketingDashboardPublishItemInternal, 'id' | '
 
 type CandidateCalendarSeed = {
   entityId: string
-  campaignId: string
+  postId: string
   jobId: string
   title: string
   platform: string
@@ -305,7 +305,7 @@ type CandidateCalendarSeed = {
 type SourcePriority = 1 | 2 | 3 | 4 | 5
 
 type ProposalPlan = {
-  campaignName: string | null
+  postName: string | null
   objective: string | null
   primaryCta: string | null
   audience: string | null
@@ -313,7 +313,7 @@ type ProposalPlan = {
   offer: string | null
   channelPlans: Array<Record<string, unknown>>
   brandSlug: string | null
-  campaignId: string | null
+  postId: string | null
   createdAt: string | null
 }
 
@@ -322,15 +322,15 @@ type ContractRecord = {
   payload: Record<string, unknown>
 }
 
-type CampaignBuildContext = {
+type SocialContentBuildContext = {
   jobId: string
-  runtimeDoc: MarketingJobRuntimeDocument
+  runtimeDoc: SocialContentJobRuntimeDocument
   status: DashboardStatusSnapshot
   referenceDate: Date
   proposal: ProposalPlan
   brandSlug: string
-  externalCampaignId: string
-  campaignName: string
+  externalPostId: string
+  postName: string
   objective: string
   funnelStage: string | null
   campaignRoot: string | null
@@ -340,7 +340,7 @@ type CampaignBuildContext = {
 type DashboardStatusSnapshot = {
   tenantName: string | null
   brandWebsiteUrl: string | null
-  campaignWindow: MarketingCampaignWindow | null
+  postWindow: SocialContentWindow | null
   currentStage: string | null
   updatedAt: string | null
   approvalRequired: boolean
@@ -449,7 +449,7 @@ function setUtcHour(date: Date, hour: number): Date {
   return copy
 }
 
-function formatDateRange(window: MarketingCampaignWindow | null): string {
+function formatDateRange(window: SocialContentWindow | null): string {
   if (window?.start && window.end) {
     return `${window.start} - ${window.end}`
   }
@@ -472,7 +472,7 @@ function nextScheduledText(event: MarketingDashboardCalendarEventInternal | null
   return `${formatUtcTimestampLabel(event.startsAt)} · ${event.statusLabel}${event.platformLabel ? ` · ${event.platformLabel}` : ''}`
 }
 
-function compatibilityStatusFor(itemStatus: MarketingDashboardItemStatus): MarketingDashboardCampaignCompatibilityStatus {
+function compatibilityStatusFor(itemStatus: MarketingDashboardItemStatus): MarketingDashboardSocialContentJobCompatibilityStatus {
   switch (itemStatus) {
     case 'live':
       return 'live'
@@ -641,7 +641,7 @@ function statusLabel(status: MarketingDashboardItemStatus): string {
   }
 }
 
-async function rawPublishReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): Promise<Record<string, unknown> | null> {
+async function rawPublishReviewBundle(runtimeDoc: SocialContentJobRuntimeDocument): Promise<Record<string, unknown> | null> {
   return await extractPublishReviewBundle(runtimeDoc)
 }
 
@@ -720,7 +720,7 @@ function listFiles(directoryPath: string | null | undefined, predicate?: (fileNa
 }
 
 async function readStageStepPayload(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   stage: 1 | 2 | 3 | 4,
   stepName: string,
 ): Promise<Record<string, unknown> | null> {
@@ -728,7 +728,7 @@ async function readStageStepPayload(
 }
 
 function normalizePlatformSlug(value: string | null | undefined): string {
-  const cleaned = slugify(value || '', 'campaign')
+  const cleaned = slugify(value || '', 'social content')
   if (['meta', 'facebook', 'facebook-ads', 'meta-ads'].includes(cleaned)) return 'meta-ads'
   if (['instagram', 'instagram-feed', 'instagram-reels'].includes(cleaned)) return 'instagram'
   if (['x', 'twitter', 'x-post'].includes(cleaned)) return 'x'
@@ -749,14 +749,14 @@ function platformLabel(platformSlug: string): string {
   return titleCase(platformSlug)
 }
 
-function extractBrandSlug(runtimeDoc: MarketingJobRuntimeDocument, planner: ProposalPlan): string {
+function extractBrandSlug(runtimeDoc: SocialContentJobRuntimeDocument, planner: ProposalPlan): string {
   if (planner.brandSlug) {
     return planner.brandSlug
   }
   return inferBrandSlug(runtimeDoc)
 }
 
-async function parseProposalPlan(runtimeDoc: MarketingJobRuntimeDocument): Promise<ProposalPlan> {
+async function parseProposalPlan(runtimeDoc: SocialContentJobRuntimeDocument): Promise<ProposalPlan> {
   if (
     runtimeDoc.stages.strategy.status !== 'completed' &&
     runtimeDoc.stages.strategy.status !== 'failed' &&
@@ -769,7 +769,7 @@ async function parseProposalPlan(runtimeDoc: MarketingJobRuntimeDocument): Promi
     approvalWorkflowStepId(runtimeDoc) !== 'approve_stage_4_publish'
   ) {
     return {
-      campaignName: null,
+      postName: null,
       objective: null,
       primaryCta: null,
       audience: null,
@@ -777,7 +777,7 @@ async function parseProposalPlan(runtimeDoc: MarketingJobRuntimeDocument): Promi
       offer: null,
       channelPlans: [],
       brandSlug: null,
-      campaignId: null,
+      postId: null,
       createdAt: null,
     }
   }
@@ -789,7 +789,7 @@ async function parseProposalPlan(runtimeDoc: MarketingJobRuntimeDocument): Promi
     currentSourceUrl: runtimeDoc.inputs.brand_url || null,
   })
   return {
-    campaignName: stringValue(plan.campaign_name) || null,
+    postName: stringValue(plan.campaign_name) || null,
     objective: stringValue(plan.objective) || null,
     primaryCta: stringValue(plan.primary_cta) || null,
     audience: stringValue(plan.audience) || null,
@@ -797,13 +797,13 @@ async function parseProposalPlan(runtimeDoc: MarketingJobRuntimeDocument): Promi
     offer: stringValue(plan.offer) || null,
     channelPlans: recordArray(plan.channel_plans),
     brandSlug: stringValue(validatedProfile.brandSlug || planner?.brand_slug || brandProfiles.brand_slug) || null,
-    campaignId: stringValue(plan.campaign_name) || null,
+    postId: stringValue(plan.campaign_name) || null,
     createdAt: stringValue(brandProfiles.created_at || planner?.created_at) || null,
   }
 }
 
 async function extractCampaignName(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   status: DashboardStatusSnapshot,
   proposal: ProposalPlan,
 ): Promise<string> {
@@ -814,7 +814,7 @@ async function extractCampaignName(
   const candidates = [
     oneOffName,
     status.reviewCampaignName,
-    proposal.campaignName,
+    proposal.postName,
     status.tenantName,
     validatedProfile.brandName,
     runtimeDoc.brand_kit?.brand_name,
@@ -874,7 +874,7 @@ function extractObjective(status: DashboardStatusSnapshot, proposal: ProposalPla
       proposal.audience,
       status.summary.headline,
     ) ||
-    'Campaign in progress'
+    'Social content job in progress'
   )
 }
 
@@ -897,9 +897,9 @@ function lowSignalProposalText(value: string): boolean {
     normalized.startsWith('here is the brand strategy analysis') ||
     normalized.includes('here is a concise strategy analysis') ||
     normalized.includes('here is the concise brand strategy') ||
-    normalized === 'campaign in progress' ||
-    normalized === 'campaign status is available for review.' ||
-    normalized === 'campaign status is available for review' ||
+    normalized === 'social content job in progress' ||
+    normalized === 'social content status is available for review.' ||
+    normalized === 'social content status is available for review' ||
     normalized === 'build a cross-channel strategy handoff from the canonical brand profile.' ||
     normalized === 'build a cross-channel strategy handoff from the canonical brand profile'
   )
@@ -1003,9 +1003,9 @@ function publishReviewSummary(preview: Record<string, unknown>, fallback: string
   return conciseMarketingText(180, preview.caption_text, preview.summary) || fallback
 }
 
-async function extractCampaignId(runtimeDoc: MarketingJobRuntimeDocument, proposal: ProposalPlan): Promise<string> {
-  if (proposal.campaignId) {
-    return proposal.campaignId
+async function extractCampaignId(runtimeDoc: SocialContentJobRuntimeDocument, proposal: ProposalPlan): Promise<string> {
+  if (proposal.postId) {
+    return proposal.postId
   }
 
   const publishBundle = await rawPublishReviewBundle(runtimeDoc)
@@ -1069,7 +1069,7 @@ function extractSummaryFromCopyPayload(filePath: string | null | undefined): str
   return lines[0] || ''
 }
 
-function extractDestinationUrl(runtimeDoc: MarketingJobRuntimeDocument, contractPayload: Record<string, unknown> | null): string | null {
+function extractDestinationUrl(runtimeDoc: SocialContentJobRuntimeDocument, contractPayload: Record<string, unknown> | null): string | null {
   const rawSlug = stringValue(recordValue(contractPayload?.landing_page)?.slug)
   const slug = rawSlug ? rawSlug.replace(/^\/\d+\/?/, '/') : rawSlug
   const brandUrl = stringValue(runtimeDoc.inputs.brand_url || runtimeDoc.brand_kit?.source_url)
@@ -1084,19 +1084,19 @@ function extractDestinationUrl(runtimeDoc: MarketingJobRuntimeDocument, contract
   return brandUrl || null
 }
 
-function isProductionReady(runtimeDoc: MarketingJobRuntimeDocument): boolean {
+function isProductionReady(runtimeDoc: SocialContentJobRuntimeDocument): boolean {
   return runtimeDoc.stages.production.status === 'completed' || runtimeDoc.stages.publish.status !== 'not_started'
 }
 
-function approvalWorkflowStepId(runtimeDoc: MarketingJobRuntimeDocument): string | null {
+function approvalWorkflowStepId(runtimeDoc: SocialContentJobRuntimeDocument): string | null {
   return stringValue(runtimeDoc.approvals.current?.workflow_step_id) || null
 }
 
-function strategyArtifactsAvailable(runtimeDoc: MarketingJobRuntimeDocument): boolean {
+function strategyArtifactsAvailable(runtimeDoc: SocialContentJobRuntimeDocument): boolean {
   return runtimeDoc.stages.strategy.status === 'completed'
 }
 
-function productionArtifactsAvailable(runtimeDoc: MarketingJobRuntimeDocument): boolean {
+function productionArtifactsAvailable(runtimeDoc: SocialContentJobRuntimeDocument): boolean {
   const publish = runtimeDoc.stages.publish
   const approvalStep = approvalWorkflowStepId(runtimeDoc)
   return (
@@ -1111,7 +1111,7 @@ function productionArtifactsAvailable(runtimeDoc: MarketingJobRuntimeDocument): 
   )
 }
 
-async function publishArtifactsAvailable(runtimeDoc: MarketingJobRuntimeDocument): Promise<boolean> {
+async function publishArtifactsAvailable(runtimeDoc: SocialContentJobRuntimeDocument): Promise<boolean> {
   const publish = runtimeDoc.stages.publish
   const approvalStep = approvalWorkflowStepId(runtimeDoc)
   const publishOutputs = recordValue(publish.outputs)
@@ -1128,7 +1128,7 @@ async function publishArtifactsAvailable(runtimeDoc: MarketingJobRuntimeDocument
   )
 }
 
-function proposalStatus(runtimeDoc: MarketingJobRuntimeDocument): MarketingDashboardItemStatus {
+function proposalStatus(runtimeDoc: SocialContentJobRuntimeDocument): MarketingDashboardItemStatus {
   if (approvalWorkflowStepId(runtimeDoc) === 'approve_stage_3') {
     return 'in_review'
   }
@@ -1138,7 +1138,7 @@ function proposalStatus(runtimeDoc: MarketingJobRuntimeDocument): MarketingDashb
   return 'draft'
 }
 
-function creativeStatus(runtimeDoc: MarketingJobRuntimeDocument): MarketingDashboardItemStatus {
+function creativeStatus(runtimeDoc: SocialContentJobRuntimeDocument): MarketingDashboardItemStatus {
   if (approvalWorkflowStepId(runtimeDoc) === 'approve_stage_4') {
     return 'in_review'
   }
@@ -1148,7 +1148,7 @@ function creativeStatus(runtimeDoc: MarketingJobRuntimeDocument): MarketingDashb
   return 'draft'
 }
 
-async function publishReadyStatus(runtimeDoc: MarketingJobRuntimeDocument): Promise<MarketingDashboardItemStatus> {
+async function publishReadyStatus(runtimeDoc: SocialContentJobRuntimeDocument): Promise<MarketingDashboardItemStatus> {
   if (approvalWorkflowStepId(runtimeDoc) === 'approve_stage_4_publish') {
     return 'ready_to_publish'
   }
@@ -1165,7 +1165,7 @@ async function publishReadyStatus(runtimeDoc: MarketingJobRuntimeDocument): Prom
   return 'ready'
 }
 
-function campaignProvenance(kind: MarketingDashboardSourceKind, stage: MarketingStage | 'runtime', runtimeDoc: MarketingJobRuntimeDocument): MarketingDashboardProvenanceInternal {
+function campaignProvenance(kind: MarketingDashboardSourceKind, stage: MarketingStage | 'runtime', runtimeDoc: SocialContentJobRuntimeDocument): MarketingDashboardProvenanceInternal {
   return {
     sourceKind: kind,
     sourceStage: stage,
@@ -1218,8 +1218,8 @@ function sanitizeCalendarEvent(event: MarketingDashboardCalendarEventInternal): 
   return { ...rest, provenance: sanitizeProvenance(provenance) }
 }
 
-function sanitizeCampaign(campaign: MarketingDashboardCampaignInternal): MarketingDashboardCampaign {
-  const { provenance, ...rest } = campaign
+function sanitizeSocialContentJob(job: MarketingDashboardSocialContentJobInternal): MarketingDashboardSocialContentJob {
+  const { provenance, ...rest } = job
   return { ...rest, provenance: sanitizeProvenance(provenance) }
 }
 
@@ -1261,7 +1261,7 @@ function extractPlatformFromFilename(filePath: string): string {
   if (base.startsWith('landing')) return 'landing-page'
   if (base.includes('video')) return 'video'
   if (base.includes('script')) return 'video'
-  return 'campaign'
+  return 'social content'
 }
 
 function isPausedPublishResult(value: unknown): boolean {
@@ -1285,7 +1285,7 @@ function scheduledTimestamp(value: Record<string, unknown> | null): string | nul
   )
 }
 
-function summaryFromStatus(context: CampaignBuildContext): string {
+function summaryFromStatus(context: SocialContentBuildContext): string {
   const channelTexts = context.proposal.channelPlans.flatMap((plan) => {
     const entry = recordValue(plan)
     return [
@@ -1304,16 +1304,16 @@ function summaryFromStatus(context: CampaignBuildContext): string {
       context.proposal.coreMessage,
       ...channelTexts,
     ) ||
-    'Campaign status is available for review.'
+    'Social content status is available for review.'
   )
 }
 
-async function buildCampaignWindowSnapshot(runtimeDoc: MarketingJobRuntimeDocument): Promise<MarketingCampaignWindow | null> {
+async function buildCampaignWindowSnapshot(runtimeDoc: SocialContentJobRuntimeDocument): Promise<SocialContentWindow | null> {
   const reviewBundle = await rawPublishReviewBundle(runtimeDoc)
   const summary = recordValue(reviewBundle?.summary)
-  const campaignWindow = recordValue(summary?.campaign_window)
-  const start = stringValue(campaignWindow?.start) || null
-  const end = stringValue(campaignWindow?.end) || null
+  const postWindow = recordValue(summary?.campaign_window)
+  const start = stringValue(postWindow?.start) || null
+  const end = stringValue(postWindow?.end) || null
   if (!start && !end) {
     return null
   }
@@ -1324,7 +1324,7 @@ function approvalReviewHref(jobId: string): string {
   return `/review/${encodeURIComponent(`${jobId}::approval`)}`
 }
 
-async function buildStatusSnapshot(runtimeDoc: MarketingJobRuntimeDocument, proposal: ProposalPlan): Promise<DashboardStatusSnapshot> {
+async function buildStatusSnapshot(runtimeDoc: SocialContentJobRuntimeDocument, proposal: ProposalPlan): Promise<DashboardStatusSnapshot> {
   const validatedProfile = await loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
     currentSourceUrl: runtimeDoc.inputs.brand_url || null,
   })
@@ -1333,18 +1333,18 @@ async function buildStatusSnapshot(runtimeDoc: MarketingJobRuntimeDocument, prop
     proposal.objective ||
     stringValue(runtimeDoc.summary?.headline) ||
     stringValue(recordValue(reviewBundle?.summary)?.core_message) ||
-    'Campaign in progress'
+    'Social content job in progress'
   const summarySubheadline =
     stringValue(runtimeDoc.summary?.subheadline) ||
     stringValue(recordValue(reviewBundle?.summary)?.offer_summary) ||
     proposal.coreMessage ||
-    'Campaign status is available for review.'
+    'Social content status is available for review.'
   const approvalActionHref = runtimeDoc.approvals.current ? approvalReviewHref(runtimeDoc.job_id) : undefined
 
   return {
     tenantName: validatedProfile.brandName || runtimeDoc.brand_kit?.brand_name || null,
     brandWebsiteUrl: validatedProfile.websiteUrl || runtimeDoc.brand_kit?.source_url || runtimeDoc.inputs.brand_url || null,
-    campaignWindow: await buildCampaignWindowSnapshot(runtimeDoc),
+    postWindow: await buildCampaignWindowSnapshot(runtimeDoc),
     currentStage: runtimeDoc.current_stage || null,
     updatedAt: runtimeDoc.updated_at || null,
     approvalRequired: !!runtimeDoc.approvals.current,
@@ -1377,7 +1377,7 @@ function incrementStatus(summary: MarketingDashboardStatusSummary, status: Marke
 
 function calendarSeedsToEvents(
   seeds: CandidateCalendarSeed[],
-  window: MarketingCampaignWindow | null,
+  window: SocialContentWindow | null,
   referenceDate: Date,
 ): MarketingDashboardCalendarEventInternal[] {
   if (seeds.length === 0) {
@@ -1424,8 +1424,8 @@ function calendarSeedsToEvents(
     }
 
     return {
-      id: `${seed.campaignId}::calendar::${slugify(seed.title || seed.entityId, 'event')}-${index + 1}`,
-      campaignId: seed.campaignId,
+      id: `${seed.postId}::calendar::${slugify(seed.title || seed.entityId, 'event')}-${index + 1}`,
+      postId: seed.postId,
       jobId: seed.jobId,
       title: seed.title,
       platform: seed.platform,
@@ -1434,7 +1434,7 @@ function calendarSeedsToEvents(
       endsAt: seed.endsAt,
       status: seed.status,
       statusLabel: statusLabel(seed.status),
-      campaignName: '',
+      postName: '',
       funnelStage: null,
       objective: '',
       destinationUrl: seed.destinationUrl,
@@ -1450,7 +1450,7 @@ function calendarSeedsToEvents(
 }
 
 function buildLivePlatformEvents(
-  context: CampaignBuildContext,
+  context: SocialContentBuildContext,
 ): CandidateCalendarSeed[] {
   const publishStage = context.runtimeDoc.stages.publish
   const sources = [
@@ -1472,12 +1472,12 @@ function buildLivePlatformEvents(
         return null
       }
 
-      const platform = normalizePlatformSlug(stringValue(event.platform || event.platform_slug || event.channel, 'campaign'))
+      const platform = normalizePlatformSlug(stringValue(event.platform || event.platform_slug || event.channel, 'social content'))
       const rawStatus = stringValue(event.status || event.publish_status, 'scheduled').toLowerCase()
       const status: MarketingDashboardItemStatus = rawStatus.includes('live') || rawStatus.includes('published') ? 'live' : 'scheduled'
       return {
         entityId: stringValue(event.id, `live-${index + 1}`),
-        campaignId: context.jobId,
+        postId: context.jobId,
         jobId: context.jobId,
         title: stringValue(event.title, `${platformLabel(platform)} scheduled post`),
         platform,
@@ -1505,7 +1505,7 @@ function buildLivePlatformEvents(
 
 function publicFromInternal(content: MarketingDashboardContentInternal): MarketingDashboardContent {
   return {
-    campaigns: content.campaigns.map(sanitizeCampaign),
+    socialContentJobs: content.socialContentJobs.map(sanitizeSocialContentJob),
     posts: content.posts.map(sanitizePost),
     assets: content.assets.map(sanitizeAsset),
     publishItems: content.publishItems.map(sanitizePublishItem),
@@ -1515,41 +1515,41 @@ function publicFromInternal(content: MarketingDashboardContentInternal): Marketi
 }
 
 function dedupePostKey(input: {
-  campaignId: string
+  postId: string
   platform: string
   conceptId: string | null
   title: string
   destinationUrl: string | null
 }): string {
   if (input.conceptId) {
-    return `${input.campaignId}::${input.platform}::${input.conceptId}`
+    return `${input.postId}::${input.platform}::${input.conceptId}`
   }
-  return `${input.campaignId}::${input.platform}::${stableHash([input.title, input.destinationUrl || '', input.platform])}`
+  return `${input.postId}::${input.platform}::${stableHash([input.title, input.destinationUrl || '', input.platform])}`
 }
 
-function campaignIdentityKey(
-  campaign: Pick<MarketingDashboardCampaignInternal, 'externalCampaignId' | 'name' | 'objective' | 'funnelStage'>,
+function socialContentJobIdentityKey(
+  job: Pick<MarketingDashboardSocialContentJobInternal, 'externalPostId' | 'name' | 'objective' | 'funnelStage'>,
 ): string {
-  if (campaign.externalCampaignId) {
-    return `external::${campaign.externalCampaignId}`
+  if (job.externalPostId) {
+    return `external::${job.externalPostId}`
   }
 
   return [
-    slugify(campaign.name, 'campaign'),
-    slugify(campaign.objective, 'objective'),
-    slugify(campaign.funnelStage || 'funnel', 'funnel'),
+    slugify(job.name, 'social content'),
+    slugify(job.objective, 'objective'),
+    slugify(job.funnelStage || 'funnel', 'funnel'),
   ].join('::')
 }
 
-async function buildCampaignContext(
+async function buildSocialContentContext(
   jobId: string,
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   options: MarketingDashboardBuildOptions,
-): Promise<CampaignBuildContext> {
+): Promise<SocialContentBuildContext> {
   const proposal = await parseProposalPlan(runtimeDoc)
   const status = await buildStatusSnapshot(runtimeDoc, proposal)
   const brandSlug = extractBrandSlug(runtimeDoc, proposal)
-  const externalCampaignId = await extractCampaignId(runtimeDoc, proposal)
+  const externalPostId = await extractCampaignId(runtimeDoc, proposal)
   const reviewBundle = await rawPublishReviewBundle(runtimeDoc)
   return {
     jobId,
@@ -1558,8 +1558,8 @@ async function buildCampaignContext(
     referenceDate: nowReference(options.referenceDate),
     proposal,
     brandSlug,
-    externalCampaignId,
-    campaignName: await extractCampaignName(runtimeDoc, status, proposal),
+    externalPostId,
+    postName: await extractCampaignName(runtimeDoc, status, proposal),
     objective: extractObjective(status, proposal),
     funnelStage: extractFunnelStage(
       proposal.objective,
@@ -1601,15 +1601,15 @@ function resolveDashboardAssetFilePath(
   return null
 }
 
-async function buildCampaignContentInternal(context: CampaignBuildContext): Promise<MarketingDashboardContentInternal> {
+async function buildSocialContentJobContentInternal(context: SocialContentBuildContext): Promise<MarketingDashboardContentInternal> {
   const assetByKey = new Map<string, { priority: number; asset: MarketingDashboardAssetInternal }>()
   const postCandidates: Array<{ priority: number; post: CandidatePost }> = []
   const publishByKey = new Map<string, { priority: number; item: MarketingDashboardPublishItemInternal }>()
   const explicitCalendarSeeds: CandidateCalendarSeed[] = []
   const derivedCalendarSeeds: CandidateCalendarSeed[] = []
 
-  const campaignId = context.jobId
-  const campaignName = context.campaignName
+  const postId = context.jobId
+  const postName = context.postName
   const objective = context.objective
   const funnelStage = context.funnelStage
   const brandUrl = context.status.brandWebsiteUrl || context.runtimeDoc.inputs.brand_url || null
@@ -1659,12 +1659,12 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
   }
 
   const addPublishItem = (item: CandidatePublishItem, keySeed?: string) => {
-    const key = keySeed || `${item.campaignId}::${item.platform}::${item.title}::${item.status}`
+    const key = keySeed || `${item.postId}::${item.platform}::${item.title}::${item.status}`
     const priority = sourcePriority(item.provenance.sourceKind)
     const existing = publishByKey.get(key)
     const candidate: MarketingDashboardPublishItemInternal = {
       ...item,
-      id: `${item.campaignId}::publish::${slugify(item.title || item.platform, 'publish')}-${stableHash([key, item.status]).slice(0, 8)}`,
+      id: `${item.postId}::publish::${slugify(item.title || item.platform, 'publish')}-${stableHash([key, item.status]).slice(0, 8)}`,
       relatedPostIds: [],
     }
     if (!existing || priority < existing.priority) {
@@ -1687,21 +1687,21 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
       if (!existsSync(filePath)) {
         continue
       }
-      const assetId = makeAssetId(campaignId, 'proposal', filePath)
+      const assetId = makeAssetId(postId, 'proposal', filePath)
       addAsset({
         id: assetId,
-        campaignId,
-        jobId: campaignId,
+        postId,
+        jobId: postId,
         type: 'proposal_document',
-        title: path.extname(filePath) === '.html' ? 'Campaign proposal preview' : 'Campaign proposal',
+        title: path.extname(filePath) === '.html' ? 'Campaign proposal preview' : 'Social content proposal',
         summary: 'Approved proposal artifact from the planning stage.',
-        platform: 'campaign',
+        platform: 'social content',
         platformLabel: 'Campaign',
-        campaignName,
+        postName,
         funnelStage,
         objective,
         destinationUrl: brandUrl,
-        previewUrl: buildAssetUrl(campaignId, assetId),
+        previewUrl: buildAssetUrl(postId, assetId),
         thumbnailUrl: null,
         contentType: contentTypeForAsset(filePath),
         filePath,
@@ -1722,17 +1722,17 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
   const addProposalConcepts = () => {
     const status = proposalStatus(context.runtimeDoc)
     for (const [index, channelPlan] of context.proposal.channelPlans.entries()) {
-      const platform = normalizePlatformSlug(stringValue(channelPlan.channel, 'campaign'))
+      const platform = normalizePlatformSlug(stringValue(channelPlan.channel, 'social content'))
       const title = proposalConceptTitle(channelPlan, platform)
       addPostCandidate({
-        campaignId,
-        jobId: campaignId,
+        postId,
+        jobId: postId,
         type: 'proposal_concept',
         title,
         summary: proposalConceptSummary(channelPlan),
         platform,
         platformLabel: platformLabel(platform),
-        campaignName,
+        postName,
         funnelStage,
         objective,
         destinationUrl: brandUrl,
@@ -1751,7 +1751,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
           isPlatformNative: false,
         },
         dedupeKey: dedupePostKey({
-          campaignId,
+          postId,
           platform,
           conceptId: slugify(stringValue(channelPlan.channel, `concept-${index + 1}`)),
           title,
@@ -1767,10 +1767,10 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
   }
 
   const staticContractRoot = context.outputRoots[0]
-    ? path.join(context.outputRoots[0], 'static-contracts', context.externalCampaignId)
+    ? path.join(context.outputRoots[0], 'static-contracts', context.externalPostId)
     : null
   const videoContractRoot = context.outputRoots[0]
-    ? path.join(context.outputRoots[0], 'video-contracts', context.externalCampaignId)
+    ? path.join(context.outputRoots[0], 'video-contracts', context.externalPostId)
     : null
 
   // Primary read path: logged step payload on disk. Container fallback: the
@@ -1834,23 +1834,23 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
 
   for (const filePath of landingPageFiles) {
     const contract = contractByPlatform.get('landing-page')
-    const assetId = makeAssetId(campaignId, 'landing-page', filePath)
+    const assetId = makeAssetId(postId, 'landing-page', filePath)
     const destinationUrl = extractDestinationUrl(context.runtimeDoc, contract?.payload || null)
     addAsset({
       id: assetId,
-      campaignId,
-      jobId: campaignId,
+      postId,
+      jobId: postId,
       type: 'landing_page',
       title: 'Landing page',
       summary: 'Generated landing page ready for review and publishing.',
       platform: 'landing-page',
       platformLabel: 'Landing Page',
-      campaignName,
+      postName,
       funnelStage,
       objective,
       destinationUrl,
-      previewUrl: buildAssetUrl(campaignId, assetId),
-      thumbnailUrl: buildAssetUrl(campaignId, assetId),
+      previewUrl: buildAssetUrl(postId, assetId),
+      thumbnailUrl: buildAssetUrl(postId, assetId),
       contentType: contentTypeForAsset(filePath),
       filePath,
       status: creativeAssetStatus,
@@ -1869,22 +1869,22 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
 
   for (const filePath of adImageFiles) {
     const platform = extractPlatformFromFilename(filePath)
-    const assetId = makeAssetId(campaignId, 'image', filePath)
+    const assetId = makeAssetId(postId, 'image', filePath)
     addAsset({
       id: assetId,
-      campaignId,
-      jobId: campaignId,
+      postId,
+      jobId: postId,
       type: 'image_ad',
       title: `${platformLabel(platform)} image`,
       summary: 'Generated ad image ready for publishing workflows.',
       platform,
       platformLabel: platformLabel(platform),
-      campaignName,
+      postName,
       funnelStage,
       objective,
       destinationUrl: extractDestinationUrl(context.runtimeDoc, contractByPlatform.get(platform)?.payload || null),
-      previewUrl: buildAssetUrl(campaignId, assetId),
-      thumbnailUrl: buildAssetUrl(campaignId, assetId),
+      previewUrl: buildAssetUrl(postId, assetId),
+      thumbnailUrl: buildAssetUrl(postId, assetId),
       contentType: contentTypeForAsset(filePath),
       filePath,
       status: creativeAssetStatus,
@@ -1903,21 +1903,21 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
 
   for (const filePath of scriptFiles) {
     const platform = extractPlatformFromFilename(filePath)
-    const assetId = makeAssetId(campaignId, 'script', filePath)
+    const assetId = makeAssetId(postId, 'script', filePath)
     addAsset({
       id: assetId,
-      campaignId,
-      jobId: campaignId,
+      postId,
+      jobId: postId,
       type: path.extname(filePath).toLowerCase() === '.json' ? 'copy' : 'script',
       title: extractTitleFromCopyPayload(filePath) || `${platformLabel(platform)} script`,
       summary: extractSummaryFromCopyPayload(filePath) || 'Generated script or post concept ready for publishing workflows.',
       platform,
       platformLabel: platformLabel(platform),
-      campaignName,
+      postName,
       funnelStage,
       objective,
       destinationUrl: extractDestinationUrl(context.runtimeDoc, contractByPlatform.get(platform)?.payload || null),
-      previewUrl: buildAssetUrl(campaignId, assetId),
+      previewUrl: buildAssetUrl(postId, assetId),
       thumbnailUrl: null,
       contentType: contentTypeForAsset(filePath),
       filePath,
@@ -1942,14 +1942,14 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
     const title = creativeContractTitle(payload, platform)
     const destinationUrl = extractDestinationUrl(context.runtimeDoc, payload)
     addPostCandidate({
-      campaignId,
-      jobId: campaignId,
+      postId,
+      jobId: postId,
       type: platform === 'meta-ads' ? 'meta_ad' : 'creative_output',
       title,
       summary: creativeContractSummary(payload),
       platform,
       platformLabel: platformLabel(platform),
-      campaignName,
+      postName,
       funnelStage: extractFunnelStage(payload.funnel_stage, funnelStage),
       objective,
       destinationUrl,
@@ -1971,7 +1971,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
         isPlatformNative: false,
       },
       dedupeKey: dedupePostKey({
-        campaignId,
+        postId,
         platform,
         conceptId,
         title,
@@ -1983,14 +1983,14 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
   if (contracts.length === 0) {
     for (const [platform, assetIds] of creativeAssetIdsByPlatform.entries()) {
       addPostCandidate({
-        campaignId,
-        jobId: campaignId,
+        postId,
+        jobId: postId,
         type: platform === 'meta-ads' ? 'meta_ad' : 'creative_output',
         title: `${platformLabel(platform)} creative`,
         summary: 'Generated creative assets are ready for publishing workflows.',
         platform,
         platformLabel: platformLabel(platform),
-        campaignName,
+        postName,
         funnelStage,
         objective,
         destinationUrl: brandUrl,
@@ -2009,7 +2009,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
           isPlatformNative: false,
         },
         dedupeKey: dedupePostKey({
-          campaignId,
+          postId,
           platform,
           conceptId: null,
           title: `${platformLabel(platform)} creative`,
@@ -2053,7 +2053,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
   const publishStatus = await publishReadyStatus(context.runtimeDoc)
 
   for (const [index, preview] of platformPreviews.entries()) {
-    const platform = normalizePlatformSlug(stringValue(preview.platform_slug || preview.platform_name, 'campaign'))
+    const platform = normalizePlatformSlug(stringValue(preview.platform_slug || preview.platform_name, 'social content'))
     const assetPaths = recordValue(preview.asset_paths) ?? {}
     const mediaPaths = asStringArray(preview.media_paths)
     const assetIds: string[] = []
@@ -2066,19 +2066,19 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
       })
       const addedAsset = addAsset({
         id: assetId,
-        campaignId,
-        jobId: campaignId,
+        postId,
+        jobId: postId,
         type: 'image_ad',
         title: `${platformLabel(platform)} media ${mediaIndex + 1}`,
         summary: publishReviewSummary(preview, 'Preview media ready for publish review.'),
         platform,
         platformLabel: platformLabel(platform),
-        campaignName,
+        postName,
         funnelStage,
         objective,
         destinationUrl: stringValue(assetPaths.landing_page_path) || brandUrl,
-        previewUrl: buildAssetUrl(campaignId, assetId),
-        thumbnailUrl: buildAssetUrl(campaignId, assetId),
+        previewUrl: buildAssetUrl(postId, assetId),
+        thumbnailUrl: buildAssetUrl(postId, assetId),
         contentType: contentTypeForAsset(filePath),
         filePath,
         status: publishStatus,
@@ -2114,19 +2114,19 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
       })
       const addedAsset = addAsset({
         id: assetId,
-        campaignId,
-        jobId: campaignId,
+        postId,
+        jobId: postId,
         type: type as MarketingDashboardAssetType,
         title: `${platformLabel(platform)} ${label}`,
         summary: publishReviewSummary(preview, 'Preview asset ready for publish review.'),
         platform,
         platformLabel: platformLabel(platform),
-        campaignName,
+        postName,
         funnelStage,
         objective,
         destinationUrl: label === 'landing-page' ? filePath : brandUrl,
-        previewUrl: buildAssetUrl(campaignId, assetId),
-        thumbnailUrl: type === 'landing_page' ? buildAssetUrl(campaignId, assetId) : null,
+        previewUrl: buildAssetUrl(postId, assetId),
+        thumbnailUrl: type === 'landing_page' ? buildAssetUrl(postId, assetId) : null,
         contentType: contentTypeForAsset(filePath),
         filePath,
         status: publishStatus,
@@ -2147,7 +2147,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
 
     const title = publishReviewDisplayTitle(preview, platform)
     const postDedupeKey = dedupePostKey({
-      campaignId,
+      postId,
       platform,
       conceptId: slugify(title, `preview-${index + 1}`),
       title,
@@ -2155,14 +2155,14 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
     })
 
     const publishItem = addPublishItem({
-      campaignId,
-      jobId: campaignId,
+      postId,
+      jobId: postId,
       type: 'pre_publish_review',
       title,
       summary: publishReviewSummary(preview, 'Pre-publish review item is ready for launch review.'),
       platform,
       platformLabel: platformLabel(platform),
-      campaignName,
+      postName,
       funnelStage,
       objective,
       destinationUrl: stringValue(assetPaths.landing_page_path) || brandUrl,
@@ -2186,14 +2186,14 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
     }, postDedupeKey)
 
     addPostCandidate({
-      campaignId,
-      jobId: campaignId,
+      postId,
+      jobId: postId,
       type: platform === 'meta-ads' ? 'pre_publish_ad' : 'platform_post',
       title,
       summary: publishReviewSummary(preview, 'Pre-publish review item is ready for launch review.'),
       platform,
       platformLabel: platformLabel(platform),
-      campaignName,
+      postName,
       funnelStage,
       objective,
       destinationUrl: stringValue(assetPaths.landing_page_path) || brandUrl,
@@ -2216,7 +2216,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
   }
 
   for (const [index, event] of reviewCalendarEvents.entries()) {
-    const platform = normalizePlatformSlug(stringValue(event.platform, 'campaign'))
+    const platform = normalizePlatformSlug(stringValue(event.platform, 'social content'))
     const rawStatus = stringValue(event.status, 'planned').toLowerCase()
     const eventStatus: MarketingDashboardItemStatus =
       rawStatus.includes('published') || rawStatus.includes('live')
@@ -2229,8 +2229,8 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
 
     explicitCalendarSeeds.push({
       entityId: stringValue(event.id, `review-calendar-${index + 1}`),
-      campaignId,
-      jobId: campaignId,
+      postId,
+      jobId: postId,
       title: stringValue(event.title, `${platformLabel(platform)} planned item`),
       platform,
       platformLabel: platformLabel(platform),
@@ -2305,22 +2305,22 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
       if (!filePath) {
         return
       }
-      const assetId = makeAssetId(campaignId, String(prefix), filePath)
+      const assetId = makeAssetId(postId, String(prefix), filePath)
       const addedAsset = addAsset({
         id: assetId,
-        campaignId,
-        jobId: campaignId,
+        postId,
+        jobId: postId,
         type,
         title: `${platformLabel(platform)} ${String(prefix).replace(/^publish-/, '').replace(new RegExp(`-${platform}$`), '')}`,
         summary,
         platform,
         platformLabel: platformLabel(platform),
-        campaignName,
+        postName,
         funnelStage,
         objective,
         destinationUrl: brandUrl,
-        previewUrl: buildAssetUrl(campaignId, assetId),
-        thumbnailUrl: /\.(png|jpe?g|gif|webp|svg)$/i.test(filePath) ? buildAssetUrl(campaignId, assetId) : null,
+        previewUrl: buildAssetUrl(postId, assetId),
+        thumbnailUrl: /\.(png|jpe?g|gif|webp|svg)$/i.test(filePath) ? buildAssetUrl(postId, assetId) : null,
         contentType: contentTypeForAsset(filePath),
         filePath,
         status: explicitStatus,
@@ -2340,8 +2340,8 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
     })
 
     const publishItem = addPublishItem({
-      campaignId,
-      jobId: campaignId,
+      postId,
+      jobId: postId,
       type: paused
         ? 'meta_paused_ad'
         : live
@@ -2351,7 +2351,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
       summary,
       platform,
       platformLabel: platformLabel(platform),
-      campaignName,
+      postName,
       funnelStage,
       objective,
       destinationUrl: brandUrl,
@@ -2367,7 +2367,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
         isDerivedSchedule: false,
         isPlatformNative: false,
       },
-    }, `${campaignId}::${platform}::${title}`)
+    }, `${postId}::${platform}::${title}`)
 
     const postStatus =
       explicitStatus === 'published_to_meta_paused' || explicitStatus === 'live'
@@ -2375,14 +2375,14 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
         : publishStatus
 
     addPostCandidate({
-      campaignId,
-      jobId: campaignId,
+      postId,
+      jobId: postId,
       type: platform === 'meta-ads' ? 'meta_ad' : 'platform_post',
       title,
       summary,
       platform,
       platformLabel: platformLabel(platform),
-      campaignName,
+      postName,
       funnelStage,
       objective,
       destinationUrl: brandUrl,
@@ -2401,7 +2401,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
         isPlatformNative: false,
       },
       dedupeKey: dedupePostKey({
-        campaignId,
+        postId,
         platform,
         conceptId: slugify(title, platform),
         title,
@@ -2413,8 +2413,8 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
     if (startsAt || paused || live) {
       explicitCalendarSeeds.push({
         entityId: publishItem.id,
-        campaignId,
-        jobId: campaignId,
+        postId,
+        jobId: postId,
         title,
         platform,
         platformLabel: platformLabel(platform),
@@ -2482,22 +2482,22 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
         if (!filePath) {
           return
         }
-        const assetId = makeAssetId(campaignId, String(prefix), `${filePath}-${index}`)
+        const assetId = makeAssetId(postId, String(prefix), `${filePath}-${index}`)
         const addedAsset = addAsset({
           id: assetId,
-          campaignId,
-          jobId: campaignId,
+          postId,
+          jobId: postId,
           type,
           title: `${platformLabel(platform)} ${String(prefix).replace(/^review-/, '').replace(new RegExp(`-${platform}$`), '')}`,
           summary,
           platform,
           platformLabel: platformLabel(platform),
-          campaignName,
+          postName,
           funnelStage,
           objective,
           destinationUrl: landingPath || brandUrl,
-          previewUrl: buildAssetUrl(campaignId, assetId),
-          thumbnailUrl: /\.(png|jpe?g|gif|webp|svg|html)$/i.test(filePath) ? buildAssetUrl(campaignId, assetId) : null,
+          previewUrl: buildAssetUrl(postId, assetId),
+          thumbnailUrl: /\.(png|jpe?g|gif|webp|svg|html)$/i.test(filePath) ? buildAssetUrl(postId, assetId) : null,
           contentType: contentTypeForAsset(filePath),
           filePath,
           status: publishStatus,
@@ -2517,14 +2517,14 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
       })
 
       const publishItem = addPublishItem({
-        campaignId,
-        jobId: campaignId,
+        postId,
+        jobId: postId,
         type: 'pre_publish_review',
         title,
         summary,
         platform,
         platformLabel: platformLabel(platform),
-        campaignName,
+        postName,
         funnelStage,
         objective,
         destinationUrl: landingPath || brandUrl,
@@ -2540,17 +2540,17 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
           isDerivedSchedule: false,
           isPlatformNative: false,
         },
-      }, `${campaignId}::review-package::${platform}::${title}`)
+      }, `${postId}::review-package::${platform}::${title}`)
 
       addPostCandidate({
-        campaignId,
-        jobId: campaignId,
+        postId,
+        jobId: postId,
         type: platform === 'meta-ads' ? 'pre_publish_ad' : 'platform_post',
         title,
         summary,
         platform,
         platformLabel: platformLabel(platform),
-        campaignName,
+        postName,
         funnelStage,
         objective,
         destinationUrl: landingPath || brandUrl,
@@ -2569,7 +2569,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
           isPlatformNative: false,
         },
         dedupeKey: dedupePostKey({
-          campaignId,
+          postId,
           platform,
           conceptId: slugify(title, `${platform}-${index + 1}`),
           title,
@@ -2592,7 +2592,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
       hashtags: candidate.post.hashtags ?? [],
       cta: candidate.post.cta ?? null,
       copyWarnings: candidate.post.copyWarnings ?? [],
-      id: `${candidate.post.campaignId}::post::${slugify(candidate.post.platform, 'platform')}::${stableHash(candidate.post.dedupeKey).slice(0, 8)}`,
+      id: `${candidate.post.postId}::post::${slugify(candidate.post.platform, 'platform')}::${stableHash(candidate.post.dedupeKey).slice(0, 8)}`,
       relatedPublishItemIds: uniqueIds(candidate.post.relatedPublishItemIds || []),
     }
     delete (basePost as { dedupeKey?: string }).dedupeKey
@@ -2651,8 +2651,8 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
   for (const publishItem of publishItems.filter((item) => item.type !== 'publish_package')) {
     derivedCalendarSeeds.push({
       entityId: publishItem.id,
-      campaignId,
-      jobId: campaignId,
+      postId,
+      jobId: postId,
       title: publishItem.title,
       platform: publishItem.platform,
       platformLabel: publishItem.platformLabel,
@@ -2692,8 +2692,8 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
             : 6
     derivedCalendarSeeds.push({
       entityId: asset.id,
-      campaignId,
-      jobId: campaignId,
+      postId,
+      jobId: postId,
       title: asset.title,
       platform: asset.platform,
       platformLabel: asset.platformLabel,
@@ -2715,8 +2715,8 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
   for (const post of posts.filter((post) => post.provenance.sourceKind === 'proposal')) {
     derivedCalendarSeeds.push({
       entityId: post.id,
-      campaignId,
-      jobId: campaignId,
+      postId,
+      jobId: postId,
       title: post.title,
       platform: post.platform,
       platformLabel: post.platformLabel,
@@ -2735,17 +2735,17 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
     })
   }
 
-  const explicitCalendarEvents = calendarSeedsToEvents(explicitCalendarSeeds, context.status.campaignWindow, context.referenceDate)
+  const explicitCalendarEvents = calendarSeedsToEvents(explicitCalendarSeeds, context.status.postWindow, context.referenceDate)
   const derivedCalendarEvents = calendarSeedsToEvents(
     derivedCalendarSeeds.filter((seed) => explicitCalendarSeeds.every((existing) => existing.entityId !== seed.entityId)),
-    context.status.campaignWindow,
+    context.status.postWindow,
     context.referenceDate,
   )
 
   const calendarEvents = [...explicitCalendarEvents, ...derivedCalendarEvents]
     .map((event) => ({
       ...event,
-      campaignName,
+      postName,
       funnelStage,
       objective,
     }))
@@ -2755,10 +2755,10 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
       left.startsAt.localeCompare(right.startsAt)
     )
 
-  let campaignStatus: MarketingDashboardItemStatus = 'draft'
+  let postStatus: MarketingDashboardItemStatus = 'draft'
   for (const item of [...posts, ...publishItems, ...calendarEvents]) {
-    if (ITEM_STATUS_PRIORITY[item.status] > ITEM_STATUS_PRIORITY[campaignStatus]) {
-      campaignStatus = item.status
+    if (ITEM_STATUS_PRIORITY[item.status] > ITEM_STATUS_PRIORITY[postStatus]) {
+      postStatus = item.status
     }
   }
 
@@ -2788,22 +2788,22 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
   }
 
   const operationalCampaignStatus =
-    context.status.approvalRequired && campaignStatus !== 'live' && campaignStatus !== 'scheduled'
+    context.status.approvalRequired && postStatus !== 'live' && postStatus !== 'scheduled'
       ? 'in_review'
-      : campaignStatus
+      : postStatus
 
-  const campaign: MarketingDashboardCampaignInternal = {
-    id: campaignId,
-    jobId: campaignId,
-    externalCampaignId: context.externalCampaignId,
-    name: campaignName,
+  const socialContentJob: MarketingDashboardSocialContentJobInternal = {
+    id: postId,
+    jobId: postId,
+    externalPostId: context.externalPostId,
+    name: postName,
     objective,
     funnelStage,
     summary: summaryFromStatus(context),
-    stageLabel: context.status.currentStage || 'campaign',
+    stageLabel: context.status.currentStage || 'social content',
     status: operationalCampaignStatus,
     compatibilityStatus: compatibilityStatusFor(operationalCampaignStatus),
-    campaignWindow: context.status.campaignWindow,
+    postWindow: context.status.postWindow,
     updatedAt: context.status.updatedAt,
     approvalRequired: context.status.approvalRequired,
     approvalActionHref: context.status.approvalActionHref,
@@ -2815,7 +2815,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
     calendarEventIds: calendarEvents.map((event) => event.id),
     counts,
     provenance: campaignProvenance(
-      campaignStatus === 'live' || campaignStatus === 'scheduled'
+      postStatus === 'live' || postStatus === 'scheduled'
         ? 'live_platform'
         : publishItems.length > 0
           ? 'publish_review'
@@ -2832,7 +2832,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
   }
 
   return {
-    campaigns: [campaign],
+    socialContentJobs: [socialContentJob],
     posts,
     assets,
     publishItems,
@@ -2843,7 +2843,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
 
 function mergeContent(items: MarketingDashboardContentInternal[]): MarketingDashboardContentInternal {
   const merged: MarketingDashboardContentInternal = {
-    campaigns: [],
+    socialContentJobs: [],
     posts: [],
     assets: [],
     publishItems: [],
@@ -2852,7 +2852,7 @@ function mergeContent(items: MarketingDashboardContentInternal[]): MarketingDash
   }
 
   for (const item of items) {
-    merged.campaigns.push(...item.campaigns)
+    merged.socialContentJobs.push(...item.socialContentJobs)
     merged.posts.push(...item.posts)
     merged.assets.push(...item.assets)
     merged.publishItems.push(...item.publishItems)
@@ -2862,7 +2862,7 @@ function mergeContent(items: MarketingDashboardContentInternal[]): MarketingDash
     }
   }
 
-  merged.campaigns.sort((left, right) => {
+  merged.socialContentJobs.sort((left, right) => {
     const leftUpdated = Date.parse(left.updatedAt || '')
     const rightUpdated = Date.parse(right.updatedAt || '')
     return (Number.isFinite(rightUpdated) ? rightUpdated : 0) - (Number.isFinite(leftUpdated) ? leftUpdated : 0)
@@ -2876,10 +2876,10 @@ export async function getMarketingDashboardContentInternal(
   jobId: string,
   options: MarketingDashboardBuildOptions = {},
 ): Promise<MarketingDashboardContentInternal> {
-  const runtimeDoc = await loadMarketingJobRuntime(jobId)
+  const runtimeDoc = await loadSocialContentJobRuntime(jobId)
   if (!runtimeDoc) {
     return {
-      campaigns: [],
+      socialContentJobs: [],
       posts: [],
       assets: [],
       publishItems: [],
@@ -2888,7 +2888,7 @@ export async function getMarketingDashboardContentInternal(
     }
   }
 
-  return await buildCampaignContentInternal(await buildCampaignContext(jobId, runtimeDoc, options))
+  return await buildSocialContentJobContentInternal(await buildSocialContentContext(jobId, runtimeDoc, options))
 }
 
 export async function getMarketingDashboardContent(
@@ -2898,13 +2898,13 @@ export async function getMarketingDashboardContent(
   return publicFromInternal(await getMarketingDashboardContentInternal(jobId, options))
 }
 
-export async function getMarketingDashboardCampaignContent(
+export async function getMarketingDashboardSocialContentJobContent(
   jobId: string,
   options: MarketingDashboardBuildOptions = {},
-): Promise<MarketingDashboardCampaignContent> {
+): Promise<MarketingDashboardSocialContentJobContent> {
   const internal = await getMarketingDashboardContentInternal(jobId, options)
   return {
-    campaign: internal.campaigns[0] ? sanitizeCampaign(internal.campaigns[0]) : null,
+    post: internal.socialContentJobs[0] ? sanitizeSocialContentJob(internal.socialContentJobs[0]) : null,
     posts: internal.posts.map(sanitizePost),
     assets: internal.assets.map(sanitizeAsset),
     publishItems: internal.publishItems.map(sanitizePublishItem),
@@ -2917,22 +2917,22 @@ export async function getMarketingDashboardContentForTenantInternal(
   tenantId: string,
   options: MarketingDashboardBuildOptions = {},
 ): Promise<MarketingDashboardContentInternal> {
-  const dedupedCampaigns: MarketingDashboardContentInternal[] = []
-  const seenCampaigns = new Set<string>()
+  const dedupedJobs: MarketingDashboardContentInternal[] = []
+  const seenJobs = new Set<string>()
 
-  for (const jobId of await listMarketingJobIdsForTenant(tenantId)) {
+  for (const jobId of await listSocialContentJobIdsForTenant(tenantId)) {
     const content = await getMarketingDashboardContentInternal(jobId, options)
-    const campaign = content.campaigns[0]
-    const dedupeKey = campaign ? campaignIdentityKey(campaign) : `job::${jobId}`
-    if (seenCampaigns.has(dedupeKey)) {
+    const job = content.socialContentJobs[0]
+    const dedupeKey = job ? socialContentJobIdentityKey(job) : `job::${jobId}`
+    if (seenJobs.has(dedupeKey)) {
       continue
     }
 
-    seenCampaigns.add(dedupeKey)
-    dedupedCampaigns.push(content)
+    seenJobs.add(dedupeKey)
+    dedupedJobs.push(content)
   }
 
-  return mergeContent(dedupedCampaigns)
+  return mergeContent(dedupedJobs)
 }
 
 export async function getMarketingDashboardContentForTenant(
@@ -2949,7 +2949,7 @@ export async function listMarketingDashboardAssetsForJob(
   return (await getMarketingDashboardContentInternal(jobId, options)).assets
 }
 
-export function dashboardDateRangeText(window: MarketingCampaignWindow | null): string {
+export function dashboardDateRangeText(window: SocialContentWindow | null): string {
   return formatDateRange(window)
 }
 

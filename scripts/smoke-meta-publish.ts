@@ -133,19 +133,19 @@ async function resolveJobAndCreative(
   tenantId: string,
   provider: 'instagram' | 'facebook',
 ): Promise<{ jobId: string; mediaUrl: string; caption: string } | null> {
-  const { listMarketingJobIdsForTenant, loadMarketingJobRuntime } = await import(
+  const { listSocialContentJobIdsForTenant, loadSocialContentJobRuntime } = await import(
     '../backend/marketing/runtime-state'
   );
-  const { buildCampaignWorkspaceView } = await import('../backend/marketing/workspace-views');
+  const { buildSocialContentWorkspaceView } = await import('../backend/marketing/workspace-views');
   const { loadSocialCopyArtifact } = await import('../backend/social-content/social-copy-store');
 
-  const jobIds = await listMarketingJobIdsForTenant(tenantId);
+  const jobIds = await listSocialContentJobIdsForTenant(tenantId);
   if (jobIds.length === 0) {
     return null;
   }
 
   for (const jobId of jobIds) {
-    const doc = await loadMarketingJobRuntime(jobId);
+    const doc = await loadSocialContentJobRuntime(jobId);
     if (!doc || doc.tenant_id !== tenantId) continue;
 
     const publishStage = doc.stages?.['publish'];
@@ -153,7 +153,7 @@ async function resolveJobAndCreative(
 
     let mediaUrl: string | null = null;
     try {
-      const view = await buildCampaignWorkspaceView(jobId);
+      const view = await buildSocialContentWorkspaceView(jobId);
       const approvedImages = (view.creativeReview?.assets ?? []).filter(
         (a) =>
           a.status === 'approved' &&

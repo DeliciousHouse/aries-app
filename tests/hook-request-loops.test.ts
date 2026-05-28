@@ -17,7 +17,7 @@ function dashboardLikeLatestJobResponse() {
     jobId: 'mkt_123',
     tenantName: 'Sugar & Leather',
     brandWebsiteUrl: 'https://sugarandleather.com',
-    campaignWindow: null,
+    postWindow: null,
     durationDays: null,
     plannedPostCount: null,
     createdPostCount: null,

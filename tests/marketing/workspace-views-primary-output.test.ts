@@ -4,29 +4,29 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
-  primaryOutputToCampaignPlanner,
+  primaryOutputToSocialContentPlanner,
   primaryOutputToProductionPreview,
   strategyChannelBlock,
 } from '../../backend/marketing/workspace-views';
 import { resolveStageOutput } from '../../backend/marketing/runtime-state';
-import type { MarketingJobRuntimeDocument } from '../../backend/marketing/runtime-state';
+import type { SocialContentJobRuntimeDocument } from '../../backend/marketing/runtime-state';
 
-async function loadFixture(): Promise<MarketingJobRuntimeDocument> {
+async function loadFixture(): Promise<SocialContentJobRuntimeDocument> {
   const fixturePath = path.resolve('tests/fixtures/marketing-runtime-primary-output.json');
   const raw = JSON.parse(await readFile(fixturePath, 'utf8'));
-  return raw as MarketingJobRuntimeDocument;
+  return raw as SocialContentJobRuntimeDocument;
 }
 
 // ---------------------------------------------------------------------------
-// Adapter: primaryOutputToCampaignPlanner
+// Adapter: primaryOutputToSocialContentPlanner
 // ---------------------------------------------------------------------------
 
-test('primaryOutputToCampaignPlanner: maps positioning to campaign_plan.core_message', async () => {
+test('primaryOutputToSocialContentPlanner: maps positioning to campaign_plan.core_message', async () => {
   const doc = await loadFixture();
   const strategyOutput = resolveStageOutput(doc, 'strategy');
   assert.ok(strategyOutput, 'strategy primary_output should resolve');
 
-  const planner = primaryOutputToCampaignPlanner(strategyOutput);
+  const planner = primaryOutputToSocialContentPlanner(strategyOutput);
   const campaignPlan = planner.campaign_plan as Record<string, unknown>;
 
   assert.ok(
@@ -39,12 +39,12 @@ test('primaryOutputToCampaignPlanner: maps positioning to campaign_plan.core_mes
   );
 });
 
-test('primaryOutputToCampaignPlanner: channel_adaptation → channel_plans[] with platform+instructions', async () => {
+test('primaryOutputToSocialContentPlanner: channel_adaptation → channel_plans[] with platform+instructions', async () => {
   const doc = await loadFixture();
   const strategyOutput = resolveStageOutput(doc, 'strategy');
   assert.ok(strategyOutput);
 
-  const planner = primaryOutputToCampaignPlanner(strategyOutput);
+  const planner = primaryOutputToSocialContentPlanner(strategyOutput);
   const campaignPlan = planner.campaign_plan as Record<string, unknown>;
   const channelPlans = campaignPlan.channel_plans as Array<{ platform: string; instructions: unknown }>;
 
@@ -59,12 +59,12 @@ test('primaryOutputToCampaignPlanner: channel_adaptation → channel_plans[] wit
   }
 });
 
-test('primaryOutputToCampaignPlanner: content_package[] is passed through with 7 posts', async () => {
+test('primaryOutputToSocialContentPlanner: content_package[] is passed through with 7 posts', async () => {
   const doc = await loadFixture();
   const strategyOutput = resolveStageOutput(doc, 'strategy');
   assert.ok(strategyOutput);
 
-  const planner = primaryOutputToCampaignPlanner(strategyOutput);
+  const planner = primaryOutputToSocialContentPlanner(strategyOutput);
   const campaignPlan = planner.campaign_plan as Record<string, unknown>;
   const contentPackage = campaignPlan.content_package as Array<Record<string, unknown>>;
 
@@ -72,12 +72,12 @@ test('primaryOutputToCampaignPlanner: content_package[] is passed through with 7
   assert.equal(contentPackage.length, 7, 'should have exactly 7 posts');
 });
 
-test('primaryOutputToCampaignPlanner: all 7 posts have hook, body, cta', async () => {
+test('primaryOutputToSocialContentPlanner: all 7 posts have hook, body, cta', async () => {
   const doc = await loadFixture();
   const strategyOutput = resolveStageOutput(doc, 'strategy');
   assert.ok(strategyOutput);
 
-  const planner = primaryOutputToCampaignPlanner(strategyOutput);
+  const planner = primaryOutputToSocialContentPlanner(strategyOutput);
   const campaignPlan = planner.campaign_plan as Record<string, unknown>;
   const contentPackage = campaignPlan.content_package as Array<Record<string, unknown>>;
 
@@ -88,12 +88,12 @@ test('primaryOutputToCampaignPlanner: all 7 posts have hook, body, cta', async (
   }
 });
 
-test('primaryOutputToCampaignPlanner: creative_direction is preserved at top level', async () => {
+test('primaryOutputToSocialContentPlanner: creative_direction is preserved at top level', async () => {
   const doc = await loadFixture();
   const strategyOutput = resolveStageOutput(doc, 'strategy');
   assert.ok(strategyOutput);
 
-  const planner = primaryOutputToCampaignPlanner(strategyOutput);
+  const planner = primaryOutputToSocialContentPlanner(strategyOutput);
   assert.ok(
     typeof planner.creative_direction === 'string' && (planner.creative_direction as string).length > 0,
     'creative_direction should be non-empty string',
@@ -104,12 +104,12 @@ test('primaryOutputToCampaignPlanner: creative_direction is preserved at top lev
   );
 });
 
-test('primaryOutputToCampaignPlanner: does not map creative_direction to objective (D2)', async () => {
+test('primaryOutputToSocialContentPlanner: does not map creative_direction to objective (D2)', async () => {
   const doc = await loadFixture();
   const strategyOutput = resolveStageOutput(doc, 'strategy');
   assert.ok(strategyOutput);
 
-  const planner = primaryOutputToCampaignPlanner(strategyOutput);
+  const planner = primaryOutputToSocialContentPlanner(strategyOutput);
   const campaignPlan = planner.campaign_plan as Record<string, unknown>;
   assert.equal(campaignPlan.objective, undefined, 'objective must be absent (D2: no filler mapping)');
 });
@@ -139,7 +139,7 @@ test('strategyChannelBlock: end-to-end through adapter produces non-empty blocks
   const strategyOutput = resolveStageOutput(doc, 'strategy');
   assert.ok(strategyOutput);
 
-  const planner = primaryOutputToCampaignPlanner(strategyOutput);
+  const planner = primaryOutputToSocialContentPlanner(strategyOutput);
   const campaignPlan = planner.campaign_plan as Record<string, unknown>;
   const channelPlans = campaignPlan.channel_plans as Array<Record<string, unknown>>;
 
@@ -205,7 +205,7 @@ test('primaryOutputToProductionPreview: weekly_content_plan preserved', async ()
 
 test('resolveStageOutput: legacy doc with outputs.campaign_planner_path → outputs wins (IRON RULE)', () => {
   const legacyOutputs = { campaign_planner_path: '/legacy/planner.json' };
-  const doc: Partial<MarketingJobRuntimeDocument> = {
+  const doc: Partial<SocialContentJobRuntimeDocument> = {
     stages: {
       research: { stage: 'research', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
       strategy: { stage: 'strategy', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: { positioning: 'should not appear' }, outputs: legacyOutputs, artifacts: [], errors: [] },
@@ -214,7 +214,7 @@ test('resolveStageOutput: legacy doc with outputs.campaign_planner_path → outp
     },
   };
 
-  const result = resolveStageOutput(doc as MarketingJobRuntimeDocument, 'strategy');
+  const result = resolveStageOutput(doc as SocialContentJobRuntimeDocument, 'strategy');
   assert.ok(result, 'should resolve non-null');
   assert.equal(result.campaign_planner_path, '/legacy/planner.json', 'legacy path must survive');
   assert.equal(result.positioning, undefined, 'primary_output must not bleed into result');
@@ -230,7 +230,7 @@ test('fixture strategy primary_output resolves and produces non-empty campaign_p
 
   assert.ok(strategyOutput, 'strategy output should resolve (strategyReady gate depends on this)');
 
-  const planner = primaryOutputToCampaignPlanner(strategyOutput);
+  const planner = primaryOutputToSocialContentPlanner(strategyOutput);
   const campaignPlan = planner.campaign_plan as Record<string, unknown>;
 
   // strategyReady = !!payloads.campaignPlanner — this test proves the shim produces a value

@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { HermesMarketingPort } from '../../backend/marketing/ports/hermes';
-import type { MarketingJobRuntimeDocument } from '../../backend/marketing/runtime-state';
+import type { SocialContentJobRuntimeDocument } from '../../backend/marketing/runtime-state';
 
 /**
  * Phase B three-profile routing. Each marketing stage must POST to its
@@ -52,7 +52,7 @@ const STUB_DOC = {
     request: { jobType: 'weekly_social_content', imageCreativeCount: 7 },
   },
   brand_kit: { brand_name: 'Brand Co' },
-} as unknown as MarketingJobRuntimeDocument;
+} as unknown as SocialContentJobRuntimeDocument;
 
 const PER_PROFILE_ENV = {
   HERMES_GATEWAY_URL: 'http://127.0.0.1:8642',
@@ -159,7 +159,7 @@ const WEEKLY_WORKFLOW_KEY = 'social_content_weekly';
 
 /**
  * Seed a minimal marketing job runtime doc under DATA_ROOT so the port's
- * loadMarketingJobRuntime() resolves prior-stage outputs for the resume→run
+ * loadSocialContentJobRuntime() resolves prior-stage outputs for the resume→run
  * conversion.
  */
 async function seedWeeklyJobDoc(jobId: string): Promise<void> {
@@ -501,7 +501,7 @@ const ONE_OFF_DOC = {
     request: { jobType: 'one_off_campaign', imageCreativeCount: 3 },
   },
   brand_kit: { brand_name: 'One Off Brand' },
-} as unknown as import('../../backend/marketing/runtime-state').MarketingJobRuntimeDocument;
+} as unknown as import('../../backend/marketing/runtime-state').SocialContentJobRuntimeDocument;
 
 test('one_off runPipeline uses social_content_weekly workflow key (not marketing_pipeline)', async () => {
   // Root cause: workflowKeyFor() checked isWeeklySocialContentRequest() which

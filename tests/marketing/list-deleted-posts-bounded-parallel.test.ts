@@ -9,7 +9,7 @@ import { resolveProjectRoot } from '../helpers/project-root';
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
 // REGRESSION (Copilot review on PR #481):
-// listDeletedMarketingCampaignsForTenant was reworked from a serial for-await
+// listDeletedSocialContentJobsForTenant was reworked from a serial for-await
 // loop into two-phase bounded-parallel fan-out. This test pins the contract
 // the refactor must preserve:
 //   1. duplicates collapse to first-seen (by externalCampaignId / name / jobId)
@@ -85,7 +85,7 @@ function makeDeletedDoc(input: {
   };
 }
 
-test('listDeletedMarketingCampaignsForTenant: deletedAt/deletedBy/softCancelRequestedAt populated on every result', async () => {
+test('listDeletedSocialContentJobsForTenant: deletedAt/deletedBy/softCancelRequestedAt populated on every result', async () => {
   await withRuntimeEnv(async () => {
     const jobsRoot = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs');
     await mkdir(jobsRoot, { recursive: true });
@@ -103,8 +103,8 @@ test('listDeletedMarketingCampaignsForTenant: deletedAt/deletedBy/softCancelRequ
       }), null, 2),
     );
 
-    const { listDeletedMarketingCampaignsForTenant } = await import('../../backend/marketing/runtime-views');
-    const result = await listDeletedMarketingCampaignsForTenant('tenant_del');
+    const { listDeletedSocialContentJobsForTenant } = await import('../../backend/marketing/runtime-views');
+    const result = await listDeletedSocialContentJobsForTenant('tenant_del');
 
     assert.equal(result.length, 1);
     assert.equal(result[0].deletedAt, '2026-05-10T12:00:00Z');
@@ -114,7 +114,7 @@ test('listDeletedMarketingCampaignsForTenant: deletedAt/deletedBy/softCancelRequ
 });
 
 // Dedup behavior on the deleted-list shares its key derivation with the live
-// list — `view.dashboard.campaign?.externalCampaignId || campaign?.name ||
+// list — `view.dashboard.post?.externalCampaignId || campaign?.name ||
 // 'job::<jobId>'`. The live path is exercised in
 // tests/runtime-views-auth-hardening.test.ts ("keep only the latest rerun for
 // the same campaign identity"). Both paths use the same `processConcurrent`
@@ -123,7 +123,7 @@ test('listDeletedMarketingCampaignsForTenant: deletedAt/deletedBy/softCancelRequ
 // follow-up could extract the dedup loop into a shared helper and pin it
 // directly, but for now the live-path coverage matches our intent.
 
-test('listDeletedMarketingCampaignsForTenant: ordering newest-deletedAt-first preserved after parallel fan-out', async () => {
+test('listDeletedSocialContentJobsForTenant: ordering newest-deletedAt-first preserved after parallel fan-out', async () => {
   await withRuntimeEnv(async () => {
     const jobsRoot = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs');
     await mkdir(jobsRoot, { recursive: true });
@@ -149,8 +149,8 @@ test('listDeletedMarketingCampaignsForTenant: ordering newest-deletedAt-first pr
       );
     }
 
-    const { listDeletedMarketingCampaignsForTenant } = await import('../../backend/marketing/runtime-views');
-    const result = await listDeletedMarketingCampaignsForTenant('tenant_order');
+    const { listDeletedSocialContentJobsForTenant } = await import('../../backend/marketing/runtime-views');
+    const result = await listDeletedSocialContentJobsForTenant('tenant_order');
 
     assert.equal(result.length, 3);
     assert.equal(result[0].deletedAt, '2026-05-20T12:00:00Z', 'newest first');
@@ -159,7 +159,7 @@ test('listDeletedMarketingCampaignsForTenant: ordering newest-deletedAt-first pr
   });
 });
 
-test('listDeletedMarketingCampaignsForTenant: ignores non-tenant-owned jobs even in the deleted set', async () => {
+test('listDeletedSocialContentJobsForTenant: ignores non-tenant-owned jobs even in the deleted set', async () => {
   await withRuntimeEnv(async () => {
     const jobsRoot = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs');
     await mkdir(jobsRoot, { recursive: true });
@@ -189,8 +189,8 @@ test('listDeletedMarketingCampaignsForTenant: ignores non-tenant-owned jobs even
       }), null, 2),
     );
 
-    const { listDeletedMarketingCampaignsForTenant } = await import('../../backend/marketing/runtime-views');
-    const result = await listDeletedMarketingCampaignsForTenant('tenant_a');
+    const { listDeletedSocialContentJobsForTenant } = await import('../../backend/marketing/runtime-views');
+    const result = await listDeletedSocialContentJobsForTenant('tenant_a');
     assert.equal(result.length, 1);
     assert.equal(result[0].jobId, 'mine', 'cross-tenant deleted job must not leak');
   });

@@ -2,14 +2,14 @@
 
 import Link from 'next/link';
 
-import { useRuntimeCampaigns } from '@/hooks/use-runtime-campaigns';
+import { useRuntimePosts } from '@/hooks/use-runtime-social-content';
 
 import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './components';
 
 export default function AriesResultsScreen() {
-  const campaigns = useRuntimeCampaigns({ autoLoad: true });
-  const liveCampaigns = (campaigns.data?.campaigns ?? []).filter((campaign) => campaign.status === 'live');
+  const campaigns = useRuntimePosts({ autoLoad: true });
+  const liveCampaigns = (campaigns.data?.posts ?? []).filter((campaign) => campaign.status === 'live');
 
   if (campaigns.isLoading) {
     return <LoadingStateGrid />;

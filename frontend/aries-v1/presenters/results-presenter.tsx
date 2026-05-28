@@ -37,13 +37,13 @@ export default function ResultsPresenter({ model }: ResultsPresenterProps) {
   const filteredCampaigns = useMemo(() => {
     switch (activeFilter) {
       case 'needs_review':
-        return model.campaigns.filter((campaign) => campaign.needsReview);
+        return model.posts.filter((campaign) => campaign.needsReview);
       case 'all':
-        return model.campaigns;
+        return model.posts;
       default:
-        return model.campaigns.filter((campaign) => campaign.status === activeFilter);
+        return model.posts.filter((campaign) => campaign.status === activeFilter);
     }
-  }, [activeFilter, model.campaigns]);
+  }, [activeFilter, model.posts]);
 
   const statusChartData = model.statusBreakdown.filter((entry) => entry.count > 0);
   const pieData = statusChartData.map((entry) => ({ name: entry.label, value: entry.count, color: entry.color }));
@@ -110,7 +110,7 @@ export default function ResultsPresenter({ model }: ResultsPresenterProps) {
           </div>
         </div>
 
-        {model.campaigns.length === 0 ? (
+        {model.posts.length === 0 ? (
           <div className="glass-panel p-8">
             <h2 className="text-2xl font-semibold text-white">Nothing to report yet</h2>
             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/55">
@@ -329,7 +329,7 @@ export default function ResultsPresenter({ model }: ResultsPresenterProps) {
   );
 }
 
-function statusPill(status: ResultsViewModel['campaigns'][number]['status']) {
+function statusPill(status: ResultsViewModel['posts'][number]['status']) {
   if (status === 'live') return 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100';
   if (status === 'scheduled') return 'border-sky-400/25 bg-sky-400/10 text-sky-100';
   if (status === 'approved') return 'border-indigo-400/25 bg-indigo-400/10 text-indigo-100';

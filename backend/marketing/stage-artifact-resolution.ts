@@ -8,7 +8,7 @@ import {
   stageCacheRoot,
   stageCacheRootForTenant,
 } from './artifact-store';
-import type { MarketingJobRuntimeDocument, MarketingStage } from './runtime-state';
+import type { SocialContentJobRuntimeDocument, MarketingStage } from './runtime-state';
 
 export type MarketingArtifactStageNumber = 1 | 2 | 3 | 4;
 
@@ -33,7 +33,7 @@ function uniqueStrings(values: Array<string | null | undefined>): string[] {
   return Array.from(new Set(values.map((value) => stringValue(value)).filter(Boolean)));
 }
 
-function slugify(value: string, fallback = 'campaign'): string {
+function slugify(value: string, fallback = 'social content'): string {
   const normalized = value
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
@@ -73,21 +73,21 @@ async function readJsonIfExists(filePath: string | null | undefined): Promise<Re
   }
 }
 
-function competitorRunIdPrefixes(runtimeDoc: MarketingJobRuntimeDocument): string[] {
+function competitorRunIdPrefixes(runtimeDoc: SocialContentJobRuntimeDocument): string[] {
   const raw = stringValue(runtimeDoc.inputs.competitor_url || runtimeDoc.inputs.request?.competitorUrl);
   if (!raw) {
     return [];
   }
 
   const prefixes = uniqueStrings([
-    slugify(raw, 'campaign'),
+    slugify(raw, 'social content'),
   ]);
 
   try {
     const url = new URL(raw);
     prefixes.push(
-      slugify(url.hostname.replace(/^www\./, ''), 'campaign'),
-      slugify(url.hostname, 'campaign'),
+      slugify(url.hostname.replace(/^www\./, ''), 'social content'),
+      slugify(url.hostname, 'social content'),
     );
   } catch {
     // Keep the raw-url slug only when the URL parser fails.
@@ -96,7 +96,7 @@ function competitorRunIdPrefixes(runtimeDoc: MarketingJobRuntimeDocument): strin
   return uniqueStrings(prefixes);
 }
 
-function stageTimestamp(runtimeDoc: MarketingJobRuntimeDocument, stage: MarketingStage): number {
+function stageTimestamp(runtimeDoc: SocialContentJobRuntimeDocument, stage: MarketingStage): number {
   const record = runtimeDoc.stages[stage];
   const candidates = [
     record.completed_at,
@@ -111,7 +111,7 @@ function stageTimestamp(runtimeDoc: MarketingJobRuntimeDocument, stage: Marketin
 }
 
 export async function inferMarketingStageRunId(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   stage: MarketingArtifactStageNumber,
 ): Promise<string | null> {
   const currentStage = stageKey(stage);
@@ -201,7 +201,7 @@ export async function inferMarketingStageRunId(
 }
 
 export async function readMarketingStageStepPayload(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   stage: MarketingArtifactStageNumber,
   stepName: string,
   preferredRunId?: string | null,

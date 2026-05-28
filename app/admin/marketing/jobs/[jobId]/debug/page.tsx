@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { getTenantContext } from '@/lib/tenant-context';
-import { loadMarketingJobRuntime, marketingRuntimePath } from '@/backend/marketing/runtime-state';
+import { loadSocialContentJobRuntime, marketingRuntimePath } from '@/backend/marketing/runtime-state';
 import { listMarketingApprovalRecordsForJob } from '@/backend/marketing/approval-store';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -51,7 +51,7 @@ export default async function MarketingJobDebugPage({
 
   const { jobId } = await params;
 
-  const doc = await loadMarketingJobRuntime(jobId);
+  const doc = await loadSocialContentJobRuntime(jobId);
 
   if (!doc || doc.tenant_id !== tenantContext.tenantId) {
     return (

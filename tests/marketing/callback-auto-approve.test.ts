@@ -5,12 +5,12 @@ import path from 'node:path';
 import test from 'node:test';
 
 import type {
-  ApproveMarketingJobRequest,
-  ApproveMarketingJobResponse,
+  ApproveSocialContentJobRequest,
+  ApproveSocialContentJobResponse,
 } from '../../backend/marketing/orchestrator';
 import type {
   MarketingApprovalCheckpoint,
-  MarketingJobRuntimeDocument,
+  SocialContentJobRuntimeDocument,
   MarketingStage,
 } from '../../backend/marketing/runtime-state';
 import { maybeAutoApproveMarketingCheckpoint } from '../../backend/marketing/hermes-callbacks';
@@ -24,7 +24,7 @@ function makePublishCheckpoint(): MarketingApprovalCheckpoint {
   });
 }
 
-function makePublishDoc(): MarketingJobRuntimeDocument {
+function makePublishDoc(): SocialContentJobRuntimeDocument {
   const ts = new Date().toISOString();
   return makeDoc({
     current_stage: 'publish',
@@ -109,7 +109,7 @@ function makeCheckpoint(overrides: Partial<MarketingApprovalCheckpoint> = {}): M
   };
 }
 
-function makeDoc(overrides: Partial<MarketingJobRuntimeDocument> = {}): MarketingJobRuntimeDocument {
+function makeDoc(overrides: Partial<SocialContentJobRuntimeDocument> = {}): SocialContentJobRuntimeDocument {
   const ts = new Date().toISOString();
   function stage(s: MarketingStage) {
     return {
@@ -176,13 +176,13 @@ function makeDoc(overrides: Partial<MarketingJobRuntimeDocument> = {}): Marketin
   };
 }
 
-type ApproveCall = { input: ApproveMarketingJobRequest; doc: MarketingJobRuntimeDocument };
+type ApproveCall = { input: ApproveSocialContentJobRequest; doc: SocialContentJobRuntimeDocument };
 
 function makeApproveStub(opts: {
-  response?: ApproveMarketingJobResponse;
+  response?: ApproveSocialContentJobResponse;
   throws?: Error;
 } = {}): {
-  approve: (input: ApproveMarketingJobRequest, doc: MarketingJobRuntimeDocument) => Promise<ApproveMarketingJobResponse>;
+  approve: (input: ApproveSocialContentJobRequest, doc: SocialContentJobRuntimeDocument) => Promise<ApproveSocialContentJobResponse>;
   calls: ApproveCall[];
 } {
   const calls: ApproveCall[] = [];

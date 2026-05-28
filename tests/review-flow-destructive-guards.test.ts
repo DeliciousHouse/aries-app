@@ -48,8 +48,8 @@ function baseReviewItem(overrides: Partial<RuntimeReviewItem> = {}): RuntimeRevi
   return {
     id: 'job_x::approval',
     jobId: 'job_x',
-    campaignId: 'job_x',
-    campaignName: 'Demo',
+    postId: 'job_x',
+    postName: 'Demo',
     reviewType: 'workflow_approval',
     workflowState: 'strategy_review_required',
     workflowStage: 'strategy',

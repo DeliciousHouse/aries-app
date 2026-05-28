@@ -4,8 +4,8 @@ import pg from 'pg';
 
 import { buildSocialContentDashboardProjection } from '../../backend/social-content/dashboard-projection';
 import { countPublishedPostsForJob } from '../../backend/marketing/published-posts-count';
-import type { MarketingDashboardCampaignContent } from '../../backend/marketing/dashboard-content';
-import type { MarketingJobRuntimeDocument } from '../../backend/marketing/runtime-state';
+import type { MarketingDashboardSocialContentJobContent } from '../../backend/marketing/dashboard-content';
+import type { SocialContentJobRuntimeDocument } from '../../backend/marketing/runtime-state';
 
 // Regression test for the dashboard "Publish items 0" bug.
 //
@@ -19,9 +19,9 @@ import type { MarketingJobRuntimeDocument } from '../../backend/marketing/runtim
 //   (2) countPublishedPostsForJob counts real `posts` rows by job_id against
 //       live Postgres (the count must match reality, not a mock).
 
-function emptyDashboard(): MarketingDashboardCampaignContent {
+function emptyDashboard(): MarketingDashboardSocialContentJobContent {
   return {
-    campaign: null,
+    post: null,
     posts: [],
     assets: [],
     publishItems: [],
@@ -43,7 +43,7 @@ function emptyDashboard(): MarketingDashboardCampaignContent {
 // A completed weekly-social runtime doc whose projection plan has ONE post but
 // whose `publishingRequested` is unset — i.e. the legacy `includePublishQueue`
 // gate is false. This is the shape that produced "Publish items 0" in prod.
-function completedSocialDoc(): MarketingJobRuntimeDocument {
+function completedSocialDoc(): SocialContentJobRuntimeDocument {
   return {
     tenant_id: 'tenant_publish_counter',
     job_id: 'mkt_publish_counter',
@@ -83,13 +83,13 @@ function completedSocialDoc(): MarketingJobRuntimeDocument {
         },
       },
     },
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 }
 
 test('publish-items counter is 0 without a real post count (reproduces the bug)', () => {
   const dashboard = buildSocialContentDashboardProjection(completedSocialDoc(), emptyDashboard());
   assert.equal(dashboard.publishItems.length, 0, 'legacy gate yields no publish items');
-  assert.equal(dashboard.campaign?.counts.publishItems, 0, 'counter shows 0 — the bug');
+  assert.equal(dashboard.post?.counts.publishItems, 0, 'counter shows 0 — the bug');
 });
 
 test('publish-items counter reflects the real DB post count even when the legacy gate is off', () => {
@@ -102,7 +102,7 @@ test('publish-items counter reflects the real DB post count even when the legacy
     'publish items padded up to the real synthesized DB post count',
   );
   assert.equal(
-    dashboard.campaign?.counts.publishItems,
+    dashboard.post?.counts.publishItems,
     3,
     'campaign counter matches the real DB post count',
   );
@@ -116,7 +116,7 @@ test('publish-items counter never drops below the projection plan posts', () => 
     { realPublishedPostCount: 1 },
   );
   assert.equal(dashboard.publishItems.length, 1);
-  assert.equal(dashboard.campaign?.counts.publishItems, 1);
+  assert.equal(dashboard.post?.counts.publishItems, 1);
 });
 
 function dbConfigFromEnv(): pg.PoolConfig | null {

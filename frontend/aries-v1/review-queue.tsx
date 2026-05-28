@@ -15,7 +15,7 @@ function reviewTypeLabel(value: string): string {
     return 'Brand direction';
   }
   if (value === 'strategy') {
-    return 'Campaign strategy';
+    return 'Social content strategy';
   }
   if (value === 'creative') {
     return 'Creative approval';
@@ -88,7 +88,7 @@ export default function AriesReviewQueueScreen() {
                 <p className="text-sm leading-7 text-white/60">{item.summary}</p>
               </div>
               <div className="space-y-2 text-sm text-white/62">
-                <InfoRow label="Campaign" value={item.campaignName} />
+                <InfoRow label="Campaign" value={item.postName} />
                 <InfoRow label="Review" value={reviewTypeLabel(item.reviewType)} />
                 <InfoRow label="Placement" value={`${item.channel} · ${item.placement}`} />
               </div>
@@ -115,7 +115,7 @@ export default function AriesReviewQueueScreen() {
                   <div>
                     <p className="text-sm font-medium text-white">{item.title}</p>
                     <p className="mt-1 text-sm text-white/55">
-                      {item.campaignName} · {reviewTypeLabel(item.reviewType)} · {workflowStateLabel(item.workflowState)}
+                      {item.postName} · {reviewTypeLabel(item.reviewType)} · {workflowStateLabel(item.workflowState)}
                     </p>
                   </div>
                   <StatusChip status={item.status} />

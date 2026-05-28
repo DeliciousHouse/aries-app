@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-import { loadMarketingJobRuntime } from '@/backend/marketing/runtime-state';
+import { loadSocialContentJobRuntime } from '@/backend/marketing/runtime-state';
 import {
   getOperatorCreativePreferences,
   upsertOperatorCreativePreferences,
@@ -39,7 +39,7 @@ export async function handleGetCreativeVoicePreference(
   }
   const { tenantContext } = tenantResult;
 
-  const doc = await loadMarketingJobRuntime(jobId);
+  const doc = await loadSocialContentJobRuntime(jobId);
   if (!doc || doc.tenant_id !== tenantContext.tenantId) {
     return NextResponse.json(JOB_NOT_FOUND, { status: 404 });
   }
@@ -73,7 +73,7 @@ export async function handlePutCreativeVoicePreference(
     );
   }
 
-  const doc = await loadMarketingJobRuntime(jobId);
+  const doc = await loadSocialContentJobRuntime(jobId);
   if (!doc || doc.tenant_id !== tenantContext.tenantId) {
     return NextResponse.json(JOB_NOT_FOUND, { status: 404 });
   }

@@ -133,7 +133,7 @@ test("social content form submits defaults and navigates to social-content statu
     const submitted = fetchCalls[0]?.body;
     assert.ok(submitted);
 
-    assert.equal(submitted?.get("campaignWindowDays"), "7");
+    assert.equal(submitted?.get("postWindowDays"), "7");
     assert.equal(submitted?.get("staticPostCount"), "7");
     assert.equal(submitted?.get("imageCreativeCount"), "6");
     assert.equal(submitted?.get("videoScriptCount"), "1");

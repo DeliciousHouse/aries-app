@@ -284,7 +284,7 @@ function buildFallbackLandingHtml(match: LandingContractMatch): string {
     `<title>${escapeHtml(title)}</title>`,
     `<style>${defaultPublicStyles()}</style>`,
     '</head><body><main>',
-    `<section class="card"><p class="eyebrow">Public campaign preview</p><h1>${escapeHtml(heroHeadline)}</h1>`,
+    `<section class="card"><p class="eyebrow">Public social content preview</p><h1>${escapeHtml(heroHeadline)}</h1>`,
     heroSubheadline ? `<p>${escapeHtml(heroSubheadline)}</p>` : '',
     bodyLines.length > 0 ? `<div>${bodyLines.map((line) => `<p>${escapeHtml(line)}</p>`).join('')}</div>` : '',
     `<p><a class="cta" href="#cta">${escapeHtml(primaryCta)}</a></p></section>`,

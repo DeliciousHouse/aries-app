@@ -18,8 +18,8 @@ function makeReviewItemResponseBody(id: string) {
     review: {
       id,
       jobId: 'job_demo',
-      campaignId: 'camp_demo',
-      campaignName: 'Demo',
+      postId: 'camp_demo',
+      postName: 'Demo',
       reviewType: 'creative',
       workflowState: 'in_review',
       workflowStage: 'production',

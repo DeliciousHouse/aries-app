@@ -1,17 +1,17 @@
 import { NextResponse } from 'next/server';
 
 import { buildSocialContentDashboardProjection } from '@/backend/social-content/dashboard-projection';
-import type { MarketingApprovalSummary, MarketingJobStatusResponse } from '@/backend/marketing/jobs-status';
+import type { MarketingApprovalSummary, SocialContentJobStatusResponse } from '@/backend/marketing/jobs-status';
 import { getMarketingJobStatusCached } from '@/backend/marketing/jobs-status';
 import { countPublishedPostsForJob } from '@/backend/marketing/published-posts-count';
-import { loadMarketingJobRuntime } from '@/backend/marketing/runtime-state';
-import { buildCampaignWorkspaceView } from '@/backend/marketing/workspace-views';
+import { loadSocialContentJobRuntime } from '@/backend/marketing/runtime-state';
+import { buildSocialContentWorkspaceView } from '@/backend/marketing/workspace-views';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
 const MARKETING_ONBOARDING_REQUIRED = {
   status: 409,
   reason: 'onboarding_required',
-  message: 'Complete tenant onboarding before viewing brand campaign status.',
+  message: 'Complete tenant onboarding before viewing brand social content status.',
 } as const;
 
 const MARKETING_JOB_NOT_FOUND_RESPONSE = {
@@ -23,8 +23,8 @@ type ResponseDialect = 'marketing' | 'social-content';
 
 function alignApprovalWithWorkspace(
   approval: MarketingApprovalSummary | null,
-  workflowState: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['workflowState'],
-  publishBlockedReason: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['publishBlockedReason'],
+  workflowState: Awaited<ReturnType<typeof buildSocialContentWorkspaceView>>['workflowState'],
+  publishBlockedReason: Awaited<ReturnType<typeof buildSocialContentWorkspaceView>>['publishBlockedReason'],
 ) {
   if (!approval || workflowState !== 'revisions_requested') {
     return approval;
@@ -41,14 +41,14 @@ function alignApprovalWithWorkspace(
 
 function alignApprovalRequiredWithWorkspace(
   approvalRequired: boolean,
-  workflowState: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['workflowState'],
+  workflowState: Awaited<ReturnType<typeof buildSocialContentWorkspaceView>>['workflowState'],
 ) {
   return workflowState === 'revisions_requested' ? false : approvalRequired;
 }
 
 function alignNextStepWithWorkspace(
-  nextStep: MarketingJobStatusResponse['nextStep'],
-  workflowState: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['workflowState'],
+  nextStep: SocialContentJobStatusResponse['nextStep'],
+  workflowState: Awaited<ReturnType<typeof buildSocialContentWorkspaceView>>['workflowState'],
 ) {
   return workflowState === 'revisions_requested' ? 'wait_for_completion' : nextStep;
 }
@@ -83,9 +83,9 @@ function replaceCampaignTerms(value: string, calendarLabel = socialContentCalend
 }
 
 function socialContentSummary(
-  summary: MarketingJobStatusResponse['summary'],
+  summary: SocialContentJobStatusResponse['summary'],
   durationDays: number | null,
-): MarketingJobStatusResponse['summary'] {
+): SocialContentJobStatusResponse['summary'] {
   const calendarLabel = socialContentCalendarLabel(durationDays);
   const rewrittenSubheadline = replaceCampaignTerms(summary.subheadline, calendarLabel);
   const weeklySubheadline = new RegExp(calendarLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(rewrittenSubheadline)
@@ -116,9 +116,9 @@ function socialContentApproval(
 }
 
 function socialContentStageCards(
-  stageCards: MarketingJobStatusResponse['stageCards'],
+  stageCards: SocialContentJobStatusResponse['stageCards'],
   durationDays: number | null,
-): MarketingJobStatusResponse['stageCards'] {
+): SocialContentJobStatusResponse['stageCards'] {
   const calendarLabel = socialContentCalendarLabel(durationDays);
   return stageCards.map((card) => ({
     ...card,
@@ -129,9 +129,9 @@ function socialContentStageCards(
 }
 
 function socialContentArtifacts(
-  artifacts: MarketingJobStatusResponse['artifacts'],
+  artifacts: SocialContentJobStatusResponse['artifacts'],
   durationDays: number | null,
-): MarketingJobStatusResponse['artifacts'] {
+): SocialContentJobStatusResponse['artifacts'] {
   const calendarLabel = socialContentCalendarLabel(durationDays);
   return artifacts.map((artifact) => ({
     ...artifact,
@@ -145,9 +145,9 @@ function socialContentArtifacts(
 }
 
 function socialContentTimeline(
-  timeline: MarketingJobStatusResponse['timeline'],
+  timeline: SocialContentJobStatusResponse['timeline'],
   durationDays: number | null,
-): MarketingJobStatusResponse['timeline'] {
+): SocialContentJobStatusResponse['timeline'] {
   const calendarLabel = socialContentCalendarLabel(durationDays);
   return timeline.map((entry) => ({
     ...entry,
@@ -157,9 +157,9 @@ function socialContentTimeline(
 }
 
 function socialContentStatusHistory(
-  statusHistory: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['statusHistory'],
+  statusHistory: Awaited<ReturnType<typeof buildSocialContentWorkspaceView>>['statusHistory'],
   durationDays: number | null,
-): Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['statusHistory'] {
+): Awaited<ReturnType<typeof buildSocialContentWorkspaceView>>['statusHistory'] {
   const calendarLabel = socialContentCalendarLabel(durationDays);
   return statusHistory.map((entry) => ({
     ...entry,
@@ -168,25 +168,25 @@ function socialContentStatusHistory(
 }
 
 function socialContentCopyDashboard(
-  dashboard: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['dashboard'],
+  dashboard: Awaited<ReturnType<typeof buildSocialContentWorkspaceView>>['dashboard'],
   durationDays: number | null,
-): Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['dashboard'] {
+): Awaited<ReturnType<typeof buildSocialContentWorkspaceView>>['dashboard'] {
   const calendarLabel = socialContentCalendarLabel(durationDays);
   return {
     ...dashboard,
-    campaign: dashboard.campaign
+    post: dashboard.post
       ? {
-          ...dashboard.campaign,
-          name: /^Campaign in progress$/i.test(dashboard.campaign.name)
+          ...dashboard.post,
+          name: /^Campaign in progress$/i.test(dashboard.post.name)
             ? 'Social content in progress'
-            : replaceCampaignTerms(dashboard.campaign.name, calendarLabel),
-          objective: /^Campaign in progress$/i.test(dashboard.campaign.objective)
+            : replaceCampaignTerms(dashboard.post.name, calendarLabel),
+          objective: /^Campaign in progress$/i.test(dashboard.post.objective)
             ? 'Social content in progress'
-            : replaceCampaignTerms(dashboard.campaign.objective, calendarLabel),
-          summary: replaceCampaignTerms(dashboard.campaign.summary, calendarLabel),
-          stageLabel: replaceCampaignTerms(dashboard.campaign.stageLabel, calendarLabel),
+            : replaceCampaignTerms(dashboard.post.objective, calendarLabel),
+          summary: replaceCampaignTerms(dashboard.post.summary, calendarLabel),
+          stageLabel: replaceCampaignTerms(dashboard.post.stageLabel, calendarLabel),
         }
-      : dashboard.campaign,
+      : dashboard.post,
     assets: dashboard.assets.map((asset) => ({
       ...asset,
       title: replaceCampaignTerms(asset.title, calendarLabel),
@@ -213,14 +213,14 @@ function socialContentCopyDashboard(
 async function buildResponsePayload(
   dialect: ResponseDialect,
   result: Awaited<ReturnType<typeof getMarketingJobStatusCached>>['payload'],
-  workspaceView: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>,
-  runtimeDoc: NonNullable<Awaited<ReturnType<typeof loadMarketingJobRuntime>>>,
+  workspaceView: Awaited<ReturnType<typeof buildSocialContentWorkspaceView>>,
+  runtimeDoc: NonNullable<Awaited<ReturnType<typeof loadSocialContentJobRuntime>>>,
 ) {
   const base = {
     jobId: result.jobId,
     tenantName: result.tenantName,
     brandWebsiteUrl: result.brandWebsiteUrl,
-    campaignWindow: result.campaignWindow,
+    postWindow: result.postWindow,
     durationDays: result.durationDays,
     plannedPostCount: result.plannedPostCount,
     createdPostCount: result.createdPostCount,
@@ -239,7 +239,7 @@ async function buildResponsePayload(
     timeline: result.timeline,
     approval: alignApprovalWithWorkspace(result.approval, workspaceView.workflowState, workspaceView.publishBlockedReason),
     reviewBundle: result.reviewBundle,
-    campaignBrief: workspaceView.campaignBrief,
+    socialContentBrief: workspaceView.socialContentBrief,
     workflowState: workspaceView.workflowState,
     statusHistory: workspaceView.statusHistory,
     brandReview: workspaceView.brandReview,
@@ -269,7 +269,7 @@ async function buildResponsePayload(
     social_content_job_status: base.marketing_job_status,
     social_content_stage: base.marketing_stage,
     social_content_stage_status: base.marketing_stage_status,
-    contentBrief: base.campaignBrief,
+    contentBrief: base.socialContentBrief,
     statusHistory: socialContentStatusHistory(base.statusHistory, base.durationDays),
     dashboard: buildSocialContentDashboardProjection(
       runtimeDoc,
@@ -294,7 +294,7 @@ export async function handleGetMarketingJobStatus(
     return tenantResult.response;
   }
 
-  const runtimeDoc = await loadMarketingJobRuntime(jobId);
+  const runtimeDoc = await loadSocialContentJobRuntime(jobId);
   if (!runtimeDoc || runtimeDoc.tenant_id !== tenantResult.tenantContext.tenantId) {
     console.warn('[marketing-job-not-found]', {
       jobId,
@@ -305,7 +305,7 @@ export async function handleGetMarketingJobStatus(
 
   try {
     const { payload: result, cacheStatus } = await getMarketingJobStatusCached(tenantResult.tenantContext.tenantId, jobId);
-    const workspaceView = await buildCampaignWorkspaceView(jobId);
+    const workspaceView = await buildSocialContentWorkspaceView(jobId);
 
     return NextResponse.json(await buildResponsePayload(dialect, result, workspaceView, runtimeDoc), {
       status: 200,

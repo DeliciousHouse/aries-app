@@ -76,9 +76,9 @@ async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise
   }
 }
 
-test('buildCampaignWorkspaceView uses per-family hooks for Meta image ad cards instead of the shared hook', async () => {
+test('buildSocialContentWorkspaceView uses per-family hooks for Meta image ad cards instead of the shared hook', async () => {
   await withRuntimeEnv(async (dataRoot) => {
-    const { buildCampaignWorkspaceView } = await import('../backend/marketing/workspace-views');
+    const { buildSocialContentWorkspaceView } = await import('../backend/marketing/workspace-views');
 
     const jobId = 'mkt_per_family_hook_test';
     const tenantId = 'tenant_per_family_hook';
@@ -257,7 +257,7 @@ test('buildCampaignWorkspaceView uses per-family hooks for Meta image ad cards i
       'utf8',
     );
 
-    const view = await buildCampaignWorkspaceView(jobId);
+    const view = await buildSocialContentWorkspaceView(jobId);
 
     assert.notEqual(view.creativeReview, null, 'creativeReview should be populated');
 

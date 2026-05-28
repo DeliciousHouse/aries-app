@@ -11,9 +11,9 @@ import type {
   MarketingPipelineRunInput,
 } from '../backend/marketing/execution-port';
 import {
-  createMarketingJobRuntimeDocument,
-  loadMarketingJobRuntime,
-  saveMarketingJobRuntime,
+  createSocialContentJobRuntimeDocument,
+  loadSocialContentJobRuntime,
+  saveSocialContentJobRuntime,
   type MarketingBrandKitReference,
 } from '../backend/marketing/runtime-state';
 import { regenerateCreativeAsNewRun } from '../backend/marketing/regenerate-creative';
@@ -42,7 +42,7 @@ function buildBrandKit(): MarketingBrandKitReference {
 }
 
 function buildSeedDoc(jobId: string, tenantId: string, sourceRunId: string) {
-  const doc = createMarketingJobRuntimeDocument({
+  const doc = createSocialContentJobRuntimeDocument({
     jobId,
     tenantId,
     payload: {
@@ -113,7 +113,7 @@ test('regenerateCreativeAsNewRun submits a NEW aries_run with regenerate context
     const sourceRunId = 'arun_source_helper_run';
     const creativeId = 'creative_helper_42';
     const doc = buildSeedDoc(jobId, tenantId, sourceRunId);
-    saveMarketingJobRuntime(jobId, doc);
+    saveSocialContentJobRuntime(jobId, doc);
 
     const port = new StubMarketingPort();
     const result = await regenerateCreativeAsNewRun({
@@ -148,7 +148,7 @@ test('regenerateCreativeAsNewRun infers source_run_id from runtime doc when omit
     const tenantId = 'tenant_regen_helper';
     const inferredRunId = 'arun_inferred_research';
     const doc = buildSeedDoc(jobId, tenantId, inferredRunId);
-    saveMarketingJobRuntime(jobId, doc);
+    saveSocialContentJobRuntime(jobId, doc);
 
     const port = new StubMarketingPort();
     const result = await regenerateCreativeAsNewRun({
@@ -172,7 +172,7 @@ test('regenerateCreativeAsNewRun rejects cross-tenant access (job_not_found cont
     const attackerTenantId = 'tenant_attacker_helper';
     const sourceRunId = 'arun_owner_source';
     const doc = buildSeedDoc(jobId, ownerTenantId, sourceRunId);
-    saveMarketingJobRuntime(jobId, doc);
+    saveSocialContentJobRuntime(jobId, doc);
 
     const port = new StubMarketingPort();
     const result = await regenerateCreativeAsNewRun({
@@ -193,7 +193,7 @@ test('regenerateCreativeAsNewRun returns invalid_input when creativeId is empty'
     const jobId = 'mkt_regen_helper_4';
     const tenantId = 'tenant_regen_helper';
     const doc = buildSeedDoc(jobId, tenantId, 'arun_with_run');
-    saveMarketingJobRuntime(jobId, doc);
+    saveSocialContentJobRuntime(jobId, doc);
 
     const port = new StubMarketingPort();
     const result = await regenerateCreativeAsNewRun({
@@ -215,7 +215,7 @@ test('regenerateCreativeAsNewRun returns missing_source_run_id when doc has no r
   await withDataRoot(async () => {
     const jobId = 'mkt_regen_helper_5';
     const tenantId = 'tenant_regen_helper';
-    const doc = createMarketingJobRuntimeDocument({
+    const doc = createSocialContentJobRuntimeDocument({
       jobId,
       tenantId,
       payload: {
@@ -227,7 +227,7 @@ test('regenerateCreativeAsNewRun returns missing_source_run_id when doc has no r
       },
       brandKit: buildBrandKit(),
     });
-    saveMarketingJobRuntime(jobId, doc);
+    saveSocialContentJobRuntime(jobId, doc);
 
     const port = new StubMarketingPort();
     const result = await regenerateCreativeAsNewRun({
@@ -251,7 +251,7 @@ test('POST /regenerate route returns 202 with new_run_id !== source_run_id', asy
     const sourceRunId = 'arun_route_source_run';
     const creativeId = 'creative_route_99';
     const doc = buildSeedDoc(jobId, tenantId, sourceRunId);
-    saveMarketingJobRuntime(jobId, doc);
+    saveSocialContentJobRuntime(jobId, doc);
 
     const port = new StubMarketingPort('arun_regen_route');
     const response = await handleRegenerateCreative(
@@ -292,7 +292,7 @@ test('POST /regenerate denies cross-tenant requests with 404', async () => {
     const ownerTenantId = 'tenant_route_owner';
     const attackerTenantId = 'tenant_route_attacker';
     const doc = buildSeedDoc(jobId, ownerTenantId, 'arun_route_owner_source');
-    saveMarketingJobRuntime(jobId, doc);
+    saveSocialContentJobRuntime(jobId, doc);
 
     const port = new StubMarketingPort();
     const response = await handleRegenerateCreative(
@@ -324,7 +324,7 @@ test('POST /regenerate rejects unauthenticated callers with 403', async () => {
     const jobId = 'mkt_regen_route_3';
     const tenantId = 'tenant_route_unauth';
     const doc = buildSeedDoc(jobId, tenantId, 'arun_route_unauth_source');
-    saveMarketingJobRuntime(jobId, doc);
+    saveSocialContentJobRuntime(jobId, doc);
 
     const port = new StubMarketingPort();
     const response = await handleRegenerateCreative(
@@ -353,9 +353,9 @@ test('regenerate preserves the source runtime doc (no deletion or in-place mutat
     const sourceRunId = 'arun_preserve_source';
     const creativeId = 'creative_preserve_77';
     const doc = buildSeedDoc(jobId, tenantId, sourceRunId);
-    saveMarketingJobRuntime(jobId, doc);
+    saveSocialContentJobRuntime(jobId, doc);
 
-    const docBefore = await loadMarketingJobRuntime(jobId);
+    const docBefore = await loadSocialContentJobRuntime(jobId);
     assert.ok(docBefore);
     const beforeUpdatedAt = docBefore.updated_at;
     const beforeResearchRunId = docBefore.stages.research.run_id;
@@ -371,7 +371,7 @@ test('regenerate preserves the source runtime doc (no deletion or in-place mutat
 
     assert.equal(result.kind, 'submitted');
 
-    const docAfter = await loadMarketingJobRuntime(jobId);
+    const docAfter = await loadSocialContentJobRuntime(jobId);
     assert.ok(docAfter);
     assert.equal(docAfter.tenant_id, tenantId);
     assert.equal(docAfter.stages.research.run_id, beforeResearchRunId);

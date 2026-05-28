@@ -1,7 +1,7 @@
-import type { RuntimeCampaignListItem } from '@/lib/api/aries-v1';
+import type { RuntimePostListItem } from '@/lib/api/aries-v1';
 import type { DashboardHeroMetric } from '@/frontend/aries-v1/components';
 
-export interface CampaignListViewModel {
+export interface SocialContentListViewModel {
   hero: {
     eyebrow: string;
     title: string;
@@ -12,7 +12,7 @@ export interface CampaignListViewModel {
     id: string;
     name: string;
     summary: string;
-    status: RuntimeCampaignListItem['status'];
+    status: RuntimePostListItem['status'];
     trustNote: string;
     objective: string;
     dateRange: string;
@@ -41,7 +41,7 @@ function formatUpdatedLabel(updatedAt: string | null): string {
   }).format(new Date(timestamp))}`;
 }
 
-export function createCampaignListViewModel(campaigns: RuntimeCampaignListItem[]): CampaignListViewModel {
+export function createSocialContentListViewModel(campaigns: RuntimePostListItem[]): SocialContentListViewModel {
   const liveCount = campaigns.filter((campaign) => campaign.status === 'live').length;
   const reviewCount = campaigns.filter(
     (campaign) => campaign.status === 'in_review' || campaign.pendingApprovals > 0,

@@ -1,7 +1,7 @@
 import { repairStaleMarketingOffer } from '@/backend/marketing/brand-kit';
 import type {
   MarketingBrandKitReference,
-  MarketingJobRuntimeDocument,
+  SocialContentJobRuntimeDocument,
 } from '@/backend/marketing/runtime-state';
 import {
   redactTokenLikeString,
@@ -91,7 +91,7 @@ function dedupeStrings(values: Iterable<string>): string[] {
 }
 
 function resolvedOnboarding(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   onboarding: UnknownRecord | null | undefined,
 ): UnknownRecord {
   if (onboarding && typeof onboarding === 'object' && !Array.isArray(onboarding)) {
@@ -189,7 +189,7 @@ function resolveMustAvoidAesthetics(req: UnknownRecord): string[] {
 }
 
 export function buildBrandKitPayload(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   brandKit: MarketingBrandKitReference | null | undefined,
   onboarding: UnknownRecord | null | undefined,
 ): {

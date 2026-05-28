@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import type {
-  MarketingCampaignStatusHistoryEntry,
+  SocialContentStatusHistoryEntry,
   MarketingReviewAttachment,
   MarketingReviewSection,
   MarketingStage,
@@ -14,20 +14,20 @@ import { resolveDataPath } from '@/lib/runtime-paths';
 
 import { buildMarketingAssetLinks } from './asset-library';
 import { normalizeBrandKitSignals } from './brand-kit';
-import { approveMarketingJob } from './jobs-approve';
-import { denyMarketingJob } from './orchestrator';
+import { approveSocialContentJob } from './jobs-approve';
+import { denySocialContentJob } from './orchestrator';
 import {
-  listDeletedMarketingJobIdsForTenant,
-  listMarketingJobIdsForTenant,
+  listDeletedSocialContentJobIdsForTenant,
+  listSocialContentJobIdsForTenant,
   listMarketingTenantIds,
-  loadMarketingJobRuntime,
-  type MarketingJobRuntimeDocument,
+  loadSocialContentJobRuntime,
+  type SocialContentJobRuntimeDocument,
 } from './runtime-state';
 import {
   dashboardDateRangeText,
   type MarketingDashboardAsset,
-  type MarketingDashboardCampaign,
-  type MarketingDashboardCampaignContent,
+  type MarketingDashboardSocialContentJob,
+  type MarketingDashboardSocialContentJobContent,
   type MarketingDashboardCalendarEvent,
   type MarketingDashboardContent,
   type MarketingDashboardItemStatus,
@@ -35,15 +35,15 @@ import {
   type MarketingDashboardPublishItem,
   type MarketingDashboardStatusSummary,
 } from './dashboard-content';
-import { getMarketingJobStatus, type MarketingJobStatusResponse } from './jobs-status';
+import { getMarketingJobStatus, type SocialContentJobStatusResponse } from './jobs-status';
 import {
-  buildCampaignWorkspaceView,
+  buildSocialContentWorkspaceView,
   getWorkflowAwareDashboardContentForTenant,
-  type CampaignWorkspaceView,
+  type SocialContentWorkspaceView,
 } from './workspace-views';
 import {
-  ensureCampaignWorkspaceRecord,
-  saveCampaignWorkspaceRecord,
+  ensureSocialContentWorkspaceRecord,
+  saveSocialContentWorkspaceRecord,
   setCreativeAssetDecision,
   setStageReviewDecision,
 } from './workspace-store';
@@ -55,7 +55,7 @@ import {
 import { validateCaption, type Channel as CaptionChannel } from '@/backend/social-content/caption-validator';
 import { formatInTenantZone } from '@/lib/format-timestamp';
 
-export type RuntimeCampaignStatus =
+export type RuntimePostStatus =
   | 'draft'
   | 'in_review'
   | 'approved'
@@ -64,7 +64,7 @@ export type RuntimeCampaignStatus =
   | 'changes_requested'
   | 'rejected';
 
-export type RuntimeCampaignDashboard = {
+export type RuntimePostDashboard = {
   posts: MarketingDashboardPost[];
   assets: MarketingDashboardAsset[];
   publishItems: MarketingDashboardPublishItem[];
@@ -72,13 +72,13 @@ export type RuntimeCampaignDashboard = {
   statuses: MarketingDashboardStatusSummary;
 };
 
-export type RuntimeCampaignListItem = {
+export type RuntimePostListItem = {
   id: string;
   jobId: string;
   name: string;
   objective: string;
   funnelStage: string | null;
-  status: RuntimeCampaignStatus;
+  status: RuntimePostStatus;
   dashboardStatus: MarketingDashboardItemStatus;
   /** Raw execution state from the marketing job runtime doc (e.g. 'running',
    * 'failed', 'completed'). Carried through to the API response so the
@@ -94,12 +94,12 @@ export type RuntimeCampaignListItem = {
   updatedAt: string | null;
   approvalRequired: boolean;
   approvalActionHref?: string;
-  counts: MarketingDashboardCampaign['counts'];
+  counts: MarketingDashboardSocialContentJob['counts'];
   previewPosts: MarketingDashboardPost[];
   previewAssets: MarketingDashboardAsset[];
-  dashboard: RuntimeCampaignDashboard;
+  dashboard: RuntimePostDashboard;
   /** Set when the campaign has been soft-deleted. Matches the field of the
-   * same name on the public `RuntimeCampaignListItem` type in
+   * same name on the public `RuntimePostListItem` type in
    * `lib/api/aries-v1.ts`, so the API response passes through cleanly. */
   deletedAt?: string | null;
   /** Set alongside `deletedAt`. User id of whoever deleted the campaign. */
@@ -123,8 +123,8 @@ export type RuntimeReviewDecision = {
 export type RuntimeReviewItem = {
   id: string;
   jobId: string;
-  campaignId: string;
-  campaignName: string;
+  postId: string;
+  postName: string;
   reviewType: 'brand' | 'strategy' | 'creative' | 'workflow_approval';
   workflowState: MarketingWorkflowState;
   workflowStage: string | null;
@@ -132,7 +132,7 @@ export type RuntimeReviewItem = {
   channel: string;
   placement: string;
   scheduledFor: string;
-  status: RuntimeCampaignStatus;
+  status: RuntimePostStatus;
   summary: string;
   currentVersion: {
     id: string;
@@ -159,7 +159,7 @@ export type RuntimeReviewItem = {
   destinationUrl?: string | null;
   sections: MarketingReviewSection[];
   attachments: MarketingReviewAttachment[];
-  history: MarketingCampaignStatusHistoryEntry[];
+  history: SocialContentStatusHistoryEntry[];
 };
 
 export type RuntimeReviewQueue = {
@@ -181,7 +181,7 @@ export type RuntimeReviewStateFile = {
     string,
     {
       sourceHash: string;
-      status: RuntimeCampaignStatus;
+      status: RuntimePostStatus;
       lastDecision: RuntimeReviewDecision | null;
     }
   >;
@@ -289,44 +289,44 @@ function formatList(items: Array<string | null | undefined>, empty = 'None provi
   return values.map((item) => `- ${item}`).join('\n');
 }
 
-function isApproveStage2Checkpoint(status: MarketingJobStatusResponse): boolean {
+function isApproveStage2Checkpoint(status: SocialContentJobStatusResponse): boolean {
   return status.approval?.workflowStepId === 'approve_stage_2';
 }
 
-function approvalSurfaceSummary(status: MarketingJobStatusResponse): string {
+function approvalSurfaceSummary(status: SocialContentJobStatusResponse): string {
   const message = stringValue(status.approval?.message, status.summary.subheadline);
   switch (status.approval?.workflowStepId) {
     case 'approve_stage_2':
       return 'Research is complete. Brand analysis is ready next once this direction is approved.';
     case 'approve_stage_3':
-      return message || 'The campaign strategy is ready for approval before production begins.';
+      return message || 'The social content strategy is ready for approval before production begins.';
     case 'approve_stage_4':
       return message || 'Creative production is ready for approval before launch packaging begins.';
     case 'approve_stage_4_publish':
       return message || 'Launch packaging is ready for approval before publishing begins.';
     default:
-      return message || 'The next campaign checkpoint is ready for review.';
+      return message || 'The next social content checkpoint is ready for review.';
   }
 }
 
-function approvalSurfaceTitle(status: MarketingJobStatusResponse): string {
+function approvalSurfaceTitle(status: SocialContentJobStatusResponse): string {
   switch (status.approval?.workflowStepId) {
     case 'approve_stage_2':
       return 'Research complete';
     case 'approve_stage_3':
-      return 'Campaign strategy';
+      return 'Social content strategy';
     case 'approve_stage_4':
       return 'Creative review';
     case 'approve_stage_4_publish':
       return 'Publishing approval';
     default:
-      return stringValue(status.approval?.title, 'Campaign approval');
+      return stringValue(status.approval?.title, 'Social content approval');
   }
 }
 
 function firstCheckpointBrandKitVisuals(
-  status: MarketingJobStatusResponse,
-  runtimeDoc: MarketingJobRuntimeDocument,
+  status: SocialContentJobStatusResponse,
+  runtimeDoc: SocialContentJobRuntimeDocument,
 ): NonNullable<MarketingReviewSection['brandKitVisuals']> {
   const normalized = normalizeBrandKitSignals(runtimeDoc.brand_kit);
   const colorEntries = [
@@ -349,7 +349,7 @@ function firstCheckpointBrandKitVisuals(
 function runtimeStatusFromWorkflowState(
   workflowState: MarketingWorkflowState,
   dashboardStatus?: MarketingDashboardItemStatus | null,
-): RuntimeCampaignStatus {
+): RuntimePostStatus {
   if (workflowState === 'published') {
     if (dashboardStatus === 'live') {
       return 'live';
@@ -371,7 +371,7 @@ function runtimeStatusFromWorkflowState(
   return 'draft';
 }
 
-function runtimeStatusFromReviewState(status: 'not_ready' | 'pending_review' | 'approved' | 'changes_requested' | 'rejected'): RuntimeCampaignStatus {
+function runtimeStatusFromReviewState(status: 'not_ready' | 'pending_review' | 'approved' | 'changes_requested' | 'rejected'): RuntimePostStatus {
   switch (status) {
     case 'approved':
       return 'approved';
@@ -393,7 +393,7 @@ function formatUtcTimestampLabel(value: string): string {
   return `${formatInTenantZone(value, 'UTC')} UTC`;
 }
 
-function nextScheduledText(status: MarketingJobStatusResponse): string {
+function nextScheduledText(status: SocialContentJobStatusResponse): string {
   const next = status.calendarEvents
     .slice()
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt))[0];
@@ -413,7 +413,7 @@ function nextScheduledTextFromDashboard(events: MarketingDashboardCalendarEvent[
   return `${formatUtcTimestampLabel(next.startsAt)} · ${next.statusLabel}${next.platformLabel ? ` · ${next.platformLabel}` : ''}`;
 }
 
-function campaignName(status: MarketingJobStatusResponse, view: CampaignWorkspaceView): string {
+function postName(status: SocialContentJobStatusResponse, view: SocialContentWorkspaceView): string {
   // QA 2026-05-12 ISSUE-007: when a tenant has multiple campaigns that haven't
   // been named by the runtime yet, every fallback used the same tenant name
   // and the cards rendered identically. Append a short ID suffix to the
@@ -421,36 +421,36 @@ function campaignName(status: MarketingJobStatusResponse, view: CampaignWorkspac
   // at a glance, and use it as the unique-enough default when nothing else
   // is available.
   const idSuffix = status.jobId ? status.jobId.slice(-6) : '';
-  const runtimeName = view.dashboard.campaign?.name || status.reviewBundle?.campaignName;
+  const runtimeName = view.dashboard.post?.name || status.reviewBundle?.postName;
   if (runtimeName) return runtimeName;
   if (status.tenantName) {
     return idSuffix ? `${status.tenantName} · ${idSuffix}` : status.tenantName;
   }
-  return idSuffix ? `Campaign ${idSuffix}` : `Campaign ${status.jobId}`;
+  return idSuffix ? `Social content ${idSuffix}` : `Social content ${status.jobId}`;
 }
 
-function campaignObjective(status: MarketingJobStatusResponse, view: CampaignWorkspaceView): string {
+function postObjective(status: SocialContentJobStatusResponse, view: SocialContentWorkspaceView): string {
   // Avoid showing "Campaign in progress" for terminal-failed runs — they are
   // no longer in progress and the operator needs to start a fresh run.
   const terminalFallback =
     status.state === 'failed' || status.state === 'failed_stale'
       ? 'Run failed — start a new weekly run to continue.'
-      : 'Campaign in progress';
-  return view.dashboard.campaign?.objective || status.summary.headline || terminalFallback;
+      : 'Social content job in progress';
+  return view.dashboard.post?.objective || status.summary.headline || terminalFallback;
 }
 
 function buildCampaignListItem(
-  status: MarketingJobStatusResponse,
-  view: CampaignWorkspaceView,
+  status: SocialContentJobStatusResponse,
+  view: SocialContentWorkspaceView,
   pendingApprovals: number,
   brandKitExtractedAt?: string | null,
-): RuntimeCampaignListItem {
-  const dashboardCampaign = view.dashboard.campaign;
+): RuntimePostListItem {
+  const dashboardCampaign = view.dashboard.post;
   return {
     id: status.jobId,
     jobId: status.jobId,
-    name: campaignName(status, view),
-    objective: campaignObjective(status, view),
+    name: postName(status, view),
+    objective: postObjective(status, view),
     funnelStage: dashboardCampaign?.funnelStage || null,
     status: runtimeStatusFromWorkflowState(view.workflowState, dashboardCampaign?.status || null),
     dashboardStatus: dashboardCampaign?.status || 'draft',
@@ -458,9 +458,9 @@ function buildCampaignListItem(
     // genuinely running job from a terminal one whose workflow status is still
     // 'draft' (e.g. a failed run that never advanced to any review state).
     executionState: status.state,
-    stageLabel: dashboardCampaign?.stageLabel || status.currentStage || 'campaign',
-    summary: dashboardCampaign?.summary || status.summary.subheadline || 'Campaign status is available for review.',
-    dateRange: dashboardCampaign ? dashboardDateRangeText(dashboardCampaign.campaignWindow) : 'Dates not scheduled yet',
+    stageLabel: dashboardCampaign?.stageLabel || status.currentStage || 'social content',
+    summary: dashboardCampaign?.summary || status.summary.subheadline || 'Social content status is available for review.',
+    dateRange: dashboardCampaign ? dashboardDateRangeText(dashboardCampaign.postWindow) : 'Dates not scheduled yet',
     pendingApprovals,
     nextScheduled:
       view.dashboard.calendarEvents.length > 0 ? nextScheduledTextFromDashboard(view.dashboard.calendarEvents) : nextScheduledText(status),
@@ -571,7 +571,7 @@ function isWorkflowApprovalItem(item: RuntimeReviewItem): boolean {
   return item.reviewType === 'workflow_approval' || item.currentVersion.id === 'approval' || item.currentVersion.id.startsWith('approval:');
 }
 
-function lastDecisionFromHistory(history: MarketingCampaignStatusHistoryEntry[]): RuntimeReviewDecision | null {
+function lastDecisionFromHistory(history: SocialContentStatusHistoryEntry[]): RuntimeReviewDecision | null {
   const latest = history
     .filter((entry) => !!entry.action)
     .slice()
@@ -588,21 +588,21 @@ function lastDecisionFromHistory(history: MarketingCampaignStatusHistoryEntry[])
 }
 
 function stageReviewItem(
-  view: CampaignWorkspaceView,
-  review: NonNullable<CampaignWorkspaceView['brandReview'] | CampaignWorkspaceView['strategyReview']>,
-  campaignNameValue: string,
+  view: SocialContentWorkspaceView,
+  review: NonNullable<SocialContentWorkspaceView['brandReview'] | SocialContentWorkspaceView['strategyReview']>,
+  postNameValue: string,
 ): RuntimeReviewItem {
   return {
     id: review.reviewId,
     jobId: view.jobId,
-    campaignId: view.jobId,
-    campaignName: campaignNameValue,
+    postId: view.jobId,
+    postName: postNameValue,
     reviewType: review.reviewType,
     workflowState: view.workflowState,
     workflowStage: review.reviewType,
     title: review.title,
     channel: review.reviewType === 'brand' ? 'Brand' : 'Strategy',
-    placement: 'Campaign review',
+    placement: 'Social content review',
     scheduledFor: 'Awaiting review',
     status: runtimeStatusFromReviewState(review.status),
     summary: review.summary,
@@ -624,15 +624,15 @@ function stageReviewItem(
 }
 
 function creativeReviewItem(
-  view: CampaignWorkspaceView,
-  item: NonNullable<CampaignWorkspaceView['creativeReview']>['assets'][number],
-  campaignNameValue: string,
+  view: SocialContentWorkspaceView,
+  item: NonNullable<SocialContentWorkspaceView['creativeReview']>['assets'][number],
+  postNameValue: string,
 ): RuntimeReviewItem {
   return {
     id: item.reviewId,
     jobId: view.jobId,
-    campaignId: view.jobId,
-    campaignName: campaignNameValue,
+    postId: view.jobId,
+    postName: postNameValue,
     reviewType: 'creative',
     workflowState: view.workflowState,
     workflowStage: 'creative',
@@ -693,9 +693,9 @@ function normalizePublishPreviewPlatform(value: string | null | undefined): stri
 }
 
 function publishPreviewReviewItems(
-  status: MarketingJobStatusResponse,
-  view: CampaignWorkspaceView,
-  campaignNameValue: string,
+  status: SocialContentJobStatusResponse,
+  view: SocialContentWorkspaceView,
+  postNameValue: string,
 ): RuntimeReviewItem[] {
   const reviewBundle = status.reviewBundle;
   if (!status.approval || status.currentStage !== 'publish' || !reviewBundle || reviewBundle.platformPreviews.length === 0) {
@@ -709,8 +709,8 @@ function publishPreviewReviewItems(
     return {
       id: `${status.jobId}::publish-preview:${normalizedPlatform}`,
       jobId: status.jobId,
-      campaignId: status.jobId,
-      campaignName: campaignNameValue,
+      postId: status.jobId,
+      postName: postNameValue,
       reviewType: 'creative',
       workflowState: view.workflowState,
       workflowStage: 'publish',
@@ -766,16 +766,16 @@ function publishPreviewReviewItems(
 }
 
 function firstCheckpointSections(
-  status: MarketingJobStatusResponse,
-  view: CampaignWorkspaceView,
-  runtimeDoc: MarketingJobRuntimeDocument,
+  status: SocialContentJobStatusResponse,
+  view: SocialContentWorkspaceView,
+  runtimeDoc: SocialContentJobRuntimeDocument,
 ): MarketingReviewSection[] {
   const researchCard = status.stageCards.find((card) => card.stage === 'research');
   const researchArtifacts = status.artifacts.filter((artifact) => artifact.stage === 'research');
   const researchArtifact = researchArtifacts[0];
   const researchPrimaryOutput = recordValue(runtimeDoc.stages.research.primary_output);
   const researchExecutiveSummary = recordValue(researchPrimaryOutput?.executive_summary);
-  const brief = view.campaignBrief;
+  const brief = view.socialContentBrief;
   const brandKit = runtimeDoc.brand_kit;
   const normalizedBrandKit = normalizeBrandKitSignals(brandKit);
   const researchDetailLines = (researchArtifact?.details || []).filter((entry) => typeof entry === 'string' && entry.trim().length > 0);
@@ -823,7 +823,7 @@ function firstCheckpointSections(
           : ''
       : '',
   ].filter((entry) => typeof entry === 'string' && entry.trim().length > 0).join('\n');
-  const campaignBriefBody = labeledBlock([
+  const socialContentBriefBody = labeledBlock([
     ['Business name', stringValue(brief?.businessName)],
     ['Business type', stringValue(brief?.businessType)],
     ['Goal', stringValue(brief?.goal)],
@@ -859,11 +859,11 @@ function firstCheckpointSections(
     },
   ];
 
-  if (campaignBriefBody.trim().length > 0) {
+  if (socialContentBriefBody.trim().length > 0) {
     sections.splice(1, 0, {
-      id: 'campaign-brief',
+      id: 'social-content-brief',
       title: 'Campaign brief',
-      body: campaignBriefBody,
+      body: socialContentBriefBody,
     });
   }
 
@@ -890,8 +890,8 @@ function viewerUrl(jobId: string, assetId: string): string {
 }
 
 async function firstCheckpointAttachments(
-  view: CampaignWorkspaceView,
-  runtimeDoc: MarketingJobRuntimeDocument,
+  view: SocialContentWorkspaceView,
+  runtimeDoc: SocialContentJobRuntimeDocument,
 ): Promise<MarketingReviewAttachment[]> {
   const attachments: MarketingReviewAttachment[] = [];
   const allAssetLinks = await buildMarketingAssetLinks(runtimeDoc.job_id, runtimeDoc);
@@ -941,7 +941,7 @@ async function firstCheckpointAttachments(
     });
   }
 
-  for (const asset of view.campaignBrief?.brandAssets || []) {
+  for (const asset of view.socialContentBrief?.brandAssets || []) {
     attachments.push({
       id: asset.id,
       label: asset.name,
@@ -963,7 +963,7 @@ async function firstCheckpointAttachments(
 // approve_stage_4 gate — without it the screen would only show the generic
 // approval prompt and the whole point of the Fix B pipeline reorder would be
 // invisible to reviewers.
-function launchReviewApprovalSections(runtimeDoc: MarketingJobRuntimeDocument): MarketingReviewSection[] {
+function launchReviewApprovalSections(runtimeDoc: SocialContentJobRuntimeDocument): MarketingReviewSection[] {
   const publishPrimary = recordValue(runtimeDoc.stages.publish?.primary_output);
   const bundle = recordValue(publishPrimary?.review_bundle);
   if (!bundle) {
@@ -973,7 +973,7 @@ function launchReviewApprovalSections(runtimeDoc: MarketingJobRuntimeDocument): 
   const summary = recordValue(bundle.summary) ?? {};
   const calendar = recordValue(bundle.content_calendar) ?? {};
   const previews = Array.isArray(bundle.platform_previews) ? bundle.platform_previews : [];
-  const campaignWindow = recordValue(summary.campaign_window);
+  const postWindow = recordValue(summary.campaign_window);
 
   const formatDate = (value: unknown): string => {
     const raw = stringValue(value);
@@ -996,8 +996,8 @@ function launchReviewApprovalSections(runtimeDoc: MarketingJobRuntimeDocument): 
   const sections: MarketingReviewSection[] = [];
 
   const summaryBlock = labeledBlock([
-    ['Campaign window', campaignWindow
-      ? `${formatDate(campaignWindow.start)} → ${formatDate(campaignWindow.end)} (${stringValue(campaignWindow.duration_days, '30')} days)`
+    ['Campaign window', postWindow
+      ? `${formatDate(postWindow.start)} → ${formatDate(postWindow.end)} (${stringValue(postWindow.duration_days, '30')} days)`
       : ''],
     ['Cadence', stringValue(calendar.cadence, 'funnel-weighted')],
     ['Planned posts', stringValue(summary.planned_posts)],
@@ -1079,10 +1079,10 @@ function launchReviewApprovalSections(runtimeDoc: MarketingJobRuntimeDocument): 
 }
 
 async function workflowApprovalItem(
-  status: MarketingJobStatusResponse,
-  view: CampaignWorkspaceView,
-  runtimeDoc: MarketingJobRuntimeDocument,
-  campaignNameValue: string,
+  status: SocialContentJobStatusResponse,
+  view: SocialContentWorkspaceView,
+  runtimeDoc: SocialContentJobRuntimeDocument,
+  postNameValue: string,
 ): Promise<RuntimeReviewItem | null> {
   if (!status.approval) {
     return null;
@@ -1123,8 +1123,8 @@ async function workflowApprovalItem(
   return {
     id: `${status.jobId}::approval`,
     jobId: status.jobId,
-    campaignId: status.jobId,
-    campaignName: campaignNameValue,
+    postId: status.jobId,
+    postName: postNameValue,
     reviewType: 'workflow_approval',
     workflowState: view.workflowState,
     workflowStage: status.currentStage || status.approval.workflowStepId || 'approval',
@@ -1245,7 +1245,7 @@ export function syncHistoryWithLastDecision(item: RuntimeReviewItem): RuntimeRev
   // Previously we hardcoded 'stage_review' for every synthesized entry, which
   // mislabeled creative asset decisions in the Decision-history panel.
   const isCreativeAsset = item.reviewType === 'creative' && Boolean(item.assetId);
-  const synthesized: MarketingCampaignStatusHistoryEntry = {
+  const synthesized: SocialContentStatusHistoryEntry = {
     id: `runtime-decision:${item.id}:${at}`,
     at,
     actor: actedBy,
@@ -1267,7 +1267,7 @@ export function syncHistoryWithLastDecision(item: RuntimeReviewItem): RuntimeRev
 }
 
 async function buildReviewItemsForJob(jobId: string): Promise<RuntimeReviewItem[]> {
-  const runtimeDoc = await loadMarketingJobRuntime(jobId);
+  const runtimeDoc = await loadSocialContentJobRuntime(jobId);
   if (!runtimeDoc) {
     return [];
   }
@@ -1284,22 +1284,22 @@ async function buildReviewItemsForJob(jobId: string): Promise<RuntimeReviewItem[
   }
 
   const status = await getMarketingJobStatus(jobId);
-  const view = await buildCampaignWorkspaceView(jobId);
-  const campaignNameValue = campaignName(status, view);
+  const view = await buildSocialContentWorkspaceView(jobId);
+  const postNameValue = postName(status, view);
 
   const items: RuntimeReviewItem[] = [];
   if (view.brandReview) {
-    items.push(stageReviewItem(view, view.brandReview, campaignNameValue));
+    items.push(stageReviewItem(view, view.brandReview, postNameValue));
   }
   if (view.strategyReview) {
-    items.push(stageReviewItem(view, view.strategyReview, campaignNameValue));
+    items.push(stageReviewItem(view, view.strategyReview, postNameValue));
   }
   for (const asset of view.creativeReview?.assets || []) {
-    items.push(creativeReviewItem(view, asset, campaignNameValue));
+    items.push(creativeReviewItem(view, asset, postNameValue));
   }
-  items.push(...publishPreviewReviewItems(status, view, campaignNameValue));
+  items.push(...publishPreviewReviewItems(status, view, postNameValue));
 
-  const approvalItem = await workflowApprovalItem(status, view, runtimeDoc, campaignNameValue);
+  const approvalItem = await workflowApprovalItem(status, view, runtimeDoc, postNameValue);
   if (approvalItem) {
     items.push(approvalItem);
   }
@@ -1380,7 +1380,7 @@ export async function recordReviewItemCopyEdit(
   input: RecordReviewItemCopyEditInput,
   options: RecordReviewItemCopyEditOptions = {},
 ): Promise<RecordReviewItemCopyEditResult> {
-  const docLoader = options.runtimeDocLoader ?? loadMarketingJobRuntime;
+  const docLoader = options.runtimeDocLoader ?? loadSocialContentJobRuntime;
   const resolver = options.resolver ?? resolveRuntimeReviewItem;
   const rebuilder = options.rebuilder ?? buildReviewItemsForJob;
 
@@ -1447,7 +1447,7 @@ async function resolveRuntimeReviewItem(jobId: string, reviewId: string): Promis
     }
   }
 
-  const runtimeDoc = await loadMarketingJobRuntime(jobId);
+  const runtimeDoc = await loadSocialContentJobRuntime(jobId);
   if (!runtimeDoc) {
     return null;
   }
@@ -1460,7 +1460,7 @@ async function resolveRuntimeReviewItem(jobId: string, reviewId: string): Promis
   return items.find((item) => reviewItemSourceHash(item) === persisted.sourceHash) ?? null;
 }
 
-function nextStatusFromAction(action: 'approve' | 'changes_requested' | 'reject'): RuntimeCampaignStatus {
+function nextStatusFromAction(action: 'approve' | 'changes_requested' | 'reject'): RuntimePostStatus {
   if (action === 'approve') {
     return 'approved';
   }
@@ -1498,7 +1498,7 @@ function persistReviewDecision(
   return lastDecision;
 }
 
-function assertApprovalResult(result: Awaited<ReturnType<typeof approveMarketingJob>>) {
+function assertApprovalResult(result: Awaited<ReturnType<typeof approveSocialContentJob>>) {
   if (result.reason === 'job_not_found' || result.reason === 'tenant_mismatch') {
     return;
   }
@@ -1508,7 +1508,7 @@ function assertApprovalResult(result: Awaited<ReturnType<typeof approveMarketing
   if (result.reason === 'approval_not_available') {
     throw new RuntimeReviewDecisionError(
       'approval_not_available',
-      'This campaign is not waiting on an active approval checkpoint.',
+      'This social content job is not waiting on an active approval checkpoint.',
       409,
     );
   }
@@ -1535,11 +1535,11 @@ function assertApprovalResult(result: Awaited<ReturnType<typeof approveMarketing
   }
 }
 
-function assertDenialResult(result: Awaited<ReturnType<typeof denyMarketingJob>>) {
+function assertDenialResult(result: Awaited<ReturnType<typeof denySocialContentJob>>) {
   if (result.reason === 'approval_not_available') {
     throw new RuntimeReviewDecisionError(
       'approval_not_available',
-      'This campaign is not waiting on an active approval checkpoint.',
+      'This social content job is not waiting on an active approval checkpoint.',
       409,
     );
   }
@@ -1553,18 +1553,18 @@ function assertDenialResult(result: Awaited<ReturnType<typeof denyMarketingJob>>
   }
 }
 
-export type CampaignListPage = {
-  campaigns: RuntimeCampaignListItem[];
+export type SocialContentListPage = {
+  posts: RuntimePostListItem[];
   hasMore: boolean;
 };
 
 const CAMPAIGN_LIST_DEFAULT_LIMIT = 20;
 
-export async function listMarketingCampaignsForTenant(
+export async function listSocialContentJobsForTenant(
   tenantId: string,
   options: { limit?: number | 'all' } = {},
-): Promise<CampaignListPage> {
-  // 'all' explicitly opts out of pagination (used by listPublicMarketingCampaigns
+): Promise<SocialContentListPage> {
+  // 'all' explicitly opts out of pagination (used by listPublicSocialContentJobs
   // and other internal callers that want full-tenant coverage). Numeric inputs
   // from untyped JS call sites can be 0/negative/NaN; clamp to a positive
   // integer, falling back to the default when invalid.
@@ -1576,8 +1576,8 @@ export async function listMarketingCampaignsForTenant(
       ? Math.floor(rawLimit as number)
       : CAMPAIGN_LIST_DEFAULT_LIMIT;
   // Fetch limit+1 job IDs so we can detect whether more exist beyond the page.
-  // For unlimited mode pass undefined so listMarketingJobIdsForTenant returns all.
-  const jobIds = await listMarketingJobIdsForTenant(
+  // For unlimited mode pass undefined so listSocialContentJobIdsForTenant returns all.
+  const jobIds = await listSocialContentJobIdsForTenant(
     tenantId,
     unlimited ? {} : { limit: limit + 1 },
   );
@@ -1589,7 +1589,7 @@ export async function listMarketingCampaignsForTenant(
   //
   // Phase 1 (light): status + workspaceView per job, just enough to compute
   // the dedup key. The view is reused in phase 2 to avoid a redundant load.
-  // Phase 2 (heavy): buildReviewItemsForJob + loadMarketingJobRuntime only
+  // Phase 2 (heavy): buildReviewItemsForJob + loadSocialContentJobRuntime only
   // for the survivors.
   //
   // See lib/process-concurrent.ts and CLAUDE.md guardrail #1.
@@ -1600,20 +1600,20 @@ export async function listMarketingCampaignsForTenant(
       if (status.tenantName === null && status.brandWebsiteUrl === null && status.status === 'error') {
         return null;
       }
-      const view = await buildCampaignWorkspaceView(jobId);
+      const view = await buildSocialContentWorkspaceView(jobId);
       return { jobId, status, view };
     },
     4,
   );
 
   // Dedup serially in input-order so duplicates of a campaign (e.g. reruns
-  // sharing externalCampaignId) collapse to the first-seen entry exactly as
+  // sharing externalPostId) collapse to the first-seen entry exactly as
   // the original serial loop did.
-  const survivors: Array<{ jobId: string; status: Awaited<ReturnType<typeof getMarketingJobStatus>>; view: Awaited<ReturnType<typeof buildCampaignWorkspaceView>> }> = [];
+  const survivors: Array<{ jobId: string; status: Awaited<ReturnType<typeof getMarketingJobStatus>>; view: Awaited<ReturnType<typeof buildSocialContentWorkspaceView>> }> = [];
   const seen = new Set<string>();
   for (const entry of phase1) {
     if (!entry) continue;
-    const key = entry.view.dashboard.campaign?.externalCampaignId || entry.view.dashboard.campaign?.name || `job::${entry.jobId}`;
+    const key = entry.view.dashboard.post?.externalPostId || entry.view.dashboard.post?.name || `job::${entry.jobId}`;
     if (seen.has(key)) {
       continue;
     }
@@ -1625,27 +1625,27 @@ export async function listMarketingCampaignsForTenant(
     survivors,
     async ({ jobId }) => {
       const pendingApprovals = (await buildReviewItemsForJob(jobId)).filter((item) => item.status !== 'approved').length;
-      const runtimeDoc = await loadMarketingJobRuntime(jobId);
+      const runtimeDoc = await loadSocialContentJobRuntime(jobId);
       const jobBrandKitExtractedAt = runtimeDoc?.brand_kit?.extracted_at ?? null;
       return { pendingApprovals, jobBrandKitExtractedAt };
     },
     4,
   );
 
-  const campaigns: RuntimeCampaignListItem[] = [];
+  const posts: RuntimePostListItem[] = [];
   for (let i = 0; i < survivors.length; i++) {
     const { status, view } = survivors[i];
     const { pendingApprovals, jobBrandKitExtractedAt } = phase2[i];
-    campaigns.push(buildCampaignListItem(status, view, pendingApprovals, jobBrandKitExtractedAt));
+    posts.push(buildCampaignListItem(status, view, pendingApprovals, jobBrandKitExtractedAt));
   }
 
-  campaigns.sort((left, right) => {
+  posts.sort((left, right) => {
     const leftUpdated = Date.parse(left.updatedAt || '');
     const rightUpdated = Date.parse(right.updatedAt || '');
     return (Number.isFinite(rightUpdated) ? rightUpdated : 0) - (Number.isFinite(leftUpdated) ? leftUpdated : 0);
   });
 
-  return { campaigns, hasMore };
+  return { posts, hasMore };
 }
 
 /**
@@ -1653,27 +1653,27 @@ export async function listMarketingCampaignsForTenant(
  * list screen. Same shape as live campaigns but each entry carries
  * deletedAt + deletedBy so the UI can show who deleted what when.
  */
-export async function listDeletedMarketingCampaignsForTenant(
+export async function listDeletedSocialContentJobsForTenant(
   tenantId: string,
-): Promise<RuntimeCampaignListItem[]> {
-  // Same two-phase fan-out pattern as listMarketingCampaignsForTenant
+): Promise<RuntimePostListItem[]> {
+  // Same two-phase fan-out pattern as listSocialContentJobsForTenant
   // (v0.1.12.4). Phase 1 (light): doc + status + view to compute dedup key.
   // Phase 2 (heavy): buildReviewItemsForJob only for survivors.
   //
   // KNOWN FOLLOW-UP: phase 1 loads the runtime doc twice per job — once
-  // explicitly via loadMarketingJobRuntime, then again implicitly inside
-  // buildCampaignWorkspaceView. Same pattern in listMarketingCampaignsForTenant
+  // explicitly via loadSocialContentJobRuntime, then again implicitly inside
+  // buildSocialContentWorkspaceView. Same pattern in listSocialContentJobsForTenant
   // (status loads the doc too). Folding those into a single load (e.g. a
-  // buildCampaignWorkspaceViewFromRuntimeDoc overload that accepts a
+  // buildSocialContentWorkspaceViewFromRuntimeDoc overload that accepts a
   // preloaded doc) would roughly halve the I/O per job. Deferred from
   // v0.1.12.5: it's a larger refactor and the bounded-parallel fan-out
   // already provides the headline win.
-  const jobIds = await listDeletedMarketingJobIdsForTenant(tenantId);
+  const jobIds = await listDeletedSocialContentJobIdsForTenant(tenantId);
 
   const phase1 = await processConcurrent(
     jobIds,
     async (jobId) => {
-      const doc = await loadMarketingJobRuntime(jobId);
+      const doc = await loadSocialContentJobRuntime(jobId);
       if (!doc || doc.tenant_id !== tenantId) {
         return null;
       }
@@ -1681,7 +1681,7 @@ export async function listDeletedMarketingCampaignsForTenant(
       if (status.tenantName === null && status.brandWebsiteUrl === null && status.status === 'error') {
         return null;
       }
-      const view = await buildCampaignWorkspaceView(jobId);
+      const view = await buildSocialContentWorkspaceView(jobId);
       return { jobId, doc, status, view };
     },
     4,
@@ -1692,7 +1692,7 @@ export async function listDeletedMarketingCampaignsForTenant(
   const seen = new Set<string>();
   for (const entry of phase1) {
     if (!entry) continue;
-    const key = entry.view.dashboard.campaign?.externalCampaignId || entry.view.dashboard.campaign?.name || `job::${entry.jobId}`;
+    const key = entry.view.dashboard.post?.externalPostId || entry.view.dashboard.post?.name || `job::${entry.jobId}`;
     if (seen.has(key)) {
       continue;
     }
@@ -1709,7 +1709,7 @@ export async function listDeletedMarketingCampaignsForTenant(
     4,
   );
 
-  const campaigns: RuntimeCampaignListItem[] = [];
+  const deletedPosts: RuntimePostListItem[] = [];
   for (let i = 0; i < survivors.length; i++) {
     const { doc, status, view } = survivors[i];
     const { pendingApprovals } = phase2[i];
@@ -1717,24 +1717,24 @@ export async function listDeletedMarketingCampaignsForTenant(
     item.deletedAt = doc.deleted_at ?? null;
     item.deletedBy = doc.deleted_by ?? null;
     item.softCancelRequestedAt = doc.soft_cancel_requested_at ?? null;
-    campaigns.push(item);
+    deletedPosts.push(item);
   }
 
-  return campaigns.sort((left, right) => {
+  return deletedPosts.sort((left, right) => {
     const leftDeleted = Date.parse(left.deletedAt || '');
     const rightDeleted = Date.parse(right.deletedAt || '');
     return (Number.isFinite(rightDeleted) ? rightDeleted : 0) - (Number.isFinite(leftDeleted) ? leftDeleted : 0);
   });
 }
 
-export async function listPublicMarketingCampaigns(): Promise<RuntimeCampaignListItem[]> {
-  const byId = new Map<string, RuntimeCampaignListItem>();
+export async function listPublicSocialContentJobs(): Promise<RuntimePostListItem[]> {
+  const byId = new Map<string, RuntimePostListItem>();
 
   for (const tenantId of await listMarketingTenantIds()) {
-    const { campaigns } = await listMarketingCampaignsForTenant(tenantId, { limit: 'all' });
-    for (const campaign of campaigns) {
-      if (!byId.has(campaign.id)) {
-        byId.set(campaign.id, campaign);
+    const { posts } = await listSocialContentJobsForTenant(tenantId, { limit: 'all' });
+    for (const post of posts) {
+      if (!byId.has(post.id)) {
+        byId.set(post.id, post);
       }
     }
   }
@@ -1748,13 +1748,13 @@ export async function listPublicMarketingCampaigns(): Promise<RuntimeCampaignLis
 
 export async function getMarketingCampaignContentForTenant(
   tenantId: string,
-  campaignId: string,
-): Promise<MarketingDashboardCampaignContent | null> {
-  const jobIds = new Set(await listMarketingJobIdsForTenant(tenantId));
-  if (!jobIds.has(campaignId)) {
+  postId: string,
+): Promise<MarketingDashboardSocialContentJobContent | null> {
+  const jobIds = new Set(await listSocialContentJobIdsForTenant(tenantId));
+  if (!jobIds.has(postId)) {
     return null;
   }
-  return (await buildCampaignWorkspaceView(campaignId)).dashboard;
+  return (await buildSocialContentWorkspaceView(postId)).dashboard;
 }
 
 export async function listMarketingPostsForTenant(tenantId: string): Promise<MarketingDashboardContent> {
@@ -1770,7 +1770,7 @@ export async function listPublicMarketingPosts(): Promise<MarketingDashboardCont
     return content;
   }
 
-  const campaigns = [] as MarketingDashboardContent['campaigns'];
+  const socialContentJobs = [] as MarketingDashboardContent['socialContentJobs'];
   const posts = [] as MarketingDashboardContent['posts'];
   const assets = [] as MarketingDashboardContent['assets'];
   const publishItems = [] as MarketingDashboardContent['publishItems'];
@@ -1789,7 +1789,7 @@ export async function listPublicMarketingPosts(): Promise<MarketingDashboardCont
 
   for (const tenantId of tenantIds) {
     const next = await getWorkflowAwareDashboardContentForTenant(tenantId);
-    campaigns.push(...next.campaigns);
+    socialContentJobs.push(...next.socialContentJobs);
     posts.push(...next.posts);
     assets.push(...next.assets);
     publishItems.push(...next.publishItems);
@@ -1799,7 +1799,7 @@ export async function listPublicMarketingPosts(): Promise<MarketingDashboardCont
     }
   }
 
-  campaigns.sort((left, right) => {
+  socialContentJobs.sort((left, right) => {
     const leftUpdated = Date.parse(left.updatedAt || '');
     const rightUpdated = Date.parse(right.updatedAt || '');
     return (Number.isFinite(rightUpdated) ? rightUpdated : 0) - (Number.isFinite(leftUpdated) ? leftUpdated : 0);
@@ -1807,7 +1807,7 @@ export async function listPublicMarketingPosts(): Promise<MarketingDashboardCont
   calendarEvents.sort((left, right) => left.startsAt.localeCompare(right.startsAt));
 
   return {
-    campaigns,
+    socialContentJobs,
     posts,
     assets,
     publishItems,
@@ -1825,7 +1825,7 @@ export async function listMarketingReviewQueueForTenant(tenantId: string): Promi
   // chosen to use ≤20% of the default DB_POOL_MAX=20 per request. Live audit
   // on this tenant (30+ jobs) saw 24-36s here under the prior serial loop.
   // See lib/process-concurrent.ts and CLAUDE.md guardrail #1.
-  const jobIds = await listMarketingJobIdsForTenant(tenantId);
+  const jobIds = await listSocialContentJobIdsForTenant(tenantId);
   const perJob = await processConcurrent(jobIds, (jobId) => buildReviewItemsForJob(jobId), 4);
   const items: RuntimeReviewItem[] = [];
   for (const reviewItems of perJob) {
@@ -1847,7 +1847,7 @@ export async function lookupMarketingReviewItemForTenant(
   reviewId: string,
 ): Promise<RuntimeReviewItemLookupResult> {
   const { jobId } = reviewIdParts(reviewId);
-  const runtimeDoc = await loadMarketingJobRuntime(jobId);
+  const runtimeDoc = await loadSocialContentJobRuntime(jobId);
   if (!runtimeDoc) {
     return { status: 'missing' };
   }
@@ -1878,7 +1878,7 @@ export async function recordMarketingReviewDecision(input: {
   approvalId?: string;
 }): Promise<RuntimeReviewItem | null> {
   const { jobId } = reviewIdParts(input.reviewId);
-  const runtimeDoc = await loadMarketingJobRuntime(jobId);
+  const runtimeDoc = await loadSocialContentJobRuntime(jobId);
   if (!runtimeDoc || runtimeDoc.tenant_id !== input.tenantId) {
     return null;
   }
@@ -1895,21 +1895,21 @@ export async function recordMarketingReviewDecision(input: {
       return {
         id: input.reviewId,
         jobId,
-        campaignId: jobId,
-        campaignName: stringValue(runtimeDoc.brand_kit?.brand_name, jobId),
+        postId: jobId,
+        postName: stringValue(runtimeDoc.brand_kit?.brand_name, jobId),
         reviewType: 'workflow_approval',
         workflowState: 'published',
         workflowStage: null,
-        title: 'Campaign approval',
+        title: 'Social content approval',
         channel: 'Campaign',
-        placement: 'Campaign review',
+        placement: 'Social content review',
         scheduledFor: 'Completed',
         status: persistedSettled.status,
         summary: '',
         currentVersion: {
           id: 'approval',
           label: 'Current version',
-          headline: 'Campaign approval',
+          headline: 'Social content approval',
           supportingText: '',
           cta: 'Approved',
           notes: [],
@@ -1924,7 +1924,7 @@ export async function recordMarketingReviewDecision(input: {
   }
 
   if (isWorkflowApprovalItem(item)) {
-    const workspaceRecord = await ensureCampaignWorkspaceRecord({
+    const workspaceRecord = await ensureSocialContentWorkspaceRecord({
       jobId,
       tenantId: input.tenantId,
       payload: (runtimeDoc.inputs.request as Record<string, unknown>) || {},
@@ -1946,7 +1946,7 @@ export async function recordMarketingReviewDecision(input: {
         const refreshedStale = (await resolveRuntimeReviewItem(jobId, item.id)) || (await resolveRuntimeReviewItem(jobId, input.reviewId));
         return refreshedStale ?? item;
       }
-      const approvalResult = await approveMarketingJob({
+      const approvalResult = await approveSocialContentJob({
         jobId,
         tenantId: input.tenantId,
         approvedBy: input.actedBy,
@@ -1959,20 +1959,20 @@ export async function recordMarketingReviewDecision(input: {
     } else if (input.action === 'changes_requested') {
       if (approvalStage === 'strategy') {
         setStageReviewDecision(workspaceRecord, 'strategy', input.action, input.actedBy, input.note);
-        saveCampaignWorkspaceRecord(workspaceRecord);
+        saveSocialContentWorkspaceRecord(workspaceRecord);
       } else if (approvalStage === 'production' || approvalStage === 'publish') {
         setStageReviewDecision(workspaceRecord, 'creative', input.action, input.actedBy, input.note);
-        saveCampaignWorkspaceRecord(workspaceRecord);
+        saveSocialContentWorkspaceRecord(workspaceRecord);
       }
     } else if (input.action === 'reject') {
       if (approvalStage === 'strategy') {
         setStageReviewDecision(workspaceRecord, 'strategy', input.action, input.actedBy, input.note);
-        saveCampaignWorkspaceRecord(workspaceRecord);
+        saveSocialContentWorkspaceRecord(workspaceRecord);
       } else if (approvalStage === 'production' || approvalStage === 'publish') {
         setStageReviewDecision(workspaceRecord, 'creative', input.action, input.actedBy, input.note);
-        saveCampaignWorkspaceRecord(workspaceRecord);
+        saveSocialContentWorkspaceRecord(workspaceRecord);
       }
-      const denialResult = await denyMarketingJob(
+      const denialResult = await denySocialContentJob(
         {
           jobId,
           tenantId: input.tenantId,
@@ -1989,7 +1989,7 @@ export async function recordMarketingReviewDecision(input: {
       assertDenialResult(denialResult);
     }
   } else {
-    const workspaceRecord = await ensureCampaignWorkspaceRecord({
+    const workspaceRecord = await ensureSocialContentWorkspaceRecord({
       jobId,
       tenantId: input.tenantId,
       payload: (runtimeDoc.inputs.request as Record<string, unknown>) || {},
@@ -1997,16 +1997,16 @@ export async function recordMarketingReviewDecision(input: {
 
     if (item.reviewType === 'brand') {
       setStageReviewDecision(workspaceRecord, 'brand', input.action, input.actedBy, input.note);
-      saveCampaignWorkspaceRecord(workspaceRecord);
+      saveSocialContentWorkspaceRecord(workspaceRecord);
     }
 
     if (item.reviewType === 'strategy') {
       setStageReviewDecision(workspaceRecord, 'strategy', input.action, input.actedBy, input.note);
-      saveCampaignWorkspaceRecord(workspaceRecord);
+      saveSocialContentWorkspaceRecord(workspaceRecord);
 
       if (runtimeDoc.approvals.current?.stage === 'strategy') {
         if (input.action === 'approve') {
-          const approvalResult = await approveMarketingJob({
+          const approvalResult = await approveSocialContentJob({
             jobId,
             tenantId: input.tenantId,
             approvedBy: input.actedBy,
@@ -2015,7 +2015,7 @@ export async function recordMarketingReviewDecision(input: {
           });
           assertApprovalResult(approvalResult);
         } else {
-          const denialResult = await denyMarketingJob(
+          const denialResult = await denySocialContentJob(
             {
               jobId,
               tenantId: input.tenantId,
@@ -2032,12 +2032,12 @@ export async function recordMarketingReviewDecision(input: {
 
     if (item.reviewType === 'creative' && item.assetId) {
       setCreativeAssetDecision(workspaceRecord, item.assetId, input.action, input.actedBy, input.note);
-      saveCampaignWorkspaceRecord(workspaceRecord);
+      saveSocialContentWorkspaceRecord(workspaceRecord);
 
       if (input.action === 'approve' && runtimeDoc.approvals.current?.stage === 'production') {
-        const refreshedView = await buildCampaignWorkspaceView(jobId);
+        const refreshedView = await buildSocialContentWorkspaceView(jobId);
         if (refreshedView.creativeReview?.approvalComplete) {
-          const approvalResult = await approveMarketingJob({
+          const approvalResult = await approveSocialContentJob({
             jobId,
             tenantId: input.tenantId,
             approvedBy: input.actedBy,

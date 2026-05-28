@@ -38,7 +38,7 @@
  * occurs within the window get scheduled on the closest matching weekday
  * INSIDE the window. Posts that would land in the past (e.g. campaign starts
  * tomorrow but recommended Sunday is two days behind) get pushed to the next
- * occurrence of that weekday after the campaign window opens.
+ * occurrence of that weekday after the post window opens.
  *
  * Idempotency: the upsert layer (`upsertScheduledPost`) keys on `post_id` via
  * the `scheduled_posts_post_id_key` UNIQUE constraint, so a replayed callback
@@ -200,11 +200,11 @@ export function computeAutoScheduleSlots(input: ComputeAutoScheduleSlotsInput): 
     } else {
       const target = findNextWeekdayInWindow(wantedDayIdx, windowStart, windowEnd, tz, defaults);
       if (!target) {
-        // The recommended weekday never occurs inside the campaign window
+        // The recommended weekday never occurs inside the post window
         // (very short campaign). Fall back to the first day in the window.
         const fallback = formatTenantWallTime(windowStart, tz, defaults);
         wallTimeIso = fallback;
-        appliedDay = `fallback: ${row.recommendedDay} not in campaign window; using first available day`;
+        appliedDay = `fallback: ${row.recommendedDay} not in post window; using first available day`;
       } else {
         wallTimeIso = target;
         appliedDay = row.recommendedDay!;

@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { createAriesV1Api, type CampaignListResponse } from '@/lib/api/aries-v1';
+import { createAriesV1Api, type SocialContentListResponse } from '@/lib/api/aries-v1';
 import { useRequestState } from './use-request-state';
 
-export function useRuntimeCampaigns(options: { baseUrl?: string; autoLoad?: boolean } = {}) {
+export function useRuntimePosts(options: { baseUrl?: string; autoLoad?: boolean } = {}) {
   const api = useMemo(() => createAriesV1Api(options), [options.baseUrl]);
-  const state = useRequestState<CampaignListResponse>();
+  const state = useRequestState<SocialContentListResponse>();
   const { setError, setLoading, setSuccess } = state;
   // `busyCampaignId` is a single-slot lock keyed by jobId. We intentionally
   // avoid a set/map because the UI only ever fires one delete or restore at
@@ -19,7 +19,7 @@ export function useRuntimeCampaigns(options: { baseUrl?: string; autoLoad?: bool
   const load = useCallback(async () => {
     setLoading();
     try {
-      const response = await api.getCampaigns();
+      const response = await api.getSocialContentList();
       setSuccess(response);
       return response;
     } catch (error) {

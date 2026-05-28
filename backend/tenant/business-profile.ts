@@ -15,7 +15,7 @@ import {
 import type { MarketingBrandIdentity } from '@/lib/api/marketing';
 import {
   findLatestMarketingJobIdForTenant,
-  loadMarketingJobRuntime,
+  loadSocialContentJobRuntime,
 } from '@/backend/marketing/runtime-state';
 import {
   loadValidatedMarketingProfileDocs,
@@ -427,7 +427,7 @@ async function runtimeBrandKitAsTenantBrandKit(tenantId: string): Promise<{ bran
     return { brandKit: null, latestJobId: null };
   }
 
-  const runtimeDoc = await loadMarketingJobRuntime(latestJobId);
+  const runtimeDoc = await loadSocialContentJobRuntime(latestJobId);
   const runtimeBrandKit = runtimeDoc?.brand_kit;
   if (!runtimeBrandKit) {
     return { brandKit: null, latestJobId };

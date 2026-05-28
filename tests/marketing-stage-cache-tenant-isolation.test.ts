@@ -25,7 +25,7 @@ import {
   stageCacheRoot,
   stageCacheRootForTenant,
 } from '../backend/marketing/artifact-store';
-import { createMarketingJobRuntimeDocument } from '../backend/marketing/runtime-state';
+import { createSocialContentJobRuntimeDocument } from '../backend/marketing/runtime-state';
 import {
   inferMarketingStageRunId,
   readMarketingStageStepPayload,
@@ -64,7 +64,7 @@ async function withScratch<T>(run: (ctx: { stage1: string; stage4: string }) => 
 }
 
 function makeRuntimeDoc(tenantId: string, jobId: string, competitorUrl: string) {
-  return createMarketingJobRuntimeDocument({
+  return createSocialContentJobRuntimeDocument({
     jobId,
     tenantId,
     payload: { competitorUrl, brandUrl: 'https://brand.example.com' },

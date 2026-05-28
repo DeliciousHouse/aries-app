@@ -53,12 +53,12 @@ import {
   findLatestMarketingApprovalRecord,
   saveMarketingApprovalRecord,
 } from './approval-store';
-import type { MarketingJobRuntimeDocument } from './runtime-state';
+import type { SocialContentJobRuntimeDocument } from './runtime-state';
 
 export interface SynthesizePublishPostsArgs {
   jobId: string;
   tenantId: number;
-  doc: MarketingJobRuntimeDocument;
+  doc: SocialContentJobRuntimeDocument;
   /** Hermes run id of the publish stage, stored on each synthesized row. */
   publishRunId: string | null;
   pool: {
@@ -186,7 +186,7 @@ function parseContentPackage(raw: unknown): ContentPackageEntry[] {
  * `posts` row, so deferring on it would mean nothing reaches the calendar —
  * exactly the Cause 3 failure. A thin publish_package must NOT block synthesis.
  */
-function hasConsumablePublishPackage(doc: MarketingJobRuntimeDocument): boolean {
+function hasConsumablePublishPackage(doc: SocialContentJobRuntimeDocument): boolean {
   const isConsumable = (value: unknown): boolean => {
     const pkg = recordValue(value);
     if (!pkg) return false;
@@ -212,7 +212,7 @@ function hasConsumablePublishPackage(doc: MarketingJobRuntimeDocument): boolean 
  * primary_output (where it lines up 1:1 with the rendered creative_assets by
  * post_number); fall back to the publish stage's output if production lacks it.
  */
-function extractContentPackage(doc: MarketingJobRuntimeDocument): unknown {
+function extractContentPackage(doc: SocialContentJobRuntimeDocument): unknown {
   const productionOutput = recordValue(doc.stages.production?.primary_output);
   if (productionOutput && Array.isArray(productionOutput.content_package)) {
     return productionOutput.content_package;

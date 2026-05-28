@@ -9,12 +9,12 @@ import {
   collectResearchStageArtifacts,
   collectStrategyReviewArtifacts,
 } from '../backend/marketing/artifact-collector';
-import { createMarketingJobFacts } from '../backend/marketing/job-facts';
-import { createMarketingJobRuntimeDocument } from '../backend/marketing/runtime-state';
+import { createSocialContentJobFacts } from '../backend/marketing/job-facts';
+import { createSocialContentJobRuntimeDocument } from '../backend/marketing/runtime-state';
 import type { MarketingArtifactStageNumber, StepPayloadResolution } from '../backend/marketing/stage-artifact-resolution';
 
 function makeRuntimeDoc() {
-  const runtimeDoc = createMarketingJobRuntimeDocument({
+  const runtimeDoc = createSocialContentJobRuntimeDocument({
     jobId: 'mkt_job_facts',
     tenantId: 'tenant_job_facts',
       payload: {
@@ -69,7 +69,7 @@ function resolvedPayload(
 test('stagePayload loads the same step once', async () => {
   const runtimeDoc = makeRuntimeDoc();
   let reads = 0;
-  const facts = createMarketingJobFacts(runtimeDoc, null, {
+  const facts = createSocialContentJobFacts(runtimeDoc, null, {
     readStageStepPayload: async () => {
       reads += 1;
       return resolvedPayload('run-production', { ok: true });
@@ -87,7 +87,7 @@ test('stagePayload loads the same step once', async () => {
 test('concurrent stagePayload lookups dedupe the in-flight read', async () => {
   const runtimeDoc = makeRuntimeDoc();
   let reads = 0;
-  const facts = createMarketingJobFacts(runtimeDoc, null, {
+  const facts = createSocialContentJobFacts(runtimeDoc, null, {
     readStageStepPayload: async () => {
       reads += 1;
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -108,7 +108,7 @@ test('concurrent stagePayload lookups dedupe the in-flight read', async () => {
 test('different stage keys do not collide', async () => {
   const runtimeDoc = makeRuntimeDoc();
   const seenKeys: string[] = [];
-  const facts = createMarketingJobFacts(runtimeDoc, null, {
+  const facts = createSocialContentJobFacts(runtimeDoc, null, {
     readStageStepPayload: async (_runtimeDoc, stage, stepName) => {
       seenKeys.push(`${stage}:${stepName}`);
       return resolvedPayload(`run-${stage}`, { stage, stepName });
@@ -128,7 +128,7 @@ test('different stage keys do not collide', async () => {
 test('jsonAtPath memoizes repeated path reads', async () => {
   const runtimeDoc = makeRuntimeDoc();
   let reads = 0;
-  const facts = createMarketingJobFacts(runtimeDoc, null, {
+  const facts = createSocialContentJobFacts(runtimeDoc, null, {
     readJsonAtPath: async () => {
       reads += 1;
       return { ok: true };
@@ -151,7 +151,7 @@ test('jsonAtPath caches missing files as null', async () => {
   const missingPath = path.join(tempRoot, 'missing.json');
 
   try {
-    const facts = createMarketingJobFacts(runtimeDoc, null);
+    const facts = createSocialContentJobFacts(runtimeDoc, null);
     const first = facts.jsonAtPath(missingPath);
     const second = facts.jsonAtPath(missingPath);
 
@@ -172,7 +172,7 @@ test('jsonAtPath caches malformed JSON as null', async () => {
     await mkdir(path.dirname(malformedPath), { recursive: true });
     await writeFile(malformedPath, '{not-json', 'utf8');
 
-    const facts = createMarketingJobFacts(runtimeDoc, null);
+    const facts = createSocialContentJobFacts(runtimeDoc, null);
     const first = facts.jsonAtPath(malformedPath);
     const second = facts.jsonAtPath(malformedPath);
 
@@ -201,7 +201,7 @@ test('shared facts dedupe stage payload reads across collector invocations', asy
     ['3:veo_video_generator', { video_assets: { platform_contracts: [] } }],
   ]);
 
-  const facts = createMarketingJobFacts(runtimeDoc, null, {
+  const facts = createSocialContentJobFacts(runtimeDoc, null, {
     readStageStepPayload: async (_runtimeDoc, stage: MarketingArtifactStageNumber, stepName: string) => {
       const key = `${stage}:${stepName}`;
       readCounts.set(key, (readCounts.get(key) ?? 0) + 1);

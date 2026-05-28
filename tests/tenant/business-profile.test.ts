@@ -61,8 +61,8 @@ test('getBusinessProfile falls back to the latest workspace brief for brand voic
   };
 
   try {
-    const { createMarketingJobRuntimeDocument, saveMarketingJobRuntime } = await import('../../backend/marketing/runtime-state');
-    const runtimeDoc = createMarketingJobRuntimeDocument({
+    const { createSocialContentJobRuntimeDocument, saveSocialContentJobRuntime } = await import('../../backend/marketing/runtime-state');
+    const runtimeDoc = createSocialContentJobRuntimeDocument({
       jobId: 'mkt_business_profile_workspace_fallback',
       tenantId: '11',
       payload: {
@@ -91,7 +91,7 @@ test('getBusinessProfile falls back to the latest workspace brief for brand voic
         style_vibe: null,
       },
     });
-    saveMarketingJobRuntime(runtimeDoc.job_id, runtimeDoc);
+    saveSocialContentJobRuntime(runtimeDoc.job_id, runtimeDoc);
 
     const workspacePath = path.join(
       tempDataRoot,

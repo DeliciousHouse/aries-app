@@ -343,20 +343,20 @@ test('production authenticated v1 surfaces do not import demo fixture data direc
   const files = [
     'components/redesign/layout/app-shell.tsx',
     'frontend/aries-v1/home-dashboard.tsx',
-    'frontend/aries-v1/campaign-list.tsx',
-    'frontend/aries-v1/campaign-workspace.tsx',
+    'frontend/aries-v1/post-list.tsx',
+    'frontend/aries-v1/post-workspace.tsx',
     'frontend/aries-v1/review-queue.tsx',
     'frontend/aries-v1/review-item.tsx',
     'frontend/aries-v1/calendar-screen.tsx',
     'frontend/aries-v1/results-screen.tsx',
     'frontend/aries-v1/settings-screen.tsx',
     'frontend/aries-v1/presenters/dashboard-home-presenter.tsx',
-    'frontend/aries-v1/presenters/campaign-list-presenter.tsx',
+    'frontend/aries-v1/presenters/post-list-presenter.tsx',
     'frontend/aries-v1/presenters/results-presenter.tsx',
     'frontend/aries-v1/presenters/calendar-presenter.tsx',
     'frontend/aries-v1/presenters/settings-presenter.tsx',
     'frontend/aries-v1/view-models/dashboard-home.ts',
-    'frontend/aries-v1/view-models/campaign-list.ts',
+    'frontend/aries-v1/view-models/post-list.ts',
     'frontend/aries-v1/view-models/results.ts',
     'frontend/aries-v1/view-models/calendar.ts',
     'frontend/aries-v1/view-models/settings.ts',
@@ -382,7 +382,7 @@ test('runtime campaign and review view services exist and return honest empty st
   await withMarketingRuntimeEnv(async () => {
     const views = await import('../backend/marketing/runtime-views');
 
-    const { campaigns } = await views.listMarketingCampaignsForTenant('tenant_empty');
+    const { posts: campaigns } = await views.listSocialContentJobsForTenant('tenant_empty');
     const reviews = await views.listMarketingReviewItemsForTenant('tenant_empty');
 
     assert.deepEqual(campaigns, []);
@@ -451,7 +451,7 @@ test('runtime campaign views stay populated when proposal artifacts exist even w
     );
 
     const views = await import('../backend/marketing/runtime-views');
-    const { campaigns } = await views.listMarketingCampaignsForTenant('tenant_runtime');
+    const { posts: campaigns } = await views.listSocialContentJobsForTenant('tenant_runtime');
 
     assert.equal(campaigns.length, 1);
     assert.equal(campaigns[0].dashboard.posts.length > 0, true);
@@ -529,12 +529,12 @@ test('tenant runtime views keep only the latest rerun for the same campaign iden
     );
 
     const views = await import('../backend/marketing/runtime-views');
-    const { campaigns } = await views.listMarketingCampaignsForTenant('tenant_runtime_dedupe');
+    const { posts: campaigns } = await views.listSocialContentJobsForTenant('tenant_runtime_dedupe');
     const posts = await views.listMarketingPostsForTenant('tenant_runtime_dedupe');
 
     assert.equal(campaigns.length, 1);
     assert.equal(campaigns[0].jobId, 'proposal-backed-runtime-view-new');
-    assert.equal(posts.campaigns.length, 1);
+    assert.equal(posts.posts.length, 1);
     assert.equal(posts.posts.length, 1);
   });
 });
@@ -561,7 +561,7 @@ test('runtime views ignore malformed legacy marketing runtime documents without 
     );
 
     const views = await import('../backend/marketing/runtime-views');
-    const { campaigns } = await views.listMarketingCampaignsForTenant('tenant_empty');
+    const { posts: campaigns } = await views.listSocialContentJobsForTenant('tenant_empty');
     const reviews = await views.listMarketingReviewItemsForTenant('tenant_empty');
 
     assert.deepEqual(campaigns, []);
@@ -573,11 +573,11 @@ test('review decisions persist and can be reloaded from runtime-backed state', a
   await withMarketingRuntimeEnv(async () => {
     installMinimalMarketingInvoker();
     const restoreFetch = installBrandExampleFetchMock();
-    const { startMarketingJob } = await import('../backend/marketing/orchestrator');
+    const { startSocialContentJob } = await import('../backend/marketing/orchestrator');
     const views = await import('../backend/marketing/runtime-views');
 
     try {
-      const started = await startMarketingJob({
+      const started = await startSocialContentJob({
         tenantId: 'tenant_123',
         jobType: 'weekly_social_content',
           payload: {
@@ -623,12 +623,12 @@ test('approving a workflow approval review item resumes the marketing job', asyn
   await withMarketingRuntimeEnv(async () => {
     installMinimalMarketingInvoker();
     const restoreFetch = installBrandExampleFetchMock();
-    const { startMarketingJob } = await import('../backend/marketing/orchestrator');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { startSocialContentJob } = await import('../backend/marketing/orchestrator');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
     const views = await import('../backend/marketing/runtime-views');
 
     try {
-      const started = await startMarketingJob({
+      const started = await startSocialContentJob({
         tenantId: 'tenant_123',
         jobType: 'weekly_social_content',
           payload: {
@@ -653,7 +653,7 @@ test('approving a workflow approval review item resumes the marketing job', asyn
       assert.equal(approved?.status, 'approved');
       assert.equal(approved?.lastDecision?.actedBy, 'Morgan');
 
-      const runtimeDoc = await loadMarketingJobRuntime(started.jobId);
+      const runtimeDoc = await loadSocialContentJobRuntime(started.jobId);
       assert.equal(runtimeDoc?.current_stage, 'production');
       assert.equal(runtimeDoc?.approvals.current?.stage, 'production');
     } finally {
@@ -667,9 +667,9 @@ test('approve_stage_2 workflow reviews include research, brief, brand-kit, and u
   await withMarketingRuntimeEnv(async (dataRoot) => {
     installMinimalMarketingInvoker();
     const restoreFetch = installBrandExampleFetchMock();
-    const { startMarketingJob } = await import('../backend/marketing/orchestrator');
+    const { startSocialContentJob } = await import('../backend/marketing/orchestrator');
     const views = await import('../backend/marketing/runtime-views');
-    const { ensureCampaignWorkspaceRecord, saveCampaignWorkspaceRecord } = await import('../backend/marketing/workspace-store');
+    const { ensureSocialContentWorkspaceRecord, saveSocialContentWorkspaceRecord } = await import('../backend/marketing/workspace-store');
 
     try {
       const payload = {
@@ -687,13 +687,13 @@ test('approve_stage_2 workflow reviews include research, brief, brand-kit, and u
         mustAvoidAesthetics: 'Generic stock imagery',
         notes: 'Lead with proof points from recent launches.',
       };
-      const started = await startMarketingJob({
+      const started = await startSocialContentJob({
         tenantId: 'tenant_123',
         jobType: 'weekly_social_content',
         payload,
       });
 
-      const record = await ensureCampaignWorkspaceRecord({
+      const record = await ensureSocialContentWorkspaceRecord({
         jobId: started.jobId,
         tenantId: 'tenant_123',
         payload,
@@ -710,11 +710,11 @@ test('approve_stage_2 workflow reviews include research, brief, brand-kit, and u
         size: 15,
         uploadedAt: '2026-04-04T00:00:00.000Z',
       });
-      saveCampaignWorkspaceRecord(record);
+      saveSocialContentWorkspaceRecord(record);
 
       const reviews = await views.listMarketingReviewItemsForTenant('tenant_123');
       const approvalItem = reviews.find((item) => item.id === `${started.jobId}::approval`);
-      const { campaigns } = await views.listMarketingCampaignsForTenant('tenant_123');
+      const { posts: campaigns } = await views.listSocialContentJobsForTenant('tenant_123');
       const extractedBrandKitSection = approvalItem?.sections.find((section) => section.id === 'extracted-brand-kit');
 
       assert.equal(approvalItem?.reviewType, 'workflow_approval');
@@ -746,12 +746,12 @@ test('stale workflow approval ids do not advance a newer approval checkpoint', a
   await withMarketingRuntimeEnv(async () => {
     installMinimalMarketingInvoker();
     const restoreFetch = installBrandExampleFetchMock();
-    const { startMarketingJob } = await import('../backend/marketing/orchestrator');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { startSocialContentJob } = await import('../backend/marketing/orchestrator');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
     const views = await import('../backend/marketing/runtime-views');
 
     try {
-      const started = await startMarketingJob({
+      const started = await startSocialContentJob({
         tenantId: 'tenant_123',
         jobType: 'weekly_social_content',
           payload: {
@@ -777,7 +777,7 @@ test('stale workflow approval ids do not advance a newer approval checkpoint', a
         approvalId: staleApprovalId,
       });
 
-      let runtimeDoc = await loadMarketingJobRuntime(started.jobId);
+      let runtimeDoc = await loadSocialContentJobRuntime(started.jobId);
       assert.equal(runtimeDoc?.current_stage, 'production');
       assert.equal(runtimeDoc?.approvals.current?.stage, 'production');
 
@@ -790,7 +790,7 @@ test('stale workflow approval ids do not advance a newer approval checkpoint', a
         approvalId: staleApprovalId,
       });
 
-      runtimeDoc = await loadMarketingJobRuntime(started.jobId);
+      runtimeDoc = await loadSocialContentJobRuntime(started.jobId);
       assert.equal(runtimeDoc?.current_stage, 'production');
       assert.equal(runtimeDoc?.approvals.current?.stage, 'production');
     } finally {
@@ -916,7 +916,7 @@ test('publish review previews stop counting as pending once the workflow checkpo
     const reviewsAfter = await views.listMarketingReviewItemsForTenant('tenant_review');
     assert.equal(reviewsAfter.some((item) => item.id === `${jobId}::approval`), false);
 
-    const { campaigns } = await views.listMarketingCampaignsForTenant('tenant_review');
+    const { posts: campaigns } = await views.listSocialContentJobsForTenant('tenant_review');
     assert.equal(campaigns.length, 1);
 
     const savedReviewState = JSON.parse(await readFile(reviewStateFile, 'utf8')) as {
@@ -946,7 +946,7 @@ test('publish approvals still surface a workflow review item when the bundle has
     );
 
     const views = await import('../backend/marketing/runtime-views');
-    const { loadCampaignWorkspaceRecord } = await import('../backend/marketing/workspace-store');
+    const { loadSocialContentWorkspaceRecord } = await import('../backend/marketing/workspace-store');
     const reviews = await views.listMarketingReviewItemsForTenant('tenant_review');
 
     assert.equal(reviews.some((item) => item.id === `${jobId}::approval`), true);
@@ -964,8 +964,8 @@ test('publish approvals still surface a workflow review item when the bundle has
 
     const updatedReviews = await views.listMarketingReviewItemsForTenant('tenant_review');
     const workflowReview = updatedReviews.find((item) => item.id === `${jobId}::approval`);
-    const { campaigns } = await views.listMarketingCampaignsForTenant('tenant_review');
-    const workspace = loadCampaignWorkspaceRecord(jobId, 'tenant_review');
+    const { posts: campaigns } = await views.listSocialContentJobsForTenant('tenant_review');
+    const workspace = loadSocialContentWorkspaceRecord(jobId, 'tenant_review');
 
     assert.equal(workflowReview?.workflowState, 'revisions_requested');
     assert.equal(workflowReview?.currentVersion.cta, 'Resolve revisions');
@@ -1021,7 +1021,7 @@ test('publish-preview review items attach rendered mp4 previews for video platfo
   });
 });
 
-test('listMarketingCampaignsForTenant paginates and sets hasMore when campaign count exceeds limit', async () => {
+test('listSocialContentJobsForTenant paginates and sets hasMore when campaign count exceeds limit', async () => {
   await withMarketingRuntimeEnv(async () => {
     const jobsRoot = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs');
     await mkdir(jobsRoot, { recursive: true });
@@ -1065,13 +1065,13 @@ test('listMarketingCampaignsForTenant paginates and sets hasMore when campaign c
     const views = await import('../backend/marketing/runtime-views');
 
     // Limit=3 — should return 3 campaigns and signal more exist
-    const page = await views.listMarketingCampaignsForTenant('tenant_pagination', { limit: 3 });
-    assert.equal(page.campaigns.length <= 3, true, 'page size must not exceed the requested limit');
+    const page = await views.listSocialContentJobsForTenant('tenant_pagination', { limit: 3 });
+    assert.equal(page.posts.length <= 3, true, 'page size must not exceed the requested limit');
     assert.equal(page.hasMore, true, 'hasMore should be true when 5 jobs exceed limit of 3');
 
     // Limit=10 — all 5 should fit, no more
-    const fullPage = await views.listMarketingCampaignsForTenant('tenant_pagination', { limit: 10 });
-    assert.equal(fullPage.campaigns.length, 5);
+    const fullPage = await views.listSocialContentJobsForTenant('tenant_pagination', { limit: 10 });
+    assert.equal(fullPage.posts.length, 5);
     assert.equal(fullPage.hasMore, false, 'hasMore should be false when all campaigns fit in the page');
   });
 });

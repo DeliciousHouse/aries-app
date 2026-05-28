@@ -1,3 +1,3 @@
-import { startMarketingJob as orchestratorStart } from './orchestrator';
-export { startMarketingJob } from './orchestrator';
-export type { StartMarketingJobRequest, StartMarketingJobResponse } from './orchestrator';
+import { startSocialContentJob as orchestratorStart } from './orchestrator';
+export { startSocialContentJob } from './orchestrator';
+export type { StartSocialContentJobRequest, StartSocialContentJobResponse } from './orchestrator';

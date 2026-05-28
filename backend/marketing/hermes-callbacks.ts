@@ -20,19 +20,19 @@ import {
 } from './approval-store';
 import {
   clearApprovalCheckpoint,
-  loadMarketingJobRuntime,
+  loadSocialContentJobRuntime,
   markStageAwaitingApproval,
   markStageCompleted,
   recordStageFailure,
-  saveMarketingJobRuntime,
+  saveSocialContentJobRuntime,
   appendHistory,
-  type MarketingJobRuntimeDocument,
+  type SocialContentJobRuntimeDocument,
   type MarketingStage,
 } from './runtime-state';
 import { getMarketingExecutionPort, type MarketingExecutionPort } from './execution-port';
 import { scheduleHermesPublishPerformanceHonchoWrite } from '@/backend/memory/write-events';
-import { approveMarketingJob } from './orchestrator';
-import type { ApproveMarketingJobRequest, ApproveMarketingJobResponse } from './orchestrator';
+import { approveSocialContentJob } from './orchestrator';
+import type { ApproveSocialContentJobRequest, ApproveSocialContentJobResponse } from './orchestrator';
 import { ingestProductionCreativeAssetsToDb } from './ingest-production-assets';
 import { synthesizePublishPostsFromContentPackage } from './synthesize-publish-posts';
 import { autoSchedulePosts } from './auto-schedule';
@@ -858,7 +858,7 @@ function countRecognizedImagesInOutputRecord(
  * Failure code: `hermes_image_generation_unrecognized`
  */
 function productionCallbackImageGenerationUnrecognized(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   outputRecord: Record<string, unknown> | null,
 ): boolean {
   // Determine requested image count from the original job request.
@@ -929,7 +929,7 @@ function normalizeArtifacts(value: unknown): SocialContentArtifact[] {
 
 function approvalTitle(stage: 'strategy' | 'production' | 'publish'): string {
   return stage === 'strategy'
-    ? 'Approve campaign strategy'
+    ? 'Approve social content strategy'
     : stage === 'production'
       ? 'Approve production plan'
       : 'Approve publishing plan';
@@ -952,7 +952,7 @@ function actionLabel(stage: 'strategy' | 'production' | 'publish'): string {
  * Exported for unit tests; not part of the public module API.
  */
 export async function maybeAutoAdvanceNextStage(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   completedStage: MarketingStage,
   payload: HermesRunCallbackPayload,
   port: MarketingExecutionPort,
@@ -994,7 +994,7 @@ export async function maybeAutoAdvanceNextStage(
   appendHistory(doc, `auto-advancing to ${nextStage} (Hermes returned completed without approval)`, {
     stage: nextStage,
   });
-  saveMarketingJobRuntime(doc.job_id, doc);
+  saveSocialContentJobRuntime(doc.job_id, doc);
 
   // M4: explicit try/catch — write failure to doc before returning.
   try {
@@ -1036,9 +1036,9 @@ export function autoApproveMarketingPipelineEnabled(env: NodeJS.ProcessEnv = pro
 }
 
 type AutoApproveFn = (
-  input: ApproveMarketingJobRequest,
-  doc: MarketingJobRuntimeDocument,
-) => Promise<ApproveMarketingJobResponse>;
+  input: ApproveSocialContentJobRequest,
+  doc: SocialContentJobRuntimeDocument,
+) => Promise<ApproveSocialContentJobResponse>;
 
 type PublishGuardrailReason =
   | { kind: 'preflight_failed'; status: string }
@@ -1126,19 +1126,19 @@ function findPublishAutoApproveRefusalSignal(
 
 /**
  * After a `requires_approval` callback writes an approval checkpoint to the doc,
- * call `approveMarketingJob` with `approvedBy: 'ai-orchestrator'` so the pipeline
+ * call `approveSocialContentJob` with `approvedBy: 'ai-orchestrator'` so the pipeline
  * advances without a human click. Default OFF; opt in per-process via
  * `ARIES_AUTO_APPROVE_MARKETING_PIPELINE=1`.
  *
  * The injectable `approve` parameter exists for unit tests; production callers
- * default to the real `approveMarketingJob`. Same pattern as
+ * default to the real `approveSocialContentJob`. Same pattern as
  * `maybeAutoAdvanceNextStage`'s injectable port.
  *
  * Exported for unit tests; not part of the public module API.
  */
 export async function maybeAutoApproveMarketingCheckpoint(
-  doc: MarketingJobRuntimeDocument,
-  approve: AutoApproveFn = approveMarketingJob,
+  doc: SocialContentJobRuntimeDocument,
+  approve: AutoApproveFn = approveSocialContentJob,
   env: NodeJS.ProcessEnv = process.env,
   payload?: HermesRunCallbackPayload,
 ): Promise<void> {
@@ -1149,7 +1149,7 @@ export async function maybeAutoApproveMarketingCheckpoint(
   if (!checkpoint.approval_id) return;
   // Publish-skip branch terminates the doc before this is reached; defensive guard.
   if (doc.state === 'completed' || doc.state === 'failed') return;
-  // approveMarketingJob requires tenantId (orchestrator.ts:1716).
+  // approveSocialContentJob requires tenantId (orchestrator.ts:1716).
   if (!doc.tenant_id) return;
 
   // Only strategy/production/publish have approval gates. Research has no gate;
@@ -1184,7 +1184,7 @@ export async function maybeAutoApproveMarketingCheckpoint(
         message: `Auto-approve refused: ${reason}. Run is not safe to promote without human review.`,
         retryable: false,
       });
-      saveMarketingJobRuntime(doc.job_id, doc);
+      saveSocialContentJobRuntime(doc.job_id, doc);
       console.error('[hermes-callbacks] publish_auto_approve_refused', {
         job_id: doc.job_id,
         reason: refusal,
@@ -1196,7 +1196,7 @@ export async function maybeAutoApproveMarketingCheckpoint(
   appendHistory(doc, `auto-approving ${stage} checkpoint (ARIES_AUTO_APPROVE_MARKETING_PIPELINE=1)`, {
     stage,
   });
-  saveMarketingJobRuntime(doc.job_id, doc);
+  saveSocialContentJobRuntime(doc.job_id, doc);
 
   try {
     const response = await approve(
@@ -1216,19 +1216,19 @@ export async function maybeAutoApproveMarketingCheckpoint(
     // Idempotency: parallel resolution from another caller is benign.
     if (response.status === 'error' && response.reason === 'approval_not_available') {
       appendHistory(doc, `auto-approve no-op: ${stage} checkpoint already resolved`, { stage });
-      saveMarketingJobRuntime(doc.job_id, doc);
+      saveSocialContentJobRuntime(doc.job_id, doc);
       return;
     }
     if (response.status === 'error' && response.reason === 'approval_resolution_in_progress') {
       appendHistory(doc, `auto-approve no-op: ${stage} checkpoint resolution in flight`, { stage });
-      saveMarketingJobRuntime(doc.job_id, doc);
+      saveSocialContentJobRuntime(doc.job_id, doc);
       return;
     }
     if (response.status === 'error') {
       // Don't recordStageFailure — that would conflict with the checkpoint
       // restored by resolveMarketingApproval's catch. Just log; reaper recovers.
       appendHistory(doc, `auto-approve failed for ${stage}: ${response.reason ?? 'unknown'}`, { stage });
-      saveMarketingJobRuntime(doc.job_id, doc);
+      saveSocialContentJobRuntime(doc.job_id, doc);
       console.error('[hermes-callbacks] auto_approve_failed', {
         job_id: doc.job_id,
         stage,
@@ -1241,11 +1241,11 @@ export async function maybeAutoApproveMarketingCheckpoint(
       `auto-approved ${stage}; resumed_stage=${response.resumedStage ?? 'none'} completed=${response.completed}`,
       { stage },
     );
-    saveMarketingJobRuntime(doc.job_id, doc);
+    saveSocialContentJobRuntime(doc.job_id, doc);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     appendHistory(doc, `auto-approve threw for ${stage}: ${message}`, { stage });
-    saveMarketingJobRuntime(doc.job_id, doc);
+    saveSocialContentJobRuntime(doc.job_id, doc);
     console.error('[hermes-callbacks] auto_approve_threw', {
       job_id: doc.job_id,
       stage,
@@ -1254,7 +1254,7 @@ export async function maybeAutoApproveMarketingCheckpoint(
   }
 }
 
-function markJobCompleted(doc: MarketingJobRuntimeDocument, stage: MarketingStage, payload: HermesRunCallbackPayload): void {
+function markJobCompleted(doc: SocialContentJobRuntimeDocument, stage: MarketingStage, payload: HermesRunCallbackPayload): void {
   markStageCompleted(doc, stage, {
     runId: outputRunId(payload, payload.hermes_run_id ?? null),
     summary: outputSummary(payload),
@@ -1279,7 +1279,7 @@ function markJobCompleted(doc: MarketingJobRuntimeDocument, stage: MarketingStag
  * already done; the worst case is an empty launch view, recoverable on replay.
  */
 async function synthesizePublishPostsOnCompletion(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   publishRunId: string | null,
 ): Promise<void> {
   try {
@@ -1332,7 +1332,7 @@ async function synthesizePublishPostsOnCompletion(
  * any package with uneven platform fan-out (e.g. post 1 = [IG, FB], post 2 =
  * [IG only] would mis-ordinal the third row).
  */
-async function autoScheduleApprovedPostsForJob(doc: MarketingJobRuntimeDocument): Promise<void> {
+async function autoScheduleApprovedPostsForJob(doc: SocialContentJobRuntimeDocument): Promise<void> {
   const tenantNum = Number(doc.tenant_id);
   if (!Number.isFinite(tenantNum) || tenantNum <= 0) return;
 
@@ -1342,9 +1342,9 @@ async function autoScheduleApprovedPostsForJob(doc: MarketingJobRuntimeDocument)
     return;
   }
 
-  const campaignWindow = readCampaignWindow(doc);
-  if (!campaignWindow) {
-    console.info('[hermes-callbacks] autoSchedulePosts skipped — no campaign window', { jobId: doc.job_id });
+  const postWindow = readCampaignWindow(doc);
+  if (!postWindow) {
+    console.info('[hermes-callbacks] autoSchedulePosts skipped — no post window', { jobId: doc.job_id });
     return;
   }
 
@@ -1411,8 +1411,8 @@ async function autoScheduleApprovedPostsForJob(doc: MarketingJobRuntimeDocument)
     jobId: doc.job_id,
     tenantId: tenantNum,
     tenantTimezone,
-    campaignStart: campaignWindow.start,
-    campaignEnd: campaignWindow.end,
+    campaignStart: postWindow.start,
+    campaignEnd: postWindow.end,
     rows,
     queryable: pool,
   });
@@ -1432,7 +1432,7 @@ export interface WeeklyScheduleEntry {
   platform_targets?: Array<{ platform?: string }>;
 }
 
-export function readWeeklySchedule(doc: MarketingJobRuntimeDocument): WeeklyScheduleEntry[] {
+export function readWeeklySchedule(doc: SocialContentJobRuntimeDocument): WeeklyScheduleEntry[] {
   const primary = doc.stages?.publish?.primary_output;
   if (!primary || typeof primary !== 'object') return [];
   // Hermes emits `schedule` (current wire shape); fall back to `weekly_schedule` for compat.
@@ -1444,7 +1444,7 @@ export function readWeeklySchedule(doc: MarketingJobRuntimeDocument): WeeklySche
   return Array.isArray(ws) ? (ws as WeeklyScheduleEntry[]) : [];
 }
 
-function readCampaignWindow(doc: MarketingJobRuntimeDocument): { start: Date; end: Date } | null {
+function readCampaignWindow(doc: SocialContentJobRuntimeDocument): { start: Date; end: Date } | null {
   // Start: the marketing job's created_at. End: the one_off campaignEndDate
   // when present, else fall back to start + 14 days (matches the
   // legacy weekly window). Returns null if neither can be parsed.
@@ -1509,7 +1509,7 @@ async function readTenantTimezone(tenantId: number): Promise<string | null> {
  * rows. Non-fatal — an ingest failure must not break completion bookkeeping.
  */
 async function ingestProductionCreativeAssetsOnCompletion(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
 ): Promise<void> {
   try {
     const tenantNum = Number(doc.tenant_id);
@@ -1529,7 +1529,7 @@ async function ingestProductionCreativeAssetsOnCompletion(
 }
 
 function createApprovalCheckpoint(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   run: ExecutionRunRecord,
   payload: HermesRunCallbackPayload,
   socialApprovalStep: SocialContentApprovalStep | null,
@@ -1601,7 +1601,7 @@ export async function applyHermesMarketingCallback(
     return;
   }
 
-  const doc = await loadMarketingJobRuntime(run.marketing_job_id);
+  const doc = await loadSocialContentJobRuntime(run.marketing_job_id);
   if (!doc) {
     return;
   }
@@ -1661,7 +1661,7 @@ export async function applyHermesMarketingCallback(
         error.message,
         firstOutputRecord(payload),
       );
-      saveMarketingJobRuntime(doc.job_id, doc);
+      saveSocialContentJobRuntime(doc.job_id, doc);
       return;
     }
 
@@ -1680,7 +1680,7 @@ export async function applyHermesMarketingCallback(
         firstOutputRecord(payload),
       );
     }
-    saveMarketingJobRuntime(doc.job_id, doc);
+    saveSocialContentJobRuntime(doc.job_id, doc);
     return;
   }
 
@@ -1699,7 +1699,7 @@ export async function applyHermesMarketingCallback(
         socialContentStageFromCallbackStage(payload.stage) ?? socialStageForMarketingStage(targetStage);
       markSocialContentStageRunning(doc, runningSocialStage, firstOutputRecord(payload));
     }
-    saveMarketingJobRuntime(doc.job_id, doc);
+    saveSocialContentJobRuntime(doc.job_id, doc);
     return;
   }
 
@@ -1735,7 +1735,7 @@ export async function applyHermesMarketingCallback(
         errorMessage,
         firstOutputRecord(payload),
       );
-      saveMarketingJobRuntime(doc.job_id, doc);
+      saveSocialContentJobRuntime(doc.job_id, doc);
       return;
     }
 
@@ -1765,7 +1765,7 @@ export async function applyHermesMarketingCallback(
         errorMessage,
         firstOutputRecord(payload),
       );
-      saveMarketingJobRuntime(doc.job_id, doc);
+      saveSocialContentJobRuntime(doc.job_id, doc);
       return;
     }
 
@@ -1822,11 +1822,11 @@ export async function applyHermesMarketingCallback(
         }
       }
       clearApprovalCheckpoint(doc, 'publish approval skipped because publishing is disabled');
-      saveMarketingJobRuntime(doc.job_id, doc);
+      saveSocialContentJobRuntime(doc.job_id, doc);
       return;
     }
     createApprovalCheckpoint(doc, run, payload, socialApprovalStep, completedSocialStage);
-    saveMarketingJobRuntime(doc.job_id, doc);
+    saveSocialContentJobRuntime(doc.job_id, doc);
     await maybeAutoApproveMarketingCheckpoint(doc, undefined, undefined, payload);
     return;
   }
@@ -1885,7 +1885,7 @@ export async function applyHermesMarketingCallback(
           multiStage.get('publish')?.runId ?? payload.hermes_run_id ?? null,
         );
       }
-      saveMarketingJobRuntime(doc.job_id, doc);
+      saveSocialContentJobRuntime(doc.job_id, doc);
       return;
     }
 
@@ -1925,6 +1925,6 @@ export async function applyHermesMarketingCallback(
     // markers, (iv) maybeAutoAdvanceNextStage (does its own intermediate save),
     // (v) final save below.
     await maybeAutoAdvanceNextStage(doc, targetStage, payload, getMarketingExecutionPort());
-    saveMarketingJobRuntime(doc.job_id, doc);
+    saveSocialContentJobRuntime(doc.job_id, doc);
   }
 }

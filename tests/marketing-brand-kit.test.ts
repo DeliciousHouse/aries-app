@@ -152,7 +152,7 @@ function installBrandSiteFetchMock(): { restore: () => void; fetchImpl: typeof f
     return new Response('not found', { status: 404 });
   }) as typeof fetch;
 
-  // Also install as globalThis.fetch for callers (e.g. startMarketingJob) that
+  // Also install as globalThis.fetch for callers (e.g. startSocialContentJob) that
   // cannot receive fetchImpl via argument.
   globalThis.fetch = fakeFetch as typeof globalThis.fetch;
 
@@ -528,15 +528,15 @@ test('extractBrandKitFromWebsite derives logo, palette, fonts, and social links 
   }
 });
 
-test('startMarketingJob persists a reusable tenant brand kit and stores a runtime reference snapshot', async () => {
+test('startSocialContentJob persists a reusable tenant brand kit and stores a runtime reference snapshot', async () => {
   await withRuntimeEnv(async (dataRoot) => {
     const { restore: restoreFetch } = installBrandSiteFetchMock();
 
     try {
       installMarketingPipelineInvoker();
-      const { startMarketingJob } = await import('../backend/marketing/orchestrator');
+      const { startSocialContentJob } = await import('../backend/marketing/orchestrator');
 
-      const result = await startMarketingJob({
+      const result = await startSocialContentJob({
         tenantId: 'sugarandleather',
         jobType: 'weekly_social_content',
         payload: {
@@ -835,10 +835,10 @@ test('extractAndSaveTenantBrandKit does not reuse a fresh fallback-style brand k
   });
 });
 
-test('saveMarketingJobRuntime rejects brand campaign runtime documents without a brand kit snapshot or canonical source URL', async () => {
+test('saveSocialContentJobRuntime rejects brand campaign runtime documents without a brand kit snapshot or canonical source URL', async () => {
   await withRuntimeEnv(async () => {
-    const { createMarketingJobRuntimeDocument, saveMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
-    const validDoc = createMarketingJobRuntimeDocument({
+    const { createSocialContentJobRuntimeDocument, saveSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
+    const validDoc = createSocialContentJobRuntimeDocument({
       jobId: 'mkt_brandkit_guard',
       tenantId: 'sugarandleather',
         payload: {
@@ -896,19 +896,19 @@ test('saveMarketingJobRuntime rejects brand campaign runtime documents without a
     };
 
     assert.throws(
-      () => saveMarketingJobRuntime('mkt_brandkit_guard', missingBrandKit),
+      () => saveSocialContentJobRuntime('mkt_brandkit_guard', missingBrandKit),
       /invalid_marketing_runtime_document:brand_kit_required/i
     );
     assert.throws(
-      () => saveMarketingJobRuntime('mkt_brandkit_guard', missingBrandUrl as any),
+      () => saveSocialContentJobRuntime('mkt_brandkit_guard', missingBrandUrl as any),
       /invalid_marketing_runtime_document:brand_url_required/i
     );
     assert.throws(
-      () => saveMarketingJobRuntime('mkt_brandkit_guard', mismatchedBrandSource as any),
+      () => saveSocialContentJobRuntime('mkt_brandkit_guard', mismatchedBrandSource as any),
       /invalid_marketing_runtime_document:brand_kit_source_mismatch/i
     );
     assert.throws(
-      () => saveMarketingJobRuntime('mkt_brandkit_guard', invalidExtractedAt as any),
+      () => saveSocialContentJobRuntime('mkt_brandkit_guard', invalidExtractedAt as any),
       /invalid_marketing_runtime_document:brand_kit_extracted_at_invalid/i
     );
   });

@@ -146,7 +146,7 @@ export type MarketingHistoryEntry = {
   note: string;
 };
 
-export type MarketingJobRuntimeDocument = {
+export type SocialContentJobRuntimeDocument = {
   schema_name: typeof MARKETING_RUNTIME_SCHEMA_NAME;
   schema_version: typeof MARKETING_RUNTIME_SCHEMA_VERSION;
   job_id: string;
@@ -297,7 +297,7 @@ function defaultStageRecord(stage: MarketingStage): MarketingStageRecord {
   };
 }
 
-export function createMarketingJobRuntimeDocument(input: {
+export function createSocialContentJobRuntimeDocument(input: {
   jobId: string;
   tenantId: string;
   payload: Record<string, unknown>;
@@ -307,7 +307,7 @@ export function createMarketingJobRuntimeDocument(input: {
    * delete permissions can allow the creator (in addition to tenant_admin)
    * to soft-delete their own campaign. */
   createdBy?: string | null;
-}): MarketingJobRuntimeDocument {
+}): SocialContentJobRuntimeDocument {
   const ts = nowIso();
   const payloadChannels = Array.isArray(input.payload?.channels)
     ? (input.payload.channels as unknown[]).filter(
@@ -323,7 +323,7 @@ export function createMarketingJobRuntimeDocument(input: {
   // so the top-level label can never disagree with what drives the pipeline.
   // Unknown jobType values fall back to 'weekly_social_content' -- the legacy
   // behaviour for any tenant submitting without an explicit jobType.
-  const resolvedJobType: MarketingJobRuntimeDocument['job_type'] =
+  const resolvedJobType: SocialContentJobRuntimeDocument['job_type'] =
     input.payload?.jobType === 'one_off_campaign'
       ? 'one_off_campaign'
       : 'weekly_social_content';
@@ -384,7 +384,7 @@ export function createMarketingJobRuntimeDocument(input: {
 /** Returns true when the pipeline has unfinished work. Used by soft-delete
  * to decide whether to arm the cancel signal (in-progress) or just hide
  * the campaign (already terminal). */
-export function isPipelineActive(doc: MarketingJobRuntimeDocument): boolean {
+export function isPipelineActive(doc: SocialContentJobRuntimeDocument): boolean {
   if (doc.state === 'completed' || doc.state === 'failed') {
     return false;
   }
@@ -466,7 +466,7 @@ function runtimeBrandKitReferenceFromTenantBrandKit(
   return marketingBrandKitReferenceFromTenantBrandKit(brandKit, tenantBrandKitPath(tenantId));
 }
 
-async function recoverLegacyRuntimeBrandKit(doc: MarketingJobRuntimeDocument): Promise<MarketingBrandKitReference | null> {
+async function recoverLegacyRuntimeBrandKit(doc: SocialContentJobRuntimeDocument): Promise<MarketingBrandKitReference | null> {
   try {
     const persistedBrandKit = await loadTenantBrandKit(doc.tenant_id);
     if (!persistedBrandKit) {
@@ -503,7 +503,7 @@ async function recoverLegacyRuntimeBrandKit(doc: MarketingJobRuntimeDocument): P
   }
 }
 
-function assertMarketingRuntimeDocument(doc: MarketingJobRuntimeDocument): void {
+function assertMarketingRuntimeDocument(doc: SocialContentJobRuntimeDocument): void {
   if (!doc.brand_kit) {
     throw new Error('invalid_marketing_runtime_document:brand_kit_required');
   }
@@ -518,7 +518,7 @@ function assertMarketingRuntimeDocument(doc: MarketingJobRuntimeDocument): void 
   }
 }
 
-export async function loadMarketingJobRuntime(jobId: string): Promise<MarketingJobRuntimeDocument | null> {
+export async function loadSocialContentJobRuntime(jobId: string): Promise<SocialContentJobRuntimeDocument | null> {
   const filePath = marketingRuntimePath(jobId);
   try {
     const raw = await readFile(filePath, 'utf8');
@@ -539,7 +539,7 @@ export async function loadMarketingJobRuntime(jobId: string): Promise<MarketingJ
       return null;
     }
 
-    const doc = parsed as MarketingJobRuntimeDocument;
+    const doc = parsed as SocialContentJobRuntimeDocument;
     if (!doc.stage_order || !Array.isArray(doc.stage_order) || doc.stage_order.length === 0) {
       doc.stage_order = [...STAGES];
     }
@@ -652,7 +652,7 @@ async function collectMarketingJobRefsForTenant(
   return options.limit !== undefined ? sorted.slice(0, options.limit) : sorted;
 }
 
-export async function listMarketingJobIdsForTenant(
+export async function listSocialContentJobIdsForTenant(
   tenantId: string,
   options: { limit?: number } = {},
 ): Promise<string[]> {
@@ -853,7 +853,7 @@ function socialContentRuntimeContainsBasename(
   return false;
 }
 
-export async function listDeletedMarketingJobIdsForTenant(
+export async function listDeletedSocialContentJobIdsForTenant(
   tenantId: string,
   options: { limit?: number } = {},
 ): Promise<string[]> {
@@ -863,7 +863,7 @@ export async function listDeletedMarketingJobIdsForTenant(
 }
 
 /**
- * Soft-delete a marketing campaign. Marks `deleted_at` + `deleted_by` on the
+ * Soft-delete a social content job. Marks `deleted_at` + `deleted_by` on the
  * runtime document so it drops out of the default list queries but stays
  * resolvable via its direct jobId (for the Deleted campaigns Recycle Bin
  * restore flow).
@@ -882,12 +882,12 @@ export async function listDeletedMarketingJobIdsForTenant(
  * Returns the updated document, or `null` if the job is not found or
  * belongs to a different tenant.
  */
-export async function softDeleteMarketingJob(input: {
+export async function softDeleteSocialContentJob(input: {
   jobId: string;
   tenantId: string;
   deletedBy: string;
-}): Promise<MarketingJobRuntimeDocument | null> {
-  const doc = await loadMarketingJobRuntime(input.jobId);
+}): Promise<SocialContentJobRuntimeDocument | null> {
+  const doc = await loadSocialContentJobRuntime(input.jobId);
   if (!doc || doc.tenant_id !== input.tenantId) {
     return null;
   }
@@ -903,12 +903,12 @@ export async function softDeleteMarketingJob(input: {
   if (isPipelineActive(doc)) {
     doc.soft_cancel_requested_at = ts;
   }
-  saveMarketingJobRuntime(input.jobId, doc);
+  saveSocialContentJobRuntime(input.jobId, doc);
   return doc;
 }
 
 /**
- * Restore a soft-deleted marketing campaign by clearing `deleted_at` /
+ * Restore a soft-deleted social content job by clearing `deleted_at` /
  * `deleted_by` / `soft_cancel_requested_at`.
  *
  * **Idempotent.** If the campaign is already live (not deleted), the
@@ -919,8 +919,8 @@ export async function softDeleteMarketingJob(input: {
 export async function restoreMarketingJob(input: {
   jobId: string;
   tenantId: string;
-}): Promise<MarketingJobRuntimeDocument | null> {
-  const doc = await loadMarketingJobRuntime(input.jobId);
+}): Promise<SocialContentJobRuntimeDocument | null> {
+  const doc = await loadSocialContentJobRuntime(input.jobId);
   if (!doc || doc.tenant_id !== input.tenantId) {
     return null;
   }
@@ -932,7 +932,7 @@ export async function restoreMarketingJob(input: {
   // Clear the cancel arm on restore too so the orchestrator does not
   // immediately re-cancel a restored campaign on its next stage boundary.
   doc.soft_cancel_requested_at = null;
-  saveMarketingJobRuntime(input.jobId, doc);
+  saveSocialContentJobRuntime(input.jobId, doc);
   return doc;
 }
 
@@ -1002,7 +1002,7 @@ export async function findLatestMarketingJobIdForTenant(tenantId: string): Promi
   return (await collectMarketingJobRefsForTenant(tenantId))[0]?.jobId ?? null;
 }
 
-export function saveMarketingJobRuntime(jobId: string, doc: MarketingJobRuntimeDocument): string {
+export function saveSocialContentJobRuntime(jobId: string, doc: SocialContentJobRuntimeDocument): string {
   assertMarketingRuntimeDocument(doc);
   const ingest = ingestRuntimeDocAssets(doc as unknown as Record<string, unknown>);
   if (ingest.rewrites.length > 0) {
@@ -1035,7 +1035,7 @@ export function asStringArray(value: unknown): string[] {
     : [];
 }
 
-export function getStageRecord(doc: MarketingJobRuntimeDocument, stage: MarketingStage): MarketingStageRecord {
+export function getStageRecord(doc: SocialContentJobRuntimeDocument, stage: MarketingStage): MarketingStageRecord {
   const existing = doc.stages?.[stage];
   if (existing) {
     return existing;
@@ -1046,7 +1046,7 @@ export function getStageRecord(doc: MarketingJobRuntimeDocument, stage: Marketin
 }
 
 export function appendHistory(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   note: string,
   input: { state?: string; status?: string; stage?: MarketingStage | null; at?: string } = {}
 ): void {
@@ -1059,14 +1059,14 @@ export function appendHistory(
   });
 }
 
-export function setJobRunning(doc: MarketingJobRuntimeDocument, stage: MarketingStage, note: string): void {
+export function setJobRunning(doc: SocialContentJobRuntimeDocument, stage: MarketingStage, note: string): void {
   doc.state = 'running';
   doc.status = 'running';
   doc.current_stage = stage;
   appendHistory(doc, note, { stage });
 }
 
-export function markStageInProgress(doc: MarketingJobRuntimeDocument, stage: MarketingStage): MarketingStageRecord {
+export function markStageInProgress(doc: SocialContentJobRuntimeDocument, stage: MarketingStage): MarketingStageRecord {
   const record = getStageRecord(doc, stage);
   if (!record.started_at) {
     record.started_at = nowIso();
@@ -1079,7 +1079,7 @@ export function markStageInProgress(doc: MarketingJobRuntimeDocument, stage: Mar
 }
 
 export function markStageCompleted(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   stage: MarketingStage,
   input: {
     runId?: string | null;
@@ -1105,7 +1105,7 @@ export function markStageCompleted(
 }
 
 export function markStageRequiresChannelConnection(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   stage: MarketingStage,
   input: {
     summary?: MarketingStageSummary | null;
@@ -1166,7 +1166,7 @@ export function markStageRequiresChannelConnection(
 }
 
 export function markStageAwaitingApproval(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   stage: Extract<MarketingStage, 'strategy' | 'production' | 'publish'>,
   checkpoint: Omit<MarketingApprovalCheckpoint, 'stage' | 'status' | 'requested_at'> & {
     requested_at?: string;
@@ -1218,7 +1218,7 @@ export function markStageAwaitingApproval(
   return record;
 }
 
-export function clearApprovalCheckpoint(doc: MarketingJobRuntimeDocument, note: string): void {
+export function clearApprovalCheckpoint(doc: SocialContentJobRuntimeDocument, note: string): void {
   const current = doc.approvals.current;
   if (current) {
     doc.approvals.history.push({
@@ -1236,7 +1236,7 @@ export function clearApprovalCheckpoint(doc: MarketingJobRuntimeDocument, note: 
 }
 
 export function recordApproval(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   input: {
     stage: Extract<MarketingStage, 'strategy' | 'production' | 'publish'>;
     approvedBy: string;
@@ -1265,7 +1265,7 @@ export function recordApproval(
 }
 
 export function recordApprovalDenied(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   input: {
     stage: Extract<MarketingStage, 'strategy' | 'production' | 'publish'>;
     deniedBy: string;
@@ -1294,7 +1294,7 @@ export function recordApprovalDenied(
 }
 
 export function recordStageFailure(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   stage: MarketingStage,
   error: Omit<MarketingStageError, 'stage' | 'at'> & { at?: string }
 ): MarketingStageError {
@@ -1344,7 +1344,7 @@ export function recordStageFailure(
  * record + the top-level error pointers are cleared.
  */
 export function resetStageForRetry(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   stage: MarketingStage,
 ): boolean {
   const record = getStageRecord(doc, stage);
@@ -1417,7 +1417,7 @@ export function responseStageStatus(record: MarketingStageRecord): string {
  * filesystem-path keys populated.
  */
 export function resolveStageOutput(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   stageName: MarketingStage,
 ): Record<string, unknown> | null {
   const stage = doc.stages[stageName];

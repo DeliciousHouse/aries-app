@@ -103,8 +103,8 @@ describe('resetStageForRetry', () => {
   it('resets a failed stage record back to not_started and clears its errors', async () => {
     const { resetStageForRetry } = await import('../backend/marketing/runtime-state');
     await writeFailedResearchDoc('job_reset_basic');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
-    const doc = await loadMarketingJobRuntime('job_reset_basic');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
+    const doc = await loadSocialContentJobRuntime('job_reset_basic');
     assert.ok(doc);
 
     const ok = resetStageForRetry(doc, 'research');
@@ -137,8 +137,8 @@ describe('resetStageForRetry', () => {
         publish: { stage: 'publish', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
       },
     });
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
-    const doc = await loadMarketingJobRuntime('job_reset_noop');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
+    const doc = await loadSocialContentJobRuntime('job_reset_noop');
     assert.ok(doc);
 
     const ok = resetStageForRetry(doc, 'research');
@@ -156,8 +156,8 @@ describe('resetStageForRetry', () => {
         publish: { stage: 'publish', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
       },
     });
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
-    const doc = await loadMarketingJobRuntime('job_reset_siblings');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
+    const doc = await loadSocialContentJobRuntime('job_reset_siblings');
     assert.ok(doc);
 
     resetStageForRetry(doc, 'research');
@@ -284,7 +284,7 @@ describe('retryFailedResearchStage persists failure when re-entry throws', () =>
 
   it('re-records the stage as failed on disk when the orchestrator submission throws', async () => {
     const orch = await import('../backend/marketing/orchestrator');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
 
     // Inject an execution-port resolver whose runPipeline always throws —
     // simulates Hermes 5xx during research stage submission. The resolver
@@ -319,7 +319,7 @@ describe('retryFailedResearchStage persists failure when re-entry throws', () =>
 
     // The on-disk doc must reflect the re-failure, NOT the transient
     // queued/pending reset that briefly existed mid-retry.
-    const doc = await loadMarketingJobRuntime('job_persist_failure');
+    const doc = await loadSocialContentJobRuntime('job_persist_failure');
     assert.ok(doc);
     assert.equal(doc.state, 'failed', 'doc.state must reflect the new failure, not the transient queued reset');
     assert.equal(doc.status, 'failed');

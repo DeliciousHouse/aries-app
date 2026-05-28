@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  formatCampaignStatusLabel,
+  formatPostStatusLabel,
   formatDispatchStatusChip,
   formatDispatchStatusLabel,
 } from '../frontend/aries-v1/labels';
 import { connectionStateBadgeStatus } from '../frontend/settings/platform-card';
-import { stageProgressForTest } from '../frontend/aries-v1/presenters/campaign-list-presenter';
+import { stageProgressForTest } from '../frontend/aries-v1/presenters/post-list-presenter';
 import {
   integration_connection_state_values,
   type integration_connection_state,
@@ -65,34 +65,34 @@ test('formatDispatchStatusChip fallback never returns the success label for unkn
 //
 // calendar-presenter.tsx:344 used `campaign.status.replace('_', ' ')` which
 // produced "published to meta (paused)" and "ready to publish" in lowercase.
-// formatCampaignStatusLabel must return the same casing StatusChip uses.
+// formatPostStatusLabel must return the same casing StatusChip uses.
 
-test('formatCampaignStatusLabel matches the StatusChip casing for AriesCampaignStatus values', () => {
-  assert.equal(formatCampaignStatusLabel('draft'), 'Draft');
-  assert.equal(formatCampaignStatusLabel('in_review'), 'In review');
-  assert.equal(formatCampaignStatusLabel('approved'), 'Approved');
-  assert.equal(formatCampaignStatusLabel('scheduled'), 'Scheduled');
-  assert.equal(formatCampaignStatusLabel('live'), 'Live');
-  assert.equal(formatCampaignStatusLabel('changes_requested'), 'Needs changes');
-  assert.equal(formatCampaignStatusLabel('rejected'), 'Rejected');
+test('formatPostStatusLabel matches the StatusChip casing for AriesCampaignStatus values', () => {
+  assert.equal(formatPostStatusLabel('draft'), 'Draft');
+  assert.equal(formatPostStatusLabel('in_review'), 'In review');
+  assert.equal(formatPostStatusLabel('approved'), 'Approved');
+  assert.equal(formatPostStatusLabel('scheduled'), 'Scheduled');
+  assert.equal(formatPostStatusLabel('live'), 'Live');
+  assert.equal(formatPostStatusLabel('changes_requested'), 'Needs changes');
+  assert.equal(formatPostStatusLabel('rejected'), 'Rejected');
 });
 
-test('formatCampaignStatusLabel handles AriesItemStatus values used in the calendar pill', () => {
-  assert.equal(formatCampaignStatusLabel('ready_to_publish'), 'Ready to publish');
-  assert.equal(formatCampaignStatusLabel('published_to_meta_paused'), 'Published to Meta (Paused)');
-  assert.equal(formatCampaignStatusLabel('published_to_meta'), 'Published to Meta');
+test('formatPostStatusLabel handles AriesItemStatus values used in the calendar pill', () => {
+  assert.equal(formatPostStatusLabel('ready_to_publish'), 'Ready to publish');
+  assert.equal(formatPostStatusLabel('published_to_meta_paused'), 'Published to Meta (Paused)');
+  assert.equal(formatPostStatusLabel('published_to_meta'), 'Published to Meta');
 });
 
-test('formatCampaignStatusLabel title-cases unknown values rather than returning raw snake_case', () => {
+test('formatPostStatusLabel title-cases unknown values rather than returning raw snake_case', () => {
   // The exact bug-class this regression test pins: a new status MUST NOT
   // render as raw `whatever_new_thing` or lowercase.
-  assert.equal(formatCampaignStatusLabel('whatever_new_thing'), 'Whatever New Thing');
-  assert.notEqual(formatCampaignStatusLabel('published_to_meta_paused'), 'published to meta paused');
+  assert.equal(formatPostStatusLabel('whatever_new_thing'), 'Whatever New Thing');
+  assert.notEqual(formatPostStatusLabel('published_to_meta_paused'), 'published to meta paused');
 });
 
 // --- Campaign list stage progress -------------------------------------------
 //
-// stageProgress() in campaign-list-presenter.tsx had no case for 'rejected'
+// stageProgress() in post-list-presenter.tsx had no case for 'rejected'
 // and no default branch, so it returned `undefined` which rendered as
 // `width: undefined%` in the CSS. These tests pin every known status to a
 // numeric value and ensure the default returns 0 (never undefined).

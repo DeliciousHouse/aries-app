@@ -87,16 +87,16 @@ const STUB_BRAND_KIT = {
 };
 
 async function makeBrandCampaignDoc(jobId: string, tenantId: string) {
-  const { createMarketingJobRuntimeDocument, saveMarketingJobRuntime } = await import(
+  const { createSocialContentJobRuntimeDocument, saveSocialContentJobRuntime } = await import(
     '../backend/marketing/runtime-state'
   );
-  const doc = createMarketingJobRuntimeDocument({
+  const doc = createSocialContentJobRuntimeDocument({
     jobId,
     tenantId,
     payload: { brandUrl: 'https://brand.example', businessType: 'agency' },
     brandKit: STUB_BRAND_KIT,
   });
-  saveMarketingJobRuntime(doc.job_id, doc);
+  saveSocialContentJobRuntime(doc.job_id, doc);
   return doc;
 }
 
@@ -121,10 +121,10 @@ test('HONCHO_ENABLED=false: no memory_context in weekly social content payload',
     const env = { ...BASE_ENV, HONCHO_ENABLED: 'false' };
     const port = new HermesMarketingPort(env, rf, async () => {}, noopBrandKitRefresher(), noopCallbackTokenClient());
 
-    const { createMarketingJobRuntimeDocument, saveMarketingJobRuntime } = await import(
+    const { createSocialContentJobRuntimeDocument, saveSocialContentJobRuntime } = await import(
       '../backend/marketing/runtime-state'
     );
-    const doc = createMarketingJobRuntimeDocument({
+    const doc = createSocialContentJobRuntimeDocument({
       jobId: 'job-no-honcho',
       tenantId: 'tenant-1',
       payload: {
@@ -134,7 +134,7 @@ test('HONCHO_ENABLED=false: no memory_context in weekly social content payload',
       },
       brandKit: STUB_BRAND_KIT,
     });
-    saveMarketingJobRuntime(doc.job_id, doc);
+    saveSocialContentJobRuntime(doc.job_id, doc);
 
     await port.runPipeline({ jobId: doc.job_id, doc, argsJson: '{}', timeoutMs: 5000, maxStdoutBytes: 1000 });
 
