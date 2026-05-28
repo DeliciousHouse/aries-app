@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.13.2 — chore(refactor): Cut 3 janitorial — 308 redirects, dead env scrub, sprint complete
+
+Final cleanup pass for the v0.1.13.x PRD-alignment refactor sprint. Sprint is now complete.
+
+### Changed
+- URL alias redirects (`/api/marketing/campaigns`, `/campaigns`, `/campaigns/[postId]`) upgraded from 307 (temporary) to 308 (permanent), matching the correct HTTP semantic for permanent URL aliases.
+- Host-side artifact output directory moved from `lobster/output` → `hermes/output` on the production VM (stale files from 2026-05-23, no active writes). `.env` updated: `ARIES_HOST_ARTIFACT_OUTPUT_DIR` points at new location; dead vars `ARIES_LOBSTER_HOST_OUTPUT_DIR`, `OPENCLAW_LOCAL_LOBSTER_CWD`, `OPENCLAW_LOBSTER_CWD`, `LOBSTER_VIDEO_RENDER_ENABLED`, `OPENCLAW_GATEWAY_LOBSTER_CWD`, and OpenClaw gateway credentials removed.
+
+### Notes
+- `ARIES_MEMORY_LABEL_REDACTION_V2` was already defaulted to `1` (ON) in docker-compose.yml since PR #439 (v0.1.8.4). No change needed.
+- Phase 2 DB migration (`UPDATE marketing_jobs SET job_type = 'one_off_post' WHERE job_type = 'one_off_campaign'`) deferred — `marketing_jobs` table does not carry `job_type` as a DB column; `job_type` lives in JSON runtime documents. No migration required.
+
 ## v0.1.13.1 — refactor(social-content): migrate internal wire keys with read-both/write-new compat
 
 Renames Aries-internal wire keys from "campaign" to "social content / post" terminology. All renames use a **read-both/write-new** pattern so in-flight jobs persisted with old field/step names are not orphaned at deploy time.

@@ -1,5 +1,5 @@
-import { redirect } from 'next/navigation';
+import { permanentRedirect } from 'next/navigation';
 
 export async function GET() {
-  redirect('/api/social-content/posts');
+  permanentRedirect('/api/social-content/posts');
 }
