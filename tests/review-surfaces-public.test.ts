@@ -47,5 +47,5 @@ test('client review surfaces hide empty evidence placeholders and keep client-sa
   assert.match(reviewItemSource, /What this decision does/);
   assert.match(workspaceSource, /Approve or request changes/);
   assert.match(queueSource, /Ready now/);
-  assert.match(statusSource, /Campaign status/);
+  assert.match(statusSource, /Social content status/);
 });

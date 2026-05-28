@@ -10,7 +10,7 @@ import {
 /**
  * A1 / T11 — the calendar grid is fed by `scheduled_posts` (real queued
  * posts with a real dispatch_status), not the runtime `dashboard.calendarEvents`.
- * The campaign strip ("Campaign status at a glance") still comes from
+ * The post strip ("Social content status at a glance") still comes from
  * `useRuntimePosts`. Day keys are computed in the tenant business
  * timezone (C1) so a post scheduled for 11pm tenant-time lands on the right
  * cell for an operator in any browser zone.

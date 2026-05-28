@@ -50,36 +50,36 @@ export function createSocialContentListViewModel(campaigns: RuntimePostListItem[
 
   return {
     hero: {
-      eyebrow: 'Campaigns',
-      title: 'Every campaign in one place',
+      eyebrow: 'Social content',
+      title: 'Every post in one place',
       description:
-        'Review the current state of each campaign, see what is blocked on approval, and open the exact workspace that needs attention.',
+        'Review the current state of each post, see what is blocked on approval, and open the exact workspace that needs attention.',
       metrics: [
         {
-          label: 'Total campaigns',
+          label: 'Total posts',
           value: String(campaigns.length),
           detail:
-            campaigns.length > 0 ? 'All runtime-backed campaigns are shown here.' : 'Create the first campaign to populate this view.',
+            campaigns.length > 0 ? 'All runtime-backed posts are shown here.' : 'Create the first post to populate this view.',
         },
         {
           label: 'Live now',
           value: String(liveCount),
           detail:
-            liveCount > 0 ? 'These campaigns have real runtime activity.' : 'No campaigns are currently live.',
+            liveCount > 0 ? 'These posts have real runtime activity.' : 'No posts are currently live.',
           tone: liveCount > 0 ? 'good' : 'default',
         },
         {
           label: 'Need review',
           value: String(reviewCount),
           detail:
-            reviewCount > 0 ? 'These campaigns are paused on approval or review.' : 'No campaigns are currently waiting on review.',
+            reviewCount > 0 ? 'These posts are paused on approval or review.' : 'No posts are currently waiting on review.',
           tone: reviewCount > 0 ? 'watch' : 'good',
         },
         {
           label: 'Scheduled',
           value: String(scheduledCount),
           detail:
-            scheduledCount > 0 ? 'Scheduled campaigns are ready for their publish windows.' : 'Nothing is scheduled yet.',
+            scheduledCount > 0 ? 'Scheduled posts are ready for their publish windows.' : 'Nothing is scheduled yet.',
         },
       ],
     },

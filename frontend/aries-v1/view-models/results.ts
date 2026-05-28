@@ -81,22 +81,22 @@ export function createResultsViewModel(campaigns: RuntimePostListItem[]): Result
   return {
     hero: {
       eyebrow: 'Results',
-      title: 'Runtime-backed campaign outcomes',
+      title: 'Runtime-backed post outcomes',
       description:
-        'This screen restores the richer dashboard presentation, and every card and chart comes directly from the live campaign runtime.',
+        'This screen restores the richer dashboard presentation, and every card and chart comes directly from the live post runtime.',
       metrics: [
         {
-          label: 'Tracked campaigns',
+          label: 'Tracked posts',
           value: String(campaigns.length),
           detail:
             campaigns.length > 0
-              ? 'Every runtime-backed campaign is included in this view.'
-              : 'Create the first campaign to populate this surface.',
+              ? 'Every runtime-backed post is included in this view.'
+              : 'Create the first post to populate this surface.',
         },
         {
           label: 'Live now',
           value: String(liveCount),
-          detail: liveCount > 0 ? 'These campaigns are actively running.' : 'No campaigns are live yet.',
+          detail: liveCount > 0 ? 'These posts are actively running.' : 'No posts are live yet.',
           tone: liveCount > 0 ? 'good' : 'default',
         },
         {
@@ -104,7 +104,7 @@ export function createResultsViewModel(campaigns: RuntimePostListItem[]): Result
           value: String(scheduledCount),
           detail:
             scheduledCount > 0
-              ? 'These campaigns already have upcoming publish windows.'
+              ? 'These posts already have upcoming publish windows.'
               : 'Nothing is scheduled yet.',
         },
         {
@@ -112,14 +112,14 @@ export function createResultsViewModel(campaigns: RuntimePostListItem[]): Result
           value: String(approvalCount),
           detail:
             approvalCount > 0
-              ? 'Approvals still block some campaigns before they can progress.'
-              : 'No campaigns are currently paused on review.',
+              ? 'Approvals still block some posts before they can progress.'
+              : 'No posts are currently paused on review.',
           tone: approvalCount > 0 ? 'watch' : 'good',
         },
       ],
     },
     filters: [
-      { id: 'all', label: 'All campaigns', count: campaigns.length, color: '#7b61ff' },
+      { id: 'all', label: 'All posts', count: campaigns.length, color: '#7b61ff' },
       { id: 'live', label: 'Live now', count: liveCount, color: STATUS_META.live.color },
       { id: 'scheduled', label: 'Scheduled', count: scheduledCount, color: STATUS_META.scheduled.color },
       { id: 'needs_review', label: 'Needs review', count: approvalCount, color: STATUS_META.in_review.color },
