@@ -262,13 +262,13 @@ export default function AriesPostWorkspace(props: { postId: string; initialView?
   }, [job.load, props.postId, progressActive]);
 
   if (job.isLoading) {
-    return <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-8 text-white/60">Loading campaign...</div>;
+    return <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-8 text-white/60">Loading post...</div>;
   }
 
   if (job.error) {
     return (
       <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
-        {customerSafeUiErrorMessage(job.error.message, 'This campaign workspace is not available right now.')}
+        {customerSafeUiErrorMessage(job.error.message, 'This post workspace is not available right now.')}
       </div>
     );
   }
@@ -348,7 +348,7 @@ export default function AriesPostWorkspace(props: { postId: string; initialView?
       if (!response.ok) {
         const payload = (await response.json().catch(() => ({}))) as { error?: string };
         throw new Error(
-          customerSafeActionErrorMessage(payload.error || null, 'The campaign brief could not be updated right now.'),
+          customerSafeActionErrorMessage(payload.error || null, 'The post brief could not be updated right now.'),
         );
       }
 
@@ -360,7 +360,7 @@ export default function AriesPostWorkspace(props: { postId: string; initialView?
 
   return (
     <div className="space-y-6">
-      <ShellPanel eyebrow="Campaign" title={headerState.title}>
+      <ShellPanel eyebrow="Post" title={headerState.title}>
         <div className="space-y-5">
           <div className="flex flex-wrap items-center gap-3">
             <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium tracking-[0.03em] ${workflowStateTone(workflowState)}`}>
@@ -512,7 +512,7 @@ export default function AriesPostWorkspace(props: { postId: string; initialView?
 
       <ShellPanel eyebrow="Shortcuts" title="Next steps">
         <div className="flex flex-wrap gap-3">
-          <SectionLink href="/dashboard/social-content/new" label="New campaign" />
+          <SectionLink href="/dashboard/social-content/new" label="New social content" />
           <SectionLink href="/dashboard/brand-review" label="Brand review" />
           <SectionLink href="/dashboard/strategy-review" label="Strategy review" />
           <SectionLink href="/dashboard/creative-review" label="Creative review" />
@@ -687,7 +687,7 @@ function BrandBriefCard(props: {
     <ShellPanel eyebrow="Brand brief" title="What Aries is using as the current source brief">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-2xl text-sm leading-7 text-white/65">
-          Update the current source website, voice direction, references, or revision notes here when the campaign needs a clearer brief.
+          Update the current source website, voice direction, references, or revision notes here when the post needs a clearer brief.
         </p>
         <div className="flex flex-wrap gap-3">
           {editing ? (
@@ -1511,7 +1511,7 @@ function ApprovedNextStageCard(props: { href: string; label: string; stageLabel:
     <ShellPanel eyebrow={`${props.stageLabel} approved`} title="Ready for the next review">
       <div className="space-y-4">
         <p className="text-sm leading-7 text-white/65">
-          This review has been approved. Continue to the next stage to keep the campaign moving.
+          This review has been approved. Continue to the next stage to keep the post moving.
         </p>
         <Link
           href={props.href}

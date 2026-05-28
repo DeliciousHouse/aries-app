@@ -28,14 +28,14 @@ export const APP_ROUTES: readonly AppRoute[] = [
     title: 'Home',
     href: '/dashboard',
     section: 'primary',
-    description: 'Executive command center for approvals, schedule, active campaigns, and results.'
+    description: 'Executive command center for approvals, schedule, active posts, and results.'
   },
   {
     id: 'newCampaign',
-    title: 'New Campaign',
+    title: 'New Social Content',
     href: '/dashboard/social-content/new',
     section: 'primary',
-    description: 'Start a campaign with a persisted brief, uploads, and review-ready workflow state.'
+    description: 'Start social content with a persisted brief, uploads, and review-ready workflow state.'
   },
   {
     id: 'brandReview',
@@ -49,7 +49,7 @@ export const APP_ROUTES: readonly AppRoute[] = [
     title: 'Strategy Review',
     href: '/dashboard/strategy-review',
     section: 'primary',
-    description: 'Review the campaign proposal, strategy packet, and revision history before production.'
+    description: 'Review the social content plan, strategy packet, and revision history before production.'
   },
   {
     id: 'creativeReview',
@@ -84,7 +84,7 @@ export const APP_ROUTES: readonly AppRoute[] = [
     title: 'Calendar',
     href: '/dashboard/calendar',
     section: 'utility',
-    description: 'Human-readable schedule visibility across campaigns and channels.'
+    description: 'Human-readable schedule visibility across posts and channels.'
   },
   {
     id: 'results',

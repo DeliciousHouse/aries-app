@@ -290,7 +290,7 @@ export function ScheduleCard(props: { item: AriesScheduleItem | null }) {
 
 export function CampaignSummaryCard(props: { campaign: AriesPost }) {
   return (
-    <ShellPanel eyebrow="Active Campaign" title={props.campaign.name}>
+    <ShellPanel eyebrow="Active Post" title={props.campaign.name}>
       <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
         <div className="space-y-4">
           <p className="text-sm leading-7 text-white/70">{props.campaign.summary}</p>
@@ -313,7 +313,7 @@ export function CampaignSummaryCard(props: { campaign: AriesPost }) {
             href={`/dashboard/social-content/${props.campaign.id}`}
             className="mt-5 inline-flex items-center gap-2 text-sm font-medium text-white"
           >
-            Open campaign
+            Open post
             <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
@@ -405,7 +405,7 @@ export function PlacementPreview(props: { version: AriesAssetVersion; label: str
       <div className="mt-4 overflow-hidden rounded-[1.4rem] border border-white/8 bg-[linear-gradient(180deg,#f5f1e8_0%,#ece4d5_100%)] p-5 text-[#171717]">
         <div className="space-y-4 rounded-[1.1rem] border border-black/10 bg-white/70 px-4 py-5 shadow-[0_12px_30px_rgba(0,0,0,0.08)]">
           <div className="space-y-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-black/45">Campaign creative</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-black/45">Social content creative</p>
             <h3 className="text-2xl font-semibold leading-tight">{props.version.headline}</h3>
             <p className="text-sm leading-6 text-black/70">{props.version.supportingText}</p>
           </div>

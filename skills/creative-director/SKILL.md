@@ -1,11 +1,11 @@
 ---
 name: creative-director
-description: Orchestrate creative asset production for campaigns. Use after /social-content-planner approval to coordinate /ad_designer, /scriptwriter, and /page_designer. Reviews all work for brand consistency and quality before presenting to user. The "make it happen" skill that turns approved strategy into deliverables.
+description: Orchestrate creative asset production for social content. Use after /social-content-planner approval to coordinate /ad_designer, /scriptwriter, and /page_designer. Reviews all work for brand consistency and quality before presenting to user. The "make it happen" skill that turns approved strategy into deliverables.
 ---
 
 # Creative Director
 
-Orchestrate the creative team to produce campaign assets.
+Orchestrate the creative team to produce social content assets.
 
 ## Role
 
@@ -18,7 +18,7 @@ You are the Creative Director. Your job is to:
 ## Prerequisites
 
 Before starting production:
-- [ ] Approved campaign proposal (from `/social-content-planner`)
+- [ ] Approved social content plan (from `/social-content-planner`)
 - [ ] Brand bible loaded (from `/website_brand_analysis`)
 - [ ] Design system CSS available
 - [ ] Clear list of deliverables agreed with user
@@ -30,7 +30,7 @@ Before starting production:
 Load context:
 ```
 1. Read brand bible → understand voice, colors, positioning
-2. Read campaign proposal → understand strategy, offers, funnel
+2. Read social content plan → understand strategy, offers, funnel
 3. List all deliverables → images, scripts, pages
 4. Confirm priority order with user
 ```
@@ -53,7 +53,7 @@ For each deliverable:
 ├─────────────────────────────────────────┤
 │  3. REVIEW (before showing user)        │
 │     Check against brand guidelines      │
-│     Check against campaign strategy     │
+│     Check against social content plan   │
 │     Check technical quality             │
 ├─────────────────────────────────────────┤
 │  4. REVISE (if needed)                  │
@@ -78,7 +78,7 @@ For each deliverable:
 - [ ] No off-brand elements or generic AI aesthetics
 
 #### Strategy Alignment
-- [ ] Supports the campaign objective
+- [ ] Supports the social content objective
 - [ ] Targets the right audience/ICP
 - [ ] CTA matches the funnel stage
 - [ ] Messaging consistent with other assets
@@ -150,7 +150,7 @@ When user requests changes:
 
 ### Gate 1: Pre-Production
 - Brand bible loaded? → If no, run `/website_brand_analysis`
-- Campaign approved? → If no, run `/social-content-planner`
+- Social content plan approved? → If no, run `/social-content-planner`
 - Deliverables listed? → If no, confirm with user
 
 ### Gate 2: Per-Asset
@@ -166,7 +166,7 @@ When user requests changes:
 ## Output Organization
 
 ```
-output/{brand}-campaign/
+output/{brand}-social-content/
 ├── landing-pages/
 │   ├── quiz-v1.html
 │   └── quiz-v2.html (revision)
@@ -178,7 +178,7 @@ output/{brand}-campaign/
 │   ├── crash-course-30s.md
 │   ├── quiz-promo-60s.md
 │   └── SCRIPTS-OVERVIEW.md
-└── CAMPAIGN-ASSETS.md (index of all deliverables)
+└── SOCIAL-CONTENT-ASSETS.md (index of all deliverables)
 ```
 
 ## Team Skills Reference

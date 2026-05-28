@@ -28,12 +28,12 @@ export default function AriesResultsScreen() {
       <div className="space-y-5">
         <ShellPanel eyebrow="Results" title="Business-readable performance">
           <p className="max-w-3xl text-sm leading-7 text-white/65">
-            Results appear here after campaigns run and real performance data is available.
+            Results appear here after social content runs and real performance data is available.
           </p>
         </ShellPanel>
         <EmptyStatePanel
-          title="Results will appear after campaigns run"
-          description="Once campaigns are live and the system has real performance data, Aries will summarize what worked and suggest what to do next."
+          title="Results will appear after posts run"
+          description="Once posts are live and the system has real performance data, Aries will summarize what worked and suggest what to do next."
         />
       </div>
     );
@@ -41,9 +41,9 @@ export default function AriesResultsScreen() {
 
   return (
     <div className="space-y-5">
-      <ShellPanel eyebrow="Results" title="Live campaign performance">
+      <ShellPanel eyebrow="Results" title="Live social content performance">
         <p className="max-w-3xl text-sm leading-7 text-white/65">
-          These campaigns are currently live and have real performance activity behind them.
+          These posts are currently live and have real performance activity behind them.
         </p>
       </ShellPanel>
 

@@ -327,15 +327,15 @@ export default function CalendarPresenter({
             </section>
 
             <section className="glass-panel p-6">
-              <h2 className="mb-6 text-lg font-semibold text-white">Campaign status at a glance</h2>
+              <h2 className="mb-6 text-lg font-semibold text-white">Social content status at a glance</h2>
               <div className="space-y-4">
                 {campaignsLoading ? (
                   <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 text-sm text-zinc-500">
-                    Loading campaigns…
+                    Loading posts…
                   </div>
                 ) : model.posts.length === 0 ? (
                   <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 text-sm text-zinc-500">
-                    No campaigns are available yet.
+                    No social content is available yet.
                   </div>
                 ) : (
                   model.posts.map((campaign) => (
@@ -466,7 +466,7 @@ export default function CalendarPresenter({
                       href={selectedEvent.href}
                       className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-medium text-white shadow-[0_0_20px_rgba(123,97,255,0.3)]"
                     >
-                      Open campaign workspace
+                      Open post workspace
                       <ChevronRight className="h-4 w-4" />
                     </Link>
                   </div>

@@ -45,17 +45,17 @@ const STATUS_SCREEN_COPY: Record<
   }
 > = {
   marketing: {
-    headerEyebrow: 'Campaign status',
-    headerTitle: 'Campaign status',
-    headerDescription: 'Track progress, review what is ready, and move the campaign forward when a decision is needed.',
-    overviewEyebrow: 'Campaign status',
-    overviewTitle: 'Live campaign overview',
+    headerEyebrow: 'Social content status',
+    headerTitle: 'Social content status',
+    headerDescription: 'Track progress, review what is ready, and move the social content forward when a decision is needed.',
+    overviewEyebrow: 'Social content status',
+    overviewTitle: 'Live social content overview',
     overviewDescription: 'Refresh the latest stage progress, review supporting materials, and open the current approval package when it is ready.',
-    autoRefreshSuffix: ' Auto-refresh is active while the campaign is still changing.',
-    loadingTitle: 'Loading campaign',
-    errorTitle: 'Could not load campaign',
-    emptyTitle: 'No campaign loaded',
-    pipelineTitle: 'Campaign Pipeline',
+    autoRefreshSuffix: ' Auto-refresh is active while the social content is still changing.',
+    loadingTitle: 'Loading social content',
+    errorTitle: 'Could not load social content',
+    emptyTitle: 'No social content loaded',
+    pipelineTitle: 'Social Content Pipeline',
   },
   'social-content': {
     headerEyebrow: 'Weekly social content status',

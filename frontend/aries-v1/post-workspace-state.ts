@@ -74,7 +74,7 @@ const DEFAULT_WAITING_COPY: Record<WorkspaceView, { title: string; description: 
   },
   strategy: {
     title: 'Strategy review will open here',
-    description: 'The campaign strategy package will appear here as soon as the current plan is ready for approval.',
+    description: 'The social content strategy package will appear here as soon as the current plan is ready for approval.',
   },
   creative: {
     title: 'Creative review will open here',
@@ -377,7 +377,7 @@ export function deriveWorkspaceHeaderState(
       status.dashboard.post?.name ||
       sourceDomain ||
       status.tenantName ||
-      `Campaign ${status.jobId}`,
+      `Post ${status.jobId}`,
     sourceDomain,
     sourceUrl,
   };

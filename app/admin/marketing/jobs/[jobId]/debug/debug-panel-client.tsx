@@ -392,7 +392,7 @@ export function DebugPanelClient({
 
         {/* Job metadata */}
         <div className="bg-gray-900 border border-gray-800 rounded-lg p-5">
-          <h2 className="text-sm font-mono font-semibold text-gray-300 mb-3 uppercase tracking-wide">Campaign Metadata</h2>
+          <h2 className="text-sm font-mono font-semibold text-gray-300 mb-3 uppercase tracking-wide">Social Content Metadata</h2>
           <div className="grid grid-cols-2 gap-x-8 gap-y-2 font-mono text-sm">
             <div className="text-gray-500">Job ID</div>
             <div className="flex items-center gap-1">

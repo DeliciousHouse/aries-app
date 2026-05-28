@@ -228,12 +228,12 @@ export default function AriesBusinessProfileScreen() {
     ) || 'Add the current website to unlock the brand profile.';
   const profileSummary =
     firstPresent(brandIdentity?.summary, notes, profile.brandKit?.offer_summary) ||
-    'Aries will use this operating profile to keep every new campaign aligned to the same business and brand direction.';
+    'Aries will use this operating profile to keep every new social content aligned to the same business and brand direction.';
   const voiceSummary = firstPresent(brandIdentity?.toneOfVoice, brandVoice, profile.brandKit?.brand_voice_summary) || 'Aries will keep the voice summary current once the source site is connected.';
   const styleSummary = firstPresent(brandIdentity?.styleVibe, styleVibe) || 'Aries will derive the visual tone from the source website and any uploaded brand material.';
-  const offerSummary = firstPresent(brandIdentity?.offer, offer, profile.brandKit?.offer_summary) || 'Add or confirm the primary offer so every campaign stays focused on one clear conversion.';
-  const businessTypeSummary = firstPresent(businessType, profile.businessType) || 'Add the business type to keep summaries and campaign plans precise.';
-  const primaryGoalSummary = firstPresent(primaryGoal, profile.primaryGoal) || 'Choose the primary goal so Aries knows what the first campaign should move.';
+  const offerSummary = firstPresent(brandIdentity?.offer, offer, profile.brandKit?.offer_summary) || 'Add or confirm the primary offer so every post stays focused on one clear conversion.';
+  const businessTypeSummary = firstPresent(businessType, profile.businessType) || 'Add the business type to keep summaries and social content plans precise.';
+  const primaryGoalSummary = firstPresent(primaryGoal, profile.primaryGoal) || 'Choose the primary goal so Aries knows what the first social content should move.';
   const previewColors = Array.from(new Set([
     profile.brandKit?.colors.primary,
     profile.brandKit?.colors.secondary,
@@ -257,7 +257,7 @@ export default function AriesBusinessProfileScreen() {
           {
             label: 'Primary goal',
             value: primaryGoalSummary,
-            detail: 'The conversion target shaping the first campaign.',
+            detail: 'The conversion target shaping the first social content.',
           },
           {
             label: 'Offer',
@@ -267,7 +267,7 @@ export default function AriesBusinessProfileScreen() {
           {
             label: 'Channels',
             value: joinedValues(selectedChannels, connectedProfileLabels),
-            detail: profile.incomplete ? 'The profile still needs a few details before it is fully locked.' : 'These channels are ready for the next campaign.',
+            detail: profile.incomplete ? 'The profile still needs a few details before it is fully locked.' : 'These channels are ready for the next post.',
             tone: profile.incomplete ? 'watch' : 'good',
           },
         ]}
@@ -296,7 +296,7 @@ export default function AriesBusinessProfileScreen() {
       <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
         <ShellPanel
           eyebrow="Operating profile"
-          title="What Aries will carry into future campaigns"
+          title="What Aries will carry into future posts"
           action={
             <button
               type="button"
@@ -383,7 +383,7 @@ export default function AriesBusinessProfileScreen() {
               </EditableField>
               <EditableField
                 label="Core offering"
-                hint="The core product, service, or program Aries should focus campaigns around."
+                hint="The core product, service, or program Aries should focus social content around."
               >
                 <input
                   value={offer}
@@ -485,7 +485,7 @@ export default function AriesBusinessProfileScreen() {
 
             <EditableField
               label="Notes / summary"
-              hint="This becomes the quick operating snapshot Aries reuses across campaigns."
+              hint="This becomes the quick operating snapshot Aries reuses across posts."
             >
               <textarea
                 value={notes}
@@ -497,7 +497,7 @@ export default function AriesBusinessProfileScreen() {
 
             {profile.incomplete ? (
               <div className="rounded-[1.25rem] border border-amber-400/20 bg-amber-400/10 px-4 py-4 text-sm text-amber-50">
-                Finish the missing business details so Aries can keep future campaign briefs, reviews, and approvals consistent.
+                Finish the missing business details so Aries can keep future social content briefs, reviews, and approvals consistent.
               </div>
             ) : null}
           </div>

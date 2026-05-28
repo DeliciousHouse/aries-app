@@ -26,13 +26,13 @@ export default function AriesLatestPostView(props: {
   }, [latestCampaign, props.view, router]);
 
   if (campaigns.isLoading) {
-    return <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-8 text-white/60">Loading campaign workspace...</div>;
+    return <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-8 text-white/60">Loading post workspace...</div>;
   }
 
   if (campaigns.error) {
     return (
       <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
-        {customerSafeUiErrorMessage(campaigns.error.message, 'The latest campaign view is not available right now.')}
+        {customerSafeUiErrorMessage(campaigns.error.message, 'The latest post view is not available right now.')}
       </div>
     );
   }
@@ -47,12 +47,12 @@ export default function AriesLatestPostView(props: {
             href="/dashboard/social-content/new"
             className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] transition-colors"
           >
-            New Campaign
+            New Social Content
           </Link>
         }
       />
     );
   }
 
-  return <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-8 text-white/60">Opening the latest campaign...</div>;
+  return <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-8 text-white/60">Opening the latest post...</div>;
 }

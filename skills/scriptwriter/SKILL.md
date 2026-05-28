@@ -5,13 +5,13 @@ description: Write video ad scripts with full production notes. Creates scene-by
 
 # Scriptwriter
 
-Write production-ready video ad scripts for social/Meta campaigns.
+Write production-ready video ad scripts for social/Meta social content.
 
 ## Output Structure
 
 ### Individual Script Files (for production)
 ```
-~/clawd/output/{project}-campaign/
+~/clawd/output/{project}-social-content/
 ├── scripts/
 │   ├── 01-{script-name}.md
 │   ├── 02-{script-name}.md
@@ -285,9 +285,9 @@ From `/social-content-planner` or direct request:
 ## Overview Document Structure
 
 ```markdown
-# {Brand} Campaign Scripts Overview
+# {Brand} Social Content Scripts Overview
 
-**Campaign:** {Name}
+**Social Content:** {Name}
 **Total Scripts:** {N}
 **Date:** {YYYY-MM-DD}
 

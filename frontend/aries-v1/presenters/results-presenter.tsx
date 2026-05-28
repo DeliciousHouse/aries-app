@@ -85,7 +85,7 @@ export default function ResultsPresenter({ model }: ResultsPresenterProps) {
               <span className="text-xs font-bold uppercase tracking-[0.2em]">Operator insight</span>
             </div>
             <p className="text-[11px] leading-relaxed text-zinc-400">
-              This is still an operational results layer, not a fabricated analytics board. The restored presentation is richer, but the numbers remain grounded in live campaign state.
+              This is still an operational results layer, not a fabricated analytics board. The restored presentation is richer, but the numbers remain grounded in live social content state.
             </p>
           </div>
         </div>
@@ -106,7 +106,7 @@ export default function ResultsPresenter({ model }: ResultsPresenterProps) {
           </div>
           <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/75">
             <Layers3 className="h-4 w-4 text-primary" />
-            {filteredCampaigns.length} campaign{filteredCampaigns.length === 1 ? '' : 's'} in view
+            {filteredCampaigns.length} post{filteredCampaigns.length === 1 ? '' : 's'} in view
           </div>
         </div>
 
@@ -114,13 +114,13 @@ export default function ResultsPresenter({ model }: ResultsPresenterProps) {
           <div className="glass-panel p-8">
             <h2 className="text-2xl font-semibold text-white">Nothing to report yet</h2>
             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/55">
-              Campaign results will begin to appear here once runtime-backed campaigns are created and start moving through the workflow.
+              Social content results will begin to appear here once runtime-backed posts are created and start moving through the workflow.
             </p>
             <Link
               href="/dashboard/social-content"
               className="mt-6 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-medium text-white shadow-[0_0_20px_rgba(123,97,255,0.3)]"
             >
-              Open campaign list
+              Open social content list
               <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
@@ -165,8 +165,8 @@ export default function ResultsPresenter({ model }: ResultsPresenterProps) {
             >
               <div className="mb-6 flex flex-col justify-between gap-4 md:flex-row md:items-center">
                 <div>
-                  <h2 className="text-lg font-semibold text-white">Campaign status mix</h2>
-                  <p className="text-xs text-zinc-500">A live view of how the current campaign portfolio is distributed right now.</p>
+                  <h2 className="text-lg font-semibold text-white">Social content status mix</h2>
+                  <p className="text-xs text-zinc-500">A live view of how the current social content portfolio is distributed right now.</p>
                 </div>
                 <div className="flex flex-wrap gap-3 text-[10px] font-bold uppercase tracking-[0.22em]">
                   {statusChartData.map((entry) => (
@@ -244,7 +244,7 @@ export default function ResultsPresenter({ model }: ResultsPresenterProps) {
                   <div className="space-y-3">
                     {model.stageBreakdown.length === 0 ? (
                       <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4 text-sm text-zinc-500">
-                        Stage breakdown will appear once campaigns move through the runtime.
+                        Stage breakdown will appear once posts move through the runtime.
                       </div>
                     ) : (
                       model.stageBreakdown.map((stage) => (
@@ -271,19 +271,19 @@ export default function ResultsPresenter({ model }: ResultsPresenterProps) {
                 className="glass-panel p-6"
               >
                 <div className="mb-6 flex items-center justify-between gap-4">
-                  <h2 className="text-lg font-semibold text-white">Campaign roster</h2>
+                  <h2 className="text-lg font-semibold text-white">Social content roster</h2>
                   <Link
                     href="/dashboard/social-content"
                     className="inline-flex items-center gap-2 text-sm font-medium text-white transition-colors hover:text-white/75"
                   >
-                    Open campaigns
+                    Open social content
                     <ArrowRight className="h-4 w-4" />
                   </Link>
                 </div>
                 <div className="space-y-4">
                   {filteredCampaigns.length === 0 ? (
                     <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 text-sm leading-relaxed text-zinc-500">
-                      No campaigns match the selected segment right now.
+                      No posts match the selected segment right now.
                     </div>
                   ) : (
                     filteredCampaigns.map((campaign) => (

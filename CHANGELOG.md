@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.13.3 — refactor(social-content): scrub campaign→social content in agent skill prose + user-facing copy (cut 4)
+
+Finish the campaign→social-content terminology rename. Cut 2a renamed files and wire keys; cut 4 renames the remaining agent-facing skill prose and user-visible UI copy.
+
+### Changed
+- `skills/head-of-marketing/SKILL.md`: renamed "campaign planning" → "social content planning", `{brand}-campaign-proposal.*` → `{brand}-social-content-plan.*`, "Campaign Proposal" → "Social Content Plan" throughout.
+- `skills/social-content-planner/SKILL.md`: output filenames `{brand}-campaign-proposal.*` → `{brand}-social-content-plan.*`; `# {Brand} Meta Ads Campaign Proposal` heading → `# {Brand} Meta Ads Social Content Plan`.
+- `skills/creative-director/SKILL.md`: "campaign assets/proposal/strategy" → "social content assets/plan" in prose; output directory `{brand}-campaign/` → `{brand}-social-content/`.
+- `skills/scriptwriter/SKILL.md`: output path `{project}-campaign/` → `{project}-social-content/`; overview heading "Campaign Scripts" → "Social Content Scripts".
+- `CLAUDE.md`: "campaign strategy from research" → "social content strategy from research" (pipeline stage description).
+- Frontend UI copy: all visible "Campaign"/"campaign" text renamed to "Social content"/"Post" as context fits, in: `post-list.tsx`, `presenters/post-list-presenter.tsx`, `components.tsx`, `presenters/results-presenter.tsx`, `app-shell/posts-console.tsx`, `presenters/calendar-presenter.tsx`, `results-screen.tsx`, `business-profile-screen.tsx`, `post-workspace.tsx`, `latest-post-view.tsx`, `presenters/dashboard-home-presenter.tsx`, `landing-page.tsx`, `review-queue.tsx`, `review-item.tsx`, `marketing/new-job.tsx`, `marketing/job-status.tsx`, `marketing/job-approve.tsx`, `auth/auth-visuals.tsx`, `app-shell/routes.ts`, `post-workspace-state.ts`, `hooks/useCalendarScheduling.ts`, `app/dashboard/social-content/new/page.tsx`, `app/admin/marketing/jobs/[jobId]/debug/debug-panel-client.tsx`.
+- Test assertion in `route-metadata-and-docs-anchors.regression-015.test.ts` updated to match new page title.
+
+### Deliberately left unchanged (paid-ads platform terms)
+- `skills/meta-ads-publisher/SKILL.md` — Create Campaign / Campaign ID are Meta Marketing API object terms; renaming would corrupt API calls.
+- `skills/ads-analyst/SKILL.md` — paid-ads analysis terminology.
+- `skills/performance-marketer/SKILL.md` — paid-ads performance terms.
+- Code identifiers, wire keys (`one_off_campaign`, `campaignEndDate`, `oneOff.campaignEndDate`), DB columns, and 308-redirect route IDs left untouched per spec.
+
 ## v0.1.13.2 — chore(refactor): Cut 3 janitorial — 308 redirects, dead env scrub, sprint complete
 
 Final cleanup pass for the v0.1.13.x PRD-alignment refactor sprint. Sprint is now complete.

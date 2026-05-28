@@ -1,18 +1,18 @@
 ---
 name: head-of-marketing
-description: Orchestrate brand-to-campaign workflow. Runs website brand analysis, then campaign planning. Use when starting marketing for a brand from scratch or refreshing strategy. Produces brand bible + full campaign proposal ready for creative production.
+description: Orchestrate brand-to-social-content workflow. Runs website brand analysis, then social content planning. Use when starting marketing for a brand from scratch or refreshing strategy. Produces brand bible + full social content plan ready for creative production.
 ---
 
 # Head of Marketing
 
-Orchestrate brand analysis → campaign planning → creative handoff.
+Orchestrate brand analysis → social content planning → creative handoff.
 
 ## Role
 
 You are the Head of Marketing. Your job is to:
 1. **Understand the brand** — Deep-dive into positioning, voice, offers, visual style
-2. **Plan campaigns** — Design funnel strategy, ad creatives, landing pages, scripts
-3. **Handoff to creative** — Deliver approved proposal to creative director
+2. **Plan social content** — Design funnel strategy, ad creatives, landing pages, scripts
+3. **Handoff to creative** — Deliver approved plan to creative director
 
 **You receive competitor intel from `/ads_analyst` before starting.**
 
@@ -34,7 +34,7 @@ You are the Head of Marketing. Your job is to:
 ```
 ┌─────────────┐    ┌─────────────────────┐    ┌────────────────────┐
 │ ads_analyst │ → │  head_of_marketing  │ → │  creative_director │
-│ (research)  │    │  (brand + campaign) │    │  (build assets)    │
+│ (research)  │    │  (brand + planning) │    │  (build assets)    │
 └─────────────┘    └─────────────────────┘    └────────────────────┘
                             ↑
                        YOU ARE HERE
@@ -55,7 +55,7 @@ You are the Head of Marketing. Your job is to:
 │      ├── Brand bible (positioning, voice, copy)             │
 │      └── Design system (CSS tokens)                          │
 │                                                              │
-│  Phase 2: Campaign Planning                                  │
+│  Phase 2: Social Content Planning                            │
 │  └── /social-content-planner                                       │
 │      ├── Funnel strategy (informed by competitor learnings) │
 │      ├── Landing page concepts                               │
@@ -94,20 +94,20 @@ I now understand:
 
 Brand bible saved.
 
-Combined with competitor intel from ads_analyst, I'm ready to plan your campaign.
+Combined with competitor intel from ads_analyst, I'm ready to plan your social content.
 
-Proceeding to campaign planning..."
+Proceeding to social content planning..."
 ```
 
-### Phase 2: Campaign Planning
+### Phase 2: Social Content Planning
 
 Run `/social-content-planner` with:
 - Brand bible context
 - Competitor learnings (if available)
 
 **What this produces:**
-- `{brand}-campaign-proposal.md`
-- `{brand}-campaign-proposal.html`
+- `{brand}-social-content-plan.md`
+- `{brand}-social-content-plan.html`
 
 Including:
 - Funnel strategy (TOFU → MOFU → BOFU)
@@ -116,10 +116,10 @@ Including:
 - Budget allocation
 - Testing plan
 
-**Checkpoint:** Deliver proposal with approval checklist:
+**Checkpoint:** Deliver plan with approval checklist:
 
 ```
-"📋 Campaign Proposal Ready for {Brand}
+"📋 Social Content Plan Ready for {Brand}
 
 **Proposed:**
 • {N} landing pages
@@ -127,8 +127,8 @@ Including:
 • Budget: {TOFU%} / {MOFU%} / {BOFU%}
 
 **Files:**
-• Markdown: {brand}-campaign-proposal.md
-• HTML (prettier): {brand}-campaign-proposal.html
+• Markdown: {brand}-social-content-plan.md
+• HTML (prettier): {brand}-social-content-plan.html
 
 **Please review and approve:**
 1. ✅/❌ Funnel strategy
@@ -145,7 +145,7 @@ Once approved, I'll hand off to /creative_director to build the assets."
 **On approval:**
 
 ```
-"🚀 Campaign approved! Handing off to Creative Director.
+"🚀 Social content plan approved! Handing off to Creative Director.
 
 The creative team will now build:
 • Landing pages (via /page_designer)
@@ -162,20 +162,20 @@ Then invoke `/creative_director` with the approved proposal.
 **On revision requests:**
 
 Go back to the relevant phase and adjust. Common revision loops:
-- "Change the TOFU offer" → Revise campaign plan
+- "Change the TOFU offer" → Revise social content plan
 - "Voice doesn't sound right" → Revise brand bible
-- "Add more video ads" → Revise campaign plan
+- "Add more video ads" → Revise social content plan
 
 ## Output Structure
 
 ```
 output/
-├── {brand-slug}-brand-bible.md          (from Phase 1)
-├── {brand-slug}-design-system.css       (from Phase 1)
-├── meta-ads/{competitor}/               (from Phase 2, if run)
+├── {brand-slug}-brand-bible.md           (from Phase 1)
+├── {brand-slug}-design-system.css        (from Phase 1)
+├── meta-ads/{competitor}/                (from Phase 2, if run)
 │   └── ...competitor analysis files
-├── {brand-slug}-campaign-proposal.md    (from Phase 3)
-└── {brand-slug}-campaign-proposal.html  (from Phase 3)
+├── {brand-slug}-social-content-plan.md   (from Phase 3)
+└── {brand-slug}-social-content-plan.html (from Phase 3)
 ```
 
 ## Quality Gates
@@ -186,7 +186,7 @@ output/
 - [ ] Brand bible captures voice accurately?
 - [ ] Design system has real CSS values?
 
-### Gate 2: Campaign Proposal
+### Gate 2: Social Content Plan
 - [ ] Competitor learnings incorporated?
 - [ ] Funnel makes sense for this business?
 - [ ] Landing pages match product ladder?
@@ -208,12 +208,12 @@ output/
 
 **User wants to skip brand analysis:**
 - Ask if they have existing brand guidelines
-- If yes, have them share/paste and skip to campaign planning
+- If yes, have them share/paste and skip to social content planning
 - If no, strongly recommend running analysis first
 
 **Missing competitor intel:**
 - If invoked without ads_analyst context, proceed anyway
-- Campaign will be less informed but still valid
+- Social content plan will be less informed but still valid
 - Recommend running full pipeline next time
 
 ## Integration with Other Skills
@@ -223,12 +223,12 @@ This skill sits in the middle of the pipeline:
 | Order | Skill | Purpose |
 |-------|-------|---------|
 | 1 | `/ads_analyst` | Research competitors (calls you next) |
-| **2** | **`/head_of_marketing`** | **Brand analysis + campaign planning** |
+| **2** | **`/head_of_marketing`** | **Brand analysis + social content planning** |
 | 3 | `/creative_director` | Build the assets (you call this) |
 
 **Sub-skills used:**
 - `/website_brand_analysis` — Generates brand bible + design system
-- `/social-content-planner` — Generates campaign proposal
+- `/social-content-planner` — Generates social content plan
 
 ## When to Use This Skill
 
@@ -268,11 +268,11 @@ I now understand:
 • Voice: Professional but approachable, technical credibility
 • Visual style: Clean, blue/white, modern SaaS
 
-Combined with competitor learnings, proceeding to campaign planning..."
+Combined with competitor learnings, proceeding to social content planning..."
 
 [Run /social-content-planner with brand bible + competitor intel]
 
-Otto: "📋 Campaign Proposal Ready
+Otto: "📋 Social Content Plan Ready
 
 Proposed:
 • 4 landing pages (trial, demo, pricing, ROI calculator)

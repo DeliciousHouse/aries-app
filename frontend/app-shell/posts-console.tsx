@@ -22,7 +22,7 @@ export default function PostsConsole(): JSX.Element {
   } else if (events.length === 0 && previewFallback.length === 0) {
     postQueueBody = (
       <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-6 text-white/60">
-        No scheduled post events are available yet for this campaign.
+        No scheduled post events are available yet for this social content.
       </div>
     );
   } else if (events.length === 0) {
@@ -90,7 +90,7 @@ export default function PostsConsole(): JSX.Element {
             <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-3">Post queue</p>
             <h2 className="text-3xl font-bold mb-3">Planned and created content</h2>
             <p className="text-white/60 leading-relaxed max-w-2xl">
-              Review every scheduled post in the current campaign, along with live status and direct links back to the exact preview bundle.
+              Review every scheduled post in the current social content, along with live status and direct links back to the exact preview bundle.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -106,7 +106,7 @@ export default function PostsConsole(): JSX.Element {
 
       {!campaign ? (
         <div className="glass rounded-[2.5rem] p-8 text-white/60">
-          No campaign is available for this tenant yet. Launch a campaign to populate the queue.
+          No social content is available for this tenant yet. Launch social content to populate the queue.
         </div>
       ) : (
         <div className="grid xl:grid-cols-[1.15fr_0.85fr] gap-6">
@@ -116,11 +116,11 @@ export default function PostsConsole(): JSX.Element {
           <div className="glass rounded-[2.5rem] p-8">
             <div className="space-y-4">
               <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-3">Campaign actions</p>
+                <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-3">Social content actions</p>
                 <h3 className="text-2xl font-bold">Continue in the live workspace</h3>
               </div>
               <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-white/70">
-                <p className="mb-3">This queue is sourced from the latest campaign runtime, not static guidance content.</p>
+                <p className="mb-3">This queue is sourced from the latest social content runtime, not static guidance content.</p>
                 <div className="flex flex-col gap-3">
                   <Link href={`/marketing/job-status?jobId=${encodeURIComponent(campaign.jobId)}`} className="px-5 py-3 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold text-center">
                     Open job status
@@ -131,7 +131,7 @@ export default function PostsConsole(): JSX.Element {
                     </Link>
                   ) : null}
                   <Link href="/dashboard/calendar" className="px-5 py-3 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all text-center">
-                    Open campaign calendar
+                    Open social content calendar
                   </Link>
                 </div>
               </div>
