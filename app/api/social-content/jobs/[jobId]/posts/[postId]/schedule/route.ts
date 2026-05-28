@@ -267,3 +267,111 @@ export async function PATCH(
   const { jobId, postId } = await params;
   return handlePatchScheduleSocialContentPost(jobId, postId, req);
 }
+
+type DeleteScheduleQueryable = {
+  query: (
+    sql: string,
+    params: unknown[],
+  ) => Promise<{ rows: Array<Record<string, unknown>>; rowCount: number | null }>;
+};
+
+interface DeleteScheduleOptions {
+  tenantContextLoader?: TenantContextLoader;
+  queryable?: DeleteScheduleQueryable;
+  publishApprovalResolver?: PublishApprovalResolver;
+}
+
+export async function handleDeleteScheduleSocialContentPost(
+  jobId: string,
+  postId: string,
+  options: DeleteScheduleOptions = {},
+): Promise<Response> {
+  const tenantResult = await loadTenantContextOrResponse(options.tenantContextLoader, {
+    missingMembershipResponse: ONBOARDING_REQUIRED,
+  });
+  if ('response' in tenantResult) {
+    return tenantResult.response;
+  }
+  const tenantId = tenantIdToInt(tenantResult.tenantContext.tenantId);
+  if (tenantId === null) {
+    return NextResponse.json(POST_NOT_FOUND, { status: 404 });
+  }
+
+  const postIdInt = postIdToInt(postId);
+  if (postIdInt === null) {
+    return NextResponse.json(POST_NOT_FOUND, { status: 404 });
+  }
+
+  const ownsPool = !options.queryable;
+  const pooled = options.queryable ? null : await pool.connect();
+  const wrapPooled: DeleteScheduleQueryable = {
+    query: ((sql: string, params: unknown[]) => pooled!.query(sql, params)) as unknown as DeleteScheduleQueryable['query'],
+  };
+  const client: DeleteScheduleQueryable = options.queryable ?? wrapPooled;
+
+  try {
+    const lookup = await client.query(
+      'SELECT id, tenant_id FROM posts WHERE id = $1 AND tenant_id = $2 LIMIT 1',
+      [postIdInt, tenantId],
+    );
+    if ((lookup.rowCount ?? lookup.rows.length) === 0 || lookup.rows.length === 0) {
+      return NextResponse.json(POST_NOT_FOUND, { status: 404 });
+    }
+
+    const resolveApproval = options.publishApprovalResolver ?? defaultPublishApprovalResolver;
+    const hasApproval = await resolveApproval({
+      jobId,
+      tenantId: String(tenantResult.tenantContext.tenantId),
+    });
+    if (!hasApproval) {
+      return NextResponse.json(PUBLISH_REQUIRES_APPROVAL, { status: 409 });
+    }
+
+    // Refuse to cancel a row that the worker has already claimed and started dispatching.
+    const inFlightCheck = await client.query(
+      "SELECT dispatch_status FROM scheduled_posts WHERE post_id = $1 AND tenant_id = $2 LIMIT 1",
+      [postIdInt, tenantId],
+    );
+    if (inFlightCheck.rows.length > 0 && inFlightCheck.rows[0]!['dispatch_status'] === 'in_flight') {
+      return NextResponse.json(
+        { error: 'Dispatch is in progress — cannot cancel mid-flight.', reason: 'dispatch_in_flight' },
+        { status: 409 },
+      );
+    }
+
+    const del = await client.query(
+      'DELETE FROM scheduled_posts WHERE post_id = $1 AND tenant_id = $2',
+      [postIdInt, tenantId],
+    );
+    if ((del.rowCount ?? 0) === 0) {
+      return NextResponse.json(
+        { error: 'Scheduled post not found.', reason: 'scheduled_post_not_found' },
+        { status: 404 },
+      );
+    }
+
+    return NextResponse.json(
+      { jobId, postId, deletedAt: new Date().toISOString() },
+      { status: 200 },
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[social-content-schedule-delete]', { jobId, postId, error: message });
+    return NextResponse.json(
+      { error: 'Failed to delete scheduled post.', reason: 'scheduled_post_delete_failed' },
+      { status: 500 },
+    );
+  } finally {
+    if (ownsPool && pooled) {
+      pooled.release();
+    }
+  }
+}
+
+export async function DELETE(
+  req: Request,
+  { params }: { params: Promise<{ jobId: string; postId: string }> },
+) {
+  const { jobId, postId } = await params;
+  return handleDeleteScheduleSocialContentPost(jobId, postId);
+}
