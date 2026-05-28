@@ -107,6 +107,7 @@ const steps = [
       'tests/marketing/strategy-review-summary-no-objective-fallback.test.ts',
       'tests/marketing-job-retry-research.test.ts',
       'tests/marketing-auto-schedule.test.ts',
+      'tests/social-content-cancel-schedule.test.ts',
     ],
   },
   {

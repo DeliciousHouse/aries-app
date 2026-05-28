@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
 
+import pool from '@/lib/db';
 import { invalidateMarketingJobStatus } from '@/backend/marketing/jobs-status';
 import {
   recordReviewItemCopyEdit,
   type RecordReviewItemCopyEditOptions,
 } from '@/backend/marketing/runtime-views';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
+import { findLatestMarketingApprovalRecord } from '@/backend/marketing/approval-store';
 
 function decodeParam(value: string): string {
   try {
@@ -96,4 +98,148 @@ export async function PATCH(
 ) {
   const { jobId, postId } = await params;
   return handlePatchSocialContentPost(jobId, postId, req);
+}
+
+type DeletePostQueryable = {
+  query: (
+    sql: string,
+    params: unknown[],
+  ) => Promise<{ rows: Array<Record<string, unknown>>; rowCount: number | null }>;
+  connect?: () => Promise<DeletePostQueryable & { release: () => void }>;
+};
+
+export type PublishApprovalResolver = (input: {
+  jobId: string;
+  tenantId: string;
+}) => boolean | Promise<boolean>;
+
+const defaultPublishApprovalResolver: PublishApprovalResolver = ({ jobId, tenantId }) =>
+  findLatestMarketingApprovalRecord({
+    marketingJobId: jobId,
+    tenantId,
+    marketingStage: 'publish',
+    statuses: ['approved'],
+  }) !== null;
+
+interface DeletePostOptions {
+  tenantContextLoader?: TenantContextLoader;
+  queryable?: DeletePostQueryable;
+  publishApprovalResolver?: PublishApprovalResolver;
+}
+
+function postIdToInt(value: string): number | null {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0 || String(parsed) !== value.trim()) {
+    return null;
+  }
+  return parsed;
+}
+
+function tenantIdToInt(value: string): number | null {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+  return parsed;
+}
+
+export async function handleDeleteSocialContentPost(
+  jobId: string,
+  postId: string,
+  options: DeletePostOptions = {},
+): Promise<Response> {
+  const tenantResult = await loadTenantContextOrResponse(options.tenantContextLoader);
+  if ('response' in tenantResult) {
+    return tenantResult.response;
+  }
+  const { tenantId: tenantIdStr } = tenantResult.tenantContext;
+  if (!tenantIdStr) {
+    return NextResponse.json({ error: 'tenant_context_required' }, { status: 403 });
+  }
+  const tenantId = tenantIdToInt(tenantIdStr);
+  if (tenantId === null) {
+    return NextResponse.json({ error: 'post_not_found', reason: 'post_not_found' }, { status: 404 });
+  }
+
+  const postIdInt = postIdToInt(decodeURIComponent(postId));
+  if (postIdInt === null) {
+    return NextResponse.json({ error: 'post_not_found', reason: 'post_not_found' }, { status: 404 });
+  }
+
+  const resolveApproval = options.publishApprovalResolver ?? defaultPublishApprovalResolver;
+  const hasApproval = await resolveApproval({ jobId, tenantId: tenantIdStr });
+  if (!hasApproval) {
+    return NextResponse.json(
+      { error: 'No approved publish approval record found for this job.', reason: 'publish_requires_approval' },
+      { status: 409 },
+    );
+  }
+
+  const ownsPool = !options.queryable;
+  const pooled = options.queryable ? null : await pool.connect();
+  const wrapPooled: DeletePostQueryable = {
+    query: ((sql: string, params: unknown[]) => pooled!.query(sql, params)) as unknown as DeletePostQueryable['query'],
+  };
+  const client: DeletePostQueryable = options.queryable ?? wrapPooled;
+
+  try {
+    // Check post exists and belongs to tenant.
+    const lookup = await client.query(
+      'SELECT id, tenant_id FROM posts WHERE id = $1 AND tenant_id = $2 LIMIT 1',
+      [postIdInt, tenantId],
+    );
+    if ((lookup.rowCount ?? lookup.rows.length) === 0 || lookup.rows.length === 0) {
+      return NextResponse.json({ error: 'Post not found.', reason: 'post_not_found' }, { status: 404 });
+    }
+
+    // Refuse if any scheduled row is in_flight — worker has already started the Meta call.
+    const inFlightCheck = await client.query(
+      "SELECT dispatch_status FROM scheduled_posts WHERE post_id = $1 AND tenant_id = $2 LIMIT 1",
+      [postIdInt, tenantId],
+    );
+    if (inFlightCheck.rows.length > 0 && inFlightCheck.rows[0]!['dispatch_status'] === 'in_flight') {
+      return NextResponse.json(
+        { error: 'Dispatch is in progress — cannot delete post mid-flight.', reason: 'dispatch_in_flight' },
+        { status: 409 },
+      );
+    }
+
+    // Cascade: remove scheduled_posts row first, then the post itself.
+    const schedDel = await client.query(
+      'DELETE FROM scheduled_posts WHERE post_id = $1 AND tenant_id = $2',
+      [postIdInt, tenantId],
+    );
+    const scheduledPostDeleted = (schedDel.rowCount ?? 0) > 0;
+
+    await client.query(
+      'DELETE FROM posts WHERE id = $1 AND tenant_id = $2',
+      [postIdInt, tenantId],
+    );
+
+    invalidateMarketingJobStatus(jobId);
+
+    return NextResponse.json(
+      { jobId, postId, scheduledPostDeleted, postDeleted: true },
+      { status: 200 },
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[social-content-post-delete]', { jobId, postId, error: message });
+    return NextResponse.json(
+      { error: 'Failed to delete post.', reason: 'post_delete_failed' },
+      { status: 500 },
+    );
+  } finally {
+    if (ownsPool && pooled) {
+      pooled.release();
+    }
+  }
+}
+
+export async function DELETE(
+  req: Request,
+  { params }: { params: Promise<{ jobId: string; postId: string }> },
+) {
+  const { jobId, postId } = await params;
+  return handleDeleteSocialContentPost(jobId, postId);
 }

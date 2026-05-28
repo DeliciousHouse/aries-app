@@ -22,6 +22,7 @@ import {
   Layers3,
   LoaderCircle,
   Music2,
+  Trash2,
   X as CloseIcon,
 } from 'lucide-react';
 import { FacebookIcon, InstagramIcon, LinkedinIcon, YoutubeIcon } from '../brand-icons';
@@ -448,6 +449,19 @@ export default function CalendarPresenter({
                         onClose={() => setSelectedEventId(null)}
                       />
                     ) : null}
+                    {selectedEvent.jobId &&
+                    (selectedEvent.dispatchStatus === 'pending' ||
+                      selectedEvent.dispatchStatus === 'in_flight') ? (
+                      <CancelScheduleButton
+                        jobId={selectedEvent.jobId}
+                        postId={selectedEvent.postId}
+                        dispatchStatus={selectedEvent.dispatchStatus}
+                        onCancelled={() => {
+                          setSelectedEventId(null);
+                          onRescheduled?.();
+                        }}
+                      />
+                    ) : null}
                     <Link
                       href={selectedEvent.href}
                       className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-medium text-white shadow-[0_0_20px_rgba(123,97,255,0.3)]"
@@ -597,6 +611,68 @@ function PublishNowButton({
         <span
           role="alert"
           data-testid="calendar-publish-now-error"
+          className="rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-2 text-sm text-rose-100"
+        >
+          {errorMessage}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function CancelScheduleButton({
+  jobId,
+  postId,
+  dispatchStatus,
+  onCancelled,
+}: {
+  jobId: string;
+  postId: string;
+  dispatchStatus: string;
+  onCancelled: () => void;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const isInFlight = dispatchStatus === 'in_flight';
+
+  async function handleCancel() {
+    if (submitting || isInFlight) return;
+    setSubmitting(true);
+    setErrorMessage(null);
+    try {
+      const url = `/api/social-content/jobs/${encodeURIComponent(jobId)}/posts/${encodeURIComponent(postId)}/schedule`;
+      const response = await fetch(url, { method: 'DELETE' });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        setErrorMessage(payload?.error ?? "Couldn't cancel — try again.");
+        return;
+      }
+      onCancelled();
+    } catch {
+      setErrorMessage("Couldn't cancel — try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <button
+        type="button"
+        data-testid="calendar-cancel-schedule"
+        disabled={submitting || isInFlight}
+        title={isInFlight ? "Dispatching to Meta now — can't cancel mid-flight" : undefined}
+        onClick={() => void handleCancel()}
+        className="inline-flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-5 py-3 text-sm font-medium text-rose-100 transition hover:border-rose-500/50 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {submitting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+        {isInFlight ? 'Dispatching…' : 'Cancel'}
+      </button>
+      {errorMessage ? (
+        <span
+          role="alert"
+          data-testid="calendar-cancel-schedule-error"
           className="rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-2 text-sm text-rose-100"
         >
           {errorMessage}

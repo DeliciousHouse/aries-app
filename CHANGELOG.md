@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.12.15 — feat(marketing): DELETE schedule + DELETE post (cascade) endpoints, Calendar Cancel button
+
+First-class cancel/unschedule UX so operators can stop a scheduled post from publishing without dropping to SQL.
+
+- `DELETE /api/social-content/jobs/[jobId]/posts/[postId]/schedule` cancels a pending scheduled post. Tenant + role + publish-approval gated. Returns 409 with `dispatch_in_flight` if the worker has already claimed the row; returns 200 + `{jobId, postId, deletedAt}` on success.
+- `DELETE /api/social-content/jobs/[jobId]/posts/[postId]` cascades: removes the `scheduled_posts` row first (if present), then the `posts` row, in a single operation. Same auth and in-flight guard. Idempotent: already-gone post returns 404 rather than 500.
+- Calendar UI gains a per-card Cancel button on posts with `dispatch_status === 'pending'`. Disabled (with tooltip) when `in_flight`. Hidden on `dispatched`/`failed`. Optimistically closes the detail panel and refetches on success.
+- 6 new tests in `tests/social-content-cancel-schedule.test.ts`; added to `scripts/verify-regression-suite.mjs`.
+
 ## v0.1.12.14 — fix(marketing): read publish-stage schedule[]/platforms[] (Hermes wire shape) in autoSchedulePosts
 
 v0.1.12.13's auto-scheduler wrote ZERO `scheduled_posts` rows on live campaign `mkt_ad75ad56` despite all 14 posts being approved. Root cause: two field-name mismatches between the code and the actual Hermes wire payload. Hermes emits `primary_output.schedule[]` (not `weekly_schedule[]`) and `entry.platforms[]` flat strings (not `entry.platform_targets[].platform` objects). `readWeeklySchedule` returned an empty array every time, logging `autoSchedulePosts skipped — no weekly_schedule`. Fix: prefer `schedule` key, fall back to `weekly_schedule`; prefer `platforms` flat strings, fall back to `platform_targets` objects. Four new tests in `marketing-auto-schedule.test.ts` pin both shapes.
