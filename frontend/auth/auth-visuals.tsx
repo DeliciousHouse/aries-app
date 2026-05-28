@@ -107,7 +107,7 @@ const AuthVisuals: React.FC = () => {
       <div className="text-center max-w-sm px-4">
         <h2 className="text-3xl lg:text-4xl font-bold mb-5 leading-tight tracking-tight font-sans text-white drop-shadow-lg">Precision Marketing Powered by AI.</h2>
         <p className="text-white/70 text-base lg:text-lg leading-relaxed font-medium font-sans">
-          Aries centralizes campaign intelligence to deliver deep creative insights at global scale.
+          Aries centralizes social content intelligence to deliver deep creative insights at global scale.
         </p>
       </div>
 

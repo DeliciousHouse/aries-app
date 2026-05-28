@@ -139,8 +139,8 @@ For each image ad, describe:
 
 Create two files:
 
-1. **Markdown** — `{brand}-campaign-proposal.md`
-2. **HTML** — `{brand}-campaign-proposal.html`
+1. **Markdown** — `{brand}-social-content-plan.md`
+2. **HTML** — `{brand}-social-content-plan.html`
 
 Both should include:
 - Executive summary
@@ -174,7 +174,7 @@ Send both files to user with summary:
 ### Markdown Structure
 
 ```markdown
-# {Brand} Meta Ads Campaign Proposal
+# {Brand} Meta Ads Social Content Plan
 
 ## Executive Summary
 [Overview, approach, asset count]

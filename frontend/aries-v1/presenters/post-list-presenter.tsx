@@ -33,7 +33,7 @@ export default function CampaignListPresenter({ model }: SocialContentListPresen
     <div className="space-y-6 pb-12">
       <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center md:gap-6">
         <div>
-          <h1 className="mb-2 text-3xl font-display font-semibold tracking-tight text-white">Campaigns</h1>
+          <h1 className="mb-2 text-3xl font-display font-semibold tracking-tight text-white">Social Content</h1>
           <p className="text-sm text-text-muted">{model.hero.description}</p>
         </div>
         <Link
@@ -41,21 +41,21 @@ export default function CampaignListPresenter({ model }: SocialContentListPresen
           className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 text-white shadow-[0_0_20px_rgba(123,97,255,0.3)] transition-all duration-300 hover:bg-primary/90 sm:w-auto"
         >
           <Plus className="h-4 w-4" />
-          <span className="text-sm font-medium">New Campaign</span>
+          <span className="text-sm font-medium">New Social Content</span>
         </Link>
       </div>
 
       {model.items.length === 0 ? (
         <div className="glass-panel p-8 text-center">
-          <h2 className="text-2xl font-semibold text-white">No campaigns yet</h2>
+          <h2 className="text-2xl font-semibold text-white">No social content yet</h2>
           <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-white/55">
-            Create the first campaign and Aries will restore this board with live runtime-backed launch state.
+            Create the first social content and Aries will restore this board with live runtime-backed launch state.
           </p>
           <Link
             href="/dashboard/social-content/new"
             className="mt-6 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-medium text-white shadow-[0_0_20px_rgba(123,97,255,0.3)]"
           >
-            Create first campaign
+            Create first social content
             <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
@@ -335,7 +335,7 @@ function buildTimeline(campaign: SocialContentListViewModel['items'][number]) {
       title: 'Planning complete',
       badge: 'Complete',
       meta: campaign.objective,
-      detail: 'The campaign brief and working objective are locked in and visible to the runtime.',
+      detail: 'The social content brief and working objective are locked in and visible to the runtime.',
       state: 'complete' as const,
     },
     {
@@ -344,7 +344,7 @@ function buildTimeline(campaign: SocialContentListViewModel['items'][number]) {
       meta: `${campaign.pendingApprovals} pending`,
       detail: campaign.needsApproval
         ? 'Human review is still required before the launch can keep moving.'
-        : 'Current review checkpoints are clear for this campaign.',
+        : 'Current review checkpoints are clear for this post.',
       state: campaign.needsApproval ? 'active' as const : 'complete' as const,
     },
     {
@@ -354,18 +354,18 @@ function buildTimeline(campaign: SocialContentListViewModel['items'][number]) {
       detail: scheduled
         ? 'A schedule signal already exists in the live runtime.'
         : reviewResolved
-          ? 'This campaign is ready for scheduling once the next publish window is chosen.'
+          ? 'This post is ready for scheduling once the next publish window is chosen.'
           : 'Scheduling is blocked until approvals are resolved.',
       state: scheduled ? 'complete' as const : reviewResolved ? 'active' as const : 'pending' as const,
     },
     {
-      title: 'Campaign live',
+      title: 'Post live',
       badge: campaign.status === 'live' ? 'Live' : 'Pending',
       meta: campaign.updatedLabel,
       detail:
         campaign.status === 'live'
-          ? 'This campaign is actively running and can now contribute to the Results surface.'
-          : 'The campaign will show live operational signal here once it moves into a running state.',
+          ? 'This post is actively running and can now contribute to the Results surface.'
+          : 'The post will show live operational signal here once it moves into a running state.',
       state: campaign.status === 'live' ? 'active' as const : 'pending' as const,
     },
   ];

@@ -146,8 +146,8 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
       const trimmedMilestoneDate = milestoneDate.trim();
       const trimmedMilestoneLabel = milestoneLabel.trim();
       const errors: Record<string, string> = {};
-      if (!trimmedOneOffName) errors['oneOff.name'] = 'Campaign name is required.';
-      if (!trimmedCampaignEndDate) errors['oneOff.campaignEndDate'] = 'Campaign end date is required.';
+      if (!trimmedOneOffName) errors['oneOff.name'] = 'Name is required.';
+      if (!trimmedCampaignEndDate) errors['oneOff.campaignEndDate'] = 'End date is required.';
       if (!trimmedOneOffCta) errors['oneOff.cta'] = 'CTA is required.';
       if (trimmedMilestoneDate && !trimmedMilestoneLabel) {
         errors['oneOff.milestoneLabel'] = 'Add a label for this date (e.g. "Sale ends" or "Doors open").';
@@ -156,7 +156,7 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
         errors['oneOff.milestoneDate'] = 'Pick the date this label refers to.';
       }
       if (trimmedMilestoneDate && trimmedMilestoneDate > trimmedCampaignEndDate) {
-        errors['oneOff.milestoneDate'] = 'Milestone date must be on or before the campaign end date.';
+        errors['oneOff.milestoneDate'] = 'Milestone date must be on or before the end date.';
       }
       if (Object.keys(errors).length > 0) {
         setClientFieldErrors(errors);
@@ -254,7 +254,7 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
   const isFinalSubmitMessage = submitting && submitProgress.stepIndex === FINAL_SUBMIT_PROGRESS_INDEX;
   const submitButtonLabel = submitting
     ? `${SUBMIT_PROGRESS_MESSAGES[submitProgress.stepIndex]}${isFinalSubmitMessage ? '.'.repeat(Math.max(submitProgress.dotCount, 1)) : ''}`
-    : 'Start campaign';
+    : 'Start social content';
   const normalizedWebsiteUrl = normalizeWebsiteUrlInput(websiteUrl);
   const websiteUrlIsValid = isValidWebsiteUrl(normalizedWebsiteUrl);
   // Unified field-error lookup. Client-side errors (set synchronously on
@@ -270,9 +270,9 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
       <div className={contentClassName}>
         <div className="glass rounded-[2.5rem] p-8 md:p-10">
           <p className="mb-3 text-xs uppercase tracking-[0.3em] text-primary">Aries workflow</p>
-          <h1 className="mb-3 text-4xl font-bold">New Campaign</h1>
+          <h1 className="mb-3 text-4xl font-bold">New Social Content</h1>
           <p className="text-white/60">
-            Create a real campaign brief with brand inputs, review constraints, and uploads that persist into the campaign workspace.
+            Create a real social content brief with brand inputs, review constraints, and uploads that persist into the post workspace.
           </p>
         </div>
 
@@ -285,7 +285,7 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                     <Rocket className="h-6 w-6 text-primary" />
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-[0.24em] text-white/35">Campaign intake</p>
+                    <p className="text-xs uppercase tracking-[0.24em] text-white/35">Content intake</p>
                     <h2 className="text-3xl font-bold">Capture the brief once</h2>
                   </div>
                 </div>
@@ -416,8 +416,8 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                 </p>
               </Field>
 
-              <Field label="Campaign type">
-                <div role="radiogroup" aria-label="Campaign type" className="flex gap-2">
+              <Field label="Content type">
+                <div role="radiogroup" aria-label="Content type" className="flex gap-2">
                   <button
                     type="button"
                     role="radio"
@@ -443,7 +443,7 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                         : 'border-white/10 bg-white/5 text-white/70 hover:border-white/30'
                     }`}
                   >
-                    <div className="text-sm font-semibold">One-off campaign</div>
+                    <div className="text-sm font-semibold">One-off post</div>
                     <div className="mt-1 text-xs text-white/50">Sale, launch, webinar, hackathon. Auto-stops on the end date.</div>
                   </button>
                 </div>
@@ -452,9 +452,9 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
               {jobMode === 'oneOff' ? (
                 <div className="space-y-6 rounded-2xl border border-primary/20 bg-primary/5 p-5">
                   <p className="text-sm text-white/70">
-                    Aries drives copy toward your campaign end date and stops publishing once it passes. Dates are interpreted in your business timezone (end of day).
+                    Aries drives copy toward your end date and stops publishing once it passes. Dates are interpreted in your business timezone (end of day).
                   </p>
-                  <Field label="Campaign name" required>
+                  <Field label="Post name" required>
                     <input
                       value={oneOffName}
                       onChange={(e) => setOneOffName(e.target.value)}
@@ -466,11 +466,11 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                       <p className="mt-2 text-sm text-red-300">{oneOffFieldError('oneOff.name')}</p>
                     ) : null}
                   </Field>
-                  <Field label="Campaign end date" required>
+                  <Field label="Post end date" required>
                     <MonthDayPicker
                       value={campaignEndDate}
                       onChange={setCampaignEndDate}
-                      ariaLabel="Campaign end date"
+                      ariaLabel="Post end date"
                       invalid={!!oneOffFieldError('oneOff.campaignEndDate')}
                     />
                     <p className="mt-2 text-xs text-white/45">Aries stops publishing past end-of-day in your timezone.</p>
@@ -493,7 +493,7 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
 
                   <div className="border-t border-white/10 pt-5">
                     <p className="text-sm text-white/60 mb-3">
-                      Optional key date Aries can reference in copy. Label it however fits your campaign &mdash; &ldquo;Sale ends&rdquo;, &ldquo;Doors open&rdquo;, &ldquo;Registration deadline&rdquo;, &ldquo;Launch day&rdquo;.
+                      Optional key date Aries can reference in copy. Label it however fits your post &mdash; &ldquo;Sale ends&rdquo;, &ldquo;Doors open&rdquo;, &ldquo;Registration deadline&rdquo;, &ldquo;Launch day&rdquo;.
                     </p>
                     <div className="grid sm:grid-cols-2 gap-4">
                       <Field label="Milestone label">
@@ -528,7 +528,7 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                 type="submit"
                 disabled={submitting || (jobMode === 'weekly' && !websiteUrlIsValid)}
                 className="w-full rounded-full bg-gradient-to-r from-primary to-secondary px-6 py-4 text-white font-semibold shadow-xl shadow-primary/20 disabled:opacity-60 disabled:cursor-not-allowed"
-                aria-describedby={jobMode === 'weekly' && !websiteUrlIsValid && !submitting ? 'start-campaign-hint' : undefined}
+                aria-describedby={jobMode === 'weekly' && !websiteUrlIsValid && !submitting ? 'start-social-content-hint' : undefined}
               >
                 <span className="inline-flex items-center justify-center gap-2">
                   {submitting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
@@ -536,10 +536,10 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                 </span>
               </button>
               {jobMode === 'weekly' && !websiteUrlIsValid && !submitting && (
-                <p id="start-campaign-hint" className="mt-2 text-center text-xs text-white/45">
+                <p id="start-social-content-hint" className="mt-2 text-center text-xs text-white/45">
                   {websiteUrl.trim()
-                    ? 'Enter a valid URL like https://example.com to start the campaign.'
-                    : 'Enter a website URL to start the campaign.'}
+                    ? 'Enter a valid URL like https://example.com to start social content.'
+                    : 'Enter a website URL to start social content.'}
                 </p>
               )}
 
@@ -593,11 +593,11 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
             </div>
 
             <div className="min-h-[280px] rounded-[1.5rem] border border-white/10 bg-black/25 p-8 flex flex-col items-center justify-center text-center">
-              <strong className="mb-3 text-2xl">{submitting ? 'Creating your campaign...' : 'Ready to review for real'}</strong>
+              <strong className="mb-3 text-2xl">{submitting ? 'Creating your social content...' : 'Ready to review for real'}</strong>
               <p className="max-w-md text-white/60">
                 {submitting
-                  ? 'Aries is saving the brief, storing brand assets, and preparing the campaign workspace.'
-                  : 'When this launches, the next stop is the actual campaign workspace with brand review, strategy review, creative review, and publish status.'}
+                  ? 'Aries is saving the brief, storing brand assets, and preparing the post workspace.'
+                  : 'When this launches, the next stop is the actual post workspace with brand review, strategy review, creative review, and publish status.'}
               </p>
               {submitting ? (
                 <div className="mt-5">

@@ -13,7 +13,7 @@ import { AriesMark } from '@/frontend/donor/ui';
 const pillars = [
   {
     title: 'See the plan',
-    body: 'Aries turns your business goals into a campaign plan you can read in seconds.',
+    body: 'Aries turns your business goals into a social content plan you can read in seconds.',
     icon: Sparkles,
   },
   {
@@ -213,7 +213,7 @@ export default function AriesLandingPage() {
               Business-readable reporting, not a maze of marketing charts.
             </h2>
             <p className="text-lg leading-8 text-white/65">
-              Aries translates campaign performance into a clear summary, a recommendation, and the next safe action.
+              Aries translates social content performance into a clear summary, a recommendation, and the next safe action.
             </p>
           </div>
           <div className="grid gap-4 md:grid-cols-3">

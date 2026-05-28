@@ -35,7 +35,7 @@ Hermes is the sole execution provider (`ARIES_EXECUTION_PROVIDER=hermes`, `ARIES
 
 The core domain flow is a 4-stage marketing pipeline executed by Hermes:
 1. **Research** (`stage-1-research`) — competitor analysis, ad library scraping
-2. **Strategy** (`stage-2-strategy`) — campaign strategy from research
+2. **Strategy** (`stage-2-strategy`) — social content strategy from research
 3. **Production** (`stage-3-production`) — creative/content generation
 4. **Publish & Optimize** (`stage-4-publish-optimize`) — publishing and performance tracking
 

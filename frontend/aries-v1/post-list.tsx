@@ -28,7 +28,7 @@ export default function AriesPostListScreen() {
   if (campaigns.error) {
     return (
       <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
-        {customerSafeUiErrorMessage(campaigns.error.message, 'Campaigns are not available right now.')}
+        {customerSafeUiErrorMessage(campaigns.error.message, 'Social content is not available right now.')}
       </div>
     );
   }
@@ -36,14 +36,14 @@ export default function AriesPostListScreen() {
   if (items.length === 0 && deletedItems.length === 0) {
     return (
       <EmptyStatePanel
-        title="No campaigns yet"
-        description="Aries will turn your business and goals into a review-ready marketing plan once you create your first campaign."
+        title="No social content yet"
+        description="Aries will turn your business and goals into a review-ready marketing plan once you create your first social content."
         action={
           <Link
             href="/dashboard/social-content/new"
             className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] transition-colors"
           >
-            Create first campaign
+            Create first social content
             <ArrowRight className="h-4 w-4" />
           </Link>
         }
@@ -54,20 +54,20 @@ export default function AriesPostListScreen() {
   return (
     <div className="space-y-5">
       <ShellPanel
-        eyebrow="Campaigns"
-        title="Every campaign in one place"
+        eyebrow="Social Content"
+        title="Every post in one place"
         action={
           <Link
             href="/dashboard/social-content/new"
             className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-semibold text-[#11161c] transition-colors"
           >
             <Plus className="h-4 w-4" />
-            New campaign
+            New social content
           </Link>
         }
       >
         <p className="max-w-3xl text-sm leading-7 text-white/65">
-          Review the current state of each campaign, open what needs attention, and jump directly into review, schedule, or results.
+          Review the current state of each post, open what needs attention, and jump directly into review, schedule, or results.
         </p>
       </ShellPanel>
 
@@ -120,7 +120,7 @@ function CampaignRow(props: {
   const isBusy = props.busyCampaignId === campaign.jobId;
   const isStale = isCampaignStale(campaign.brandKitExtractedAt, props.currentBrandKitExtractedAt);
   const staleTooltip = isStale
-    ? `Brand voice was updated on ${new Date(props.currentBrandKitExtractedAt!).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}. This campaign predates that update.`
+    ? `Brand voice was updated on ${new Date(props.currentBrandKitExtractedAt!).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}. This post predates that update.`
     : undefined;
 
   return (
@@ -147,7 +147,7 @@ function CampaignRow(props: {
         <DeleteButton
           onConfirm={() => props.onDelete(campaign.jobId)}
           busy={isBusy}
-          label="Delete campaign"
+          label="Delete post"
         />
       </div>
 
@@ -166,7 +166,7 @@ function CampaignRow(props: {
 
             <div className="grid gap-3 md:grid-cols-3 text-sm text-white/62">
               <InfoRow label="Objective" value={campaign.objective} />
-              <InfoRow label="Funnel stage" value={campaign.funnelStage || 'Using campaign objective'} />
+              <InfoRow label="Funnel stage" value={campaign.funnelStage || 'Using content objective'} />
               <InfoRow label="Window" value={campaign.dateRange} />
               <InfoRow label="Next up" value={campaign.nextScheduled} />
               <InfoRow label="Pending approvals" value={String(campaign.pendingApprovals)} />
@@ -279,10 +279,10 @@ function DeletedCampaignsSection(props: {
   return (
     <ShellPanel
       eyebrow="Recycle bin"
-      title={`Deleted campaigns (${props.items.length})`}
+      title={`Deleted posts (${props.items.length})`}
     >
       <p className="mb-4 text-sm leading-7 text-white/55">
-        These campaigns have been soft-deleted and hidden from the main list. Restore any campaign to bring it back.
+        These posts have been soft-deleted and hidden from the main list. Restore any post to bring it back.
       </p>
       <div className="space-y-3">
         {props.items.map((campaign) => {

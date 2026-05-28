@@ -88,7 +88,7 @@ export default function AriesReviewQueueScreen() {
                 <p className="text-sm leading-7 text-white/60">{item.summary}</p>
               </div>
               <div className="space-y-2 text-sm text-white/62">
-                <InfoRow label="Campaign" value={item.postName} />
+                <InfoRow label="Post" value={item.postName} />
                 <InfoRow label="Review" value={reviewTypeLabel(item.reviewType)} />
                 <InfoRow label="Placement" value={`${item.channel} · ${item.placement}`} />
               </div>

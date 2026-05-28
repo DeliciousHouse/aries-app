@@ -85,7 +85,7 @@ export function useCalendarScheduling(deps: CalendarSchedulingDeps) {
     ): Promise<boolean> => {
       if (!input.jobId) {
         setStatus('error');
-        setError('This post has no campaign job and cannot be scheduled from the calendar.');
+        setError('This post has no associated job and cannot be scheduled from the calendar.');
         return false;
       }
       if (input.platforms.length === 0) {
