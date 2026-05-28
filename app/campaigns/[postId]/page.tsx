@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 
-export default async function CampaignWorkspacePage({
+export default async function PostWorkspaceRedirectPage({
   params,
 }: {
   params: Promise<{ postId: string }>;

@@ -9,7 +9,7 @@ import { useRuntimePosts } from '@/hooks/use-runtime-social-content';
 import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { EmptyStatePanel } from './components';
 
-export default function AriesLatestCampaignView(props: {
+export default function AriesLatestPostView(props: {
   view: 'brand' | 'strategy' | 'creative' | 'publish';
   title: string;
   description: string;
