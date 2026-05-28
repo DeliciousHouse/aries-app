@@ -2,19 +2,19 @@ import { existsSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { resolveCodePath, resolveCodeRoot, resolveDataRoot } from '@/lib/runtime-paths';
+import { resolveCodeRoot, resolveDataRoot } from '@/lib/runtime-paths';
 
 import { remapHostOutputToMount } from './host-output-path';
 
 export type MarketingArtifactStageNumber = 1 | 2 | 3 | 4;
 
-const DEFAULT_HOST_OUTPUT_MOUNT = '/host-lobster-output';
+const DEFAULT_HOST_OUTPUT_MOUNT = '/hermes-output';
 
 const STAGE_CACHE_DEFAULTS: Record<MarketingArtifactStageNumber, { envKey: string; folder: string }> = {
-  1: { envKey: 'ARTIFACT_STAGE1_CACHE_DIR', folder: 'lobster-stage1-cache' },
-  2: { envKey: 'ARTIFACT_STAGE2_CACHE_DIR', folder: 'lobster-stage2-cache' },
-  3: { envKey: 'ARTIFACT_STAGE3_CACHE_DIR', folder: 'lobster-stage3-cache' },
-  4: { envKey: 'ARTIFACT_STAGE4_CACHE_DIR', folder: 'lobster-stage4-cache' },
+  1: { envKey: 'ARTIFACT_STAGE1_CACHE_DIR', folder: 'hermes-stage1-cache' },
+  2: { envKey: 'ARTIFACT_STAGE2_CACHE_DIR', folder: 'hermes-stage2-cache' },
+  3: { envKey: 'ARTIFACT_STAGE3_CACHE_DIR', folder: 'hermes-stage3-cache' },
+  4: { envKey: 'ARTIFACT_STAGE4_CACHE_DIR', folder: 'hermes-stage4-cache' },
 };
 
 function stringValue(value: unknown): string {
@@ -82,7 +82,6 @@ export function artifactRoots(): string[] {
   return uniqueStrings([
     process.env.ARTIFACT_PIPELINE_LOCAL_CWD,
     process.env.ARTIFACT_PIPELINE_CWD,
-    resolveCodePath('lobster'),
   ]).map((root) => path.resolve(root));
 }
 
@@ -97,7 +96,6 @@ export function marketingAssetRoots(): string[] {
   return uniqueStrings([
     resolveDataRoot(),
     resolveCodeRoot(),
-    resolveCodePath('lobster'),
     process.env.ARTIFACT_PIPELINE_LOCAL_CWD,
     process.env.ARTIFACT_PIPELINE_CWD,
     hostOutputMount(),
@@ -125,11 +123,6 @@ function absoluteCompatibilityCandidates(filePath: string): string[] {
 
     const suffix = normalized.slice(prefix.length).replace(/^[\\/]+/, '');
     candidates.add(path.join(codeRoot, suffix));
-    for (const artifactRoot of artifactRoots()) {
-      if (suffix === 'lobster' || suffix.startsWith(`lobster${path.sep}`)) {
-        candidates.add(path.join(artifactRoot, suffix.replace(/^lobster[\\/]+/, '')));
-      }
-    }
   }
 
   const hostMountCandidate = remapHostOutputToMount(normalized);

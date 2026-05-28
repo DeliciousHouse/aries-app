@@ -54,14 +54,14 @@ services:
       AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
       # Stage-cache lookup roots used by Aries artifact ingestion.
-      ARTIFACT_PIPELINE_CWD: ${ARTIFACT_PIPELINE_CWD:-/app/lobster}
-      ARTIFACT_PIPELINE_LOCAL_CWD: ${ARTIFACT_PIPELINE_LOCAL_CWD:-/app/lobster}
+      ARTIFACT_PIPELINE_CWD: ${ARTIFACT_PIPELINE_CWD:-/app/hermes}
+      ARTIFACT_PIPELINE_LOCAL_CWD: ${ARTIFACT_PIPELINE_LOCAL_CWD:-/app/hermes}
       # Marketing stage cache dirs. The /data bind mount above shares
       # ${ARIES_SHARED_DATA_ROOT} with the host. See DOCKER.md.
-      ARTIFACT_STAGE1_CACHE_DIR: ${ARTIFACT_STAGE1_CACHE_DIR:-/data/lobster-stage1-cache}
-      ARTIFACT_STAGE2_CACHE_DIR: ${ARTIFACT_STAGE2_CACHE_DIR:-/data/lobster-stage2-cache}
-      ARTIFACT_STAGE3_CACHE_DIR: ${ARTIFACT_STAGE3_CACHE_DIR:-/data/lobster-stage3-cache}
-      ARTIFACT_STAGE4_CACHE_DIR: ${ARTIFACT_STAGE4_CACHE_DIR:-/data/lobster-stage4-cache}
+      ARTIFACT_STAGE1_CACHE_DIR: ${ARTIFACT_STAGE1_CACHE_DIR:-/data/hermes-stage1-cache}
+      ARTIFACT_STAGE2_CACHE_DIR: ${ARTIFACT_STAGE2_CACHE_DIR:-/data/hermes-stage2-cache}
+      ARTIFACT_STAGE3_CACHE_DIR: ${ARTIFACT_STAGE3_CACHE_DIR:-/data/hermes-stage3-cache}
+      ARTIFACT_STAGE4_CACHE_DIR: ${ARTIFACT_STAGE4_CACHE_DIR:-/data/hermes-stage4-cache}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
       # Hermes image cache mount (dev parity with production docker-compose.yml).

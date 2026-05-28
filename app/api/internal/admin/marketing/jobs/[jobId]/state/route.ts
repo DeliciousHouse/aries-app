@@ -29,7 +29,6 @@ async function loadExecutionRunsForJob(marketingJobId: string): Promise<Array<Re
         // Strip the execution_resume_token to avoid leaking secrets
         const safe = { ...doc };
         delete safe.execution_resume_token;
-        delete safe.lobster_resume_token;
         runs.push(safe);
       }
     } catch {
@@ -73,7 +72,6 @@ export async function GET(
     // Strip resume tokens — they are secrets, not debug data
     const safe = { ...record } as Record<string, unknown>;
     delete safe.execution_resume_token;
-    delete safe.lobster_resume_token;
     return safe;
   });
 

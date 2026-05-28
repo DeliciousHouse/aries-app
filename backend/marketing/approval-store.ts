@@ -181,8 +181,8 @@ function isApprovalRecord(value: unknown): value is MarketingApprovalRecord {
 }
 
 function normalizeMarketingApprovalRecord(record: MarketingApprovalRecord): MarketingApprovalRecord {
-  // Records persisted before the Hermes-only cutover may still carry the legacy
-  // `lobster_resume_token*` fields. Read them defensively so old approvals load.
+  // Records persisted before the Hermes-only cutover may carry pre-migration
+  // resume token field names. Read them defensively so old approval rows load.
   const legacy = record as unknown as {
     lobster_resume_token?: unknown;
     lobster_resume_token_fingerprint?: unknown;

@@ -24,7 +24,6 @@ async function loadExecutionRunsForJob(marketingJobId: string): Promise<Array<Re
       if (doc?.marketing_job_id === marketingJobId) {
         const safe = { ...doc };
         delete safe.execution_resume_token;
-        delete safe.lobster_resume_token;
         runs.push(safe);
       }
     } catch {
@@ -69,7 +68,6 @@ export default async function MarketingJobDebugPage({
   const approvalRecords = listMarketingApprovalRecordsForJob(jobId).map((record) => {
     const safe = { ...record } as Record<string, unknown>;
     delete safe.execution_resume_token;
-    delete safe.lobster_resume_token;
     return safe;
   });
 

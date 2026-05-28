@@ -134,7 +134,7 @@ async function readExactPublishStepPayload(runtimeDoc: MarketingJobRuntimeDocume
     return null;
   }
 
-  const stage4CacheRoot = cacheRoot('ARTIFACT_STAGE4_CACHE_DIR', 'lobster-stage4-cache');
+  const stage4CacheRoot = cacheRoot('ARTIFACT_STAGE4_CACHE_DIR', 'hermes-stage4-cache');
   const tenantScopedCandidates = [
     path.join(stage4CacheRoot, tenantId, runId, `${stepName}.json`),
   ];
@@ -250,7 +250,7 @@ async function collectFallbackPublishStepPayloadCandidates(
     return [];
   }
 
-  const cacheDir = path.join(cacheRoot('ARTIFACT_STAGE4_CACHE_DIR', 'lobster-stage4-cache'), tenantId);
+  const cacheDir = path.join(cacheRoot('ARTIFACT_STAGE4_CACHE_DIR', 'hermes-stage4-cache'), tenantId);
   if (existsSync(cacheDir)) {
     for (const entry of await readdir(cacheDir)) {
       if (!entry.startsWith(`${prefix}-`)) {
