@@ -54,7 +54,7 @@ export default function DashboardHomePresenter({
   const surfaces = useMemo<OrbitSurface[]>(() => {
     const metricByLabel = (label: string) =>
       model.hero.metrics.find((metric) => metric.label === label);
-    const campaignsMetric = metricByLabel('Campaigns');
+    const socialContentMetric = metricByLabel('Social content jobs');
     const approvalsMetric = metricByLabel('Pending approvals');
     const publishMetric = metricByLabel('Ready to publish');
     const channelsMetric = metricByLabel('Connected channels');
@@ -62,8 +62,8 @@ export default function DashboardHomePresenter({
 
     return [
       {
-        label: 'Campaigns',
-        value: campaignsMetric?.value || '0',
+        label: 'Social content',
+        value: socialContentMetric?.value || '0',
         supporting: model.activePost ? model.activePost.stageLabel : 'No active post',
         icon: Layers3,
         glow: 'rgba(123,97,255,0.28)',

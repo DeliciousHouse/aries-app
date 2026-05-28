@@ -172,8 +172,8 @@ export function createSettingsViewModel(args: {
           label: 'Profile status',
           value: args.profile?.incomplete ? 'Needs setup' : 'Ready',
           detail: args.profile?.incomplete
-            ? 'Add missing business details to ground future campaigns.'
-            : 'Business context is ready for runtime-backed campaigns.',
+            ? 'Add missing business details to ground future social content.'
+            : 'Business context is ready for runtime-backed social content.',
           tone: args.profile?.incomplete ? 'watch' : 'good',
         },
       ],

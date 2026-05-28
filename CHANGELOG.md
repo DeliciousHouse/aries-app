@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.13.4 — fix(dashboard): repair broken orbit-metric coupling + scrub aries-v1 view-model copy (cut 5)
+
+Cut 4 missed the `frontend/aries-v1/view-models/` layer, which produces user-visible dashboard/list/results copy. While scrubbing it, found and fixed a live coupling bug.
+
+### Fixed
+- **Dashboard-home orbit metric stuck at "0":** `dashboard-home.ts` emits the hero metric as `label: 'Social content jobs'` (renamed in an earlier cut), but `dashboard-home-presenter.tsx` still looked it up via `metricByLabel('Campaigns')` — a producer/consumer string mismatch that made the lookup return `undefined`, so the orbit surface rendered a hard-coded "Campaigns" label permanently showing "0" regardless of real job count. Lookup now matches the producer (`'Social content jobs'`) and the surface label reads "Social content". (Same string-literal-coupling class as the v0.1.11.x union-widening bugs.)
+
+### Changed
+- `frontend/aries-v1/view-models/post-list.ts`: hero eyebrow/title/description + metric labels/details — "Campaigns" → "Social content", "campaign" → "post".
+- `frontend/aries-v1/view-models/results.ts`: hero title/description, metric labels/details, and the "All campaigns" filter — "campaign" → "post".
+- `frontend/aries-v1/view-models/settings.ts`: profile-readiness detail copy — "future campaigns" → "future social content".
+- `frontend/aries-v1/view-models/calendar.ts`: stale doc comment updated to match the already-renamed "Social content status at a glance" strip heading.
+
+### Deliberately left unchanged
+- Local code identifiers in the view-models (`campaigns` array param, `(campaign) =>` map vars, `campaign.stageLabel` accesses) — not user-visible; renaming is out of scope and risk for this cut.
+
 ## v0.1.13.3 — refactor(social-content): scrub campaign→social content in agent skill prose + user-facing copy (cut 4)
 
 Finish the campaign→social-content terminology rename. Cut 2a renamed files and wire keys; cut 4 renames the remaining agent-facing skill prose and user-visible UI copy.
