@@ -1,17 +1,16 @@
 // PRD §20 invariant 6:
-//   "Legacy OpenClaw/Lobster behavior is compatibility-only unless explicitly
-//    selected."
+//   "OpenClaw/Lobster has been fully removed. Hermes is the only execution
+//    provider."
 //
 // Operationalized as:
 //
-// (a) No backend/lib code path may read an OPENCLAW_* env var at runtime.  The
-//     legacy OpenClaw orchestrator has been replaced by the Hermes execution
-//     port; any new OPENCLAW_* read would be a regression.
+// (a) No backend/lib code path may read an OPENCLAW_* env var at runtime.
 //
-// (b) "Lobster" persists only as filesystem cache directory naming on disk for
-//     pre-rename runtime artifacts.  We allowlist the known compat references
-//     (artifact-store / artifact-collector / publish-review) and assert no new
-//     ones appear elsewhere in backend/.
+// (b) No active Lobster code paths remain. The only remaining references are
+//     defensive reads of pre-migration DB field names in approval-store.ts
+//     (lobster_resume_token* columns that exist on old approval rows). These
+//     cannot be removed without a DB migration (Cut 3 scope). All other
+//     lobster/openclaw strings must be absent from backend/ and lib/.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -24,40 +23,37 @@ test('no backend or lib code reads OPENCLAW_* env vars at runtime', () => {
   assert.deepEqual(
     all,
     [],
-    `OPENCLAW_* env vars are legacy and must not be read at runtime.  Violations:\n${all.join('\n')}`,
+    `OPENCLAW_* env vars must not be read at runtime.  Violations:\n${all.join('\n')}`,
   );
 });
 
-// Allowlist of files where "lobster-*-cache" appears as a *filesystem cache
-// directory name* for backward-compat with pre-rename runtime artifacts.
-// These are not active product code paths — they are compat aliases that
-// resolve cache directories on disk.  The PRD treats this naming as
-// compatibility-only.  If you add a new file with "lobster" in it, change the
-// PRD §20 invariant first.
-const LOBSTER_COMPAT_ALLOWLIST = new Set<string>([
-  // Filesystem cache directory naming for pre-rename runtime artifacts.
-  'backend/marketing/artifact-store.ts',
-  'backend/marketing/artifact-collector.ts',
-  'backend/marketing/publish-review.ts',
-  'backend/marketing/jobs-status.ts',
-  // Reads legacy `lobster_resume_token*` fields from old approval JSON on
-  // disk so pre-rename approvals still load.  Approvals are read-mostly so
-  // these fields will eventually age out; until then, defensive reads keep
-  // the migration backward-compatible.
+// approval-store.ts retains defensive reads of pre-migration DB column names
+// (lobster_resume_token, lobster_resume_token_fingerprint, lobster_resume_state_keys).
+// These are JSON field names from rows written before the Hermes cutover and
+// can only be removed via a DB migration (tracked separately). All other
+// lobster/openclaw strings in backend/ must be absent.
+const DB_COMPAT_ALLOWLIST = new Set<string>([
   'backend/marketing/approval-store.ts',
-  // `/host-lobster-output` host mount path for pre-rename asset ingest.
-  'backend/marketing/asset-ingest.ts',
 ]);
 
-test('"lobster" naming is contained to the compat-only filesystem cache modules', () => {
-  const hits = scanForPattern(repoPath('backend'), /lobster/i);
+test('"lobster"/"openclaw" naming is absent from backend/ except pre-migration DB field compat', () => {
+  const hits = scanForPattern(repoPath('backend'), /lobster|openclaw/i);
   const violations = hits
     .map((line) => line.split(':')[0])
-    .filter((file) => !LOBSTER_COMPAT_ALLOWLIST.has(file));
+    .filter((file) => !DB_COMPAT_ALLOWLIST.has(file));
   const unique = [...new Set(violations)];
   assert.deepEqual(
     unique,
     [],
-    `"lobster" is compat-only naming for pre-rename filesystem caches.  Unexpected references in:\n${unique.join('\n')}`,
+    `"lobster"/"openclaw" must not appear in backend/ outside the DB compat shim.  Unexpected references in:\n${unique.join('\n')}`,
+  );
+});
+
+test('no lobster/openclaw references in lib/', () => {
+  const hits = scanForPattern(repoPath('lib'), /lobster|openclaw/i);
+  assert.deepEqual(
+    hits,
+    [],
+    `"lobster"/"openclaw" must not appear in lib/ source.  Violations:\n${hits.join('\n')}`,
   );
 });

@@ -3,7 +3,7 @@ import path from 'node:path';
 /**
  * Remap an absolute host-output path onto the in-container bind mount.
  *
- * The host's Lobster pipeline writes creative images and other artifacts
+ * The host's Hermes pipeline writes creative images and other artifacts
  * under an absolute host path (ARIES_HOST_ARTIFACT_OUTPUT_DIR), but inside
  * this container that tree is only reachable via the read-only bind mount
  * at ARIES_HOST_ARTIFACT_OUTPUT_MOUNT. Runtime docs routinely pin absolute

@@ -34,7 +34,7 @@ import { resolveDataRoot } from '@/lib/runtime-paths';
  * source at most once.
  */
 
-const DEFAULT_HOST_OUTPUT_MOUNT = '/host-lobster-output';
+const DEFAULT_HOST_OUTPUT_MOUNT = '/hermes-output';
 const INGEST_SUBDIR = 'ingested-assets';
 // Sentinel used only when an ingest is invoked without any tenant context —
 // keeps existing test fixtures compiling but never collides with a real

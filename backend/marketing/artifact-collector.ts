@@ -49,12 +49,12 @@ function stepPayloadPath(
   }
   const root =
     stage === 1
-      ? cacheRoot('ARTIFACT_STAGE1_CACHE_DIR', 'lobster-stage1-cache')
+      ? cacheRoot('ARTIFACT_STAGE1_CACHE_DIR', 'hermes-stage1-cache')
       : stage === 2
-        ? cacheRoot('ARTIFACT_STAGE2_CACHE_DIR', 'lobster-stage2-cache')
+        ? cacheRoot('ARTIFACT_STAGE2_CACHE_DIR', 'hermes-stage2-cache')
         : stage === 3
-          ? cacheRoot('ARTIFACT_STAGE3_CACHE_DIR', 'lobster-stage3-cache')
-          : cacheRoot('ARTIFACT_STAGE4_CACHE_DIR', 'lobster-stage4-cache');
+          ? cacheRoot('ARTIFACT_STAGE3_CACHE_DIR', 'hermes-stage3-cache')
+          : cacheRoot('ARTIFACT_STAGE4_CACHE_DIR', 'hermes-stage4-cache');
   return path.join(root, tenantId, runId, `${stepName}.json`);
 }
 
