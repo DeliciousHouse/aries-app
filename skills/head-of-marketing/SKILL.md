@@ -56,7 +56,7 @@ You are the Head of Marketing. Your job is to:
 │      └── Design system (CSS tokens)                          │
 │                                                              │
 │  Phase 2: Campaign Planning                                  │
-│  └── /campaign_planner                                       │
+│  └── /social-content-planner                                       │
 │      ├── Funnel strategy (informed by competitor learnings) │
 │      ├── Landing page concepts                               │
 │      ├── Ad creative concepts                                │
@@ -101,7 +101,7 @@ Proceeding to campaign planning..."
 
 ### Phase 2: Campaign Planning
 
-Run `/campaign_planner` with:
+Run `/social-content-planner` with:
 - Brand bible context
 - Competitor learnings (if available)
 
@@ -228,7 +228,7 @@ This skill sits in the middle of the pipeline:
 
 **Sub-skills used:**
 - `/website_brand_analysis` — Generates brand bible + design system
-- `/campaign_planner` — Generates campaign proposal
+- `/social-content-planner` — Generates campaign proposal
 
 ## When to Use This Skill
 
@@ -270,7 +270,7 @@ I now understand:
 
 Combined with competitor learnings, proceeding to campaign planning..."
 
-[Run /campaign_planner with brand bible + competitor intel]
+[Run /social-content-planner with brand bible + competitor intel]
 
 Otto: "📋 Campaign Proposal Ready
 

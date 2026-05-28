@@ -1,6 +1,6 @@
 ---
 name: creative-director
-description: Orchestrate creative asset production for campaigns. Use after /campaign_planner approval to coordinate /ad_designer, /scriptwriter, and /page_designer. Reviews all work for brand consistency and quality before presenting to user. The "make it happen" skill that turns approved strategy into deliverables.
+description: Orchestrate creative asset production for campaigns. Use after /social-content-planner approval to coordinate /ad_designer, /scriptwriter, and /page_designer. Reviews all work for brand consistency and quality before presenting to user. The "make it happen" skill that turns approved strategy into deliverables.
 ---
 
 # Creative Director
@@ -18,7 +18,7 @@ You are the Creative Director. Your job is to:
 ## Prerequisites
 
 Before starting production:
-- [ ] Approved campaign proposal (from `/campaign_planner`)
+- [ ] Approved campaign proposal (from `/social-content-planner`)
 - [ ] Brand bible loaded (from `/website_brand_analysis`)
 - [ ] Design system CSS available
 - [ ] Clear list of deliverables agreed with user
@@ -150,7 +150,7 @@ When user requests changes:
 
 ### Gate 1: Pre-Production
 - Brand bible loaded? → If no, run `/website_brand_analysis`
-- Campaign approved? → If no, run `/campaign_planner`
+- Campaign approved? → If no, run `/social-content-planner`
 - Deliverables listed? → If no, confirm with user
 
 ### Gate 2: Per-Asset

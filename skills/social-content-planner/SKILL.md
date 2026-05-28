@@ -1,11 +1,11 @@
 ---
-name: campaign-planner
-description: Create a Meta Ads campaign proposal based on brand guidelines and competitor analysis. Generates funnel strategy, landing pages, ad creatives, video scripts, and budget allocation. Outputs both markdown and HTML for review before asset creation.
+name: social-content-planner
+description: Create a Meta Ads social content proposal based on brand guidelines and competitor analysis. Generates funnel strategy, landing pages, ad creatives, video scripts, and budget allocation. Outputs both markdown and HTML for review before asset creation.
 ---
 
-# Campaign Planner
+# Social Content Planner
 
-Generate a comprehensive Meta Ads campaign proposal for any brand, based on their products, positioning, and competitor learnings.
+Generate a comprehensive Meta Ads social content proposal for any brand, based on their products, positioning, and competitor learnings.
 
 ## Prerequisites
 
