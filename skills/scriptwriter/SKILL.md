@@ -240,7 +240,7 @@ Hesitation → Trust → Urgency
 ## Workflow
 
 ### 1. Receive Brief
-From `/campaign_planner` or direct request:
+From `/social-content-planner` or direct request:
 - Ad concept and funnel stage
 - Target duration
 - Key messaging points
@@ -322,7 +322,7 @@ From `/campaign_planner` or direct request:
 ## Integration
 
 Works with:
-- `/campaign_planner` — Provides creative briefs
+- `/social-content-planner` — Provides creative briefs
 - `/creative_director` — Orchestrates full asset creation
 - `/ad_designer` — Creates companion image ads
 - `/page_designer` — Creates landing pages scripts point to

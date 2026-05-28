@@ -2,7 +2,7 @@ import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import type {
-  MarketingJobRuntimeDocument,
+  SocialContentJobRuntimeDocument,
   MarketingJobState,
   MarketingJobStatus,
   MarketingStage,
@@ -227,7 +227,7 @@ function isInFlight(state: MarketingJobState, status: MarketingJobStatus): boole
   return IN_FLIGHT_STATES.has(state) || IN_FLIGHT_STATUSES.has(status);
 }
 
-function alreadyReaped(doc: MarketingJobRuntimeDocument): boolean {
+function alreadyReaped(doc: SocialContentJobRuntimeDocument): boolean {
   if (doc.status === 'failed_stale') return true;
   if (typeof doc.failure_reason === 'string' && doc.failure_reason === STALE_REAPER_FAILURE_REASON) {
     return true;
@@ -253,7 +253,7 @@ function logWarn(message: string, fields?: Record<string, unknown>): void {
 }
 
 function applyStaleMarker(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   candidate: StaleRunCandidate,
   nowIso: string,
 ): void {
@@ -392,7 +392,7 @@ export async function runStaleRunReaper(
       continue;
     }
 
-    if (alreadyReaped(parsed as unknown as MarketingJobRuntimeDocument)) {
+    if (alreadyReaped(parsed as unknown as SocialContentJobRuntimeDocument)) {
       report.skipped += 1;
       continue;
     }
@@ -446,7 +446,7 @@ export async function runStaleRunReaper(
     }
 
     try {
-      const doc = parsed as unknown as MarketingJobRuntimeDocument;
+      const doc = parsed as unknown as SocialContentJobRuntimeDocument;
       applyStaleMarker(doc, candidate, new Date(nowMs).toISOString());
       await writeFile(filePath, JSON.stringify(doc, null, 2));
       candidate.mutated = true;

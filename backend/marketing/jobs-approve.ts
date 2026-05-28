@@ -1,12 +1,12 @@
-import { approveMarketingJob as orchestratorApprove } from './orchestrator';
-import { loadMarketingJobRuntime } from './runtime-state';
-import type { ApproveMarketingJobRequest, ApproveMarketingJobResponse } from './orchestrator';
-export type { ApproveMarketingJobRequest, ApproveMarketingJobResponse } from './orchestrator';
+import { approveSocialContentJob as orchestratorApprove } from './orchestrator';
+import { loadSocialContentJobRuntime } from './runtime-state';
+import type { ApproveSocialContentJobRequest, ApproveSocialContentJobResponse } from './orchestrator';
+export type { ApproveSocialContentJobRequest, ApproveSocialContentJobResponse } from './orchestrator';
 
-export async function approveMarketingJob(
-  input: ApproveMarketingJobRequest
-): Promise<ApproveMarketingJobResponse> {
-  const doc = await loadMarketingJobRuntime(input.jobId);
+export async function approveSocialContentJob(
+  input: ApproveSocialContentJobRequest
+): Promise<ApproveSocialContentJobResponse> {
+  const doc = await loadSocialContentJobRuntime(input.jobId);
   if (!doc) {
     return {
       status: 'error',

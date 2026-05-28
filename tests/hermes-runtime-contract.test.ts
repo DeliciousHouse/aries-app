@@ -156,7 +156,7 @@ test('buildSocialContentWeeklyRequest payload: enrichment fields flow into brand
       tone_of_voice: 'warm, direct',
       style_vibe: 'minimalist, modern',
     },
-  } as unknown as import('../backend/marketing/runtime-state').MarketingJobRuntimeDocument;
+  } as unknown as import('../backend/marketing/runtime-state').SocialContentJobRuntimeDocument;
 
   const payload = buildSocialContentWeeklyRequest({
     doc,

@@ -359,8 +359,8 @@ async function seedCurrentSourceIdentity(input: {
     'utf8',
   );
 
-  const { ensureCampaignWorkspaceRecord } = await import('../backend/marketing/workspace-store');
-  await ensureCampaignWorkspaceRecord({
+  const { ensureSocialContentWorkspaceRecord } = await import('../backend/marketing/workspace-store');
+  await ensureSocialContentWorkspaceRecord({
     jobId: input.jobId,
     tenantId: input.tenantId,
     payload: {
@@ -411,13 +411,13 @@ test('canonical brand identity stays in parity across validated snapshot, brand 
     });
 
     const { loadValidatedMarketingProfileSnapshot } = await import('../backend/marketing/validated-profile-store');
-    const { buildCampaignWorkspaceView } = await import('../backend/marketing/workspace-views');
+    const { buildSocialContentWorkspaceView } = await import('../backend/marketing/workspace-views');
     const { getBusinessProfile } = await import('../backend/tenant/business-profile');
 
     const snapshot = await loadValidatedMarketingProfileSnapshot(tenantId, {
       currentSourceUrl: fixture.websiteUrl,
     });
-    const workspaceView = await buildCampaignWorkspaceView(jobId);
+    const workspaceView = await buildSocialContentWorkspaceView(jobId);
     const businessProfile = await getBusinessProfile(fakeTenantClient() as never, tenantId);
 
     // Replaces the deleted lobster/bin/head-of-marketing and creative-director python
@@ -497,12 +497,12 @@ test('source switch prevents source A brand identity from surviving in read mode
     });
 
     const { loadValidatedMarketingProfileSnapshot } = await import('../backend/marketing/validated-profile-store');
-    const { buildCampaignWorkspaceView } = await import('../backend/marketing/workspace-views');
+    const { buildSocialContentWorkspaceView } = await import('../backend/marketing/workspace-views');
     const { getBusinessProfile } = await import('../backend/tenant/business-profile');
     const snapshot = await loadValidatedMarketingProfileSnapshot(tenantId, {
       currentSourceUrl: sourceB.websiteUrl,
     });
-    const workspaceView = await buildCampaignWorkspaceView(jobId);
+    const workspaceView = await buildSocialContentWorkspaceView(jobId);
     const businessProfile = await getBusinessProfile(fakeTenantClient() as never, tenantId);
 
     // Replaces the deleted lobster/bin/head-of-marketing and creative-director python

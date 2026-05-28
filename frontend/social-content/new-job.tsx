@@ -71,7 +71,7 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
   const [imageCreativeCount, setImageCreativeCount] = useState(6);
   const [videoScriptCount, setVideoScriptCount] = useState(1);
   const [renderVideoAfterApproval, setRenderVideoAfterApproval] = useState(false);
-  const [campaignWindowDays, setCampaignWindowDays] = useState(7);
+  const [postWindowDays, setCampaignWindowDays] = useState(7);
   const [platforms, setPlatforms] = useState<string[]>([...DEFAULT_PLATFORMS]);
 
   const [submitting, setSubmitting] = useState(false);
@@ -143,8 +143,8 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
       formData.append("forbiddenVisualPatterns", pattern);
     }
 
-    const boundedWindowDays = Math.min(14, Math.max(1, campaignWindowDays || 7));
-    formData.set("campaignWindowDays", String(boundedWindowDays));
+    const boundedWindowDays = Math.min(14, Math.max(1, postWindowDays || 7));
+    formData.set("postWindowDays", String(boundedWindowDays));
     formData.set("staticPostCount", String(Math.max(0, staticPostCount)));
     formData.set("imageCreativeCount", String(Math.max(0, imageCreativeCount)));
     formData.set("videoScriptCount", String(Math.max(0, videoScriptCount)));
@@ -359,7 +359,7 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
                   type="number"
                   min={1}
                   max={14}
-                  value={campaignWindowDays}
+                  value={postWindowDays}
                   onChange={(event) => setCampaignWindowDays(Number(event.target.value || 7))}
                   className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50"
                 />

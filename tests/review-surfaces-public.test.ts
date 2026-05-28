@@ -16,7 +16,7 @@ test('client review surfaces do not expose generic internal workflow copy', () =
     'backend/marketing/runtime-views.ts',
     'frontend/aries-v1/review-item.tsx',
     'frontend/aries-v1/review-queue.tsx',
-    'frontend/aries-v1/campaign-workspace.tsx',
+    'frontend/aries-v1/post-workspace.tsx',
     'frontend/marketing/job-status.tsx',
     'frontend/marketing/job-approve.tsx',
   ].map(readRepoFile).join('\n');
@@ -37,7 +37,7 @@ test('client review surfaces do not expose generic internal workflow copy', () =
 
 test('client review surfaces hide empty evidence placeholders and keep client-safe labels', () => {
   const reviewItemSource = readRepoFile('frontend/aries-v1/review-item.tsx');
-  const workspaceSource = readRepoFile('frontend/aries-v1/campaign-workspace.tsx');
+  const workspaceSource = readRepoFile('frontend/aries-v1/post-workspace.tsx');
   const queueSource = readRepoFile('frontend/aries-v1/review-queue.tsx');
   const approveSource = readRepoFile('frontend/marketing/job-approve.tsx');
   const statusSource = readRepoFile('frontend/marketing/job-status.tsx');

@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { startMarketingJob } from "../backend/marketing/jobs-start";
+import { startSocialContentJob } from "../backend/marketing/jobs-start";
 import { getMarketingJobStatus } from "../backend/marketing/jobs-status";
 import { approveMarketingJob } from "../backend/marketing/jobs-approve";
 import { resolveDataPath } from "../lib/runtime-paths";
@@ -104,7 +104,7 @@ async function main(): Promise<void> {
   const tenantId = "tenant-marketing-sim";
 
   // 1) create valid marketing job
-  const start = await startMarketingJob({
+  const start = await startSocialContentJob({
     tenantId,
     jobType: "weekly_social_content",
     payload: {
@@ -155,7 +155,7 @@ async function main(): Promise<void> {
   }
 
   // 7) bounded failure case + repair path
-  const failStart = await startMarketingJob({
+  const failStart = await startSocialContentJob({
     tenantId: `${tenantId}-repair`,
     jobType: "weekly_social_content",
     payload: {

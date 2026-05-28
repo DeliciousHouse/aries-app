@@ -72,15 +72,15 @@ async function seedWeeklyApproval(input: {
   publishRequested?: boolean;
 }) {
   const {
-    createMarketingJobRuntimeDocument,
+    createSocialContentJobRuntimeDocument,
     markStageAwaitingApproval,
-    saveMarketingJobRuntime,
+    saveSocialContentJobRuntime,
   } = await import('../backend/marketing/runtime-state');
   const { ensureSocialContentRuntimeState } = await import('../backend/social-content/runtime-state');
   const { createMarketingApprovalRecord, saveMarketingApprovalRecord } = await import('../backend/marketing/approval-store');
 
   const stage = marketingStageForStep(input.approvalStep);
-  const doc = createMarketingJobRuntimeDocument({
+  const doc = createSocialContentJobRuntimeDocument({
     jobId: input.jobId,
     tenantId: input.tenantId,
     payload: {
@@ -142,7 +142,7 @@ async function seedWeeklyApproval(input: {
       },
     },
   );
-  saveMarketingJobRuntime(doc.job_id, doc);
+  saveSocialContentJobRuntime(doc.job_id, doc);
 
   const approvalRecord = createMarketingApprovalRecord({
     approvalId: input.approvalId,
@@ -176,7 +176,7 @@ test('plan approval submits Hermes resume request body', async () => {
   await withRuntimeEnv(async () => {
     const { handleApproveMarketingJob } = await import('../app/api/marketing/jobs/[jobId]/approve/handler');
     const { loadMarketingApprovalRecord } = await import('../backend/marketing/approval-store');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
 
     const jobId = 'job-social-plan';
     const approvalId = 'mkta_social_plan';
@@ -247,7 +247,7 @@ test('plan approval submits Hermes resume request body', async () => {
       });
       const savedRecord = loadMarketingApprovalRecord(approvalId);
       assert.equal(savedRecord?.status, 'approved');
-      const runtimeDoc = await loadMarketingJobRuntime(jobId);
+      const runtimeDoc = await loadSocialContentJobRuntime(jobId);
       assert.equal(runtimeDoc?.social_content_runtime?.currentStage, 'copy_production');
     } finally {
       globalThis.fetch = previousFetch;
@@ -323,7 +323,7 @@ test('denied social-content approval records denied state', async () => {
   await withRuntimeEnv(async () => {
     const { handleApproveMarketingJob } = await import('../app/api/marketing/jobs/[jobId]/approve/handler');
     const { loadMarketingApprovalRecord } = await import('../backend/marketing/approval-store');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
 
     const jobId = 'job-social-deny';
     const approvalId = 'mkta_social_deny';
@@ -371,7 +371,7 @@ test('denied social-content approval records denied state', async () => {
       assert.equal(calls.length, 0, 'a weekly denial must not POST to Hermes');
       const approval = loadMarketingApprovalRecord(approvalId);
       assert.equal(approval?.status, 'denied');
-      const runtime = await loadMarketingJobRuntime(jobId);
+      const runtime = await loadSocialContentJobRuntime(jobId);
       assert.equal(runtime?.social_content_runtime?.currentStage, 'failed');
     } finally {
       globalThis.fetch = previousFetch;
@@ -440,7 +440,7 @@ test('default weekly jobs skip publish approval even with content channels', asy
     const { createExecutionRunRecord } = await import('../backend/execution/run-store');
     const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
     const { listMarketingApprovalRecordsForJob } = await import('../backend/marketing/approval-store');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
 
     const jobId = 'job-social-no-publish';
     await seedWeeklyApproval({
@@ -479,7 +479,7 @@ test('default weekly jobs skip publish approval even with content channels', asy
       },
     });
 
-    const runtime = await loadMarketingJobRuntime(jobId);
+    const runtime = await loadSocialContentJobRuntime(jobId);
     assert.equal(runtime?.approvals.current, null);
     assert.equal(runtime?.social_content_runtime?.currentStage, 'completed');
     assert.equal(listMarketingApprovalRecordsForJob(jobId).length, 1);
@@ -494,7 +494,7 @@ test('publish-skip reconciles in-flight intermediate social stages to completed 
   await withRuntimeEnv(async () => {
     const { createExecutionRunRecord } = await import('../backend/execution/run-store');
     const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
     const { markSocialContentStageRunning, markSocialContentStageCompleted } = await import('../backend/social-content/runtime-state');
 
     const jobId = 'job-social-publish-skip-reconcile';
@@ -510,7 +510,7 @@ test('publish-skip reconciles in-flight intermediate social stages to completed 
 
     // Simulate the intermediate social stages that were running when
     // the approve_publish callback arrived (as observed in mkt_0735c3b1).
-    const { loadMarketingJobRuntime: loadDoc, saveMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime: loadDoc, saveSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
     const doc = await loadDoc(jobId);
     assert.ok(doc, 'job doc must exist after seed');
     markSocialContentStageCompleted(doc, 'research', { summary: 'Research done.' });
@@ -519,7 +519,7 @@ test('publish-skip reconciles in-flight intermediate social stages to completed 
     markSocialContentStageRunning(doc, 'copy_production');   // still running — no output yet
     markSocialContentStageRunning(doc, 'image_briefing');    // still running — no output yet
     // image_generation is pending (never started)
-    saveMarketingJobRuntime(doc.job_id, doc);
+    saveSocialContentJobRuntime(doc.job_id, doc);
 
     const run = createExecutionRunRecord({
       provider: 'hermes',
@@ -548,7 +548,7 @@ test('publish-skip reconciles in-flight intermediate social stages to completed 
       },
     });
 
-    const runtime = await loadMarketingJobRuntime(jobId);
+    const runtime = await loadSocialContentJobRuntime(jobId);
     assert.ok(runtime, 'runtime must still exist after publish-skip');
 
     // Job must be terminal.
@@ -576,7 +576,7 @@ test('explicit publish request creates publish approval checkpoint', async () =>
     const { createExecutionRunRecord } = await import('../backend/execution/run-store');
     const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
     const { listMarketingApprovalRecordsForJob } = await import('../backend/marketing/approval-store');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
 
     const jobId = 'job-social-publish-explicit';
     await seedWeeklyApproval({
@@ -616,7 +616,7 @@ test('explicit publish request creates publish approval checkpoint', async () =>
       },
     });
 
-    const runtime = await loadMarketingJobRuntime(jobId);
+    const runtime = await loadSocialContentJobRuntime(jobId);
     assert.equal(runtime?.approvals.current?.workflow_step_id, 'approve_publish');
     assert.equal(runtime?.social_content_runtime?.currentStage, 'publish_review');
     assert.equal(

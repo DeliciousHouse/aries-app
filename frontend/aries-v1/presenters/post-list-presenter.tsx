@@ -16,13 +16,13 @@ import {
   X,
 } from 'lucide-react';
 
-import type { CampaignListViewModel } from '@/frontend/aries-v1/view-models/campaign-list';
+import type { SocialContentListViewModel } from '@/frontend/aries-v1/view-models/post-list';
 
-export interface CampaignListPresenterProps {
-  model: CampaignListViewModel;
+export interface SocialContentListPresenterProps {
+  model: SocialContentListViewModel;
 }
 
-export default function CampaignListPresenter({ model }: CampaignListPresenterProps) {
+export default function CampaignListPresenter({ model }: SocialContentListPresenterProps) {
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const selectedCampaign = useMemo(
     () => model.items.find((campaign) => campaign.id === selectedCampaignId) ?? null,
@@ -261,7 +261,7 @@ export default function CampaignListPresenter({ model }: CampaignListPresenterPr
   );
 }
 
-function statusLabel(status: CampaignListViewModel['items'][number]['status']) {
+function statusLabel(status: SocialContentListViewModel['items'][number]['status']) {
   switch (status) {
     case 'in_review':
       return 'In review';
@@ -272,7 +272,7 @@ function statusLabel(status: CampaignListViewModel['items'][number]['status']) {
   }
 }
 
-function statusIconTone(status: CampaignListViewModel['items'][number]['status']) {
+function statusIconTone(status: SocialContentListViewModel['items'][number]['status']) {
   if (status === 'live') return 'bg-primary/10 text-primary';
   if (status === 'scheduled') return 'bg-sky-500/10 text-sky-300';
   if (status === 'approved') return 'bg-indigo-500/10 text-indigo-300';
@@ -281,7 +281,7 @@ function statusIconTone(status: CampaignListViewModel['items'][number]['status']
   return 'bg-white/5 text-text-muted';
 }
 
-function statusDotTone(status: CampaignListViewModel['items'][number]['status']) {
+function statusDotTone(status: SocialContentListViewModel['items'][number]['status']) {
   if (status === 'live') return 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.5)]';
   if (status === 'scheduled') return 'bg-sky-400';
   if (status === 'approved') return 'bg-indigo-400';
@@ -290,7 +290,7 @@ function statusDotTone(status: CampaignListViewModel['items'][number]['status'])
   return 'bg-white/30';
 }
 
-function statusGradient(status: CampaignListViewModel['items'][number]['status']) {
+function statusGradient(status: SocialContentListViewModel['items'][number]['status']) {
   if (status === 'live') return 'from-emerald-400 to-primary';
   if (status === 'scheduled') return 'from-sky-400 to-primary';
   if (status === 'approved') return 'from-indigo-400 to-primary';
@@ -302,7 +302,7 @@ function statusGradient(status: CampaignListViewModel['items'][number]['status']
 // Exported alias for regression tests; production code keeps using `stageProgress`.
 export { stageProgress as stageProgressForTest };
 
-function stageProgress(status: CampaignListViewModel['items'][number]['status']): number {
+function stageProgress(status: SocialContentListViewModel['items'][number]['status']): number {
   switch (status) {
     case 'draft':
       return 18;
@@ -326,7 +326,7 @@ function stageProgress(status: CampaignListViewModel['items'][number]['status'])
   }
 }
 
-function buildTimeline(campaign: CampaignListViewModel['items'][number]) {
+function buildTimeline(campaign: SocialContentListViewModel['items'][number]) {
   const reviewResolved = !campaign.needsApproval && campaign.status !== 'changes_requested' && campaign.status !== 'in_review';
   const scheduled = campaign.status === 'scheduled' || campaign.status === 'live';
 

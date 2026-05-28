@@ -1,5 +1,5 @@
 import type {
-  GetMarketingJobStatusResponse,
+  GetSocialContentJobStatusResponse,
   MarketingCreativeAssetReviewPayload,
   MarketingDashboardAsset,
   MarketingStageCard,
@@ -116,8 +116,8 @@ function normalizedDomain(value: string | null | undefined): string | null {
   }
 }
 
-function currentStageHref(campaignId: string, view: WorkspaceView): string {
-  return `/dashboard/social-content/${encodeURIComponent(campaignId)}?view=${view}`;
+function currentStageHref(postId: string, view: WorkspaceView): string {
+  return `/dashboard/social-content/${encodeURIComponent(postId)}?view=${view}`;
 }
 
 function stageForView(view: WorkspaceView): MarketingStageCard['stage'] {
@@ -134,7 +134,7 @@ function stageCardForView(
 }
 
 function blockerViewFromWorkflowState(
-  workflowState: GetMarketingJobStatusResponse['workflowState'],
+  workflowState: GetSocialContentJobStatusResponse['workflowState'],
 ): WorkspaceView | null {
   if (workflowState === 'brand_review_required') return 'brand';
   if (workflowState === 'strategy_review_required') return 'strategy';
@@ -292,7 +292,7 @@ export function approvalStepToView(workflowStepId: string | null | undefined): W
 
 export function deriveGenerationProgressState(
   status: Pick<
-    GetMarketingJobStatusResponse,
+    GetSocialContentJobStatusResponse,
     'approval' | 'workflowState' | 'plannedPostCount' | 'createdPostCount' | 'stageCards' | 'publishConfig' | 'dashboard' | 'creativeReview'
   >,
 ): GenerationProgressState | null {
@@ -366,15 +366,15 @@ function safeReviewCampaignName(value: string | null | undefined): string | null
 }
 
 export function deriveWorkspaceHeaderState(
-  status: Pick<GetMarketingJobStatusResponse, 'reviewBundle' | 'brandWebsiteUrl' | 'campaignBrief' | 'dashboard' | 'jobId' | 'tenantName'>,
+  status: Pick<GetSocialContentJobStatusResponse, 'reviewBundle' | 'brandWebsiteUrl' | 'socialContentBrief' | 'dashboard' | 'jobId' | 'tenantName'>,
 ): WorkspaceHeaderState {
-  const sourceUrl = normalizeUrl(status.brandWebsiteUrl) || normalizeUrl(status.campaignBrief?.websiteUrl);
+  const sourceUrl = normalizeUrl(status.brandWebsiteUrl) || normalizeUrl(status.socialContentBrief?.websiteUrl);
   const sourceDomain = normalizedDomain(sourceUrl);
 
   return {
     title:
-      safeReviewCampaignName(status.reviewBundle?.campaignName) ||
-      status.dashboard.campaign?.name ||
+      safeReviewCampaignName(status.reviewBundle?.postName) ||
+      status.dashboard.post?.name ||
       sourceDomain ||
       status.tenantName ||
       `Campaign ${status.jobId}`,
@@ -385,11 +385,11 @@ export function deriveWorkspaceHeaderState(
 
 export function deriveGateFallbackState(
   status: Pick<
-    GetMarketingJobStatusResponse,
+    GetSocialContentJobStatusResponse,
     'approval' | 'workflowState' | 'stageCards' | 'nextStep' | 'brandReview' | 'strategyReview' | 'creativeReview'
   >,
   activeView: WorkspaceView,
-  campaignId: string,
+  postId: string,
   publishBlockedReason?: string | null,
 ): GateFallbackState {
   const defaultCopy = DEFAULT_WAITING_COPY[activeView];
@@ -441,7 +441,7 @@ export function deriveGateFallbackState(
       detail: stageSummary || stageHighlight || nextStepDetail(status.nextStep),
       action: {
         label: `Open ${VIEW_LABELS[blockerView]}`,
-        href: currentStageHref(campaignId, blockerView),
+        href: currentStageHref(postId, blockerView),
       },
     };
   }
@@ -458,13 +458,13 @@ export function deriveGateFallbackState(
     detail: stageHighlight || nextStepDetail(status.nextStep),
     action: {
       label: 'View runtime status',
-      href: `/dashboard/social-content/${encodeURIComponent(campaignId)}?view=status`,
+      href: `/dashboard/social-content/${encodeURIComponent(postId)}?view=status`,
     },
   };
 }
 
 function reviewForView(
-  status: Pick<GetMarketingJobStatusResponse, 'brandReview' | 'strategyReview' | 'creativeReview'>,
+  status: Pick<GetSocialContentJobStatusResponse, 'brandReview' | 'strategyReview' | 'creativeReview'>,
   view: WorkspaceView | null,
 ): ReviewStatusPayload | null {
   if (view === 'brand') {
@@ -480,15 +480,15 @@ function reviewForView(
 }
 
 function approvedReviewView(
-  status: Pick<GetMarketingJobStatusResponse, 'brandReview' | 'strategyReview' | 'creativeReview'>,
+  status: Pick<GetSocialContentJobStatusResponse, 'brandReview' | 'strategyReview' | 'creativeReview'>,
   view: WorkspaceView | null,
 ): boolean {
   return reviewForView(status, view)?.status === 'approved';
 }
 
 export function derivePublishSurfaceState(
-  status: Pick<GetMarketingJobStatusResponse, 'approval' | 'workflowState' | 'stageCards' | 'nextStep' | 'dashboard'>,
-  campaignId: string,
+  status: Pick<GetSocialContentJobStatusResponse, 'approval' | 'workflowState' | 'stageCards' | 'nextStep' | 'dashboard'>,
+  postId: string,
   publishBlockedReason?: string | null,
 ): PublishSurfaceState {
   const publishItems = status.dashboard.publishItems || [];
@@ -520,7 +520,7 @@ export function derivePublishSurfaceState(
         blockerView && blockerView !== 'publish'
           ? {
               label: `Open ${VIEW_LABELS[blockerView]}`,
-              href: currentStageHref(campaignId, blockerView),
+              href: currentStageHref(postId, blockerView),
             }
           : null,
       emptyTitle: 'Launch items are waiting on approvals',
@@ -555,7 +555,7 @@ export function derivePublishSurfaceState(
       description: `${VIEW_LABELS[blockerView]} must be approved before launch-ready items can move forward.`,
       action: {
         label: `Open ${VIEW_LABELS[blockerView]}`,
-        href: currentStageHref(campaignId, blockerView),
+        href: currentStageHref(postId, blockerView),
       },
       emptyTitle: 'Launch queue is still locked',
       emptyDescription: 'Launch packages will appear here after the blocking review is approved.',

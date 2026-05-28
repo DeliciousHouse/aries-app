@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import type { MarketingJobFacts } from './job-facts';
-import { resolveStageOutput, type MarketingJobRuntimeDocument, type MarketingVideoStageArtifact } from './runtime-state';
+import { resolveStageOutput, type SocialContentJobRuntimeDocument, type MarketingVideoStageArtifact } from './runtime-state';
 import { readMarketingStageStepPayload } from './stage-artifact-resolution';
 import { legacyStageCacheReadFallbackEnabled } from './artifact-store';
 import {
@@ -86,20 +86,20 @@ function cacheRoot(envKey: string, fallbackFolder: string): string {
   return process.env[envKey]?.trim() || path.join(tmpdir(), fallbackFolder);
 }
 
-function competitorSlug(runtimeDoc: MarketingJobRuntimeDocument): string | null {
+function competitorSlug(runtimeDoc: SocialContentJobRuntimeDocument): string | null {
   const raw = stringValue(runtimeDoc.inputs.competitor_url || runtimeDoc.inputs.request?.competitorUrl);
   if (!raw) {
     return null;
   }
 
   try {
-    return slugify(new URL(raw).hostname.replace(/^www\./, ''), 'campaign');
+    return slugify(new URL(raw).hostname.replace(/^www\./, ''), 'social content');
   } catch {
-    return slugify(raw, 'campaign');
+    return slugify(raw, 'social content');
   }
 }
 
-function publishStageTimestamp(runtimeDoc: MarketingJobRuntimeDocument): number {
+function publishStageTimestamp(runtimeDoc: SocialContentJobRuntimeDocument): number {
   const candidates = [
     runtimeDoc.stages.publish.completed_at,
     runtimeDoc.stages.publish.started_at,
@@ -112,7 +112,7 @@ function publishStageTimestamp(runtimeDoc: MarketingJobRuntimeDocument): number 
   return candidates[0] ?? 0;
 }
 
-function runtimeBrandSlugCandidates(runtimeDoc: MarketingJobRuntimeDocument): string[] {
+function runtimeBrandSlugCandidates(runtimeDoc: SocialContentJobRuntimeDocument): string[] {
   const runtimeInputs = runtimeDoc.inputs as Record<string, unknown>;
   return uniqueStrings([
     stringValue(runtimeInputs.brand_slug || runtimeDoc.inputs.request?.brandSlug),
@@ -126,7 +126,7 @@ type PublishStepPayloadCandidate = {
   mtimeMs: number;
 };
 
-async function readExactPublishStepPayload(runtimeDoc: MarketingJobRuntimeDocument, stepName: string, runId: string): Promise<PublishStepPayloadCandidate | null> {
+async function readExactPublishStepPayload(runtimeDoc: SocialContentJobRuntimeDocument, stepName: string, runId: string): Promise<PublishStepPayloadCandidate | null> {
   const tenantId = stringValue(runtimeDoc.tenant_id);
   if (!tenantId) {
     // Fail closed when there's no tenant; stage cache reads must never
@@ -186,7 +186,7 @@ async function readExactPublishStepPayload(runtimeDoc: MarketingJobRuntimeDocume
 }
 
 function scorePublishStepPayloadCandidate(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   prefix: string,
   candidate: PublishStepPayloadCandidate
 ): { trust: number; distance: number } {
@@ -233,7 +233,7 @@ function scorePublishStepPayloadCandidate(
 }
 
 async function collectFallbackPublishStepPayloadCandidates(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   stepName: string
 ): Promise<PublishStepPayloadCandidate[]> {
   const prefix = competitorSlug(runtimeDoc);
@@ -310,7 +310,7 @@ async function collectFallbackPublishStepPayloadCandidates(
   });
 }
 
-async function readPublishStepPayload(runtimeDoc: MarketingJobRuntimeDocument, stepName: string): Promise<Record<string, unknown> | null> {
+async function readPublishStepPayload(runtimeDoc: SocialContentJobRuntimeDocument, stepName: string): Promise<Record<string, unknown> | null> {
   const explicitRunId = stringValue(runtimeDoc.stages.publish.run_id);
   if (explicitRunId) {
     const explicit = await readExactPublishStepPayload(runtimeDoc, stepName, explicitRunId);
@@ -326,7 +326,7 @@ async function readPublishStepPayload(runtimeDoc: MarketingJobRuntimeDocument, s
   return null;
 }
 
-function publishStageHasRuntimeContext(runtimeDoc: MarketingJobRuntimeDocument): boolean {
+function publishStageHasRuntimeContext(runtimeDoc: SocialContentJobRuntimeDocument): boolean {
   const publishStage = runtimeDoc.stages.publish;
   const publishOutputs = recordValue(publishStage.outputs);
   const approvalStepId = stringValue(
@@ -418,13 +418,13 @@ function normalizePlatformPreview(value: Record<string, unknown>): Record<string
 }
 
 function isVideoStageArtifact(
-  artifact: MarketingJobRuntimeDocument['stages']['production']['artifacts'][number],
+  artifact: SocialContentJobRuntimeDocument['stages']['production']['artifacts'][number],
 ): artifact is MarketingVideoStageArtifact {
   return 'type' in artifact && artifact.type === 'video';
 }
 
 function firstRenderedVideoAssetIdForPlatform(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   platformSlugValue: string,
 ): string | undefined {
   const match = runtimeDoc.stages.production.artifacts.find((artifact) => (
@@ -673,7 +673,7 @@ function buildPublisherStepNames(): string[] {
   ];
 }
 
-async function collectPublisherPayloads(runtimeDoc: MarketingJobRuntimeDocument): Promise<Array<Record<string, unknown>>> {
+async function collectPublisherPayloads(runtimeDoc: SocialContentJobRuntimeDocument): Promise<Array<Record<string, unknown>>> {
   const payloads: Array<Record<string, unknown>> = [];
   for (const stepName of buildPublisherStepNames()) {
     const payload = await readPublishStepPayload(runtimeDoc, stepName);
@@ -684,9 +684,9 @@ async function collectPublisherPayloads(runtimeDoc: MarketingJobRuntimeDocument)
   return payloads;
 }
 
-async function reviewPackageCandidatePaths(runtimeDoc: MarketingJobRuntimeDocument, campaignName: string | null): Promise<string[]> {
+async function reviewPackageCandidatePaths(runtimeDoc: SocialContentJobRuntimeDocument, postName: string | null): Promise<string[]> {
   const brandSlug = inferBrandSlug(runtimeDoc);
-  const normalizedCampaignName = stringValue(campaignName);
+  const normalizedCampaignName = stringValue(postName);
   const candidates = new Set<string>();
 
   for (const outputRoot of artifactOutputRoots()) {
@@ -710,8 +710,8 @@ async function reviewPackageCandidatePaths(runtimeDoc: MarketingJobRuntimeDocume
   return Array.from(candidates);
 }
 
-function campaignNameBrandSlugCandidates(campaignName: string | null | undefined): string[] {
-  const normalizedCampaignName = stringValue(campaignName);
+function postNameBrandSlugCandidates(postName: string | null | undefined): string[] {
+  const normalizedCampaignName = stringValue(postName);
   if (!normalizedCampaignName) {
     return [];
   }
@@ -742,11 +742,11 @@ function campaignNameBrandSlugCandidates(campaignName: string | null | undefined
 }
 
 function resolvePublishArtifactBrandSlug(
-  runtimeDoc: MarketingJobRuntimeDocument,
-  campaignName: string | null,
+  runtimeDoc: SocialContentJobRuntimeDocument,
+  postName: string | null,
 ): string | null {
   const candidates = uniqueStrings([
-    ...campaignNameBrandSlugCandidates(campaignName),
+    ...postNameBrandSlugCandidates(postName),
     inferBrandSlug(runtimeDoc),
   ]);
 
@@ -762,7 +762,7 @@ function resolvePublishArtifactBrandSlug(
 }
 
 async function buildFallbackPublishReviewBundle(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   reviewPayload: Record<string, unknown> | null,
   facts?: MarketingJobFacts,
 ): Promise<Record<string, unknown> | null> {
@@ -781,12 +781,12 @@ async function buildFallbackPublishReviewBundle(
     }
   }
 
-  const campaignName =
+  const postName =
     stringValue(reviewBundle?.campaign_name) ||
     stringValue(reviewPayload?.campaign_name) ||
     stringValue(preflight?.campaign_name);
-  const artifactBrandSlug = resolvePublishArtifactBrandSlug(runtimeDoc, campaignName || null);
-  for (const candidatePath of await reviewPackageCandidatePaths(runtimeDoc, campaignName || null)) {
+  const artifactBrandSlug = resolvePublishArtifactBrandSlug(runtimeDoc, postName || null);
+  for (const candidatePath of await reviewPackageCandidatePaths(runtimeDoc, postName || null)) {
     const resolved = resolveMarketingArtifactPath(candidatePath);
     if (resolved) {
       reviewPackagePaths.add(resolved);
@@ -886,7 +886,7 @@ async function buildFallbackPublishReviewBundle(
       : null;
 
   const fallbackBundle = {
-    campaign_name: campaignName || runtimeDoc.job_id,
+    campaign_name: postName || runtimeDoc.job_id,
     approval_message:
       preferredText(stringValue(recordValue(reviewPayload?.approval_preview)?.message)) || ARTIFACT_UNAVAILABLE_TEXT,
     summary: {
@@ -990,7 +990,7 @@ function runtimeDocFallbackCampaignName(
 }
 
 export async function resolvePublishReviewBundle(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   facts?: MarketingJobFacts,
 ): Promise<PublishReviewBundleResolution> {
   const reviewPayload = await extractPublishReviewPayload(runtimeDoc, facts);
@@ -1033,7 +1033,7 @@ export async function resolvePublishReviewBundle(
 }
 
 export async function extractPublishReviewPayload(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   facts?: MarketingJobFacts,
 ): Promise<Record<string, unknown> | null> {
   const publishStage = runtimeDoc.stages.publish;
@@ -1061,7 +1061,7 @@ export async function extractPublishReviewPayload(
 }
 
 export async function extractPublishReviewBundle(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   facts?: MarketingJobFacts,
 ): Promise<Record<string, unknown> | null> {
   return (await resolvePublishReviewBundle(runtimeDoc, facts)).reviewBundle;

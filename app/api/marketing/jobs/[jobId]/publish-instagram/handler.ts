@@ -1,8 +1,8 @@
 import path from 'node:path';
 
 import { loadTenantContextOrResponse } from '@/lib/tenant-context-http';
-import { loadMarketingJobRuntime } from '@/backend/marketing/runtime-state';
-import { buildCampaignWorkspaceView } from '@/backend/marketing/workspace-views';
+import { loadSocialContentJobRuntime } from '@/backend/marketing/runtime-state';
+import { buildSocialContentWorkspaceView } from '@/backend/marketing/workspace-views';
 import {
   findLatestMarketingApprovalRecord,
   loadMarketingApprovalRecord,
@@ -50,7 +50,7 @@ export async function handleInstagramPublish(req: Request, jobId: string) {
   }
   const { tenantId } = tenantResult.tenantContext;
 
-  const runtimeDoc = await loadMarketingJobRuntime(jobId);
+  const runtimeDoc = await loadSocialContentJobRuntime(jobId);
   if (!runtimeDoc || runtimeDoc.tenant_id !== tenantId) {
     return new Response(
       JSON.stringify({ error: 'Job not found.', reason: 'job_not_found' }),
@@ -108,7 +108,7 @@ export async function handleInstagramPublish(req: Request, jobId: string) {
   let mediaUrl: string | null = null;
   let publishedAssetId: string | null = null;
   try {
-    const workspaceView = await buildCampaignWorkspaceView(jobId);
+    const workspaceView = await buildSocialContentWorkspaceView(jobId);
     const approvedAssets = workspaceView.creativeReview?.assets.filter(
       (a) => a.status === 'approved' && (a.contentType?.startsWith('image/') || a.contentType === null),
     ) ?? [];

@@ -11,7 +11,7 @@ import {
   resolveGeneratedAsset,
   stageCacheRoot,
 } from '../backend/marketing/artifact-store';
-import { createMarketingJobRuntimeDocument } from '../backend/marketing/runtime-state';
+import { createSocialContentJobRuntimeDocument } from '../backend/marketing/runtime-state';
 import { resolvePublicMarketingArtifact } from '../backend/marketing/public-pages';
 
 type EnvKey =
@@ -177,7 +177,7 @@ test('asset library does not read website analysis paths rejected by the artifac
     }),
   );
 
-  const runtimeDoc = createMarketingJobRuntimeDocument({
+  const runtimeDoc = createSocialContentJobRuntimeDocument({
     jobId: 'job-unsafe-analysis',
     tenantId: 'tenant-unsafe-analysis',
     payload: { brandUrl: 'https://example.com' },

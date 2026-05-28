@@ -8,7 +8,7 @@ import type { IntegrationCard } from '../lib/api/integrations';
 import type {
   AriesDashboardStatusSummary,
   BusinessProfileView,
-  RuntimeCampaignListItem,
+  RuntimePostListItem,
 } from '../lib/api/aries-v1';
 import { createDashboardHomeViewModel } from '../frontend/aries-v1/view-models/dashboard-home';
 import {
@@ -37,8 +37,8 @@ function buildStatusSummary(): AriesDashboardStatusSummary {
 }
 
 function buildCampaign(
-  overrides: Partial<RuntimeCampaignListItem> = {},
-): RuntimeCampaignListItem {
+  overrides: Partial<RuntimePostListItem> = {},
+): RuntimePostListItem {
   return {
     id: 'campaign-1',
     jobId: 'campaign-1',
@@ -73,7 +73,7 @@ function buildCampaign(
     previewPosts: [],
     previewAssets: [],
     dashboard: {
-      campaign: null,
+      post: null,
       posts: [],
       assets: [],
       publishItems: [],
@@ -139,7 +139,7 @@ test('gate is ready when profile is complete and a Meta channel is connected', (
   const state = evaluateGenerateThisWeekGate({
     profile: buildProfile(),
     integrationCards: [buildIntegration()],
-    campaigns: [],
+    posts: [],
   });
   assert.equal(state.gate, 'ready');
   assert.equal(state.enabled, true);
@@ -151,7 +151,7 @@ test('gate blocks when profile is incomplete', () => {
   const state = evaluateGenerateThisWeekGate({
     profile: buildProfile({ incomplete: true }),
     integrationCards: [buildIntegration()],
-    campaigns: [],
+    posts: [],
   });
   assert.equal(state.gate, 'profile_incomplete');
   assert.equal(state.enabled, false);
@@ -165,7 +165,7 @@ test('gate blocks when no Facebook or Instagram connection is present', () => {
       buildIntegration({ platform: 'linkedin', connection_state: 'connected' }),
       buildIntegration({ platform: 'facebook', connection_state: 'reauth_required' }),
     ],
-    campaigns: [],
+    posts: [],
   });
   assert.equal(state.gate, 'no_meta_connection');
   assert.equal(state.enabled, false);
@@ -176,7 +176,7 @@ test('Instagram connected without Facebook still satisfies the gate', () => {
   const state = evaluateGenerateThisWeekGate({
     profile: buildProfile(),
     integrationCards: [buildIntegration({ platform: 'instagram', connection_state: 'connected' })],
-    campaigns: [],
+    posts: [],
   });
   assert.equal(state.gate, 'ready');
   assert.equal(state.enabled, true);
@@ -187,7 +187,7 @@ test('gate blocks while integrations are still loading', () => {
     profile: buildProfile(),
     integrationCards: [],
     integrationsPending: true,
-    campaigns: [],
+    posts: [],
   });
   assert.equal(state.gate, 'integrations_loading');
   assert.equal(state.enabled, false);
@@ -197,7 +197,7 @@ test('a draft dashboard campaign counts as in-progress and outranks all other ga
   const state = evaluateGenerateThisWeekGate({
     profile: buildProfile({ incomplete: true }),
     integrationCards: [],
-    campaigns: [
+    posts: [
       {
         status: 'draft',
         dashboardStatus: 'draft',
@@ -216,7 +216,7 @@ test('an in_review campaign counts as in-progress', () => {
   const state = evaluateGenerateThisWeekGate({
     profile: buildProfile(),
     integrationCards: [buildIntegration()],
-    campaigns: [
+    posts: [
       {
         status: 'in_review',
         dashboardStatus: 'in_review',
@@ -233,7 +233,7 @@ test('approvalRequired alone counts as in-progress even when statuses are termin
   const state = evaluateGenerateThisWeekGate({
     profile: buildProfile(),
     integrationCards: [buildIntegration()],
-    campaigns: [
+    posts: [
       {
         status: 'approved',
         dashboardStatus: 'ready_to_publish',
@@ -250,7 +250,7 @@ test('a fully live or scheduled campaign does NOT block another generation', () 
   const state = evaluateGenerateThisWeekGate({
     profile: buildProfile(),
     integrationCards: [buildIntegration()],
-    campaigns: [
+    posts: [
       {
         status: 'live',
         dashboardStatus: 'live',
@@ -276,7 +276,7 @@ test('a failed run does NOT count as in-progress — Generate gate must be ready
   const state = evaluateGenerateThisWeekGate({
     profile: buildProfile(),
     integrationCards: [buildIntegration()],
-    campaigns: [
+    posts: [
       {
         status: 'draft',
         dashboardStatus: 'draft',
@@ -295,7 +295,7 @@ test('a stale-failed run does NOT count as in-progress', () => {
   const state = evaluateGenerateThisWeekGate({
     profile: buildProfile(),
     integrationCards: [buildIntegration()],
-    campaigns: [
+    posts: [
       {
         status: 'draft',
         dashboardStatus: 'draft',
@@ -314,7 +314,7 @@ test('a failed run alongside a genuinely running run still shows in_progress', (
   const state = evaluateGenerateThisWeekGate({
     profile: buildProfile(),
     integrationCards: [buildIntegration()],
-    campaigns: [
+    posts: [
       {
         status: 'draft',
         dashboardStatus: 'draft',
@@ -336,7 +336,7 @@ test('a failed run alongside a genuinely running run still shows in_progress', (
 
 test('view-model exposes the exact required label and reflects the gate', () => {
   const model = createDashboardHomeViewModel({
-    campaigns: [],
+    posts: [],
     reviews: [],
     profile: buildProfile(),
     integrationCards: [buildIntegration()],
@@ -350,7 +350,7 @@ test('view-model exposes the exact required label and reflects the gate', () => 
 
 test('view-model surfaces the in-progress disabled reason when a draft campaign exists', () => {
   const model = createDashboardHomeViewModel({
-    campaigns: [buildCampaign({ status: 'draft', dashboardStatus: 'draft', executionState: 'running' })],
+    posts: [buildCampaign({ status: 'draft', dashboardStatus: 'draft', executionState: 'running' })],
     reviews: [],
     profile: buildProfile(),
     integrationCards: [buildIntegration()],
@@ -442,7 +442,7 @@ test('customerSafeGenerateThisWeekError returns the fallback for null input', ()
 
 function buildPresenterModel() {
   return createDashboardHomeViewModel({
-    campaigns: [],
+    posts: [],
     reviews: [],
     profile: buildProfile(),
     integrationCards: [buildIntegration()],

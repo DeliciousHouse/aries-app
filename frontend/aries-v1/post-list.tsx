@@ -5,20 +5,20 @@ import Link from 'next/link';
 import { ArrowRight, FileImage, FileText, Layers3, Plus, Trash2, Undo2 } from 'lucide-react';
 
 import MediaPreview from '@/frontend/components/media-preview';
-import { useRuntimeCampaigns } from '@/hooks/use-runtime-campaigns';
+import { useRuntimePosts } from '@/hooks/use-runtime-social-content';
 import type {
   AriesDashboardAsset,
   AriesDashboardPost,
-  RuntimeCampaignListItem,
+  RuntimePostListItem,
 } from '@/lib/api/aries-v1';
 
 import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './components';
 
-export default function AriesCampaignListScreen() {
-  const campaigns = useRuntimeCampaigns({ autoLoad: true });
-  const items = campaigns.data?.campaigns ?? [];
-  const deletedItems = campaigns.data?.deletedCampaigns ?? [];
+export default function AriesPostListScreen() {
+  const campaigns = useRuntimePosts({ autoLoad: true });
+  const items = campaigns.data?.posts ?? [];
+  const deletedItems = campaigns.data?.deletedPosts ?? [];
   const currentBrandKitExtractedAt = campaigns.data?.currentBrandKitExtractedAt ?? null;
 
   if (campaigns.isLoading) {
@@ -111,7 +111,7 @@ function isCampaignStale(
 }
 
 function CampaignRow(props: {
-  campaign: RuntimeCampaignListItem;
+  campaign: RuntimePostListItem;
   currentBrandKitExtractedAt?: string | null;
   busyCampaignId: string | null;
   onDelete: (jobId: string) => void;
@@ -272,7 +272,7 @@ function DeleteButton(props: {
 }
 
 function DeletedCampaignsSection(props: {
-  items: RuntimeCampaignListItem[];
+  items: RuntimePostListItem[];
   busyCampaignId: string | null;
   onRestore: (jobId: string) => void;
 }) {

@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { HermesMarketingPort } from '../backend/marketing/ports/hermes';
-import type { MarketingJobRuntimeDocument } from '../backend/marketing/runtime-state';
+import type { SocialContentJobRuntimeDocument } from '../backend/marketing/runtime-state';
 import { TEST_HERMES_GATEWAY_URL } from './fixtures/service-urls';
 
 type FetchCall = { url: string; init: RequestInit };
@@ -60,7 +60,7 @@ const STUB_DOC = {
   brand_kit: {
     brand_name: 'Brand Co',
   },
-} as unknown as MarketingJobRuntimeDocument;
+} as unknown as SocialContentJobRuntimeDocument;
 
 const STUB_RUN_INPUT = {
   jobId: 'job_test',

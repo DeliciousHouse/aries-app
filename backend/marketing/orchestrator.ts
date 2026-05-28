@@ -45,15 +45,15 @@ import {
   collectResearchStageArtifacts,
   collectStrategyReviewArtifacts,
 } from './artifact-collector';
-import { createMarketingJobFacts } from './job-facts';
+import { createSocialContentJobFacts } from './job-facts';
 import {
   appendHistory,
   assertMarketingRuntimeSchemas,
   clearApprovalCheckpoint,
-  createMarketingJobRuntimeDocument,
+  createSocialContentJobRuntimeDocument,
   defaultPublishConfig,
   getStageRecord,
-  loadMarketingJobRuntime,
+  loadSocialContentJobRuntime,
   markStageAwaitingApproval,
   markStageCompleted,
   markStageInProgress,
@@ -64,12 +64,12 @@ import {
   recordApprovalDenied,
   recordStageFailure,
   resetStageForRetry,
-  saveMarketingJobRuntime,
+  saveSocialContentJobRuntime,
   setJobRunning,
   asRecord,
   asString,
   type MarketingApprovalCheckpoint,
-  type MarketingJobRuntimeDocument,
+  type SocialContentJobRuntimeDocument,
   type MarketingPublishConfig,
   type MarketingStageArtifact,
   type MarketingStageRecord,
@@ -94,7 +94,7 @@ import {
   markExecutionRunSubmitted,
 } from '@/backend/execution/run-store';
 
-export type StartMarketingJobRequest = {
+export type StartSocialContentJobRequest = {
   tenantId: string;
   jobType: 'weekly_social_content' | 'one_off_campaign';
   /** Optional. User id of the authenticated caller that initiated the
@@ -114,7 +114,7 @@ export type StartMarketingJobRequest = {
   };
 };
 
-export type StartMarketingJobResponse = {
+export type StartSocialContentJobResponse = {
   status: 'accepted' | 'needs_connection';
   jobId: string;
   tenantId: string;
@@ -127,7 +127,7 @@ export type StartMarketingJobResponse = {
   message?: string;
 };
 
-export type ApproveMarketingJobRequest = {
+export type ApproveSocialContentJobRequest = {
   jobId: string;
   tenantId: string;
   approvedBy: string;
@@ -143,7 +143,7 @@ export type ApproveMarketingJobRequest = {
   memoryActorRole?: TenantRole;
 };
 
-export type ApproveMarketingJobResponse = {
+export type ApproveSocialContentJobResponse = {
   status: 'resumed' | 'already_resolved' | 'denied' | 'error';
   jobId: string;
   tenantId: string;
@@ -153,7 +153,7 @@ export type ApproveMarketingJobResponse = {
   reason?: string;
 };
 
-export type DenyMarketingJobRequest = {
+export type DenySocialContentJobRequest = {
   jobId: string;
   tenantId: string;
   deniedBy: string;
@@ -184,11 +184,11 @@ type WorkflowApprovalStepId =
 function runtimeBrandKitReference(
   brandKit: TenantBrandKit,
   filePath: string
-): NonNullable<MarketingJobRuntimeDocument['brand_kit']> {
+): NonNullable<SocialContentJobRuntimeDocument['brand_kit']> {
   return marketingBrandKitReferenceFromTenantBrandKit(brandKit, filePath);
 }
 
-async function ensureRuntimeBrandKit(doc: MarketingJobRuntimeDocument): Promise<void> {
+async function ensureRuntimeBrandKit(doc: SocialContentJobRuntimeDocument): Promise<void> {
   if (doc.brand_kit) {
     return;
   }
@@ -215,7 +215,7 @@ function runtimeArtifactPath(jobId: string): string {
   return `generated/draft/marketing-jobs/${jobId}.json`;
 }
 
-function makeMarketingJobId(): string {
+function makeSocialContentJobId(): string {
   return `mkt_${randomUUID()}`;
 }
 
@@ -223,7 +223,7 @@ function stringValue(value: unknown, fallback = ''): string {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback;
 }
 
-function ensureMarketingJobInput(input: StartMarketingJobRequest): { brandUrl: string; businessType: string; competitorUrl: string } {
+function ensureSocialContentJobInput(input: StartSocialContentJobRequest): { brandUrl: string; businessType: string; competitorUrl: string } {
   const brandUrl = stringValue(input.payload?.brandUrl);
   const businessType = stringValue(input.payload?.businessType);
   const missing: string[] = [];
@@ -329,7 +329,7 @@ type MarketingWorkflowRuntimeContext = {
  * through to the unmodified weekly args.
  */
 export function buildOneOffBriefForArgs(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
 ): Record<string, unknown> | null {
   if (doc.job_type !== 'one_off_campaign') {
     return null;
@@ -370,7 +370,7 @@ export function buildOneOffBriefForArgs(
   return out;
 }
 
-function marketingPipelineArgs(doc: MarketingJobRuntimeDocument): Record<string, unknown> {
+function socialContentPipelineArgs(doc: SocialContentJobRuntimeDocument): Record<string, unknown> {
   const facebookPageUrl = doc.inputs.facebook_page_url ?? doc.inputs.competitor_facebook_url ?? '';
   const oneOffBrief = buildOneOffBriefForArgs(doc);
   return {
@@ -506,7 +506,7 @@ function summarizePublish(primaryOutput: Record<string, unknown>) {
   };
 }
 
-function requestedJobTypeFromDoc(_doc: MarketingJobRuntimeDocument): 'weekly_social_content' {
+function requestedJobTypeFromDoc(_doc: SocialContentJobRuntimeDocument): 'weekly_social_content' {
   return 'weekly_social_content';
 }
 
@@ -537,15 +537,15 @@ type SocialCopyFinalizeSubmissionResult =
     };
 
 type SocialCopyFinalizeSubmitter = (
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
 ) => Promise<SocialCopyFinalizeSubmissionResult>;
 
-let marketingExecutionPortOverrideForTests: ((doc: MarketingJobRuntimeDocument) => MarketingExecutionPort) | null = null;
+let socialContentExecutionPortOverrideForTests: ((doc: SocialContentJobRuntimeDocument) => MarketingExecutionPort) | null = null;
 let socialCopyFinalizeSubmitterForTests: SocialCopyFinalizeSubmitter | null = null;
 
-function resolveMarketingExecutionPortForDoc(doc: MarketingJobRuntimeDocument): MarketingExecutionPort {
-  if (marketingExecutionPortOverrideForTests) {
-    return marketingExecutionPortOverrideForTests(doc);
+function resolveSocialContentExecutionPortForDoc(doc: SocialContentJobRuntimeDocument): MarketingExecutionPort {
+  if (socialContentExecutionPortOverrideForTests) {
+    return socialContentExecutionPortOverrideForTests(doc);
   }
 
   // Marketing execution is Hermes-only. Fail fast on a misconfigured Hermes
@@ -555,19 +555,19 @@ function resolveMarketingExecutionPortForDoc(doc: MarketingJobRuntimeDocument): 
   return getMarketingExecutionPort();
 }
 
-async function runMarketingPipeline(doc: MarketingJobRuntimeDocument): Promise<MarketingExecutionResult> {
-  const port = resolveMarketingExecutionPortForDoc(doc);
+async function runSocialContentPipeline(doc: SocialContentJobRuntimeDocument): Promise<MarketingExecutionResult> {
+  const port = resolveSocialContentExecutionPortForDoc(doc);
   return port.runPipeline({
     jobId: doc.job_id,
     doc,
-    argsJson: JSON.stringify(marketingPipelineArgs(doc)),
+    argsJson: JSON.stringify(socialContentPipelineArgs(doc)),
   });
 }
 
 async function resumeMarketingPipeline(
   resumeToken: string,
   approve = true,
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   context: {
     tenantId?: string | null;
     jobId?: string | null;
@@ -578,7 +578,7 @@ async function resumeMarketingPipeline(
     workflowKey?: string | null;
   } = {},
 ): Promise<MarketingExecutionResult> {
-  const port = resolveMarketingExecutionPortForDoc(doc);
+  const port = resolveSocialContentExecutionPortForDoc(doc);
   return port.resumePipeline({
     resumeToken,
     approve,
@@ -698,7 +698,7 @@ function approvalRecordPreviewPayload(envelope: MarketingWorkflowEnvelope): unkn
 }
 
 function createAndPersistApprovalCheckpoint(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   input: {
     stage: Extract<MarketingStage, 'strategy' | 'production' | 'publish'>;
     workflowStepId: WorkflowApprovalStepId;
@@ -800,7 +800,7 @@ function replacePublishApprovalArtifacts(
 }
 
 function activeApprovalRecord(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   input: { approvalId?: string | null } = {},
 ): MarketingApprovalRecord | null {
   const checkpoint = doc.approvals.current;
@@ -834,28 +834,28 @@ function activeApprovalRecord(
 
 /**
  * Sentinel thrown when a soft-cancel request lands between stages. Callers
- * (startMarketingJob + approve/resume paths) catch this and exit without
+ * (startSocialContentJob + approve/resume paths) catch this and exit without
  * propagating an error, because the campaign has already been marked
  * `cancelled` by `applySoftCancelIfRequested`. This keeps the control flow
  * separate from genuine pipeline failures.
  */
-class MarketingJobCancelledError extends Error {
+class SocialContentJobCancelledError extends Error {
   constructor(public jobId: string) {
     super(`marketing_job_cancelled:${jobId}`);
-    this.name = 'MarketingJobCancelledError';
+    this.name = 'SocialContentJobCancelledError';
   }
 }
 
 /**
  * Stage-boundary cancel check. Reloads the runtime doc from disk (so we see
- * `soft_cancel_requested_at` writes that landed via softDeleteMarketingJob
+ * `soft_cancel_requested_at` writes that landed via softDeleteSocialContentJob
  * while this orchestrator call was waiting on an approval) and, if the
  * cancel has been armed, transitions the job to a terminal `cancelled`
- * state and throws `MarketingJobCancelledError` so the caller bails without
+ * state and throws `SocialContentJobCancelledError` so the caller bails without
  * starting the next stage.
  */
-async function applySoftCancelIfRequested(doc: MarketingJobRuntimeDocument): Promise<void> {
-  const fresh = await loadMarketingJobRuntime(doc.job_id);
+async function applySoftCancelIfRequested(doc: SocialContentJobRuntimeDocument): Promise<void> {
+  const fresh = await loadSocialContentJobRuntime(doc.job_id);
   const armed = fresh?.soft_cancel_requested_at;
   if (!armed) {
     return;
@@ -871,11 +871,11 @@ async function applySoftCancelIfRequested(doc: MarketingJobRuntimeDocument): Pro
     state: 'cancelled',
     status: 'cancelled',
   });
-  saveMarketingJobRuntime(doc.job_id, doc);
-  throw new MarketingJobCancelledError(doc.job_id);
+  saveSocialContentJobRuntime(doc.job_id, doc);
+  throw new SocialContentJobCancelledError(doc.job_id);
 }
 
-async function runResearchStage(doc: MarketingJobRuntimeDocument): Promise<void> {
+async function runResearchStage(doc: SocialContentJobRuntimeDocument): Promise<void> {
   await applySoftCancelIfRequested(doc);
 
   const researchBridge = await submitMarketingResearchMemoryJob(
@@ -911,7 +911,7 @@ async function runResearchStage(doc: MarketingJobRuntimeDocument): Promise<void>
 
   setJobRunning(doc, 'research', 'running research stage');
   markStageInProgress(doc, 'research');
-  saveMarketingJobRuntime(doc.job_id, doc);
+  saveSocialContentJobRuntime(doc.job_id, doc);
 
   if (requestedJobTypeFromDoc(doc) === 'weekly_social_content') {
     approvalLifecycleLog('workflow-run', {
@@ -936,17 +936,17 @@ async function runResearchStage(doc: MarketingJobRuntimeDocument): Promise<void>
     });
   }
 
-  const execution = await runMarketingPipeline(doc);
+  const execution = await runSocialContentPipeline(doc);
   if (execution.kind === 'submitted') {
     appendHistory(doc, 'research stage submitted to Hermes', { stage: 'research' });
-    saveMarketingJobRuntime(doc.job_id, doc);
+    saveSocialContentJobRuntime(doc.job_id, doc);
     return;
   }
 
   const envelope = completedMarketingEnvelope(execution);
   const primaryOutput = primaryOutputRecord(envelope);
   const capture = await collectResearchStageArtifacts(
-    createMarketingJobFacts(doc, runIdFromPrimaryOutput(primaryOutput)),
+    createSocialContentJobFacts(doc, runIdFromPrimaryOutput(primaryOutput)),
     primaryOutput,
   );
   const summary = summarizeResearch(primaryOutput);
@@ -962,7 +962,7 @@ async function runResearchStage(doc: MarketingJobRuntimeDocument): Promise<void>
     artifacts: capture.artifacts,
   });
   appendHistory(doc, 'research stage completed', { stage: 'research' });
-  saveMarketingJobRuntime(doc.job_id, doc);
+  saveSocialContentJobRuntime(doc.job_id, doc);
 
   if (!envelope.requiresApproval?.resumeToken) {
     throw new Error('marketing_pipeline_missing_resume_token:strategy');
@@ -996,11 +996,11 @@ async function runResearchStage(doc: MarketingJobRuntimeDocument): Promise<void>
     ],
   });
   appendHistory(doc, 'strategy stage is awaiting approval', { stage: 'strategy' });
-  saveMarketingJobRuntime(doc.job_id, doc);
+  saveSocialContentJobRuntime(doc.job_id, doc);
 }
 
 async function finalizeStrategyAndRunProductionReview(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   resumeToken: string,
   context: {
     approvalId?: string | null;
@@ -1024,14 +1024,14 @@ async function finalizeStrategyAndRunProductionReview(
   });
   if (execution.kind === 'submitted') {
     appendHistory(doc, 'strategy approval submitted to Hermes', { stage: 'strategy' });
-    saveMarketingJobRuntime(doc.job_id, doc);
+    saveSocialContentJobRuntime(doc.job_id, doc);
     return;
   }
 
   const envelope = completedMarketingEnvelope(execution);
   const primaryOutput = primaryOutputRecord(envelope);
   const strategyReviewCapture = await collectStrategyReviewArtifacts(
-    createMarketingJobFacts(doc, runIdFromPrimaryOutput(primaryOutput)),
+    createSocialContentJobFacts(doc, runIdFromPrimaryOutput(primaryOutput)),
     primaryOutput,
   );
   const strategy = summarizeStrategy(primaryOutput);
@@ -1049,7 +1049,7 @@ async function finalizeStrategyAndRunProductionReview(
     artifacts: strategyReviewCapture.artifacts,
   });
   appendHistory(doc, 'strategy stage approved and finalized', { stage: 'strategy' });
-  saveMarketingJobRuntime(doc.job_id, doc);
+  saveSocialContentJobRuntime(doc.job_id, doc);
 
   if (!envelope.requiresApproval?.resumeToken) {
     throw new Error('marketing_pipeline_missing_resume_token:production');
@@ -1083,14 +1083,14 @@ async function finalizeStrategyAndRunProductionReview(
     ],
   });
   appendHistory(doc, 'production stage is awaiting approval', { stage: 'production' });
-  saveMarketingJobRuntime(doc.job_id, doc);
+  saveSocialContentJobRuntime(doc.job_id, doc);
 }
 
 function socialCopyFinalizeCallbackUrl(port: MarketingExecutionPort): string {
   return port.getCallbackUrl();
 }
 
-function activeSocialCopyFinalizeRunId(doc: MarketingJobRuntimeDocument): string | null {
+function activeSocialCopyFinalizeRunId(doc: SocialContentJobRuntimeDocument): string | null {
   const runId = getStageRecord(doc, 'production').outputs.social_copy_finalize_aries_run_id;
   return typeof runId === 'string' && runId.trim().length > 0 ? runId.trim() : null;
 }
@@ -1107,13 +1107,13 @@ function socialCopyFinalizeInstructions(): string {
 }
 
 async function submitSocialCopyFinalizeRun(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
 ): Promise<SocialCopyFinalizeSubmissionResult> {
   if (socialCopyFinalizeSubmitterForTests) {
     return socialCopyFinalizeSubmitterForTests(doc);
   }
 
-  const port = resolveMarketingExecutionPortForDoc(doc);
+  const port = resolveSocialContentExecutionPortForDoc(doc);
   const callbackUrl = socialCopyFinalizeCallbackUrl(port);
   const preview = buildSocialCopyFinalizeRequest({
     doc,
@@ -1211,7 +1211,7 @@ async function submitSocialCopyFinalizeRun(
 }
 
 async function continueAfterCreativeReviewApproval(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   resumeToken: string,
   context: {
     approvalId?: string | null;
@@ -1243,7 +1243,7 @@ async function continueAfterCreativeReviewApproval(
           stage: 'production',
         },
       );
-      saveMarketingJobRuntime(doc.job_id, doc);
+      saveSocialContentJobRuntime(doc.job_id, doc);
       await finalizeProductionAndRunPublishReview(doc, resumeToken, context);
       return 'publish';
     }
@@ -1272,7 +1272,7 @@ async function continueAfterCreativeReviewApproval(
         stage: 'production',
       },
     );
-    saveMarketingJobRuntime(doc.job_id, doc);
+    saveSocialContentJobRuntime(doc.job_id, doc);
     return 'production';
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -1286,13 +1286,13 @@ async function continueAfterCreativeReviewApproval(
         retryable: true,
       },
     );
-    saveMarketingJobRuntime(doc.job_id, doc);
+    saveSocialContentJobRuntime(doc.job_id, doc);
     throw error;
   }
 }
 
 async function finalizeProductionAndRunPublishReview(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   resumeToken: string,
   context: {
     approvalId?: string | null;
@@ -1316,14 +1316,14 @@ async function finalizeProductionAndRunPublishReview(
   });
   if (execution.kind === 'submitted') {
     appendHistory(doc, 'production approval submitted to Hermes', { stage: 'production' });
-    saveMarketingJobRuntime(doc.job_id, doc);
+    saveSocialContentJobRuntime(doc.job_id, doc);
     return;
   }
 
   const envelope = completedMarketingEnvelope(execution);
   const primaryOutput = primaryOutputRecord(envelope);
   const productionReviewCapture = await collectProductionReviewArtifacts(
-    createMarketingJobFacts(doc, runIdFromPrimaryOutput(primaryOutput)),
+    createSocialContentJobFacts(doc, runIdFromPrimaryOutput(primaryOutput)),
     primaryOutput,
   );
   const production = summarizeProduction(primaryOutput);
@@ -1341,7 +1341,7 @@ async function finalizeProductionAndRunPublishReview(
     artifacts: productionReviewCapture.artifacts,
   });
   appendHistory(doc, 'production stage approved and finalized', { stage: 'production' });
-  saveMarketingJobRuntime(doc.job_id, doc);
+  saveSocialContentJobRuntime(doc.job_id, doc);
 
   if (!envelope.requiresApproval?.resumeToken) {
     throw new Error('marketing_pipeline_missing_resume_token:publish');
@@ -1376,7 +1376,7 @@ async function finalizeProductionAndRunPublishReview(
     ],
   });
   appendHistory(doc, 'publish stage is awaiting approval', { stage: 'publish' });
-  saveMarketingJobRuntime(doc.job_id, doc);
+  saveSocialContentJobRuntime(doc.job_id, doc);
 }
 
 /**
@@ -1405,9 +1405,9 @@ export function __setPublishStageChannelGateForTests(gate: PublishStageChannelGa
 }
 
 export function __setMarketingExecutionPortForTests(
-  resolver: ((doc: MarketingJobRuntimeDocument) => MarketingExecutionPort) | null,
+  resolver: ((doc: SocialContentJobRuntimeDocument) => MarketingExecutionPort) | null,
 ): void {
-  marketingExecutionPortOverrideForTests = resolver;
+  socialContentExecutionPortOverrideForTests = resolver;
 }
 
 export function __setSocialCopyFinalizeSubmitterForTests(
@@ -1417,20 +1417,20 @@ export function __setSocialCopyFinalizeSubmitterForTests(
 }
 
 export const __continueAfterCreativeReviewApprovalForTests = (
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   resumeToken: string,
   context: Parameters<typeof continueAfterCreativeReviewApproval>[2] = {},
 ): Promise<MarketingStage> => continueAfterCreativeReviewApproval(doc, resumeToken, context);
 
 /** Test seam: exposes the internal `advancePublishStage` for unit testing. */
 export const __advancePublishStageForTests = (
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   resumeToken: string,
   context: Parameters<typeof advancePublishStage>[2] = {},
 ): Promise<void> => advancePublishStage(doc, resumeToken, context);
 
 async function advancePublishStage(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   resumeToken: string,
   context: {
     approvalId?: string | null;
@@ -1468,7 +1468,7 @@ async function advancePublishStage(
         state: doc.state,
         status: doc.status,
       });
-      saveMarketingJobRuntime(doc.job_id, doc);
+      saveSocialContentJobRuntime(doc.job_id, doc);
       return;
     }
   } catch (error) {
@@ -1481,7 +1481,7 @@ async function advancePublishStage(
 
   setJobRunning(doc, 'publish', 'running publish finalize stage');
   markStageInProgress(doc, 'publish');
-  saveMarketingJobRuntime(doc.job_id, doc);
+  saveSocialContentJobRuntime(doc.job_id, doc);
 
   const execution = await resumeMarketingPipeline(resumeToken, true, doc, {
     tenantId: doc.tenant_id,
@@ -1494,7 +1494,7 @@ async function advancePublishStage(
   });
   if (execution.kind === 'submitted') {
     appendHistory(doc, 'publish approval submitted to Hermes', { stage: 'publish' });
-    saveMarketingJobRuntime(doc.job_id, doc);
+    saveSocialContentJobRuntime(doc.job_id, doc);
     return;
   }
 
@@ -1536,7 +1536,7 @@ async function advancePublishStage(
       ],
     });
     appendHistory(doc, 'publish stage is awaiting paused-publish approval', { stage: 'publish' });
-    saveMarketingJobRuntime(doc.job_id, doc);
+    saveSocialContentJobRuntime(doc.job_id, doc);
     return;
   }
 
@@ -1562,11 +1562,11 @@ async function advancePublishStage(
   doc.current_stage = 'publish';
   clearApprovalCheckpoint(doc, 'publish approval cleared');
   appendHistory(doc, 'publish stage completed', { stage: 'publish', state: 'completed', status: 'completed' });
-  saveMarketingJobRuntime(doc.job_id, doc);
+  saveSocialContentJobRuntime(doc.job_id, doc);
 }
 
 function recordFailure(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   stage: MarketingStage,
   error: unknown
 ): void {
@@ -1577,11 +1577,11 @@ function recordFailure(
     message: detail || message,
     retryable: false,
   });
-  saveMarketingJobRuntime(doc.job_id, doc);
+  saveSocialContentJobRuntime(doc.job_id, doc);
 }
 
 function handleFailure(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   stage: MarketingStage,
   error: unknown
 ): never {
@@ -1610,7 +1610,7 @@ export type RetryResearchStageResult =
  * can map directly to HTTP status codes.
  */
 export async function retryFailedResearchStage(jobId: string): Promise<RetryResearchStageResult> {
-  const doc = await loadMarketingJobRuntime(jobId);
+  const doc = await loadSocialContentJobRuntime(jobId);
   if (!doc) {
     return { ok: false, reason: 'not_found', message: 'Campaign not found.' };
   }
@@ -1640,13 +1640,13 @@ export async function retryFailedResearchStage(jobId: string): Promise<RetryRese
       message: 'Research stage is not in a failed state. Refresh and try again.',
     };
   }
-  saveMarketingJobRuntime(doc.job_id, doc);
+  saveSocialContentJobRuntime(doc.job_id, doc);
 
   try {
     await runResearchStage(doc);
     return { ok: true, jobId: doc.job_id, status: 'submitted' };
   } catch (error) {
-    if (error instanceof MarketingJobCancelledError) {
+    if (error instanceof SocialContentJobCancelledError) {
       // An intentional soft-cancel between reset and stage entry. The cancel
       // path already wrote the cancelled state — surface as execution_failed
       // with a clear message but DON'T overwrite with a synthetic failure.
@@ -1667,7 +1667,7 @@ export async function retryFailedResearchStage(jobId: string): Promise<RetryRese
       message,
       retryable: true,
     });
-    saveMarketingJobRuntime(doc.job_id, doc);
+    saveSocialContentJobRuntime(doc.job_id, doc);
     return {
       ok: false,
       reason: 'execution_failed',
@@ -1676,7 +1676,7 @@ export async function retryFailedResearchStage(jobId: string): Promise<RetryRese
   }
 }
 
-export async function startMarketingJob(input: StartMarketingJobRequest): Promise<StartMarketingJobResponse> {
+export async function startSocialContentJob(input: StartSocialContentJobRequest): Promise<StartSocialContentJobResponse> {
   assertMarketingRuntimeSchemas();
 
   if (!input?.tenantId || typeof input.tenantId !== 'string' || input.tenantId.trim().length === 0) {
@@ -1689,9 +1689,9 @@ export async function startMarketingJob(input: StartMarketingJobRequest): Promis
   if (input.jobType !== 'weekly_social_content' && input.jobType !== 'one_off_campaign') {
     throw new Error(`unsupported_job_type:${input.jobType}`);
   }
-  const brandCampaignInput = ensureMarketingJobInput(input);
+  const brandCampaignInput = ensureSocialContentJobInput(input);
 
-  const jobId = makeMarketingJobId();
+  const jobId = makeSocialContentJobId();
   const tenantId = input.tenantId.trim();
   const requestPayload = sanitizeWeeklySocialContentPayload(input.payload ?? {});
   const mediaDemand = weeklyMediaDemand(requestPayload);
@@ -1710,7 +1710,7 @@ export async function startMarketingJob(input: StartMarketingJobRequest): Promis
     tenantId,
     brandUrl: brandCampaignInput.brandUrl,
   });
-  const doc = createMarketingJobRuntimeDocument({
+  const doc = createSocialContentJobRuntimeDocument({
     jobId,
     tenantId,
     payload: requestPayload,
@@ -1729,14 +1729,14 @@ export async function startMarketingJob(input: StartMarketingJobRequest): Promis
       publishingRequested: input.jobType === 'one_off_campaign' ? true : undefined,
     });
   }
-  saveMarketingJobRuntime(jobId, doc);
+  saveSocialContentJobRuntime(jobId, doc);
 
   try {
     await runResearchStage(doc);
   } catch (error) {
-    // A cancel between startMarketingJob setup and the research stage
+    // A cancel between startSocialContentJob setup and the research stage
     // entrypoint is an intentional exit, not a pipeline failure.
-    if (error instanceof MarketingJobCancelledError) {
+    if (error instanceof SocialContentJobCancelledError) {
       // Document was already saved as cancelled by applySoftCancelIfRequested.
     } else {
       recordFailure(doc, doc.current_stage, error);
@@ -1774,7 +1774,7 @@ function inferredWorkflowStepId(checkpoint: MarketingApprovalCheckpoint): Workfl
 function terminalApprovalResponse(
   input: { jobId: string; tenantId: string },
   record: MarketingApprovalRecord,
-): ApproveMarketingJobResponse {
+): ApproveSocialContentJobResponse {
   return {
     status: 'already_resolved',
     jobId: input.jobId,
@@ -1808,7 +1808,7 @@ function cloneApprovalCheckpoint(
 }
 
 function markApprovalResolutionInProgress(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   checkpoint: MarketingApprovalCheckpoint,
   actedBy: string,
 ): void {
@@ -1830,7 +1830,7 @@ function markApprovalResolutionInProgress(
 }
 
 function restoreApprovalCheckpointAfterFailure(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   checkpoint: MarketingApprovalCheckpoint,
 ): void {
   if (doc.approvals.current) {
@@ -1851,7 +1851,7 @@ async function waitForApprovalRecordResolution(approvalId: string, timeoutMs = 4
   return loadMarketingApprovalRecord(approvalId);
 }
 
-function backfillApprovalRecordFromCheckpoint(doc: MarketingJobRuntimeDocument, checkpoint: MarketingApprovalCheckpoint): MarketingApprovalRecord | null {
+function backfillApprovalRecordFromCheckpoint(doc: SocialContentJobRuntimeDocument, checkpoint: MarketingApprovalCheckpoint): MarketingApprovalRecord | null {
   const resumeToken = checkpoint.resume_token?.trim() || '';
   if (!resumeToken) {
     return null;
@@ -1882,12 +1882,12 @@ function backfillApprovalRecordFromCheckpoint(doc: MarketingJobRuntimeDocument, 
   checkpoint.approval_id = record.approval_id;
   checkpoint.workflow_name = record.workflow_name;
   checkpoint.workflow_step_id = record.workflow_step_id;
-  saveMarketingJobRuntime(doc.job_id, doc);
+  saveSocialContentJobRuntime(doc.job_id, doc);
   return record;
 }
 
 function activeOrBackfilledApprovalRecord(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   input: { approvalId?: string | null } = {},
 ): MarketingApprovalRecord | null {
   const existing = activeApprovalRecord(doc, input);
@@ -1916,8 +1916,8 @@ async function resolveMarketingApproval(
     denialReasonCode?: string | null;
     denialNote?: string | null;
   },
-  doc: MarketingJobRuntimeDocument,
-): Promise<ApproveMarketingJobResponse> {
+  doc: SocialContentJobRuntimeDocument,
+): Promise<ApproveSocialContentJobResponse> {
   assertMarketingRuntimeSchemas();
 
   if (!input.actedBy?.trim()) {
@@ -2046,7 +2046,7 @@ async function resolveMarketingApproval(
           resumedStage: null,
           completed: false,
           reason: 'approval_not_available',
-        } satisfies ApproveMarketingJobResponse;
+        } satisfies ApproveSocialContentJobResponse;
       }
 
       if (currentRecord.status === 'approved' || currentRecord.status === 'denied' || currentRecord.status === 'consumed') {
@@ -2059,7 +2059,7 @@ async function resolveMarketingApproval(
 
       if (input.resolution === 'approve') {
         markApprovalResolutionInProgress(doc, checkpoint, input.actedBy.trim());
-        saveMarketingJobRuntime(doc.job_id, doc);
+        saveSocialContentJobRuntime(doc.job_id, doc);
       }
 
       approvalLifecycleLog('approval-resume-requested', {
@@ -2108,7 +2108,7 @@ async function resolveMarketingApproval(
             clearApprovalCheckpoint(doc, `${checkpoint.stage} approval denied by ${input.actedBy.trim()}`);
             doc.state = 'failed';
             doc.status = 'failed';
-            saveMarketingJobRuntime(doc.job_id, doc);
+            saveSocialContentJobRuntime(doc.job_id, doc);
             return {
               resumedStage: checkpoint.stage,
               completed: false,
@@ -2129,7 +2129,7 @@ async function resolveMarketingApproval(
           clearApprovalCheckpoint(doc, `${checkpoint.stage} approval denied by ${input.actedBy.trim()}`);
           doc.state = 'failed';
           doc.status = 'failed';
-          saveMarketingJobRuntime(doc.job_id, doc);
+          saveSocialContentJobRuntime(doc.job_id, doc);
           return {
             resumedStage: checkpoint.stage,
             completed: false,
@@ -2178,7 +2178,7 @@ async function resolveMarketingApproval(
           state: completed ? 'completed' : doc.state,
           status: completed ? 'completed' : doc.status,
         });
-        saveMarketingJobRuntime(doc.job_id, doc);
+        saveSocialContentJobRuntime(doc.job_id, doc);
         return { resumedStage, completed };
       };
 
@@ -2189,7 +2189,7 @@ async function resolveMarketingApproval(
           approvalStep: activeApprovalStep,
           approved: input.resolution === 'approve',
         });
-        saveMarketingJobRuntime(doc.job_id, doc);
+        saveSocialContentJobRuntime(doc.job_id, doc);
       }
 
       currentRecord.status = input.resolution === 'approve' ? 'approved' : 'denied';
@@ -2252,7 +2252,7 @@ async function resolveMarketingApproval(
         resumedStage,
         completed,
         approvalId: currentRecord.approval_id,
-      } satisfies ApproveMarketingJobResponse;
+      } satisfies ApproveSocialContentJobResponse;
     });
   } catch (error) {
     if (error instanceof MarketingApprovalLockError) {
@@ -2314,10 +2314,10 @@ async function resolveMarketingApproval(
   }
 }
 
-export async function approveMarketingJob(
-  input: ApproveMarketingJobRequest,
-  doc: MarketingJobRuntimeDocument
-): Promise<ApproveMarketingJobResponse> {
+export async function approveSocialContentJob(
+  input: ApproveSocialContentJobRequest,
+  doc: SocialContentJobRuntimeDocument
+): Promise<ApproveSocialContentJobResponse> {
   return resolveMarketingApproval({
     jobId: input.jobId,
     tenantId: input.tenantId,
@@ -2333,10 +2333,10 @@ export async function approveMarketingJob(
   }, doc);
 }
 
-export async function denyMarketingJob(
-  input: DenyMarketingJobRequest,
-  doc: MarketingJobRuntimeDocument,
-): Promise<ApproveMarketingJobResponse> {
+export async function denySocialContentJob(
+  input: DenySocialContentJobRequest,
+  doc: SocialContentJobRuntimeDocument,
+): Promise<ApproveSocialContentJobResponse> {
   return resolveMarketingApproval({
     jobId: input.jobId,
     tenantId: input.tenantId,

@@ -14,23 +14,23 @@ import { dirname, resolve } from 'node:path';
 //
 // Fix: the workspace client must short-circuit on marketing_job_state ===
 // 'not_found' (in addition to the null case) and render the branded
-// "Campaign not found" panel without the tab bar or counters.
+// "Social content not found" panel without the tab bar or counters.
 
 const here = dirname(fileURLToPath(import.meta.url));
 const workspaceSource = readFileSync(
-  resolve(here, '..', 'frontend', 'aries-v1', 'campaign-workspace.tsx'),
+  resolve(here, '..', 'frontend', 'aries-v1', 'post-workspace.tsx'),
   'utf8',
 );
 
-test('campaign-workspace short-circuits on marketing_job_state === "not_found"', () => {
+test('post-workspace short-circuits on marketing_job_state === "not_found"', () => {
   assert.match(
     workspaceSource,
     /marketing_job_state\s*===\s*['"]not_found['"]/,
-    'campaign-workspace.tsx must detect the not_found runtime state before rendering the shell',
+    'post-workspace.tsx must detect the not_found runtime state before rendering the shell',
   );
 });
 
-test('campaign-workspace renders a branded "Campaign not found" panel with a back link', () => {
+test('post-workspace renders a branded "Social content not found" panel with a back link', () => {
   // Extract the block that handles the null / not-found branch — everything
   // between the `if (!status` guard and its closing `}` — and assert the
   // panel copy and back-to-campaigns link both live inside it.
@@ -39,12 +39,12 @@ test('campaign-workspace renders a branded "Campaign not found" panel with a bac
   );
   assert.ok(guardMatch, 'expected an if (!status || marketing_job_state === "not_found") guard');
   const block = guardMatch[1];
-  assert.match(block, /Campaign not found/, 'guard must render the branded "Campaign not found" title');
+  assert.match(block, /Social content not found/, 'guard must render the branded "Social content not found" title');
   assert.match(block, /\/dashboard\/social-content/, 'guard must link back to /dashboard/social-content');
   assert.match(block, /EmptyStatePanel/, 'guard should reuse the branded EmptyStatePanel');
 });
 
-test('campaign-workspace does not render tabs, counters, or tab surfaces before the not-found guard', () => {
+test('post-workspace does not render tabs, counters, or tab surfaces before the not-found guard', () => {
   // The guard must run before any of the heavy render code that produces
   // the ghost shell (tab bar, metric cards, review surfaces). We assert
   // ordering by index in the source.

@@ -6,7 +6,7 @@ import {
   buildProductionResumeContext,
   buildSocialContentWeeklyRequest,
 } from '../../backend/social-content/workflow-request';
-import type { MarketingBrandKitReference, MarketingJobRuntimeDocument } from '../../backend/marketing/runtime-state';
+import type { MarketingBrandKitReference, SocialContentJobRuntimeDocument } from '../../backend/marketing/runtime-state';
 
 function makeBrandKit(overrides: Partial<MarketingBrandKitReference> = {}): MarketingBrandKitReference {
   return {
@@ -37,7 +37,7 @@ function makeBrandKit(overrides: Partial<MarketingBrandKitReference> = {}): Mark
   };
 }
 
-function makeDoc(overrides: Record<string, unknown> = {}): MarketingJobRuntimeDocument {
+function makeDoc(overrides: Record<string, unknown> = {}): SocialContentJobRuntimeDocument {
   return {
     schema_name: 'marketing_job_runtime',
     schema_version: '1.0.0',
@@ -89,7 +89,7 @@ function makeDoc(overrides: Record<string, unknown> = {}): MarketingJobRuntimeDo
       },
     },
     ...overrides,
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 }
 
 test('buildBrandKitPayload sanitizes visual references, strips token-like params, and dedupes fonts', () => {

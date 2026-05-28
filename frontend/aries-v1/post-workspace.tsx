@@ -15,7 +15,7 @@ import { useMarketingJobStatus } from '@/hooks/use-marketing-job-status';
 import type {
   MarketingArtifactCard,
   MarketingVideoArtifactCard,
-  MarketingCampaignStatusHistoryEntry,
+  SocialContentStatusHistoryEntry,
   MarketingCreativeAssetReviewPayload,
   MarketingStageReviewPayload,
 } from '@/lib/api/marketing';
@@ -31,7 +31,7 @@ import {
   type PublishSurfaceState,
   type WorkspaceAction,
   type WorkspaceView,
-} from './campaign-workspace-state';
+} from './post-workspace-state';
 import { customerSafeActionErrorMessage, customerSafeUiErrorMessage } from './customer-safe-copy';
 import { ActivityFeed, EmptyStatePanel, SectionLink, ShellPanel, StatusChip } from './components';
 import { useTenantTimezone } from '@/hooks/use-tenant-timezone';
@@ -68,10 +68,10 @@ export function workflowStateLabel(value: string): string {
 }
 
 function reviewSurfaceLabel(reviewType: 'brand' | 'strategy'): string {
-  return reviewType === 'brand' ? 'Brand direction' : 'Campaign strategy';
+  return reviewType === 'brand' ? 'Brand direction' : 'Social content strategy';
 }
 
-function historyTypeLabel(value: MarketingCampaignStatusHistoryEntry['type']): string {
+function historyTypeLabel(value: SocialContentStatusHistoryEntry['type']): string {
   if (value === 'state_changed') return 'Stage updated';
   if (value === 'stage_review') return 'Review updated';
   if (value === 'creative_asset_review') return 'Creative review updated';
@@ -121,8 +121,8 @@ function formatDecisionTimestamp(value: string, tz: string): string {
   return `${formatInTenantZone(value, tz)} ${tenantZoneAbbreviation(value, tz)}`;
 }
 
-function currentStageHref(campaignId: string, view: WorkspaceView): string {
-  return `/dashboard/social-content/${encodeURIComponent(campaignId)}?view=${view}`;
+function currentStageHref(postId: string, view: WorkspaceView): string {
+  return `/dashboard/social-content/${encodeURIComponent(postId)}?view=${view}`;
 }
 
 function normalizeWebsiteUrlInput(value: string): string {
@@ -220,8 +220,8 @@ export function RenderedVideosSection(props: { artifacts: MarketingArtifactCard[
   );
 }
 
-export default function AriesCampaignWorkspace(props: { campaignId: string; initialView?: WorkspaceView }) {
-  const job = useMarketingJobStatus({ jobId: props.campaignId, autoLoad: true });
+export default function AriesPostWorkspace(props: { postId: string; initialView?: WorkspaceView }) {
+  const job = useMarketingJobStatus({ jobId: props.postId, autoLoad: true });
   const [notesByReviewId, setNotesByReviewId] = useState<Record<string, string>>({});
   const [busyByReviewId, setBusyByReviewId] = useState<Record<string, boolean>>({});
   const [briefSaving, setBriefSaving] = useState(false);
@@ -245,21 +245,21 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
     }
 
     const timer = window.setInterval(() => {
-      void job.load(props.campaignId, { quiet: true });
+      void job.load(props.postId, { quiet: true });
     }, 5000);
 
     return () => window.clearInterval(timer);
-  }, [job.load, props.campaignId, status, progressActive]);
+  }, [job.load, props.postId, status, progressActive]);
 
   useEffect(() => {
     if (!progressActive) {
       return;
     }
     const timer = window.setInterval(() => {
-      void job.load(props.campaignId, { quiet: true });
+      void job.load(props.postId, { quiet: true });
     }, 3000);
     return () => window.clearInterval(timer);
-  }, [job.load, props.campaignId, progressActive]);
+  }, [job.load, props.postId, progressActive]);
 
   if (job.isLoading) {
     return <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-8 text-white/60">Loading campaign...</div>;
@@ -276,14 +276,14 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
   if (!status || status.marketing_job_state === 'not_found') {
     return (
       <EmptyStatePanel
-        title="Campaign not found"
-        description="We couldn't find a campaign with that id. It may have been removed or never existed."
+        title="Social content not found"
+        description="We couldn't find a social content job with that id. It may have been removed or never existed."
         action={
           <Link
             href="/dashboard/social-content"
             className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-4 py-2 text-sm font-medium text-white/80 transition hover:border-white/25 hover:text-white"
           >
-            Back to campaigns
+            Back to social content
           </Link>
         }
       />
@@ -294,10 +294,10 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
   const currentHistory = status.statusHistory || [];
   const publishBlockedReason = status.creativeReview?.publishBlockedReason || null;
   const headerState = deriveWorkspaceHeaderState(status);
-  const brandFallback = deriveGateFallbackState(status, 'brand', props.campaignId, publishBlockedReason);
-  const strategyFallback = deriveGateFallbackState(status, 'strategy', props.campaignId, publishBlockedReason);
-  const creativeFallback = deriveGateFallbackState(status, 'creative', props.campaignId, publishBlockedReason);
-  const publishState = derivePublishSurfaceState(status, props.campaignId, publishBlockedReason);
+  const brandFallback = deriveGateFallbackState(status, 'brand', props.postId, publishBlockedReason);
+  const strategyFallback = deriveGateFallbackState(status, 'strategy', props.postId, publishBlockedReason);
+  const creativeFallback = deriveGateFallbackState(status, 'creative', props.postId, publishBlockedReason);
+  const publishState = derivePublishSurfaceState(status, props.postId, publishBlockedReason);
   const generationProgress = deriveGenerationProgressState(status);
 
   async function submitReviewDecision(
@@ -322,7 +322,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
         throw new Error(payload.error || 'Failed to save review decision.');
       }
       setNotesByReviewId((current) => ({ ...current, [reviewId]: '' }));
-      await job.load(props.campaignId, { quiet: false });
+      await job.load(props.postId, { quiet: false });
     } catch (error) {
       window.alert(
         customerSafeActionErrorMessage(
@@ -339,7 +339,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
     setBriefSaving(true);
     try {
       const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
-      const response = await fetch(`/api/marketing/jobs/${encodeURIComponent(props.campaignId)}/brief`, {
+      const response = await fetch(`/api/marketing/jobs/${encodeURIComponent(props.postId)}/brief`, {
         method: 'PATCH',
         headers: isFormData ? undefined : { 'content-type': 'application/json' },
         body: isFormData ? body : JSON.stringify(body),
@@ -352,7 +352,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
         );
       }
 
-      await job.load(props.campaignId, { quiet: false });
+      await job.load(props.postId, { quiet: false });
     } finally {
       setBriefSaving(false);
     }
@@ -372,7 +372,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
               </span>
             ) : null}
             <span className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-white/70">
-              {status.campaignWindow?.start && status.campaignWindow?.end ? `${status.campaignWindow.start} - ${status.campaignWindow.end}` : 'Dates not scheduled yet'}
+              {status.postWindow?.start && status.postWindow?.end ? `${status.postWindow.start} - ${status.postWindow.end}` : 'Dates not scheduled yet'}
             </span>
             <span className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-white/70">
               {stageReadyLabel(activeView)}
@@ -409,7 +409,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
         ] as Array<[WorkspaceView, string]>).map(([view, label]) => (
           <Link
             key={view}
-            href={currentStageHref(props.campaignId, view)}
+            href={currentStageHref(props.postId, view)}
             scroll={false}
             aria-current={activeView === view ? 'step' : undefined}
             className={`rounded-full border px-4 py-2.5 text-sm transition ${
@@ -426,7 +426,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
 
       {activeView === 'brand' ? (
         <div className="space-y-4">
-          {status.campaignBrief ? <BrandBriefCard brief={status.campaignBrief} saving={briefSaving} onSave={submitBriefUpdate} /> : null}
+          {status.socialContentBrief ? <BrandBriefCard brief={status.socialContentBrief} saving={briefSaving} onSave={submitBriefUpdate} /> : null}
           <StageReviewSurface
             review={status.brandReview}
             fallback={brandFallback}
@@ -447,7 +447,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
                 ? () => void submitReviewDecision(status.brandReview!.reviewId, 'changes_requested')
                 : undefined
             }
-            nextStageHref={`/dashboard/social-content/${encodeURIComponent(props.campaignId)}?view=strategy`}
+            nextStageHref={`/dashboard/social-content/${encodeURIComponent(props.postId)}?view=strategy`}
             nextStageLabel="Go to Strategy Review"
           />
         </div>
@@ -474,7 +474,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
               ? () => void submitReviewDecision(status.strategyReview!.reviewId, 'changes_requested', status.approval?.approvalId)
               : undefined
           }
-          nextStageHref={`/dashboard/social-content/${encodeURIComponent(props.campaignId)}?view=creative`}
+          nextStageHref={`/dashboard/social-content/${encodeURIComponent(props.postId)}?view=creative`}
           nextStageLabel="Go to Creative Review"
         />
       ) : null}
@@ -502,12 +502,12 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
           publishItems={status.dashboard.publishItems}
           history={currentHistory}
           overview={publishState}
-          campaignId={props.campaignId}
+          postId={props.postId}
         />
       ) : null}
 
       {activeView === 'status' ? (
-        <RuntimeStatusSurface status={status} campaignId={props.campaignId} />
+        <RuntimeStatusSurface status={status} postId={props.postId} />
       ) : null}
 
       <ShellPanel eyebrow="Shortcuts" title="Next steps">
@@ -995,7 +995,7 @@ function StageReviewSurface(props: {
 }
 
 function CreativeReviewSurface(props: {
-  review: { approvalComplete: boolean; approvedCount: number; pendingCount: number; rejectedCount: number; publishBlockedReason: string | null; assets: MarketingCreativeAssetReviewPayload[]; history: MarketingCampaignStatusHistoryEntry[] } | null;
+  review: { approvalComplete: boolean; approvedCount: number; pendingCount: number; rejectedCount: number; publishBlockedReason: string | null; assets: MarketingCreativeAssetReviewPayload[]; history: SocialContentStatusHistoryEntry[] } | null;
   fallback: GateFallbackState;
   notesByReviewId: Record<string, string>;
   busyByReviewId: Record<string, boolean>;
@@ -1077,9 +1077,9 @@ function CreativeReviewSurface(props: {
 function PublishStatusSurface(props: {
   workflowState: string;
   publishItems: Array<{ id: string; title: string; summary: string; status: string; platform: string; platformLabel: string; destinationUrl: string | null }>;
-  history: MarketingCampaignStatusHistoryEntry[];
+  history: SocialContentStatusHistoryEntry[];
   overview: PublishSurfaceState;
-  campaignId: string;
+  postId: string;
 }) {
   const tz = useTenantTimezone();
   const [igPublishItemId, setIgPublishItemId] = useState<string | null>(null);
@@ -1296,7 +1296,7 @@ function PublishStatusSurface(props: {
 
       {igPublishItemId ? (
         <InstagramPublishDrawer
-          jobId={props.campaignId}
+          jobId={props.postId}
           onClose={() => setIgPublishItemId(null)}
           onPublished={(result) => handlePublished(igPublishItemId, result)}
           onError={(failure) => handlePublishError(igPublishItemId, failure)}
@@ -1304,7 +1304,7 @@ function PublishStatusSurface(props: {
       ) : null}
       {fbPublishItemId ? (
         <FacebookPublishDrawer
-          jobId={props.campaignId}
+          jobId={props.postId}
           onClose={() => setFbPublishItemId(null)}
           onPublished={(result) => handlePublished(fbPublishItemId, result)}
         />
@@ -1319,7 +1319,7 @@ function PublishStatusSurface(props: {
 
 function RuntimeStatusSurface(props: {
   status: Pick<
-    import('@/lib/api/marketing').GetMarketingJobStatusResponse,
+    import('@/lib/api/marketing').GetSocialContentJobStatusResponse,
     | 'jobId'
     | 'marketing_job_status'
     | 'marketing_job_state'
@@ -1330,7 +1330,7 @@ function RuntimeStatusSurface(props: {
     | 'publishConfig'
     | 'artifacts'
   >;
-  campaignId: string;
+  postId: string;
 }) {
   const { status } = props;
   const tz = useTenantTimezone();
@@ -1347,7 +1347,7 @@ function RuntimeStatusSurface(props: {
     setRetryError(null);
     try {
       const resp = await fetch(
-        `/api/marketing/jobs/${encodeURIComponent(props.campaignId)}/retry-research`,
+        `/api/marketing/jobs/${encodeURIComponent(props.postId)}/retry-research`,
         { method: 'POST' },
       );
       if (!resp.ok) {
@@ -1366,7 +1366,7 @@ function RuntimeStatusSurface(props: {
     } finally {
       setRetrying(false);
     }
-  }, [props.campaignId]);
+  }, [props.postId]);
   return (
     <div className="space-y-4">
       {canRetryResearch ? (
@@ -1652,7 +1652,7 @@ function ReviewDecisionCard(props: {
   );
 }
 
-function HistoryCard(props: { history: MarketingCampaignStatusHistoryEntry[] }) {
+function HistoryCard(props: { history: SocialContentStatusHistoryEntry[] }) {
   const tz = useTenantTimezone();
   return (
     <ShellPanel eyebrow="History" title="Decision history">

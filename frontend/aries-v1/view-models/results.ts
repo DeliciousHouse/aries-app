@@ -1,4 +1,4 @@
-import type { AriesCampaignStatus, RuntimeCampaignListItem } from '@/lib/api/aries-v1';
+import type { AriesPostStatus, RuntimePostListItem } from '@/lib/api/aries-v1';
 import type { DashboardHeroMetric } from '@/frontend/aries-v1/components';
 
 export interface ResultsViewModel {
@@ -9,13 +9,13 @@ export interface ResultsViewModel {
     metrics: DashboardHeroMetric[];
   };
   filters: Array<{
-    id: 'all' | AriesCampaignStatus | 'needs_review';
+    id: 'all' | AriesPostStatus | 'needs_review';
     label: string;
     count: number;
     color: string;
   }>;
   statusBreakdown: Array<{
-    id: AriesCampaignStatus;
+    id: AriesPostStatus;
     label: string;
     count: number;
     color: string;
@@ -24,11 +24,11 @@ export interface ResultsViewModel {
     label: string;
     count: number;
   }>;
-  campaigns: Array<{
+  posts: Array<{
     id: string;
     name: string;
     summary: string;
-    status: RuntimeCampaignListItem['status'];
+    status: RuntimePostListItem['status'];
     trustNote: string;
     objective: string;
     stageLabel: string;
@@ -40,7 +40,7 @@ export interface ResultsViewModel {
   }>;
 }
 
-const STATUS_META: Record<AriesCampaignStatus, { label: string; color: string }> = {
+const STATUS_META: Record<AriesPostStatus, { label: string; color: string }> = {
   draft: { label: 'Draft', color: '#6b7280' },
   in_review: { label: 'In review', color: '#f59e0b' },
   approved: { label: 'Approved', color: '#818cf8' },
@@ -66,7 +66,7 @@ function formatUpdatedLabel(updatedAt: string | null): string {
   }).format(new Date(timestamp))}`;
 }
 
-export function createResultsViewModel(campaigns: RuntimeCampaignListItem[]): ResultsViewModel {
+export function createResultsViewModel(campaigns: RuntimePostListItem[]): ResultsViewModel {
   const liveCount = campaigns.filter((campaign) => campaign.status === 'live').length;
   const scheduledCount = campaigns.filter((campaign) => campaign.status === 'scheduled').length;
   const approvalCount = campaigns.filter(
@@ -130,7 +130,7 @@ export function createResultsViewModel(campaigns: RuntimeCampaignListItem[]): Re
         color: STATUS_META.changes_requested.color,
       },
     ],
-    statusBreakdown: (Object.keys(STATUS_META) as AriesCampaignStatus[]).map((status) => ({
+    statusBreakdown: (Object.keys(STATUS_META) as AriesPostStatus[]).map((status) => ({
       id: status,
       label: STATUS_META[status].label,
       count: campaigns.filter((campaign) => campaign.status === status).length,
@@ -139,7 +139,7 @@ export function createResultsViewModel(campaigns: RuntimeCampaignListItem[]): Re
     stageBreakdown: Array.from(stageCounts.entries())
       .map(([label, count]) => ({ label, count }))
       .sort((left, right) => right.count - left.count),
-    campaigns: campaigns.map((campaign) => ({
+    posts: campaigns.map((campaign) => ({
       id: campaign.id,
       name: campaign.name,
       summary: campaign.summary,

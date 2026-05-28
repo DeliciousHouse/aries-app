@@ -23,7 +23,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { buildProductionResumeContext } from '../../backend/social-content/workflow-request';
-import type { MarketingJobRuntimeDocument } from '../../backend/marketing/runtime-state';
+import type { SocialContentJobRuntimeDocument } from '../../backend/marketing/runtime-state';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -33,7 +33,7 @@ import type { MarketingJobRuntimeDocument } from '../../backend/marketing/runtim
  * Minimal doc sufficient for buildProductionResumeContext to produce a
  * non-empty contextBlock with the "Production context (" marker.
  */
-function makeProductionDoc(overrides: Partial<MarketingJobRuntimeDocument> = {}): MarketingJobRuntimeDocument {
+function makeProductionDoc(overrides: Partial<SocialContentJobRuntimeDocument> = {}): SocialContentJobRuntimeDocument {
   const ts = new Date().toISOString();
   return {
     schema_name: 'marketing_job_state_schema',
@@ -76,7 +76,7 @@ function makeProductionDoc(overrides: Partial<MarketingJobRuntimeDocument> = {})
     updated_at: ts,
     history: [],
     ...overrides,
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 }
 
 /**

@@ -40,7 +40,7 @@ import {
   tenantZoneParts,
 } from '@/lib/format-timestamp';
 import {
-  formatCampaignStatusLabel,
+  formatPostStatusLabel,
   formatDispatchStatusChip,
   formatDispatchStatusLabel,
 } from '@/frontend/aries-v1/labels';
@@ -333,12 +333,12 @@ export default function CalendarPresenter({
                   <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 text-sm text-zinc-500">
                     Loading campaigns…
                   </div>
-                ) : model.campaigns.length === 0 ? (
+                ) : model.posts.length === 0 ? (
                   <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 text-sm text-zinc-500">
                     No campaigns are available yet.
                   </div>
                 ) : (
-                  model.campaigns.map((campaign) => (
+                  model.posts.map((campaign) => (
                     <Link
                       key={campaign.id}
                       href={campaign.href}
@@ -347,7 +347,7 @@ export default function CalendarPresenter({
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-sm font-medium text-white">{campaign.name}</p>
                         <span className={`rounded-full border px-3 py-1 text-xs font-medium ${statusPill(campaign.status)}`}>
-                          {formatCampaignStatusLabel(campaign.status)}
+                          {formatPostStatusLabel(campaign.status)}
                         </span>
                       </div>
                       <p className="mt-2 text-sm text-white/55">{campaign.nextScheduled}</p>

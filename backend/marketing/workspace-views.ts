@@ -2,13 +2,13 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import type {
-  MarketingCampaignBrief,
-  MarketingCampaignStatusHistoryEntry,
+  SocialContentBrief,
   MarketingCreativeAssetReviewPayload,
   MarketingCreativeReviewPayload,
-  MarketingDashboardCampaign,
-  MarketingDashboardCampaignCompatibilityStatus,
-  MarketingDashboardCampaignContent,
+  MarketingDashboardPost,
+  MarketingDashboardSocialContentJob,
+  MarketingDashboardSocialContentJobCompatibilityStatus,
+  MarketingDashboardSocialContentJobContent,
   MarketingDashboardContent,
   MarketingDashboardItemStatus,
   MarketingReviewAttachment,
@@ -21,13 +21,13 @@ import {
   collectProductionReviewArtifacts,
   collectStrategyReviewArtifacts,
 } from './artifact-collector';
-import { createMarketingJobFacts, type MarketingJobFacts } from './job-facts';
+import { createSocialContentJobFacts, type MarketingJobFacts } from './job-facts';
 import { recordMatchesCurrentSource, sourceFingerprintFromRecord } from './brand-identity';
 import { sanitizeBrandKitSummaryText } from './brand-kit';
 import { buildSocialContentDashboardProjection } from '@/backend/social-content/dashboard-projection';
-import { getMarketingDashboardCampaignContent } from './dashboard-content';
+import { getMarketingDashboardSocialContentJobContent } from './dashboard-content';
 import { countPublishedPostsForJob } from './published-posts-count';
-import { loadMarketingJobRuntime, listMarketingJobIdsForTenant, resolveStageOutput, type MarketingJobRuntimeDocument } from './runtime-state';
+import { loadSocialContentJobRuntime, listSocialContentJobIdsForTenant, resolveStageOutput, type SocialContentJobRuntimeDocument } from './runtime-state';
 import {
   ARTIFACT_INCOMPLETE_TEXT,
   ARTIFACT_UNAVAILABLE_TEXT,
@@ -36,37 +36,37 @@ import {
   readScriptArtifactDetails,
 } from './real-artifacts';
 import {
-  ensureCampaignWorkspaceRecord,
+  ensureSocialContentWorkspaceRecord,
   marketingWorkspaceAssetUrl,
-  saveCampaignWorkspaceRecord,
-  syncCampaignWorkflowState,
-  type CampaignStatusHistoryEntry,
-  type CampaignStageReviewEvidenceKind,
-  type CampaignWorkspaceRecord,
-  type MarketingCampaignWorkflowState,
+  saveSocialContentWorkspaceRecord,
+  syncSocialContentWorkflowState,
+  type SocialContentStatusHistoryEntry,
+  type SocialContentStageReviewEvidenceKind,
+  type SocialContentWorkspaceRecord,
+  type SocialContentWorkflowState,
   type MarketingReviewStageKey,
   type MarketingReviewStatus,
 } from './workspace-store';
 import { loadValidatedMarketingProfileDocs, loadValidatedMarketingProfileSnapshot } from './validated-profile-store';
 import { pool } from '@/lib/db';
 
-export type CampaignWorkspaceView = {
+export type SocialContentWorkspaceView = {
   jobId: string;
   tenantId: string | null;
-  campaignBrief: MarketingCampaignBrief | null;
-  workflowState: MarketingCampaignWorkflowState;
-  statusHistory: MarketingCampaignStatusHistoryEntry[];
+  socialContentBrief: SocialContentBrief | null;
+  workflowState: SocialContentWorkflowState;
+  statusHistory: SocialContentStatusHistoryEntry[];
   brandReview: MarketingStageReviewPayload | null;
   strategyReview: MarketingStageReviewPayload | null;
   creativeReview: MarketingCreativeReviewPayload | null;
   publishBlockedReason: string | null;
-  dashboard: MarketingDashboardCampaignContent;
+  dashboard: MarketingDashboardSocialContentJobContent;
 };
 
 type StagePayloadBundle = {
   websiteAnalysis: Record<string, unknown> | null;
   brandProfile: Record<string, unknown> | null;
-  campaignPlanner: Record<string, unknown> | null;
+  socialContentPlanner: Record<string, unknown> | null;
   strategyPreview: Record<string, unknown> | null;
   productionPreview: Record<string, unknown> | null;
   brandBibleText: string | null;
@@ -75,7 +75,7 @@ type StagePayloadBundle = {
   sources: {
     websiteAnalysis: 'runtime' | 'artifact_fallback' | 'none';
     brandProfile: 'runtime' | 'artifact_fallback' | 'none';
-    campaignPlanner: 'runtime' | 'artifact_fallback' | 'none';
+    socialContentPlanner: 'runtime' | 'artifact_fallback' | 'none';
     strategyPreview: 'runtime' | 'artifact_fallback' | 'none';
     productionPreview: 'runtime' | 'artifact_fallback' | 'none';
     brandBible: 'asset' | 'none';
@@ -154,7 +154,7 @@ function familyIdFromImagePath(filePath: string | null): string | null {
   return match ? match[1] : null;
 }
 
-function currentSourceUrl(runtimeDoc: MarketingJobRuntimeDocument): string | null {
+function currentSourceUrl(runtimeDoc: SocialContentJobRuntimeDocument): string | null {
   const request = recordValue(runtimeDoc.inputs.request);
   return stringValue(request?.websiteUrl) || stringValue(request?.brandUrl) || stringValue(runtimeDoc.inputs.brand_url) || null;
 }
@@ -188,7 +188,7 @@ function emptyStatusSummary() {
   };
 }
 
-function campaignStatusHistoryEntry(entry: CampaignStatusHistoryEntry): MarketingCampaignStatusHistoryEntry {
+function postStatusHistoryEntry(entry: SocialContentStatusHistoryEntry): SocialContentStatusHistoryEntry {
   return {
     id: entry.id,
     at: entry.at,
@@ -255,7 +255,7 @@ export function strategyChannelBlock(channel: Record<string, unknown>): string {
   return [channelName, ...detailBlocks].join('\n\n');
 }
 
-function workflowCampaignStatus(workflowState: MarketingCampaignWorkflowState): MarketingDashboardItemStatus {
+function workflowPostStatus(workflowState: SocialContentWorkflowState): MarketingDashboardItemStatus {
   switch (workflowState) {
     case 'approved':
       return 'ready';
@@ -274,9 +274,9 @@ function workflowCampaignStatus(workflowState: MarketingCampaignWorkflowState): 
 }
 
 function workflowCompatibilityStatus(
-  workflowState: MarketingCampaignWorkflowState,
-  campaignStatus: MarketingDashboardItemStatus,
-): MarketingDashboardCampaignCompatibilityStatus {
+  workflowState: SocialContentWorkflowState,
+  postStatus: MarketingDashboardItemStatus,
+): MarketingDashboardSocialContentJobCompatibilityStatus {
   switch (workflowState) {
     case 'revisions_requested':
       return 'changes_requested';
@@ -288,7 +288,7 @@ function workflowCompatibilityStatus(
     case 'ready_to_publish':
       return 'approved';
     case 'published':
-      return campaignStatus === 'scheduled' ? 'scheduled' : campaignStatus === 'live' ? 'live' : 'approved';
+      return postStatus === 'scheduled' ? 'scheduled' : postStatus === 'live' ? 'live' : 'approved';
     default:
       return 'draft';
   }
@@ -296,7 +296,7 @@ function workflowCompatibilityStatus(
 
 function gatedItemStatus(
   status: MarketingDashboardItemStatus,
-  workflowState: MarketingCampaignWorkflowState,
+  workflowState: SocialContentWorkflowState,
 ): MarketingDashboardItemStatus {
   if (workflowState === 'published') {
     return status;
@@ -317,9 +317,9 @@ function gatedItemStatus(
 }
 
 function withGatedDashboardStatus(
-  dashboard: MarketingDashboardCampaignContent,
-  workflowState: MarketingCampaignWorkflowState,
-): MarketingDashboardCampaignContent {
+  dashboard: MarketingDashboardSocialContentJobContent,
+  workflowState: SocialContentWorkflowState,
+): MarketingDashboardSocialContentJobContent {
   const posts = dashboard.posts.map((post) => ({
     ...post,
     status: gatedItemStatus(post.status, workflowState),
@@ -342,40 +342,40 @@ function withGatedDashboardStatus(
     statuses.countsByStatus[item.status] += 1;
   }
 
-  const campaign = dashboard.campaign
+  const post = dashboard.post
     ? ({
-        ...dashboard.campaign,
+        ...dashboard.post,
         approvalRequired:
           workflowState === 'revisions_requested'
             ? false
-            : dashboard.campaign.approvalRequired,
+            : dashboard.post.approvalRequired,
         approvalActionHref:
           workflowState === 'revisions_requested'
             ? undefined
-            : dashboard.campaign.approvalActionHref,
+            : dashboard.post.approvalActionHref,
         status:
           workflowState === 'published'
-            ? gatedItemStatus(dashboard.campaign.status, workflowState)
-            : workflowCampaignStatus(workflowState),
+            ? gatedItemStatus(dashboard.post.status, workflowState)
+            : workflowPostStatus(workflowState),
         compatibilityStatus: workflowCompatibilityStatus(
           workflowState,
           workflowState === 'published'
-            ? gatedItemStatus(dashboard.campaign.status, workflowState)
-            : workflowCampaignStatus(workflowState),
+            ? gatedItemStatus(dashboard.post.status, workflowState)
+            : workflowPostStatus(workflowState),
         ),
         counts: {
-          ...dashboard.campaign.counts,
+          ...dashboard.post.counts,
           ready: [...posts, ...publishItems].filter((item) => item.status === 'ready').length,
           readyToPublish: [...posts, ...publishItems].filter((item) => item.status === 'ready_to_publish').length,
           pausedMetaAds: [...posts, ...publishItems].filter((item) => item.status === 'published_to_meta_paused').length,
           scheduled: [...posts, ...publishItems].filter((item) => item.status === 'scheduled').length,
           live: [...posts, ...publishItems].filter((item) => item.status === 'live').length,
         },
-      } satisfies MarketingDashboardCampaign)
+      } satisfies MarketingDashboardSocialContentJob)
     : null;
 
   return {
-    campaign,
+    post,
     posts,
     assets,
     publishItems,
@@ -384,7 +384,7 @@ function withGatedDashboardStatus(
   };
 }
 
-function buildCampaignBrief(record: CampaignWorkspaceRecord): MarketingCampaignBrief {
+function buildSocialContentBrief(record: SocialContentWorkspaceRecord): SocialContentBrief {
   return {
     websiteUrl: record.brief.websiteUrl,
     businessName: record.brief.businessName,
@@ -412,7 +412,7 @@ function buildCampaignBrief(record: CampaignWorkspaceRecord): MarketingCampaignB
   };
 }
 
-export function primaryOutputToCampaignPlanner(
+export function primaryOutputToSocialContentPlanner(
   stageOutput: Record<string, unknown>,
 ): Record<string, unknown> {
   const channelAdaptation = recordValue(stageOutput.channel_adaptation);
@@ -444,7 +444,7 @@ export function primaryOutputToProductionPreview(
 }
 
 async function loadStagePayloadBundle(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   facts: MarketingJobFacts,
 ): Promise<StagePayloadBundle> {
   const sourceUrl = currentSourceUrl(runtimeDoc);
@@ -541,13 +541,13 @@ async function loadStagePayloadBundle(
   const strategyPrimaryOutput = resolveStageOutput(runtimeDoc, 'strategy');
   const productionPrimaryOutput = resolveStageOutput(runtimeDoc, 'production');
   const primaryOutputCampaignPlanner = strategyPrimaryOutput && Object.keys(strategyOutputs).length === 0
-    ? primaryOutputToCampaignPlanner(strategyPrimaryOutput)
+    ? primaryOutputToSocialContentPlanner(strategyPrimaryOutput)
     : null;
   const primaryOutputProductionPreview = productionPrimaryOutput && Object.keys(productionOutputs).length === 0
     ? primaryOutputToProductionPreview(productionPrimaryOutput)
     : null;
 
-  const campaignPlanner = runtimeCampaignPlanner ||
+  const socialContentPlanner = runtimeCampaignPlanner ||
     sourceMatchedStrategyPayload(
       fallbackCampaignPlannerFile || recordValue(strategyFallback.outputs.planner),
       sourceUrl,
@@ -568,7 +568,7 @@ async function loadStagePayloadBundle(
     primaryOutputProductionPreview;
 
   const hasCurrentSourceBrandArtifacts = !!(websiteAnalysis || brandProfile);
-  const hasCurrentSourceStrategyArtifacts = !!(campaignPlanner || strategyPreview || hasCurrentSourceBrandArtifacts);
+  const hasCurrentSourceStrategyArtifacts = !!(socialContentPlanner || strategyPreview || hasCurrentSourceBrandArtifacts);
 
   const brandBibleAsset = await findMarketingAsset(runtimeDoc.job_id, runtimeDoc, 'brand-bible-markdown', facts);
   const designSystemAsset = await findMarketingAsset(runtimeDoc.job_id, runtimeDoc, 'brand-design-system', facts);
@@ -577,7 +577,7 @@ async function loadStagePayloadBundle(
   return {
     websiteAnalysis,
     brandProfile,
-    campaignPlanner,
+    socialContentPlanner,
     strategyPreview,
     productionPreview,
     brandBibleText: hasCurrentSourceBrandArtifacts
@@ -602,9 +602,9 @@ async function loadStagePayloadBundle(
         : brandProfile
           ? 'artifact_fallback'
           : 'none',
-      campaignPlanner: runtimeCampaignPlanner
+      socialContentPlanner: runtimeCampaignPlanner
         ? 'runtime'
-        : campaignPlanner
+        : socialContentPlanner
           ? 'artifact_fallback'
           : 'none',
       strategyPreview: runtimeStrategyPreview
@@ -633,12 +633,12 @@ function hasRealBrandArtifacts(payloads: StagePayloadBundle): boolean {
   );
 }
 
-function uploadedBrandAssets(record: CampaignWorkspaceRecord): boolean {
+function uploadedBrandAssets(record: SocialContentWorkspaceRecord): boolean {
   return record.brief.brandAssets.length > 0;
 }
 
 function syncBrandReviewEvidenceState(
-  record: CampaignWorkspaceRecord,
+  record: SocialContentWorkspaceRecord,
   input: {
     brandReviewRenderable: boolean;
     hasRealBrandArtifacts: boolean;
@@ -649,7 +649,7 @@ function syncBrandReviewEvidenceState(
   }
 
   const current = record.stage_reviews.brand;
-  const nextEvidenceKind: CampaignStageReviewEvidenceKind = input.hasRealBrandArtifacts
+  const nextEvidenceKind: SocialContentStageReviewEvidenceKind = input.hasRealBrandArtifacts
     ? 'real_artifacts'
     : 'upload_only';
   let changed = false;
@@ -697,10 +697,10 @@ function marketingAttachment(
 }
 
 function stageHistory(
-  history: CampaignStatusHistoryEntry[],
+  history: SocialContentStatusHistoryEntry[],
   stage: MarketingReviewStageKey,
   assetId?: string,
-): MarketingCampaignStatusHistoryEntry[] {
+): SocialContentStatusHistoryEntry[] {
   return history
     .filter((entry) => {
       if (assetId) {
@@ -708,12 +708,12 @@ function stageHistory(
       }
       return entry.stage === stage || entry.type === 'state_changed';
     })
-    .map(campaignStatusHistoryEntry);
+    .map(postStatusHistoryEntry);
 }
 
 async function buildBrandReview(
-  runtimeDoc: MarketingJobRuntimeDocument,
-  record: CampaignWorkspaceRecord,
+  runtimeDoc: SocialContentJobRuntimeDocument,
+  record: SocialContentWorkspaceRecord,
   payloads: StagePayloadBundle,
   facts: MarketingJobFacts,
 ): Promise<MarketingStageReviewPayload | null> {
@@ -944,24 +944,24 @@ async function buildBrandReview(
 // onto the other produced headers that misled reviewers about what they were
 // approving. When core_message is missing, return the generic prompt copy.
 export function deriveStrategyReviewSummary(
-  campaignPlan: Record<string, unknown> | undefined | null,
+  socialContentPlan: Record<string, unknown> | undefined | null,
 ): string {
   return (
-    stringValue(campaignPlan?.core_message) ||
+    stringValue(socialContentPlan?.core_message) ||
     'Review the campaign proposal before creative production is treated as approved.'
   );
 }
 
 async function buildStrategyReview(
-  runtimeDoc: MarketingJobRuntimeDocument,
-  record: CampaignWorkspaceRecord,
+  runtimeDoc: SocialContentJobRuntimeDocument,
+  record: SocialContentWorkspaceRecord,
   payloads: StagePayloadBundle,
   facts: MarketingJobFacts,
 ): Promise<MarketingStageReviewPayload | null> {
-  const campaignPlan = recordValue(payloads.campaignPlanner?.campaign_plan);
+  const socialContentPlan = recordValue(payloads.socialContentPlanner?.campaign_plan);
   const reviewPacket = recordValue(payloads.strategyPreview?.review_packet);
   const productionBrief = recordValue(recordValue(payloads.productionPreview?.production_handoff)?.production_brief);
-  if (!campaignPlan && !reviewPacket && !productionBrief && !payloads.proposalMarkdown) {
+  if (!socialContentPlan && !reviewPacket && !productionBrief && !payloads.proposalMarkdown) {
     return null;
   }
   const attachments: MarketingReviewAttachment[] = [];
@@ -975,8 +975,8 @@ async function buildStrategyReview(
   }
 
   const channelPlans = (
-    recordArray(campaignPlan?.channel_plans).length > 0
-      ? recordArray(campaignPlan?.channel_plans)
+    recordArray(socialContentPlan?.channel_plans).length > 0
+      ? recordArray(socialContentPlan?.channel_plans)
       : recordArray(productionBrief?.channel_priorities)
   )
     .map(strategyChannelBlock)
@@ -984,15 +984,15 @@ async function buildStrategyReview(
   const scopedChannels = stringArray(reviewPacket?.channels_in_scope);
   const sections: MarketingReviewSection[] = [
     {
-      id: 'campaign-summary',
-      title: 'Campaign proposal',
+      id: 'social-content-summary',
+      title: 'Social content proposal',
       body: labeledBlock([
-        ['Campaign name', stringValue(campaignPlan?.campaign_name, stringValue(reviewPacket?.campaign_name))],
-        ['Objective', stringValue(campaignPlan?.objective, stringValue(reviewPacket?.objective))],
-        ['Core message', stringValue(campaignPlan?.core_message, stringValue(reviewPacket?.core_message))],
-        ['Audience', stringValue(campaignPlan?.audience)],
-        ['Offer', stringValue(campaignPlan?.offer)],
-        ['Primary CTA', stringValue(campaignPlan?.primary_cta)],
+        ['Post name', stringValue(socialContentPlan?.campaign_name, stringValue(reviewPacket?.campaign_name))],
+        ['Objective', stringValue(socialContentPlan?.objective, stringValue(reviewPacket?.objective))],
+        ['Core message', stringValue(socialContentPlan?.core_message, stringValue(reviewPacket?.core_message))],
+        ['Audience', stringValue(socialContentPlan?.audience)],
+        ['Offer', stringValue(socialContentPlan?.offer)],
+        ['Primary CTA', stringValue(socialContentPlan?.primary_cta)],
       ]),
     },
     {
@@ -1004,7 +1004,7 @@ async function buildStrategyReview(
     },
   ];
 
-  const creativeDirection = stringValue(payloads.campaignPlanner?.creative_direction);
+  const creativeDirection = stringValue(payloads.socialContentPlanner?.creative_direction);
   if (creativeDirection) {
     sections.push({
       id: 'creative-direction',
@@ -1013,7 +1013,7 @@ async function buildStrategyReview(
     });
   }
 
-  const proposedPosts = recordArray(campaignPlan?.content_package);
+  const proposedPosts = recordArray(socialContentPlan?.content_package);
   if (proposedPosts.length > 0) {
     const postBlocks = proposedPosts.map((post, i) => {
       const num = stringValue(post.post_number) || String(i + 1);
@@ -1051,7 +1051,7 @@ async function buildStrategyReview(
     reviewType: 'strategy',
     status: record.stage_reviews.strategy.status,
     title: 'Strategy Review',
-    summary: deriveStrategyReviewSummary(campaignPlan),
+    summary: deriveStrategyReviewSummary(socialContentPlan),
     notePlaceholder: 'Call out strategic changes, channel shifts, or proposal edits.',
     sections: sections.filter((section) => section.body.trim().length > 0),
     attachments,
@@ -1061,9 +1061,9 @@ async function buildStrategyReview(
 }
 
 async function buildCreativeAssets(
-  runtimeDoc: MarketingJobRuntimeDocument,
-  record: CampaignWorkspaceRecord,
-  dashboard: MarketingDashboardCampaignContent,
+  runtimeDoc: SocialContentJobRuntimeDocument,
+  record: SocialContentWorkspaceRecord,
+  dashboard: MarketingDashboardSocialContentJobContent,
   productionPreview: Record<string, unknown> | null,
   facts: MarketingJobFacts,
 ): Promise<MarketingCreativeAssetReviewPayload[]> {
@@ -1213,9 +1213,9 @@ function creativeReviewStatus(
 }
 
 async function buildCreativeReview(
-  runtimeDoc: MarketingJobRuntimeDocument,
-  record: CampaignWorkspaceRecord,
-  dashboard: MarketingDashboardCampaignContent,
+  runtimeDoc: SocialContentJobRuntimeDocument,
+  record: SocialContentWorkspaceRecord,
+  dashboard: MarketingDashboardSocialContentJobContent,
   productionPreview: Record<string, unknown> | null,
   publishBlockedReason: string | null,
   counts: { approved: number; pending: number; rejected: number },
@@ -1241,7 +1241,7 @@ async function buildCreativeReview(
   };
 }
 
-function ensureReviewReadyState(record: CampaignWorkspaceRecord, stage: MarketingReviewStageKey): boolean {
+function ensureReviewReadyState(record: SocialContentWorkspaceRecord, stage: MarketingReviewStageKey): boolean {
   const current = record.stage_reviews[stage];
   if (current.status !== 'not_ready') {
     return false;
@@ -1253,7 +1253,7 @@ function ensureReviewReadyState(record: CampaignWorkspaceRecord, stage: Marketin
   return true;
 }
 
-function ensureCreativeAssetReadyState(record: CampaignWorkspaceRecord, assetIds: string[]): boolean {
+function ensureCreativeAssetReadyState(record: SocialContentWorkspaceRecord, assetIds: string[]): boolean {
   let changed = false;
   for (const assetId of assetIds) {
     if (!record.creative_asset_reviews[assetId]) {
@@ -1274,8 +1274,8 @@ function isAutoApprovableReviewStatus(status: MarketingReviewStatus): boolean {
 }
 
 function syncWorkspaceReviewsFromRuntime(
-  record: CampaignWorkspaceRecord,
-  runtimeDoc: MarketingJobRuntimeDocument,
+  record: SocialContentWorkspaceRecord,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   creativeAssetIds: string[],
   input: {
     hasRealBrandArtifacts: boolean;
@@ -1382,13 +1382,13 @@ async function queryProductionCreativeAssets(
   }
 }
 
-export async function buildCampaignWorkspaceView(jobId: string): Promise<CampaignWorkspaceView> {
-  const runtimeDoc = await loadMarketingJobRuntime(jobId);
+export async function buildSocialContentWorkspaceView(jobId: string): Promise<SocialContentWorkspaceView> {
+  const runtimeDoc = await loadSocialContentJobRuntime(jobId);
   if (!runtimeDoc) {
     return {
       jobId,
       tenantId: null,
-      campaignBrief: null,
+      socialContentBrief: null,
       workflowState: 'draft',
       statusHistory: [],
       brandReview: null,
@@ -1396,7 +1396,7 @@ export async function buildCampaignWorkspaceView(jobId: string): Promise<Campaig
       creativeReview: null,
       publishBlockedReason: null,
       dashboard: {
-        campaign: null,
+        post: null,
         posts: [],
         assets: [],
         publishItems: [],
@@ -1406,15 +1406,15 @@ export async function buildCampaignWorkspaceView(jobId: string): Promise<Campaig
     };
   }
 
-  const record = await ensureCampaignWorkspaceRecord({
+  const record = await ensureSocialContentWorkspaceRecord({
     jobId,
     tenantId: runtimeDoc.tenant_id,
     payload: recordValue(runtimeDoc.inputs.request) || {},
   });
-  const facts = createMarketingJobFacts(runtimeDoc, null);
+  const facts = createSocialContentJobFacts(runtimeDoc, null);
   const rawDashboard = buildSocialContentDashboardProjection(
     runtimeDoc,
-    await getMarketingDashboardCampaignContent(jobId),
+    await getMarketingDashboardSocialContentJobContent(jobId),
     { realPublishedPostCount: await countPublishedPostsForJob(runtimeDoc.tenant_id, runtimeDoc.job_id) },
   );
   const payloads = await loadStagePayloadBundle(runtimeDoc, facts);
@@ -1423,7 +1423,7 @@ export async function buildCampaignWorkspaceView(jobId: string): Promise<Campaig
   const brandReviewRenderable = realBrandArtifactsReady || hasUploadedBrandAssets;
   const brandWorkflowReady = realBrandArtifactsReady;
   const strategyReady =
-    !!payloads.campaignPlanner ||
+    !!payloads.socialContentPlanner ||
     !!payloads.strategyPreview ||
     !!payloads.proposalMarkdown;
   const creativeAssetIds = rawDashboard.assets
@@ -1456,10 +1456,10 @@ export async function buildCampaignWorkspaceView(jobId: string): Promise<Campaig
     allowBrandAutoApproval: !brandReviewResetToPending,
   }) || changed;
   if (changed) {
-    saveCampaignWorkspaceRecord(record);
+    saveSocialContentWorkspaceRecord(record);
   }
 
-  const workflowResolution = syncCampaignWorkflowState(record, {
+  const workflowResolution = syncSocialContentWorkflowState(record, {
     brandWorkflowReady,
     strategyReviewReady: strategyReady,
     creativeReviewReady: creativeAssetIds.length > 0,
@@ -1568,8 +1568,8 @@ export async function buildCampaignWorkspaceView(jobId: string): Promise<Campaig
     strategyReviewSource: strategyReview
       ? payloads.sources.strategyPreview !== 'none'
         ? payloads.sources.strategyPreview
-        : payloads.sources.campaignPlanner !== 'none'
-          ? payloads.sources.campaignPlanner
+        : payloads.sources.socialContentPlanner !== 'none'
+          ? payloads.sources.socialContentPlanner
           : payloads.sources.proposalMarkdown
       : 'none',
     strategyReviewReason: strategyReview ? 'hydrated' : 'no_real_strategy_artifacts',
@@ -1579,15 +1579,15 @@ export async function buildCampaignWorkspaceView(jobId: string): Promise<Campaig
       rawDashboard.posts.length > 0 || rawDashboard.assets.length > 0 || rawDashboard.publishItems.length > 0
         ? 'runtime_dashboard_content'
         : 'none',
-    dashboardCounts: dashboard.campaign?.counts || null,
+    dashboardCounts: dashboard.post?.counts || null,
   });
 
   return {
     jobId,
     tenantId: runtimeDoc.tenant_id,
-    campaignBrief: buildCampaignBrief(record),
+    socialContentBrief: buildSocialContentBrief(record),
     workflowState: workflowResolution.workflowState,
-    statusHistory: record.status_history.map(campaignStatusHistoryEntry),
+    statusHistory: record.status_history.map(postStatusHistoryEntry),
     brandReview,
     strategyReview,
     creativeReview,
@@ -1596,10 +1596,10 @@ export async function buildCampaignWorkspaceView(jobId: string): Promise<Campaig
   };
 }
 
-function mergeDashboardContent(items: MarketingDashboardCampaignContent[]): MarketingDashboardContent {
+function mergeDashboardContent(items: MarketingDashboardSocialContentJobContent[]): MarketingDashboardContent {
   const statuses = emptyStatusSummary();
   const merged: MarketingDashboardContent = {
-    campaigns: [],
+    socialContentJobs: [],
     posts: [],
     assets: [],
     publishItems: [],
@@ -1608,8 +1608,8 @@ function mergeDashboardContent(items: MarketingDashboardCampaignContent[]): Mark
   };
 
   for (const item of items) {
-    if (item.campaign) {
-      merged.campaigns.push(item.campaign);
+    if (item.post) {
+      merged.socialContentJobs.push(item.post);
     }
     merged.posts.push(...item.posts);
     merged.assets.push(...item.assets);
@@ -1620,7 +1620,7 @@ function mergeDashboardContent(items: MarketingDashboardCampaignContent[]): Mark
     }
   }
 
-  merged.campaigns.sort((left, right) => {
+  merged.socialContentJobs.sort((left, right) => {
     const leftUpdated = Date.parse(left.updatedAt || '');
     const rightUpdated = Date.parse(right.updatedAt || '');
     return (Number.isFinite(rightUpdated) ? rightUpdated : 0) - (Number.isFinite(leftUpdated) ? leftUpdated : 0);
@@ -1630,20 +1630,20 @@ function mergeDashboardContent(items: MarketingDashboardCampaignContent[]): Mark
   return merged;
 }
 
-function campaignIdentity(campaign: MarketingDashboardCampaign | null, jobId: string): string {
-  if (!campaign) {
+function postIdentity(post: MarketingDashboardSocialContentJob | null, jobId: string): string {
+  if (!post) {
     return `job::${jobId}`;
   }
-  return campaign.externalCampaignId || campaign.name || `job::${jobId}`;
+  return post.externalPostId || post.name || `job::${jobId}`;
 }
 
 export async function getWorkflowAwareDashboardContentForTenant(tenantId: string): Promise<MarketingDashboardContent> {
-  const items: MarketingDashboardCampaignContent[] = [];
+  const items: MarketingDashboardSocialContentJobContent[] = [];
   const seen = new Set<string>();
 
-  for (const jobId of await listMarketingJobIdsForTenant(tenantId)) {
-    const view = await buildCampaignWorkspaceView(jobId);
-    const key = campaignIdentity(view.dashboard.campaign, jobId);
+  for (const jobId of await listSocialContentJobIdsForTenant(tenantId)) {
+    const view = await buildSocialContentWorkspaceView(jobId);
+    const key = postIdentity(view.dashboard.post, jobId);
     if (seen.has(key)) {
       continue;
     }

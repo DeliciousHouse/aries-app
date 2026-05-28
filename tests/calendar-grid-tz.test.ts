@@ -53,12 +53,12 @@ test('calendar grid assigns an 11pm post to the same cell regardless of browser 
   const instant = '2026-04-16T03:00:00.000Z';
   const modelA = createCalendarViewModel({
     scheduledPosts: [buildScheduledPost(instant)],
-    campaigns: [],
+    posts: [],
     timeZone: 'America/New_York',
   });
   const modelB = createCalendarViewModel({
     scheduledPosts: [buildScheduledPost(instant)],
-    campaigns: [],
+    posts: [],
     timeZone: 'America/New_York',
   });
   assert.equal(modelA.events[0].dayKey, '2026-04-15');

@@ -19,12 +19,12 @@ async function withRuntimeEnv<T>(run: () => Promise<T>): Promise<T> {
 
 async function seedJobAtPublishStage() {
   const {
-    createMarketingJobRuntimeDocument,
+    createSocialContentJobRuntimeDocument,
     markStageCompleted,
-    saveMarketingJobRuntime,
+    saveSocialContentJobRuntime,
   } = await import('../backend/marketing/runtime-state');
 
-  const doc = createMarketingJobRuntimeDocument({
+  const doc = createSocialContentJobRuntimeDocument({
     jobId: 'job-publish-gate',
     tenantId: '101',
     payload: {
@@ -98,14 +98,14 @@ async function seedJobAtPublishStage() {
       },
     ],
   });
-  saveMarketingJobRuntime(doc.job_id, doc);
+  saveSocialContentJobRuntime(doc.job_id, doc);
   return doc;
 }
 
 test('advancePublishStage short-circuits when Meta is not connected and preserves stages 1-3 artifacts', async () => {
   await withRuntimeEnv(async () => {
     const orchestrator = await import('../backend/marketing/orchestrator');
-    const { loadMarketingJobRuntime, getStageRecord } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime, getStageRecord } = await import('../backend/marketing/runtime-state');
 
     const doc = await seedJobAtPublishStage();
 
@@ -124,7 +124,7 @@ test('advancePublishStage short-circuits when Meta is not connected and preserve
 
     assert.equal(gateCalls, 1, 'gate should be called exactly once');
 
-    const reloaded = await loadMarketingJobRuntime(doc.job_id);
+    const reloaded = await loadSocialContentJobRuntime(doc.job_id);
     assert.ok(reloaded, 'doc should be persisted');
     if (!reloaded) return;
 
@@ -181,8 +181,8 @@ test('advancePublishStage proceeds past the gate when Meta is connected', async 
 
     assert.equal(gateCalls, 1, 'gate should be called exactly once');
 
-    const { loadMarketingJobRuntime, getStageRecord } = await import('../backend/marketing/runtime-state');
-    const reloaded = await loadMarketingJobRuntime(doc.job_id);
+    const { loadSocialContentJobRuntime, getStageRecord } = await import('../backend/marketing/runtime-state');
+    const reloaded = await loadSocialContentJobRuntime(doc.job_id);
     assert.ok(reloaded);
     if (!reloaded) return;
     const publish = getStageRecord(reloaded, 'publish');

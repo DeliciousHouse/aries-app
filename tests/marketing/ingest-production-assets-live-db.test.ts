@@ -6,7 +6,7 @@ import test from 'node:test';
 import pg from 'pg';
 
 import { ingestProductionCreativeAssetsToDb } from '../../backend/marketing/ingest-production-assets';
-import type { MarketingJobRuntimeDocument } from '../../backend/marketing/runtime-state';
+import type { SocialContentJobRuntimeDocument } from '../../backend/marketing/runtime-state';
 
 // Real-Postgres regression test for the creative_assets ingest INSERT.
 //
@@ -57,7 +57,7 @@ function makeStage(name: string, primaryOutput: unknown = null) {
   };
 }
 
-function makeDoc(jobId: string, tenantId: number, creativeAssets: unknown[]): MarketingJobRuntimeDocument {
+function makeDoc(jobId: string, tenantId: number, creativeAssets: unknown[]): SocialContentJobRuntimeDocument {
   return {
     schema_name: 'marketing_job_state_schema',
     schema_version: '1.0.0',
@@ -81,7 +81,7 @@ function makeDoc(jobId: string, tenantId: number, creativeAssets: unknown[]): Ma
     history: [],
     errors: [],
     last_error: null,
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 }
 
 const dbConfig = dbConfigFromEnv();

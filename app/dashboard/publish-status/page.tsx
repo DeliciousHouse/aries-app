@@ -1,5 +1,5 @@
 import AppShellLayout from '@/frontend/app-shell/layout';
-import AriesLatestCampaignView from '@/frontend/aries-v1/latest-campaign-view';
+import AriesLatestPostView from '@/frontend/aries-v1/latest-post-view';
 
 export const metadata = {
   title: 'Publish Status · Aries AI',
@@ -8,10 +8,10 @@ export const metadata = {
 export default function DashboardPublishStatusPage() {
   return (
     <AppShellLayout currentRouteId="publishStatus" loginRedirectPath="/dashboard/publish-status">
-      <AriesLatestCampaignView
+      <AriesLatestPostView
         view="publish"
         title="No publish status yet"
-        description="Create a campaign to track approval gating and publish readiness."
+        description="Create a social content job to track approval gating and publish readiness."
       />
     </AppShellLayout>
   );

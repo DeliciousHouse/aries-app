@@ -7,11 +7,11 @@ import {
   deriveGateFallbackState,
   derivePublishSurfaceState,
   deriveWorkspaceHeaderState,
-} from '../frontend/aries-v1/campaign-workspace-state';
+} from '../frontend/aries-v1/post-workspace-state';
 
 function emptyDashboard() {
   return {
-    campaign: null,
+    post: null,
     posts: [],
     assets: [],
     publishItems: [],
@@ -35,7 +35,7 @@ function makeStatus(overrides: Record<string, unknown> = {}) {
     jobId: 'mkt_123',
     tenantName: 'Tenant Name',
     brandWebsiteUrl: null,
-    campaignBrief: null,
+    socialContentBrief: null,
     reviewBundle: null,
     dashboard: emptyDashboard(),
     approval: null,
@@ -316,7 +316,7 @@ test('deriveGenerationProgressState maps creative asset progress from production
       ],
       dashboard: {
         ...emptyDashboard(),
-        campaign: {
+        post: {
           counts: {
             imageAds: 1,
           },
@@ -361,7 +361,7 @@ test('deriveGenerationProgressState does not count creative assets as ready unti
       ],
       dashboard: {
         ...emptyDashboard(),
-        campaign: {
+        post: {
           counts: {
             imageAds: 2,
           },
@@ -430,12 +430,12 @@ test('deriveWorkspaceHeaderState prefers the source domain over contaminated das
   const header = deriveWorkspaceHeaderState(
     makeStatus({
       brandWebsiteUrl: 'https://www.glossier.com/',
-      campaignBrief: {
+      socialContentBrief: {
         websiteUrl: 'https://www.glossier.com/',
       },
       dashboard: {
         ...emptyDashboard(),
-        campaign: {
+        post: {
           name: 'frameX',
         },
       },
@@ -458,7 +458,7 @@ test('deriveWorkspaceHeaderState rejects synthetic stage-slug review campaign na
     makeStatus({
       brandWebsiteUrl: 'https://linear.app/',
       reviewBundle: {
-        campaignName: '7-stage2-plan',
+        postName: '7-stage2-plan',
       },
       tenantName: 'Linear',
     }) as any,
@@ -469,7 +469,7 @@ test('deriveWorkspaceHeaderState rejects synthetic stage-slug review campaign na
     makeStatus({
       brandWebsiteUrl: 'https://linear.app/',
       reviewBundle: {
-        campaignName: 'linear-app-stage2-plan',
+        postName: 'linear-app-stage2-plan',
       },
       tenantName: 'Linear',
     }) as any,
@@ -480,7 +480,7 @@ test('deriveWorkspaceHeaderState rejects synthetic stage-slug review campaign na
     makeStatus({
       brandWebsiteUrl: 'https://linear.app/',
       reviewBundle: {
-        campaignName: 'linear-app-stage3-plan',
+        postName: 'linear-app-stage3-plan',
       },
       tenantName: 'Linear',
     }) as any,
@@ -492,7 +492,7 @@ test('deriveWorkspaceHeaderState rejects synthetic stage-slug review campaign na
     makeStatus({
       brandWebsiteUrl: 'https://linear.app/',
       reviewBundle: {
-        campaignName: 'Linear Growth Testing Plan',
+        postName: 'Linear Growth Testing Plan',
       },
       tenantName: 'Linear',
     }) as any,

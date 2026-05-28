@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 
-import type { MarketingJobRuntimeDocument, MarketingStage } from './runtime-state';
+import type { SocialContentJobRuntimeDocument, MarketingStage } from './runtime-state';
 import {
   readMarketingStageStepPayload,
   type MarketingArtifactStageNumber,
@@ -12,7 +12,7 @@ type JsonRecord = Record<string, unknown>;
 type MarketingJobFactsDependencies = {
   readJsonAtPath?: (absolutePath: string) => Promise<JsonRecord | null>;
   readStageStepPayload?: (
-    runtimeDoc: MarketingJobRuntimeDocument,
+    runtimeDoc: SocialContentJobRuntimeDocument,
     stage: MarketingArtifactStageNumber,
     stepName: string,
     preferredRunId?: string | null,
@@ -20,7 +20,7 @@ type MarketingJobFactsDependencies = {
 };
 
 export interface MarketingJobFacts {
-  runtimeDoc: MarketingJobRuntimeDocument;
+  runtimeDoc: SocialContentJobRuntimeDocument;
   runId: string | null;
   stagePayload(stage: MarketingStage, stepName: string): Promise<JsonRecord | null>;
   jsonAtPath(absolutePath: string): Promise<JsonRecord | null>;
@@ -53,8 +53,8 @@ async function defaultReadJsonAtPath(absolutePath: string): Promise<JsonRecord |
   }
 }
 
-export function createMarketingJobFacts(
-  runtimeDoc: MarketingJobRuntimeDocument,
+export function createSocialContentJobFacts(
+  runtimeDoc: SocialContentJobRuntimeDocument,
   runId: string | null,
   dependencies: MarketingJobFactsDependencies = {},
 ): MarketingJobFacts {

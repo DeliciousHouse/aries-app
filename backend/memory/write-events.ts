@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import pool from '@/lib/db';
 import type { TenantContext } from '@/lib/tenant-context';
 
-import type { MarketingJobRuntimeDocument } from '@/backend/marketing/runtime-state';
+import type { SocialContentJobRuntimeDocument } from '@/backend/marketing/runtime-state';
 
 import { curateFinding, type CurateOptions } from './curator';
 import { isApprovalDenialReasonCode } from '@/lib/marketing/approval-denial-reason-codes';
@@ -706,7 +706,7 @@ export async function recordPerformanceEvent(
 }
 
 export function scheduleHermesPublishPerformanceHonchoWrite(input: {
-  doc: MarketingJobRuntimeDocument;
+  doc: SocialContentJobRuntimeDocument;
   payloadRecord: Record<string, unknown> | null;
 }): void {
   if (!isHonchoEnabled() || !isHonchoWritePublishEnabled()) return;

@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.13.0 — refactor(social-content): rename campaign → social content / post across Aries codebase
+
+Aligns the entire Aries TypeScript codebase with the PRD terminology: the weekly recurring multi-post job is now "social content job" and each item in it is a "post". The old "campaign" term is preserved only where it refers to the broader multi-week marketing strategy concept, DB column names (`campaign_id`, `campaign_name`), or Hermes wire literals.
+
+### Changed
+- `MarketingDashboardCampaign` → `MarketingDashboardSocialContentJob` (job-level summary type)
+- `MarketingDashboardCampaignContent` → `MarketingDashboardSocialContentJobContent`
+- `MarketingDashboardContent.campaigns[]` → `.socialContentJobs[]`
+- `AppRouteId 'campaigns'` → `'socialContent'`; sidebar nav title updated
+- `listMarketingCampaignsForTenant` → `listSocialContentJobsForTenant`; deleted variant similarly renamed
+- `handleGetMarketingCampaigns` → `handleGetSocialContentPosts` (route handler)
+- Frontend files: `campaign-list`, `campaign-workspace`, `campaign-workspace-state`, `latest-campaign-view`, `campaign-list-presenter`, `campaign-list` view-model → `post-*` equivalents
+- `hooks/use-runtime-campaigns.ts` → `use-runtime-social-content.ts`; `frontend/marketing/brand-campaign.tsx` → `brand-social-content.tsx`
+- API route `app/api/marketing/campaigns/` → `app/api/social-content/posts/` (308 redirect at old path)
+- Route param `[campaignId]` → `[postId]` in `app/dashboard/social-content/` and `app/campaigns/`
+- 9 test files with "campaign" in filename renamed to "post"
+- User-facing copy: "Campaign not found" → "Social content not found"; "Back to campaigns" → "Back to social content"
+
 ## v0.1.12.15 — feat(marketing): DELETE schedule + DELETE post (cascade) endpoints, Calendar Cancel button
 
 First-class cancel/unschedule UX so operators can stop a scheduled post from publishing without dropping to SQL.

@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import type { MarketingExecutionPort, MarketingExecutionResult, MarketingPipelineNextStageInput, MarketingPipelineResumeInput, MarketingPipelineRunInput } from '../../backend/marketing/execution-port';
-import type { MarketingJobRuntimeDocument, MarketingStage } from '../../backend/marketing/runtime-state';
+import type { SocialContentJobRuntimeDocument, MarketingStage } from '../../backend/marketing/runtime-state';
 import { maybeAutoAdvanceNextStage } from '../../backend/marketing/hermes-callbacks';
 
 // ---------------------------------------------------------------------------
@@ -51,7 +51,7 @@ function makeBrandKit() {
   };
 }
 
-function makeDoc(overrides: Partial<MarketingJobRuntimeDocument> = {}): MarketingJobRuntimeDocument {
+function makeDoc(overrides: Partial<SocialContentJobRuntimeDocument> = {}): SocialContentJobRuntimeDocument {
   const ts = new Date().toISOString();
   function stage(s: MarketingStage) {
     return {

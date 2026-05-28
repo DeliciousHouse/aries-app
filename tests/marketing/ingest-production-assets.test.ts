@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { ingestProductionCreativeAssetsToDb } from '../../backend/marketing/ingest-production-assets';
-import type { MarketingJobRuntimeDocument } from '../../backend/marketing/runtime-state';
+import type { SocialContentJobRuntimeDocument } from '../../backend/marketing/runtime-state';
 
 // ---------------------------------------------------------------------------
 // Minimal runtime document factory
@@ -15,7 +15,7 @@ function makeDoc(overrides: {
   jobId?: string;
   tenantId?: string;
   creativeAssets?: unknown[];
-}): MarketingJobRuntimeDocument {
+}): SocialContentJobRuntimeDocument {
   const jobId = overrides.jobId ?? 'mkt_test_job_id';
   const creativeAssets = overrides.creativeAssets ?? [];
   return {
@@ -93,7 +93,7 @@ function makeDoc(overrides: {
     history: [],
     errors: [],
     last_error: null,
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 }
 
 // ---------------------------------------------------------------------------

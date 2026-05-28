@@ -84,7 +84,7 @@ describe('DELETE /api/marketing/jobs/:jobId', () => {
 
   it('soft-deletes a campaign when caller is tenant_admin', async () => {
     const { handleDeleteMarketingJob } = await import('../app/api/marketing/jobs/[jobId]/delete/handler');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
 
     await writeRuntimeDoc('job_admin', { tenant_id: 'tenant_acme', created_by: 'user_other' });
     const response = await handleDeleteMarketingJob('job_admin', async () => ({
@@ -99,7 +99,7 @@ describe('DELETE /api/marketing/jobs/:jobId', () => {
     assert.ok(body.deletedAt);
     assert.equal(body.deletedBy, 'user_admin');
 
-    const doc = await loadMarketingJobRuntime('job_admin');
+    const doc = await loadSocialContentJobRuntime('job_admin');
     assert.ok(doc);
     assert.ok(doc.deleted_at);
     assert.equal(doc.deleted_by, 'user_admin');
@@ -173,7 +173,7 @@ describe('DELETE /api/marketing/jobs/:jobId', () => {
 
   it('is idempotent on repeat delete: preserves the original deleted_at + deleted_by', async () => {
     const { handleDeleteMarketingJob } = await import('../app/api/marketing/jobs/[jobId]/delete/handler');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
 
     await writeRuntimeDoc('job_idempotent', { tenant_id: 'tenant_acme', created_by: null });
 
@@ -205,7 +205,7 @@ describe('DELETE /api/marketing/jobs/:jobId', () => {
     assert.equal(secondBody.deletedAt, originalDeletedAt, 'deleted_at must not be rewritten by a repeat delete');
     assert.equal(secondBody.deletedBy, originalDeletedBy, 'deleted_by must not be rewritten by a repeat delete');
 
-    const doc = await loadMarketingJobRuntime('job_idempotent');
+    const doc = await loadSocialContentJobRuntime('job_idempotent');
     assert.ok(doc);
     assert.equal(doc.deleted_at, originalDeletedAt);
     assert.equal(doc.deleted_by, originalDeletedBy);
@@ -236,7 +236,7 @@ describe('POST /api/marketing/jobs/:jobId/restore', () => {
 
   it('clears deleted_at when the caller has permission', async () => {
     const { handleRestoreMarketingJob } = await import('../app/api/marketing/jobs/[jobId]/delete/handler');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
 
     await writeRuntimeDoc('job_restore', {
       tenant_id: 'tenant_acme',
@@ -253,7 +253,7 @@ describe('POST /api/marketing/jobs/:jobId/restore', () => {
     }));
 
     assert.equal(response.status, 200);
-    const doc = await loadMarketingJobRuntime('job_restore');
+    const doc = await loadSocialContentJobRuntime('job_restore');
     assert.ok(doc);
     assert.equal(doc.deleted_at, null);
     assert.equal(doc.deleted_by, null);
@@ -281,7 +281,7 @@ describe('POST /api/marketing/jobs/:jobId/restore', () => {
 
   it('is idempotent on a live (not-deleted) campaign: returns 200 without mutating state', async () => {
     const { handleRestoreMarketingJob } = await import('../app/api/marketing/jobs/[jobId]/delete/handler');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
 
     await writeRuntimeDoc('job_restore_idempotent', {
       tenant_id: 'tenant_acme',
@@ -297,7 +297,7 @@ describe('POST /api/marketing/jobs/:jobId/restore', () => {
     }));
 
     assert.equal(response.status, 200);
-    const doc = await loadMarketingJobRuntime('job_restore_idempotent');
+    const doc = await loadSocialContentJobRuntime('job_restore_idempotent');
     assert.ok(doc);
     assert.equal(doc.deleted_at, null);
     assert.equal(doc.deleted_by, null);

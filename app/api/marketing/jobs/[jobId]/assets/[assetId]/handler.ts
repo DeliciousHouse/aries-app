@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { findMarketingAsset } from '@/backend/marketing/asset-library';
 import { readMarketingAssetWithinAllowedRoots } from '@/backend/marketing/asset-read';
-import { loadMarketingJobRuntime } from '@/backend/marketing/runtime-state';
+import { loadSocialContentJobRuntime } from '@/backend/marketing/runtime-state';
 import { isMarketingPublicMode } from '@/lib/marketing-public-mode';
 import { resolveDraftRoot } from '@/lib/runtime-paths';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
@@ -12,7 +12,7 @@ import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/ten
 const MARKETING_ONBOARDING_REQUIRED = {
   status: 409,
   reason: 'onboarding_required',
-  message: 'Complete tenant onboarding before viewing brand campaign assets.',
+  message: 'Complete tenant onboarding before viewing brand social content assets.',
 } as const;
 
 const ASSET_NOT_FOUND_BODY = JSON.stringify({
@@ -237,7 +237,7 @@ export async function handleGetMarketingJobAsset(
       : tenantContextLoader;
   const requiresTenantContext = assetId.startsWith('video-') || !isMarketingPublicMode();
 
-  const runtimeDoc = await loadMarketingJobRuntime(jobId);
+  const runtimeDoc = await loadSocialContentJobRuntime(jobId);
   if (!runtimeDoc) {
     return new Response(JSON.stringify({ error: 'Marketing job not found.', reason: 'marketing_job_not_found' }), {
       status: 404,

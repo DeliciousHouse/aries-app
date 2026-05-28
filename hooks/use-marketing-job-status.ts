@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo } from 'react';
 import {
   createMarketingApi,
   isMarketingErrorResult,
-  type GetMarketingJobStatusResponse,
+  type GetSocialContentJobStatusResponse,
   type MarketingResult,
 } from '@/lib/api/marketing';
 import { useRequestState } from './use-request-state';
@@ -23,7 +23,7 @@ export interface LoadMarketingJobStatusOptions {
 
 export function useMarketingJobStatus(options: UseMarketingJobStatusOptions = {}) {
   const api = useMemo(() => createMarketingApi(options), [options.baseUrl, options.jobStatusPath]);
-  const state = useRequestState<MarketingResult<GetMarketingJobStatusResponse>>();
+  const state = useRequestState<MarketingResult<GetSocialContentJobStatusResponse>>();
   const { reset, setError, setLoading, setSuccess } = state;
 
   const load = useCallback(

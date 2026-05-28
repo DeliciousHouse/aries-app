@@ -6,7 +6,7 @@ import { resolveDataPath } from '@/lib/runtime-paths';
 import { repairLegacyMarketingText, repairStaleMarketingOffer } from '@/backend/marketing/brand-kit';
 import { marketingPayloadDefaultsFromBusinessProfile } from '@/backend/tenant/business-profile';
 
-export type MarketingCampaignWorkflowState =
+export type SocialContentWorkflowState =
   | 'draft'
   | 'brand_review_required'
   | 'strategy_review_required'
@@ -31,9 +31,9 @@ export type MarketingReviewStatus =
   | 'changes_requested'
   | 'rejected';
 
-export type CampaignStageReviewEvidenceKind = 'upload_only' | 'real_artifacts';
+export type SocialContentStageReviewEvidenceKind = 'upload_only' | 'real_artifacts';
 
-export type CampaignBriefAssetRecord = {
+export type SocialContentBriefAssetRecord = {
   id: string;
   name: string;
   fileName: string;
@@ -43,7 +43,7 @@ export type CampaignBriefAssetRecord = {
   uploadedAt: string;
 };
 
-export type CampaignBriefRecord = {
+export type SocialContentBriefRecord = {
   websiteUrl: string;
   businessName: string;
   businessType: string;
@@ -58,15 +58,15 @@ export type CampaignBriefRecord = {
   mustUseCopy: string;
   mustAvoidAesthetics: string;
   notes: string;
-  brandAssets: CampaignBriefAssetRecord[];
+  brandAssets: SocialContentBriefAssetRecord[];
 };
 
-export type CampaignStatusHistoryEntry = {
+export type SocialContentStatusHistoryEntry = {
   id: string;
   at: string;
   actor: string;
   type: 'state_changed' | 'stage_review' | 'creative_asset_review' | 'comment';
-  workflowState: MarketingCampaignWorkflowState;
+  workflowState: SocialContentWorkflowState;
   stage?: MarketingReviewStageKey;
   assetId?: string;
   action?: MarketingReviewDecisionAction;
@@ -74,35 +74,35 @@ export type CampaignStatusHistoryEntry = {
   status?: MarketingReviewStatus;
 };
 
-export type CampaignStageReviewState = {
+export type SocialContentStageReviewState = {
   status: MarketingReviewStatus;
   latestNote: string | null;
   updatedAt: string | null;
-  evidenceKind: CampaignStageReviewEvidenceKind | null;
+  evidenceKind: SocialContentStageReviewEvidenceKind | null;
 };
 
-export type CampaignCreativeAssetReviewState = {
+export type SocialContentCreativeAssetReviewState = {
   assetId: string;
   status: MarketingReviewStatus;
   latestNote: string | null;
   updatedAt: string | null;
 };
 
-export type CampaignWorkspaceRecord = {
+export type SocialContentWorkspaceRecord = {
   schema_name: 'marketing_campaign_workspace';
   schema_version: '1.0.0';
   job_id: string;
   tenant_id: string;
-  workflow_state: MarketingCampaignWorkflowState;
-  brief: CampaignBriefRecord;
-  stage_reviews: Record<MarketingReviewStageKey, CampaignStageReviewState>;
-  creative_asset_reviews: Record<string, CampaignCreativeAssetReviewState>;
-  status_history: CampaignStatusHistoryEntry[];
+  workflow_state: SocialContentWorkflowState;
+  brief: SocialContentBriefRecord;
+  stage_reviews: Record<MarketingReviewStageKey, SocialContentStageReviewState>;
+  creative_asset_reviews: Record<string, SocialContentCreativeAssetReviewState>;
+  status_history: SocialContentStatusHistoryEntry[];
   created_at: string;
   updated_at: string;
 };
 
-export type CampaignWorkflowSnapshot = {
+export type SocialContentWorkflowSnapshot = {
   brandWorkflowReady: boolean;
   strategyReviewReady: boolean;
   creativeReviewReady: boolean;
@@ -117,21 +117,21 @@ export type CampaignWorkflowSnapshot = {
   completedSignal: boolean;
 };
 
-export type CampaignWorkflowResolution = {
-  workflowState: MarketingCampaignWorkflowState;
+export type SocialContentWorkflowResolution = {
+  workflowState: SocialContentWorkflowState;
   creativeApprovedCount: number;
   creativePendingCount: number;
   creativeRejectedCount: number;
   publishBlockedReason: string | null;
 };
 
-export type CreateCampaignWorkspaceInput = {
+export type CreateSocialContentWorkspaceInput = {
   jobId: string;
   tenantId: string;
   payload?: Record<string, unknown>;
 };
 
-export type CampaignWorkspaceAssetUpload = {
+export type SocialContentWorkspaceAssetUpload = {
   name: string;
   contentType: string;
   data: Buffer;
@@ -269,7 +269,7 @@ function safeFileName(fileName: string): string {
   return base || 'asset';
 }
 
-function emptyStageReviewState(): CampaignStageReviewState {
+function emptyStageReviewState(): SocialContentStageReviewState {
   return {
     status: 'not_ready',
     latestNote: null,
@@ -278,7 +278,7 @@ function emptyStageReviewState(): CampaignStageReviewState {
   };
 }
 
-function normalizeStageReviewState(value: CampaignStageReviewState | null | undefined): CampaignStageReviewState {
+function normalizeStageReviewState(value: SocialContentStageReviewState | null | undefined): SocialContentStageReviewState {
   return {
     status: value?.status || 'not_ready',
     latestNote: value?.latestNote ?? null,
@@ -287,10 +287,10 @@ function normalizeStageReviewState(value: CampaignStageReviewState | null | unde
   };
 }
 
-function normalizeCampaignBrief(
+function normalizeSocialContentBrief(
   payload: Record<string, unknown> = {},
-  existing?: CampaignBriefRecord,
-): CampaignBriefRecord {
+  existing?: SocialContentBriefRecord,
+): SocialContentBriefRecord {
   return {
     websiteUrl: stringValue(payload.websiteUrl || payload.brandUrl, existing?.websiteUrl || ''),
     businessName: repairLegacyMarketingText(stringValue(payload.businessName, existing?.businessName || '')) || '',
@@ -322,7 +322,7 @@ function normalizeCampaignBrief(
   };
 }
 
-export async function createCampaignWorkspaceRecord(input: CreateCampaignWorkspaceInput): Promise<CampaignWorkspaceRecord> {
+export async function createSocialContentWorkspaceRecord(input: CreateSocialContentWorkspaceInput): Promise<SocialContentWorkspaceRecord> {
   const ts = nowIso();
   const payload = await withBusinessProfileDefaults(input.tenantId, input.payload || {});
   return {
@@ -331,7 +331,7 @@ export async function createCampaignWorkspaceRecord(input: CreateCampaignWorkspa
     job_id: input.jobId,
     tenant_id: input.tenantId,
     workflow_state: 'draft',
-    brief: normalizeCampaignBrief(payload),
+    brief: normalizeSocialContentBrief(payload),
     stage_reviews: {
       brand: emptyStageReviewState(),
       strategy: emptyStageReviewState(),
@@ -353,14 +353,14 @@ export async function createCampaignWorkspaceRecord(input: CreateCampaignWorkspa
   };
 }
 
-export function loadCampaignWorkspaceRecord(jobId: string, tenantId?: string): CampaignWorkspaceRecord | null {
+export function loadSocialContentWorkspaceRecord(jobId: string, tenantId?: string): SocialContentWorkspaceRecord | null {
   const filePath = workspaceStatePath(jobId);
   if (!existsSync(filePath)) {
     return null;
   }
 
   try {
-    const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as CampaignWorkspaceRecord;
+    const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as SocialContentWorkspaceRecord;
     if (!parsed || parsed.schema_name !== 'marketing_campaign_workspace' || parsed.job_id !== jobId) {
       return null;
     }
@@ -377,14 +377,14 @@ export function loadCampaignWorkspaceRecord(jobId: string, tenantId?: string): C
     parsed.stage_reviews.creative = normalizeStageReviewState(parsed.stage_reviews.creative);
     parsed.creative_asset_reviews ||= {};
     parsed.status_history ||= [];
-    parsed.brief = normalizeCampaignBrief(parsed.brief as unknown as Record<string, unknown>, parsed.brief);
+    parsed.brief = normalizeSocialContentBrief(parsed.brief as unknown as Record<string, unknown>, parsed.brief);
     return parsed;
   } catch {
     return null;
   }
 }
 
-export function saveCampaignWorkspaceRecord(record: CampaignWorkspaceRecord): string {
+export function saveSocialContentWorkspaceRecord(record: SocialContentWorkspaceRecord): string {
   const filePath = workspaceStatePath(record.job_id);
   mkdirSync(path.dirname(filePath), { recursive: true });
   record.updated_at = nowIso();
@@ -392,24 +392,24 @@ export function saveCampaignWorkspaceRecord(record: CampaignWorkspaceRecord): st
   return filePath;
 }
 
-export async function ensureCampaignWorkspaceRecord(input: CreateCampaignWorkspaceInput): Promise<CampaignWorkspaceRecord> {
+export async function ensureSocialContentWorkspaceRecord(input: CreateSocialContentWorkspaceInput): Promise<SocialContentWorkspaceRecord> {
   const payload = await withBusinessProfileDefaults(input.tenantId, input.payload || {});
-  const existing = loadCampaignWorkspaceRecord(input.jobId, input.tenantId);
+  const existing = loadSocialContentWorkspaceRecord(input.jobId, input.tenantId);
   if (existing) {
-    existing.brief = normalizeCampaignBrief(payload, existing.brief);
-    saveCampaignWorkspaceRecord(existing);
+    existing.brief = normalizeSocialContentBrief(payload, existing.brief);
+    saveSocialContentWorkspaceRecord(existing);
     return existing;
   }
 
-  const created = await createCampaignWorkspaceRecord({ ...input, payload });
-  saveCampaignWorkspaceRecord(created);
+  const created = await createSocialContentWorkspaceRecord({ ...input, payload });
+  saveSocialContentWorkspaceRecord(created);
   return created;
 }
 
-export function saveCampaignWorkspaceAssets(
-  record: CampaignWorkspaceRecord,
-  uploads: CampaignWorkspaceAssetUpload[],
-): CampaignWorkspaceRecord {
+export function saveSocialContentWorkspaceAssets(
+  record: SocialContentWorkspaceRecord,
+  uploads: SocialContentWorkspaceAssetUpload[],
+): SocialContentWorkspaceRecord {
   if (uploads.length === 0) {
     return record;
   }
@@ -429,25 +429,25 @@ export function saveCampaignWorkspaceAssets(
       filePath,
       size: upload.data.byteLength,
       uploadedAt: nowIso(),
-    } satisfies CampaignBriefAssetRecord;
+    } satisfies SocialContentBriefAssetRecord;
   });
 
   record.brief.brandAssets = [...record.brief.brandAssets, ...assets];
-  appendCampaignHistory(record, {
+  appendSocialContentHistory(record, {
     actor: 'system',
     type: 'comment',
     workflowState: record.workflow_state,
     note: `${assets.length} brand asset${assets.length === 1 ? '' : 's'} uploaded.`,
   });
-  saveCampaignWorkspaceRecord(record);
+  saveSocialContentWorkspaceRecord(record);
   return record;
 }
 
-export function appendCampaignHistory(
-  record: CampaignWorkspaceRecord,
-  entry: Omit<CampaignStatusHistoryEntry, 'id' | 'at'> & { at?: string },
-): CampaignStatusHistoryEntry {
-  const created: CampaignStatusHistoryEntry = {
+export function appendSocialContentHistory(
+  record: SocialContentWorkspaceRecord,
+  entry: Omit<SocialContentStatusHistoryEntry, 'id' | 'at'> & { at?: string },
+): SocialContentStatusHistoryEntry {
+  const created: SocialContentStatusHistoryEntry = {
     id: `hist_${randomUUID()}`,
     at: entry.at || nowIso(),
     actor: entry.actor,
@@ -464,12 +464,12 @@ export function appendCampaignHistory(
 }
 
 export function setStageReviewDecision(
-  record: CampaignWorkspaceRecord,
+  record: SocialContentWorkspaceRecord,
   stage: MarketingReviewStageKey,
   action: MarketingReviewDecisionAction,
   actor: string,
   note?: string,
-): CampaignStageReviewState {
+): SocialContentStageReviewState {
   const nextStatus: MarketingReviewStatus =
     action === 'approve'
       ? 'approved'
@@ -481,7 +481,7 @@ export function setStageReviewDecision(
   state.latestNote = note?.trim() || null;
   state.updatedAt = nowIso();
   record.stage_reviews[stage] = state;
-  appendCampaignHistory(record, {
+  appendSocialContentHistory(record, {
     actor,
     type: 'stage_review',
     workflowState: record.workflow_state,
@@ -494,12 +494,12 @@ export function setStageReviewDecision(
 }
 
 export function setCreativeAssetDecision(
-  record: CampaignWorkspaceRecord,
+  record: SocialContentWorkspaceRecord,
   assetId: string,
   action: MarketingReviewDecisionAction,
   actor: string,
   note?: string,
-): CampaignCreativeAssetReviewState {
+): SocialContentCreativeAssetReviewState {
   const nextStatus: MarketingReviewStatus =
     action === 'approve'
       ? 'approved'
@@ -516,7 +516,7 @@ export function setCreativeAssetDecision(
   state.latestNote = note?.trim() || null;
   state.updatedAt = nowIso();
   record.creative_asset_reviews[assetId] = state;
-  appendCampaignHistory(record, {
+  appendSocialContentHistory(record, {
     actor,
     type: 'creative_asset_review',
     workflowState: record.workflow_state,
@@ -529,7 +529,7 @@ export function setCreativeAssetDecision(
   return state;
 }
 
-function anyRequestedChanges(record: CampaignWorkspaceRecord, creativeAssetIds: string[]): boolean {
+function anyRequestedChanges(record: SocialContentWorkspaceRecord, creativeAssetIds: string[]): boolean {
   if (
     record.stage_reviews.brand.status === 'changes_requested' ||
     record.stage_reviews.brand.status === 'rejected' ||
@@ -547,10 +547,10 @@ function anyRequestedChanges(record: CampaignWorkspaceRecord, creativeAssetIds: 
   });
 }
 
-export function resolveCampaignWorkflowState(
-  record: CampaignWorkspaceRecord,
-  snapshot: CampaignWorkflowSnapshot,
-): CampaignWorkflowResolution {
+export function resolveSocialContentWorkflowState(
+  record: SocialContentWorkspaceRecord,
+  snapshot: SocialContentWorkflowSnapshot,
+): SocialContentWorkflowResolution {
   const creativeStates = snapshot.creativeAssetIds.map((assetId) => record.creative_asset_reviews[assetId]);
   const creativeApprovedCount = creativeStates.filter((state) => state?.status === 'approved').length;
   const creativeRejectedCount = creativeStates.filter(
@@ -562,7 +562,7 @@ export function resolveCampaignWorkflowState(
       ? record.stage_reviews.creative.status === 'approved'
       : creativePendingCount === 0 && creativeRejectedCount === 0;
 
-  let workflowState: MarketingCampaignWorkflowState = 'draft';
+  let workflowState: SocialContentWorkflowState = 'draft';
   let publishBlockedReason: string | null = null;
 
   if (snapshot.publishedSignal) {
@@ -572,7 +572,7 @@ export function resolveCampaignWorkflowState(
     publishBlockedReason = 'Revisions were requested and must be resolved before publishing.';
   } else if (snapshot.brandWorkflowReady && record.stage_reviews.brand.status !== 'approved') {
     workflowState = 'brand_review_required';
-    publishBlockedReason = 'Brand review must be approved before the campaign can move forward.';
+    publishBlockedReason = 'Brand review must be approved before the social content job can move forward.';
   } else if (snapshot.strategyReviewReady && record.stage_reviews.strategy.status !== 'approved') {
     workflowState = 'strategy_review_required';
     publishBlockedReason = 'Strategy review must be approved before creative can move forward.';
@@ -593,7 +593,7 @@ export function resolveCampaignWorkflowState(
     // Distinguish from `draft` so the operator can see the run is dead, not
     // still in progress.
     workflowState = 'completed_no_content';
-    publishBlockedReason = 'Pipeline completed but produced no publishable content. Start a new campaign or investigate the run.';
+    publishBlockedReason = 'Pipeline completed but produced no publishable content. Start a new social content job or investigate the run.';
   }
 
   if (workflowState === 'approved' && !snapshot.publishReadySignal) {
@@ -609,14 +609,14 @@ export function resolveCampaignWorkflowState(
   };
 }
 
-export function syncCampaignWorkflowState(
-  record: CampaignWorkspaceRecord,
-  snapshot: CampaignWorkflowSnapshot,
-): CampaignWorkflowResolution {
-  const resolution = resolveCampaignWorkflowState(record, snapshot);
+export function syncSocialContentWorkflowState(
+  record: SocialContentWorkspaceRecord,
+  snapshot: SocialContentWorkflowSnapshot,
+): SocialContentWorkflowResolution {
+  const resolution = resolveSocialContentWorkflowState(record, snapshot);
   if (record.workflow_state !== resolution.workflowState) {
     record.workflow_state = resolution.workflowState;
-    appendCampaignHistory(record, {
+    appendSocialContentHistory(record, {
       actor: 'system',
       type: 'state_changed',
       workflowState: resolution.workflowState,
@@ -624,6 +624,6 @@ export function syncCampaignWorkflowState(
       status: 'approved',
     });
   }
-  saveCampaignWorkspaceRecord(record);
+  saveSocialContentWorkspaceRecord(record);
   return resolution;
 }

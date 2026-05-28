@@ -141,11 +141,11 @@ function saveRuntimeIncidentLog(log: RuntimeIncidentLog) {
 export function recordMarketingFailureRuntimeIncident(input: MarketingFailureInput) {
   try {
     const ts = nowIso();
-    const rawMessage = normalizeWhitespace(input.error.message) || `Campaign workflow failed during ${input.error.stage || input.currentStage || 'unknown'} stage.`;
+    const rawMessage = normalizeWhitespace(input.error.message) || `Social content workflow failed during ${input.error.stage || input.currentStage || 'unknown'} stage.`;
     const errorStage = normalizeWhitespace(input.error.stage) || normalizeWhitespace(input.currentStage) || 'unknown';
     const errorCode = normalizeWhitespace(input.error.code) || 'marketing_job_failed';
     const fingerprint = createFingerprint(input.jobId, errorStage, errorCode, rawMessage);
-    const errorMessage = `Campaign job ${input.jobId} failed in ${errorStage}: ${rawMessage}`;
+    const errorMessage = `Social content job ${input.jobId} failed in ${errorStage}: ${rawMessage}`;
     const details = truncate(
       JSON.stringify(
         {
@@ -172,7 +172,7 @@ export function recordMarketingFailureRuntimeIncident(input: MarketingFailureInp
     const existing = log.items.find((item) => item.fingerprint === fingerprint);
 
     if (existing) {
-      existing.title = 'Marketing campaign workflow failed';
+      existing.title = 'Social content workflow failed';
       existing.severity = errorStage === 'publish' ? 'medium' : 'high';
       existing.source = MARKETING_JOB_FAILURE_SOURCE;
       existing.errorMessage = errorMessage;
@@ -181,7 +181,7 @@ export function recordMarketingFailureRuntimeIncident(input: MarketingFailureInp
       existing.repairHints = [
         `Inspect marketing runtime file ${input.runtimePath} and the workflow/artifact path that failed for job ${input.jobId}.`,
         'Prefer the smallest safe fix in the failing marketing stage or workflow contract, then rerun the intake scan to verify the incident clears.',
-        'If the code fix lands but the job remains failed, rerun or resume the affected campaign workflow so the runtime state no longer reports failed.',
+        'If the code fix lands but the job remains failed, rerun or resume the affected social content job so the runtime state no longer reports failed.',
       ];
       existing.marketingJobId = input.jobId;
       existing.tenantId = input.tenantId || null;
@@ -207,7 +207,7 @@ export function recordMarketingFailureRuntimeIncident(input: MarketingFailureInp
       log.items.push({
         incidentId: createIncidentId(fingerprint),
         fingerprint,
-        title: 'Marketing campaign workflow failed',
+        title: 'Social content workflow failed',
         service: 'aries-app',
         environment: 'repo',
         severity: errorStage === 'publish' ? 'medium' : 'high',
@@ -218,7 +218,7 @@ export function recordMarketingFailureRuntimeIncident(input: MarketingFailureInp
         repairHints: [
           `Inspect marketing runtime file ${input.runtimePath} and the workflow/artifact path that failed for job ${input.jobId}.`,
           'Prefer the smallest safe fix in the failing marketing stage or workflow contract, then rerun the intake scan to verify the incident clears.',
-          'If the code fix lands but the job remains failed, rerun or resume the affected campaign workflow so the runtime state no longer reports failed.',
+          'If the code fix lands but the job remains failed, rerun or resume the affected social content job so the runtime state no longer reports failed.',
         ],
         marketingJobId: input.jobId,
         tenantId: input.tenantId || null,

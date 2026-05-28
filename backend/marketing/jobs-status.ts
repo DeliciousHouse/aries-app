@@ -5,14 +5,14 @@ import { resolveCodePath } from '@/lib/runtime-paths';
 
 import {
   assertMarketingRuntimeSchemas,
-  loadMarketingJobRuntime,
+  loadSocialContentJobRuntime,
   responseStageStatus,
-  type MarketingJobRuntimeDocument,
+  type SocialContentJobRuntimeDocument,
   type MarketingStage,
   type MarketingStageError,
 } from './runtime-state';
 import { buildMarketingAssetLinks, marketingAssetUrl, type MarketingAssetLink } from './asset-library';
-import { createMarketingJobFacts, type MarketingJobFacts } from './job-facts';
+import { createSocialContentJobFacts, type MarketingJobFacts } from './job-facts';
 import { resolvePublishReviewBundle } from './publish-review';
 import {
   canonicalizePublishReviewPlatformSlug,
@@ -109,7 +109,7 @@ export type MarketingReviewPreviewCard = {
 export type MarketingReviewBundle = {
   stage: MarketingStage;
   title: string;
-  campaignName: string;
+  postName: string;
   generatedAt: string | null;
   approvalMessage: string;
   summary: string;
@@ -138,7 +138,7 @@ export type MarketingSummary = {
   subheadline: string;
 };
 
-export type MarketingCampaignWindow = {
+export type SocialContentWindow = {
   start: string | null;
   end: string | null;
 };
@@ -179,12 +179,12 @@ export type SocialContentCalendarEvent = {
   assetPreviewId: string | null;
 };
 
-export type MarketingJobStatusResponse = {
+export type SocialContentJobStatusResponse = {
   jobId: string;
   tenantId: string | null;
   tenantName: string | null;
   brandWebsiteUrl: string | null;
-  campaignWindow: MarketingCampaignWindow | null;
+  postWindow: SocialContentWindow | null;
   durationDays: number | null;
   plannedPostCount: number | null;
   createdPostCount: number | null;
@@ -215,21 +215,21 @@ export type MarketingJobStatusResponse = {
 };
 
 type CacheEntry = {
-  payload: MarketingJobStatusResponse;
+  payload: SocialContentJobStatusResponse;
   expiresAt: number;
 };
 
 type MarketingJobStatusBuilder = (
   tenantId: string,
   jobId: string,
-) => MarketingJobStatusResponse | Promise<MarketingJobStatusResponse>;
+) => SocialContentJobStatusResponse | Promise<SocialContentJobStatusResponse>;
 
 export type MarketingJobStatusCacheState = 'hit' | 'miss' | 'inflight';
 
 const STATUS_CACHE_TTL_MS = 10_000;
 const STATUS_CACHE_MAX = 1_000;
 const statusCache = new Map<string, CacheEntry>();
-const inflight = new Map<string, Promise<MarketingJobStatusResponse>>();
+const inflight = new Map<string, Promise<SocialContentJobStatusResponse>>();
 
 let marketingJobStatusBuilder: MarketingJobStatusBuilder = (_tenantId, jobId) => buildMarketingJobStatus(jobId);
 
@@ -241,7 +241,7 @@ export async function getMarketingJobStatusCached(
   tenantId: string,
   jobId: string,
   now: number = Date.now(),
-): Promise<{ payload: MarketingJobStatusResponse; cacheStatus: MarketingJobStatusCacheState }> {
+): Promise<{ payload: SocialContentJobStatusResponse; cacheStatus: MarketingJobStatusCacheState }> {
   const key = statusCacheKey(tenantId, jobId);
   const cached = statusCache.get(key);
   if (cached && cached.expiresAt > now) {
@@ -254,7 +254,7 @@ export async function getMarketingJobStatusCached(
   }
 
   const startedAt = Date.now();
-  const promise = new Promise<MarketingJobStatusResponse>((resolve, reject) => {
+  const promise = new Promise<SocialContentJobStatusResponse>((resolve, reject) => {
     setImmediate(() => {
       Promise.resolve(marketingJobStatusBuilder(tenantId, jobId))
         .then((payload) => {
@@ -310,15 +310,15 @@ export function getMarketingJobStatusCacheSizeForTests(): number {
 // trigger the weekly calendar snapshot path (and thus the today+N window).
 // one_off_campaign docs must return false so their authoritative campaignEndDate
 // is not overridden by the synthetic weekly window.
-export function isWeeklySnapshotPathForTests(doc: MarketingJobRuntimeDocument): boolean {
+export function isWeeklySnapshotPathForTests(doc: SocialContentJobRuntimeDocument): boolean {
   return requestedJobTypeFromDoc(doc) === 'weekly_social_content' && doc.job_type !== 'one_off_campaign';
 }
 
 // Exposed for regression tests. Builds the campaign window shape for a
 // one_off_campaign doc the same way buildCampaignWindow does, without requiring
 // a database connection.
-export function buildOneOffCampaignWindowForTests(
-  doc: MarketingJobRuntimeDocument,
+export function buildOneOffWindowForTests(
+  doc: SocialContentJobRuntimeDocument,
 ): { start: string | null; end: string } | null {
   if (doc.job_type !== 'one_off_campaign') return null;
   const request = recordValue(doc.inputs?.request);
@@ -482,7 +482,7 @@ function reviewPreviewDisplayTitle(platformName: string, preview: Record<string,
 }
 
 function deriveState(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   stageStatus: Record<string, string>
 ): { state: string; status: string; currentStage: string | null; nextStep: string; repairStatus: string; needsAttention: boolean } {
   if (runtimeDoc.status === 'completed' || stageStatus.publish === 'completed') {
@@ -539,7 +539,7 @@ function deriveState(
   };
 }
 
-function isApproveStage2Checkpoint(runtimeDoc: MarketingJobRuntimeDocument): boolean {
+function isApproveStage2Checkpoint(runtimeDoc: SocialContentJobRuntimeDocument): boolean {
   return runtimeDoc.approvals.current?.workflow_step_id === 'approve_stage_2';
 }
 
@@ -557,13 +557,13 @@ function approvalReviewHref(jobId: string): string {
 }
 
 function buildSummary(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   state: ReturnType<typeof deriveState>
 ): MarketingSummary {
   if (state.status === 'completed') {
     return {
-      headline: 'Campaign outputs are ready',
-      subheadline: 'Launch packages, review artifacts, and delivery summaries are available for the current campaign.',
+      headline: 'Social content outputs are ready',
+      subheadline: 'Launch packages, review artifacts, and delivery summaries are available for the current social content job.',
     };
   }
 
@@ -591,19 +591,19 @@ function buildSummary(
       };
     }
     return {
-      headline: 'Campaign needs operator attention',
+      headline: 'Social content needs operator attention',
       subheadline: 'The pipeline reported a failure or blocked state. Review the latest artifacts and next action before retrying.',
     };
   }
 
   return {
-    headline: 'Campaign is in progress',
+    headline: 'Social content job is in progress',
     subheadline: 'Aries is still collecting workflow signals from the marketing pipeline. Refresh to see the latest stage progress.',
   };
 }
 
 function buildProductionContractHighlightFallback(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   productionStageStatus: string,
 ): string | undefined {
   if (productionStageStatus !== 'in_progress' && productionStageStatus !== 'awaiting_approval') {
@@ -693,7 +693,7 @@ export function defaultStageSummary(
       case 'research':
         return 'Competitive research completed.';
       case 'strategy':
-        return 'Campaign strategy is ready.';
+        return 'Social content strategy is ready.';
       case 'production':
         return 'Production assets are ready.';
       case 'publish':
@@ -708,7 +708,7 @@ export function defaultStageSummary(
 }
 
 function buildStageCards(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   stageStatus: Record<string, string>
 ): MarketingStageCard[] {
   const firstBrandAnalysisGate = isApproveStage2Checkpoint(runtimeDoc);
@@ -762,7 +762,7 @@ function buildStageCards(
 
 function buildApproval(
   jobId: string,
-  runtimeDoc: MarketingJobRuntimeDocument
+  runtimeDoc: SocialContentJobRuntimeDocument
 ): MarketingApprovalSummary | null {
   const approval = runtimeDoc.approvals.current;
   if (!approval) {
@@ -790,12 +790,12 @@ function withDetails(...details: Array<string | null | undefined>): string[] {
 }
 
 function buildArtifacts(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   approval: MarketingApprovalSummary | null
 ): MarketingArtifactCard[] {
   const firstCheckpointCopy = firstBrandAnalysisCheckpointCopy();
   const isVideoArtifact = (
-    entry: MarketingJobRuntimeDocument['stages'][MarketingStage]['artifacts'][number],
+    entry: SocialContentJobRuntimeDocument['stages'][MarketingStage]['artifacts'][number],
   ): entry is Extract<typeof entry, { type: 'video' }> => 'type' in entry && entry.type === 'video';
 
   return Object.values(runtimeDoc.stages)
@@ -844,7 +844,7 @@ function buildArtifacts(
 }
 
 function buildTimeline(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   state: ReturnType<typeof deriveState>
 ): MarketingTimelineEntry[] {
   const timeline: MarketingTimelineEntry[] = [];
@@ -855,7 +855,7 @@ function buildTimeline(
       id: 'accepted',
       at: runtimeDoc.created_at,
       tone: 'info',
-      label: 'Campaign accepted',
+      label: 'Social content accepted',
       description: 'Aries created the marketing job and started the Hermes pipeline.',
     });
   }
@@ -931,7 +931,7 @@ function buildTimeline(
 }
 
 async function buildReviewBundle(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   facts: MarketingJobFacts,
 ): Promise<MarketingReviewBundle | null> {
   const jobId = runtimeDoc.job_id;
@@ -952,7 +952,7 @@ async function buildReviewBundle(
   return {
     stage: 'publish',
     title: 'Pre-approval launch review',
-    campaignName: stringValue(reviewBundle.campaign_name, stringValue(review?.campaign_name)),
+    postName: stringValue(reviewBundle.campaign_name, stringValue(review?.campaign_name)),
     generatedAt: stringValue(review?.generated_at) || null,
     approvalMessage:
       normalizeArtifactText(stringValue(reviewBundle.approval_message)) ||
@@ -1074,26 +1074,26 @@ async function buildReviewBundle(
 }
 
 function isVideoArtifact(
-  artifact: MarketingJobRuntimeDocument['stages'][MarketingStage]['artifacts'][number],
-): artifact is Extract<MarketingJobRuntimeDocument['stages'][MarketingStage]['artifacts'][number], { type: 'video' }> {
+  artifact: SocialContentJobRuntimeDocument['stages'][MarketingStage]['artifacts'][number],
+): artifact is Extract<SocialContentJobRuntimeDocument['stages'][MarketingStage]['artifacts'][number], { type: 'video' }> {
   return 'type' in artifact && artifact.type === 'video';
 }
 
 function renderedVideoLabel(
   platformName: string,
-  artifact: Extract<MarketingJobRuntimeDocument['stages'][MarketingStage]['artifacts'][number], { type: 'video' }>,
+  artifact: Extract<SocialContentJobRuntimeDocument['stages'][MarketingStage]['artifacts'][number], { type: 'video' }>,
 ): string {
   const [, familyDisplay = artifact.familyId] = artifact.title.split(' — ');
   return `${platformName} video — ${familyDisplay}`;
 }
 
 function resolveRenderedVideoAssetLink(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   platformSlug: string,
   explicitAssetId: string | null,
   platformName: string,
 ): MarketingAssetLink | null {
-  let matchingArtifact: Extract<MarketingJobRuntimeDocument['stages'][MarketingStage]['artifacts'][number], { type: 'video' }> | null = null;
+  let matchingArtifact: Extract<SocialContentJobRuntimeDocument['stages'][MarketingStage]['artifacts'][number], { type: 'video' }> | null = null;
   for (const artifact of runtimeDoc.stages.production.artifacts) {
     if (!isVideoArtifact(artifact)) {
       continue;
@@ -1145,20 +1145,20 @@ function fallbackPlatformMediaAssets(assetLinks: MarketingAssetLink[], platformS
 }
 
 async function rawPublishReviewBundle(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   facts: MarketingJobFacts,
 ): Promise<Record<string, unknown> | null> {
   return (await resolvePublishReviewBundle(runtimeDoc, facts)).reviewBundle;
 }
 
 async function publishReviewSource(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   facts: MarketingJobFacts,
 ): Promise<'runtime' | 'merged_runtime_artifacts' | 'artifact_fallback' | 'none'> {
   return (await resolvePublishReviewBundle(runtimeDoc, facts)).source;
 }
 
-function requestedJobTypeFromDoc(_doc: MarketingJobRuntimeDocument): 'weekly_social_content' {
+function requestedJobTypeFromDoc(_doc: SocialContentJobRuntimeDocument): 'weekly_social_content' {
   return 'weekly_social_content';
 }
 
@@ -1184,11 +1184,11 @@ type WeeklyScopeConfig = {
   channels: string[];
 };
 
-function socialWeeklyScopeConfig(runtimeDoc: MarketingJobRuntimeDocument): WeeklyScopeConfig {
+function socialWeeklyScopeConfig(runtimeDoc: SocialContentJobRuntimeDocument): WeeklyScopeConfig {
   const request = recordValue(runtimeDoc.inputs.request) ?? {};
   const scope = recordValue(request.scope) ?? {};
   const windowDays = clampWeeklyWindowDays(
-    request.campaignWindowDays ?? request.windowDays ?? scope.window_days ?? SOCIAL_CONTENT_DEFAULT_SCOPE.window_days,
+    request.postWindowDays ?? request.windowDays ?? scope.window_days ?? SOCIAL_CONTENT_DEFAULT_SCOPE.window_days,
   );
   const staticPostCount =
     parsePositiveInteger(request.staticPostCount ?? scope.static_post_count) ??
@@ -1254,7 +1254,7 @@ function evenlySpacedDayIndexes(count: number, windowDays: number): number[] {
   return slots;
 }
 
-function weeklyWindowStart(runtimeDoc: MarketingJobRuntimeDocument): Date {
+function weeklyWindowStart(runtimeDoc: SocialContentJobRuntimeDocument): Date {
   const seed = Date.parse(runtimeDoc.created_at);
   const source = Number.isFinite(seed) ? new Date(seed) : new Date();
   return new Date(Date.UTC(source.getUTCFullYear(), source.getUTCMonth(), source.getUTCDate()));
@@ -1292,7 +1292,7 @@ function hasSocialProjectionData(value: SocialContentWorkflowProjection): boolea
   );
 }
 
-function latestSocialProjection(runtimeDoc: MarketingJobRuntimeDocument): SocialContentWorkflowProjection | null {
+function latestSocialProjection(runtimeDoc: SocialContentJobRuntimeDocument): SocialContentWorkflowProjection | null {
   const runtime = readSocialContentRuntimeState(runtimeDoc);
   if (!runtime) {
     return null;
@@ -1309,14 +1309,14 @@ function latestSocialProjection(runtimeDoc: MarketingJobRuntimeDocument): Social
 }
 
 type WeeklyCalendarSnapshot = {
-  campaignWindow: MarketingCampaignWindow;
+  postWindow: SocialContentWindow;
   durationDays: number;
   calendarEvents: SocialContentCalendarEvent[];
   plannedPostCount: number;
   createdPostCount: number;
 };
 
-function buildWeeklyCalendarSnapshot(runtimeDoc: MarketingJobRuntimeDocument): WeeklyCalendarSnapshot {
+function buildWeeklyCalendarSnapshot(runtimeDoc: SocialContentJobRuntimeDocument): WeeklyCalendarSnapshot {
   const scope = socialWeeklyScopeConfig(runtimeDoc);
   const projection = latestSocialProjection(runtimeDoc);
   const windowStart = weeklyWindowStart(runtimeDoc);
@@ -1471,7 +1471,7 @@ function buildWeeklyCalendarSnapshot(runtimeDoc: MarketingJobRuntimeDocument): W
   }).length;
 
   return {
-    campaignWindow: {
+    postWindow: {
       start: windowStart.toISOString(),
       end: windowEnd.toISOString(),
     },
@@ -1483,11 +1483,11 @@ function buildWeeklyCalendarSnapshot(runtimeDoc: MarketingJobRuntimeDocument): W
 }
 
 async function buildCampaignWindow(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   facts: MarketingJobFacts,
-): Promise<MarketingCampaignWindow | null> {
+): Promise<SocialContentWindow | null> {
   // One-off campaigns carry an authoritative end date (campaign_end_date, the
-  // value the worker filters on). Surface it on MarketingCampaignWindow.end so
+  // value the worker filters on). Surface it on SocialContentWindow.end so
   // the dashboard renders "Stops publishing on <date>" via the existing
   // formatDateRange path -- no new dashboard UI needed.
   if (runtimeDoc.job_type === 'one_off_campaign') {
@@ -1505,10 +1505,10 @@ async function buildCampaignWindow(
 
   const reviewBundle = await rawPublishReviewBundle(runtimeDoc, facts);
   const summary = recordValue(reviewBundle?.summary);
-  const campaignWindow = recordValue(summary?.campaign_window);
+  const postWindow = recordValue(summary?.campaign_window);
 
-  const start = stringValue(campaignWindow?.start) || null;
-  const end = stringValue(campaignWindow?.end) || null;
+  const start = stringValue(postWindow?.start) || null;
+  const end = stringValue(postWindow?.end) || null;
   if (!start && !end) {
     return null;
   }
@@ -1516,7 +1516,7 @@ async function buildCampaignWindow(
   return { start, end };
 }
 
-function buildDurationDays(window: MarketingCampaignWindow | null): number | null {
+function buildDurationDays(window: SocialContentWindow | null): number | null {
   if (!window?.start || !window.end) {
     return null;
   }
@@ -1549,7 +1549,7 @@ function buildAssetPreviewCards(jobId: string, reviewBundle: MarketingReviewBund
 }
 
 async function buildCalendarEvents(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   facts: MarketingJobFacts,
 ): Promise<MarketingCalendarEvent[]> {
   const reviewBundle = await rawPublishReviewBundle(runtimeDoc, facts);
@@ -1577,7 +1577,7 @@ async function buildCalendarEvents(
 }
 
 async function buildPostCounts(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   facts: MarketingJobFacts,
   reviewBundle: MarketingReviewBundle | null,
   calendarEvents: MarketingCalendarEvent[]
@@ -1600,17 +1600,17 @@ async function buildPostCounts(
   };
 }
 
-async function buildMarketingJobStatus(jobId: string): Promise<MarketingJobStatusResponse> {
+async function buildMarketingJobStatus(jobId: string): Promise<SocialContentJobStatusResponse> {
   await assertMarketingRuntimeSchemas();
 
-  const runtimeDoc = await loadMarketingJobRuntime(jobId);
+  const runtimeDoc = await loadSocialContentJobRuntime(jobId);
   if (!runtimeDoc) {
     return {
       jobId,
       tenantId: null,
       tenantName: null,
       brandWebsiteUrl: null,
-      campaignWindow: null,
+      postWindow: null,
       durationDays: null,
       plannedPostCount: null,
       createdPostCount: null,
@@ -1642,7 +1642,7 @@ async function buildMarketingJobStatus(jobId: string): Promise<MarketingJobStatu
     };
   }
 
-  const facts = createMarketingJobFacts(runtimeDoc, null);
+  const facts = createSocialContentJobFacts(runtimeDoc, null);
   const stageStatus: Record<string, string> = {
     research: responseStageStatus(runtimeDoc.stages.research),
     strategy: responseStageStatus(runtimeDoc.stages.strategy),
@@ -1661,8 +1661,8 @@ async function buildMarketingJobStatus(jobId: string): Promise<MarketingJobStatu
   const isWeeklySocialContent = requestedJobTypeFromDoc(runtimeDoc) === 'weekly_social_content'
     && runtimeDoc.job_type !== 'one_off_campaign';
   const weeklySnapshot = isWeeklySocialContent ? buildWeeklyCalendarSnapshot(runtimeDoc) : null;
-  const campaignWindow = weeklySnapshot?.campaignWindow ?? (await buildCampaignWindow(runtimeDoc, facts));
-  const durationDays = weeklySnapshot?.durationDays ?? buildDurationDays(campaignWindow);
+  const postWindow = weeklySnapshot?.postWindow ?? (await buildCampaignWindow(runtimeDoc, facts));
+  const durationDays = weeklySnapshot?.durationDays ?? buildDurationDays(postWindow);
   const calendarEvents = weeklySnapshot?.calendarEvents ?? (await buildCalendarEvents(runtimeDoc, facts));
   const postCounts = weeklySnapshot
     ? {
@@ -1688,7 +1688,7 @@ async function buildMarketingJobStatus(jobId: string): Promise<MarketingJobStatu
     tenantId: runtimeDoc.tenant_id,
     tenantName: validatedProfile.brandName || runtimeDoc.brand_kit?.brand_name || null,
     brandWebsiteUrl: validatedProfile.websiteUrl || runtimeDoc.brand_kit?.source_url || runtimeDoc.inputs.brand_url || null,
-    campaignWindow,
+    postWindow,
     durationDays,
     plannedPostCount: postCounts.plannedPostCount,
     createdPostCount: postCounts.createdPostCount,
@@ -1719,6 +1719,6 @@ async function buildMarketingJobStatus(jobId: string): Promise<MarketingJobStatu
   };
 }
 
-export async function getMarketingJobStatus(jobId: string): Promise<MarketingJobStatusResponse> {
+export async function getMarketingJobStatus(jobId: string): Promise<SocialContentJobStatusResponse> {
   return buildMarketingJobStatus(jobId);
 }

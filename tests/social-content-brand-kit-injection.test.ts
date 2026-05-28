@@ -10,7 +10,7 @@ import {
   ensureFreshBrandKitForWeeklyRun,
 } from '@/backend/social-content/workflow-request';
 import { HermesMarketingPort } from '@/backend/marketing/ports/hermes';
-import type { MarketingJobRuntimeDocument } from '@/backend/marketing/runtime-state';
+import type { SocialContentJobRuntimeDocument } from '@/backend/marketing/runtime-state';
 
 type WithRuntimeEnv = <T>(run: (dataRoot: string) => Promise<T>) => Promise<T>;
 
@@ -57,7 +57,7 @@ function fullyPopulatedBrandKit() {
   };
 }
 
-function fullyPopulatedDoc(): MarketingJobRuntimeDocument {
+function fullyPopulatedDoc(): SocialContentJobRuntimeDocument {
   return {
     tenant_id: 'tenant_full',
     job_id: 'mkt_full',
@@ -78,7 +78,7 @@ function fullyPopulatedDoc(): MarketingJobRuntimeDocument {
       },
     },
     brand_kit: fullyPopulatedBrandKit(),
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 }
 
 test('weekly payload includes logo_urls, colors, fonts from brand kit', () => {
@@ -176,7 +176,7 @@ test('weekly payload tolerates brand_kit with only brand_name', () => {
     brand_kit: {
       brand_name: 'Brand Minimal',
     },
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 
   const request = buildSocialContentWeeklyRequest({
     doc,
@@ -253,7 +253,7 @@ test('ensureFreshBrandKitForWeeklyRun reuses persisted fresh kit and updates doc
         request: { jobType: 'weekly_social_content' },
       },
       brand_kit: null,
-    } as unknown as MarketingJobRuntimeDocument;
+    } as unknown as SocialContentJobRuntimeDocument;
 
     let fetchCalls = 0;
     const result = await ensureFreshBrandKitForWeeklyRun({
@@ -339,7 +339,7 @@ test('ensureFreshBrandKitForWeeklyRun re-extracts when persisted kit is stale', 
         request: { jobType: 'weekly_social_content' },
       },
       brand_kit: null,
-    } as unknown as MarketingJobRuntimeDocument;
+    } as unknown as SocialContentJobRuntimeDocument;
 
     const result = await ensureFreshBrandKitForWeeklyRun({ doc, fetchImpl });
 
@@ -362,7 +362,7 @@ test('ensureFreshBrandKitForWeeklyRun throws needs_brand_kit when brand_url is m
       request: { jobType: 'weekly_social_content' },
     },
     brand_kit: null,
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 
   await assert.rejects(
     () => ensureFreshBrandKitForWeeklyRun({ doc }),
@@ -381,7 +381,7 @@ test('ensureFreshBrandKitForWeeklyRun throws needs_brand_kit when extraction fai
         request: { jobType: 'weekly_social_content' },
       },
       brand_kit: null,
-    } as unknown as MarketingJobRuntimeDocument;
+    } as unknown as SocialContentJobRuntimeDocument;
 
     await assert.rejects(
       () => ensureFreshBrandKitForWeeklyRun({ doc, fetchImpl: failingFetch }),
@@ -413,7 +413,7 @@ test('HermesMarketingPort surfaces needs_brand_kit when refresher rejects with t
       request: { jobType: 'weekly_social_content' },
     },
     brand_kit: null,
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 
   const result = await port.runPipeline({
     jobId: 'mkt_fail',
@@ -470,7 +470,7 @@ test('ensureFreshBrandKitForWeeklyRun returns {refreshed: true, enriched: true} 
         job_id: 'mkt_enrich_28',
         inputs: { brand_url: 'https://acme.example.com' },
         brand_kit: null,
-      } as unknown as MarketingJobRuntimeDocument;
+      } as unknown as SocialContentJobRuntimeDocument;
 
       const result = await ensureFreshBrandKitForWeeklyRun({ doc, fetchImpl: mockFetch });
       assert.equal(result.refreshed, true, 'should be refreshed on first scrape');
@@ -505,7 +505,7 @@ test('ensureFreshBrandKitForWeeklyRun returns {enriched: false} when enrichment 
         job_id: 'mkt_no_enrich_29',
         inputs: { brand_url: 'https://acme.example.com' },
         brand_kit: null,
-      } as unknown as MarketingJobRuntimeDocument;
+      } as unknown as SocialContentJobRuntimeDocument;
 
       const result = await ensureFreshBrandKitForWeeklyRun({ doc, fetchImpl: mockFetch });
       assert.equal(result.enriched, false, 'enriched should be false when disabled');

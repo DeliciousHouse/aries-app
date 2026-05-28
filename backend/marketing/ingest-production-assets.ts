@@ -23,12 +23,12 @@ import crypto from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { MarketingJobRuntimeDocument } from './runtime-state';
+import type { SocialContentJobRuntimeDocument } from './runtime-state';
 
 export interface IngestProductionAssetsArgs {
   jobId: string;
   tenantId: number;
-  doc: MarketingJobRuntimeDocument;
+  doc: SocialContentJobRuntimeDocument;
   pool: { query(sql: string, params?: unknown[]): Promise<{ rows: unknown[]; rowCount?: number | null }> };
 }
 

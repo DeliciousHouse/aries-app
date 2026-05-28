@@ -14,7 +14,7 @@ import {
   type VisionQABrandKitInput,
   type VisionQAClient,
 } from '@/backend/creative-memory/vision-qa';
-import { loadMarketingJobRuntime } from '@/backend/marketing/runtime-state';
+import { loadSocialContentJobRuntime } from '@/backend/marketing/runtime-state';
 import pool from '@/lib/db';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
@@ -184,7 +184,7 @@ export async function handleSocialContentUploadReplace(
     loadJobTenant:
       options.deps?.loadJobTenant ??
       (async (id) => {
-        const doc = await loadMarketingJobRuntime(id);
+        const doc = await loadSocialContentJobRuntime(id);
         return doc?.tenant_id ?? null;
       }),
     now: options.deps?.now,

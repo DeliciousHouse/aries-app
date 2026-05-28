@@ -1,9 +1,9 @@
 import { requestJson, requestJsonWithRetry, type ApiClientOptions } from './http';
 import type {
-  MarketingCampaignStatusHistoryEntry,
+  SocialContentStatusHistoryEntry,
   MarketingDashboardAsset,
   MarketingDashboardCalendarEvent,
-  MarketingDashboardCampaignContent,
+  MarketingDashboardSocialContentJobContent,
   MarketingDashboardContent,
   MarketingDashboardItemStatus,
   MarketingDashboardPost,
@@ -16,7 +16,7 @@ import type {
 } from './marketing';
 import type { TenantUserProfile } from '@/backend/tenant/user-profiles';
 
-export type AriesCampaignStatus =
+export type AriesPostStatus =
   | 'draft'
   | 'in_review'
   | 'approved'
@@ -31,20 +31,20 @@ export type AriesCampaignStatus =
  * job from a terminal one that happens to carry a `draft` workflow status.
  * Terminal states: 'completed' | 'failed' | 'failed_stale'.
  */
-export type RuntimeCampaignExecutionState = string;
+export type RuntimePostExecutionState = string;
 
-export type RuntimeCampaignListItem = {
+export type RuntimePostListItem = {
   id: string;
   jobId: string;
   name: string;
   objective: string;
   funnelStage: string | null;
-  status: AriesCampaignStatus;
+  status: AriesPostStatus;
   dashboardStatus: AriesItemStatus;
   /** Raw execution state from the marketing job runtime doc (e.g. 'running',
    * 'failed', 'completed'). Use this to distinguish a live in-flight run from
    * a terminal run that still shows a `draft` workflow status. */
-  executionState: RuntimeCampaignExecutionState;
+  executionState: RuntimePostExecutionState;
   stageLabel: string;
   summary: string;
   dateRange: string;
@@ -70,17 +70,17 @@ export type RuntimeCampaignListItem = {
   };
   previewPosts: AriesDashboardPost[];
   previewAssets: AriesDashboardAsset[];
-  dashboard: AriesDashboardCampaignContent;
-  /** Set when the campaign has been soft-deleted (Recycle Bin entry). */
+  dashboard: AriesDashboardPostContent;
+  /** Set when the social content job has been soft-deleted (Recycle Bin entry). */
   deletedAt?: string | null;
-  /** User id of whoever soft-deleted the campaign. Paired with deletedAt. */
+  /** User id of whoever soft-deleted the social content job. Paired with deletedAt. */
   deletedBy?: string | null;
   /** Set when the delete landed while the pipeline was still running. The
    * orchestrator will stop starting new stages and (best-effort) the
    * gateway will abort the in-flight run. Until the pipeline reaches a
    * terminal state, the UI shows "Cancelling..." instead of just "Deleted". */
   softCancelRequestedAt?: string | null;
-  /** ISO timestamp of the brand-kit snapshot baked into this campaign's job.
+  /** ISO timestamp of the brand-kit snapshot baked into this social content job.
    * When this predates the tenant's current brand-kit extracted_at, the UI
    * shows an amber "Generated with previous brand update" badge. */
   brandKitExtractedAt?: string | null;
@@ -96,8 +96,8 @@ export type RuntimeReviewDecision = {
 export type RuntimeReviewItem = {
   id: string;
   jobId: string;
-  campaignId: string;
-  campaignName: string;
+  postId: string;
+  postName: string;
   reviewType: 'brand' | 'strategy' | 'creative' | 'workflow_approval';
   workflowState: MarketingWorkflowState;
   workflowStage: string | null;
@@ -105,7 +105,7 @@ export type RuntimeReviewItem = {
   channel: string;
   placement: string;
   scheduledFor: string;
-  status: AriesCampaignStatus;
+  status: AriesPostStatus;
   summary: string;
   currentVersion: {
     id: string;
@@ -132,7 +132,7 @@ export type RuntimeReviewItem = {
   destinationUrl?: string | null;
   sections: MarketingReviewSection[];
   attachments: MarketingReviewAttachment[];
-  history: MarketingCampaignStatusHistoryEntry[];
+  history: SocialContentStatusHistoryEntry[];
 };
 
 export type BusinessProfileView = {
@@ -237,18 +237,18 @@ export type OnboardingDraft = {
   materializedJobId: string | null;
 };
 
-export type CampaignListResponse = {
-  campaigns: RuntimeCampaignListItem[];
-  /** True when the tenant has additional campaigns beyond the returned page.
-   * The current page is capped at 20 most-recent campaigns. */
+export type SocialContentListResponse = {
+  posts: RuntimePostListItem[];
+  /** True when the tenant has additional social content jobs beyond the returned page.
+   * The current page is capped at 20 most-recent social content jobs. */
   hasMore?: boolean;
-  /** Soft-deleted campaigns in the same shape as `campaigns`. Feeds the
-   * Recycle Bin / "Deleted campaigns" section of the campaign list screen
+  /** Soft-deleted social content jobs in the same shape as `posts`. Feeds the
+   * Recycle Bin / "Deleted social content jobs" section of the social content list screen
    * so users can see what they deleted and restore if needed. */
-  deletedCampaigns: RuntimeCampaignListItem[];
-  /** extracted_at of the tenant's current brand-kit.json. Used by the campaign
-   * list to compare per-campaign brandKitExtractedAt and render a staleness
-   * badge when a campaign predates the latest brand-kit update. */
+  deletedPosts: RuntimePostListItem[];
+  /** extracted_at of the tenant's current brand-kit.json. Used by the social content
+   * list to compare per-post brandKitExtractedAt and render a staleness
+   * badge when a social content job predates the latest brand-kit update. */
   currentBrandKitExtractedAt?: string | null;
 };
 export type ReviewQueueResponse = { reviews: RuntimeReviewItem[]; archivedReviews?: RuntimeReviewItem[] };
@@ -371,7 +371,7 @@ export type AriesScheduleItem = {
   title: string;
   channel: string;
   scheduledFor: string;
-  status: AriesCampaignStatus | AriesItemStatus;
+  status: AriesPostStatus | AriesItemStatus;
 };
 export type AriesChannelConnection = {
   id: string;
@@ -382,7 +382,7 @@ export type AriesChannelConnection = {
   /** When false, disconnect is not offered by the integration (UI hides Disconnect). */
   canDisconnect: boolean;
 };
-export type AriesCampaign = RuntimeCampaignListItem & {
+export type AriesPost = RuntimePostListItem & {
   plan: {
     goal: string;
     audience: string;
@@ -398,7 +398,7 @@ export type AriesCampaign = RuntimeCampaignListItem & {
       id: string;
       name: string;
       type: string;
-      status: AriesCampaignStatus;
+      status: AriesPostStatus;
       channel: string;
       summary: string;
     }>;
@@ -419,13 +419,13 @@ export type AriesDashboardPost = MarketingDashboardPost;
 export type AriesDashboardPublishItem = MarketingDashboardPublishItem;
 export type AriesDashboardCalendarEvent = MarketingDashboardCalendarEvent;
 export type AriesDashboardStatusSummary = MarketingDashboardStatusSummary;
-export type AriesDashboardCampaignContent = MarketingDashboardCampaignContent;
+export type AriesDashboardPostContent = MarketingDashboardSocialContentJobContent;
 export type PostsInventoryResponse = MarketingDashboardContent;
 
 export function createAriesV1Api(options: ApiClientOptions = {}) {
   return {
-    getCampaigns() {
-      return requestJson<CampaignListResponse>('/api/marketing/campaigns', { method: 'GET' }, options);
+    getSocialContentList() {
+      return requestJson<SocialContentListResponse>('/api/social-content/posts', { method: 'GET' }, options);
     },
     getReviews() {
       return requestJson<ReviewQueueResponse>('/api/marketing/reviews', { method: 'GET' }, options);

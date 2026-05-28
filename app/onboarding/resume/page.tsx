@@ -16,10 +16,10 @@ import {
   tenantHasStoredBusinessProfileState,
   updateBusinessProfileWithDiagnostics,
 } from '@/backend/tenant/business-profile';
-import { listMarketingJobIdsForTenant } from '@/backend/marketing/runtime-state';
+import { listSocialContentJobIdsForTenant } from '@/backend/marketing/runtime-state';
 import { listMarketingReviewItemsForTenant } from '@/backend/marketing/runtime-views';
-import { startMarketingJob } from '@/backend/marketing/orchestrator';
-import { ensureCampaignWorkspaceRecord } from '@/backend/marketing/workspace-store';
+import { startSocialContentJob } from '@/backend/marketing/orchestrator';
+import { ensureSocialContentWorkspaceRecord } from '@/backend/marketing/workspace-store';
 
 import OnboardingResumePending from './pending';
 
@@ -38,7 +38,7 @@ function businessSlugBase(input: { businessName: string; websiteUrl: string; ema
 }
 
 async function tenantIsReusable(tenantId: string): Promise<boolean> {
-  if ((await listMarketingJobIdsForTenant(tenantId)).length > 0) {
+  if ((await listSocialContentJobIdsForTenant(tenantId)).length > 0) {
     return false;
   }
 
@@ -150,14 +150,14 @@ export default async function OnboardingResumePage(
       mode: 'guided',
     };
 
-    const result = await startMarketingJob({
+    const result = await startSocialContentJob({
       tenantId,
       jobType: 'weekly_social_content',
       createdBy: session.user.id,
       payload,
     });
 
-    await ensureCampaignWorkspaceRecord({
+    await ensureSocialContentWorkspaceRecord({
       jobId: result.jobId,
       tenantId,
       payload,

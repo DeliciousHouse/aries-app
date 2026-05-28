@@ -222,7 +222,7 @@ https://www.facebook.com/adsmanager/manage/ads?act={AD_ACCOUNT}
 ## Integration with Creative Team
 
 ```
-/campaign_planner → Strategy approved
+/social-content-planner → Strategy approved
         ↓
 /creative_director → Assets created
         ↓

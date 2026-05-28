@@ -7,7 +7,7 @@ import { dirname, resolve } from 'node:path';
 import {
   resolveWorkspaceView,
   type WorkspaceView,
-} from '../frontend/aries-v1/campaign-workspace-state';
+} from '../frontend/aries-v1/post-workspace-state';
 
 // Regression coverage for ISSUE-010 — clicking Brand / Strategy / Creative /
 // Launch Status tabs changed the URL ?view= param but the rendered content
@@ -43,30 +43,30 @@ test('resolveWorkspaceView honours an explicit fallback when the value is absent
 // the live URL (useSearchParams) rather than a frozen server prop. This stops
 // the original bug from regressing even if a future refactor reintroduces
 // the prop-only pattern.
-test('campaign-workspace client wires the view through useSearchParams', () => {
+test('post-workspace client wires the view through useSearchParams', () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const source = readFileSync(
-    resolve(here, '..', 'frontend', 'aries-v1', 'campaign-workspace.tsx'),
+    resolve(here, '..', 'frontend', 'aries-v1', 'post-workspace.tsx'),
     'utf8',
   );
   assert.match(
     source,
     /from ['"]next\/navigation['"]/,
-    'campaign-workspace.tsx must import from next/navigation',
+    'post-workspace.tsx must import from next/navigation',
   );
   assert.match(
     source,
     /useSearchParams\s*\(\s*\)/,
-    'campaign-workspace.tsx must call useSearchParams() so URL ?view= changes drive rendering',
+    'post-workspace.tsx must call useSearchParams() so URL ?view= changes drive rendering',
   );
   assert.match(
     source,
     /resolveWorkspaceView\(/,
-    'campaign-workspace.tsx must funnel the view through resolveWorkspaceView for validation',
+    'post-workspace.tsx must funnel the view through resolveWorkspaceView for validation',
   );
   assert.match(
     source,
     /<Link[\s\S]*?href=\{currentStageHref\(props\.campaignId, view\)\}[\s\S]*?scroll=\{false\}/,
-    'campaign-workspace.tsx must disable Next Link scroll resets for view-pill navigation',
+    'post-workspace.tsx must disable Next Link scroll resets for view-pill navigation',
   );
 });

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 
 import { useIntegrations } from '@/hooks/use-integrations';
 import { useBusinessProfile } from '@/hooks/use-business-profile';
-import { useRuntimeCampaigns } from '@/hooks/use-runtime-campaigns';
+import { useRuntimePosts } from '@/hooks/use-runtime-social-content';
 import { useRuntimeReviews } from '@/hooks/use-runtime-reviews';
 import type { IntegrationPlatform } from '@/lib/api/integrations';
 
@@ -20,7 +20,7 @@ import {
 
 export default function AriesHomeDashboard() {
   const router = useRouter();
-  const campaigns = useRuntimeCampaigns({ autoLoad: true });
+  const campaigns = useRuntimePosts({ autoLoad: true });
   const reviews = useRuntimeReviews({ autoLoad: true });
   const profile = useBusinessProfile({ autoLoad: true });
   const integrations = useIntegrations({ autoLoad: true });
@@ -35,7 +35,7 @@ export default function AriesHomeDashboard() {
   // large job payloads; keep the dashboard usable and let reviews hydrate later.
   const loading = campaigns.isLoading || profile.profile.isLoading;
   const loadError = campaigns.error || profile.profile.error;
-  const campaignList = campaigns.data?.campaigns ?? [];
+  const campaignList = campaigns.data?.posts ?? [];
   const reviewList = reviews.data?.reviews ?? [];
   const profileData = profile.profile.data?.profile ?? null;
   const integrationCards = integrations.data?.status === 'ok' ? integrations.data.cards : [];
@@ -44,7 +44,7 @@ export default function AriesHomeDashboard() {
   const model = useMemo(
     () =>
       createDashboardHomeViewModel({
-        campaigns: campaignList,
+        posts: campaignList,
         reviews: reviewList,
         profile: profileData,
         integrationCards,

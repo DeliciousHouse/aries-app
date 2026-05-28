@@ -2,19 +2,19 @@ import { NextResponse } from 'next/server';
 
 import { getMarketingJobStatus } from '@/backend/marketing/jobs-status';
 import { findLatestMarketingJobIdForTenant } from '@/backend/marketing/runtime-state';
-import { buildCampaignWorkspaceView } from '@/backend/marketing/workspace-views';
+import { buildSocialContentWorkspaceView } from '@/backend/marketing/workspace-views';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
 const MARKETING_ONBOARDING_REQUIRED = {
   status: 409,
   reason: 'onboarding_required',
-  message: 'Complete tenant onboarding before viewing brand campaign status.',
+  message: 'Complete tenant onboarding before viewing brand social content status.',
 } as const;
 
 function alignApprovalWithWorkspace(
   approval: Awaited<ReturnType<typeof getMarketingJobStatus>>['approval'],
-  workflowState: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['workflowState'],
-  publishBlockedReason: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['publishBlockedReason'],
+  workflowState: Awaited<ReturnType<typeof buildSocialContentWorkspaceView>>['workflowState'],
+  publishBlockedReason: Awaited<ReturnType<typeof buildSocialContentWorkspaceView>>['publishBlockedReason'],
 ) {
   if (!approval || workflowState !== 'revisions_requested') {
     return approval;
@@ -31,14 +31,14 @@ function alignApprovalWithWorkspace(
 
 function alignApprovalRequiredWithWorkspace(
   approvalRequired: boolean,
-  workflowState: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['workflowState'],
+  workflowState: Awaited<ReturnType<typeof buildSocialContentWorkspaceView>>['workflowState'],
 ) {
   return workflowState === 'revisions_requested' ? false : approvalRequired;
 }
 
 function alignNextStepWithWorkspace(
   nextStep: Awaited<ReturnType<typeof getMarketingJobStatus>>['nextStep'],
-  workflowState: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['workflowState'],
+  workflowState: Awaited<ReturnType<typeof buildSocialContentWorkspaceView>>['workflowState'],
 ) {
   return workflowState === 'revisions_requested' ? 'wait_for_completion' : nextStep;
 }
@@ -76,13 +76,13 @@ export async function handleGetLatestMarketingJobStatus(
   }
 
   const result = await getMarketingJobStatus(latestJobId);
-  const workspaceView = await buildCampaignWorkspaceView(latestJobId);
+  const workspaceView = await buildSocialContentWorkspaceView(latestJobId);
   return NextResponse.json(
     {
       jobId: result.jobId,
       tenantName: result.tenantName,
       brandWebsiteUrl: result.brandWebsiteUrl,
-      campaignWindow: result.campaignWindow,
+      postWindow: result.postWindow,
       durationDays: result.durationDays,
       plannedPostCount: result.plannedPostCount,
       createdPostCount: result.createdPostCount,
@@ -101,7 +101,7 @@ export async function handleGetLatestMarketingJobStatus(
       timeline: result.timeline,
       approval: alignApprovalWithWorkspace(result.approval, workspaceView.workflowState, workspaceView.publishBlockedReason),
       reviewBundle: result.reviewBundle,
-      campaignBrief: workspaceView.campaignBrief,
+      socialContentBrief: workspaceView.socialContentBrief,
       workflowState: workspaceView.workflowState,
       statusHistory: workspaceView.statusHistory,
       brandReview: workspaceView.brandReview,

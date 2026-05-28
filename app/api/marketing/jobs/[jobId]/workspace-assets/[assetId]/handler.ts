@@ -1,14 +1,14 @@
 import { readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
-import { loadCampaignWorkspaceRecord } from '@/backend/marketing/workspace-store';
+import { loadSocialContentWorkspaceRecord } from '@/backend/marketing/workspace-store';
 import { resolveCodeRoot, resolveDataPath } from '@/lib/runtime-paths';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
 const MARKETING_ONBOARDING_REQUIRED = {
   status: 409,
   reason: 'onboarding_required',
-  message: 'Complete tenant onboarding before viewing campaign workspace assets.',
+  message: 'Complete tenant onboarding before viewing social content workspace assets.',
 } as const;
 
 const ASSET_NOT_FOUND_BODY = JSON.stringify({
@@ -153,7 +153,7 @@ export async function handleGetMarketingWorkspaceAsset(
     return tenantResult.response;
   }
 
-  const record = loadCampaignWorkspaceRecord(jobId);
+  const record = loadSocialContentWorkspaceRecord(jobId);
   if (!record) {
     return new Response(JSON.stringify({ error: 'Marketing workspace not found.', reason: 'marketing_workspace_not_found' }), {
       status: 404,

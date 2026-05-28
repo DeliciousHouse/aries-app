@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   isWeeklySnapshotPathForTests,
-  buildOneOffCampaignWindowForTests,
+  buildOneOffWindowForTests,
 } from '@/backend/marketing/jobs-status';
 import { buildSocialContentDashboardProjection } from '@/backend/social-content/dashboard-projection';
-import type { MarketingJobRuntimeDocument } from '@/backend/marketing/runtime-state';
-import type { MarketingDashboardCampaignContent } from '@/backend/marketing/dashboard-content';
+import type { SocialContentJobRuntimeDocument } from '@/backend/marketing/runtime-state';
+import type { MarketingDashboardSocialContentJobContent } from '@/backend/marketing/dashboard-content';
 
 // Regression test for v0.1.11.2:
 // A one_off_campaign with inputs.request.oneOff.campaignEndDate must surface
@@ -18,10 +18,10 @@ import type { MarketingDashboardCampaignContent } from '@/backend/marketing/dash
 
 const ONE_OFF_END_DATE = '2026-09-15T03:59:59.000Z';
 
-function baseDoc(overrides: Partial<MarketingJobRuntimeDocument> = {}): MarketingJobRuntimeDocument {
+function baseDoc(overrides: Partial<SocialContentJobRuntimeDocument> = {}): SocialContentJobRuntimeDocument {
   return {
-    schema_name: 'aries.marketing.job.runtime' as MarketingJobRuntimeDocument['schema_name'],
-    schema_version: '1.0.0' as MarketingJobRuntimeDocument['schema_version'],
+    schema_name: 'aries.marketing.job.runtime' as SocialContentJobRuntimeDocument['schema_name'],
+    schema_version: '1.0.0' as SocialContentJobRuntimeDocument['schema_version'],
     job_id: 'job-one-off-window-regression',
     tenant_id: 'tenant-42',
     job_type: 'one_off_campaign',
@@ -50,12 +50,12 @@ function baseDoc(overrides: Partial<MarketingJobRuntimeDocument> = {}): Marketin
       },
     },
     ...overrides,
-  } as MarketingJobRuntimeDocument;
+  } as SocialContentJobRuntimeDocument;
 }
 
-function emptyDashboard(): MarketingDashboardCampaignContent {
+function emptyDashboard(): MarketingDashboardSocialContentJobContent {
   return {
-    campaign: null,
+    post: null,
     posts: [],
     assets: [],
     publishItems: [],
@@ -86,17 +86,17 @@ test('weekly_social_content doc still enters the weekly snapshot path', () => {
     'weekly_social_content must continue to use the weekly snapshot path');
 });
 
-test('buildOneOffCampaignWindowForTests surfaces the authoritative campaignEndDate', () => {
+test('buildOneOffWindowForTests surfaces the authoritative campaignEndDate', () => {
   const doc = baseDoc();
-  const window = buildOneOffCampaignWindowForTests(doc);
+  const window = buildOneOffWindowForTests(doc);
   assert.ok(window !== null, 'window must not be null for a valid one_off_campaign');
   assert.equal(window.end, ONE_OFF_END_DATE,
     'campaign window end must equal the operator-provided campaignEndDate, not a weekly default');
 });
 
-test('buildOneOffCampaignWindowForTests returns null for weekly_social_content docs', () => {
+test('buildOneOffWindowForTests returns null for weekly_social_content docs', () => {
   const doc = baseDoc({ job_type: 'weekly_social_content' });
-  assert.equal(buildOneOffCampaignWindowForTests(doc), null,
+  assert.equal(buildOneOffWindowForTests(doc), null,
     'weekly docs must not produce a one-off window');
 });
 

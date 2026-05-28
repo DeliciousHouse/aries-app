@@ -611,7 +611,7 @@ test('/api/marketing/jobs rejects Facebook URLs in competitorUrl with a precise 
 test('/api/marketing/jobs persists present onboarding setup fields into the authenticated business-profile record', async () => {
   await withRuntimeEnv(async () => {
     const { handlePostMarketingJobs } = await import('../app/api/marketing/jobs/handler');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
     const capture = { value: null as Record<string, unknown> | null };
     installMarketingPipelineInvoker(capture);
     const restoreFetch = installBrandExampleFetchMock();
@@ -670,7 +670,7 @@ test('/api/marketing/jobs persists present onboarding setup fields into the auth
         }),
       );
       const body = (await response.json()) as Record<string, unknown>;
-      const runtimeDoc = await loadMarketingJobRuntime(String(body.jobId));
+      const runtimeDoc = await loadSocialContentJobRuntime(String(body.jobId));
       const persistedRecord = JSON.parse(await readFile(businessProfilePath, 'utf8')) as Record<string, unknown>;
 
       assert.equal(response.status, 202);
@@ -804,8 +804,8 @@ test('/api/marketing/jobs/:jobId and /latest block downstream approval metadata 
     const { handleGetMarketingJobStatus } = await import('../app/api/marketing/jobs/[jobId]/handler');
     const { handleGetLatestMarketingJobStatus } = await import('../app/api/marketing/jobs/latest/handler');
     const {
-      ensureCampaignWorkspaceRecord,
-      saveCampaignWorkspaceRecord,
+      ensureSocialContentWorkspaceRecord,
+      saveSocialContentWorkspaceRecord,
       setStageReviewDecision,
     } = await import('../backend/marketing/workspace-store');
     const jobId = 'mkt_strategy_revisions_requested_api';
@@ -904,7 +904,7 @@ test('/api/marketing/jobs/:jobId and /latest block downstream approval metadata 
       }, null, 2),
     );
 
-    const workspace = await ensureCampaignWorkspaceRecord({
+    const workspace = await ensureSocialContentWorkspaceRecord({
       jobId,
       tenantId,
       payload: {
@@ -912,7 +912,7 @@ test('/api/marketing/jobs/:jobId and /latest block downstream approval metadata 
       },
     });
     setStageReviewDecision(workspace, 'strategy', 'changes_requested', 'Avery Example', 'Needs revisions.');
-    saveCampaignWorkspaceRecord(workspace);
+    saveSocialContentWorkspaceRecord(workspace);
 
     const byIdResponse = await handleGetMarketingJobStatus(
       jobId,
@@ -1070,7 +1070,7 @@ test('/api/marketing/jobs/:jobId returns stage progress and safe artifact summar
     assert.equal((body.summary as any).headline, 'Publish stage is ready for approval');
     assert.equal(body.tenantName, 'Sugar & Leather');
     assert.equal(body.brandWebsiteUrl, 'https://sugarandleather.com');
-    assert.deepEqual(body.campaignWindow, {
+    assert.deepEqual(body.postWindow, {
       start: '2026-04-01T00:00:00.000Z',
       end: '2026-04-30T23:59:59.999Z',
     });
@@ -2685,7 +2685,7 @@ test('/api/marketing/jobs/:jobId returns brandReview null for legacy runtime doc
 test('/api/marketing/jobs/:jobId renders upload-only brandReview without advancing workflow', async () => {
   await withRuntimeEnv(async () => {
     const { handleGetMarketingJobStatus } = await import('../app/api/marketing/jobs/[jobId]/handler');
-    const { ensureCampaignWorkspaceRecord, saveCampaignWorkspaceAssets } = await import('../backend/marketing/workspace-store');
+    const { ensureSocialContentWorkspaceRecord, saveSocialContentWorkspaceAssets } = await import('../backend/marketing/workspace-store');
     const jobId = 'mkt_upload_only_brand_review';
     const tenantId = 'tenant_upload_only_brand_review';
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
@@ -2737,7 +2737,7 @@ test('/api/marketing/jobs/:jobId renders upload-only brandReview without advanci
       }, null, 2),
     );
 
-    const record = await ensureCampaignWorkspaceRecord({
+    const record = await ensureSocialContentWorkspaceRecord({
       jobId,
       tenantId,
       payload: {
@@ -2754,7 +2754,7 @@ test('/api/marketing/jobs/:jobId renders upload-only brandReview without advanci
         notes: 'Prefer simple layouts.',
       },
     });
-    saveCampaignWorkspaceAssets(record, [
+    saveSocialContentWorkspaceAssets(record, [
       {
         name: 'brand-board.png',
         contentType: 'image/png',
@@ -3862,14 +3862,14 @@ test('/api/marketing/jobs/:jobId does not leak an older Stage 4 launch review in
   });
 });
 
-test('buildCampaignWorkspaceView keeps upload-only brand review pending and reopens it when real brand artifacts arrive', async () => {
+test('buildSocialContentWorkspaceView keeps upload-only brand review pending and reopens it when real brand artifacts arrive', async () => {
   await withRuntimeEnv(async (dataRoot) => {
-    const { buildCampaignWorkspaceView } = await import('../backend/marketing/workspace-views');
+    const { buildSocialContentWorkspaceView } = await import('../backend/marketing/workspace-views');
     const {
-      ensureCampaignWorkspaceRecord,
-      loadCampaignWorkspaceRecord,
-      saveCampaignWorkspaceAssets,
-      saveCampaignWorkspaceRecord,
+      ensureSocialContentWorkspaceRecord,
+      loadSocialContentWorkspaceRecord,
+      saveSocialContentWorkspaceAssets,
+      saveSocialContentWorkspaceRecord,
     } = await import('../backend/marketing/workspace-store');
     const jobId = 'mkt_brand_review_auto_approval_guard';
     const tenantId = 'tenant_brand_review_auto_approval_guard';
@@ -3944,7 +3944,7 @@ test('buildCampaignWorkspaceView keeps upload-only brand review pending and reop
       }, null, 2),
     );
 
-    const record = await ensureCampaignWorkspaceRecord({
+    const record = await ensureSocialContentWorkspaceRecord({
       jobId,
       tenantId,
       payload: {
@@ -3955,7 +3955,7 @@ test('buildCampaignWorkspaceView keeps upload-only brand review pending and reop
         brandVoice: 'Direct and proof-led',
       },
     });
-    saveCampaignWorkspaceAssets(record, [
+    saveSocialContentWorkspaceAssets(record, [
       {
         name: 'logo-lockup.png',
         contentType: 'image/png',
@@ -3963,8 +3963,8 @@ test('buildCampaignWorkspaceView keeps upload-only brand review pending and reop
       },
     ]);
 
-    const uploadOnlyView = await buildCampaignWorkspaceView(jobId);
-    let savedRecord = loadCampaignWorkspaceRecord(jobId, tenantId);
+    const uploadOnlyView = await buildSocialContentWorkspaceView(jobId);
+    let savedRecord = loadSocialContentWorkspaceRecord(jobId, tenantId);
 
     assert.equal(uploadOnlyView.workflowState, 'draft');
     assert.equal(uploadOnlyView.brandReview?.status, 'pending_review');
@@ -3983,7 +3983,7 @@ test('buildCampaignWorkspaceView keeps upload-only brand review pending and reop
         },
       },
     };
-    saveCampaignWorkspaceRecord(savedRecord);
+    saveSocialContentWorkspaceRecord(savedRecord);
 
     await mkdir(path.dirname(brandProfilePath), { recursive: true });
     await writeFile(
@@ -4000,8 +4000,8 @@ test('buildCampaignWorkspaceView keeps upload-only brand review pending and reop
       }, null, 2),
     );
 
-    const realArtifactView = await buildCampaignWorkspaceView(jobId);
-    savedRecord = loadCampaignWorkspaceRecord(jobId, tenantId);
+    const realArtifactView = await buildSocialContentWorkspaceView(jobId);
+    savedRecord = loadSocialContentWorkspaceRecord(jobId, tenantId);
 
     assert.equal(realArtifactView.brandReview?.status, 'pending_review');
     assert.equal(savedRecord?.stage_reviews.brand.status, 'pending_review');
@@ -4010,10 +4010,10 @@ test('buildCampaignWorkspaceView keeps upload-only brand review pending and reop
   });
 });
 
-test('buildCampaignWorkspaceView backfills an empty campaign brief brand voice from validated brand analysis', async () => {
+test('buildSocialContentWorkspaceView backfills an empty campaign brief brand voice from validated brand analysis', async () => {
   await withRuntimeEnv(async (dataRoot) => {
-    const { buildCampaignWorkspaceView } = await import('../backend/marketing/workspace-views');
-    const { loadCampaignWorkspaceRecord } = await import('../backend/marketing/workspace-store');
+    const { buildSocialContentWorkspaceView } = await import('../backend/marketing/workspace-views');
+    const { loadSocialContentWorkspaceRecord } = await import('../backend/marketing/workspace-store');
     const jobId = 'mkt_brief_brand_voice_backfill';
     const tenantId = 'tenant_brief_brand_voice_backfill';
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
@@ -4102,21 +4102,21 @@ test('buildCampaignWorkspaceView backfills an empty campaign brief brand voice f
       }, null, 2),
     );
 
-    const view = await buildCampaignWorkspaceView(jobId);
-    const savedRecord = loadCampaignWorkspaceRecord(jobId, tenantId);
+    const view = await buildSocialContentWorkspaceView(jobId);
+    const savedRecord = loadSocialContentWorkspaceRecord(jobId, tenantId);
 
-    // campaignBrief.brandVoice is sourced from the user intake brief, not
+    // socialContentBrief.brandVoice is sourced from the user intake brief, not
     // backfilled from the validated brand profile — the test verifies that
-    // buildCampaignWorkspaceView runs without error and that the brand profile
+    // buildSocialContentWorkspaceView runs without error and that the brand profile
     // with website_url is accepted as a valid current-source artifact.
-    assert.ok(view.campaignBrief !== undefined);
+    assert.ok(view.socialContentBrief !== undefined);
     assert.ok(view.brandReview !== null);
   });
 });
 
 test('polluted Stage 2 inputs do not leak into business profile or brand review', async () => {
   await withRuntimeEnv(async (dataRoot) => {
-    const { buildCampaignWorkspaceView } = await import('../backend/marketing/workspace-views');
+    const { buildSocialContentWorkspaceView } = await import('../backend/marketing/workspace-views');
     const { getBusinessProfile } = await import('../backend/tenant/business-profile');
     const jobId = 'mkt_polluted_identity';
     const tenantId = 'tenant_polluted_identity';
@@ -4236,7 +4236,7 @@ test('polluted Stage 2 inputs do not leak into business profile or brand review'
       }, null, 2),
     );
 
-    const view = await buildCampaignWorkspaceView(jobId);
+    const view = await buildSocialContentWorkspaceView(jobId);
     const profile = await getBusinessProfile(
       {
         async query() {
@@ -6126,7 +6126,7 @@ test('/api/marketing/reviews/[reviewId] decodes encoded review ids before loadin
       attachments: Array<{ label: string }>;
     };
     const researchSummarySection = review.sections.find((section) => section.title === 'Research summary');
-    const campaignBriefSection = review.sections.find((section) => section.title === 'Campaign brief');
+    const socialContentBriefSection = review.sections.find((section) => section.title === 'Campaign brief');
     const extractedBrandKitSection = review.sections.find((section) => section.title === 'Extracted brand kit');
 
     assert.equal(response.status, 200);
@@ -6143,7 +6143,7 @@ test('/api/marketing/reviews/[reviewId] decodes encoded review ids before loadin
     assert.equal(researchSummarySection?.body.includes('BetterUp leans on proof-led executive outcomes.'), true);
     assert.equal(researchSummarySection?.body.includes('Competitor: betterup.com'), true);
     assert.equal(researchSummarySection?.body.includes('Ads reviewed: 6'), true);
-    assert.equal(campaignBriefSection?.body.includes('Website:'), false);
+    assert.equal(socialContentBriefSection?.body.includes('Website:'), false);
     assert.equal(extractedBrandKitSection?.brandKitVisuals?.logos.length, 1);
     assert.equal(extractedBrandKitSection?.brandKitVisuals?.colors.length, 3);
     assert.equal(extractedBrandKitSection?.brandKitVisuals?.fonts[0]?.family, 'Manrope');

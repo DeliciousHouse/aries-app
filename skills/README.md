@@ -40,7 +40,7 @@ A complete AI-powered marketing workflow from competitor research to campaign la
 │  │  /head_of_marketing                                                  │    │
 │  │  Orchestrates brand analysis + campaign planning                     │    │
 │  │  ├── /website_brand_analysis → Brand bible + design system          │    │
-│  │  └── /campaign_planner       → Funnel strategy + creative briefs    │    │
+│  │  └── /social-content-planner       → Funnel strategy + creative briefs    │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
 │                                      ↓                                       │
 │  STAGE 3: PRODUCTION                                                         │
@@ -95,7 +95,7 @@ This starts the complete flow. After research, it prompts you to continue with y
 | `/ad_creative_analysis` | Individual ad breakdown | ads_analyst |
 | `/landing_page_analysis` | Landing page analysis | ads_analyst |
 | `/website_brand_analysis` | Brand bible | head_of_marketing |
-| `/campaign_planner` | Campaign proposal | head_of_marketing |
+| `/social-content-planner` | Campaign proposal | head_of_marketing |
 | `/ad_designer` | Image ads | creative_director |
 | `/scriptwriter` | Video scripts | creative_director |
 | `/page_designer` | Landing pages | creative_director |

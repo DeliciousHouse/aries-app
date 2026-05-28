@@ -6,8 +6,8 @@
  *
  * Why this exists: dashboard endpoints (`/api/marketing/reviews`,
  * `/api/marketing/campaigns`) iterated the per-tenant job list serially,
- * doing `await loadMarketingJobRuntime` + `await getMarketingJobStatus` +
- * `await buildCampaignWorkspaceView` + `await buildReviewItemsForJob` for
+ * doing `await loadSocialContentJobRuntime` + `await getMarketingJobStatus` +
+ * `await buildSocialContentWorkspaceView` + `await buildReviewItemsForJob` for
  * EACH job. Tenants with 30+ jobs (active + history) saw 24-36s response
  * times, hanging the dashboard on "Loading…". Bounded parallelism cuts
  * wall-clock time by a factor of `concurrency` without exhausting the DB

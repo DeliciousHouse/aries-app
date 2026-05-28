@@ -3,7 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { getTenantContext } from '@/lib/tenant-context';
-import { loadMarketingJobRuntime, marketingRuntimePath } from '@/backend/marketing/runtime-state';
+import { loadSocialContentJobRuntime, marketingRuntimePath } from '@/backend/marketing/runtime-state';
 import { listMarketingApprovalRecordsForJob } from '@/backend/marketing/approval-store';
 import { resolveDataPath } from '@/lib/runtime-paths';
 import { sanitizeJobRuntimeDoc } from '@/lib/admin-sanitize';
@@ -58,7 +58,7 @@ export async function GET(
     return NextResponse.json({ status: 'error', reason: 'missing_job_id' }, { status: 400 });
   }
 
-  const doc = await loadMarketingJobRuntime(jobId);
+  const doc = await loadSocialContentJobRuntime(jobId);
   if (!doc) {
     return NextResponse.json({ status: 'error', reason: 'job_not_found' }, { status: 404 });
   }

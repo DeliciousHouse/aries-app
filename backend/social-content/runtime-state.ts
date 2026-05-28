@@ -1,4 +1,4 @@
-import type { MarketingJobRuntimeDocument } from '@/backend/marketing/runtime-state';
+import type { SocialContentJobRuntimeDocument } from '@/backend/marketing/runtime-state';
 import type {
   SocialContentApprovalCheckpoint,
   SocialContentApprovalStep,
@@ -10,7 +10,7 @@ import type {
 } from './types';
 
 type UnknownRecord = Record<string, unknown>;
-type MarketingDocWithSocialRuntime = MarketingJobRuntimeDocument & {
+type MarketingDocWithSocialRuntime = SocialContentJobRuntimeDocument & {
   social_content_runtime?: unknown;
 };
 type SocialContentStageMap = Record<SocialContentStage, SocialContentStageRecord>;
@@ -310,7 +310,7 @@ function serializeRuntime(doc: MarketingDocWithSocialRuntime, runtime: SocialCon
   doc.social_content_runtime = runtime;
 }
 
-function requestedPublishFlag(doc: MarketingJobRuntimeDocument): boolean {
+function requestedPublishFlag(doc: SocialContentJobRuntimeDocument): boolean {
   const request = asRecord(doc.inputs?.request);
   if (!request) {
     return false;
@@ -366,7 +366,7 @@ export function createSocialContentRuntimeState(
 }
 
 export function ensureSocialContentRuntimeState(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   input: { publishingRequested?: boolean } = {},
 ): SocialContentRuntimeState {
   const withRuntimeDoc = doc as MarketingDocWithSocialRuntime;
@@ -383,7 +383,7 @@ export function ensureSocialContentRuntimeState(
 }
 
 export function readSocialContentRuntimeState(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
 ): SocialContentRuntimeState | null {
   return normalizeRuntime((doc as MarketingDocWithSocialRuntime).social_content_runtime);
 }
@@ -434,7 +434,7 @@ export function socialContentStageFromCallbackStage(stage: string | null | undef
 }
 
 export function markSocialContentStageRunning(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   stage: SocialContentStage,
   output: Record<string, unknown> | null = null,
 ): SocialContentRuntimeState {
@@ -458,7 +458,7 @@ export function markSocialContentStageRunning(
 }
 
 export function markSocialContentStageCompleted(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   stage: SocialContentStage,
   input: {
     summary?: string | null;
@@ -486,7 +486,7 @@ export function markSocialContentStageCompleted(
 }
 
 export function markSocialContentStageAwaitingApproval(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   input: {
     approvalStep: SocialContentApprovalStep;
     approvalId: string | null;
@@ -544,7 +544,7 @@ export function markSocialContentStageAwaitingApproval(
 }
 
 export function markSocialContentApprovalResolutionSubmitted(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   input: {
     approvalStep: SocialContentApprovalStep;
     approved: boolean;
@@ -595,7 +595,7 @@ export function markSocialContentApprovalResolutionSubmitted(
 }
 
 export function markSocialContentStageFailed(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   stage: SocialContentStage,
   message: string,
   output: Record<string, unknown> | null = null,
@@ -622,7 +622,7 @@ export function markSocialContentStageFailed(
   return runtime;
 }
 
-export function isSocialContentPublishApprovalRequired(doc: MarketingJobRuntimeDocument): boolean {
+export function isSocialContentPublishApprovalRequired(doc: SocialContentJobRuntimeDocument): boolean {
   return ensureSocialContentRuntimeState(doc).publishingRequested;
 }
 
@@ -640,7 +640,7 @@ export function isSocialContentPublishApprovalRequired(doc: MarketingJobRuntimeD
  * managed by the caller.
  */
 export function reconcileSocialContentIntermediateStages(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
   upToStage: SocialContentStage,
   sweepSummary: string,
 ): SocialContentRuntimeState {

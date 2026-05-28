@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { resolveStageOutput } from '../../backend/marketing/runtime-state';
-import type { MarketingJobRuntimeDocument, MarketingStage } from '../../backend/marketing/runtime-state';
+import type { SocialContentJobRuntimeDocument, MarketingStage } from '../../backend/marketing/runtime-state';
 
 function makeStage(opts: { outputs?: Record<string, unknown>; primary_output?: Record<string, unknown> | null } = {}) {
   return {
@@ -20,7 +20,7 @@ function makeStage(opts: { outputs?: Record<string, unknown>; primary_output?: R
   };
 }
 
-function makeDoc(stages: Partial<Record<MarketingStage, ReturnType<typeof makeStage>>>): MarketingJobRuntimeDocument {
+function makeDoc(stages: Partial<Record<MarketingStage, ReturnType<typeof makeStage>>>): SocialContentJobRuntimeDocument {
   const ts = new Date().toISOString();
   const base = makeStage();
   return {

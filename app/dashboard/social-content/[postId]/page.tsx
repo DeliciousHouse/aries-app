@@ -1,5 +1,5 @@
 import AppShellLayout from '@/frontend/app-shell/layout';
-import AriesCampaignWorkspace from '@/frontend/aries-v1/campaign-workspace';
+import AriesPostWorkspace from '@/frontend/aries-v1/post-workspace';
 import type { AppRouteId } from '@/frontend/app-shell/routes';
 
 function routeIdForView(view: string | undefined): AppRouteId {
@@ -7,23 +7,23 @@ function routeIdForView(view: string | undefined): AppRouteId {
   if (view === 'strategy') return 'strategyReview';
   if (view === 'creative') return 'creativeReview';
   if (view === 'publish') return 'publishStatus';
-  return 'campaigns';
+  return 'socialContent';
 }
 
 export default async function DashboardCampaignWorkspacePage({
   params,
   searchParams,
 }: {
-  params: Promise<{ campaignId: string }>;
+  params: Promise<{ postId: string }>;
   searchParams: Promise<{ view?: string }>;
 }) {
-  const { campaignId } = await params;
+  const { postId } = await params;
   const { view } = await searchParams;
 
   return (
     <AppShellLayout currentRouteId={routeIdForView(view)}>
-      <AriesCampaignWorkspace
-        campaignId={campaignId}
+      <AriesPostWorkspace
+        postId={postId}
         initialView={view === 'brand' || view === 'strategy' || view === 'creative' || view === 'publish' ? view : undefined}
       />
     </AppShellLayout>

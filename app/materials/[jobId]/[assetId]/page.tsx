@@ -5,7 +5,7 @@ import path from 'node:path';
 import { auth } from '@/auth';
 import { findMarketingAsset } from '@/backend/marketing/asset-library';
 import { readMarketingAssetWithinAllowedRoots } from '@/backend/marketing/asset-read';
-import { loadMarketingJobRuntime } from '@/backend/marketing/runtime-state';
+import { loadSocialContentJobRuntime } from '@/backend/marketing/runtime-state';
 import { getTenantContext } from '@/lib/tenant-context';
 import { renderSimpleMarkdown } from '@/lib/simple-markdown';
 
@@ -62,7 +62,7 @@ export default async function MaterialsViewerPage({
     notFound();
   }
 
-  const runtimeDoc = await loadMarketingJobRuntime(jobId);
+  const runtimeDoc = await loadSocialContentJobRuntime(jobId);
   if (!runtimeDoc) {
     notFound();
   }

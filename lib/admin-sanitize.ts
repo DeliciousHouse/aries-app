@@ -1,4 +1,4 @@
-import type { MarketingJobRuntimeDocument } from '@/backend/marketing/runtime-state';
+import type { SocialContentJobRuntimeDocument } from '@/backend/marketing/runtime-state';
 
 /**
  * Strips all resume tokens and secrets from a marketing job runtime document
@@ -13,7 +13,7 @@ import type { MarketingJobRuntimeDocument } from '@/backend/marketing/runtime-st
  * silently create new leaks.
  */
 export function sanitizeJobRuntimeDoc(
-  doc: MarketingJobRuntimeDocument,
+  doc: SocialContentJobRuntimeDocument,
 ): Record<string, unknown> {
   const json = JSON.parse(JSON.stringify(doc)) as Record<string, unknown>;
   redactTokenFields(json);

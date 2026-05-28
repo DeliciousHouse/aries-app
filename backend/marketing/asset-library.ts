@@ -4,7 +4,7 @@ import path from 'node:path';
 import { artifactOutputRoots, resolveGeneratedAsset } from './artifact-store';
 import { listMarketingDashboardAssetsForJob } from './dashboard-content';
 import { collectResearchStageArtifacts, collectStrategyReviewArtifacts } from './artifact-collector';
-import { createMarketingJobFacts, type MarketingJobFacts } from './job-facts';
+import { createSocialContentJobFacts, type MarketingJobFacts } from './job-facts';
 import {
   canonicalizePublishReviewPlatformSlug,
   legacyPublishReviewLinkedAssetId,
@@ -13,7 +13,7 @@ import {
   publishReviewMediaAssetId,
 } from './publish-review-asset-ids';
 import { extractPublishReviewBundle } from './publish-review';
-import { resolveStageOutput, type MarketingJobRuntimeDocument } from './runtime-state';
+import { resolveStageOutput, type SocialContentJobRuntimeDocument } from './runtime-state';
 import { loadValidatedMarketingProfileDocs, loadValidatedMarketingProfileSnapshot } from './validated-profile-store';
 
 export type MarketingAssetDescriptor = {
@@ -36,7 +36,7 @@ export type MarketingAssetTenantOptions = {
 };
 
 function assertRuntimeDocTenantMatches(
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   tenantId: string | undefined,
 ): void {
   if (tenantId === undefined) {
@@ -221,14 +221,14 @@ export function marketingAssetUrl(jobId: string, assetId: string): string {
 
 export async function buildMarketingAssetLibrary(
   jobId: string,
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   facts?: MarketingJobFacts,
   options: MarketingAssetTenantOptions = {},
 ): Promise<MarketingAssetDescriptor[]> {
   assertRuntimeDocTenantMatches(runtimeDoc, options.tenantId);
   const assets: MarketingAssetDescriptor[] = [];
   const assetById = new Map<string, MarketingAssetDescriptor>();
-  const resolvedFacts = facts ?? createMarketingJobFacts(runtimeDoc, null);
+  const resolvedFacts = facts ?? createSocialContentJobFacts(runtimeDoc, null);
   const resolveAssetPath = (
     filePath: string | null | undefined,
     fallbackPaths: Array<string | null | undefined> = []
@@ -341,7 +341,7 @@ export async function buildMarketingAssetLibrary(
     'Extracted brand kit',
     [validatedProfileDocs.paths.brandKit],
   );
-  await addAsset('strategy-campaign-planner', plannerPath, 'Campaign planner');
+  await addAsset('strategy-campaign-planner', plannerPath, 'Social content planner');
   await addAsset('strategy-review-preview', strategyReviewPath, 'Strategy review preview');
   await addAsset(
     'brand-bible-markdown',
@@ -360,7 +360,7 @@ export async function buildMarketingAssetLibrary(
     await addAsset(
       'strategy-proposal-markdown',
       null,
-      'Campaign proposal',
+      'Social content proposal',
       outputRoots().flatMap((outputRoot) => brandSlugCandidates.map((brandSlug) => path.join(outputRoot, `${brandSlug}-campaign-proposal.md`))),
     );
     await addAsset(
@@ -473,7 +473,7 @@ export async function buildMarketingAssetLibrary(
 
 export async function buildMarketingAssetLinks(
   jobId: string,
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   facts?: MarketingJobFacts,
   options: MarketingAssetTenantOptions = {},
 ): Promise<MarketingAssetLink[]> {
@@ -488,13 +488,13 @@ export async function buildMarketingAssetLinks(
 
 export async function findMarketingAsset(
   jobId: string,
-  runtimeDoc: MarketingJobRuntimeDocument,
+  runtimeDoc: SocialContentJobRuntimeDocument,
   assetId: string,
   facts?: MarketingJobFacts,
   options: MarketingAssetTenantOptions = {},
 ): Promise<MarketingAssetDescriptor | null> {
   assertRuntimeDocTenantMatches(runtimeDoc, options.tenantId);
-  const resolvedFacts = facts ?? createMarketingJobFacts(runtimeDoc, null);
+  const resolvedFacts = facts ?? createSocialContentJobFacts(runtimeDoc, null);
   const assets = await buildMarketingAssetLibrary(jobId, runtimeDoc, resolvedFacts, options);
   const directMatch = assets.find((asset) => asset.id === assetId);
   if (directMatch) {

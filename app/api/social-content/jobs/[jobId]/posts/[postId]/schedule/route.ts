@@ -14,7 +14,7 @@ import {
 } from '@/lib/tenant-context-http';
 import { scheduleScheduledPostHonchoWrite } from '@/backend/memory/write-events';
 import { findLatestMarketingApprovalRecord } from '@/backend/marketing/approval-store';
-import { loadMarketingJobRuntime, asRecord, asString } from '@/backend/marketing/runtime-state';
+import { loadSocialContentJobRuntime, asRecord, asString } from '@/backend/marketing/runtime-state';
 
 /**
  * Read the parent campaign's end date out of the marketing runtime document.
@@ -25,7 +25,7 @@ import { loadMarketingJobRuntime, asRecord, asString } from '@/backend/marketing
  * date" and never blocks these rows.
  */
 async function resolveCampaignEndDateForJob(jobId: string): Promise<Date | null> {
-  const doc = await loadMarketingJobRuntime(jobId);
+  const doc = await loadSocialContentJobRuntime(jobId);
   if (!doc || doc.job_type !== 'one_off_campaign') {
     return null;
   }

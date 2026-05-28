@@ -5,8 +5,8 @@ import {
   type RegenerateCreativeContext,
 } from './execution-port';
 import {
-  loadMarketingJobRuntime,
-  type MarketingJobRuntimeDocument,
+  loadSocialContentJobRuntime,
+  type SocialContentJobRuntimeDocument,
   type MarketingStage,
 } from './runtime-state';
 
@@ -38,7 +38,7 @@ function nonEmpty(value: string | null | undefined): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function inferSourceRunIdFromDoc(doc: MarketingJobRuntimeDocument): string {
+function inferSourceRunIdFromDoc(doc: SocialContentJobRuntimeDocument): string {
   const order: MarketingStage[] = ['publish', 'production', 'strategy', 'research'];
   for (const stage of order) {
     const runId = nonEmpty(doc.stages?.[stage]?.run_id);
@@ -63,7 +63,7 @@ export async function regenerateCreativeAsNewRun(
     };
   }
 
-  const doc = await loadMarketingJobRuntime(input.jobId);
+  const doc = await loadSocialContentJobRuntime(input.jobId);
   if (!doc) {
     return { kind: 'job_not_found' };
   }

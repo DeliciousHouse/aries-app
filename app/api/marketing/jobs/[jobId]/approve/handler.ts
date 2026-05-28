@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server';
 
 import { mapAriesExecutionError } from '@/backend/execution';
 import { invalidateMarketingJobStatus } from '@/backend/marketing/jobs-status';
-import { approveMarketingJob, denyMarketingJob } from '@/backend/marketing/orchestrator';
-import { loadMarketingJobRuntime } from '@/backend/marketing/runtime-state';
+import { approveSocialContentJob, denySocialContentJob } from '@/backend/marketing/orchestrator';
+import { loadSocialContentJobRuntime } from '@/backend/marketing/runtime-state';
 import { isApprovalDenialReasonCode } from '@/lib/marketing/approval-denial-reason-codes';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
@@ -143,7 +143,7 @@ export async function handleApproveMarketingJob(
     const denialNote =
       typeof denialNoteRaw === 'string' && denialNoteRaw.trim().length > 0 ? denialNoteRaw.trim() : undefined;
 
-    const doc = await loadMarketingJobRuntime(jobId);
+    const doc = await loadSocialContentJobRuntime(jobId);
     if (!doc) {
       return NextResponse.json(
         {
@@ -167,7 +167,7 @@ export async function handleApproveMarketingJob(
     const approved = typeof payload.approved === 'boolean' ? payload.approved : true;
 
     const result = approved
-      ? await approveMarketingJob(
+      ? await approveSocialContentJob(
         {
           jobId,
           tenantId: resolvedTenantId,
@@ -190,7 +190,7 @@ export async function handleApproveMarketingJob(
         },
         doc,
       )
-      : await denyMarketingJob(
+      : await denySocialContentJob(
         {
           jobId,
           tenantId: resolvedTenantId,
@@ -235,7 +235,7 @@ export async function handleApproveMarketingJob(
     if (result.reason === 'approval_not_available') {
       return NextResponse.json(
         {
-          error: sanitizeMessage('This campaign is not waiting on an active approval checkpoint.', dialect),
+          error: sanitizeMessage('This social content job is not waiting on an active approval checkpoint.', dialect),
           reason: result.reason,
         },
         { status: 409 },

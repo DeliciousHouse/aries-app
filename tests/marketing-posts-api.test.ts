@@ -212,6 +212,6 @@ test('/api/marketing/posts returns ready-to-publish inventory from review and pu
     assert.equal(body.assets.some((asset: Record<string, unknown>) => typeof asset.previewUrl === 'string'), true);
     assert.equal(Array.isArray(body.posts), true);
     assert.equal(body.posts.some((post: Record<string, unknown>) => post.status === 'ready_to_publish'), true);
-    assert.equal(body.campaigns[0].counts.readyToPublish > 0, true);
+    assert.equal(body.posts[0].counts.readyToPublish > 0, true);
   });
 });

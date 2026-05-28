@@ -53,7 +53,7 @@ function buildUnscheduled(overrides: Partial<UnscheduledPostItem> = {}): Unsched
 test('resolveDragSchedule fires a reschedule when an event tile moves to a new cell', () => {
   const event = createCalendarViewModel({
     scheduledPosts: [buildScheduledPost()],
-    campaigns: [],
+    posts: [],
     timeZone: 'America/New_York',
   }).events[0];
 
@@ -70,7 +70,7 @@ test('resolveDragSchedule fires a reschedule when an event tile moves to a new c
 test('resolveDragSchedule is a no-op when an event is dropped on its own cell', () => {
   const event = createCalendarViewModel({
     scheduledPosts: [buildScheduledPost()],
-    campaigns: [],
+    posts: [],
     timeZone: 'America/New_York',
   }).events[0];
   // The event's dayKey is 2026-04-15 (14:00Z in NY). Dropping it there is a no-op.
@@ -80,7 +80,7 @@ test('resolveDragSchedule is a no-op when an event is dropped on its own cell', 
 test('resolveDragSchedule schedules a NEW post when a tray item is dropped on a cell', () => {
   const model = createCalendarViewModel({
     scheduledPosts: [],
-    campaigns: [],
+    posts: [],
     unscheduledPosts: [
       { ...buildUnscheduled(), href: '/dashboard/social-content/job-9' },
     ],
@@ -98,7 +98,7 @@ test('resolveDragSchedule ignores a drag with no payload or no target', () => {
   assert.equal(resolveDragSchedule(null, '2026-05-01'), null);
   const event = createCalendarViewModel({
     scheduledPosts: [buildScheduledPost()],
-    campaigns: [],
+    posts: [],
     timeZone: 'UTC',
   }).events[0];
   assert.equal(resolveDragSchedule({ kind: 'event', event }, ''), null);
@@ -111,7 +111,7 @@ test('CalendarPresenter renders droppable cells and draggable tiles under jsdom'
 
   const model = createCalendarViewModel({
     scheduledPosts: [buildScheduledPost({ scheduledFor: '2026-04-15T14:00:00.000Z' })],
-    campaigns: [],
+    posts: [],
     unscheduledPosts: [{ ...buildUnscheduled(), href: '/dashboard/social-content/job-9' }],
     timeZone: 'America/New_York',
   });
@@ -158,7 +158,7 @@ test('CalendarPresenter drag wiring calls onSchedule with the correct target dat
 
   const event = createCalendarViewModel({
     scheduledPosts: [buildScheduledPost()],
-    campaigns: [],
+    posts: [],
     timeZone: 'America/New_York',
   }).events[0];
 

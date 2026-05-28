@@ -1,4 +1,4 @@
-import type { MarketingJobRuntimeDocument, MarketingStage } from '@/backend/marketing/runtime-state';
+import type { SocialContentJobRuntimeDocument, MarketingStage } from '@/backend/marketing/runtime-state';
 import {
   redactTokenLikeString,
   sanitizeWeeklySocialContentPayload,
@@ -12,7 +12,7 @@ import {
 import { SOCIAL_COPY_FINALIZE_WORKFLOW_KEY } from './defaults';
 
 type UnknownRecord = Record<string, unknown>;
-type MarketingDocWithSocialRuntime = MarketingJobRuntimeDocument & {
+type MarketingDocWithSocialRuntime = SocialContentJobRuntimeDocument & {
   social_content_runtime?: unknown;
 };
 
@@ -149,18 +149,18 @@ function firstString(...values: unknown[]): string {
   return '';
 }
 
-function requestRecord(doc: MarketingJobRuntimeDocument): UnknownRecord {
+function requestRecord(doc: SocialContentJobRuntimeDocument): UnknownRecord {
   const value = doc.inputs.request;
   return value && typeof value === 'object' && !Array.isArray(value)
     ? sanitizeWeeklySocialContentPayload(value as UnknownRecord)
     : {};
 }
 
-function socialRuntimeRecord(doc: MarketingJobRuntimeDocument): UnknownRecord | null {
+function socialRuntimeRecord(doc: SocialContentJobRuntimeDocument): UnknownRecord | null {
   return asRecord((doc as MarketingDocWithSocialRuntime).social_content_runtime);
 }
 
-function stageOutputRecords(doc: MarketingJobRuntimeDocument): UnknownRecord[] {
+function stageOutputRecords(doc: SocialContentJobRuntimeDocument): UnknownRecord[] {
   const sources: UnknownRecord[] = [];
 
   const socialRuntime = socialRuntimeRecord(doc);
@@ -188,7 +188,7 @@ function stageOutputRecords(doc: MarketingJobRuntimeDocument): UnknownRecord[] {
   return sources;
 }
 
-function latestWeeklyPlanRaw(doc: MarketingJobRuntimeDocument): {
+function latestWeeklyPlanRaw(doc: SocialContentJobRuntimeDocument): {
   posts: UnknownRecord[];
   imageCreatives: UnknownRecord[];
   videoScripts: UnknownRecord[];
@@ -372,7 +372,7 @@ function buildInputPosts(
 }
 
 export function buildSocialCopyFinalizeRequest(input: {
-  doc: MarketingJobRuntimeDocument;
+  doc: SocialContentJobRuntimeDocument;
   ariesRunId: string;
   callbackUrl: string;
 }): SocialCopyFinalizeRequestBuildResult {

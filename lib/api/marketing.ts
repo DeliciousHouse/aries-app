@@ -21,7 +21,7 @@ export type MarketingJobType = 'weekly_social_content' | 'one_off_campaign';
  * wallTimeToUtc + business_profiles.timezone) before they hit the wire or the
  * scheduled_posts.campaign_end_date column.
  */
-export interface OneOffCampaignBrief {
+export interface OneOffBrief {
   name: string;
   campaignEndDate: string;
   cta: string;
@@ -53,7 +53,7 @@ export interface MarketingBriefAssetUploadMetadata {
   size: number;
 }
 
-export interface BrandCampaignPayload {
+export interface BrandPostPayload {
   brandUrl: string;
   competitorUrl?: string;
   competitorBrand?: string;
@@ -90,12 +90,12 @@ export interface BrandCampaignPayload {
    * PostMarketingJobsRequest.jobType === 'one_off_campaign'. Weekly campaigns
    * leave this undefined.
    */
-  oneOff?: OneOffCampaignBrief;
+  oneOff?: OneOffBrief;
 }
 
 export interface PostMarketingJobsRequest {
   jobType: MarketingJobType;
-  payload: BrandCampaignPayload;
+  payload: BrandPostPayload;
 }
 
 export interface StartJobAccepted {
@@ -152,7 +152,7 @@ export interface MarketingTimelineEntry {
   description: string;
 }
 
-export interface MarketingCampaignWindow {
+export interface SocialContentWindow {
   start: string | null;
   end: string | null;
 }
@@ -248,7 +248,7 @@ export interface MarketingReviewPreviewCard {
 export interface MarketingReviewBundle {
   stage: MarketingStage;
   title: string;
-  campaignName: string;
+  postName: string;
   generatedAt: string | null;
   approvalMessage: string;
   summary: string;
@@ -272,7 +272,7 @@ export interface MarketingReviewBundle {
   platformPreviews: MarketingReviewPreviewCard[];
 }
 
-export interface MarketingCampaignBriefAsset {
+export interface SocialContentBriefAsset {
   id: string;
   name: string;
   fileName: string;
@@ -282,7 +282,7 @@ export interface MarketingCampaignBriefAsset {
   url: string;
 }
 
-export interface MarketingCampaignBrief {
+export interface SocialContentBrief {
   websiteUrl: string;
   businessName: string;
   businessType: string;
@@ -297,10 +297,10 @@ export interface MarketingCampaignBrief {
   mustUseCopy: string;
   mustAvoidAesthetics: string;
   notes: string;
-  brandAssets: MarketingCampaignBriefAsset[];
+  brandAssets: SocialContentBriefAsset[];
 }
 
-export interface MarketingCampaignStatusHistoryEntry {
+export interface SocialContentStatusHistoryEntry {
   id: string;
   at: string;
   actor: string;
@@ -350,7 +350,7 @@ export interface MarketingStageReviewPayload {
   brandIdentity?: MarketingBrandIdentity | null;
   sections: MarketingReviewSection[];
   attachments: MarketingReviewAttachment[];
-  history: MarketingCampaignStatusHistoryEntry[];
+  history: SocialContentStatusHistoryEntry[];
   latestNote: string | null;
 }
 
@@ -368,7 +368,7 @@ export interface MarketingCreativeAssetReviewPayload {
   destinationUrl: string | null;
   notes: string[];
   latestNote: string | null;
-  history: MarketingCampaignStatusHistoryEntry[];
+  history: SocialContentStatusHistoryEntry[];
 }
 
 export interface MarketingCreativeReviewPayload {
@@ -382,7 +382,7 @@ export interface MarketingCreativeReviewPayload {
   rejectedCount: number;
   publishBlockedReason: string | null;
   assets: MarketingCreativeAssetReviewPayload[];
-  history: MarketingCampaignStatusHistoryEntry[];
+  history: SocialContentStatusHistoryEntry[];
 }
 
 export type MarketingDashboardItemStatus =
@@ -434,7 +434,7 @@ export type MarketingDashboardPublishItemType =
   | 'scheduled_post'
   | 'live_post';
 
-export type MarketingDashboardCampaignCompatibilityStatus =
+export type MarketingDashboardSocialContentJobCompatibilityStatus =
   | 'draft'
   | 'in_review'
   | 'approved'
@@ -444,14 +444,14 @@ export type MarketingDashboardCampaignCompatibilityStatus =
 
 export interface MarketingDashboardAsset {
   id: string;
-  campaignId: string;
+  postId: string;
   jobId: string;
   type: MarketingDashboardAssetType;
   title: string;
   summary: string;
   platform: string;
   platformLabel: string;
-  campaignName: string;
+  postName: string;
   funnelStage: string | null;
   objective: string;
   destinationUrl: string | null;
@@ -467,7 +467,7 @@ export interface MarketingDashboardAsset {
 
 export interface MarketingDashboardPost {
   id: string;
-  campaignId: string;
+  postId: string;
   jobId: string;
   type: MarketingDashboardPostType;
   title: string;
@@ -478,7 +478,7 @@ export interface MarketingDashboardPost {
   copyWarnings: string[];
   platform: string;
   platformLabel: string;
-  campaignName: string;
+  postName: string;
   funnelStage: string | null;
   objective: string;
   destinationUrl: string | null;
@@ -493,14 +493,14 @@ export interface MarketingDashboardPost {
 
 export interface MarketingDashboardPublishItem {
   id: string;
-  campaignId: string;
+  postId: string;
   jobId: string;
   type: MarketingDashboardPublishItemType;
   title: string;
   summary: string;
   platform: string;
   platformLabel: string;
-  campaignName: string;
+  postName: string;
   funnelStage: string | null;
   objective: string;
   destinationUrl: string | null;
@@ -514,7 +514,7 @@ export interface MarketingDashboardPublishItem {
 
 export interface MarketingDashboardCalendarEvent {
   id: string;
-  campaignId: string;
+  postId: string;
   jobId: string;
   title: string;
   platform: string;
@@ -523,7 +523,7 @@ export interface MarketingDashboardCalendarEvent {
   endsAt: string | null;
   status: MarketingDashboardItemStatus;
   statusLabel: string;
-  campaignName: string;
+  postName: string;
   funnelStage: string | null;
   objective: string;
   destinationUrl: string | null;
@@ -537,18 +537,18 @@ export interface MarketingDashboardStatusSummary {
   countsByStatus: Record<MarketingDashboardItemStatus, number>;
 }
 
-export interface MarketingDashboardCampaign {
+export interface MarketingDashboardSocialContentJob {
   id: string;
   jobId: string;
-  externalCampaignId: string;
+  externalPostId: string;
   name: string;
   objective: string;
   funnelStage: string | null;
   summary: string;
   stageLabel: string;
   status: MarketingDashboardItemStatus;
-  compatibilityStatus: MarketingDashboardCampaignCompatibilityStatus;
-  campaignWindow: MarketingCampaignWindow | null;
+  compatibilityStatus: MarketingDashboardSocialContentJobCompatibilityStatus;
+  postWindow: SocialContentWindow | null;
   updatedAt: string | null;
   approvalRequired: boolean;
   approvalActionHref?: string;
@@ -576,7 +576,7 @@ export interface MarketingDashboardCampaign {
 }
 
 export interface MarketingDashboardContent {
-  campaigns: MarketingDashboardCampaign[];
+  socialContentJobs: MarketingDashboardSocialContentJob[];
   posts: MarketingDashboardPost[];
   assets: MarketingDashboardAsset[];
   publishItems: MarketingDashboardPublishItem[];
@@ -584,8 +584,8 @@ export interface MarketingDashboardContent {
   statuses: MarketingDashboardStatusSummary;
 }
 
-export interface MarketingDashboardCampaignContent {
-  campaign: MarketingDashboardCampaign | null;
+export interface MarketingDashboardSocialContentJobContent {
+  post: MarketingDashboardSocialContentJob | null;
   posts: MarketingDashboardPost[];
   assets: MarketingDashboardAsset[];
   publishItems: MarketingDashboardPublishItem[];
@@ -593,11 +593,11 @@ export interface MarketingDashboardCampaignContent {
   statuses: MarketingDashboardStatusSummary;
 }
 
-export interface GetMarketingJobStatusResponse {
+export interface GetSocialContentJobStatusResponse {
   jobId: string;
   tenantName: string | null;
   brandWebsiteUrl: string | null;
-  campaignWindow: MarketingCampaignWindow | null;
+  postWindow: SocialContentWindow | null;
   durationDays: number | null;
   plannedPostCount: number | null;
   createdPostCount: number | null;
@@ -619,9 +619,9 @@ export interface GetMarketingJobStatusResponse {
   timeline: MarketingTimelineEntry[];
   approval: MarketingApprovalSummary | null;
   reviewBundle: MarketingReviewBundle | null;
-  campaignBrief: MarketingCampaignBrief | null;
+  socialContentBrief: SocialContentBrief | null;
   workflowState: MarketingWorkflowState;
-  statusHistory: MarketingCampaignStatusHistoryEntry[];
+  statusHistory: SocialContentStatusHistoryEntry[];
   brandReview: MarketingStageReviewPayload | null;
   strategyReview: MarketingStageReviewPayload | null;
   creativeReview: MarketingCreativeReviewPayload | null;
@@ -632,7 +632,7 @@ export interface GetMarketingJobStatusResponse {
   };
   nextStep: string;
   repairStatus: string;
-  dashboard: MarketingDashboardCampaignContent;
+  dashboard: MarketingDashboardSocialContentJobContent;
 }
 
 export type GetMarketingPostsResponse = MarketingDashboardContent;
@@ -701,7 +701,7 @@ export function createMarketingApi(options: MarketingApiClientOptions = {}) {
     },
 
     getJob(jobId: string) {
-      return requestJson<MarketingResult<GetMarketingJobStatusResponse>>(
+      return requestJson<MarketingResult<GetSocialContentJobStatusResponse>>(
         `${jobStatusPath}/${encodeURIComponent(jobId)}`,
         { method: 'GET' },
         options
@@ -709,7 +709,7 @@ export function createMarketingApi(options: MarketingApiClientOptions = {}) {
     },
 
     getLatestJob() {
-      return requestJson<MarketingResult<GetMarketingJobStatusResponse>>(
+      return requestJson<MarketingResult<GetSocialContentJobStatusResponse>>(
         '/api/marketing/jobs/latest',
         { method: 'GET' },
         options

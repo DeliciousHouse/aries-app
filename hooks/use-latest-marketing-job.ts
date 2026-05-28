@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo } from 'react';
 import {
   createMarketingApi,
   isMarketingErrorResult,
-  type GetMarketingJobStatusResponse,
+  type GetSocialContentJobStatusResponse,
 } from '@/lib/api/marketing';
 import { ApiRequestError } from '@/lib/api/http';
 import { useRequestState } from './use-request-state';
@@ -17,7 +17,7 @@ export interface UseLatestMarketingJobOptions {
 
 export function useLatestMarketingJob(options: UseLatestMarketingJobOptions = {}) {
   const api = useMemo(() => createMarketingApi(options), [options.baseUrl]);
-  const state = useRequestState<GetMarketingJobStatusResponse | null>();
+  const state = useRequestState<GetSocialContentJobStatusResponse | null>();
   const { reset, setError, setLoading, setSuccess } = state;
 
   const load = useCallback(async (quiet = false) => {

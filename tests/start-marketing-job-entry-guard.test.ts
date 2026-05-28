@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Regression: the runtime guard at the entry of startMarketingJob hardcoded
+// Regression: the runtime guard at the entry of startSocialContentJob hardcoded
 // `input.jobType !== 'weekly_social_content'` and threw for every value
 // outside that. When the type union was widened to include 'one_off_campaign'
 // in v0.1.11.0, TypeScript accepted the call site (the literal compared in an
@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 //
 // Source-level assertion locks both halves of the guard's union in place so a
 // future rename or widening can't silently break the entry path again. A full
-// integration test against startMarketingJob is heavy (touches DB, brand-kit
+// integration test against startSocialContentJob is heavy (touches DB, brand-kit
 // extraction, file IO, Hermes); the source assertion is the cheap, durable
 // equivalent.
 
@@ -25,7 +25,7 @@ const ORCH_SRC = readFileSync(
   'utf8',
 );
 
-test('startMarketingJob entry guard accepts both weekly_social_content and one_off_campaign', () => {
+test('startSocialContentJob entry guard accepts both weekly_social_content and one_off_campaign', () => {
   // The accept-list is enumerated explicitly (a single `!== weekly` check would
   // throw for one_off_campaign). The regex tolerates whitespace and line
   // wrapping but the two literal values must both appear.
@@ -36,7 +36,7 @@ test('startMarketingJob entry guard accepts both weekly_social_content and one_o
   );
 });
 
-test('startMarketingJob sets up social-content runtime state for both job types', () => {
+test('startSocialContentJob sets up social-content runtime state for both job types', () => {
   // One-off campaigns ride the same Hermes pipeline per design premise P3;
   // downstream code reads `social_content_runtime` and crashes if absent.
   // Both job types must reach ensureSocialContentRuntimeState.
@@ -57,7 +57,7 @@ test('no stale event_campaign string literals remain in orchestrator', () => {
   );
 });
 
-test('startMarketingJob passes publishingRequested=true for one_off_campaign', () => {
+test('startSocialContentJob passes publishingRequested=true for one_off_campaign', () => {
   // Regression: v0.1.11.3 called ensureSocialContentRuntimeState(doc) with no
   // input for both job types. For one_off, requestedPublishFlag() found no
   // publish-request keys in the payload and defaulted to false. The publish

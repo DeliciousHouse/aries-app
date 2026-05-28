@@ -294,11 +294,11 @@ async function withRuntimeEnv<T>(run: () => Promise<T>): Promise<T> {
 
 async function seedSocialJob() {
   const {
-    createMarketingJobRuntimeDocument,
-    saveMarketingJobRuntime,
+    createSocialContentJobRuntimeDocument,
+    saveSocialContentJobRuntime,
   } = await import('../backend/marketing/runtime-state');
 
-  const doc = createMarketingJobRuntimeDocument({
+  const doc = createSocialContentJobRuntimeDocument({
     jobId: 'mkt_failloud-test',
     tenantId: 'tenant-failloud',
     payload: {
@@ -324,7 +324,7 @@ async function seedSocialJob() {
       style_vibe: null,
     },
   });
-  saveMarketingJobRuntime(doc.job_id, doc);
+  saveSocialContentJobRuntime(doc.job_id, doc);
   return doc;
 }
 
@@ -332,7 +332,7 @@ test('production callback with unrendered image_creatives (no artifact_url) is r
   await withRuntimeEnv(async () => {
     const { createExecutionRunRecord } = await import('../backend/execution/run-store');
     const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
 
     const doc = await seedSocialJob();
 
@@ -388,7 +388,7 @@ test('production callback with unrendered image_creatives (no artifact_url) is r
       ],
     });
 
-    const after = await loadMarketingJobRuntime(doc.job_id);
+    const after = await loadSocialContentJobRuntime(doc.job_id);
     assert.equal(after?.stages.production.status, 'failed', 'production stage should be failed');
     const lastError = after?.last_error;
     assert.ok(lastError, 'last_error should be set');
@@ -403,7 +403,7 @@ test('production callback with rendered image_creatives (real artifact_url) pass
   await withRuntimeEnv(async () => {
     const { createExecutionRunRecord } = await import('../backend/execution/run-store');
     const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
 
     const doc = await seedSocialJob();
 
@@ -452,7 +452,7 @@ test('production callback with rendered image_creatives (real artifact_url) pass
       ],
     });
 
-    const after = await loadMarketingJobRuntime(doc.job_id);
+    const after = await loadSocialContentJobRuntime(doc.job_id);
     // Should NOT be failed — production should complete (approval or publish-skip, both valid).
     assert.ok(
       after?.stages.production.status !== 'failed',
@@ -471,7 +471,7 @@ test('production callback with no image_creatives at all does not trigger fail-l
   await withRuntimeEnv(async () => {
     const { createExecutionRunRecord } = await import('../backend/execution/run-store');
     const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
 
     const doc = await seedSocialJob();
 
@@ -511,7 +511,7 @@ test('production callback with no image_creatives at all does not trigger fail-l
       ],
     });
 
-    const after = await loadMarketingJobRuntime(doc.job_id);
+    const after = await loadSocialContentJobRuntime(doc.job_id);
     assert.ok(
       after?.stages.production.status !== 'failed',
       'should not fail when image_creatives is empty (no images requested)',

@@ -36,7 +36,7 @@ const ICONS: Record<AppRouteId, typeof LayoutDashboard> = {
   strategyReview: ClipboardCheck,
   creativeReview: Sparkles,
   publishStatus: Send,
-  campaigns: Rocket,
+  socialContent: Rocket,
   posts: FileStack,
   calendar: Calendar,
   results: BarChart3,
@@ -97,7 +97,7 @@ export default function AppShellClient({
 
   const utilityItems: SidebarItem[] = useMemo(
     () => [
-      { type: 'link', routeId: 'campaigns' },
+      { type: 'link', routeId: 'socialContent' },
       { type: 'link', routeId: 'posts' },
       { type: 'link', routeId: 'calendar' },
       { type: 'link', routeId: 'results' },

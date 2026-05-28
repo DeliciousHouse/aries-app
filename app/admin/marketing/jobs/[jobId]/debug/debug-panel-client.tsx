@@ -196,7 +196,7 @@ function RetryButton({
   }, [jobId, stage]);
 
   if (stage === 'publish') {
-    return <span className="text-gray-600 text-xs font-mono">publish: use campaign workspace</span>;
+    return <span className="text-gray-600 text-xs font-mono">publish: use social content workspace</span>;
   }
 
   if (state === 'idle') {
@@ -374,7 +374,7 @@ export function DebugPanelClient({
     <div className="min-h-screen bg-gray-950 text-gray-100">
       {/* Banner */}
       <div className="bg-yellow-900 border-b border-yellow-700 px-6 py-2 text-sm font-mono text-yellow-200">
-        Use this panel when a campaign appears stuck or failed unexpectedly. For normal campaign progress, see the workspace.{' '}
+        Use this panel when a social content job appears stuck or failed unexpectedly. For normal social content progress, see the workspace.{' '}
         <a
           href={`/dashboard/social-content/${encodeURIComponent(job.job_id)}`}
           className="underline text-yellow-300 hover:text-yellow-100"

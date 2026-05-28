@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import React from 'react';
 
-import { RenderedVideosSection } from '../frontend/aries-v1/campaign-workspace';
+import { RenderedVideosSection } from '../frontend/aries-v1/post-workspace';
 
 test('RenderedVideosSection renders one video card per rendered video artifact', async () => {
   const { act, create } = await import('react-test-renderer');

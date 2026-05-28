@@ -5,7 +5,7 @@ export type AppRouteId =
   | 'strategyReview'
   | 'creativeReview'
   | 'publishStatus'
-  | 'campaigns'
+  | 'socialContent'
   | 'posts'
   | 'calendar'
   | 'results'
@@ -66,11 +66,11 @@ export const APP_ROUTES: readonly AppRoute[] = [
     description: 'See workflow state, publish gating reasons, and what is truly ready to publish.'
   },
   {
-    id: 'campaigns',
-    title: 'Campaigns',
+    id: 'socialContent',
+    title: 'Social Content',
     href: '/dashboard/social-content',
     section: 'utility',
-    description: 'Campaign list and direct links into each campaign workspace.'
+    description: 'Social content list and direct links into each social content job workspace.'
   },
   {
     id: 'posts',

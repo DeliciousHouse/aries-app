@@ -8,7 +8,7 @@ import { resolveProjectRoot } from './helpers/project-root';
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
 const source = readFileSync(
-  path.join(PROJECT_ROOT, 'frontend', 'aries-v1', 'campaign-workspace.tsx'),
+  path.join(PROJECT_ROOT, 'frontend', 'aries-v1', 'post-workspace.tsx'),
   'utf8',
 );
 

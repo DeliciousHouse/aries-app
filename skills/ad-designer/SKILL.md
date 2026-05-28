@@ -232,7 +232,7 @@ message action=send filePath=/path/to/image.png caption="🎨 Ad Name (1:1) ✓ 
 ## Integration
 
 This skill works with:
-- `/campaign_planner` — Provides creative briefs
+- `/social-content-planner` — Provides creative briefs
 - `/creative_director` — Orchestrates asset creation
 - `/website_brand_analysis` — Provides brand guidelines
 

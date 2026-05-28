@@ -121,7 +121,7 @@ test('/api/marketing/jobs reaches the first approval checkpoint through the real
     };
 
     const { handlePostMarketingJobs } = await import('../app/api/marketing/jobs/handler');
-    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
 
     const response = await handlePostMarketingJobs(
       new Request('http://aries.example.test/api/marketing/jobs', {
@@ -150,7 +150,7 @@ test('/api/marketing/jobs reaches the first approval checkpoint through the real
     assert.equal(typeof body.approvalRequired, 'boolean');
     assert.equal(body.marketing_stage, 'research');
     assert.equal(typeof body.jobId, 'string');
-    const runtimeDoc = await loadMarketingJobRuntime(String(body.jobId));
+    const runtimeDoc = await loadSocialContentJobRuntime(String(body.jobId));
     assert.equal(runtimeDoc?.current_stage, 'research');
     assert.equal(typeof runtimeDoc?.stages.research, 'object');
 
@@ -699,7 +699,7 @@ test('/api/social-content/jobs preserves user Campaign text while socializing ge
   await withMarketingRuntimeEnv('tenant_social_route_campaign_monitor', async () => {
     const { handlePostMarketingJobs } = await import('../app/api/marketing/jobs/handler');
     const { handleGetMarketingJobStatus } = await import('../app/api/marketing/jobs/[jobId]/handler');
-    const { loadMarketingJobRuntime, saveMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { loadSocialContentJobRuntime, saveSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
     const response = await handlePostMarketingJobs(
       new Request('http://aries.example.test/api/social-content/jobs', {
         method: 'POST',
@@ -725,7 +725,7 @@ test('/api/social-content/jobs preserves user Campaign text while socializing ge
 
     assert.equal(response.status, 202);
     const body = (await response.json()) as Record<string, unknown>;
-    const doc = await loadMarketingJobRuntime(String(body.jobId));
+    const doc = await loadSocialContentJobRuntime(String(body.jobId));
     assert.ok(doc);
     doc.state = 'running';
     doc.status = 'running';
@@ -735,7 +735,7 @@ test('/api/social-content/jobs preserves user Campaign text while socializing ge
     } as NonNullable<typeof doc.brand_kit>;
     doc.inputs.request.businessType = 'Campaign Monitor';
     doc.inputs.request.primaryGoal = 'Campaign Monitor launch plan';
-    saveMarketingJobRuntime(String(body.jobId), doc);
+    saveSocialContentJobRuntime(String(body.jobId), doc);
 
     const statusResponse = await handleGetMarketingJobStatus(
       String(body.jobId),
@@ -756,7 +756,7 @@ test('/api/social-content/jobs preserves user Campaign text while socializing ge
     assert.equal(statusResponse.status, 200);
     assert.equal(statusBody.contentBrief?.businessType, 'Campaign Monitor');
     assert.equal(statusBody.contentBrief?.goal, 'Campaign Monitor launch plan');
-    assert.equal(statusBody.summary?.headline, 'Social content is in progress');
+    assert.equal(statusBody.summary?.headline, 'Social content job is in progress');
     assert.match(statusBody.summary?.subheadline ?? '', /social content pipeline/i);
   });
 });

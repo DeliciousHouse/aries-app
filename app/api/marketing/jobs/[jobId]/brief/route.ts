@@ -2,13 +2,13 @@ import { NextResponse } from 'next/server';
 
 import { invalidateMarketingJobStatus } from '@/backend/marketing/jobs-status';
 import {
-  appendCampaignHistory,
-  ensureCampaignWorkspaceRecord,
-  saveCampaignWorkspaceAssets,
-  saveCampaignWorkspaceRecord,
-  type CampaignWorkspaceAssetUpload,
+  appendSocialContentHistory,
+  ensureSocialContentWorkspaceRecord,
+  saveSocialContentWorkspaceAssets,
+  saveSocialContentWorkspaceRecord,
+  type SocialContentWorkspaceAssetUpload,
 } from '@/backend/marketing/workspace-store';
-import { loadMarketingJobRuntime, saveMarketingJobRuntime } from '@/backend/marketing/runtime-state';
+import { loadSocialContentJobRuntime, saveSocialContentJobRuntime } from '@/backend/marketing/runtime-state';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
 function coerceFieldValue(value: FormDataEntryValue | null): string {
@@ -38,14 +38,14 @@ function parseStringListField(entries: FormDataEntryValue[]): string[] {
 
 async function parseBriefRequest(req: Request): Promise<{
   payload: Record<string, unknown>;
-  uploads: CampaignWorkspaceAssetUpload[];
+  uploads: SocialContentWorkspaceAssetUpload[];
 }> {
   const contentType = req.headers.get('content-type') || '';
 
   if (contentType.includes('multipart/form-data')) {
     const formData = await req.formData();
     const uploadEntries = formData.getAll('brandAssets');
-    const uploads: CampaignWorkspaceAssetUpload[] = [];
+    const uploads: SocialContentWorkspaceAssetUpload[] = [];
 
     for (const entry of uploadEntries) {
       if (!(entry instanceof File) || entry.size <= 0) {
@@ -93,13 +93,13 @@ export async function handlePatchMarketingJobBrief(
   }
   const tenantId = tenantResult.tenantContext.tenantId;
 
-  const runtimeDoc = await loadMarketingJobRuntime(jobId);
+  const runtimeDoc = await loadSocialContentJobRuntime(jobId);
   if (!runtimeDoc || runtimeDoc.tenant_id !== tenantId) {
     return NextResponse.json({ error: 'Marketing job not found.' }, { status: 404 });
   }
 
   const requestBody = await parseBriefRequest(req);
-  const record = await ensureCampaignWorkspaceRecord({
+  const record = await ensureSocialContentWorkspaceRecord({
     jobId,
     tenantId,
     payload: {
@@ -109,21 +109,21 @@ export async function handlePatchMarketingJobBrief(
   });
 
   if (requestBody.uploads.length > 0) {
-    saveCampaignWorkspaceAssets(record, requestBody.uploads);
+    saveSocialContentWorkspaceAssets(record, requestBody.uploads);
   }
 
-  appendCampaignHistory(record, {
+  appendSocialContentHistory(record, {
     actor: 'operator',
     type: 'comment',
     workflowState: record.workflow_state,
     note: 'Campaign brief updated.',
   });
-  saveCampaignWorkspaceRecord(record);
+  saveSocialContentWorkspaceRecord(record);
   runtimeDoc.inputs.request = {
     ...(runtimeDoc.inputs.request as Record<string, unknown> | undefined),
     ...requestBody.payload,
   };
-  saveMarketingJobRuntime(jobId, runtimeDoc);
+  saveSocialContentJobRuntime(jobId, runtimeDoc);
   invalidateMarketingJobStatus(jobId);
 
   return NextResponse.json({ ok: true }, { status: 200 });

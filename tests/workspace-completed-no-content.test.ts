@@ -10,11 +10,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveCampaignWorkflowState } from '../backend/marketing/workspace-store';
-import type { CampaignWorkflowSnapshot, CampaignWorkspaceRecord } from '../backend/marketing/workspace-store';
-import { workflowStateLabel, workflowStateTone } from '../frontend/aries-v1/campaign-workspace';
+import { resolveSocialContentWorkflowState } from '../backend/marketing/workspace-store';
+import type { SocialContentWorkflowSnapshot, SocialContentWorkspaceRecord } from '../backend/marketing/workspace-store';
+import { workflowStateLabel, workflowStateTone } from '../frontend/aries-v1/post-workspace';
 
-function makeRecord(): CampaignWorkspaceRecord {
+function makeRecord(): SocialContentWorkspaceRecord {
   const ts = '2026-05-26T00:00:00.000Z';
   return {
     schema_name: 'marketing_campaign_workspace',
@@ -51,7 +51,7 @@ function makeRecord(): CampaignWorkspaceRecord {
   };
 }
 
-function makeSnapshot(overrides: Partial<CampaignWorkflowSnapshot> = {}): CampaignWorkflowSnapshot {
+function makeSnapshot(overrides: Partial<SocialContentWorkflowSnapshot> = {}): SocialContentWorkflowSnapshot {
   return {
     brandWorkflowReady: false,
     strategyReviewReady: false,
@@ -64,10 +64,10 @@ function makeSnapshot(overrides: Partial<CampaignWorkflowSnapshot> = {}): Campai
   };
 }
 
-test('resolveCampaignWorkflowState: completedSignal + no publish content → completed_no_content', () => {
+test('resolveSocialContentWorkflowState: completedSignal + no publish content → completed_no_content', () => {
   const record = makeRecord();
   const snapshot = makeSnapshot({ completedSignal: true });
-  const resolution = resolveCampaignWorkflowState(record, snapshot);
+  const resolution = resolveSocialContentWorkflowState(record, snapshot);
   assert.equal(resolution.workflowState, 'completed_no_content');
   assert.match(
     resolution.publishBlockedReason ?? '',
@@ -76,24 +76,24 @@ test('resolveCampaignWorkflowState: completedSignal + no publish content → com
   );
 });
 
-test('resolveCampaignWorkflowState: completedSignal=false + no publish content → draft (unchanged)', () => {
+test('resolveSocialContentWorkflowState: completedSignal=false + no publish content → draft (unchanged)', () => {
   const record = makeRecord();
   const snapshot = makeSnapshot({ completedSignal: false });
-  const resolution = resolveCampaignWorkflowState(record, snapshot);
+  const resolution = resolveSocialContentWorkflowState(record, snapshot);
   assert.equal(resolution.workflowState, 'draft');
 });
 
-test('resolveCampaignWorkflowState: completedSignal=true but publishReadySignal=true → ready_to_publish wins', () => {
+test('resolveSocialContentWorkflowState: completedSignal=true but publishReadySignal=true → ready_to_publish wins', () => {
   const record = makeRecord();
   const snapshot = makeSnapshot({ completedSignal: true, publishReadySignal: true });
-  const resolution = resolveCampaignWorkflowState(record, snapshot);
+  const resolution = resolveSocialContentWorkflowState(record, snapshot);
   assert.equal(resolution.workflowState, 'ready_to_publish');
 });
 
-test('resolveCampaignWorkflowState: completedSignal=true but publishedSignal=true → published wins', () => {
+test('resolveSocialContentWorkflowState: completedSignal=true but publishedSignal=true → published wins', () => {
   const record = makeRecord();
   const snapshot = makeSnapshot({ completedSignal: true, publishedSignal: true });
-  const resolution = resolveCampaignWorkflowState(record, snapshot);
+  const resolution = resolveSocialContentWorkflowState(record, snapshot);
   assert.equal(resolution.workflowState, 'published');
 });
 

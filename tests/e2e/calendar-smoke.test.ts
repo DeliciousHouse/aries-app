@@ -56,7 +56,7 @@ test('calendar smoke: planner mounts and renders queued posts', async () => {
         dispatchStatus: 'dispatched',
       }),
     ],
-    campaigns: [],
+    posts: [],
     timeZone: 'America/New_York',
   });
 
@@ -85,7 +85,7 @@ test('calendar smoke: empty queue renders the planner without crashing', async (
 
   const model = createCalendarViewModel({
     scheduledPosts: [],
-    campaigns: [],
+    posts: [],
     timeZone: 'America/New_York',
   });
 

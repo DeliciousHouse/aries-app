@@ -10,7 +10,7 @@ import DashboardPage from '../app/dashboard/page';
 import DashboardBrandReviewPage from '../app/dashboard/brand-review/page';
 import DashboardCampaignsPage from '../app/dashboard/social-content/page';
 import DashboardNewCampaignPage from '../app/dashboard/social-content/new/page';
-import DashboardCampaignWorkspacePage from '../app/dashboard/social-content/[campaignId]/page';
+import DashboardCampaignWorkspacePage from '../app/dashboard/social-content/[postId]/page';
 import DashboardCalendarPage from '../app/dashboard/calendar/page';
 import DashboardCreativeReviewPage from '../app/dashboard/creative-review/page';
 import DashboardPublishStatusPage from '../app/dashboard/publish-status/page';
@@ -19,7 +19,7 @@ import DashboardResultsPage from '../app/dashboard/results/page';
 import DashboardSettingsPage from '../app/dashboard/settings/page';
 import DashboardStrategyReviewPage from '../app/dashboard/strategy-review/page';
 import CampaignsPage from '../app/campaigns/page';
-import CampaignWorkspacePage from '../app/campaigns/[campaignId]/page';
+import CampaignWorkspacePage from '../app/campaigns/[postId]/page';
 import ReviewQueuePage from '../app/review/page';
 import ReviewItemPage, { loadReviewItemPageData } from '../app/review/[reviewId]/page';
 import ResultsPage from '../app/results/page';
@@ -42,9 +42,9 @@ import SocialContentReviewPage from '../app/social-content/review/page';
 import SettingsPage from '../app/settings/page';
 import DonorHomePage from '../frontend/donor/marketing/home-page';
 import AriesHomeDashboard from '../frontend/aries-v1/home-dashboard';
-import AriesCampaignListScreen from '../frontend/aries-v1/campaign-list';
-import AriesCampaignWorkspace from '../frontend/aries-v1/campaign-workspace';
-import AriesLatestCampaignView from '../frontend/aries-v1/latest-campaign-view';
+import AriesPostListScreen from '../frontend/aries-v1/post-list';
+import AriesPostWorkspace from '../frontend/aries-v1/post-workspace';
+import AriesLatestPostView from '../frontend/aries-v1/latest-post-view';
 import AriesReviewQueueScreen from '../frontend/aries-v1/review-queue';
 import AriesReviewItemScreen from '../frontend/aries-v1/review-item';
 import AriesCalendarScreen from '../frontend/aries-v1/calendar-screen';
@@ -89,8 +89,8 @@ function makeRuntimeReviewItem(
   return {
     id,
     jobId: id.split('::')[0] || 'mkt_review_page',
-    campaignId: 'campaign_review_page',
-    campaignName: 'Review Page Campaign',
+    postId: 'campaign_review_page',
+    postName: 'Review Page Campaign',
     reviewType: 'creative',
     workflowState: 'creative_review_required',
     workflowStage: 'production',
@@ -161,11 +161,11 @@ test('/dashboard/social-content wraps the campaign list in the app shell', () =>
 
   assert.equal(isValidElement(element), true);
   assert.equal(element.type, AppShellLayout);
-  assert.equal(element.props.currentRouteId, 'campaigns');
+  assert.equal(element.props.currentRouteId, 'socialContent');
   assert.equal(element.props.loginRedirectPath, '/dashboard/social-content');
   assert.equal(buildLoginRedirect(element.props.loginRedirectPath), '/login?callbackUrl=%2Fdashboard%2Fsocial-content');
   assert.equal(isValidElement(element.props.children), true);
-  assert.equal(element.props.children.type, AriesCampaignListScreen);
+  assert.equal(element.props.children.type, AriesPostListScreen);
 });
 
 test('/dashboard/social-content/new wraps the new campaign flow in the app shell', () => {
@@ -185,23 +185,23 @@ test('/campaigns redirects to the canonical dashboard campaigns route', () => {
 test('/dashboard/social-content/[campaignId] preserves the campaign id for the workspace', async () => {
   const element = await DashboardCampaignWorkspacePage({
     params: Promise.resolve({
-      campaignId: 'spring-atelier-launch',
+      postId: 'spring-atelier-launch',
     }),
     searchParams: Promise.resolve({}),
   });
 
   assert.equal(isValidElement(element), true);
   assert.equal(element.type, AppShellLayout);
-  assert.equal(element.props.currentRouteId, 'campaigns');
+  assert.equal(element.props.currentRouteId, 'socialContent');
   assert.equal(isValidElement(element.props.children), true);
-  assert.equal(element.props.children.type, AriesCampaignWorkspace);
-  assert.equal(element.props.children.props.campaignId, 'spring-atelier-launch');
+  assert.equal(element.props.children.type, AriesPostWorkspace);
+  assert.equal(element.props.children.props.postId, 'spring-atelier-launch');
 });
 
 test('/dashboard/social-content/[campaignId] forwards the selected review view into the workspace', async () => {
   const element = await DashboardCampaignWorkspacePage({
     params: Promise.resolve({
-      campaignId: 'spring-atelier-launch',
+      postId: 'spring-atelier-launch',
     }),
     searchParams: Promise.resolve({
       view: 'creative',
@@ -218,7 +218,7 @@ test('/campaigns/[campaignId] redirects to the canonical dashboard campaign work
   await expectAsyncRedirect(
     () => CampaignWorkspacePage({
       params: Promise.resolve({
-        campaignId: 'spring-atelier-launch',
+        postId: 'spring-atelier-launch',
       }),
     }),
     '/dashboard/social-content/spring-atelier-launch',
@@ -334,7 +334,7 @@ test('/dashboard/brand-review opens the latest campaign brand review route insid
   assert.equal(element.type, AppShellLayout);
   assert.equal(element.props.currentRouteId, 'brandReview');
   assert.equal(isValidElement(element.props.children), true);
-  assert.equal(element.props.children.type, AriesLatestCampaignView);
+  assert.equal(element.props.children.type, AriesLatestPostView);
   assert.equal(element.props.children.props.view, 'brand');
 });
 
@@ -345,7 +345,7 @@ test('/dashboard/strategy-review opens the latest campaign strategy review route
   assert.equal(element.type, AppShellLayout);
   assert.equal(element.props.currentRouteId, 'strategyReview');
   assert.equal(isValidElement(element.props.children), true);
-  assert.equal(element.props.children.type, AriesLatestCampaignView);
+  assert.equal(element.props.children.type, AriesLatestPostView);
   assert.equal(element.props.children.props.view, 'strategy');
 });
 
@@ -356,7 +356,7 @@ test('/dashboard/creative-review opens the latest campaign creative review route
   assert.equal(element.type, AppShellLayout);
   assert.equal(element.props.currentRouteId, 'creativeReview');
   assert.equal(isValidElement(element.props.children), true);
-  assert.equal(element.props.children.type, AriesLatestCampaignView);
+  assert.equal(element.props.children.type, AriesLatestPostView);
   assert.equal(element.props.children.props.view, 'creative');
 });
 
@@ -367,7 +367,7 @@ test('/dashboard/publish-status opens the latest campaign publish status route i
   assert.equal(element.type, AppShellLayout);
   assert.equal(element.props.currentRouteId, 'publishStatus');
   assert.equal(isValidElement(element.props.children), true);
-  assert.equal(element.props.children.type, AriesLatestCampaignView);
+  assert.equal(element.props.children.type, AriesLatestPostView);
   assert.equal(element.props.children.props.view, 'publish');
 });
 
@@ -522,7 +522,7 @@ test('/social-content/status screen fetches the social-content job endpoint', as
       jobId: 'mkt_123',
       tenantName: null,
       brandWebsiteUrl: null,
-      campaignWindow: null,
+      postWindow: null,
       durationDays: null,
       plannedPostCount: null,
       createdPostCount: null,
@@ -544,7 +544,7 @@ test('/social-content/status screen fetches the social-content job endpoint', as
       timeline: [],
       approval: null,
       reviewBundle: null,
-      campaignBrief: null,
+      socialContentBrief: null,
       workflowState: 'approved',
       statusHistory: [],
       brandReview: null,
@@ -558,7 +558,7 @@ test('/social-content/status screen fetches the social-content job endpoint', as
       nextStep: 'wait_for_completion',
       repairStatus: 'none',
       dashboard: {
-        campaign: null,
+        post: null,
         posts: [],
         assets: [],
         publishItems: [],

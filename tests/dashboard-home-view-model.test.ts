@@ -4,7 +4,7 @@ import test from 'node:test';
 import type {
   AriesDashboardPublishItem,
   AriesDashboardStatusSummary,
-  RuntimeCampaignListItem,
+  RuntimePostListItem,
 } from '../lib/api/aries-v1';
 import { createDashboardHomeViewModel } from '../frontend/aries-v1/view-models/dashboard-home';
 
@@ -30,14 +30,14 @@ function buildPublishItem(
 ): AriesDashboardPublishItem {
   return {
     id: 'publish-item-1',
-    campaignId: 'campaign-1',
+    postId: 'campaign-1',
     jobId: 'campaign-1',
     type: 'pre_publish_review',
     title: 'Launch hero ad',
     summary: 'Ready for final review before activation.',
     platform: 'meta',
     platformLabel: 'Meta',
-    campaignName: 'Campaign Alpha',
+    postName: 'Campaign Alpha',
     funnelStage: 'Conversion',
     objective: 'Drive demo requests',
     destinationUrl: 'https://example.com/demo',
@@ -57,7 +57,7 @@ function buildPublishItem(
   };
 }
 
-function buildCampaign(overrides: Partial<RuntimeCampaignListItem> = {}): RuntimeCampaignListItem {
+function buildCampaign(overrides: Partial<RuntimePostListItem> = {}): RuntimePostListItem {
   return {
     id: 'campaign-1',
     jobId: 'campaign-1',
@@ -92,7 +92,7 @@ function buildCampaign(overrides: Partial<RuntimeCampaignListItem> = {}): Runtim
     previewPosts: [],
     previewAssets: [],
     dashboard: {
-      campaign: null,
+      post: null,
       posts: [],
       assets: [],
       publishItems: [],
@@ -105,7 +105,7 @@ function buildCampaign(overrides: Partial<RuntimeCampaignListItem> = {}): Runtim
 
 test('ready-to-publish items outrank opening the latest campaign in next action', () => {
   const model = createDashboardHomeViewModel({
-    campaigns: [
+    posts: [
       buildCampaign({
         counts: {
           posts: 1,
@@ -123,7 +123,7 @@ test('ready-to-publish items outrank opening the latest campaign in next action'
         },
         dashboardStatus: 'ready_to_publish',
         dashboard: {
-          campaign: null,
+          post: null,
           posts: [],
           assets: [],
           publishItems: [
@@ -155,7 +155,7 @@ test('ready-to-publish items outrank opening the latest campaign in next action'
 
 test('live campaigns produce results-oriented working-now messaging', () => {
   const model = createDashboardHomeViewModel({
-    campaigns: [
+    posts: [
       buildCampaign({
         status: 'live',
         dashboardStatus: 'live',
@@ -175,7 +175,7 @@ test('live campaigns produce results-oriented working-now messaging', () => {
           live: 1,
         },
         dashboard: {
-          campaign: null,
+          post: null,
           posts: [],
           assets: [],
           publishItems: [],
@@ -199,7 +199,7 @@ test('live campaigns produce results-oriented working-now messaging', () => {
 
 test('publish-ready work produces publish-oriented working-now messaging before live results exist', () => {
   const model = createDashboardHomeViewModel({
-    campaigns: [
+    posts: [
       buildCampaign({
         dashboardStatus: 'ready_to_publish',
         nextScheduled: '2026-03-28T10:00:00.000Z · Ready to Publish · Meta',
@@ -218,7 +218,7 @@ test('publish-ready work produces publish-oriented working-now messaging before 
           live: 0,
         },
         dashboard: {
-          campaign: null,
+          post: null,
           posts: [],
           assets: [],
           publishItems: [buildPublishItem()],
@@ -242,7 +242,7 @@ test('publish-ready work produces publish-oriented working-now messaging before 
 
 test('the dashboard home view-model builds from plain runtime inputs without demo fixtures', () => {
   const model = createDashboardHomeViewModel({
-    campaigns: [],
+    posts: [],
     reviews: [],
     profile: null,
     integrationCards: [],

@@ -4,16 +4,16 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { resolveStageOutput } from '../../backend/marketing/runtime-state';
-import { primaryOutputToCampaignPlanner } from '../../backend/marketing/workspace-views';
-import type { MarketingJobRuntimeDocument } from '../../backend/marketing/runtime-state';
+import { primaryOutputToSocialContentPlanner } from '../../backend/marketing/workspace-views';
+import type { SocialContentJobRuntimeDocument } from '../../backend/marketing/runtime-state';
 
-async function loadFixture(): Promise<MarketingJobRuntimeDocument> {
+async function loadFixture(): Promise<SocialContentJobRuntimeDocument> {
   const fixturePath = path.resolve('tests/fixtures/marketing-runtime-primary-output.json');
   const raw = JSON.parse(await readFile(fixturePath, 'utf8'));
-  return raw as MarketingJobRuntimeDocument;
+  return raw as SocialContentJobRuntimeDocument;
 }
 
-function extractHookForAsset(doc: MarketingJobRuntimeDocument, assetId: string): string | null {
+function extractHookForAsset(doc: SocialContentJobRuntimeDocument, assetId: string): string | null {
   const match = /^img_(\d+)$/.exec(assetId);
   if (!match) return null;
   const postIndex = parseInt(match[1], 10) - 1;
@@ -25,7 +25,7 @@ function extractHookForAsset(doc: MarketingJobRuntimeDocument, assetId: string):
     ? (productionOutput.content_package as Array<Record<string, unknown>>)
     : [];
   const strategyPkg = strategyOutput ? (() => {
-    const planner = primaryOutputToCampaignPlanner(strategyOutput);
+    const planner = primaryOutputToSocialContentPlanner(strategyOutput);
     const campaignPlan = planner.campaign_plan as Record<string, unknown>;
     return Array.isArray(campaignPlan.content_package)
       ? (campaignPlan.content_package as Array<Record<string, unknown>>)

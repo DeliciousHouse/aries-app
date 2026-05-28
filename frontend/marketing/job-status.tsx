@@ -10,7 +10,7 @@ import type {
   MarketingDashboardPost,
   MarketingDashboardPublishItem,
   MarketingReviewPreviewCard,
-  GetMarketingJobStatusResponse,
+  GetSocialContentJobStatusResponse,
   MarketingApiError,
 } from '@/lib/api/marketing';
 import { useMarketingJobStatus } from '@/hooks/use-marketing-job-status';
@@ -18,7 +18,7 @@ import { useTenantTimezone } from '@/hooks/use-tenant-timezone';
 import { formatInTenantZone, tenantZoneAbbreviation } from '@/lib/format-timestamp';
 import StatusBadge from '../components/status-badge';
 
-type JobStatusResult = GetMarketingJobStatusResponse | MarketingApiError;
+type JobStatusResult = GetSocialContentJobStatusResponse | MarketingApiError;
 type MarketingJobStatusScreenVariant = 'marketing' | 'social-content';
 
 export interface MarketingJobStatusScreenProps {

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { getTenantContext } from '@/lib/tenant-context';
-import { loadMarketingJobRuntime } from '@/backend/marketing/runtime-state';
+import { loadSocialContentJobRuntime } from '@/backend/marketing/runtime-state';
 import type { MarketingStage } from '@/backend/marketing/runtime-state';
 import { getMarketingExecutionPort } from '@/backend/marketing/execution-port';
 import { assertMarketingExecutionPortConfigured } from '@/backend/marketing/provider-guard';
@@ -36,7 +36,7 @@ export async function POST(
   // Publish stage is irreversible — never allow admin retry through this panel
   if (stage === 'publish') {
     return NextResponse.json(
-      { status: 'error', reason: 'publish_stage_not_retryable', message: 'Use the campaign workspace to manage publish.' },
+      { status: 'error', reason: 'publish_stage_not_retryable', message: 'Use the social content workspace to manage publish.' },
       { status: 400 },
     );
   }
@@ -45,7 +45,7 @@ export async function POST(
     return NextResponse.json({ status: 'error', reason: 'invalid_stage' }, { status: 400 });
   }
 
-  const doc = await loadMarketingJobRuntime(jobId);
+  const doc = await loadSocialContentJobRuntime(jobId);
   if (!doc) {
     return NextResponse.json({ status: 'error', reason: 'job_not_found' }, { status: 404 });
   }

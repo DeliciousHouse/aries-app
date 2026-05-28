@@ -1,4 +1,4 @@
-import type { RuntimeCampaignListItem, ScheduledPostItem } from '@/lib/api/aries-v1';
+import type { RuntimePostListItem, ScheduledPostItem } from '@/lib/api/aries-v1';
 import type { DashboardHeroMetric } from '@/frontend/aries-v1/components';
 import {
   DEFAULT_TENANT_TIMEZONE,
@@ -11,14 +11,14 @@ import {
  * A1 / T11 — the calendar grid is fed by `scheduled_posts` (real queued
  * posts with a real dispatch_status), not the runtime `dashboard.calendarEvents`.
  * The campaign strip ("Campaign status at a glance") still comes from
- * `useRuntimeCampaigns`. Day keys are computed in the tenant business
+ * `useRuntimePosts`. Day keys are computed in the tenant business
  * timezone (C1) so a post scheduled for 11pm tenant-time lands on the right
  * cell for an operator in any browser zone.
  */
 
 export type CalendarEventStatus =
-  | RuntimeCampaignListItem['status']
-  | RuntimeCampaignListItem['dashboardStatus'];
+  | RuntimePostListItem['status']
+  | RuntimePostListItem['dashboardStatus'];
 
 export interface CalendarEvent {
   id: string;
@@ -59,10 +59,10 @@ export interface CalendarViewModel {
   };
   events: CalendarEvent[];
   unscheduled: UnscheduledPost[];
-  campaigns: Array<{
+  posts: Array<{
     id: string;
     name: string;
-    status: RuntimeCampaignListItem['status'];
+    status: RuntimePostListItem['status'];
     nextScheduled: string;
     stageLabel: string;
     pendingApprovals: string;
@@ -94,7 +94,7 @@ function scheduledPostLabel(value: string, timeZone: string): string {
 
 export interface CalendarViewModelInput {
   scheduledPosts: ScheduledPostItem[];
-  campaigns: RuntimeCampaignListItem[];
+  posts: RuntimePostListItem[];
   /** Approved posts that have no scheduled_posts row — the backlog tray. */
   unscheduledPosts?: UnscheduledPost[];
   timeZone?: string;
@@ -187,7 +187,7 @@ export function createCalendarViewModel(input: CalendarViewModelInput): Calendar
     },
     events,
     unscheduled,
-    campaigns: input.campaigns.map((campaign) => ({
+    posts: input.posts.map((campaign) => ({
       id: campaign.id,
       name: campaign.name,
       status: campaign.status,

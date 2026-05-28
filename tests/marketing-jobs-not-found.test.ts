@@ -4,14 +4,14 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import type { MarketingJobStatusResponse } from '../backend/marketing/jobs-status';
+import type { SocialContentJobStatusResponse } from '../backend/marketing/jobs-status';
 import {
   getMarketingJobStatusCacheSizeForTests,
   overrideMarketingJobStatusBuilderForTests,
   resetMarketingJobStatusCacheForTests,
 } from '../backend/marketing/jobs-status';
-import type { MarketingBrandKitReference, MarketingJobRuntimeDocument } from '../backend/marketing/runtime-state';
-import { createMarketingJobRuntimeDocument, saveMarketingJobRuntime } from '../backend/marketing/runtime-state';
+import type { MarketingBrandKitReference, SocialContentJobRuntimeDocument } from '../backend/marketing/runtime-state';
+import { createSocialContentJobRuntimeDocument, saveSocialContentJobRuntime } from '../backend/marketing/runtime-state';
 import { handleGetMarketingJobStatus } from '../app/api/marketing/jobs/[jobId]/handler';
 import { TenantContextError } from '../lib/tenant-context';
 import { resolveProjectRoot } from './helpers/project-root';
@@ -49,8 +49,8 @@ function buildBrandKit(dataRoot: string): MarketingBrandKitReference {
   };
 }
 
-function buildRuntimeDoc(dataRoot: string, jobId: string, tenantId: string): MarketingJobRuntimeDocument {
-  return createMarketingJobRuntimeDocument({
+function buildRuntimeDoc(dataRoot: string, jobId: string, tenantId: string): SocialContentJobRuntimeDocument {
+  return createSocialContentJobRuntimeDocument({
     jobId,
     tenantId,
     payload: {
@@ -63,13 +63,13 @@ function buildRuntimeDoc(dataRoot: string, jobId: string, tenantId: string): Mar
   });
 }
 
-function buildPayload(jobId: string, tenantId: string): MarketingJobStatusResponse {
+function buildPayload(jobId: string, tenantId: string): SocialContentJobStatusResponse {
   return {
     jobId,
     tenantId,
     tenantName: 'Brand Example',
     brandWebsiteUrl: 'https://brand.example',
-    campaignWindow: null,
+    postWindow: null,
     durationDays: null,
     plannedPostCount: 1,
     createdPostCount: 0,
@@ -193,7 +193,7 @@ test('unknown job id returns opaque 404 and does not populate the cache', async 
 test('cross-tenant job id returns the same opaque 404 body as an unknown id', async () => {
   await withRuntimeEnv(async (dataRoot) => {
     const jobId = 'job-cross-tenant';
-    saveMarketingJobRuntime(jobId, buildRuntimeDoc(dataRoot, jobId, 'tenant_other'));
+    saveSocialContentJobRuntime(jobId, buildRuntimeDoc(dataRoot, jobId, 'tenant_other'));
 
     let builderCalls = 0;
     overrideMarketingJobStatusBuilderForTests(async (tenantId, requestedJobId) => {
@@ -225,7 +225,7 @@ test('cross-tenant job id returns the same opaque 404 body as an unknown id', as
 test('tenant-matched job id still returns 200 on the happy path', async () => {
   await withRuntimeEnv(async (dataRoot) => {
     const jobId = 'job-happy-path';
-    saveMarketingJobRuntime(jobId, buildRuntimeDoc(dataRoot, jobId, 'tenant_real'));
+    saveSocialContentJobRuntime(jobId, buildRuntimeDoc(dataRoot, jobId, 'tenant_real'));
 
     let builderCalls = 0;
     overrideMarketingJobStatusBuilderForTests(async (tenantId, requestedJobId) => {
@@ -286,7 +286,7 @@ test('pre-onboarding path remains unchanged', async () => {
 test('server-side logs distinguish runtime_doc_missing from tenant_mismatch while responses stay opaque', async () => {
   await withRuntimeEnv(async (dataRoot) => {
     const jobId = 'job-log-tenant-mismatch';
-    saveMarketingJobRuntime(jobId, buildRuntimeDoc(dataRoot, jobId, 'tenant_other'));
+    saveSocialContentJobRuntime(jobId, buildRuntimeDoc(dataRoot, jobId, 'tenant_other'));
 
     const warnings: WarnEntry[] = [];
     console.warn = (message?: unknown, details?: unknown) => {

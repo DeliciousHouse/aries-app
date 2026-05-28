@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import type { Pool } from 'pg';
-import type { MarketingJobRuntimeDocument } from '../../backend/marketing/runtime-state';
+import type { SocialContentJobRuntimeDocument } from '../../backend/marketing/runtime-state';
 import type { ExecutionRunRecord } from '../../backend/execution/run-store';
 
 // Cause 3 regression test — callback ordering for creative_assets ingestion and
@@ -80,7 +80,7 @@ function makeStage(name: string, status: string, primaryOutput: unknown = null) 
 
 // A runtime doc in the PRE-callback state: production is in_progress with a
 // null primary_output — exactly the state the callback loads from disk.
-function makePreCallbackDoc(jobId: string): MarketingJobRuntimeDocument {
+function makePreCallbackDoc(jobId: string): SocialContentJobRuntimeDocument {
   return {
     schema_name: 'marketing_job_state_schema',
     schema_version: '1.0.0',
@@ -122,7 +122,7 @@ function makePreCallbackDoc(jobId: string): MarketingJobRuntimeDocument {
     last_error: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-  } as unknown as MarketingJobRuntimeDocument;
+  } as unknown as SocialContentJobRuntimeDocument;
 }
 
 // A multi-stage completed payload: production (carrying creative_assets +
@@ -215,11 +215,11 @@ test('publish-completion callback ingests creative_assets AFTER the stage output
     await writeFile(path.join(dataRoot, 'openai_codex_a.png'), Buffer.from('a'));
     await writeFile(path.join(dataRoot, 'openai_codex_b.png'), Buffer.from('b'));
 
-    const { saveMarketingJobRuntime } = await import('../../backend/marketing/runtime-state');
+    const { saveSocialContentJobRuntime } = await import('../../backend/marketing/runtime-state');
     const { applyHermesMarketingCallback } = await import('../../backend/marketing/hermes-callbacks');
 
     const jobId = 'mkt_cause3_test';
-    saveMarketingJobRuntime(jobId, makePreCallbackDoc(jobId));
+    saveSocialContentJobRuntime(jobId, makePreCallbackDoc(jobId));
 
     await applyHermesMarketingCallback(
       makeRunRecord(jobId),

@@ -2,11 +2,11 @@ import { NextResponse } from 'next/server';
 
 import { mapAriesExecutionError } from '@/backend/execution';
 import { invalidateMarketingJobStatus } from '@/backend/marketing/jobs-status';
-import { startMarketingJob } from '@/backend/marketing/orchestrator';
+import { startSocialContentJob } from '@/backend/marketing/orchestrator';
 import {
-  ensureCampaignWorkspaceRecord,
-  saveCampaignWorkspaceAssets,
-  type CampaignWorkspaceAssetUpload,
+  ensureSocialContentWorkspaceRecord,
+  saveSocialContentWorkspaceAssets,
+  type SocialContentWorkspaceAssetUpload,
 } from '@/backend/marketing/workspace-store';
 import {
   marketingPayloadDefaultsFromBusinessProfile,
@@ -193,14 +193,14 @@ async function enrichPayloadFromBusinessProfile(
 async function parseCreateJobRequest(req: Request): Promise<{
   jobType?: unknown;
   payload: Record<string, unknown>;
-  uploads: CampaignWorkspaceAssetUpload[];
+  uploads: SocialContentWorkspaceAssetUpload[];
 }> {
   const contentType = req.headers.get('content-type') || '';
 
   if (contentType.includes('multipart/form-data')) {
     const formData = await req.formData();
     const uploadEntries = formData.getAll('brandAssets');
-    const uploads: CampaignWorkspaceAssetUpload[] = [];
+    const uploads: SocialContentWorkspaceAssetUpload[] = [];
 
     for (const entry of uploadEntries) {
       if (!(entry instanceof File) || entry.size <= 0) {
@@ -246,7 +246,7 @@ async function parseCreateJobRequest(req: Request): Promise<{
         imageCreativeCount: coerceFieldValue(formData.get('imageCreativeCount')),
         videoScriptCount: coerceFieldValue(formData.get('videoScriptCount')),
         videoRenderCount: coerceFieldValue(formData.get('videoRenderCount')),
-        campaignWindowDays: coerceFieldValue(formData.get('campaignWindowDays')),
+        postWindowDays: coerceFieldValue(formData.get('postWindowDays')),
         staticPostsCount: coerceFieldValue(formData.get('staticPostsCount')),
         imageCreativesCount: coerceFieldValue(formData.get('imageCreativesCount')),
         videoScriptsCount: coerceFieldValue(formData.get('videoScriptsCount')),
@@ -436,7 +436,7 @@ function resolveRequestedJobType(rawJobType: unknown, dialect: ResponseDialect):
 function buildCreateResponse(
   dialect: ResponseDialect,
   requestedJobType: PublicJobType,
-  result: Awaited<ReturnType<typeof startMarketingJob>>,
+  result: Awaited<ReturnType<typeof startSocialContentJob>>,
 ) {
   const encodedId = encodeURIComponent(result.jobId);
 
@@ -538,7 +538,7 @@ export async function handlePostMarketingJobs(
       hydratedPayload.oneOff = result.oneOff;
     }
 
-    const result = await startMarketingJob({
+    const result = await startSocialContentJob({
       tenantId: resolvedTenantId,
       jobType: requestedJobType,
       createdBy: tenantResult.tenantContext.userId ?? null,
@@ -547,13 +547,13 @@ export async function handlePostMarketingJobs(
         jobType: requestedJobType,
       },
     });
-    const workspace = await ensureCampaignWorkspaceRecord({
+    const workspace = await ensureSocialContentWorkspaceRecord({
       jobId: result.jobId,
       tenantId: resolvedTenantId,
       payload: hydratedPayload,
     });
     if (requestBody.uploads.length > 0) {
-      saveCampaignWorkspaceAssets(workspace, requestBody.uploads);
+      saveSocialContentWorkspaceAssets(workspace, requestBody.uploads);
     }
 
     invalidateMarketingJobStatus(result.jobId);

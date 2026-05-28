@@ -1,5 +1,5 @@
 import AppShellLayout from '@/frontend/app-shell/layout';
-import AriesCampaignListScreen from '@/frontend/aries-v1/campaign-list';
+import AriesPostListScreen from '@/frontend/aries-v1/post-list';
 
 export const metadata = {
   title: 'Campaigns · Aries AI',
@@ -7,8 +7,8 @@ export const metadata = {
 
 export default function DashboardCampaignsPage() {
   return (
-    <AppShellLayout currentRouteId="campaigns" loginRedirectPath="/dashboard/social-content">
-      <AriesCampaignListScreen />
+    <AppShellLayout currentRouteId="socialContent" loginRedirectPath="/dashboard/social-content">
+      <AriesPostListScreen />
     </AppShellLayout>
   );
 }

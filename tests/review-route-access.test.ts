@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { createMarketingJobRuntimeDocument, saveMarketingJobRuntime } from '../backend/marketing/runtime-state';
+import { createSocialContentJobRuntimeDocument, saveSocialContentJobRuntime } from '../backend/marketing/runtime-state';
 import { saveTenantBrandKit, tenantBrandKitPath, type TenantBrandKit } from '../backend/marketing/brand-kit';
 import { handleGetMarketingReviewItem } from '../app/api/marketing/reviews/[reviewId]/route';
 import { resolveProjectRoot } from './helpers/project-root';
@@ -79,7 +79,7 @@ function saveApprovalReviewJob(jobId: string, tenantId: string): string {
   const brandKit = makeTenantBrandKit(tenantId);
   saveTenantBrandKit(tenantId, brandKit);
 
-  const runtimeDoc = createMarketingJobRuntimeDocument({
+  const runtimeDoc = createSocialContentJobRuntimeDocument({
     jobId,
     tenantId,
     payload: {
@@ -102,7 +102,7 @@ function saveApprovalReviewJob(jobId: string, tenantId: string): string {
     action_label: 'Review strategy',
   };
 
-  saveMarketingJobRuntime(runtimeDoc.job_id, runtimeDoc);
+  saveSocialContentJobRuntime(runtimeDoc.job_id, runtimeDoc);
   return `${jobId}::approval`;
 }
 

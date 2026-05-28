@@ -2,13 +2,13 @@ import { NextResponse } from 'next/server';
 
 import { retryFailedResearchStage } from '@/backend/marketing/orchestrator';
 import { invalidateMarketingJobStatus } from '@/backend/marketing/jobs-status';
-import { loadMarketingJobRuntime } from '@/backend/marketing/runtime-state';
+import { loadSocialContentJobRuntime } from '@/backend/marketing/runtime-state';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
 const RETRY_ONBOARDING_REQUIRED = {
   status: 409,
   reason: 'onboarding_required',
-  message: 'Complete tenant onboarding before retrying a campaign.',
+  message: 'Complete tenant onboarding before retrying a social content job.',
 } as const;
 
 type RetryPermissionDecision =
@@ -18,7 +18,7 @@ type RetryPermissionDecision =
 
 /**
  * Same permission shape as delete/restore: admins can retry anything in their
- * tenant; the original creator can retry their own campaign; nobody else.
+ * tenant; the original creator can retry their own social content job; nobody else.
  * Campaigns from before `created_by` was tracked are admin-only.
  */
 function evaluateRetryPermission(input: {
@@ -58,7 +58,7 @@ export async function handleRetryResearchStage(
   // approval-checkpoint locks elsewhere). A concurrent retry from two tabs
   // is rare and the worst case is one of them ends up as a no-op against an
   // already-reset stage record — both clients hard-reload either way.
-  const doc = await loadMarketingJobRuntime(jobId);
+  const doc = await loadSocialContentJobRuntime(jobId);
   if (!doc) {
     return NextResponse.json(
       { error: 'Campaign not found.', reason: 'marketing_job_not_found' },
@@ -82,7 +82,7 @@ export async function handleRetryResearchStage(
     }
     return NextResponse.json(
       {
-        error: 'You do not have permission to retry this campaign.',
+        error: 'You do not have permission to retry this social content job.',
         reason: 'marketing_job_retry_forbidden',
       },
       { status: 403 },

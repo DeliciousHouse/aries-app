@@ -1,10 +1,10 @@
 import type { IntegrationCard } from '@/lib/api/integrations';
 import type {
-  AriesCampaignStatus,
+  AriesPostStatus,
   AriesChannelConnection,
   AriesItemStatus,
   BusinessProfileView,
-  RuntimeCampaignListItem,
+  RuntimePostListItem,
   RuntimeReviewItem,
 } from '@/lib/api/aries-v1';
 import type { DashboardHeroMetric } from '@/frontend/aries-v1/components';
@@ -18,7 +18,7 @@ type DashboardHomePreviewItem = {
   id: string;
   title: string;
   meta: string;
-  status: AriesCampaignStatus | AriesItemStatus;
+  status: AriesPostStatus | AriesItemStatus;
   href: string;
 };
 
@@ -41,11 +41,11 @@ export interface DashboardHomeViewModel {
     href: string;
     label: string;
   };
-  activeCampaign: {
+  activePost: {
     id: string;
     name: string;
     summary: string;
-    status: AriesCampaignStatus | AriesItemStatus;
+    status: AriesPostStatus | AriesItemStatus;
     objective: string;
     stageLabel: string;
     nextScheduled: string;
@@ -74,7 +74,7 @@ export interface DashboardHomeViewModel {
       id: string;
       title: string;
       meta: string;
-      status: AriesCampaignStatus;
+      status: AriesPostStatus;
       href: string;
     }>;
   };
@@ -88,7 +88,7 @@ export interface DashboardHomeViewModel {
       id: string;
       name: string;
       summary: string;
-      status: AriesCampaignStatus | AriesItemStatus;
+      status: AriesPostStatus | AriesItemStatus;
       href: string;
       updatedLabel: string;
     }>;
@@ -123,8 +123,8 @@ function isScheduledValue(value: string): boolean {
   return !value.startsWith('Nothing') && !value.startsWith('Waiting');
 }
 
-function campaignHref(campaignId: string): string {
-  return `/dashboard/social-content/${campaignId}`;
+function postHref(postId: string): string {
+  return `/dashboard/social-content/${postId}`;
 }
 
 function formatUpdatedLabel(updatedAt: string | null): string {
@@ -170,25 +170,25 @@ function mapChannelConnection(card: IntegrationCard): AriesChannelConnection {
   };
 }
 
-function readyToPublishCountFor(campaign: RuntimeCampaignListItem): number {
-  return campaign.counts.readyToPublish + campaign.counts.pausedMetaAds;
+function readyToPublishCountFor(post: RuntimePostListItem): number {
+  return post.counts.readyToPublish + post.counts.pausedMetaAds;
 }
 
-function isLiveCampaign(campaign: RuntimeCampaignListItem): boolean {
-  return campaign.status === 'live' || campaign.dashboardStatus === 'live';
+function isLivePost(post: RuntimePostListItem): boolean {
+  return post.status === 'live' || post.dashboardStatus === 'live';
 }
 
 function nextActionFor(
-  campaigns: RuntimeCampaignListItem[],
+  posts: RuntimePostListItem[],
   reviewCount: number,
 ): DashboardHomeViewModel['nextAction'] {
-  if (campaigns.length === 0) {
+  if (posts.length === 0) {
     return {
-      title: 'Create your first campaign',
+      title: 'Create your first social content job',
       summary:
-        'Aries will turn your business and goals into a campaign you can review before anything goes live.',
+        'Aries will turn your business and goals into social content you can review before anything goes live.',
       href: '/dashboard/social-content/new',
-      label: 'New Campaign',
+      label: 'New social content job',
     };
   }
 
@@ -201,9 +201,9 @@ function nextActionFor(
     };
   }
 
-  const readyCampaign = campaigns.find((campaign) => readyToPublishCountFor(campaign) > 0);
-  if (readyCampaign) {
-    const readyCount = readyToPublishCountFor(readyCampaign);
+  const readyPost = posts.find((post) => readyToPublishCountFor(post) > 0);
+  if (readyPost) {
+    const readyCount = readyToPublishCountFor(readyPost);
     return {
       title: 'Review what is ready to publish',
       summary: `${readyCount} publish-ready item${readyCount === 1 ? '' : 's'} are available now.`,
@@ -212,72 +212,72 @@ function nextActionFor(
     };
   }
 
-  const active = campaigns[0];
+  const active = posts[0];
   if (active.approvalRequired && active.approvalActionHref) {
     return {
       title: 'Complete the current approval checkpoint',
       summary:
-        'All visible review items are clear. Finalize the current campaign checkpoint to continue the launch flow.',
+        'All visible review items are clear. Finalize the current social content checkpoint to continue the launch flow.',
       href: active.approvalActionHref,
       label: 'Open checkpoint',
     };
   }
 
   return {
-    title: 'Open your latest campaign',
+    title: 'Open your latest social content job',
     summary:
-      'Your workspace is ready. Check schedule, results, or prepare the next change from the active campaign.',
-    href: campaignHref(active.id),
-    label: 'Open campaign',
+      'Your workspace is ready. Check schedule, results, or prepare the next change from the active social content job.',
+    href: postHref(active.id),
+    label: 'Open social content job',
   };
 }
 
 export function createDashboardHomeViewModel(args: {
-  campaigns: RuntimeCampaignListItem[];
+  posts: RuntimePostListItem[];
   reviews: RuntimeReviewItem[];
   profile: BusinessProfileView | null;
   integrationCards: IntegrationCard[];
   integrationsPending?: boolean;
 }): DashboardHomeViewModel {
   const businessName = args.profile?.businessName || 'Your business';
-  const activeCampaign = args.campaigns[0] ?? null;
+  const activePost = args.posts[0] ?? null;
   const channelItems = args.integrationCards.map(mapChannelConnection);
   const connectedCount = channelItems.filter((item) => item.health === 'connected').length;
   const attentionCount = channelItems.filter((item) => item.health === 'attention').length;
-  const readyToPublishCount = args.campaigns.reduce((total, campaign) => total + readyToPublishCountFor(campaign), 0);
-  const pausedCount = args.campaigns.reduce((total, campaign) => total + campaign.counts.pausedMetaAds, 0);
-  const liveCampaigns = args.campaigns.filter(isLiveCampaign);
-  const publishPreviewItems = args.campaigns
-    .flatMap((campaign) =>
-      campaign.dashboard.publishItems
+  const readyToPublishCount = args.posts.reduce((total, post) => total + readyToPublishCountFor(post), 0);
+  const pausedCount = args.posts.reduce((total, post) => total + post.counts.pausedMetaAds, 0);
+  const livePosts = args.posts.filter(isLivePost);
+  const publishPreviewItems = args.posts
+    .flatMap((post) =>
+      post.dashboard.publishItems
         .filter((item) => item.status === 'ready_to_publish' || item.status === 'published_to_meta_paused')
         .map((item) => ({
           id: item.id,
           title: item.title,
-          meta: `${item.campaignName} · ${item.platformLabel}`,
+          meta: `${item.postName} · ${item.platformLabel}`,
           status: item.status,
           href: DASHBOARD_POSTS_HREF,
         })),
     )
     .slice(0, 3);
-  const resultItems = liveCampaigns.map((campaign) => ({
-    id: campaign.id,
-    name: campaign.name,
+  const resultItems = livePosts.map((post) => ({
+    id: post.id,
+    name: post.name,
     summary:
-      campaign.pendingApprovals > 0
-        ? 'This campaign is live, but follow-up approvals are still queued.'
+      post.pendingApprovals > 0
+        ? 'This social content job is live, but follow-up approvals are still queued.'
         : 'Live activity is present, so results can be reviewed directly from current runtime signals.',
-    status: campaign.dashboardStatus === 'live' ? campaign.dashboardStatus : campaign.status,
-    href: campaignHref(campaign.id),
-    updatedLabel: formatUpdatedLabel(campaign.updatedAt),
+    status: post.dashboardStatus === 'live' ? post.dashboardStatus : post.status,
+    href: postHref(post.id),
+    updatedLabel: formatUpdatedLabel(post.updatedAt),
   }));
   const workingNow: DashboardHomeViewModel['workingNow'] =
     resultItems.length > 0
       ? {
           mode: 'results',
-          title: 'Live campaigns are sending result signal.',
+          title: 'Live social content jobs are sending result signal.',
           summary:
-            'Aries is already seeing live campaign activity. Open the results surface for the operational mix, schedule readiness, and trust notes.',
+            'Aries is already seeing live social content activity. Open the results surface for the operational mix, schedule readiness, and trust notes.',
           href: DASHBOARD_RESULTS_HREF,
           label: 'Open results',
           items: resultItems.map((item) => ({
@@ -302,11 +302,11 @@ export function createDashboardHomeViewModel(args: {
             mode: 'waiting',
             title: 'Results will populate after launch.',
             summary:
-              activeCampaign !== null
-                ? 'Aries will summarize launch momentum and next actions here as soon as a campaign is live.'
-                : 'Create a campaign and Aries will start grounding this surface in live runtime data.',
-            href: activeCampaign !== null ? campaignHref(activeCampaign.id) : '/dashboard/social-content/new',
-            label: activeCampaign !== null ? 'Open campaign' : 'Create campaign',
+              activePost !== null
+                ? 'Aries will summarize launch momentum and next actions here as soon as a social content job is live.'
+                : 'Create a social content job and Aries will start grounding this surface in live runtime data.',
+            href: activePost !== null ? postHref(activePost.id) : '/dashboard/social-content/new',
+            label: activePost !== null ? 'Open social content job' : 'Create social content job',
             items: [],
           };
 
@@ -318,12 +318,12 @@ export function createDashboardHomeViewModel(args: {
         'Aries keeps the operating picture calm: what is live, what needs a decision, what is scheduled next, and where the workspace needs attention.',
       metrics: [
         {
-          label: 'Campaigns',
-          value: String(args.campaigns.length),
+          label: 'Social content jobs',
+          value: String(args.posts.length),
           detail:
-            activeCampaign !== null
-              ? `${activeCampaign.name} is the latest campaign in motion.`
-              : 'Create your first campaign to begin.',
+            activePost !== null
+              ? `${activePost.name} is the latest social content job in motion.`
+              : 'Create your first social content job to begin.',
         },
         {
           label: 'Pending approvals',
@@ -358,8 +358,8 @@ export function createDashboardHomeViewModel(args: {
           value: args.profile ? (args.profile.incomplete ? 'Needs setup' : 'Ready') : 'Unavailable',
           detail: args.profile
             ? args.profile.incomplete
-              ? 'Add missing business details so campaigns stay grounded.'
-              : 'Business context is ready for campaigns and approvals.'
+              ? 'Add missing business details so social content stays grounded.'
+              : 'Business context is ready for social content and approvals.'
             : 'Business profile data could not be loaded.',
           tone: args.profile ? (args.profile.incomplete ? 'watch' : 'good') : 'watch',
         },
@@ -398,21 +398,21 @@ export function createDashboardHomeViewModel(args: {
         tone: args.reviews.length > 0 ? 'watch' : 'good',
       },
     ],
-    nextAction: nextActionFor(args.campaigns, args.reviews.length),
-    activeCampaign:
-      activeCampaign === null
+    nextAction: nextActionFor(args.posts, args.reviews.length),
+    activePost:
+      activePost === null
         ? null
         : {
-            id: activeCampaign.id,
-            name: activeCampaign.name,
-            summary: activeCampaign.summary,
-            status: activeCampaign.dashboardStatus,
-            objective: activeCampaign.objective,
-            stageLabel: activeCampaign.stageLabel,
-            nextScheduled: activeCampaign.nextScheduled,
-            pendingApprovals: String(activeCampaign.pendingApprovals),
-            trustNote: activeCampaign.trustNote,
-            href: campaignHref(activeCampaign.id),
+            id: activePost.id,
+            name: activePost.name,
+            summary: activePost.summary,
+            status: activePost.dashboardStatus,
+            objective: activePost.objective,
+            stageLabel: activePost.stageLabel,
+            nextScheduled: activePost.nextScheduled,
+            pendingApprovals: String(activePost.pendingApprovals),
+            trustNote: activePost.trustNote,
+            href: postHref(activePost.id),
           },
     publish: {
       count: readyToPublishCount,
@@ -442,15 +442,15 @@ export function createDashboardHomeViewModel(args: {
       })),
     },
     schedule:
-      activeCampaign !== null && isScheduledValue(activeCampaign.nextScheduled)
+      activePost !== null && isScheduledValue(activePost.nextScheduled)
         ? {
-            title: activeCampaign.nextScheduled,
-            detail: `${activeCampaign.name} is the next item on the schedule.`,
-            href: campaignHref(activeCampaign.id),
+            title: activePost.nextScheduled,
+            detail: `${activePost.name} is the next item on the schedule.`,
+            href: postHref(activePost.id),
           }
         : {
             title: 'Nothing scheduled yet',
-            detail: 'Approved work will appear here once a campaign is ready to place on the calendar.',
+            detail: 'Approved work will appear here once a social content job is ready to place on the calendar.',
             href: null,
           },
     results: {
@@ -469,11 +469,11 @@ export function createDashboardHomeViewModel(args: {
         profile: args.profile,
         integrationCards: args.integrationCards,
         integrationsPending: args.integrationsPending,
-        campaigns: args.campaigns.map((campaign) => ({
-          status: campaign.status,
-          dashboardStatus: campaign.dashboardStatus,
-          approvalRequired: campaign.approvalRequired,
-          executionState: campaign.executionState,
+        posts: args.posts.map((post) => ({
+          status: post.status,
+          dashboardStatus: post.dashboardStatus,
+          approvalRequired: post.approvalRequired,
+          executionState: post.executionState,
         })),
       }),
     },

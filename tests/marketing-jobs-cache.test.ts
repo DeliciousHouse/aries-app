@@ -11,7 +11,7 @@ import {
   invalidateMarketingJobStatus,
   overrideMarketingJobStatusBuilderForTests,
   resetMarketingJobStatusCacheForTests,
-  type MarketingJobStatusResponse,
+  type SocialContentJobStatusResponse,
 } from '../backend/marketing/jobs-status';
 import { handleGetMarketingJobStatus } from '../app/api/marketing/jobs/[jobId]/handler';
 import { resolveProjectRoot } from './helpers/project-root';
@@ -20,13 +20,13 @@ const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 const originalConsoleLog = console.log;
 const originalConsoleWarn = console.warn;
 
-function buildPayload(jobId: string, tenantId: string, sequence: number): MarketingJobStatusResponse {
+function buildPayload(jobId: string, tenantId: string, sequence: number): SocialContentJobStatusResponse {
   return {
     jobId,
     tenantId,
     tenantName: `${tenantId}-name`,
     brandWebsiteUrl: null,
-    campaignWindow: null,
+    postWindow: null,
     durationDays: null,
     plannedPostCount: null,
     createdPostCount: sequence,
