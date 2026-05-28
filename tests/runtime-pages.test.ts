@@ -179,7 +179,7 @@ test('/dashboard/social-content/new wraps the new campaign flow in the app shell
 });
 
 test('/campaigns redirects to the canonical dashboard campaigns route', () => {
-  expectRedirect(() => CampaignsPage(), '/dashboard/social-content');
+  expectRedirect(() => CampaignsPage(), '/dashboard/social-content', 308);
 });
 
 test('/dashboard/social-content/[campaignId] preserves the campaign id for the workspace', async () => {
@@ -222,6 +222,7 @@ test('/campaigns/[campaignId] redirects to the canonical dashboard campaign work
       }),
     }),
     '/dashboard/social-content/spring-atelier-launch',
+    308,
   );
 });
 
