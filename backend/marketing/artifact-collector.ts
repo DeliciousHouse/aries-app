@@ -320,9 +320,10 @@ export async function collectStrategyReviewArtifacts(
   const validatedDocs = runtimeDoc ? await loadValidatedMarketingProfileDocs(runtimeDoc.tenant_id, {
     currentSourceUrl: sourceUrl,
   }) : null;
-  const [websiteStep, plannerStep, reviewStep] = await Promise.all([
+  const [websiteStep, plannerStep, plannerStepLegacy, reviewStep] = await Promise.all([
     facts.stagePayload('strategy', 'website_brand_analysis'),
-    facts.stagePayload('strategy', 'campaign_planner'),
+    facts.stagePayload('strategy', 'social_content_planner'),
+    facts.stagePayload('strategy', 'campaign_planner'), // legacy compat: read old step name for in-flight runs
     facts.stagePayload('strategy', 'strategy_review_preview'),
   ]);
   const runId = (await resolveRunId(primaryOutput, runtimeDoc, 2)) || facts.runId || null;
@@ -335,7 +336,8 @@ export async function collectStrategyReviewArtifacts(
     stringValue(asRecord(primaryOutput)?.validated_brand_profile_path) ||
     validatedDocs?.paths.brandProfile ||
     null;
-  const plannerPath = runId && tenantId ? stepPayloadPath(2, runId, 'campaign_planner', tenantId) : '';
+  const plannerPath = runId && tenantId ? stepPayloadPath(2, runId, 'social_content_planner', tenantId) : '';
+  const plannerPathLegacy = runId && tenantId ? stepPayloadPath(2, runId, 'campaign_planner', tenantId) : '';
   const reviewPath = runId && tenantId ? stepPayloadPath(2, runId, 'strategy_review_preview', tenantId) : '';
   const rawRunWebsite = websiteStep || (websitePath ? await facts.jsonAtPath(websitePath) : null);
   const runWebsite = sourceMatchedRecord(
@@ -347,7 +349,9 @@ export async function collectStrategyReviewArtifacts(
     validatedDocs?.brandProfile || (brandProfilePath ? await facts.jsonAtPath(brandProfilePath) : null),
     sourceUrl,
   );
-  const plannerCandidate = plannerStep || (plannerPath ? await facts.jsonAtPath(plannerPath) : null);
+  const plannerCandidate = plannerStep || plannerStepLegacy
+    || (plannerPath ? await facts.jsonAtPath(plannerPath) : null)
+    || (plannerPathLegacy ? await facts.jsonAtPath(plannerPathLegacy) : null); // legacy path fallback
   const reviewCandidate = reviewStep || (reviewPath ? await facts.jsonAtPath(reviewPath) : null);
   const planner = strategyPayloadMatchesCurrentSource(plannerCandidate, sourceUrl, runWebsite, !!rawRunWebsite) ? plannerCandidate : null;
   const review = strategyPayloadMatchesCurrentSource(reviewCandidate, sourceUrl, runWebsite, !!rawRunWebsite) ? reviewCandidate : null;
@@ -372,7 +376,8 @@ export async function collectStrategyReviewArtifacts(
       website_brand_analysis_path: websitePath || null,
       validated_website_analysis_path: websitePath || null,
       validated_brand_profile_path: brandProfilePath,
-      campaign_planner_path: plannerPath || null,
+      social_content_planner_path: plannerPath || null,
+      campaign_planner_path: plannerPath || null, // legacy alias: keep until all readers migrate
       strategy_review_path: reviewPath || null,
       website,
       brand_profile: brandProfile,

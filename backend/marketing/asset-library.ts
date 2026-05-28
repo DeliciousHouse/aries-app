@@ -293,8 +293,10 @@ export async function buildMarketingAssetLibrary(
     stringValue(strategyFallback.outputs.website_brand_analysis_path) ||
     null;
   const plannerPath =
-    stringValue(strategyOutputs?.campaign_planner_path) ||
-    stringValue(strategyFallback.outputs.campaign_planner_path) ||
+    stringValue(strategyOutputs?.social_content_planner_path) ||
+    stringValue(strategyOutputs?.campaign_planner_path) || // legacy compat
+    stringValue(strategyFallback.outputs.social_content_planner_path) ||
+    stringValue(strategyFallback.outputs.campaign_planner_path) || // legacy compat
     null;
   const strategyReviewPath =
     stringValue(strategyOutputs?.strategy_review_path) ||

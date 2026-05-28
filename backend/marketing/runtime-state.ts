@@ -158,7 +158,7 @@ export type SocialContentJobRuntimeDocument = {
    * this label to assemble a one_off_brief Hermes payload and the schedule
    * path uses it to populate `scheduled_posts.campaign_end_date`.
    */
-  job_type: 'weekly_social_content' | 'one_off_campaign';
+  job_type: 'weekly_social_content' | 'one_off_post' | 'one_off_campaign';
   state: MarketingJobState;
   status: MarketingJobStatus;
   current_stage: MarketingStage;
@@ -324,8 +324,8 @@ export function createSocialContentJobRuntimeDocument(input: {
   // Unknown jobType values fall back to 'weekly_social_content' -- the legacy
   // behaviour for any tenant submitting without an explicit jobType.
   const resolvedJobType: SocialContentJobRuntimeDocument['job_type'] =
-    input.payload?.jobType === 'one_off_campaign'
-      ? 'one_off_campaign'
+    input.payload?.jobType === 'one_off_post' || input.payload?.jobType === 'one_off_campaign'
+      ? 'one_off_post'
       : 'weekly_social_content';
   return {
     schema_name: MARKETING_RUNTIME_SCHEMA_NAME,

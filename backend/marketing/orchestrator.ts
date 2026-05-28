@@ -96,7 +96,7 @@ import {
 
 export type StartSocialContentJobRequest = {
   tenantId: string;
-  jobType: 'weekly_social_content' | 'one_off_campaign';
+  jobType: 'weekly_social_content' | 'one_off_post' | 'one_off_campaign';
   /** Optional. User id of the authenticated caller that initiated the
    * campaign. Persisted on the runtime document so the campaign delete
    * permission check can allow the creator to delete their own campaigns
@@ -118,7 +118,7 @@ export type StartSocialContentJobResponse = {
   status: 'accepted' | 'needs_connection';
   jobId: string;
   tenantId: string;
-  jobType: 'weekly_social_content' | 'one_off_campaign';
+  jobType: 'weekly_social_content' | 'one_off_post' | 'one_off_campaign';
   runtimeArtifactPath: string;
   approvalRequired: boolean;
   currentStage: MarketingStage;
@@ -331,7 +331,7 @@ type MarketingWorkflowRuntimeContext = {
 export function buildOneOffBriefForArgs(
   doc: SocialContentJobRuntimeDocument,
 ): Record<string, unknown> | null {
-  if (doc.job_type !== 'one_off_campaign') {
+  if (doc.job_type !== 'one_off_post' && doc.job_type !== 'one_off_campaign') {
     return null;
   }
   const request = asRecord(doc.inputs.request);
@@ -1682,11 +1682,11 @@ export async function startSocialContentJob(input: StartSocialContentJobRequest)
   if (!input?.tenantId || typeof input.tenantId !== 'string' || input.tenantId.trim().length === 0) {
     throw new Error('missing_required_fields:tenantId');
   }
-  // The type union was widened to include 'one_off_campaign' in v0.1.11.0 but
-  // this runtime check was missed, throwing for every one-off submission. The
-  // accept-list is enumerated explicitly here (rather than `!== weekly`) so a
-  // future union widening must reach this site too.
-  if (input.jobType !== 'weekly_social_content' && input.jobType !== 'one_off_campaign') {
+  // The type union was widened to include 'one_off_campaign' in v0.1.11.0 and
+  // 'one_off_post' in v0.1.13.1 (read-both/write-new compat). The accept-list
+  // is enumerated explicitly (rather than `!== weekly`) so a future union
+  // widening must reach this site too.
+  if (input.jobType !== 'weekly_social_content' && input.jobType !== 'one_off_post' && input.jobType !== 'one_off_campaign') {
     throw new Error(`unsupported_job_type:${input.jobType}`);
   }
   const brandCampaignInput = ensureSocialContentJobInput(input);
@@ -1724,9 +1724,9 @@ export async function startSocialContentJob(input: StartSocialContentJobRequest)
   // publishingRequested must be true from the start. Weekly campaigns derive this
   // flag from requestedPublishFlag(doc) (payload keys like publishRequested /
   // livePublishPlatforms), which the one_off payload never sets.
-  if (input.jobType === 'weekly_social_content' || input.jobType === 'one_off_campaign') {
+  if (input.jobType === 'weekly_social_content' || input.jobType === 'one_off_post' || input.jobType === 'one_off_campaign') {
     ensureSocialContentRuntimeState(doc, {
-      publishingRequested: input.jobType === 'one_off_campaign' ? true : undefined,
+      publishingRequested: (input.jobType === 'one_off_post' || input.jobType === 'one_off_campaign') ? true : undefined,
     });
   }
   saveSocialContentJobRuntime(jobId, doc);

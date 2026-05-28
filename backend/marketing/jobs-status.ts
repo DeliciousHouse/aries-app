@@ -311,7 +311,7 @@ export function getMarketingJobStatusCacheSizeForTests(): number {
 // one_off_campaign docs must return false so their authoritative campaignEndDate
 // is not overridden by the synthetic weekly window.
 export function isWeeklySnapshotPathForTests(doc: SocialContentJobRuntimeDocument): boolean {
-  return requestedJobTypeFromDoc(doc) === 'weekly_social_content' && doc.job_type !== 'one_off_campaign';
+  return requestedJobTypeFromDoc(doc) === 'weekly_social_content' && doc.job_type !== 'one_off_post' && doc.job_type !== 'one_off_campaign';
 }
 
 // Exposed for regression tests. Builds the campaign window shape for a
@@ -320,7 +320,7 @@ export function isWeeklySnapshotPathForTests(doc: SocialContentJobRuntimeDocumen
 export function buildOneOffWindowForTests(
   doc: SocialContentJobRuntimeDocument,
 ): { start: string | null; end: string } | null {
-  if (doc.job_type !== 'one_off_campaign') return null;
+  if (doc.job_type !== 'one_off_post' && doc.job_type !== 'one_off_campaign') return null;
   const request = recordValue(doc.inputs?.request);
   const oneOff = recordValue(request?.oneOff);
   const end = stringValue(oneOff?.campaignEndDate);
@@ -1490,7 +1490,7 @@ async function buildCampaignWindow(
   // value the worker filters on). Surface it on SocialContentWindow.end so
   // the dashboard renders "Stops publishing on <date>" via the existing
   // formatDateRange path -- no new dashboard UI needed.
-  if (runtimeDoc.job_type === 'one_off_campaign') {
+  if (runtimeDoc.job_type === 'one_off_post' || runtimeDoc.job_type === 'one_off_campaign') {
     const request = recordValue(runtimeDoc.inputs.request);
     const oneOff = recordValue(request?.oneOff);
     const oneOffEnd = stringValue(oneOff?.campaignEndDate);
@@ -1659,6 +1659,7 @@ async function buildMarketingJobStatus(jobId: string): Promise<SocialContentJobS
   // campaigns don't have their authoritative campaignEndDate overridden by a
   // synthetically derived today+6d weekly window.
   const isWeeklySocialContent = requestedJobTypeFromDoc(runtimeDoc) === 'weekly_social_content'
+    && runtimeDoc.job_type !== 'one_off_post'
     && runtimeDoc.job_type !== 'one_off_campaign';
   const weeklySnapshot = isWeeklySocialContent ? buildWeeklyCalendarSnapshot(runtimeDoc) : null;
   const postWindow = weeklySnapshot?.postWindow ?? (await buildCampaignWindow(runtimeDoc, facts));

@@ -782,7 +782,8 @@ async function parseProposalPlan(runtimeDoc: SocialContentJobRuntimeDocument): P
     }
   }
 
-  const planner = await readStageStepPayload(runtimeDoc, 2, 'campaign_planner')
+  const planner = await readStageStepPayload(runtimeDoc, 2, 'social_content_planner')
+    ?? await readStageStepPayload(runtimeDoc, 2, 'campaign_planner') // legacy compat
   const plan = recordValue(planner?.campaign_plan) ?? {}
   const brandProfiles = recordValue(planner?.brand_profiles_record) ?? {}
   const validatedProfile = await loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {

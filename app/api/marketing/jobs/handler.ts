@@ -31,7 +31,7 @@ const MARKETING_ONBOARDING_REQUIRED = {
   message: 'Complete tenant onboarding before starting a marketing job.',
 } as const;
 
-type PublicJobType = 'weekly_social_content' | 'one_off_campaign';
+type PublicJobType = 'weekly_social_content' | 'one_off_post' | 'one_off_campaign';
 type ResponseDialect = 'marketing' | 'social-content';
 
 function coerceFieldValue(value: FormDataEntryValue | null): string {
@@ -476,7 +476,7 @@ export async function handlePostMarketingJobs(
   const requestBody = await parseCreateJobRequest(req);
   const requestedJobType = resolveRequestedJobType(requestBody.jobType, dialect);
 
-  if (requestedJobType !== 'weekly_social_content' && requestedJobType !== 'one_off_campaign') {
+  if (requestedJobType !== 'weekly_social_content' && requestedJobType !== 'one_off_post' && requestedJobType !== 'one_off_campaign') {
     return NextResponse.json({ error: `unsupported_job_type:${String(requestBody.jobType ?? '')}` }, { status: 400 });
   }
 
@@ -524,7 +524,7 @@ export async function handlePostMarketingJobs(
     // clause) reads only UTC -- the timezone reasoning happens here, once. A
     // 422 with structured field errors matches the form hook's
     // parseMarketingFieldErrors expectations.
-    if (requestedJobType === 'one_off_campaign') {
+    if (requestedJobType === 'one_off_post' || requestedJobType === 'one_off_campaign') {
       const result = validateAndConvertOneOffBrief(
         hydratedPayload.oneOff as Record<string, unknown> | null | undefined,
         resolvedTenantId,

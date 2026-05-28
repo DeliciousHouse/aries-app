@@ -1097,7 +1097,7 @@ async function workflowApprovalItem(
   // A separate launch-review path would require a parallel one_off projection,
   // which is out of scope.
   const isWeeklySocialContent =
-    requestedJobType === 'weekly_social_content' || requestedJobType === 'one_off_campaign';
+    requestedJobType === 'weekly_social_content' || requestedJobType === 'one_off_post' || requestedJobType === 'one_off_campaign';
   const isLaunchReviewCheckpoint = workflowStepId === 'approve_stage_4' && !isWeeklySocialContent;
   const launchReviewSections = isLaunchReviewCheckpoint
     ? launchReviewApprovalSections(runtimeDoc)

@@ -26,7 +26,7 @@ import { loadSocialContentJobRuntime, asRecord, asString } from '@/backend/marke
  */
 async function resolveCampaignEndDateForJob(jobId: string): Promise<Date | null> {
   const doc = await loadSocialContentJobRuntime(jobId);
-  if (!doc || doc.job_type !== 'one_off_campaign') {
+  if (!doc || (doc.job_type !== 'one_off_post' && doc.job_type !== 'one_off_campaign')) {
     return null;
   }
   const request = asRecord(doc.inputs.request);
