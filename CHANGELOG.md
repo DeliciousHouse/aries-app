@@ -2,6 +2,43 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.13.6 — perf(social-content): lightweight list projection to cut per-job hydration
+
+### Performance
+- **Campaign-list / results hot path** (`GET /api/social-content/posts` →
+  `listSocialContentJobsForTenant` / `listDeletedSocialContentJobsForTenant`)
+  no longer hydrates every job twice. The per-card `pendingApprovals` count was
+  derived via `buildReviewItemsForJob`, which re-loaded the runtime doc and
+  rebuilt the full `getMarketingJobStatus` + `buildSocialContentWorkspaceView`
+  for every job — a second full hydration on top of the one phase 1 already did
+  (the documented double-load that emitted ~2x `[marketing-hydration] { event:
+  'workspace-view' }` log lines per job per list load). Phase 1 now captures the
+  `(runtimeDoc, status, view)` context once and phase 2 reuses it via the new
+  internal `buildReviewItemsFromContext`.
+  - **Before (per job):** ~4 runtime-doc loads + 2 full `getMarketingJobStatus`
+    builds + 2 full `buildSocialContentWorkspaceView` hydrations (each:
+    stage-payload bundle ~10 file reads, brand/strategy/creative review builds,
+    ~3-4 DB queries).
+  - **After (per job):** 1 runtime-doc load (phase 1) + 1 `getMarketingJobStatus`
+    + 1 `buildSocialContentWorkspaceView`. Roughly halves runtime-doc loads,
+    status builds, workspace-view hydrations, file reads, and DB queries on the
+    list path. For tenant-15-scale (~22 jobs) this removes ~22 redundant full
+    hydrations per screen load.
+  - **Correctness:** `buildReviewItemsFromContext` runs the identical
+    review-item logic on the identical freshly-built `(runtimeDoc, status, view)`
+    inputs, so `pendingApprovals` and every `RuntimePostListItem` card field stay
+    byte-identical — no staleness tradeoff (the fresh view is reused, not a
+    persisted snapshot). Guarded by a new golden test
+    (`tests/runtime-views-list-projection.test.ts`) asserting the list count
+    equals the re-hydrating `buildReviewItemsForJob` path.
+  - No new fan-out: the existing bounded `processConcurrent(…, 4)` is preserved
+    (CLAUDE.md operational guardrail #1); per-slot work is reduced, not
+    parallelism widened. Pool budget unchanged
+    (`ARIES_WEB_CONCURRENCY=2 * DB_POOL_MAX=20`).
+  - Response shape unchanged: `{ posts, hasMore, deletedPosts,
+    currentBrandKitExtractedAt }`.
+  — `backend/marketing/runtime-views.ts`
+
 ## v0.1.13.5 — fix(dashboard): non-blocking shell on list/results + deletedPosts wire-key fix
 
 ### Fixed
