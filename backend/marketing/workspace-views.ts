@@ -1384,8 +1384,21 @@ async function queryProductionCreativeAssets(
   }
 }
 
-export async function buildSocialContentWorkspaceView(jobId: string): Promise<SocialContentWorkspaceView> {
-  const runtimeDoc = await loadSocialContentJobRuntime(jobId);
+export type BuildSocialContentWorkspaceViewOptions = {
+  /**
+   * Reuse an already-loaded runtime doc instead of re-reading it from disk.
+   * Hot paths (the social content list fan-out) load the doc once and thread it
+   * through the status build and this view build to avoid redundant reads.
+   */
+  runtimeDoc?: SocialContentJobRuntimeDocument | null;
+};
+
+export async function buildSocialContentWorkspaceView(
+  jobId: string,
+  options: BuildSocialContentWorkspaceViewOptions = {},
+): Promise<SocialContentWorkspaceView> {
+  const runtimeDoc =
+    options.runtimeDoc !== undefined ? options.runtimeDoc : await loadSocialContentJobRuntime(jobId);
   if (!runtimeDoc) {
     return {
       jobId,

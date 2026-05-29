@@ -1618,26 +1618,26 @@ export async function listSocialContentJobsForTenant(
   // Two-phase bounded-parallel fan-out so dedup happens before the heaviest
   // per-job work, matching the prior serial loop's first-wins ordering.
   //
-  // Phase 1 (full hydration, ONCE per job): runtime doc + status + workspace
-  // view. Previously phase 2 re-derived the doc/status/view a SECOND time via
-  // buildReviewItemsForJob (which internally calls getMarketingJobStatus +
-  // buildSocialContentWorkspaceView) plus a separate loadSocialContentJobRuntime
-  // for the brand-kit timestamp — the documented double-hydration that emitted
-  // ~2x [marketing-hydration] workspace-view log lines per job per list load.
-  // Capturing the doc here lets phase 2 reuse the context for an identical
-  // pendingApprovals count without a second hydration.
-  // Phase 2 (cheap): pendingApprovals derived from the phase-1 context.
+  // Phase 1 (hydrate ONCE per job): load the runtime doc a SINGLE time and thread
+  // it through getMarketingJobStatus AND buildSocialContentWorkspaceView, so the
+  // job's runtime doc is read from disk once on this path instead of three times
+  // (status reloaded it, the list reloaded it explicitly, and the view reloaded it
+  // again). The full view is still built (dashboard + workflowState + creativeReview
+  // incl. the DB production-asset merge), so the cards and the phase-2
+  // pendingApprovals count are byte-identical to the prior per-job hydration —
+  // only the redundant doc reads are removed.
   //
+  // [marketing-hydration] workspace-view still emits once per job here.
   // See lib/process-concurrent.ts and CLAUDE.md guardrail #1.
   const phase1 = await processConcurrent(
     pageJobIds,
     async (jobId) => {
-      const status = await getMarketingJobStatus(jobId);
+      const runtimeDoc = await loadSocialContentJobRuntime(jobId);
+      const status = await getMarketingJobStatus(jobId, { runtimeDoc });
       if (status.tenantName === null && status.brandWebsiteUrl === null && status.status === 'error') {
         return null;
       }
-      const runtimeDoc = await loadSocialContentJobRuntime(jobId);
-      const view = await buildSocialContentWorkspaceView(jobId);
+      const view = await buildSocialContentWorkspaceView(jobId, { runtimeDoc });
       return { jobId, runtimeDoc, status, view };
     },
     4,
@@ -1699,13 +1699,12 @@ export async function listSocialContentJobsForTenant(
 export async function listDeletedSocialContentJobsForTenant(
   tenantId: string,
 ): Promise<RuntimePostListItem[]> {
-  // Same two-phase fan-out pattern as listSocialContentJobsForTenant
-  // (v0.1.12.4). Phase 1 hydrates doc + status + view once per job; phase 2
-  // reuses that context for pendingApprovals via buildReviewItemsFromContext
-  // instead of re-hydrating each job through buildReviewItemsForJob. That folds
-  // the double-load this comment previously flagged as a follow-up (v0.1.13.6):
-  // phase 2 no longer triggers a second full getMarketingJobStatus +
-  // buildSocialContentWorkspaceView per job.
+  // Same two-phase fan-out pattern as listSocialContentJobsForTenant. Phase 1
+  // loads the runtime doc once (also the cross-tenant ownership guard) and threads
+  // it through getMarketingJobStatus AND buildSocialContentWorkspaceView so the doc
+  // is read from disk a single time per job instead of three. The full view is
+  // still built, so the list output and the phase-2 pendingApprovals count are
+  // byte-identical to the prior per-job hydration.
   const jobIds = await listDeletedSocialContentJobIdsForTenant(tenantId);
 
   const phase1 = await processConcurrent(
@@ -1715,11 +1714,11 @@ export async function listDeletedSocialContentJobsForTenant(
       if (!doc || doc.tenant_id !== tenantId) {
         return null;
       }
-      const status = await getMarketingJobStatus(jobId);
+      const status = await getMarketingJobStatus(jobId, { runtimeDoc: doc });
       if (status.tenantName === null && status.brandWebsiteUrl === null && status.status === 'error') {
         return null;
       }
-      const view = await buildSocialContentWorkspaceView(jobId);
+      const view = await buildSocialContentWorkspaceView(jobId, { runtimeDoc: doc });
       return { jobId, doc, status, view };
     },
     4,
