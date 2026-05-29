@@ -6,7 +6,20 @@ import { createAriesV1Api, type SocialContentListResponse } from '@/lib/api/arie
 import { useRequestState } from './use-request-state';
 
 export function useRuntimePosts(options: { baseUrl?: string; autoLoad?: boolean } = {}) {
-  const api = useMemo(() => createAriesV1Api(options), [options.baseUrl]);
+  // Callers pass inline object literals (e.g. `{ autoLoad: true }`) which
+  // produce a new reference on every render.  Extract the two primitive values
+  // so every useMemo / useCallback / useEffect below depends only on stable
+  // scalars — never on the transient object identity.  Without this, the
+  // options object reference captured inside deleteCampaign / restoreCampaign
+  // caused those callbacks to be recreated on every render, which in turn
+  // recreated `load`, which re-fired the autoLoad effect, producing the
+  // observed back-to-back refetch loop on /dashboard/results and
+  // /dashboard/social-content (visible as repeated [jobs-cache] miss →
+  // [marketing-hydration] workspace-view entries in prod logs).
+  const baseUrl = options.baseUrl;
+  const autoLoad = options.autoLoad;
+
+  const api = useMemo(() => createAriesV1Api({ baseUrl }), [baseUrl]);
   const state = useRequestState<SocialContentListResponse>();
   const { setError, setLoading, setSuccess } = state;
   // `busyCampaignId` is a single-slot lock keyed by jobId. We intentionally
@@ -36,8 +49,8 @@ export function useRuntimePosts(options: { baseUrl?: string; autoLoad?: boolean 
       setBusyCampaignId(jobId);
       setActionError(null);
       try {
-        const baseUrl = options.baseUrl || '';
-        const response = await fetch(`${baseUrl}/api/marketing/jobs/${encodeURIComponent(jobId)}`, {
+        const base = baseUrl || '';
+        const response = await fetch(`${base}/api/marketing/jobs/${encodeURIComponent(jobId)}`, {
           method: 'DELETE',
         });
         if (!response.ok) {
@@ -54,7 +67,7 @@ export function useRuntimePosts(options: { baseUrl?: string; autoLoad?: boolean 
         setBusyCampaignId(null);
       }
     },
-    [busyCampaignId, load, options.baseUrl],
+    [baseUrl, busyCampaignId, load],
   );
 
   const restoreCampaign = useCallback(
@@ -65,8 +78,8 @@ export function useRuntimePosts(options: { baseUrl?: string; autoLoad?: boolean 
       setBusyCampaignId(jobId);
       setActionError(null);
       try {
-        const baseUrl = options.baseUrl || '';
-        const response = await fetch(`${baseUrl}/api/marketing/jobs/${encodeURIComponent(jobId)}/restore`, {
+        const base = baseUrl || '';
+        const response = await fetch(`${base}/api/marketing/jobs/${encodeURIComponent(jobId)}/restore`, {
           method: 'POST',
         });
         if (!response.ok) {
@@ -83,13 +96,13 @@ export function useRuntimePosts(options: { baseUrl?: string; autoLoad?: boolean 
         setBusyCampaignId(null);
       }
     },
-    [busyCampaignId, load, options.baseUrl],
+    [baseUrl, busyCampaignId, load],
   );
 
   useEffect(() => {
-    if (options.autoLoad === false) return;
+    if (autoLoad === false) return;
     void load();
-  }, [load, options.autoLoad]);
+  }, [autoLoad, load]);
 
   return {
     ...state,

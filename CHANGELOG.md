@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.13.5 — fix(dashboard): non-blocking shell on list/results + deletedPosts wire-key fix
+
+### Fixed
+- **List and results screens now render the page shell immediately** instead of
+  blocking the entire view behind a full-screen skeleton while the posts fetch
+  hydrates. `/api/social-content/posts` must load full workspace-view state for
+  every job (~22 jobs in prod) which takes 10-40s under normal load. Previously
+  `post-list.tsx` and `results-screen.tsx` returned `<LoadingStateGrid />` as
+  the only content during that window, leaving the page visually dead.
+  Now the `ShellPanel` header (title, eyebrow, and the "New social content"
+  action button on the list screen) renders immediately; the loading skeleton
+  appears only in the content area below it so the page looks alive and
+  navigable while data arrives.
+  Note: the underlying ~10-40s backend latency on `/api/social-content/posts`
+  is a per-job workspace-view hydration cost tracked as a Phase 2 follow-up
+  (bounded-parallel fan-out / read-model cache). This change is Phase 1 UX
+  relief only — no backend changes.
+  — `frontend/aries-v1/post-list.tsx`, `frontend/aries-v1/results-screen.tsx`
+- **`deletedPosts` wire-key mismatch:** `/api/social-content/posts` was
+  returning the JSON key `deletedCampaigns` (leftover from the v0.1.13.0 cut 2a
+  campaign→social-content rename) while `SocialContentListResponse` and
+  `post-list.tsx` expected `deletedPosts`. The Recycle Bin section on
+  `/dashboard/social-content` always appeared empty because
+  `campaigns.data?.deletedPosts` was always `undefined` at runtime.
+  — `app/api/social-content/posts/route.ts`
+
+### Changed (no-op cleanup)
+- `hooks/use-runtime-social-content.ts`: extract `baseUrl` / `autoLoad` as
+  primitive variables at the top of `useRuntimePosts` so all hook dep arrays
+  reference stable scalars rather than the transient inline-object reference
+  callers pass. Harmless correctness improvement; does not change runtime fetch
+  behaviour.
+
 ## v0.1.13.4 — fix(dashboard): repair broken orbit-metric coupling + scrub aries-v1 view-model copy (cut 5)
 
 Cut 4 missed the `frontend/aries-v1/view-models/` layer, which produces user-visible dashboard/list/results copy. While scrubbing it, found and fixed a live coupling bug.
