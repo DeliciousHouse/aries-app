@@ -1285,6 +1285,37 @@ async function buildReviewItemsForJob(jobId: string): Promise<RuntimeReviewItem[
 
   const status = await getMarketingJobStatus(jobId);
   const view = await buildSocialContentWorkspaceView(jobId);
+  return buildReviewItemsFromContext(jobId, runtimeDoc, status, view);
+}
+
+/**
+ * Build review items from an already-hydrated `(runtimeDoc, status, view)`
+ * context instead of re-loading all three from scratch.
+ *
+ * `buildReviewItemsForJob` re-fetches the runtime doc AND rebuilds the full
+ * `getMarketingJobStatus` + `buildSocialContentWorkspaceView`. On the
+ * campaign-list / results hot path (`listSocialContentJobsForTenant` /
+ * `listDeletedSocialContentJobsForTenant`) those three are ALREADY built once
+ * in phase 1, so calling `buildReviewItemsForJob` just for the
+ * `pendingApprovals` count hydrated every job a second time — the documented
+ * double-hydration that emitted ~2x `[marketing-hydration] { event:
+ * 'workspace-view' }` log lines per job per list load. Reusing the phase-1
+ * context here yields the identical count (same inputs, same logic) without the
+ * redundant heavy hydration.
+ *
+ * Mirrors `buildReviewItemsForJob`'s failed-job guard so a failed-job context
+ * produces the same empty result.
+ */
+async function buildReviewItemsFromContext(
+  jobId: string,
+  runtimeDoc: SocialContentJobRuntimeDocument,
+  status: SocialContentJobStatusResponse,
+  view: SocialContentWorkspaceView,
+): Promise<RuntimeReviewItem[]> {
+  if (runtimeDoc.state === 'failed' || runtimeDoc.status === 'failed') {
+    return [];
+  }
+
   const postNameValue = postName(status, view);
 
   const items: RuntimeReviewItem[] = [];
@@ -1587,10 +1618,15 @@ export async function listSocialContentJobsForTenant(
   // Two-phase bounded-parallel fan-out so dedup happens before the heaviest
   // per-job work, matching the prior serial loop's first-wins ordering.
   //
-  // Phase 1 (light): status + workspaceView per job, just enough to compute
-  // the dedup key. The view is reused in phase 2 to avoid a redundant load.
-  // Phase 2 (heavy): buildReviewItemsForJob + loadSocialContentJobRuntime only
-  // for the survivors.
+  // Phase 1 (full hydration, ONCE per job): runtime doc + status + workspace
+  // view. Previously phase 2 re-derived the doc/status/view a SECOND time via
+  // buildReviewItemsForJob (which internally calls getMarketingJobStatus +
+  // buildSocialContentWorkspaceView) plus a separate loadSocialContentJobRuntime
+  // for the brand-kit timestamp — the documented double-hydration that emitted
+  // ~2x [marketing-hydration] workspace-view log lines per job per list load.
+  // Capturing the doc here lets phase 2 reuse the context for an identical
+  // pendingApprovals count without a second hydration.
+  // Phase 2 (cheap): pendingApprovals derived from the phase-1 context.
   //
   // See lib/process-concurrent.ts and CLAUDE.md guardrail #1.
   const phase1 = await processConcurrent(
@@ -1600,8 +1636,9 @@ export async function listSocialContentJobsForTenant(
       if (status.tenantName === null && status.brandWebsiteUrl === null && status.status === 'error') {
         return null;
       }
+      const runtimeDoc = await loadSocialContentJobRuntime(jobId);
       const view = await buildSocialContentWorkspaceView(jobId);
-      return { jobId, status, view };
+      return { jobId, runtimeDoc, status, view };
     },
     4,
   );
@@ -1609,7 +1646,8 @@ export async function listSocialContentJobsForTenant(
   // Dedup serially in input-order so duplicates of a campaign (e.g. reruns
   // sharing externalPostId) collapse to the first-seen entry exactly as
   // the original serial loop did.
-  const survivors: Array<{ jobId: string; status: Awaited<ReturnType<typeof getMarketingJobStatus>>; view: Awaited<ReturnType<typeof buildSocialContentWorkspaceView>> }> = [];
+  type Phase1Entry = NonNullable<(typeof phase1)[number]>;
+  const survivors: Phase1Entry[] = [];
   const seen = new Set<string>();
   for (const entry of phase1) {
     if (!entry) continue;
@@ -1621,11 +1659,16 @@ export async function listSocialContentJobsForTenant(
     survivors.push(entry);
   }
 
+  // No new fan-out — same bounded processConcurrent(…, 4); per-slot work is just
+  // reduced to reusing the phase-1 context instead of re-hydrating (guardrail #1).
   const phase2 = await processConcurrent(
     survivors,
-    async ({ jobId }) => {
-      const pendingApprovals = (await buildReviewItemsForJob(jobId)).filter((item) => item.status !== 'approved').length;
-      const runtimeDoc = await loadSocialContentJobRuntime(jobId);
+    async ({ jobId, runtimeDoc, status, view }) => {
+      const pendingApprovals = runtimeDoc
+        ? (await buildReviewItemsFromContext(jobId, runtimeDoc, status, view)).filter(
+            (item) => item.status !== 'approved',
+          ).length
+        : (await buildReviewItemsForJob(jobId)).filter((item) => item.status !== 'approved').length;
       const jobBrandKitExtractedAt = runtimeDoc?.brand_kit?.extracted_at ?? null;
       return { pendingApprovals, jobBrandKitExtractedAt };
     },
@@ -1657,17 +1700,12 @@ export async function listDeletedSocialContentJobsForTenant(
   tenantId: string,
 ): Promise<RuntimePostListItem[]> {
   // Same two-phase fan-out pattern as listSocialContentJobsForTenant
-  // (v0.1.12.4). Phase 1 (light): doc + status + view to compute dedup key.
-  // Phase 2 (heavy): buildReviewItemsForJob only for survivors.
-  //
-  // KNOWN FOLLOW-UP: phase 1 loads the runtime doc twice per job — once
-  // explicitly via loadSocialContentJobRuntime, then again implicitly inside
-  // buildSocialContentWorkspaceView. Same pattern in listSocialContentJobsForTenant
-  // (status loads the doc too). Folding those into a single load (e.g. a
-  // buildSocialContentWorkspaceViewFromRuntimeDoc overload that accepts a
-  // preloaded doc) would roughly halve the I/O per job. Deferred from
-  // v0.1.12.5: it's a larger refactor and the bounded-parallel fan-out
-  // already provides the headline win.
+  // (v0.1.12.4). Phase 1 hydrates doc + status + view once per job; phase 2
+  // reuses that context for pendingApprovals via buildReviewItemsFromContext
+  // instead of re-hydrating each job through buildReviewItemsForJob. That folds
+  // the double-load this comment previously flagged as a follow-up (v0.1.13.6):
+  // phase 2 no longer triggers a second full getMarketingJobStatus +
+  // buildSocialContentWorkspaceView per job.
   const jobIds = await listDeletedSocialContentJobIdsForTenant(tenantId);
 
   const phase1 = await processConcurrent(
@@ -1702,8 +1740,10 @@ export async function listDeletedSocialContentJobsForTenant(
 
   const phase2 = await processConcurrent(
     survivors,
-    async ({ jobId }) => {
-      const pendingApprovals = (await buildReviewItemsForJob(jobId)).filter((item) => item.status !== 'approved').length;
+    async ({ jobId, doc, status, view }) => {
+      const pendingApprovals = (
+        await buildReviewItemsFromContext(jobId, doc, status, view)
+      ).filter((item) => item.status !== 'approved').length;
       return { pendingApprovals };
     },
     4,
