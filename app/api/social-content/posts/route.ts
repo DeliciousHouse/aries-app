@@ -14,7 +14,7 @@ export async function handleGetSocialContentPosts(tenantContextLoader?: TenantCo
   }
 
   const tenantId = tenantResult.tenantContext.tenantId;
-  const [campaignPage, deletedCampaigns, currentBrandKit] = await Promise.all([
+  const [campaignPage, deletedPosts, currentBrandKit] = await Promise.all([
     listSocialContentJobsForTenant(tenantId),
     listDeletedSocialContentJobsForTenant(tenantId),
     loadTenantBrandKit(tenantId),
@@ -24,7 +24,7 @@ export async function handleGetSocialContentPosts(tenantContextLoader?: TenantCo
     {
       posts: campaignPage.posts,
       hasMore: campaignPage.hasMore,
-      deletedCampaigns,
+      deletedPosts,
       currentBrandKitExtractedAt,
     },
     { status: 200 },

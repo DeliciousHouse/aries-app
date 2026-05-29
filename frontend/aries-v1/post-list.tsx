@@ -21,36 +21,13 @@ export default function AriesPostListScreen() {
   const deletedItems = campaigns.data?.deletedPosts ?? [];
   const currentBrandKitExtractedAt = campaigns.data?.currentBrandKitExtractedAt ?? null;
 
-  if (campaigns.isLoading) {
-    return <LoadingStateGrid />;
-  }
-
-  if (campaigns.error) {
-    return (
-      <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
-        {customerSafeUiErrorMessage(campaigns.error.message, 'Social content is not available right now.')}
-      </div>
-    );
-  }
-
-  if (items.length === 0 && deletedItems.length === 0) {
-    return (
-      <EmptyStatePanel
-        title="No social content yet"
-        description="Aries will turn your business and goals into a review-ready marketing plan once you create your first social content."
-        action={
-          <Link
-            href="/dashboard/social-content/new"
-            className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] transition-colors"
-          >
-            Create first social content
-            <ArrowRight className="h-4 w-4" />
-          </Link>
-        }
-      />
-    );
-  }
-
+  // Always render the shell header and the "New social content" action so the
+  // page looks alive immediately.  The posts fetch hits /api/social-content/posts
+  // which hydrates every job's full workspace-view — with many jobs this can
+  // take 10-40s.  Putting the skeleton in the content area below the header
+  // (rather than returning it as the only thing on screen) means the user has a
+  // usable, correctly-titled page while they wait instead of a dead full-screen
+  // pulse block.  The underlying backend latency is tracked as a Phase 2 fix.
   return (
     <div className="space-y-5">
       <ShellPanel
@@ -71,34 +48,59 @@ export default function AriesPostListScreen() {
         </p>
       </ShellPanel>
 
-      {campaigns.actionError ? (
-        <div className="rounded-[1.25rem] border border-amber-400/25 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
-          {campaigns.actionError}
+      {campaigns.isLoading ? (
+        <LoadingStateGrid />
+      ) : campaigns.error ? (
+        <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
+          {customerSafeUiErrorMessage(campaigns.error.message, 'Social content is not available right now.')}
         </div>
-      ) : null}
-
-      <div className="grid gap-4">
-        {items.map((campaign) => (
-          <CampaignRow
-            key={campaign.id}
-            campaign={campaign}
-            currentBrandKitExtractedAt={currentBrandKitExtractedAt}
-            busyCampaignId={campaigns.busyCampaignId}
-            onDelete={(jobId) => void campaigns.deleteCampaign(jobId)}
-          />
-        ))}
-      </div>
-
-      {deletedItems.length > 0 ? (
-        <DeletedCampaignsSection
-          items={deletedItems}
-          busyCampaignId={campaigns.busyCampaignId}
-          onRestore={(jobId) => void campaigns.restoreCampaign(jobId)}
+      ) : items.length === 0 && deletedItems.length === 0 ? (
+        <EmptyStatePanel
+          title="No social content yet"
+          description="Aries will turn your business and goals into a review-ready marketing plan once you create your first social content."
+          action={
+            <Link
+              href="/dashboard/social-content/new"
+              className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] transition-colors"
+            >
+              Create first social content
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          }
         />
-      ) : null}
+      ) : (
+        <>
+          {campaigns.actionError ? (
+            <div className="rounded-[1.25rem] border border-amber-400/25 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+              {campaigns.actionError}
+            </div>
+          ) : null}
+
+          <div className="grid gap-4">
+            {items.map((campaign) => (
+              <CampaignRow
+                key={campaign.id}
+                campaign={campaign}
+                currentBrandKitExtractedAt={currentBrandKitExtractedAt}
+                busyCampaignId={campaigns.busyCampaignId}
+                onDelete={(jobId) => void campaigns.deleteCampaign(jobId)}
+              />
+            ))}
+          </div>
+
+          {deletedItems.length > 0 ? (
+            <DeletedCampaignsSection
+              items={deletedItems}
+              busyCampaignId={campaigns.busyCampaignId}
+              onRestore={(jobId) => void campaigns.restoreCampaign(jobId)}
+            />
+          ) : null}
+        </>
+      )}
     </div>
   );
 }
+
 
 function isCampaignStale(
   campaignExtractedAt: string | null | undefined,
