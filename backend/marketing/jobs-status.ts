@@ -1600,10 +1600,18 @@ async function buildPostCounts(
   };
 }
 
-async function buildMarketingJobStatus(jobId: string): Promise<SocialContentJobStatusResponse> {
+async function buildMarketingJobStatus(
+  jobId: string,
+  preloadedRuntimeDoc?: SocialContentJobRuntimeDocument | null,
+): Promise<SocialContentJobStatusResponse> {
   await assertMarketingRuntimeSchemas();
 
-  const runtimeDoc = await loadSocialContentJobRuntime(jobId);
+  // Reuse a caller-supplied runtime doc when provided so hot paths (the social
+  // content list fan-out) read the doc from disk once and share it across the
+  // status + workspace-view builds. `undefined` = not supplied (load it);
+  // `null` = caller already determined the doc is missing (no-doc sentinel).
+  const runtimeDoc =
+    preloadedRuntimeDoc !== undefined ? preloadedRuntimeDoc : await loadSocialContentJobRuntime(jobId);
   if (!runtimeDoc) {
     return {
       jobId,
@@ -1720,6 +1728,9 @@ async function buildMarketingJobStatus(jobId: string): Promise<SocialContentJobS
   };
 }
 
-export async function getMarketingJobStatus(jobId: string): Promise<SocialContentJobStatusResponse> {
-  return buildMarketingJobStatus(jobId);
+export async function getMarketingJobStatus(
+  jobId: string,
+  options: { runtimeDoc?: SocialContentJobRuntimeDocument | null } = {},
+): Promise<SocialContentJobStatusResponse> {
+  return buildMarketingJobStatus(jobId, options.runtimeDoc);
 }

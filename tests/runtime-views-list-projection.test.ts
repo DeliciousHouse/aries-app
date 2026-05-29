@@ -7,15 +7,30 @@ import test from 'node:test';
 import { resolveProjectRoot } from './helpers/project-root';
 
 // Golden regression guard for the campaign-list perf refactor
-// (perf(social-content): lightweight list projection — v0.1.13.6).
+// (perf(social-content): lightweight list projection — v0.1.13.6, extended for
+// the v0.1.13.7 scoped wins).
 //
-// The list path (listSocialContentJobsForTenant) now derives each card's
+// v0.1.13.6: the list path (listSocialContentJobsForTenant) derives each card's
 // `pendingApprovals` count from the phase-1 (runtimeDoc, status, view) context
 // via buildReviewItemsFromContext, instead of re-hydrating each job through
-// buildReviewItemsForJob. This test pins that the list count stays EQUAL to the
-// count the re-hydrating review-items path (listMarketingReviewItemsForTenant,
-// which calls buildReviewItemsForJob internally) produces for the same tenant,
-// so the optimization can never silently drift the cards.
+// buildReviewItemsForJob. assertListMatchesOracle pins that the list count stays
+// EQUAL to the count the re-hydrating review-items path
+// (listMarketingReviewItemsForTenant, which calls buildReviewItemsForJob
+// internally) produces, so the optimization can never silently drift the cards.
+//
+// v0.1.13.7: the list threads a single preloaded runtime doc through
+// getMarketingJobStatus + buildSocialContentWorkspaceView (collapsing the 3-4
+// per-job runtime-doc disk reads to one). The view is still fully built, so the
+// cards and the pendingApprovals count are unchanged. assertViewEquivalence pins
+// the byte-identity: threading the doc produces output identical to reloading it
+// (both the view and the status), for which loadSocialContentJobRuntime must stay
+// a pure read and the builders must treat the doc as read-only.
+//
+// (A separate v0.1.13.7 attempt skipped the DB production creative_assets merge on
+// the list path to drop a Postgres query; adversarial review found it under-counts
+// pendingApprovals when an operator rejected a DB-only creative asset — mergeReviewState
+// overrides the asset's 'approved' payload status with the persisted 'rejected'
+// decision — so that part was reverted. The list keeps full hydration.)
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
@@ -144,6 +159,34 @@ async function assertListMatchesOracle(tenantId: string): Promise<void> {
   );
 }
 
+// v0.1.13.7 invariant: threading a preloaded runtime doc through the status and
+// view builds must be byte-identical to letting each builder reload it from disk.
+async function assertViewEquivalence(jobId: string): Promise<void> {
+  const workspaceViews = await import('../backend/marketing/workspace-views');
+  const jobsStatus = await import('../backend/marketing/jobs-status');
+  const runtimeState = await import('../backend/marketing/runtime-state');
+
+  // Warm up: the view build has converging write-on-read side effects (the
+  // review-state normalizers + status_history sync persist the workspace record).
+  // Run once so the comparison builds below all read a settled record and don't
+  // diverge on a first-call mutation that the second call no longer performs.
+  await workspaceViews.buildSocialContentWorkspaceView(jobId);
+
+  // Doc-read collapse: threading a preloaded runtime doc must be byte-identical to
+  // letting each builder reload it from disk. This holds only because
+  // loadSocialContentJobRuntime returns a fresh object per call and the builders
+  // treat the doc as read-only; if any builder mutated the shared object in place,
+  // threading it would diverge from two independent reloads.
+  const doc = await runtimeState.loadSocialContentJobRuntime(jobId);
+  const threadedView = await workspaceViews.buildSocialContentWorkspaceView(jobId, { runtimeDoc: doc });
+  const reloadedView = await workspaceViews.buildSocialContentWorkspaceView(jobId);
+  assert.deepEqual(threadedView, reloadedView, 'threaded-doc view must equal the reload-doc view');
+
+  const threadedStatus = await jobsStatus.getMarketingJobStatus(jobId, { runtimeDoc: doc });
+  const reloadedStatus = await jobsStatus.getMarketingJobStatus(jobId);
+  assert.deepEqual(threadedStatus, reloadedStatus, 'threaded-doc status must equal the reload-doc status');
+}
+
 test('strategy-backed job: list pendingApprovals matches the re-hydrating oracle', async () => {
   await withMarketingRuntimeEnv(async (dataRoot) => {
     const tenantId = 'tenant_listproj';
@@ -153,6 +196,7 @@ test('strategy-backed job: list pendingApprovals matches the re-hydrating oracle
     await seedCampaignPlanner();
     await writeFile(path.join(jobsRoot, `${jobId}.json`), JSON.stringify(strategyBackedJob(dataRoot, tenantId, jobId), null, 2));
     await assertListMatchesOracle(tenantId);
+    await assertViewEquivalence(jobId);
   });
 });
 
@@ -164,5 +208,6 @@ test('brand-new research-stage job: list pendingApprovals matches the re-hydrati
     await mkdir(jobsRoot, { recursive: true });
     await writeFile(path.join(jobsRoot, `${jobId}.json`), JSON.stringify(researchStageJob(tenantId, jobId), null, 2));
     await assertListMatchesOracle(tenantId);
+    await assertViewEquivalence(jobId);
   });
 });

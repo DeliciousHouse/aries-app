@@ -103,6 +103,7 @@ const steps = [
       'tests/marketing/callback-auto-approve.test.ts',
       'tests/marketing/stage-summary-state-aware.test.ts',
       'tests/marketing/list-deleted-campaigns-bounded-parallel.test.ts',
+      'tests/runtime-views-list-projection.test.ts',
       'tests/marketing/review-queue-skips-failed-jobs.test.ts',
       'tests/marketing/strategy-review-summary-no-objective-fallback.test.ts',
       'tests/marketing-job-retry-research.test.ts',
