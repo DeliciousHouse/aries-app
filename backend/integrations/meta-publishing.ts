@@ -8,11 +8,26 @@ const META_PROVIDERS = new Set(['meta', 'facebook', 'instagram']);
 
 export type SupportedMetaProvider = 'facebook' | 'instagram';
 
+/**
+ * Where a post lands. 'feed' is the default permanent post (photo/feed on FB,
+ * a FEED media container on IG). 'story' is the 24h ephemeral format: FB
+ * /{page}/photo_stories and IG media_type=STORIES. Stories are single-media
+ * and cannot be natively scheduled, so the story branch rejects multi-media
+ * and scheduledFor. Image stories only — video stories need video upload,
+ * which this path does not implement.
+ */
+export type MetaPlacement = 'feed' | 'story';
+
+export function normalizeMetaPlacement(value: string | null | undefined): MetaPlacement {
+  return typeof value === 'string' && value.trim().toLowerCase() === 'story' ? 'story' : 'feed';
+}
+
 export type MetaPublishRequest = {
   tenantId: string;
   provider: string;
   content: string;
   mediaUrls: string[];
+  placement?: MetaPlacement;
   scheduledFor?: string | null;
   fetchImpl?: typeof fetch;
   db?: Pool;
@@ -279,14 +294,64 @@ async function withSafePrePublishRetry<T>(fn: () => Promise<T>, attempts: number
   throw lastError;
 }
 
+async function publishFacebookPhotoStory(args: {
+  target: MetaPublishTarget;
+  mediaUrls: string[];
+  fetchImpl: typeof fetch;
+  safePrePublishAttempts: number;
+}): Promise<MetaPublishSuccess> {
+  // Step 1: upload the single photo unpublished to get a photo id (safe to
+  // retry — no story exists yet).
+  const upload = await withSafePrePublishRetry(() => requestGraphJson({
+    pathname: `${encodeURIComponent(args.target.externalAccountId)}/photos`,
+    accessToken: args.target.accessToken,
+    fetchImpl: args.fetchImpl,
+    params: { url: args.mediaUrls[0], published: 'false' },
+  }), args.safePrePublishAttempts);
+  const photoId = requireStringField(upload, 'id', 'facebook_story_photo_upload_missing_id');
+
+  // Step 2: publish it as a story. One-shot — /photo_stories has no idempotency
+  // key, so this must never be auto-retried. A 2xx with no post id means the
+  // outcome is unconfirmed (outcomeUnknown), not "definitely never posted".
+  const published = await requestGraphJson({
+    pathname: `${encodeURIComponent(args.target.externalAccountId)}/photo_stories`,
+    accessToken: args.target.accessToken,
+    fetchImpl: args.fetchImpl,
+    params: { photo_id: photoId },
+  });
+  // FB photo_stories returns { success, post_id }; tolerate `id` as a fallback.
+  const storyPostId =
+    typeof published.post_id === 'string' && published.post_id.trim().length > 0
+      ? published.post_id.trim()
+      : requireStringField(published, 'id', 'facebook_story_publish_missing_id', { outcomeUnknown: true });
+
+  return {
+    provider: 'facebook',
+    mode: 'live',
+    platformPostId: storyPostId,
+    scheduledFor: null,
+    connectionId: args.target.connectionId,
+  };
+}
+
 async function publishFacebook(args: {
   target: MetaPublishTarget;
   content: string;
   mediaUrls: string[];
+  placement: MetaPlacement;
   scheduledFor: string | null;
   fetchImpl: typeof fetch;
   safePrePublishAttempts: number;
 }): Promise<MetaPublishSuccess> {
+  if (args.placement === 'story') {
+    return publishFacebookPhotoStory({
+      target: args.target,
+      mediaUrls: args.mediaUrls,
+      fetchImpl: args.fetchImpl,
+      safePrePublishAttempts: args.safePrePublishAttempts,
+    });
+  }
+
   const attachedMediaIds: string[] = [];
   for (const mediaUrl of args.mediaUrls) {
     const upload = await withSafePrePublishRetry(() => requestGraphJson({
@@ -331,9 +396,21 @@ async function createInstagramContainer(args: {
   target: MetaPublishTarget;
   caption: string;
   mediaUrls: string[];
+  placement: MetaPlacement;
   fetchImpl: typeof fetch;
   safePrePublishAttempts: number;
 }): Promise<string> {
+  if (args.placement === 'story') {
+    // IG image story: a single STORIES-typed container. Stories ignore the
+    // feed caption, so it is intentionally not sent.
+    const created = await withSafePrePublishRetry(() => requestGraphJson({
+      pathname: `${encodeURIComponent(args.target.externalAccountId)}/media`,
+      accessToken: args.target.accessToken,
+      fetchImpl: args.fetchImpl,
+      params: { image_url: args.mediaUrls[0], media_type: 'STORIES' },
+    }), args.safePrePublishAttempts);
+    return requireStringField(created, 'id', 'instagram_story_container_missing_id');
+  }
   if (args.mediaUrls.length === 1) {
     const created = await withSafePrePublishRetry(() => requestGraphJson({
       pathname: `${encodeURIComponent(args.target.externalAccountId)}/media`,
@@ -413,6 +490,7 @@ async function publishInstagram(args: {
   target: MetaPublishTarget;
   content: string;
   mediaUrls: string[];
+  placement: MetaPlacement;
   scheduledFor: string | null;
   fetchImpl: typeof fetch;
   safePrePublishAttempts: number;
@@ -428,6 +506,7 @@ async function publishInstagram(args: {
     target: args.target,
     caption: args.content,
     mediaUrls: args.mediaUrls,
+    placement: args.placement,
     fetchImpl: args.fetchImpl,
     safePrePublishAttempts: args.safePrePublishAttempts,
   });
@@ -462,17 +541,38 @@ export async function publishToMetaGraph(request: MetaPublishRequest): Promise<M
   const provider = normalizeMetaProvider(request.provider);
   const content = request.content.trim();
   const mediaUrls = normalizeMediaUrls(request.mediaUrls);
+  const placement = normalizeMetaPlacement(request.placement);
   const scheduledFor = normalizeScheduledFor(request.scheduledFor ?? null);
   requireContentOrMedia(content, mediaUrls);
+
+  if (placement === 'story') {
+    // Stories are single-media and cannot be natively scheduled on either
+    // platform. Fail closed before any Graph call so a misconfigured story
+    // never silently posts as a feed item.
+    if (mediaUrls.length !== 1) {
+      throw new MetaPublishError(
+        'story_single_media_required',
+        'Story placement requires exactly one image. Carousels and text-only stories are not supported.',
+        { status: 400 },
+      );
+    }
+    if (scheduledFor) {
+      throw new MetaPublishError(
+        'story_scheduled_publish_not_supported',
+        'Stories cannot be natively scheduled; publish a story live.',
+        { status: 409 },
+      );
+    }
+  }
 
   const fetchImpl = request.fetchImpl ?? globalThis.fetch;
   const target = await resolveMetaPublishTarget(request.tenantId, provider);
   const safePrePublishAttempts = Math.min(Math.max(request.safePrePublishAttempts ?? 1, 1), 5);
 
   if (provider === 'facebook') {
-    return publishFacebook({ target, content, mediaUrls, scheduledFor, fetchImpl, safePrePublishAttempts });
+    return publishFacebook({ target, content, mediaUrls, placement, scheduledFor, fetchImpl, safePrePublishAttempts });
   }
-  return publishInstagram({ target, content, mediaUrls, scheduledFor, fetchImpl, safePrePublishAttempts });
+  return publishInstagram({ target, content, mediaUrls, placement, scheduledFor, fetchImpl, safePrePublishAttempts });
 }
 
 export async function persistScheduledPublishRecord(args: {

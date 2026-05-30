@@ -618,3 +618,166 @@ test('waitForInstagramContainerReady throws instagram_container_timeout when nev
     },
   );
 });
+
+test('publishToMetaGraph publishes a Facebook image story via /photos then /photo_stories', async () => {
+  process.env.OAUTH_TOKEN_ENCRYPTION_KEY = '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!';
+  const restoreQuery = installOauthQueryFixture({
+    access_token_enc: encryptOAuthSecret('page-token'),
+    connection_id: 'conn_fb_story',
+    external_account_id: 'page_story',
+  });
+
+  const calls: Array<{ url: string; method: string; body: string | null }> = [];
+  const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = (init?.method ?? 'GET').toUpperCase();
+    const body = typeof init?.body === 'string' ? init.body : null;
+    calls.push({ url, method, body });
+    if (url.includes('/photo_stories')) {
+      assert.match(body ?? '', /photo_id=photo_story_001/);
+      return new Response(JSON.stringify({ success: true, post_id: 'fb_story_777' }), { status: 200 });
+    }
+    if (url.includes('/photos')) {
+      assert.match(body ?? '', /published=false/);
+      return new Response(JSON.stringify({ id: 'photo_story_001' }), { status: 200 });
+    }
+    throw new Error(`unexpected url: ${url}`);
+  };
+
+  try {
+    const result = await publishToMetaGraph({
+      tenantId: '12',
+      provider: 'facebook',
+      content: 'caption ignored on stories',
+      mediaUrls: ['https://cdn.example.com/story.png'],
+      placement: 'story',
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+
+    assert.equal(result.provider, 'facebook');
+    assert.equal(result.mode, 'live');
+    assert.equal(result.platformPostId, 'fb_story_777');
+    // Exactly two calls: unpublished photo upload, then publish-as-story. NO /feed.
+    assert.equal(calls.length, 2);
+    assert.match(calls[0]?.url ?? '', /\/page_story\/photos$/);
+    assert.match(calls[1]?.url ?? '', /\/page_story\/photo_stories$/);
+    assert.ok(!calls.some((c) => c.url.includes('/feed')), 'a story must never hit /feed');
+  } finally {
+    restoreQuery();
+  }
+});
+
+test('publishToMetaGraph publishes an Instagram image story via media_type=STORIES container', async () => {
+  process.env.OAUTH_TOKEN_ENCRYPTION_KEY = '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!';
+  const restoreQuery = installOauthQueryFixture({
+    access_token_enc: encryptOAuthSecret('ig-page-token'),
+    connection_id: 'conn_ig_story',
+    external_account_id: 'ig_story',
+  });
+
+  const calls: Array<{ url: string; method: string; body: string | null }> = [];
+  const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = (init?.method ?? 'GET').toUpperCase();
+    const body = typeof init?.body === 'string' ? init.body : null;
+    calls.push({ url, method, body });
+    if (url.includes('/media_publish')) {
+      assert.match(body ?? '', /creation_id=story_container_001/);
+      return new Response(JSON.stringify({ id: 'ig_story_888' }), { status: 200 });
+    }
+    if (method === 'GET' && url.includes('story_container_001') && url.includes('status_code')) {
+      return new Response(JSON.stringify({ id: 'story_container_001', status_code: 'FINISHED' }), { status: 200 });
+    }
+    if (url.includes('/media')) {
+      assert.match(body ?? '', /media_type=STORIES/);
+      assert.match(body ?? '', /image_url=https%3A%2F%2Fcdn.example.com%2Fig-story.png/);
+      // Stories ignore the feed caption; it must not be sent.
+      assert.ok(!(body ?? '').includes('caption='), 'story container must not send a caption');
+      return new Response(JSON.stringify({ id: 'story_container_001' }), { status: 200 });
+    }
+    throw new Error(`unexpected url: ${url}`);
+  };
+
+  try {
+    const result = await publishToMetaGraph({
+      tenantId: '12',
+      provider: 'instagram',
+      content: 'caption ignored on stories',
+      mediaUrls: ['https://cdn.example.com/ig-story.png'],
+      placement: 'story',
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+
+    assert.equal(result.provider, 'instagram');
+    assert.equal(result.mode, 'live');
+    assert.equal(result.platformPostId, 'ig_story_888');
+    assert.equal(calls.length, 3);
+  } finally {
+    restoreQuery();
+  }
+});
+
+test('publishToMetaGraph rejects a story with more than one image before any Graph call', async () => {
+  process.env.OAUTH_TOKEN_ENCRYPTION_KEY = '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!';
+  const restoreQuery = installOauthQueryFixture({
+    access_token_enc: encryptOAuthSecret('page-token'),
+    connection_id: 'conn_fb_story_multi',
+    external_account_id: 'page_story_multi',
+  });
+
+  try {
+    await assert.rejects(
+      () => publishToMetaGraph({
+        tenantId: '12',
+        provider: 'facebook',
+        content: '',
+        mediaUrls: ['https://cdn.example.com/a.png', 'https://cdn.example.com/b.png'],
+        placement: 'story',
+        fetchImpl: (async () => {
+          throw new Error('fetch must not be called for a rejected story');
+        }) as typeof fetch,
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof MetaPublishError);
+        assert.equal((error as MetaPublishError).code, 'story_single_media_required');
+        assert.equal((error as MetaPublishError).status, 400);
+        return true;
+      },
+    );
+  } finally {
+    restoreQuery();
+  }
+});
+
+test('publishToMetaGraph rejects a natively-scheduled story before any Graph call', async () => {
+  process.env.OAUTH_TOKEN_ENCRYPTION_KEY = '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!';
+  const restoreQuery = installOauthQueryFixture({
+    access_token_enc: encryptOAuthSecret('ig-page-token'),
+    connection_id: 'conn_ig_story_sched',
+    external_account_id: 'ig_story_sched',
+  });
+
+  try {
+    await assert.rejects(
+      () => publishToMetaGraph({
+        tenantId: '12',
+        provider: 'instagram',
+        content: '',
+        mediaUrls: ['https://cdn.example.com/story.png'],
+        placement: 'story',
+        scheduledFor: '2026-06-01T15:00:00.000Z',
+        fetchImpl: (async () => {
+          throw new Error('fetch must not be called for a rejected story');
+        }) as typeof fetch,
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof MetaPublishError);
+        assert.equal((error as MetaPublishError).code, 'story_scheduled_publish_not_supported');
+        assert.equal((error as MetaPublishError).status, 409);
+        return true;
+      },
+    );
+  } finally {
+    restoreQuery();
+  }
+});

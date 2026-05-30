@@ -219,6 +219,78 @@ test('dispatch with valid approved approval → publishes and marks approval con
   fs.rmSync(dataRoot, { recursive: true, force: true });
 });
 
+test('dispatch forwards placement=story from the request body to the publish executor', async () => {
+  const dataRoot = makeTempApprovalDir();
+
+  await withDataRoot(dataRoot, async () => {
+    const record = makeApprovalRecord();
+    record.status = 'approved';
+    saveMarketingApprovalRecord(record);
+
+    let capturedPlacement: string | undefined = 'UNSET';
+    const publishExecutor = async (request: { placement?: 'feed' | 'story' }) => {
+      capturedPlacement = request.placement;
+      return {
+        provider: 'instagram' as const,
+        mode: 'live' as const,
+        platformPostId: 'ig_story_1',
+        scheduledFor: null,
+        connectionId: 'conn_story',
+      };
+    };
+
+    const req = makeDispatchRequest({
+      provider: 'instagram',
+      content: 'Story time',
+      media_urls: [],
+      placement: 'story',
+      approval_id: record.approval_id,
+    });
+
+    const resp = await handlePublishDispatch(req, makeTenantLoader(), { publishExecutor });
+
+    assert.equal(capturedPlacement, 'story', 'placement=story must reach the publish executor');
+    assert.notEqual(resp.status, 403, 'an approved story dispatch must not 403');
+  });
+
+  fs.rmSync(dataRoot, { recursive: true, force: true });
+});
+
+test('dispatch defaults placement to feed when the body omits it', async () => {
+  const dataRoot = makeTempApprovalDir();
+
+  await withDataRoot(dataRoot, async () => {
+    const record = makeApprovalRecord();
+    record.status = 'approved';
+    saveMarketingApprovalRecord(record);
+
+    let capturedPlacement: string | undefined = 'UNSET';
+    const publishExecutor = async (request: { placement?: 'feed' | 'story' }) => {
+      capturedPlacement = request.placement;
+      return {
+        provider: 'facebook' as const,
+        mode: 'live' as const,
+        platformPostId: 'fb_feed_1',
+        scheduledFor: null,
+        connectionId: 'conn_feed',
+      };
+    };
+
+    const req = makeDispatchRequest({
+      provider: 'facebook',
+      content: 'Plain feed post',
+      media_urls: [],
+      approval_id: record.approval_id,
+    });
+
+    await handlePublishDispatch(req, makeTenantLoader(), { publishExecutor });
+
+    assert.equal(capturedPlacement, 'feed', 'an omitted placement must default to feed, never story');
+  });
+
+  fs.rmSync(dataRoot, { recursive: true, force: true });
+});
+
 test('concurrent dispatch with same approval_id: second caller gets 403', async () => {
   const dataRoot = makeTempApprovalDir();
 
