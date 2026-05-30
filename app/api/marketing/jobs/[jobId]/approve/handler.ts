@@ -4,6 +4,7 @@ import { mapAriesExecutionError } from '@/backend/execution';
 import { invalidateMarketingJobStatus } from '@/backend/marketing/jobs-status';
 import { approveSocialContentJob, denySocialContentJob } from '@/backend/marketing/orchestrator';
 import { loadSocialContentJobRuntime } from '@/backend/marketing/runtime-state';
+import { recomputeAndPersistPendingApprovalCount } from '@/backend/marketing/runtime-views';
 import { isApprovalDenialReasonCode } from '@/lib/marketing/approval-denial-reason-codes';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
@@ -253,6 +254,15 @@ export async function handleApproveMarketingJob(
     }
 
     invalidateMarketingJobStatus(jobId);
+    // WRITE SITE (operator approve/deny via the dedicated approve route): this
+    // path advances the stage through approveSocialContentJob/denySocialContentJob
+    // WITHOUT going through recordMarketingReviewDecision, so recompute + persist
+    // the denormalized pending-approval badge count here too. Non-fatal.
+    try {
+      await recomputeAndPersistPendingApprovalCount(jobId);
+    } catch {
+      // count recompute is best-effort; never fail the approval response on it.
+    }
 
     return NextResponse.json(buildApproveResponse(dialect, result), {
       status:
