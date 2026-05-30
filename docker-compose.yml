@@ -214,6 +214,48 @@ services:
     restart: unless-stopped
     networks:
       - docker_stack
+
+  # Delayed real-Meta performance -> Honcho memory. Reads #513's stored
+  # insights_post_metrics_daily snapshots (NEVER fetches Meta) and writes a
+  # research_conclusion to peer-market-signal-* via recordPerformanceEvent.
+  # Gated by HONCHO_WRITE_PUBLISH_ENABLED (recordPerformanceEvent self-gates).
+  # No Meta env required. Until #513-A/E land, the due-posts query returns []
+  # so this sidecar ticks as a harmless no-op.
+  aries-honcho-performance-worker:
+    image: ${ARIES_APP_IMAGE:-aries-app:local}
+    command: ["npx", "tsx", "scripts/automations/honcho-performance-worker.ts"]
+    depends_on:
+      aries-app:
+        condition: service_healthy
+    environment:
+      HOME: /home/node
+      NODE_ENV: production
+      CODE_ROOT: /app
+      DATA_ROOT: /data
+      APP_INSTANCE_ID: honcho-performance-worker
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_POOL_MAX: 3
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      APP_BASE_URL: http://aries-app:${PORT:-3000}
+      NEXTAUTH_URL: http://aries-app:${PORT:-3000}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
+      # Honcho write surface (same vars as the app service). Defaults match the
+      # app service so the worker writes through the same gate; recordPerformanceEvent
+      # no-ops when HONCHO_WRITE_PUBLISH_ENABLED is off.
+      HONCHO_ENABLED: ${HONCHO_ENABLED:-true}
+      HONCHO_WRITE_PUBLISH_ENABLED: ${HONCHO_WRITE_PUBLISH_ENABLED:-true}
+      HONCHO_BASE_URL: ${HONCHO_BASE_URL:-}
+      HONCHO_CONTROL_PLANE_JWT: ${HONCHO_CONTROL_PLANE_JWT:-}
+      HONCHO_DATA_PLANE_JWT: ${HONCHO_DATA_PLANE_JWT:-}
+      ARIES_TENANT_PSEUDONYM_SALT: ${ARIES_TENANT_PSEUDONYM_SALT:-}
+      # #513 gate: flip to 1 once insights_post_metrics_daily is populated.
+      ARIES_INSIGHTS_513_TABLES_PRESENT: ${ARIES_INSIGHTS_513_TABLES_PRESENT:-}
+    restart: unless-stopped
+    networks:
+      - docker_stack
 networks:
   docker_stack:
     external: true
