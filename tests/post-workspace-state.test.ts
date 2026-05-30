@@ -130,8 +130,10 @@ test('deriveGateFallbackState does not block creative when a stale strategy gate
   assert.notEqual(fallback.title, 'Strategy Review is blocking this gate');
   // QA 2026-05-12 ISSUE-009: the default fallback now surfaces a "View
   // runtime status" CTA so operators always have a clear next action.
+  // The CTA points at the in-shell ?view=status tab (not the dead-end
+  // standalone /social-content/status page) per the runtime-status fold-in.
   assert.equal(fallback.action?.label, 'View runtime status');
-  assert.equal(fallback.action?.href, '/social-content/status?jobId=mkt_123');
+  assert.equal(fallback.action?.href, '/dashboard/social-content/mkt_123?view=status');
 });
 
 test('deriveGateFallbackState sends revisions_requested traffic to the review queue', () => {

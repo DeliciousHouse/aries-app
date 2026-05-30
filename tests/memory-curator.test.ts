@@ -109,6 +109,7 @@ test('preference auto-approves to peer-user', () => {
     claim: 'User prefers concise weekly digests',
     sources: [{ url: 'https://app.example.com/profile', fetched_at: NOW, trust: 'first_party' }],
     confidence: 0.9,
+    metadata: { explicit_user_intent: true },
   };
   const out = curateFinding(f, { jobId: 'job-1' });
   assert.equal(out.decision, 'auto_approve');

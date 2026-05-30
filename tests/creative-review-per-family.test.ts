@@ -86,7 +86,7 @@ test('buildSocialContentWorkspaceView uses per-family hooks for Meta image ad ca
     const brandSlug = 'per-family-test-brand';
 
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
-    const scriptwriterCachePath = path.join(process.env.ARTIFACT_STAGE3_CACHE_DIR!, stage3RunId, 'scriptwriter.json');
+    const scriptwriterCachePath = path.join(process.env.ARTIFACT_STAGE3_CACHE_DIR!, tenantId, stage3RunId, 'scriptwriter.json');
     const campaignRoot = path.join(process.env.ARTIFACT_PIPELINE_CWD!, 'output', `${brandSlug}-campaign`);
     const adImagesDir = path.join(campaignRoot, 'ad-images');
     const image1Path = path.join(adImagesDir, 'meta-outcome-proof.png');

@@ -51,5 +51,5 @@ test('authenticated onboarding flow avoids demo fallbacks and sample tenant defa
   assert.match(resumeSource, /updateBusinessProfileWithDiagnostics/);
   assert.match(resumeSource, /startSocialContentJob/);
   assert.match(resumeSource, /materializedJobId/);
-  assert.match(resumeSource, /\/dashboard\/campaigns\/\$\{encodeURIComponent\(result\.jobId\)\}\?welcome=1/);
+  assert.match(resumeSource, /\/dashboard\/social-content\/\$\{encodeURIComponent\(result\.jobId\)\}\?welcome=1/);
 });

@@ -99,7 +99,7 @@ function installBrandSiteFetchMock(): { restore: () => void; fetchImpl: typeof f
         ? input.toString()
         : input.url;
 
-    if (url === 'https://sugarandleather.com') {
+    if (url === 'https://sugarandleather.com' || url === 'https://sugarandleather.com/') {
       return createFetchResponse(
         `<!doctype html>
         <html>
@@ -540,7 +540,8 @@ test('startSocialContentJob persists a reusable tenant brand kit and stores a ru
         tenantId: 'sugarandleather',
         jobType: 'weekly_social_content',
         payload: {
-          brandUrl: 'https://sugarandleather.com',
+          brandUrl: 'https://sugarandleather.com/',
+          businessType: 'leather goods retail',
           competitorUrl: 'https://betterup.com',
         },
       });
@@ -550,7 +551,7 @@ test('startSocialContentJob persists a reusable tenant brand kit and stores a ru
       const brandKitFile = path.join(dataRoot, 'generated', 'validated', 'sugarandleather', 'brand-kit.json');
       const persistedBrandKit = JSON.parse(await readFile(brandKitFile, 'utf8')) as any;
 
-      assert.equal(runtimeDoc.brand_kit.source_url, 'https://sugarandleather.com');
+      assert.equal(runtimeDoc.brand_kit.source_url, 'https://sugarandleather.com/');
       assert.equal(runtimeDoc.brand_kit.brand_name, 'Sugar & Leather');
       assert.equal(runtimeDoc.brand_kit.path, brandKitFile);
       assert.equal(runtimeDoc.brand_kit.canonical_url, 'https://cdn.sugarandleather.com/pages/home');
@@ -559,7 +560,7 @@ test('startSocialContentJob persists a reusable tenant brand kit and stores a ru
       assert.match(runtimeDoc.brand_kit.extracted_at, /^\d{4}-\d{2}-\d{2}T/);
       assert.equal(persistedBrandKit.tenant_id, 'sugarandleather');
       assert.equal(persistedBrandKit.brand_name, 'Sugar & Leather');
-      assert.equal(persistedBrandKit.source_url, 'https://sugarandleather.com');
+      assert.equal(persistedBrandKit.source_url, 'https://sugarandleather.com/');
       assert.equal(persistedBrandKit.canonical_url, 'https://cdn.sugarandleather.com/pages/home');
       assert.equal(persistedBrandKit.colors.accent, '#3d2410');
       assert.match(persistedBrandKit.extracted_at, /^\d{4}-\d{2}-\d{2}T/);
@@ -952,7 +953,7 @@ test('loadTenantBrandKit rejects malformed persisted brand kit state', async () 
       }, null, 2)
     );
 
-    assert.throws(
+    await assert.rejects(
       () => loadTenantBrandKit('sugarandleather'),
       /invalid_tenant_brand_kit:brand_name_required/i
     );

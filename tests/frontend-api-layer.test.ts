@@ -941,8 +941,8 @@ test('/api/marketing/jobs/:jobId and /latest block downstream approval metadata 
     assert.equal(byIdBody.nextStep, 'wait_for_completion');
     assert.equal(byIdBody.approval.status, 'changes_requested');
     assert.equal(byIdBody.approval.actionHref, undefined);
-    assert.equal(byIdBody.dashboard.campaign.approvalRequired, false);
-    assert.equal(byIdBody.dashboard.campaign.approvalActionHref, undefined);
+    assert.equal(byIdBody.dashboard.post.approvalRequired, false);
+    assert.equal(byIdBody.dashboard.post.approvalActionHref, undefined);
     assert.equal(latestResponse.status, 200);
     assert.equal(latestBody.workflowState, 'revisions_requested');
     assert.equal(latestBody.approvalRequired, false);
@@ -1027,7 +1027,7 @@ test('/api/marketing/jobs/:jobId returns stage progress and safe artifact summar
           extracted_at: '2026-03-18T00:00:00.000Z',
         },
         inputs: {
-          request: { campaignWindowDays: 30 },
+          request: { postWindowDays: 30 },
           brand_url: 'https://sugarandleather.com',
         },
         errors: [],
@@ -2134,7 +2134,7 @@ test('/api/marketing/jobs/:jobId hydrates brandReview and strategyReview from re
     const tenantId = 'public_sugarandleather-com';
     const stage2RunId = 'https-betterup-com-feefd5df';
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
-    const plannerPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, tenantId, stage2RunId, 'campaign_planner.json');
+    const plannerPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, tenantId, stage2RunId, 'social_content_planner.json');
     const websiteAnalysisPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, tenantId, stage2RunId, 'website_brand_analysis.json');
     const brandProfilePath = path.join(dataRoot, 'generated', 'validated', tenantId, 'brand-profile.json');
     const strategyReviewPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, tenantId, stage2RunId, 'strategy_review_preview.json');
@@ -2318,7 +2318,7 @@ test('/api/marketing/jobs/:jobId hydrates brandReview and strategyReview from re
     assert.equal(body.strategyReview.sections.some((section: { body: string }) => /No details yet\./.test(section.body)), false);
     assert.equal(body.strategyReview.attachments.some((attachment: { id: string }) => attachment.id === 'strategy-campaign-planner'), true);
     assert.equal(body.strategyReview.attachments.some((attachment: { id: string }) => attachment.id === 'strategy-proposal-markdown'), true);
-    assert.equal(body.dashboard.campaign.counts.proposalConcepts > 0, true);
+    assert.equal(body.dashboard.post.counts.proposalConcepts > 0, true);
   });
 });
 
@@ -2999,9 +2999,9 @@ test('/api/marketing/jobs/:jobId keeps strategy-only legacy jobs non-crashing wi
     assert.equal(response.status, 200);
     assert.notEqual(body.strategyReview, null);
     assert.equal(body.creativeReview, null);
-    assert.equal(body.dashboard.campaign.counts.landingPages, 0);
-    assert.equal(body.dashboard.campaign.counts.imageAds, 0);
-    assert.equal(body.dashboard.campaign.counts.scripts, 0);
+    assert.equal(body.dashboard.post.counts.landingPages, 0);
+    assert.equal(body.dashboard.post.counts.imageAds, 0);
+    assert.equal(body.dashboard.post.counts.scripts, 0);
   });
 });
 
@@ -3185,9 +3185,9 @@ test('/api/marketing/jobs/:jobId hydrates creativeReview and dashboard counts fr
     assert.equal(body.creativeReview.assets.some((asset: { notes: string[] }) => asset.notes.some((note) => note.includes('Source file: meta-ads-main.png'))), true);
     assert.equal(body.creativeReview.assets.some((asset: { summary: string }) => asset.summary === 'Book the founder strategy intensive'), true);
     assert.equal(body.creativeReview.assets.some((asset: { summary: string }) => /Generated .*ready for publishing workflows\./i.test(asset.summary)), false);
-    assert.equal(body.dashboard.campaign.counts.landingPages > 0, true);
-    assert.equal(body.dashboard.campaign.counts.imageAds > 0, true);
-    assert.equal(body.dashboard.campaign.counts.scripts > 0, true);
+    assert.equal(body.dashboard.post.counts.landingPages > 0, true);
+    assert.equal(body.dashboard.post.counts.imageAds > 0, true);
+    assert.equal(body.dashboard.post.counts.scripts > 0, true);
     assert.equal(body.dashboard.assets.some((asset: { provenance: { sourceKind: string } }) => asset.provenance.sourceKind === 'creative_output'), true);
     assert.equal(body.artifacts.some((artifact: { details: string[] }) => artifact.details.some((detail) => /n\/a|No details yet\./i.test(detail))), false);
   });
@@ -3410,9 +3410,9 @@ test('/api/marketing/jobs/:jobId resolves https-prefixed stage log run ids into 
     assert.equal(body.strategyReview.status, 'approved');
     assert.notEqual(body.creativeReview, null);
     assert.equal(body.creativeReview.assets.length >= 5, true);
-    assert.equal(body.dashboard.campaign.counts.landingPages, 1);
-    assert.equal(body.dashboard.campaign.counts.imageAds >= 2, true);
-    assert.equal(body.dashboard.campaign.counts.scripts >= 2, true);
+    assert.equal(body.dashboard.post.counts.landingPages, 1);
+    assert.equal(body.dashboard.post.counts.imageAds >= 2, true);
+    assert.equal(body.dashboard.post.counts.scripts >= 2, true);
     assert.equal(body.dashboard.assets.some((asset: { provenance: { sourceKind: string } }) => asset.provenance.sourceKind === 'creative_output'), true);
     assert.equal(body.approvalRequired, true);
     assert.equal(typeof channelPlanSection?.body, 'string');
@@ -3680,7 +3680,7 @@ test('/api/marketing/jobs/:jobId reconstructs reviewBundle and publish counts fr
     assert.equal(body.reviewBundle.platformPreviews.some((preview: { platformSlug: string; mediaAssets: Array<{ url: string }> }) => preview.platformSlug === 'meta-ads' && preview.mediaAssets[0]?.url === `/api/marketing/jobs/${jobId}/assets/platform-preview-meta-ads-1-media-1`), true);
     assert.equal(body.reviewBundle.platformPreviews.some((preview: { platformSlug: string; assetLinks: unknown[] }) => preview.platformSlug === 'meta-ads' && preview.assetLinks.length > 0), true);
     assert.equal(body.assetPreviewCards.length > 0, true);
-    assert.equal(body.dashboard.campaign.counts.publishItems > 0, true);
+    assert.equal(body.dashboard.post.counts.publishItems > 0, true);
     assert.equal(body.dashboard.publishItems.length > 0, true);
     assert.doesNotMatch(serializedReviewBundle, /No details yet\.|\"n\/a\"/i);
   });
@@ -3853,8 +3853,8 @@ test('/api/marketing/jobs/:jobId does not leak an older Stage 4 launch review in
     );
     assert.equal(body.reviewBundle, null);
     assert.equal(body.assetPreviewCards.length, 0);
-    assert.equal(body.dashboard.campaign.name, 'Sugar & Leather | Elite Coaching Network');
-    assert.equal(body.dashboard.campaign.approvalActionHref, `/review/${encodeURIComponent(`${jobId}::approval`)}`);
+    assert.equal(body.dashboard.post.name, 'Sugar & Leather | Elite Coaching Network');
+    assert.equal(body.dashboard.post.approvalActionHref, `/review/${encodeURIComponent(`${jobId}::approval`)}`);
     assert.equal(body.dashboard.assets.length, 0);
     assert.equal(body.dashboard.posts.length, 0);
     assert.equal(body.dashboard.publishItems.length, 0);
@@ -4377,7 +4377,7 @@ test('/api/marketing/jobs/:jobId does not surface creative-output posts before p
 
     assert.equal(response.status, 200);
     assert.equal(body.marketing_stage, 'production');
-    assert.equal(body.dashboard.campaign.counts.proposalConcepts > 0, true);
+    assert.equal(body.dashboard.post.counts.proposalConcepts > 0, true);
     assert.equal(body.dashboard.posts.some((post: { provenance: { sourceKind: string } }) => post.provenance.sourceKind === 'creative_output'), false);
     assert.equal(body.dashboard.assets.some((asset: { provenance: { sourceKind: string } }) => asset.provenance.sourceKind === 'creative_output'), false);
   });

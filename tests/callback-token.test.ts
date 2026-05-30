@@ -297,6 +297,7 @@ test('Hermes submission generates a per-run callback_token and stores its SHA-25
     process.env.HERMES_API_SERVER_KEY = 'server-key';
     process.env.APP_BASE_URL = 'https://aries.example.com';
     process.env.HERMES_SESSION_KEY = 'main';
+    process.env.HERMES_POLL_BRIDGE_ENABLED = '0';
 
     const harness = createCallbackTokensHarness();
     t.mock.method(pool, 'query', harness.query as typeof pool.query);
@@ -328,7 +329,12 @@ test('Hermes submission generates a per-run callback_token and stores its SHA-25
     };
 
     const { HermesMarketingPort } = await import('../backend/marketing/ports/hermes');
-    const port = new HermesMarketingPort(process.env, fetchImpl);
+    const port = new HermesMarketingPort(
+      process.env,
+      fetchImpl,
+      async () => {},
+      async () => ({ refreshed: false, enriched: false }),
+    );
 
     const result = await port.runPipeline({
       jobId: 'job-test',

@@ -137,8 +137,8 @@ function baseRuntimeDoc(jobId: string, tenantId: string) {
   };
 }
 
-async function seedPlanner(runId: string) {
-  await writeJson(path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, runId, 'campaign_planner.json'), {
+async function seedPlanner(runId: string, tenantId = 'tenant_dashboard') {
+  await writeJson(path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, tenantId, runId, 'campaign_planner.json'), {
     brand_slug: 'brand-example',
     brand_profiles_record: {
       brand_slug: 'brand-example',
@@ -201,7 +201,8 @@ async function seedCreativeArtifacts(env: DashboardEnv) {
   });
 }
 
-async function seedPublishArtifacts(env: DashboardEnv, runId: string, options: { paused?: boolean; liveEvent?: boolean } = {}) {
+async function seedPublishArtifacts(env: DashboardEnv, runId: string, options: { paused?: boolean; liveEvent?: boolean; tenantId?: string } = {}) {
+  const tenantId = options.tenantId ?? 'tenant_dashboard';
   const reviewPackagePath = path.join(env.artifactRoot, 'output', 'aries-review', 'tenant_dashboard', 'brand-example-stage2-plan', 'meta-ads', 'review-package.json');
   const publishImagePath = path.join(env.artifactRoot, 'output', 'publish-ready', 'brand-example-stage2-plan', 'meta-ads', 'meta-ads.png');
   const publishCopyPath = path.join(env.artifactRoot, 'output', 'publish-ready', 'brand-example-stage2-plan', 'meta-ads', 'meta-ads.json');
@@ -221,7 +222,7 @@ async function seedPublishArtifacts(env: DashboardEnv, runId: string, options: {
     review_status: 'pending_tenant_review',
     tenant_profile_id: 'tenant_dashboard',
   });
-  await writeJson(path.join(process.env.ARTIFACT_STAGE4_CACHE_DIR!, runId, 'meta_ads_publisher.json'), {
+  await writeJson(path.join(process.env.ARTIFACT_STAGE4_CACHE_DIR!, tenantId, runId, 'meta_ads_publisher.json'), {
     platform: 'meta-ads',
     generated_at: '2026-03-21T00:00:00.000Z',
     publish_package: {
@@ -347,7 +348,7 @@ test('dashboard adapter uses human-readable campaign and proposal concept labels
       history: [],
     };
 
-    await writeJson(path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, 'plan-run', 'campaign_planner.json'), {
+    await writeJson(path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, 'tenant_dashboard', 'plan-run', 'campaign_planner.json'), {
       brand_slug: '6',
       campaign_plan: {
         campaign_name: '6-stage2-plan',
@@ -396,7 +397,7 @@ test('dashboard adapter falls back to platform labels when creative contract hea
       history: [],
     };
 
-    await writeJson(path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, 'plan-run', 'campaign_planner.json'), {
+    await writeJson(path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, 'tenant_dashboard', 'plan-run', 'campaign_planner.json'), {
       brand_slug: '6',
       campaign_plan: {
         campaign_name: '6-stage2-plan',
@@ -452,7 +453,7 @@ test('dashboard adapter falls back to platform labels when creative contract cop
       history: [],
     };
 
-    await writeJson(path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, 'plan-run', 'campaign_planner.json'), {
+    await writeJson(path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, 'tenant_dashboard', 'plan-run', 'campaign_planner.json'), {
       brand_slug: '6',
       campaign_plan: {
         campaign_name: '6-stage2-plan',
@@ -932,7 +933,7 @@ test('dashboard adapter surfaces rendered .mp4 video assets from veo contract fi
         video_file: videoPath,
       },
     });
-    await writeJson(path.join(process.env.ARTIFACT_STAGE4_CACHE_DIR!, 'publish-run', `${platformSlug}_publisher.json`), {
+    await writeJson(path.join(process.env.ARTIFACT_STAGE4_CACHE_DIR!, 'tenant_dashboard', 'publish-run', `${platformSlug}_publisher.json`), {
       platform: platformSlug,
       contract_path: contractPath,
       generated_at: '2026-03-21T00:00:00.000Z',

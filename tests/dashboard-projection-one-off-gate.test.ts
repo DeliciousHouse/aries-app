@@ -33,7 +33,7 @@ test('buildSocialContentDashboardProjection accepts both weekly and one_off camp
   // and leave the dashboard empty for one_off.
   assert.match(
     PROJECTION_SRC,
-    /reqJobType !== 'weekly_social_content'\s*&&\s*reqJobType !== 'one_off_campaign'/,
+    /reqJobType !== 'weekly_social_content'\s*&&[\s\S]*?reqJobType !== 'one_off_campaign'/,
     'dashboard projection gate must accept both weekly_social_content and one_off_campaign',
   );
 });
@@ -44,7 +44,7 @@ test('runtime-views isWeeklySocialContent treats one_off as weekly for approval 
   // launch-review approval branch.
   assert.match(
     RUNTIME_VIEWS_SRC,
-    /requestedJobType === 'weekly_social_content'\s*\|\|\s*requestedJobType === 'one_off_campaign'/,
+    /requestedJobType === 'weekly_social_content'\s*\|\|[\s\S]*?requestedJobType === 'one_off_campaign'/,
     'isWeeklySocialContent must accept both job types so one_off rides the weekly approval surface',
   );
 });

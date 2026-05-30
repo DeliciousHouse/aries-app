@@ -82,17 +82,17 @@ test('stageCacheRoot preserves Lobster stage cache env vars and tmp fallbacks', 
   await withEnv(
     {},
     () => {
-      assert.equal(stageCacheRoot(1), path.join(tmpdir(), 'lobster-stage1-cache'));
-      assert.equal(stageCacheRoot(2), path.join(tmpdir(), 'lobster-stage2-cache'));
-      assert.equal(stageCacheRoot(3), path.join(tmpdir(), 'lobster-stage3-cache'));
-      assert.equal(stageCacheRoot(4), path.join(tmpdir(), 'lobster-stage4-cache'));
+      assert.equal(stageCacheRoot(1), path.join(tmpdir(), 'hermes-stage1-cache'));
+      assert.equal(stageCacheRoot(2), path.join(tmpdir(), 'hermes-stage2-cache'));
+      assert.equal(stageCacheRoot(3), path.join(tmpdir(), 'hermes-stage3-cache'));
+      assert.equal(stageCacheRoot(4), path.join(tmpdir(), 'hermes-stage4-cache'));
     },
   );
 });
 
 test('hostOutputMount exposes the current container mount default', async () => {
   await withEnv({}, () => {
-    assert.equal(hostOutputMount(), '/host-lobster-output');
+    assert.equal(hostOutputMount(), '/hermes-output');
   });
 
   await withEnv({ ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: '/mnt/generated-output' }, () => {
@@ -111,7 +111,6 @@ test('artifactOutputRoots includes legacy Lobster outputs and the host output mo
       assert.deepEqual(artifactOutputRoots(), [
         '/runtime/lobster/output',
         '/gateway/lobster/output',
-        path.resolve('lobster', 'output'),
         '/host-lobster-output',
       ]);
     },

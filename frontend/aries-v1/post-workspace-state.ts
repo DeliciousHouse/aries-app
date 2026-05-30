@@ -371,10 +371,18 @@ export function deriveWorkspaceHeaderState(
   const sourceUrl = normalizeUrl(status.brandWebsiteUrl) || normalizeUrl(status.socialContentBrief?.websiteUrl);
   const sourceDomain = normalizedDomain(sourceUrl);
 
+  // A clean post name wins, but a "contaminated" one that just echoes the
+  // tenant name (a low-signal placeholder) is skipped in favor of the real
+  // source domain. This keeps meaningful post titles while avoiding junk
+  // names leaking into the workspace header.
+  const cleanPostName =
+    status.dashboard.post?.name && status.dashboard.post.name !== status.tenantName
+      ? status.dashboard.post.name
+      : '';
   return {
     title:
       safeReviewCampaignName(status.reviewBundle?.postName) ||
-      status.dashboard.post?.name ||
+      cleanPostName ||
       sourceDomain ||
       status.tenantName ||
       `Post ${status.jobId}`,

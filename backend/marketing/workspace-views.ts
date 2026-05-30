@@ -542,9 +542,19 @@ async function loadStagePayloadBundle(
       : null);
   const strategyPrimaryOutput = resolveStageOutput(runtimeDoc, 'strategy');
   const productionPrimaryOutput = resolveStageOutput(runtimeDoc, 'production');
-  const primaryOutputCampaignPlanner = strategyPrimaryOutput && Object.keys(strategyOutputs).length === 0
+  const primaryOutputCampaignPlannerRaw = strategyPrimaryOutput && Object.keys(strategyOutputs).length === 0
     ? primaryOutputToSocialContentPlanner(strategyPrimaryOutput)
     : null;
+  const primaryOutputCampaignPlanner = (() => {
+    if (!primaryOutputCampaignPlannerRaw) return null;
+    const plan = recordValue(primaryOutputCampaignPlannerRaw.campaign_plan);
+    const hasContent =
+      !!stringValue(plan?.core_message) ||
+      recordArray(plan?.channel_plans).length > 0 ||
+      recordArray(plan?.content_package).length > 0 ||
+      !!stringValue(primaryOutputCampaignPlannerRaw.creative_direction);
+    return hasContent ? primaryOutputCampaignPlannerRaw : null;
+  })();
   const primaryOutputProductionPreview = productionPrimaryOutput && Object.keys(productionOutputs).length === 0
     ? primaryOutputToProductionPreview(productionPrimaryOutput)
     : null;
