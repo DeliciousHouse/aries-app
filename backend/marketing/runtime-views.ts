@@ -43,6 +43,8 @@ import {
 } from './workspace-views';
 import {
   ensureSocialContentWorkspaceRecord,
+  loadSocialContentWorkspaceRecord,
+  persistPendingApprovalCount,
   saveSocialContentWorkspaceRecord,
   setCreativeAssetDecision,
   setStageReviewDecision,
@@ -1339,6 +1341,50 @@ async function buildReviewItemsFromContext(
   return applyReviewItemEdits(merged, jobId, runtimeDoc.tenant_id);
 }
 
+/**
+ * Compute the live pending-approval badge count for one job and persist it onto
+ * the workspace record as `pending_approval_count` (write-time denormalization).
+ *
+ * The count == buildReviewItemsFromContext(...).filter(s !== 'approved').length
+ * — the SAME expression the campaign-list path used to compute per-job. By
+ * persisting it at every mutation that can change it, the list path reads the
+ * badge O(1) instead of re-hydrating every job's full workspace view.
+ *
+ * Call this at EVERY write site that can change the count:
+ *   1. recordMarketingReviewDecision (operator approve/reject/changes)
+ *   2. applyHermesMarketingCallback (Hermes stage advances + the production
+ *      creative_assets ingestion that writes the DB directly)
+ *   3. the list read-through fallback (legacy jobs predating the field)
+ *
+ * Builds the full (status, view) context the same way buildReviewItemsForJob
+ * does, so the persisted count is byte-equal to the live re-hydrating oracle.
+ * Failed jobs and missing docs persist 0 (mirrors buildReviewItemsFromContext's
+ * failed-job guard). Returns the computed count (whether or not a write
+ * occurred); persistence is skipped when the value is unchanged.
+ */
+export async function recomputeAndPersistPendingApprovalCount(
+  jobId: string,
+  options: { runtimeDoc?: SocialContentJobRuntimeDocument | null } = {},
+): Promise<number> {
+  const runtimeDoc =
+    options.runtimeDoc !== undefined ? options.runtimeDoc : await loadSocialContentJobRuntime(jobId);
+  if (!runtimeDoc) {
+    return 0;
+  }
+  if (runtimeDoc.state === 'failed' || runtimeDoc.status === 'failed') {
+    // Failed jobs have no actionable review items (oracle returns []), so the
+    // badge is 0. Persist that so a job that later fails self-corrects its badge.
+    persistPendingApprovalCount(jobId, runtimeDoc.tenant_id, 0);
+    return 0;
+  }
+  const status = await getMarketingJobStatus(jobId, { runtimeDoc });
+  const view = await buildSocialContentWorkspaceView(jobId, { runtimeDoc });
+  const items = await buildReviewItemsFromContext(jobId, runtimeDoc, status, view);
+  const count = items.filter((item) => item.status !== 'approved').length;
+  persistPendingApprovalCount(jobId, runtimeDoc.tenant_id, count);
+  return count;
+}
+
 function applyReviewItemEdits(
   items: RuntimeReviewItem[],
   jobId: string,
@@ -1659,16 +1705,43 @@ export async function listSocialContentJobsForTenant(
     survivors.push(entry);
   }
 
-  // No new fan-out — same bounded processConcurrent(…, 4); per-slot work is just
-  // reduced to reusing the phase-1 context instead of re-hydrating (guardrail #1).
+  // No new fan-out — same bounded processConcurrent(…, 4) (guardrail #1).
+  //
+  // pendingApprovals is read O(1) from the workspace record's denormalized
+  // pending_approval_count scalar (write-time denormalization — every mutation
+  // that can change the count recomputes + persists it: recordMarketingReview-
+  // Decision, applyHermesMarketingCallback stage advances, and production
+  // creative_assets ingestion). The phase-1 buildSocialContentWorkspaceView
+  // above already ensure-saved the workspace record, so this is a cheap in-memory
+  // read of the record we just hydrated — NO per-job buildReviewItemsFromContext
+  // re-derivation (which did async approval-store + source-hash IO per job).
+  //
+  // Read-through fallback: a job whose record predates this field (or was
+  // somehow never recomputed) has pending_approval_count === undefined. For
+  // those we recompute the count off the SAME phase-1 (runtimeDoc, status, view)
+  // context and persist it, so the job self-heals on first list load and every
+  // subsequent load is O(1). This keeps the badge oracle-exact with zero per-job
+  // re-hydration on the steady-state path.
   const phase2 = await processConcurrent(
     survivors,
     async ({ jobId, runtimeDoc, status, view }) => {
-      const pendingApprovals = runtimeDoc
-        ? (await buildReviewItemsFromContext(jobId, runtimeDoc, status, view)).filter(
-            (item) => item.status !== 'approved',
-          ).length
-        : (await buildReviewItemsForJob(jobId)).filter((item) => item.status !== 'approved').length;
+      const record = runtimeDoc
+        ? loadSocialContentWorkspaceRecord(jobId, runtimeDoc.tenant_id)
+        : null;
+      let pendingApprovals: number;
+      if (record && record.pending_approval_count !== undefined) {
+        pendingApprovals = record.pending_approval_count;
+      } else if (runtimeDoc) {
+        // Self-heal: derive from the phase-1 context (no re-hydration) and persist.
+        pendingApprovals = (
+          await buildReviewItemsFromContext(jobId, runtimeDoc, status, view)
+        ).filter((item) => item.status !== 'approved').length;
+        persistPendingApprovalCount(jobId, runtimeDoc.tenant_id, pendingApprovals);
+      } else {
+        pendingApprovals = (await buildReviewItemsForJob(jobId)).filter(
+          (item) => item.status !== 'approved',
+        ).length;
+      }
       const jobBrandKitExtractedAt = runtimeDoc?.brand_kit?.extracted_at ?? null;
       return { pendingApprovals, jobBrandKitExtractedAt };
     },
@@ -1737,12 +1810,22 @@ export async function listDeletedSocialContentJobsForTenant(
     survivors.push(entry);
   }
 
+  // Same O(1) denormalized-count read + read-through self-heal as the live list
+  // path (see listSocialContentJobsForTenant phase 2). Recycle-bin jobs share the
+  // workspace record, so the persisted pending_approval_count is just as valid here.
   const phase2 = await processConcurrent(
     survivors,
     async ({ jobId, doc, status, view }) => {
-      const pendingApprovals = (
-        await buildReviewItemsFromContext(jobId, doc, status, view)
-      ).filter((item) => item.status !== 'approved').length;
+      const record = loadSocialContentWorkspaceRecord(jobId, doc.tenant_id);
+      let pendingApprovals: number;
+      if (record && record.pending_approval_count !== undefined) {
+        pendingApprovals = record.pending_approval_count;
+      } else {
+        pendingApprovals = (
+          await buildReviewItemsFromContext(jobId, doc, status, view)
+        ).filter((item) => item.status !== 'approved').length;
+        persistPendingApprovalCount(jobId, doc.tenant_id, pendingApprovals);
+      }
       return { pendingApprovals };
     },
     4,
@@ -2090,6 +2173,15 @@ export async function recordMarketingReviewDecision(input: {
   }
 
   const lastDecision = persistReviewDecision(input.tenantId, item, input.reviewId, input.action, input.actedBy, input.note);
+
+  // WRITE SITE #1 (operator approve / reject / changes_requested): the decision
+  // above mutated stage_reviews / creative_asset_reviews / the persisted review
+  // state — all inputs to the pending-approval count. Recompute + persist the
+  // denormalized badge count so the campaign-list reads it O(1) and stays
+  // oracle-exact. Reload the doc: approve/deny paths above may have advanced the
+  // stage (markStageCompleted etc.), so the in-scope runtimeDoc is stale.
+  await recomputeAndPersistPendingApprovalCount(jobId);
+
   const refreshed = (await resolveRuntimeReviewItem(jobId, item.id)) || (await resolveRuntimeReviewItem(jobId, input.reviewId));
   if (!refreshed) {
     return {
