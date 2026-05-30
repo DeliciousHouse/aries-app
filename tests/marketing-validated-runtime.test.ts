@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -49,34 +48,6 @@ async function withRuntimeEnv<T>(run: (input: { dataRoot: string; workdir: strin
     await rm(dataRoot, { recursive: true, force: true });
     await rm(workdir, { recursive: true, force: true });
   }
-}
-
-function runScript(input: {
-  scriptName: string;
-  args?: string[];
-  stdinJson: Record<string, unknown>;
-  dataRoot: string;
-  workdir: string;
-}) {
-  return spawnSync(
-    'python3',
-    [path.join(PROJECT_ROOT, 'lobster', 'bin', input.scriptName), ...(input.args ?? [])],
-    {
-      cwd: input.workdir,
-      env: {
-        ...process.env,
-        CODE_ROOT: PROJECT_ROOT,
-        DATA_ROOT: input.dataRoot,
-        ALLOW_TMP_RUNTIME_PERSISTENCE: '1',
-        ARTIFACT_STAGE1_CACHE_DIR: path.join(input.dataRoot, 'lobster-stage1-cache'),
-        ARTIFACT_STAGE2_CACHE_DIR: path.join(input.dataRoot, 'lobster-stage2-cache'),
-        ARTIFACT_STAGE3_CACHE_DIR: path.join(input.dataRoot, 'lobster-stage3-cache'),
-        ARTIFACT_STAGE4_CACHE_DIR: path.join(input.dataRoot, 'lobster-stage4-cache'),
-      },
-      input: `${JSON.stringify(input.stdinJson)}\n`,
-      encoding: 'utf8',
-    },
-  );
 }
 
 test('brand-profile contract persists to validated runtime store and syncs present business-profile fields', async () => {
