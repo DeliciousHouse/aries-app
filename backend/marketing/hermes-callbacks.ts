@@ -34,6 +34,7 @@ import { scheduleHermesPublishPerformanceHonchoWrite } from '@/backend/memory/wr
 import { approveSocialContentJob } from './orchestrator';
 import type { ApproveSocialContentJobRequest, ApproveSocialContentJobResponse } from './orchestrator';
 import { ingestProductionCreativeAssetsToDb } from './ingest-production-assets';
+import { recomputeAndPersistPendingApprovalCount } from './runtime-views';
 import { synthesizePublishPostsFromContentPackage } from './synthesize-publish-posts';
 import { autoSchedulePosts } from './auto-schedule';
 import { getBusinessProfile } from '@/backend/tenant/business-profile';
@@ -1633,6 +1634,35 @@ function createApprovalCheckpoint(
 }
 
 export async function applyHermesMarketingCallback(
+  run: ExecutionRunRecord,
+  payload: HermesRunCallbackPayload,
+): Promise<void> {
+  await applyHermesMarketingCallbackInner(run, payload);
+
+  // WRITE SITES #2 + #3 (Hermes stage advances + production creative_assets
+  // ingestion): this callback is the single entry point for every Hermes-driven
+  // mutation -- stage transitions (markStageCompleted / markJobCompleted /
+  // maybeAutoAdvanceNextStage), approval checkpoints, and the production
+  // creative_assets DB ingestion (ingestProductionCreativeAssetsOnCompletion)
+  // that writes creative_assets WITHOUT building a workspace view. All of those
+  // can change the pending-approval count, and saveSocialContentJobRuntime
+  // itself is sync/no-DB-context (so it cannot recompute). Recompute + persist
+  // the denormalized badge count here, once, off the settled doc -- covering the
+  // full advance + ingestion surface in one place with tenant/DB context.
+  // Non-fatal: a recompute failure must never break callback idempotency.
+  if (run.marketing_job_id) {
+    try {
+      await recomputeAndPersistPendingApprovalCount(run.marketing_job_id);
+    } catch (err) {
+      console.warn('[hermes-callbacks] pending-approval count recompute failed -- continuing', {
+        jobId: run.marketing_job_id,
+        error: (err as Error)?.message ?? String(err),
+      });
+    }
+  }
+}
+
+async function applyHermesMarketingCallbackInner(
   run: ExecutionRunRecord,
   payload: HermesRunCallbackPayload,
 ): Promise<void> {

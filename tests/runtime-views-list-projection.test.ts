@@ -144,8 +144,9 @@ async function seedCampaignPlanner(): Promise<void> {
 // listMarketingReviewItemsForTenant) produces for the same tenant. This holds
 // regardless of the absolute count, which is the whole point — the optimization
 // must never change the number the UI shows.
-async function assertListMatchesOracle(tenantId: string): Promise<void> {
+async function assertListMatchesOracle(tenantId: string, jobId: string): Promise<void> {
   const views = await import('../backend/marketing/runtime-views');
+  const store = await import('../backend/marketing/workspace-store');
   const { posts } = await views.listSocialContentJobsForTenant(tenantId);
   assert.equal(posts.length, 1, 'one campaign expected');
 
@@ -156,6 +157,26 @@ async function assertListMatchesOracle(tenantId: string): Promise<void> {
     posts[0].pendingApprovals,
     expectedPending,
     'list-projection pendingApprovals must match the full-hydration review-items count',
+  );
+
+  // Write-time denormalization invariant: the PERSISTED pending_approval_count
+  // scalar (what the list reads O(1)) must equal the live re-hydrating oracle.
+  // The list read above self-heals legacy records, so by now the scalar must be
+  // present and exact.
+  const record = store.loadSocialContentWorkspaceRecord(jobId, tenantId);
+  assert.ok(record, 'workspace record must exist after a list load');
+  assert.equal(
+    record!.pending_approval_count,
+    expectedPending,
+    'persisted pending_approval_count must equal the live oracle count',
+  );
+
+  // And a direct recompute must agree too (the helper every write site calls).
+  const recomputed = await views.recomputeAndPersistPendingApprovalCount(jobId);
+  assert.equal(
+    recomputed,
+    expectedPending,
+    'recomputeAndPersistPendingApprovalCount must equal the live oracle count',
   );
 }
 
@@ -195,7 +216,7 @@ test('strategy-backed job: list pendingApprovals matches the re-hydrating oracle
     await mkdir(jobsRoot, { recursive: true });
     await seedCampaignPlanner();
     await writeFile(path.join(jobsRoot, `${jobId}.json`), JSON.stringify(strategyBackedJob(dataRoot, tenantId, jobId), null, 2));
-    await assertListMatchesOracle(tenantId);
+    await assertListMatchesOracle(tenantId, jobId);
     await assertViewEquivalence(jobId);
   });
 });
@@ -207,7 +228,7 @@ test('brand-new research-stage job: list pendingApprovals matches the re-hydrati
     const jobsRoot = path.join(dataRoot, 'generated', 'draft', 'marketing-jobs');
     await mkdir(jobsRoot, { recursive: true });
     await writeFile(path.join(jobsRoot, `${jobId}.json`), JSON.stringify(researchStageJob(tenantId, jobId), null, 2));
-    await assertListMatchesOracle(tenantId);
+    await assertListMatchesOracle(tenantId, jobId);
     await assertViewEquivalence(jobId);
   });
 });
