@@ -16,6 +16,7 @@ import {
   classifyMetaPublishFailure,
   isMetaProvider,
   MetaPublishError,
+  normalizeMetaPlacement,
   publishToMetaGraph,
 } from '@/backend/integrations/meta-publishing';
 import { runPublishVerification } from '@/backend/integrations/publish-verification';
@@ -24,6 +25,8 @@ import { pool } from '@/lib/db';
 
 type InstagramPublishBody = {
   caption?: string;
+  /** 'story' publishes an ephemeral IG story; anything else is a feed post. */
+  placement?: string;
 };
 
 async function readBody(req: Request): Promise<InstagramPublishBody> {
@@ -247,6 +250,7 @@ export async function handleInstagramPublish(req: Request, jobId: string) {
       provider: 'instagram',
       content: caption,
       mediaUrls: signedMediaUrls,
+      placement: normalizeMetaPlacement(typeof body.placement === 'string' ? body.placement : undefined),
       scheduledFor: null,
     });
     publishSucceeded = true;
