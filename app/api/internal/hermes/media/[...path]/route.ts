@@ -147,7 +147,8 @@ export async function GET(
     throw error;
   }
 
-  return new Response(buffer, {
+  // new Uint8Array(buffer): TS 6's BodyInit rejects a Node Buffer<ArrayBufferLike>; same bytes.
+  return new Response(new Uint8Array(buffer), {
     status: 200,
     headers: {
       'content-type': contentTypeForPath(resolvedCandidate),
