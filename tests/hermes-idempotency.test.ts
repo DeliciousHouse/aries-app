@@ -83,6 +83,7 @@ test('HermesMarketingPort generates deterministic idempotency_key from aries_run
       {
         HERMES_GATEWAY_URL: `${TEST_HERMES_GATEWAY_URL}/`,
         HERMES_API_SERVER_KEY: 'token-123',
+        HERMES_POLL_BRIDGE_ENABLED: '0',
         INTERNAL_API_SECRET: 'internal-secret',
         APP_BASE_URL: 'https://aries.example.com',
         HERMES_SESSION_KEY: 'marketing-session',
@@ -97,8 +98,8 @@ test('HermesMarketingPort generates deterministic idempotency_key from aries_run
 
     const body1 = JSON.parse(String(calls1[0].init.body));
     const idempotencyKey1 = body1.idempotency_key;
-    const ariesRunId1 = body1.aries_run_id;
-    const workflowVersion1 = body1.workflow_version;
+    const ariesRunId1 = body1.callback_context.aries_run_id;
+    const workflowVersion1 = body1.callback_context.workflow_version;
 
     assert.match(String(idempotencyKey1), /^[0-9a-f]{64}$/);
 
@@ -123,6 +124,7 @@ test('HermesMarketingPort includes Idempotency-Key HTTP header in submission', a
       {
         HERMES_GATEWAY_URL: `${TEST_HERMES_GATEWAY_URL}/`,
         HERMES_API_SERVER_KEY: 'token-123',
+        HERMES_POLL_BRIDGE_ENABLED: '0',
         INTERNAL_API_SECRET: 'internal-secret',
         APP_BASE_URL: 'https://aries.example.com',
         HERMES_SESSION_KEY: 'marketing-session',
@@ -158,6 +160,7 @@ test('HermesMarketingPort idempotency_key changes when aries_run_id changes', as
       {
         HERMES_GATEWAY_URL: `${TEST_HERMES_GATEWAY_URL}/`,
         HERMES_API_SERVER_KEY: 'token-123',
+        HERMES_POLL_BRIDGE_ENABLED: '0',
         INTERNAL_API_SECRET: 'internal-secret',
         APP_BASE_URL: 'https://aries.example.com',
         HERMES_SESSION_KEY: 'marketing-session',
@@ -182,6 +185,7 @@ test('HermesMarketingPort idempotency_key changes when aries_run_id changes', as
       {
         HERMES_GATEWAY_URL: `${TEST_HERMES_GATEWAY_URL}/`,
         HERMES_API_SERVER_KEY: 'token-123',
+        HERMES_POLL_BRIDGE_ENABLED: '0',
         INTERNAL_API_SECRET: 'internal-secret',
         APP_BASE_URL: 'https://aries.example.com',
         HERMES_SESSION_KEY: 'marketing-session',

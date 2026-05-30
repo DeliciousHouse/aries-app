@@ -15,8 +15,10 @@ function runNodeScript(scriptPath: string, env: Record<string, string | undefine
   });
 }
 
-test('workspace verify falls back to the live git root when /app/aries-app is absent', () => {
-  const result = runNodeScript('scripts/verify-canonical-workspace.mjs');
+test('workspace verify resolves canonical root to the live repo root', () => {
+  const result = runNodeScript('scripts/verify-canonical-workspace.mjs', {
+    ARIES_CANONICAL_REPO_ROOT: PROJECT_ROOT,
+  });
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
 

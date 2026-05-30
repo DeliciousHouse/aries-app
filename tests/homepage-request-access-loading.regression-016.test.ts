@@ -53,17 +53,19 @@ test('request-access form does not flip to validation error on a second submit w
     });
 
     const form = root.root.findByType('form');
+    let firstSubmit!: ReturnType<typeof form.props.onSubmit>;
     await act(async () => {
       const submitEvent = { preventDefault() {} };
-      const firstSubmit = form.props.onSubmit(submitEvent);
+      firstSubmit = form.props.onSubmit(submitEvent);
       form.props.onSubmit(submitEvent);
-      await flushMicrotasks();
-      assert.equal(fetchCalls, 1);
-      assert.equal(root.root.findByType('button').props.disabled, true);
-      assert.equal(
-        root.root.findAll((node) => node.props?.role === 'alert').length,
-        0,
-      );
+    });
+    assert.equal(fetchCalls, 1);
+    assert.equal(root.root.findByType('button').props.disabled, true);
+    assert.equal(
+      root.root.findAll((node) => node.props?.role === 'alert').length,
+      0,
+    );
+    await act(async () => {
       resolveFetch?.(
         new Response(JSON.stringify({ message: "You're on the early access list." }), {
           status: 200,

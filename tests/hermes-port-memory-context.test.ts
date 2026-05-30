@@ -14,6 +14,7 @@ const BASE_ENV = {
   INTERNAL_API_SECRET: 'test-internal-secret',
   APP_BASE_URL: 'https://aries.test',
   ARIES_TENANT_PSEUDONYM_SALT: 'memory-context-test-salt-32chars',
+  HERMES_POLL_BRIDGE_ENABLED: '0',
 };
 
 type FetchCall = { url: string; body: unknown };

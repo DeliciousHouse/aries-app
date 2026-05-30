@@ -100,6 +100,7 @@ test('runtime rejects invalid concurrency environment values before starting Nex
       ...process.env,
       ARIES_WEB_CONCURRENCY: '0',
       ARIES_PROCESS_MANAGER: 'cluster',
+      ARIES_SKIP_DB_INIT: '1',
     },
     encoding: 'utf8',
   });

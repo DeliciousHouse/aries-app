@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { validateAndConvertOneOffBrief } from '@/app/api/marketing/jobs/handler';
+import { loadTenantTimezoneOrFallback } from '@/backend/tenant/business-profile';
 
 // Server-side validation + tz conversion for the one-off campaign brief.
 // validateAndConvertOneOffBrief is the boundary where the form's YYYY-MM-DD
@@ -140,8 +141,17 @@ const CURRENT_YEAR = new Date().getFullYear();
 const VALID_NEAR_FUTURE = `${CURRENT_YEAR + 1}-06-15`;
 
 test('past date (yesterday) is rejected with campaignEndDate field error', () => {
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
+  // Derive "yesterday" in the SAME timezone the validator measures "today" in
+  // (loadTenantTimezoneOrFallback(FAKE_TENANT_ID) -> the America/New_York
+  // fallback). A UTC-derived date flakes daily: between 00:00-04:00 UTC,
+  // UTC-yesterday == tenant-today, so the validator correctly treats it as
+  // today (allowed) and a naive test fails. Mirroring the validator's tz keeps
+  // the exact-yesterday boundary deterministic at any UTC hour.
+  const tenantTz = loadTenantTimezoneOrFallback(FAKE_TENANT_ID);
+  const todayWall = new Date().toLocaleDateString('en-CA', { timeZone: tenantTz }); // YYYY-MM-DD in tenant tz
+  const [yr, mo, dy] = todayWall.split('-').map(Number);
+  const yesterday = new Date(Date.UTC(yr, mo - 1, dy));
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
   const pastDate = yesterday.toISOString().slice(0, 10); // YYYY-MM-DD
   const result = validateAndConvertOneOffBrief({
     name: 'Sale',
