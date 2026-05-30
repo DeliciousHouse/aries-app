@@ -11,7 +11,9 @@ import { loadTenantContextOrResponse } from '@/lib/tenant-context-http';
 // else falls through to the legacy basename path.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Maps file extension to Content-Type for common image formats Hermes emits.
+// Maps file extension to Content-Type for the image + video formats Hermes
+// emits. Video MIME types are required so a video asset served here is fetchable
+// as video by Meta's Graph video_url ingestion (Reels / Stories / FB video).
 const CONTENT_TYPE_MAP: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -19,6 +21,8 @@ const CONTENT_TYPE_MAP: Record<string, string> = {
   '.webp': 'image/webp',
   '.gif': 'image/gif',
   '.svg': 'image/svg+xml',
+  '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
 };
 
 function contentTypeForPath(filePath: string): string {

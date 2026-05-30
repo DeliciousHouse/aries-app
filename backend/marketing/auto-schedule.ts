@@ -88,12 +88,39 @@ import {
  * Future expansion: per-tenant override via `business_profile.posting_strategy`
  * would land here as a deep-merge over the defaults.
  */
+export type SurfaceSlotDefault = { hour: number; minute: number; staggerMinutes: number };
+
+/**
+ * Per-platform, per-surface posting defaults. Feed keeps the original
+ * best-practice windows; story/reel get their own slots so an ephemeral or
+ * motion-first post doesn't collide minute-for-minute with the feed post.
+ * Story slots run earlier (catch the morning tray); reels mid-day.
+ */
 export const PLATFORM_POSTING_DEFAULTS = {
-  instagram: { hour: 11, minute: 0, staggerMinutes: 0 },
-  facebook: { hour: 13, minute: 0, staggerMinutes: 5 },
-} as const;
+  instagram: {
+    feed: { hour: 11, minute: 0, staggerMinutes: 0 },
+    story: { hour: 9, minute: 0, staggerMinutes: 0 },
+    reel: { hour: 12, minute: 0, staggerMinutes: 0 },
+  },
+  facebook: {
+    feed: { hour: 13, minute: 0, staggerMinutes: 5 },
+    story: { hour: 10, minute: 0, staggerMinutes: 5 },
+    reel: { hour: 14, minute: 0, staggerMinutes: 5 },
+  },
+} as const satisfies Record<string, Record<'feed' | 'story' | 'reel', SurfaceSlotDefault>>;
 
 export type AutoSchedulePlatform = keyof typeof PLATFORM_POSTING_DEFAULTS;
+export type AutoScheduleSurface = 'feed' | 'story' | 'reel';
+
+/** Pick the slot default for a (platform, surface) pair; null for unknown platform. */
+export function pickSlotDefault(
+  platform: AutoSchedulePlatform,
+  surface: AutoScheduleSurface,
+): SurfaceSlotDefault | null {
+  const bySurface = PLATFORM_POSTING_DEFAULTS[platform];
+  if (!bySurface) return null;
+  return bySurface[surface] ?? bySurface.feed;
+}
 
 /**
  * One row of work: a (post_id, platform) pair that needs a scheduled_for
@@ -107,6 +134,10 @@ export interface AutoScheduleInputRow {
   platform: string;
   /** Day name as emitted by the Hermes strategist (`"Monday"` … `"Sunday"`). */
   recommendedDay: string | null;
+  /** Publish surface (feed|story|reel). Selects the per-surface posting slot. Default 'feed'. */
+  surface?: AutoScheduleSurface;
+  /** Media type (image|video), mirrored onto scheduled_posts. Default 'image'. */
+  mediaType?: 'image' | 'video';
   /** Hermes's free-form time hint, currently unused — recorded for future override hooks. */
   recommendedTimeWindow?: string | null;
 }
@@ -126,6 +157,10 @@ export interface ComputeAutoScheduleSlotsInput {
 export interface AutoScheduleSlot {
   postId: number;
   platform: string;
+  /** Publish surface carried through to the scheduled_posts upsert. */
+  surface: AutoScheduleSurface;
+  /** Media type carried through to the scheduled_posts upsert. */
+  mediaType: 'image' | 'video';
   /** Derived UTC instant ready for `scheduled_posts.scheduled_for`. */
   scheduledFor: Date;
   /** Audit trail: which weekday name we used (e.g. "Monday" or "fallback: first day in window"). */
@@ -181,7 +216,9 @@ export function computeAutoScheduleSlots(input: ComputeAutoScheduleSlotsInput): 
 
   for (const row of input.rows) {
     const platformKey = row.platform.trim().toLowerCase() as AutoSchedulePlatform;
-    const defaults = PLATFORM_POSTING_DEFAULTS[platformKey];
+    const surface: AutoScheduleSurface = row.surface ?? 'feed';
+    const mediaType: 'image' | 'video' = row.mediaType ?? 'image';
+    const defaults = pickSlotDefault(platformKey, surface);
     if (!defaults) {
       skipped.push({ row, reason: `unsupported_platform:${row.platform}` });
       continue;
@@ -224,6 +261,8 @@ export function computeAutoScheduleSlots(input: ComputeAutoScheduleSlotsInput): 
     slots.push({
       postId: row.postId,
       platform: row.platform,
+      surface,
+      mediaType,
       scheduledFor: utc,
       appliedDay,
       appliedWallTime: wallTimeIso,
@@ -352,6 +391,8 @@ export async function autoSchedulePosts(
         tenantId: input.tenantId,
         scheduledFor: slot.scheduledFor,
         platforms: [slot.platform],
+        surface: slot.surface,
+        mediaType: slot.mediaType,
         campaignEndDate: input.campaignEnd,
       });
       scheduled += 1;

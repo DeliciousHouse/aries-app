@@ -31,15 +31,15 @@ test('PLATFORM_POSTING_DEFAULTS pins Instagram 11:00 and Facebook 13:05 tenant-l
   // The hours are research-backed (Sprout Social / Later / Hootsuite 2024-25).
   // Pinning them prevents accidental drift during a refactor — if someone
   // wants to change the defaults they have to update this test deliberately.
-  assert.equal(PLATFORM_POSTING_DEFAULTS.instagram.hour, 11);
-  assert.equal(PLATFORM_POSTING_DEFAULTS.instagram.minute, 0);
-  assert.equal(PLATFORM_POSTING_DEFAULTS.instagram.staggerMinutes, 0);
+  assert.equal(PLATFORM_POSTING_DEFAULTS.instagram.feed.hour, 11);
+  assert.equal(PLATFORM_POSTING_DEFAULTS.instagram.feed.minute, 0);
+  assert.equal(PLATFORM_POSTING_DEFAULTS.instagram.feed.staggerMinutes, 0);
 
-  assert.equal(PLATFORM_POSTING_DEFAULTS.facebook.hour, 13);
-  assert.equal(PLATFORM_POSTING_DEFAULTS.facebook.minute, 0);
+  assert.equal(PLATFORM_POSTING_DEFAULTS.facebook.feed.hour, 13);
+  assert.equal(PLATFORM_POSTING_DEFAULTS.facebook.feed.minute, 0);
   // Facebook is offset 5 minutes from Instagram to avoid duplicate-minute
   // burst posting flagged by Meta's spam heuristics. Effective time = 13:05.
-  assert.equal(PLATFORM_POSTING_DEFAULTS.facebook.staggerMinutes, 5);
+  assert.equal(PLATFORM_POSTING_DEFAULTS.facebook.feed.staggerMinutes, 5);
 });
 
 // --- Per-platform timing ------------------------------------------------------
@@ -452,4 +452,50 @@ test('readWeeklySchedule returns [] when publish stage has no schedule output', 
   const doc = makeMinimalDoc({});
   const entries = readWeeklySchedule(doc as never);
   assert.equal(entries.length, 0);
+});
+
+// --- Surface dimension (feed / story / reel) ---------------------------------
+
+test('computeAutoScheduleSlots picks per-surface slots and carries surface/mediaType', () => {
+  const rows: AutoScheduleInputRow[] = [
+    { postId: 1, platform: 'instagram', recommendedDay: 'Monday', surface: 'feed', mediaType: 'image' },
+    { postId: 2, platform: 'instagram', recommendedDay: 'Monday', surface: 'reel', mediaType: 'video' },
+    { postId: 3, platform: 'instagram', recommendedDay: 'Monday', surface: 'story', mediaType: 'video' },
+  ];
+  const { slots } = computeAutoScheduleSlots({
+    rows,
+    tenantTimezone: TZ_NY,
+    campaignStart: CAMPAIGN_START,
+    campaignEnd: CAMPAIGN_END,
+    now: NOW,
+  });
+  assert.equal(slots.length, 3);
+  const bySurface = new Map(slots.map((s) => [s.surface, s]));
+  assert.equal(bySurface.get('feed')?.mediaType, 'image');
+  assert.equal(bySurface.get('reel')?.mediaType, 'video');
+  assert.equal(bySurface.get('story')?.mediaType, 'video');
+  // Reel slot hour differs from feed slot hour (distinct per-surface window).
+  assert.notEqual(bySurface.get('feed')?.appliedWallTime, bySurface.get('reel')?.appliedWallTime);
+});
+
+test('PLATFORM_POSTING_DEFAULTS nests by surface for both platforms', () => {
+  assert.equal(typeof PLATFORM_POSTING_DEFAULTS.instagram.reel.hour, 'number');
+  assert.equal(typeof PLATFORM_POSTING_DEFAULTS.instagram.story.hour, 'number');
+  assert.equal(typeof PLATFORM_POSTING_DEFAULTS.facebook.reel.hour, 'number');
+  assert.equal(typeof PLATFORM_POSTING_DEFAULTS.facebook.story.hour, 'number');
+});
+
+test('absent surface/mediaType defaults to feed/image', () => {
+  const rows: AutoScheduleInputRow[] = [
+    { postId: 9, platform: 'facebook', recommendedDay: 'Tuesday' },
+  ];
+  const { slots } = computeAutoScheduleSlots({
+    rows,
+    tenantTimezone: TZ_NY,
+    campaignStart: CAMPAIGN_START,
+    campaignEnd: CAMPAIGN_END,
+    now: NOW,
+  });
+  assert.equal(slots[0]?.surface, 'feed');
+  assert.equal(slots[0]?.mediaType, 'image');
 });
