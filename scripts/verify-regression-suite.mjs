@@ -55,6 +55,10 @@ const steps = [
     args: ['--test', 'tests/process-concurrent.test.ts'],
   },
   {
+    name: 'Honcho writes V0-V14 verification harness',
+    args: ['--test', 'tests/verify-honcho-writes.test.ts'],
+  },
+  {
     // PRD §20 canonical behavioral invariants — codified as runtime checks so
     // future PRs get a green/red CI signal on spec conformance.  See
     // tests/prd-invariants/README.md and docs/product/aries-ai-prd.md §20.

@@ -38,6 +38,7 @@ import {
   topicPseudonymHexForPerformanceMemory,
 } from '../backend/memory/write-events';
 import { pseudonymForUser } from '../backend/memory/pseudonym';
+import pool from '@/lib/db';
 import type { HonchoTransport } from '../backend/memory/honcho-client';
 
 // ---------------------------------------------------------------------------
@@ -320,8 +321,13 @@ test('V5 — Honcho 503: append throws but recordApprovalEvent resolves (no thro
 // V6 — Honcho latency: the schedule* caller returns synchronously; the write
 //      runs on setImmediate (off the response path) and does not block.
 // ===========================================================================
-test('V6 — latency non-blocking: schedule returns synchronously, slow append does not block caller', () =>
+test('V6 — latency non-blocking: schedule returns synchronously, slow append does not block caller', (t) =>
   withEnv({ ...BASE_ENV, HONCHO_WRITE_APPROVALS_ENABLED: 'true' }, async () => {
+    // The scheduler fires a fire-and-forget flush on setImmediate using the
+    // module-default pool + real Honcho fetch. Contain both so draining it
+    // below never opens a real DB/socket (cross-test pollution guard).
+    t.mock.method(pool, 'query', async () => ({ rows: [], rowCount: 0 }));
+    t.mock.method(globalThis, 'fetch', async () => new Response('{}', { status: 200 }));
     const start = Date.now();
     const ret = scheduleMarketingApprovalHonchoWrites({
       tenantCtx: TENANT_CTX,
