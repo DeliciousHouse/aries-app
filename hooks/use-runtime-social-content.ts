@@ -5,6 +5,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createAriesV1Api, type SocialContentListResponse } from '@/lib/api/aries-v1';
 import { useRequestState } from './use-request-state';
 
+// Module-scoped (survives component remounts; a useRef does NOT — a remount
+// gives a fresh ref) in-flight dedupe for the social-content list load.
+// Collapses overlapping GET /api/social-content/posts calls — React 19
+// Strict-Mode double-invoke in dev, Fast Refresh re-runs during the 10-40s
+// hydration window, or any genuine remount of the list screen — into a single
+// network request. Keyed by baseUrl so multi-host callers stay isolated.
+// Mutations bypass it via `load({ force: true })`.
+const inFlightSocialContentListLoads = new Map<string, Promise<SocialContentListResponse>>();
+
 export function useRuntimePosts(options: { baseUrl?: string; autoLoad?: boolean } = {}) {
   // Callers pass inline object literals (e.g. `{ autoLoad: true }`) which
   // produce a new reference on every render.  Extract the two primitive values
@@ -29,17 +38,33 @@ export function useRuntimePosts(options: { baseUrl?: string; autoLoad?: boolean 
   const [busyCampaignId, setBusyCampaignId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading();
-    try {
-      const response = await api.getSocialContentList();
-      setSuccess(response);
-      return response;
-    } catch (error) {
-      setError(error, 'Failed to load campaigns.');
-      return null;
-    }
-  }, [api, setError, setLoading, setSuccess]);
+  const load = useCallback(
+    async (opts?: { force?: boolean }) => {
+      setLoading();
+      const key = baseUrl || '';
+      try {
+        let pending = opts?.force ? undefined : inFlightSocialContentListLoads.get(key);
+        if (!pending) {
+          pending = api.getSocialContentList();
+          inFlightSocialContentListLoads.set(key, pending);
+          // Clear the slot when this exact promise settles so the next load
+          // (e.g. a post-delete refresh) issues a fresh request.
+          void pending.finally(() => {
+            if (inFlightSocialContentListLoads.get(key) === pending) {
+              inFlightSocialContentListLoads.delete(key);
+            }
+          });
+        }
+        const response = await pending;
+        setSuccess(response);
+        return response;
+      } catch (error) {
+        setError(error, 'Failed to load campaigns.');
+        return null;
+      }
+    },
+    [api, baseUrl, setError, setLoading, setSuccess],
+  );
 
   const deleteCampaign = useCallback(
     async (jobId: string) => {
@@ -58,7 +83,7 @@ export function useRuntimePosts(options: { baseUrl?: string; autoLoad?: boolean 
           setActionError(body.error || 'Failed to delete campaign.');
           return false;
         }
-        await load();
+        await load({ force: true });
         return true;
       } catch (error) {
         setActionError(error instanceof Error ? error.message : 'Failed to delete campaign.');
@@ -87,7 +112,7 @@ export function useRuntimePosts(options: { baseUrl?: string; autoLoad?: boolean 
           setActionError(body.error || 'Failed to restore campaign.');
           return false;
         }
-        await load();
+        await load({ force: true });
         return true;
       } catch (error) {
         setActionError(error instanceof Error ? error.message : 'Failed to restore campaign.');
