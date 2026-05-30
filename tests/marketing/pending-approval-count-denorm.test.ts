@@ -360,6 +360,42 @@ test('read-through fallback: a record missing pending_approval_count self-heals 
   });
 });
 
+test('write site: brand-asset upload to an existing workspace keeps persisted count == oracle (#521 gap)', async () => {
+  await withEnv(async (dataRoot) => {
+    const mock = installMockPool();
+    try {
+      await writeFile(path.join(dataRoot, 'openai_codex_a.png'), Buffer.from('a'));
+      const { saveSocialContentJobRuntime } = await import('../../backend/marketing/runtime-state');
+      const { applyHermesMarketingCallback } = await import('../../backend/marketing/hermes-callbacks');
+      const views = await import('../../backend/marketing/runtime-views');
+      const store = await import('../../backend/marketing/workspace-store');
+
+      const jobId = 'mkt_denorm_brandupload';
+      const tenantId = '42';
+      saveSocialContentJobRuntime(jobId, makeProductionRunningDoc(jobId));
+      await applyHermesMarketingCallback(makeRunRecord(jobId), makeProductionApprovalPayload() as never);
+      await assertPersistedMatchesOracle(jobId, tenantId);
+
+      // The brief/create routes mutate brand assets via saveSocialContentWorkspaceAssets,
+      // which can change brand-review-item existence (uploadedBrandAssets(record)).
+      // Those routes now call recomputeAndPersistPendingApprovalCount after the save;
+      // without it the persisted scalar would go stale (the Copilot #521 gap).
+      const record = store.loadSocialContentWorkspaceRecord(jobId, tenantId);
+      assert.ok(record, 'workspace record must exist');
+      store.saveSocialContentWorkspaceAssets(record!, [
+        { name: 'logo.png', contentType: 'image/png', data: Buffer.from('logo') },
+      ]);
+      store.saveSocialContentWorkspaceRecord(record!);
+      await views.recomputeAndPersistPendingApprovalCount(jobId);
+
+      // Persisted scalar still equals the live oracle after the brand-asset mutation.
+      await assertPersistedMatchesOracle(jobId, tenantId);
+    } finally {
+      mock.restore();
+    }
+  });
+});
+
 test('write site: source-hash drift on an approved DB asset re-pends it and persisted count tracks oracle', async () => {
   await withEnv(async (dataRoot) => {
     const mock = installMockPool();

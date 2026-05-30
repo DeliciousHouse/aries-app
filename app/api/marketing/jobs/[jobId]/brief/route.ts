@@ -9,6 +9,7 @@ import {
   type SocialContentWorkspaceAssetUpload,
 } from '@/backend/marketing/workspace-store';
 import { loadSocialContentJobRuntime, saveSocialContentJobRuntime } from '@/backend/marketing/runtime-state';
+import { recomputeAndPersistPendingApprovalCount } from '@/backend/marketing/runtime-views';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
 function coerceFieldValue(value: FormDataEntryValue | null): string {
@@ -125,6 +126,15 @@ export async function handlePatchMarketingJobBrief(
   };
   saveSocialContentJobRuntime(jobId, runtimeDoc);
   invalidateMarketingJobStatus(jobId);
+  if (requestBody.uploads.length > 0) {
+    // Brand-asset upload changes brand-review-item existence, hence the
+    // pending_approval_count. Recompute+persist so the list badge stays exact
+    // even for records that already have a persisted count (read-through
+    // fallback only fires when it is unset).
+    await recomputeAndPersistPendingApprovalCount(jobId, { runtimeDoc }).catch((err) => {
+      console.error('[brief] pending-approval-count recompute failed', err);
+    });
+  }
 
   return NextResponse.json({ ok: true }, { status: 200 });
 }
