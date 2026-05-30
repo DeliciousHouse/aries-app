@@ -10,8 +10,10 @@ import { signMediaToken } from '@/lib/signed-media-token';
 import {
   isMetaProvider,
   MetaPublishError,
+  normalizeMetaPlacement,
   persistScheduledPublishRecord,
   publishToMetaGraph,
+  type MetaPlacement,
   type MetaPublishSuccess,
 } from '../../../../backend/integrations/meta-publishing';
 import {
@@ -33,6 +35,8 @@ type PublishDispatchBody = {
   job_id?: string;
   /** Explicit approval record id. Required for Meta/Instagram publishes. */
   approval_id?: string;
+  /** 'story' publishes an ephemeral story; anything else is a feed post. */
+  placement?: string;
 };
 
 export type PublishDispatchHandlerOptions = {
@@ -41,6 +45,7 @@ export type PublishDispatchHandlerOptions = {
     provider: string;
     content: string;
     mediaUrls: string[];
+    placement?: MetaPlacement;
     scheduledFor?: string | null;
   }) => Promise<MetaPublishSuccess>;
 };
@@ -309,6 +314,7 @@ export async function handlePublishDispatch(
         provider,
         content: String(event.payload.content_text || body.content || ''),
         mediaUrls: signedMediaUrls,
+        placement: normalizeMetaPlacement(typeof body.placement === 'string' ? body.placement : undefined),
         scheduledFor: typeof event.payload.scheduled_for === 'string' ? event.payload.scheduled_for : null,
       });
 
