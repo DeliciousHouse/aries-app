@@ -660,19 +660,25 @@ export async function listSocialContentJobIdsForTenant(
 }
 
 /**
- * Returns true when the tenant's marketing runtime documents include at least
- * one social-content `image_creatives[].artifact_url` whose basename matches
- * the requested filename.  Used by the Hermes media route to enforce per-tenant
- * ownership before streaming a cached image.
+ * Returns true when the requesting tenant owns the given media basename. This
+ * is the legacy basename-addressed ownership check, kept as a back-compat
+ * fallback for the Hermes media route; id-addressed reads enforce ownership
+ * authoritatively in SQL (WHERE id=$1 AND tenant_id=$2) and never reach here.
  *
  * Implementation notes (re: operational guardrail #1):
- * - No database is involved — this is a pure filesystem scan of the tenant's
- *   JSON runtime files that already live on disk.
- * - The scan is sequential (no Promise.all fan-out).  A single tenant rarely
- *   has more than a handful of active jobs, so the serial I/O cost is bounded.
+ * - Primary check: a single authoritative `creative_assets` query keyed on
+ *   tenant_id (basename match against served_asset_ref / storage_key). One
+ *   indexed lookup, no Promise.all fan-out.
+ * - Fallback (DB unavailable only): a sequential filesystem scan of the
+ *   tenant's JSON runtime files. Serial I/O (no fan-out); a single tenant
+ *   rarely has more than a handful of active jobs, so the cost is bounded.
  * - We include soft-deleted jobs (includeDeleted: true) because an operator
  *   viewing a media URL that was generated before a soft-delete should still
  *   pass the ownership check rather than getting a spurious 404.
+ *
+ * NOTE: the basename match is collision-prone on the flat, non-tenant-namespaced
+ * Hermes cache (two tenants can share `image.png`); the id route exists to close
+ * that. Do not extend this path — address new media by creative_assets.id.
  */
 export async function tenantOwnsHermesMediaBasename(
   tenantId: string,
