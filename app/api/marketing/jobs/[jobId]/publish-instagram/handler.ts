@@ -13,6 +13,7 @@ import {
 import { loadSocialCopyArtifact } from '@/backend/social-content/social-copy-store';
 import {
   classifyMetaPublishFailure,
+  classifyMetaPublishFailureKind,
   isMetaProvider,
   MetaPublishError,
   normalizeMetaPlacement,
@@ -332,6 +333,29 @@ export async function handleInstagramPublish(req: Request, jobId: string) {
           retryAfterSeconds: null,
         }),
         { status: 502, headers: { 'content-type': 'application/json' } },
+      );
+    }
+
+    if (error instanceof MetaPublishError && classifyMetaPublishFailureKind(error) === 'auth') {
+      // The tenant's Meta connection is missing/expired. Terminal like any other
+      // retryable:false failure, but operator-actionable: surface a distinct
+      // reconnect signal instead of an opaque publish_failed.
+      console.warn('[publish-instagram] publish failed — Meta account needs reconnect', {
+        approvalId,
+        platform: PLATFORM_KEY,
+        jobId,
+        code: error.code,
+      });
+      return new Response(
+        JSON.stringify({
+          status: 'error',
+          reason: 'needs_reconnect',
+          code: error.code,
+          message: `${error.message} Reconnect your Instagram/Meta account to resume publishing.`,
+          retryable: false,
+          retryAfterSeconds: null,
+        }),
+        { status: error.status, headers: { 'content-type': 'application/json' } },
       );
     }
 
