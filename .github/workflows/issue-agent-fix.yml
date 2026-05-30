@@ -66,9 +66,19 @@ jobs:
           ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
         run: |
           set -euo pipefail
-          gh label create agent:fix --color 5319E7 --description "Agent should investigate and propose a code fix" --force
-          gh label create agent:in-progress --color FBCA04 --description "Agent is currently working on this issue" --force
-          gh label create agent:auto-merge --color 0E8A16 --description "Agent-created PR is eligible for autonomous fixes and merge" --force
+          ensure_label() {  # best-effort; never abort the run on a transient labels-API flake
+            local name="$1" color="$2" desc="$3" attempt
+            for attempt in 1 2 3; do
+              if gh label create "$name" --color "$color" --description "$desc" --force; then return 0; fi
+              echo "::warning::gh label create $name failed (attempt $attempt/3); retrying"
+              sleep $((attempt * 3))
+            done
+            echo "::warning::gh label create $name failed after 3 attempts; continuing (labels are idempotent)"
+            return 0
+          }
+          ensure_label agent:fix 5319E7 "Agent should investigate and propose a code fix"
+          ensure_label agent:in-progress FBCA04 "Agent is currently working on this issue"
+          ensure_label agent:auto-merge 0E8A16 "Agent-created PR is eligible for autonomous fixes and merge"
           gh issue edit "$ISSUE_NUMBER" --add-label agent:in-progress
 
       - name: Claude issue fixer
@@ -125,7 +135,17 @@ jobs:
           ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
         run: |
           set -euo pipefail
-          gh label create agent:auto-merge --color 0E8A16 --description "Agent-created PR is eligible for autonomous fixes and merge" --force
+          ensure_label() {  # best-effort; never abort the run on a transient labels-API flake
+            local name="$1" color="$2" desc="$3" attempt
+            for attempt in 1 2 3; do
+              if gh label create "$name" --color "$color" --description "$desc" --force; then return 0; fi
+              echo "::warning::gh label create $name failed (attempt $attempt/3); retrying"
+              sleep $((attempt * 3))
+            done
+            echo "::warning::gh label create $name failed after 3 attempts; continuing (labels are idempotent)"
+            return 0
+          }
+          ensure_label agent:auto-merge 0E8A16 "Agent-created PR is eligible for autonomous fixes and merge"
 
           gh pr list --state open --limit 100 --json number,url,body,headRefName,createdAt,isDraft > /tmp/open-prs.json
           pr_json="$(jq --arg issue "$ISSUE_NUMBER" -c '
