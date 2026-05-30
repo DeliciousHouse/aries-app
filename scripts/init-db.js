@@ -543,6 +543,23 @@ async function initDb() {
         written_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
 
+      -- Worker-side ledger for the honcho-performance-worker (delayed real-Meta
+      -- performance -> Honcho memory). Distinct from honcho_write_idempotency_keys
+      -- (the Honcho-side claim inside recordPerformanceEvent): this lets the
+      -- due-posts query cheaply skip already-written (job_id, platform, metric_day)
+      -- without re-driving the Honcho idempotency claim every 30-min tick.
+      -- tenant_id INTEGER matches organizations.id (int4) -- do not use BIGINT.
+      -- metric_day is the post's UTC publish day (the #513 metric day), so
+      -- 24h/72h/7d/30d re-polls of the same metric-day collapse to one ledger row.
+      CREATE TABLE IF NOT EXISTS honcho_perf_writes (
+        tenant_id  INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        job_id     TEXT    NOT NULL,
+        platform   TEXT    NOT NULL,
+        metric_day DATE    NOT NULL,
+        written_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (tenant_id, job_id, platform, metric_day)
+      );
+
       -- Hackathon landing page registrations. Standalone table -- not tied to
       -- organizations or users because the /hackathon landing page is public
       -- and most registrants will not have Aries accounts. Email is unique

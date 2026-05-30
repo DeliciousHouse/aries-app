@@ -171,6 +171,19 @@ const steps = [
       'tests/public-generated-routes.test.ts',
     ],
   },
+  {
+    // honcho-performance-insights (delayed real-Meta perf -> Honcho memory).
+    // Fixture-primary: payload builder + due-posts SQL shape + worker tick
+    // (mocked recordPerformanceEvent). The #513 (insights_*) live-DB legs are
+    // separate (tests/memory/perf-insights-live-db.test.ts) and #513-gated.
+    name: 'honcho performance-insights unit tests',
+    args: [
+      '--test',
+      'tests/memory/perf-insights-payload.test.ts',
+      'tests/memory/perf-insights-read.test.ts',
+      'tests/memory/honcho-performance-worker.test.ts',
+    ],
+  },
 ];
 
 for (const [index, step] of steps.entries()) {
