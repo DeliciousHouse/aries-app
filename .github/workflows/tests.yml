@@ -35,10 +35,10 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          # Node 22 is the version the suite is validated against locally. Prod
-          # runtime is node 24 (Dockerfile); bumping this to 24 to match prod is
-          # a tracked follow-up once the quarantined file (below) is sorted out.
-          node-version: '22'
+          # Node 24 matches the prod runtime (Dockerfile node:24-bookworm) and
+          # the sibling pr-agent-autofix workflow. The suite is validated locally
+          # on node 22; this gate running green on every PR is what verifies 24.
+          node-version: '24'
           cache: npm
 
       - name: Install dependencies
@@ -50,16 +50,14 @@ jobs:
       - name: Full test suite (all tests/**, concurrency=1)
         shell: bash
         run: |
-          # QUARANTINE (tracked, see task to un-quarantine): two pre-existing
-          # tenant-context tests submit a workflow and expect 202, but return
-          # 400 in a CLEAN CI checkout while passing locally in every ordering +
-          # node version. The cause is a latent environmental dependence on the
-          # prod VM (not reproducible locally yet); the product tenant-isolation
-          # they cover is upheld server-side. Excluded so the gate protects the
-          # other 305 files (the actual stale-assertion rot vector spanned none
-          # of these). Re-include after a clean-room (clone + npm ci) repro.
-          mapfile -t TEST_FILES < <(find tests -name '*.test.ts' \
-            ! -path 'tests/auth/workflow-route-tenant-context.test.ts' \
-            ! -path 'tests/auth/integrations-tenant-context.test.ts' | sort)
-          echo "Running ${#TEST_FILES[@]} test files (2 quarantined)"
+          # Full suite, no quarantine. The two tenant-context tests that 400'd on
+          # a clean runner are fixed (each pins its own per-test mkdtemp DATA_ROOT).
+          # The export below is belt-and-suspenders for any future test that relies
+          # on an ambient DATA_ROOT: $RUNNER_TEMP is always writable on the runner,
+          # avoiding the uncreatable /home/node/data fallback. Set here in the step
+          # shell (not job env) because the `runner` context is unavailable at
+          # job-env level — using ${{ runner.temp }} there is a startup failure.
+          export DATA_ROOT="${RUNNER_TEMP}/aries-data"
+          mapfile -t TEST_FILES < <(find tests -name '*.test.ts' | sort)
+          echo "Running ${#TEST_FILES[@]} test files"
           npx --no-install tsx --test --test-concurrency=1 "${TEST_FILES[@]}"

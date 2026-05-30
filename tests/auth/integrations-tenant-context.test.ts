@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import { handleIntegrationsGet, handleIntegrationsDisconnect, handleIntegrationsSync } from '../../app/api/integrations/handlers';
@@ -19,6 +22,17 @@ function withMetaEnv(fn: () => Promise<void>): Promise<void> {
   process.env.META_APP_SECRET = 'test-app-secret';
   process.env.OAUTH_TOKEN_ENCRYPTION_KEY = BASE64_KEY;
 
+  // The 'integrations sync' test submits a workflow (createExecutionRunRecord
+  // writes an execution-run record under resolveDataRoot()). With DATA_ROOT
+  // unset that falls back to /home/node/data, which exists only on the
+  // prod-shaped image; on a clean CI runner it is uncreatable (EACCES) and the
+  // route catch-all turns the failure into a 400 instead of 202. Pin DATA_ROOT
+  // to a per-run temp dir so the write always succeeds — the convention ~59
+  // other test files already use.
+  const previousDataRoot = process.env.DATA_ROOT;
+  const dataRootDir = mkdtempSync(join(tmpdir(), 'aries-integrations-ctx-'));
+  process.env.DATA_ROOT = dataRootDir;
+
   return fn().finally(() => {
     for (const key of META_ENV_KEYS) {
       const value = previous.get(key);
@@ -28,6 +42,12 @@ function withMetaEnv(fn: () => Promise<void>): Promise<void> {
         process.env[key] = value;
       }
     }
+    if (previousDataRoot === undefined) {
+      delete process.env.DATA_ROOT;
+    } else {
+      process.env.DATA_ROOT = previousDataRoot;
+    }
+    rmSync(dataRootDir, { recursive: true, force: true });
   });
 }
 

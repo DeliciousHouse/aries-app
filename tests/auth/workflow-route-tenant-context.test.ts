@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import { handleCalendarSync } from '../../app/api/calendar/sync/handler';
@@ -34,6 +37,18 @@ function installHermesFetchStub(): FetchStub {
     previousEnv[key] = process.env[key];
     process.env[key] = value;
   }
+
+  // The workflow-submit path (runAriesWorkflow -> createExecutionRunRecord)
+  // writes an execution-run record under resolveDataRoot(). With DATA_ROOT
+  // unset, that resolves to /home/node/data, which exists (chowned node:node)
+  // only on the prod-shaped image; on a clean CI runner none of the fallback
+  // dirs exist and /home/node is uncreatable by the unprivileged user, so
+  // mkdirSync throws EACCES and the route catch-all returns 400 instead of 202.
+  // Pin DATA_ROOT to a per-run temp dir so the write always succeeds — the same
+  // convention ~59 other test files already use.
+  const previousDataRoot = process.env.DATA_ROOT;
+  const dataRootDir = mkdtempSync(join(tmpdir(), 'aries-tenant-ctx-'));
+  process.env.DATA_ROOT = dataRootDir;
 
   const originalFetch = globalThis.fetch;
   let captured = '';
@@ -73,6 +88,12 @@ function installHermesFetchStub(): FetchStub {
           process.env[key] = previousEnv[key];
         }
       }
+      if (previousDataRoot === undefined) {
+        delete process.env.DATA_ROOT;
+      } else {
+        process.env.DATA_ROOT = previousDataRoot;
+      }
+      rmSync(dataRootDir, { recursive: true, force: true });
     },
   };
 }
