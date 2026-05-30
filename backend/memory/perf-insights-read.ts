@@ -185,6 +185,11 @@ export async function markHonchoPerfWritten(
 
 /** Distinct tenant ids that have any candidate published post in the window. */
 export async function selectTenantsWithDuePosts(client: Queryable): Promise<number[]> {
+  if (!insights513TablesPresent()) {
+    // No DB touch while the #513 insights tables are absent (matches
+    // selectDuePerformancePosts) — the sidecar must not scan posts every tick.
+    return [];
+  }
   const { rows } = await client.query<{ tenant_id: number }>(
     `SELECT DISTINCT tenant_id FROM posts
      WHERE published_status = 'published'

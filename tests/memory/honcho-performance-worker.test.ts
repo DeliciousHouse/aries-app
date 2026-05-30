@@ -91,7 +91,7 @@ test('one tick calls recordPerformanceEvent once with scrubbed payload + writes 
   }
 });
 
-test('gate OFF: no recordPerformanceEvent call and no ledger write', async () => {
+test('gate OFF (publish gate): no ledger write so posts re-drive when it flips on; record() self-gates in prod', async () => {
   process.env.ARIES_INSIGHTS_513_TABLES_PRESENT = '1';
   try {
     const { client, ledgerInserts } = makeClient([DUE_ROW]);
