@@ -2,6 +2,7 @@ import type { Pool } from 'pg';
 
 import pool from '@/lib/db';
 import { getDecryptedAccessTokenContextForTenantProvider } from './oauth-credentials';
+import { validateMediaForSurface, type MediaMetadata } from './meta-media-validation';
 
 const META_GRAPH_HOST = 'https://graph.facebook.com';
 const META_PROVIDERS = new Set(['meta', 'facebook', 'instagram']);
@@ -13,13 +14,19 @@ export type SupportedMetaProvider = 'facebook' | 'instagram';
  * a FEED media container on IG). 'story' is the 24h ephemeral format: FB
  * /{page}/photo_stories and IG media_type=STORIES. Stories are single-media
  * and cannot be natively scheduled, so the story branch rejects multi-media
- * and scheduledFor. Image stories only — video stories need video upload,
- * which this path does not implement.
+ * and scheduledFor. Both image and video stories are supported (IG STORIES
+ * container accepts video; FB /photo_stories for image, /video_stories for video).
  */
-export type MetaPlacement = 'feed' | 'story';
+export type MetaPlacement = 'feed' | 'story' | 'reel';
+export type MetaMediaType = 'image' | 'video';
 
 export function normalizeMetaPlacement(value: string | null | undefined): MetaPlacement {
-  return typeof value === 'string' && value.trim().toLowerCase() === 'story' ? 'story' : 'feed';
+  const v = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return v === 'story' || v === 'reel' ? v : 'feed';
+}
+
+export function normalizeMetaMediaType(value: string | null | undefined): MetaMediaType {
+  return typeof value === 'string' && value.trim().toLowerCase() === 'video' ? 'video' : 'image';
 }
 
 export type MetaPublishRequest = {
@@ -28,6 +35,15 @@ export type MetaPublishRequest = {
   content: string;
   mediaUrls: string[];
   placement?: MetaPlacement;
+  /** image (default) or video. Selects the VIDEO/REELS/STORIES media branches. */
+  mediaType?: MetaMediaType;
+  /**
+   * Optional per-media width/height/duration from Hermes. When provided for a
+   * video surface, `validateMediaForSurface` enforces Meta's aspect/duration
+   * constraints fail-closed; when absent for a video surface, validation rejects
+   * (never assumes). Indexed positionally against `mediaUrls`.
+   */
+  mediaMetadata?: Array<{ widthPx?: number | null; heightPx?: number | null; durationSeconds?: number | null }>;
   scheduledFor?: string | null;
   fetchImpl?: typeof fetch;
   db?: Pool;
@@ -347,6 +363,90 @@ async function withSafePrePublishRetry<T>(fn: () => Promise<T>, attempts: number
   throw lastError;
 }
 
+async function publishFacebookVideo(args: {
+  target: MetaPublishTarget;
+  content: string;
+  mediaUrls: string[];
+  scheduledFor: string | null;
+  fetchImpl: typeof fetch;
+}): Promise<MetaPublishSuccess> {
+  // FB feed video via the non-resumable file_url form: Hermes provides a public
+  // asset_url, so POST /{page}/videos?file_url=... is a single call. (Resumable
+  // start/transfer/finish is reserved for an oversize fallback not in scope
+  // here.) scheduled_publish_time is honored for feed video (FB allows it).
+  const params: Record<string, string> = { file_url: args.mediaUrls[0] };
+  if (args.content.trim().length > 0) params.description = args.content.trim();
+  if (args.scheduledFor) {
+    params.published = 'false';
+    params.scheduled_publish_time = String(Math.floor(new Date(args.scheduledFor).getTime() / 1000));
+  }
+
+  // One-shot create. /videos has no idempotency key, so a 2xx with no id is
+  // outcome-unknown (the video MAY be live), never auto-retried.
+  const published = await requestGraphJson({
+    pathname: `${encodeURIComponent(args.target.externalAccountId)}/videos`,
+    accessToken: args.target.accessToken,
+    fetchImpl: args.fetchImpl,
+    params,
+  });
+
+  return {
+    provider: 'facebook',
+    mode: args.scheduledFor ? 'scheduled' : 'live',
+    platformPostId: requireStringField(published, 'id', 'facebook_video_publish_missing_id', { outcomeUnknown: true }),
+    scheduledFor: args.scheduledFor,
+    connectionId: args.target.connectionId,
+  };
+}
+
+async function publishFacebookVideoStory(args: {
+  target: MetaPublishTarget;
+  mediaUrls: string[];
+  fetchImpl: typeof fetch;
+  safePrePublishAttempts: number;
+}): Promise<MetaPublishSuccess> {
+  // Step 1: start an upload session. With a public file_url the finish phase can
+  // run directly; start is safe to retry (no story exists yet) and yields the
+  // resumable handle (video_id).
+  const started = await withSafePrePublishRetry(() => requestGraphJson({
+    pathname: `${encodeURIComponent(args.target.externalAccountId)}/video_stories`,
+    accessToken: args.target.accessToken,
+    fetchImpl: args.fetchImpl,
+    params: { upload_phase: 'start' },
+  }), args.safePrePublishAttempts);
+  const videoId = requireStringField(started, 'video_id', 'facebook_video_story_start_missing_id');
+
+  // Step 2: finish — one-shot, never auto-retried. video_id is the resumable
+  // handle: a resume re-issues finish (idempotent on an already-finished video)
+  // rather than re-uploading. A 2xx with no post id is outcome-unknown.
+  const finished = await requestGraphJson({
+    pathname: `${encodeURIComponent(args.target.externalAccountId)}/video_stories`,
+    accessToken: args.target.accessToken,
+    fetchImpl: args.fetchImpl,
+    params: { upload_phase: 'finish', video_id: videoId, video_url: args.mediaUrls[0] },
+  });
+  const storyPostId =
+    typeof finished.post_id === 'string' && finished.post_id.trim().length > 0
+      ? finished.post_id.trim()
+      : typeof finished.id === 'string' && finished.id.trim().length > 0
+        ? finished.id.trim()
+        // video_stories finish returns { success: true } with no post id on many
+        // accounts — treat a successful finish as outcome-unknown (the story MAY
+        // be live) keyed on the video_id rather than failing the publish.
+        : (() => {
+            if (finished.success === true || finished.success === 'true') return videoId;
+            return requireStringField(finished, 'post_id', 'facebook_video_story_finish_missing_id', { outcomeUnknown: true });
+          })();
+
+  return {
+    provider: 'facebook',
+    mode: 'live',
+    platformPostId: storyPostId,
+    scheduledFor: null,
+    connectionId: args.target.connectionId,
+  };
+}
+
 async function publishFacebookPhotoStory(args: {
   target: MetaPublishTarget;
   mediaUrls: string[];
@@ -392,10 +492,42 @@ async function publishFacebook(args: {
   content: string;
   mediaUrls: string[];
   placement: MetaPlacement;
+  mediaType: MetaMediaType;
+  mediaMetadata: MediaMetadata[];
   scheduledFor: string | null;
   fetchImpl: typeof fetch;
   safePrePublishAttempts: number;
 }): Promise<MetaPublishSuccess> {
+  // Fail-closed media validation before any Graph call (video aspect/duration,
+  // single-media for stories/reels). Reels are an IG-only surface — reject here.
+  if (args.placement === 'reel') {
+    throw new MetaPublishError('facebook_reel_not_supported', 'Reels are an Instagram-only surface in this Aries path.', { status: 400 });
+  }
+  validateMediaForSurface({
+    media: args.mediaMetadata,
+    surface: args.placement,
+    mediaType: args.mediaType,
+    scheduledFor: args.scheduledFor,
+  });
+
+  if (args.mediaType === 'video') {
+    if (args.placement === 'story') {
+      return publishFacebookVideoStory({
+        target: args.target,
+        mediaUrls: args.mediaUrls,
+        fetchImpl: args.fetchImpl,
+        safePrePublishAttempts: args.safePrePublishAttempts,
+      });
+    }
+    return publishFacebookVideo({
+      target: args.target,
+      content: args.content,
+      mediaUrls: args.mediaUrls,
+      scheduledFor: args.scheduledFor,
+      fetchImpl: args.fetchImpl,
+    });
+  }
+
   if (args.placement === 'story') {
     return publishFacebookPhotoStory({
       target: args.target,
@@ -450,9 +582,30 @@ async function createInstagramContainer(args: {
   caption: string;
   mediaUrls: string[];
   placement: MetaPlacement;
+  mediaType: MetaMediaType;
   fetchImpl: typeof fetch;
   safePrePublishAttempts: number;
 }): Promise<string> {
+  if (args.mediaType === 'video') {
+    // Video container: feed -> media_type=VIDEO, reel -> REELS, story -> STORIES.
+    // All carry video_url (never image_url). Caption is sent for feed/reel; IG
+    // ignores captions on stories so it is omitted there.
+    const igMediaType = args.placement === 'reel' ? 'REELS' : args.placement === 'story' ? 'STORIES' : 'VIDEO';
+    const params: Record<string, string> = {
+      video_url: args.mediaUrls[0],
+      media_type: igMediaType,
+    };
+    if (args.placement !== 'story' && args.caption.trim().length > 0) {
+      params.caption = args.caption.trim();
+    }
+    const created = await withSafePrePublishRetry(() => requestGraphJson({
+      pathname: `${encodeURIComponent(args.target.externalAccountId)}/media`,
+      accessToken: args.target.accessToken,
+      fetchImpl: args.fetchImpl,
+      params,
+    }), args.safePrePublishAttempts);
+    return requireStringField(created, 'id', 'instagram_video_container_missing_id');
+  }
   if (args.placement === 'story') {
     // IG image story: a single STORIES-typed container. Stories ignore the
     // feed caption, so it is intentionally not sent.
@@ -504,14 +657,24 @@ async function createInstagramContainer(args: {
 const CONTAINER_POLL_BACKOFF_MS = [2000, 3000, 4000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000];
 const CONTAINER_POLL_MAX_ATTEMPTS = 15;
 
+// Video containers transcode materially slower than image containers (often
+// well past the ~60s image budget). Poll up to ~5min at 5s steps for video,
+// while images keep the existing tight budget.
+const VIDEO_CONTAINER_POLL_MAX_ATTEMPTS = 60;
+const VIDEO_CONTAINER_POLL_BACKOFF_MS = 5000;
+
 export async function waitForInstagramContainerReady(args: {
   target: MetaPublishTarget;
   creationId: string;
   fetchImpl: typeof fetch;
   sleepImpl?: (ms: number) => Promise<void>;
+  /** 'video' uses the extended ~5min poll budget; 'image' (default) the ~60s budget. */
+  mediaType?: MetaMediaType;
 }): Promise<void> {
   const sleepFn = args.sleepImpl ?? sleep;
-  for (let attempt = 0; attempt < CONTAINER_POLL_MAX_ATTEMPTS; attempt += 1) {
+  const isVideo = args.mediaType === 'video';
+  const maxAttempts = isVideo ? VIDEO_CONTAINER_POLL_MAX_ATTEMPTS : CONTAINER_POLL_MAX_ATTEMPTS;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const result = await requestGraphJson({
       pathname: args.creationId,
       params: { fields: 'status_code' },
@@ -529,12 +692,16 @@ export async function waitForInstagramContainerReady(args: {
       );
     }
     // IN_PROGRESS or unexpected — wait and poll again
-    const backoffMs = CONTAINER_POLL_BACKOFF_MS[attempt] ?? 5000;
+    const backoffMs = isVideo
+      ? VIDEO_CONTAINER_POLL_BACKOFF_MS
+      : (CONTAINER_POLL_BACKOFF_MS[attempt] ?? 5000);
     await sleepFn(backoffMs);
   }
   throw new MetaPublishError(
     'instagram_container_timeout',
-    'Instagram media container did not reach FINISHED within 60s',
+    isVideo
+      ? 'Instagram video media container did not reach FINISHED within the video poll budget'
+      : 'Instagram media container did not reach FINISHED within 60s',
     { status: 504, retryable: true },
   );
 }
@@ -544,6 +711,8 @@ async function publishInstagram(args: {
   content: string;
   mediaUrls: string[];
   placement: MetaPlacement;
+  mediaType: MetaMediaType;
+  mediaMetadata: MediaMetadata[];
   scheduledFor: string | null;
   fetchImpl: typeof fetch;
   safePrePublishAttempts: number;
@@ -555,11 +724,23 @@ async function publishInstagram(args: {
     throw new MetaPublishError('instagram_scheduled_publish_not_supported', 'Instagram scheduled publishing is not enabled in this Aries path yet; keep approval intact and publish Instagram live after review.', { status: 409 });
   }
 
+  // Fail-closed media validation before any Graph call. For video surfaces this
+  // enforces aspect/duration/single-media from Hermes metadata; for image it is
+  // a light single-media check on stories (the heavy story guards live in
+  // publishToMetaGraph).
+  validateMediaForSurface({
+    media: args.mediaMetadata,
+    surface: args.placement,
+    mediaType: args.mediaType,
+    scheduledFor: args.scheduledFor,
+  });
+
   const creationId = await createInstagramContainer({
     target: args.target,
     caption: args.content,
     mediaUrls: args.mediaUrls,
     placement: args.placement,
+    mediaType: args.mediaType,
     fetchImpl: args.fetchImpl,
     safePrePublishAttempts: args.safePrePublishAttempts,
   });
@@ -568,6 +749,7 @@ async function publishInstagram(args: {
     target: args.target,
     creationId,
     fetchImpl: args.fetchImpl,
+    mediaType: args.mediaType,
   });
 
   // Final publish call — one-shot. The Graph media_publish endpoint has no
@@ -595,24 +777,35 @@ export async function publishToMetaGraph(request: MetaPublishRequest): Promise<M
   const content = request.content.trim();
   const mediaUrls = normalizeMediaUrls(request.mediaUrls);
   const placement = normalizeMetaPlacement(request.placement);
+  const mediaType = normalizeMetaMediaType(request.mediaType);
   const scheduledFor = normalizeScheduledFor(request.scheduledFor ?? null);
   requireContentOrMedia(content, mediaUrls);
 
-  if (placement === 'story') {
-    // Stories are single-media and cannot be natively scheduled on either
-    // platform. Fail closed before any Graph call so a misconfigured story
-    // never silently posts as a feed item.
+  // Build positional per-media metadata for the validator. Hermes supplies
+  // width/height/duration alongside each asset_url; absent metadata for a video
+  // surface is rejected fail-closed inside validateMediaForSurface.
+  const mediaMetadata: MediaMetadata[] = mediaUrls.map((url, i) => ({
+    url,
+    widthPx: request.mediaMetadata?.[i]?.widthPx ?? null,
+    heightPx: request.mediaMetadata?.[i]?.heightPx ?? null,
+    durationSeconds: request.mediaMetadata?.[i]?.durationSeconds ?? null,
+  }));
+
+  if (placement === 'story' || placement === 'reel') {
+    // Stories and reels are single-media and cannot be natively scheduled on
+    // either platform. Fail closed before any Graph call so a misconfigured
+    // entry never silently posts as a feed item.
     if (mediaUrls.length !== 1) {
       throw new MetaPublishError(
-        'story_single_media_required',
-        'Story placement requires exactly one image. Carousels and text-only stories are not supported.',
+        `${placement}_single_media_required`,
+        `${placement} placement requires exactly one media item. Carousels and text-only ${placement} posts are not supported.`,
         { status: 400 },
       );
     }
     if (scheduledFor) {
       throw new MetaPublishError(
-        'story_scheduled_publish_not_supported',
-        'Stories cannot be natively scheduled; publish a story live.',
+        `${placement}_scheduled_publish_not_supported`,
+        `${placement} placement cannot be natively scheduled; publish live.`,
         { status: 409 },
       );
     }
@@ -623,9 +816,9 @@ export async function publishToMetaGraph(request: MetaPublishRequest): Promise<M
   const safePrePublishAttempts = Math.min(Math.max(request.safePrePublishAttempts ?? 1, 1), 5);
 
   if (provider === 'facebook') {
-    return publishFacebook({ target, content, mediaUrls, placement, scheduledFor, fetchImpl, safePrePublishAttempts });
+    return publishFacebook({ target, content, mediaUrls, placement, mediaType, mediaMetadata, scheduledFor, fetchImpl, safePrePublishAttempts });
   }
-  return publishInstagram({ target, content, mediaUrls, placement, scheduledFor, fetchImpl, safePrePublishAttempts });
+  return publishInstagram({ target, content, mediaUrls, placement, mediaType, mediaMetadata, scheduledFor, fetchImpl, safePrePublishAttempts });
 }
 
 export async function persistScheduledPublishRecord(args: {

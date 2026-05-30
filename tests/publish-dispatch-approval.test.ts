@@ -228,7 +228,7 @@ test('dispatch forwards placement=story from the request body to the publish exe
     saveMarketingApprovalRecord(record);
 
     let capturedPlacement: string | undefined = 'UNSET';
-    const publishExecutor = async (request: { placement?: 'feed' | 'story' }) => {
+    const publishExecutor = async (request: { placement?: 'feed' | 'story' | 'reel' }) => {
       capturedPlacement = request.placement;
       return {
         provider: 'instagram' as const,
@@ -265,7 +265,7 @@ test('dispatch defaults placement to feed when the body omits it', async () => {
     saveMarketingApprovalRecord(record);
 
     let capturedPlacement: string | undefined = 'UNSET';
-    const publishExecutor = async (request: { placement?: 'feed' | 'story' }) => {
+    const publishExecutor = async (request: { placement?: 'feed' | 'story' | 'reel' }) => {
       capturedPlacement = request.placement;
       return {
         provider: 'facebook' as const,

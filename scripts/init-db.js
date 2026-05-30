@@ -434,6 +434,13 @@ async function initDb() {
       ALTER TABLE posts DROP CONSTRAINT IF EXISTS posts_status_check;
       ALTER TABLE posts ADD CONSTRAINT posts_status_check CHECK (status IN ('draft','in_review','approved','scheduled','publishing','published','failed','rolled_back'));
 
+      -- Surface axis (feed|story|reel), orthogonal to media_type (image|video).
+      -- Stories can be image or video; reels are always video; feed can be
+      -- either. See migrations/20260531120000_posts_surface.sql.
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS surface TEXT NOT NULL DEFAULT 'feed';
+      ALTER TABLE posts DROP CONSTRAINT IF EXISTS posts_surface_check;
+      ALTER TABLE posts ADD CONSTRAINT posts_surface_check CHECK (surface IN ('feed','story','reel'));
+
       -- Vision QA runs table for brand compliance checks
       CREATE TABLE IF NOT EXISTS vision_qa_runs (
         id BIGSERIAL PRIMARY KEY,
@@ -508,6 +515,14 @@ async function initDb() {
       -- "no end date" -- the legacy weekly_social_content behaviour. The scheduled-posts
       -- worker filters claim-time on (campaign_end_date IS NULL OR campaign_end_date >= NOW()).
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS campaign_end_date TIMESTAMPTZ;
+      -- Mirror surface + media_type onto scheduled_posts so the worker dispatch
+      -- path forwards the publish shape without JOINing posts at claim time.
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS surface TEXT NOT NULL DEFAULT 'feed';
+      ALTER TABLE scheduled_posts DROP CONSTRAINT IF EXISTS scheduled_posts_surface_check;
+      ALTER TABLE scheduled_posts ADD CONSTRAINT scheduled_posts_surface_check CHECK (surface IN ('feed','story','reel'));
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS media_type TEXT NOT NULL DEFAULT 'image';
+      ALTER TABLE scheduled_posts DROP CONSTRAINT IF EXISTS scheduled_posts_media_type_check;
+      ALTER TABLE scheduled_posts ADD CONSTRAINT scheduled_posts_media_type_check CHECK (media_type IN ('image','video'));
 
       CREATE INDEX IF NOT EXISTS idx_posts_tenant_created ON posts (tenant_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_vision_qa_runs_tenant_post ON vision_qa_runs (tenant_id, post_id);

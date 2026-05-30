@@ -69,6 +69,9 @@ services:
       ARIES_KANBAN_GC_RETENTION_DAYS: ${ARIES_KANBAN_GC_RETENTION_DAYS:-7}
       ARIES_AUTO_APPROVE_MARKETING_PIPELINE: ${ARIES_AUTO_APPROVE_MARKETING_PIPELINE:-1}
       ARIES_BRAND_ENRICHMENT_ENABLED: ${ARIES_BRAND_ENRICHMENT_ENABLED:-1}
+      # Video / Reel / Story-video publishing rollout switch. Default OFF until
+      # Hermes emits media_type:"video" + per-asset video metadata (separate repo).
+      ARIES_VIDEO_PUBLISH_ENABLED: ${ARIES_VIDEO_PUBLISH_ENABLED:-0}
       # 2026-05-23: flipped ON per TODOS rollout. Narrow first-name-denylist
       # heuristic replaces the legacy /[A-Z][a-z]+\s+[A-Z][a-z]+/ regex in
       # backend/memory/write-events.ts::scrubPreferenceLabelForHoncho. Effect:

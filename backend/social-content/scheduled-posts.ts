@@ -20,6 +20,10 @@ export interface UpsertScheduledPostInput {
   postId: number;
   scheduledFor: Date;
   platforms: string[];
+  /** Publish surface mirrored onto scheduled_posts (feed|story|reel). Default 'feed'. */
+  surface?: 'feed' | 'story' | 'reel';
+  /** Media type mirrored onto scheduled_posts (image|video). Default 'image'. */
+  mediaType?: 'image' | 'video';
   /**
    * UTC instant when publishing must stop for this row's parent campaign. NULL
    * means "no end date" -- the legacy weekly_social_content behaviour. Set by
@@ -44,12 +48,14 @@ export interface ScheduledPostRecord {
 // effect immediately; a row that goes from event_campaign back to weekly (rare,
 // future cancellation flow) correctly clears the end date.
 const UPSERT_SCHEDULED_POST_SQL = `
-  INSERT INTO scheduled_posts (post_id, tenant_id, scheduled_for, target_platforms, campaign_end_date, updated_at)
-  VALUES ($1, $2, $3, $4, $5, now())
+  INSERT INTO scheduled_posts (post_id, tenant_id, scheduled_for, target_platforms, campaign_end_date, surface, media_type, updated_at)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, now())
   ON CONFLICT (post_id) DO UPDATE
     SET scheduled_for = EXCLUDED.scheduled_for,
         target_platforms = EXCLUDED.target_platforms,
         campaign_end_date = EXCLUDED.campaign_end_date,
+        surface = EXCLUDED.surface,
+        media_type = EXCLUDED.media_type,
         updated_at = now()
     WHERE scheduled_posts.tenant_id = EXCLUDED.tenant_id
   RETURNING id, post_id, tenant_id, scheduled_for, target_platforms, updated_at
@@ -69,6 +75,8 @@ export async function upsertScheduledPost(
     input.scheduledFor.toISOString(),
     input.platforms,
     input.campaignEndDate ? input.campaignEndDate.toISOString() : null,
+    input.surface ?? 'feed',
+    input.mediaType ?? 'image',
   ]);
   if ((result.rowCount ?? result.rows.length) === 0 || result.rows.length === 0) {
     // Tenant guard: WHERE clause prevented update; surface typed error so

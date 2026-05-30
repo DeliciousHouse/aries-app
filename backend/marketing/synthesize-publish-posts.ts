@@ -85,6 +85,88 @@ type ContentPackageEntry = {
 
 const VALID_PLATFORMS = new Set(['instagram', 'facebook']);
 
+type PostSurface = 'feed' | 'story' | 'reel';
+type PostMediaType = 'image' | 'video';
+
+/** A per-(postNumber, platform) publish shape resolved from the weekly schedule. */
+type ScheduleShape = { surface: PostSurface; mediaType: PostMediaType };
+
+/**
+ * Rollout gate. When OFF (default), video/reel entries are stripped at
+ * synthesis so the campaign still succeeds on image/feed. Treat 1/true/yes/on
+ * as enabled, matching the ARIES_SOCIAL_COPY_FINALIZE_ENABLED convention.
+ */
+function isVideoPublishEnabled(): boolean {
+  const raw = (process.env.ARIES_VIDEO_PUBLISH_ENABLED ?? '').trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+}
+
+function normalizeSurface(value: unknown): PostSurface {
+  const v = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return v === 'story' || v === 'reel' ? v : 'feed';
+}
+
+function normalizeMediaType(value: unknown): PostMediaType {
+  return typeof value === 'string' && value.trim().toLowerCase() === 'video' ? 'video' : 'image';
+}
+
+/**
+ * Read the strategist's weekly schedule from the publish stage and build a
+ * lookup of (post_number, platform) -> { surface, media_type }. Mirrors
+ * readWeeklySchedule()/the schedule loop in hermes-callbacks.ts, kept local to
+ * avoid a circular import (hermes-callbacks imports this module).
+ *
+ * A reel entry with no media_type is a contract violation (a reel is always
+ * video): we coerce it to video and let the validator/gate decide, rather than
+ * silently posting an image reel.
+ */
+function buildScheduleShapeLookup(doc: SocialContentJobRuntimeDocument): Map<string, ScheduleShape> {
+  const lookup = new Map<string, ScheduleShape>();
+  const primary = recordValue(doc.stages?.publish?.primary_output);
+  if (!primary) return lookup;
+  const rawSchedule =
+    Array.isArray((primary as { schedule?: unknown }).schedule)
+      ? (primary as { schedule?: unknown[] }).schedule
+      : Array.isArray((primary as { weekly_schedule?: unknown }).weekly_schedule)
+        ? (primary as { weekly_schedule?: unknown[] }).weekly_schedule
+        : null;
+  if (!Array.isArray(rawSchedule)) return lookup;
+
+  rawSchedule.forEach((rawEntry, idx) => {
+    const entry = recordValue(rawEntry);
+    if (!entry) return;
+    const ordinal =
+      typeof entry.post_number === 'number' && Number.isInteger(entry.post_number) && entry.post_number > 0
+        ? entry.post_number
+        : idx + 1;
+    const entrySurface = normalizeSurface(entry.placement);
+    const entryMediaType = normalizeMediaType(entry.media_type);
+
+    const addPlatform = (platformRaw: unknown, surface: PostSurface, mediaType: PostMediaType) => {
+      const platform = String(platformRaw ?? '').trim().toLowerCase();
+      if (!platform) return;
+      // A reel is always video; never persist an image reel.
+      const effectiveMediaType = surface === 'reel' ? 'video' : mediaType;
+      lookup.set(`${ordinal}:${platform}`, { surface, mediaType: effectiveMediaType });
+    };
+
+    if (Array.isArray(entry.platforms) && entry.platforms.length > 0) {
+      for (const platformRaw of entry.platforms) addPlatform(platformRaw, entrySurface, entryMediaType);
+    } else if (Array.isArray(entry.platform_targets)) {
+      for (const targetRaw of entry.platform_targets) {
+        const target = recordValue(targetRaw);
+        if (!target) continue;
+        addPlatform(
+          target.platform,
+          normalizeSurface(target.placement ?? entry.placement),
+          normalizeMediaType(target.media_type ?? entry.media_type),
+        );
+      }
+    }
+  });
+  return lookup;
+}
+
 const SELECT_CREATIVE_ASSETS_SQL = `
   SELECT id, source_asset_id
     FROM creative_assets
@@ -101,10 +183,10 @@ const SELECT_CREATIVE_ASSETS_SQL = `
 const INSERT_SYNTHESIZED_POST_SQL = `
   INSERT INTO posts (
     tenant_id, job_id, hermes_run_id, platform, media_type,
-    caption, status, published_status, idempotency_key, creative_asset_ids
+    caption, status, published_status, idempotency_key, creative_asset_ids, surface
   ) VALUES (
-    $1, $2, $3, $4, 'image',
-    $5, 'approved', 'approved', $6, $7
+    $1, $2, $3, $4, $8,
+    $5, 'approved', 'approved', $6, $7, $9
   )
   ON CONFLICT (tenant_id, platform, idempotency_key) WHERE idempotency_key IS NOT NULL
   DO NOTHING
@@ -341,6 +423,9 @@ export async function synthesizePublishPostsFromContentPackage(
     });
   }
 
+  const scheduleShapeByKey = buildScheduleShapeLookup(doc);
+  const videoPublishEnabled = isVideoPublishEnabled();
+
   let inserted = 0;
   let skipped = 0;
   let total = 0;
@@ -349,8 +434,25 @@ export async function synthesizePublishPostsFromContentPackage(
     const assetId = assetIdsByPostNumber.get(entry.postNumber);
     const creativeAssetIds = assetId ? [assetId] : [];
     for (const platform of entry.platforms) {
+      // Resolve the publish shape (surface + media_type) for this post/platform
+      // from the strategist schedule; absent => feed/image (backward compat).
+      const shape = scheduleShapeByKey.get(`${entry.postNumber}:${platform}`)
+        ?? { surface: 'feed' as PostSurface, mediaType: 'image' as PostMediaType };
+
+      // Rollout gate: when video publishing is OFF, strip reel/video entries so
+      // the campaign still succeeds on the image/feed shapes. A reel has no
+      // image fallback, so the whole (post, platform) target is skipped.
+      if (!videoPublishEnabled && (shape.surface === 'reel' || shape.mediaType === 'video')) {
+        skipped++;
+        continue;
+      }
+
       total++;
-      const idempotencyKey = `${jobId}:${entry.postNumber}:${platform}`;
+      // 4-segment idempotency key so a feed + reel on the same post number and
+      // platform do not collide on the (tenant_id, platform, idempotency_key)
+      // unique index. parsePostNumberFromIdempotencyKey tolerates the 4th
+      // segment (it slices to the first colon after the job id).
+      const idempotencyKey = `${jobId}:${entry.postNumber}:${platform}:${shape.surface}`;
       try {
         const result = await pool.query(INSERT_SYNTHESIZED_POST_SQL, [
           tenantId,
@@ -360,6 +462,8 @@ export async function synthesizePublishPostsFromContentPackage(
           entry.caption,
           idempotencyKey,
           creativeAssetIds,
+          shape.mediaType,
+          shape.surface,
         ]);
         if ((result.rowCount ?? 0) > 0) {
           inserted++;

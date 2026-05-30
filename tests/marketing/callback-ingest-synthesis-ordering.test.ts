@@ -245,7 +245,9 @@ test('publish-completion callback ingests creative_assets AFTER the stage output
     );
     // Each synthesized post links a creative_asset_id.
     for (const insert of postInserts) {
-      const creativeAssetIds = insert.params[insert.params.length - 1];
+      // creative_asset_ids is the only array param; find it by shape rather than
+      // position (story-video appended media_type/surface columns after it).
+      const creativeAssetIds = insert.params.find((p) => Array.isArray(p));
       assert.ok(
         Array.isArray(creativeAssetIds) && creativeAssetIds.length === 1,
         'synthesized post links exactly one creative asset',

@@ -16,6 +16,8 @@ type ScheduledDispatchBody = {
   platforms?: string[];
   content?: string;
   media_urls?: string[];
+  surface?: string;
+  media_type?: string;
 };
 
 // Minimal queryable surface so route tests can inject a fake DB.
@@ -171,6 +173,17 @@ export async function POST(req: Request): Promise<Response> {
   const content = typeof body.content === 'string' ? body.content : '';
   const postId = typeof body.post_id === 'string' ? body.post_id : '';
 
+  // Publish shape forwarded by the worker. 'feed'/'reel'/'story' map to the
+  // MetaPlacement axis; image/video select the media branch. Default feed/image
+  // for legacy worker rows that don't forward the fields.
+  const surfaceRaw = typeof body.surface === 'string' ? body.surface.trim().toLowerCase() : '';
+  const surface: 'feed' | 'story' | 'reel' =
+    surfaceRaw === 'story' || surfaceRaw === 'reel' ? surfaceRaw : 'feed';
+  const mediaType: 'image' | 'video' =
+    typeof body.media_type === 'string' && body.media_type.trim().toLowerCase() === 'video'
+      ? 'video'
+      : 'image';
+
   // Prefer explicit media_urls, otherwise look up creative assets for the tenant
   let rawMediaUrls: string[] = Array.isArray(body.media_urls)
     ? body.media_urls.filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
@@ -244,6 +257,8 @@ export async function POST(req: Request): Promise<Response> {
         provider: platform,
         content,
         mediaUrls: signedMediaUrls,
+        placement: surface,
+        mediaType,
       });
       results.push({ provider: platform, ok: true });
       if (firstPublishedPostId === null && published.platformPostId) {

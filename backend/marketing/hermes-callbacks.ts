@@ -1367,23 +1367,35 @@ async function autoScheduleApprovedPostsForJob(doc: SocialContentJobRuntimeDocum
   // weekly_schedule output. Falls back to (idx + 1) when the strategist
   // omitted an explicit post_number, matching how synthesize-publish-posts
   // assigns ordinals when the field is missing.
-  const dayByPlatformByOrdinal = new Map<number, Map<string, string | null>>();
+  const targetByPlatformByOrdinal = new Map<number, Map<string, PlatformScheduleTarget>>();
   weeklySchedule.forEach((entry, idx) => {
     const ordinal = typeof entry.post_number === 'number' ? entry.post_number : idx + 1;
-    const platformMap = new Map<string, string | null>();
+    const platformMap = new Map<string, PlatformScheduleTarget>();
+    const day = entry.recommended_day ?? null;
+    // Entry-level surface/media_type are the default; platform_targets may override.
+    const entrySurface = normalizeScheduleSurface(entry.placement);
+    const entryMediaType = normalizeScheduleMediaType(entry.media_type);
     // Accept `platforms` (flat string[], current Hermes wire shape) or `platform_targets` (legacy).
     if (Array.isArray(entry.platforms) && entry.platforms.length > 0) {
       for (const p of entry.platforms) {
         const platformKey = String(p || '').trim().toLowerCase();
-        if (platformKey) platformMap.set(platformKey, entry.recommended_day ?? null);
+        if (platformKey) {
+          platformMap.set(platformKey, { recommendedDay: day, surface: entrySurface, mediaType: entryMediaType });
+        }
       }
     } else {
       for (const target of entry.platform_targets ?? []) {
         const platformKey = String(target.platform || '').trim().toLowerCase();
-        if (platformKey) platformMap.set(platformKey, entry.recommended_day ?? null);
+        if (platformKey) {
+          platformMap.set(platformKey, {
+            recommendedDay: day,
+            surface: normalizeScheduleSurface(target.placement ?? entry.placement),
+            mediaType: normalizeScheduleMediaType(target.media_type ?? entry.media_type),
+          });
+        }
       }
     }
-    dayByPlatformByOrdinal.set(ordinal, platformMap);
+    targetByPlatformByOrdinal.set(ordinal, platformMap);
   });
 
   const tenantTimezone = await readTenantTimezone(tenantNum);
@@ -1398,11 +1410,13 @@ async function autoScheduleApprovedPostsForJob(doc: SocialContentJobRuntimeDocum
         );
         return null;
       }
+      const target = targetByPlatformByOrdinal.get(ordinal)?.get(row.platform.toLowerCase());
       return {
         postId: row.id,
         platform: row.platform,
-        recommendedDay:
-          dayByPlatformByOrdinal.get(ordinal)?.get(row.platform.toLowerCase()) ?? null,
+        recommendedDay: target?.recommendedDay ?? null,
+        surface: target?.surface ?? 'feed',
+        mediaType: target?.mediaType ?? 'image',
       };
     })
     .filter((row): row is NonNullable<typeof row> => row !== null);
@@ -1425,11 +1439,36 @@ async function autoScheduleApprovedPostsForJob(doc: SocialContentJobRuntimeDocum
   });
 }
 
+export type MetaScheduleSurface = 'feed' | 'story' | 'reel';
+export type MetaScheduleMediaType = 'image' | 'video';
+
 export interface WeeklyScheduleEntry {
   post_number?: number;
   recommended_day?: string | null;
   platforms?: string[];
-  platform_targets?: Array<{ platform?: string }>;
+  /**
+   * Per-entry surface + media_type the strategist emits for the whole post.
+   * `platform_targets[]` may override these per platform.
+   */
+  placement?: MetaScheduleSurface;
+  media_type?: MetaScheduleMediaType;
+  platform_targets?: Array<{ platform?: string; placement?: MetaScheduleSurface; media_type?: MetaScheduleMediaType }>;
+}
+
+/** A platform's resolved (surface, media_type) for one schedule ordinal. */
+export interface PlatformScheduleTarget {
+  recommendedDay: string | null;
+  surface: MetaScheduleSurface;
+  mediaType: MetaScheduleMediaType;
+}
+
+function normalizeScheduleSurface(value: unknown): MetaScheduleSurface {
+  const v = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return v === 'story' || v === 'reel' ? v : 'feed';
+}
+
+function normalizeScheduleMediaType(value: unknown): MetaScheduleMediaType {
+  return typeof value === 'string' && value.trim().toLowerCase() === 'video' ? 'video' : 'image';
 }
 
 export function readWeeklySchedule(doc: SocialContentJobRuntimeDocument): WeeklyScheduleEntry[] {
