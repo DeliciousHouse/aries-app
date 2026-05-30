@@ -285,7 +285,8 @@ export async function handleGetMarketingJobAsset(
   // /materials/[jobId]/[assetId] viewer is the polished default for
   // document-kind attachments; this raw route remains available for image
   // rendering and for the "Download source" affordance in the viewer.
-  return new Response(buffer, {
+  // new Uint8Array(buffer): TS 6's BodyInit rejects a Node Buffer<ArrayBufferLike>; same bytes.
+  return new Response(new Uint8Array(buffer), {
     status: 200,
     headers: {
       'content-type': asset.contentType,

@@ -97,7 +97,11 @@ function responseForPath(pathname: string, headOnly = false): Response {
     });
   }
 
-  return new Response(headOnly ? null : artifact.body, {
+  // TS 6's BodyInit no longer accepts a Node Buffer<ArrayBufferLike> directly;
+  // re-view the body into a Response-safe shape (strings/null pass through,
+  // Buffers become a Uint8Array<ArrayBuffer>). Same bytes served.
+  const body = headOnly ? null : artifact.body;
+  return new Response(typeof body === 'string' || body === null ? body : new Uint8Array(body), {
     status: 200,
     headers: {
       'content-type': artifact.contentType,

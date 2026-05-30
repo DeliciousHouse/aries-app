@@ -109,7 +109,8 @@ export async function GET(
   const secondsUntilExpiry = Math.max(0, Math.floor((payload.expiresAt - Date.now()) / 1000));
   const cacheMaxAge = Math.min(secondsUntilExpiry, 3600);
 
-  return new Response(buffer, {
+  // new Uint8Array(buffer): TS 6's BodyInit rejects a Node Buffer<ArrayBufferLike>; same bytes.
+  return new Response(new Uint8Array(buffer), {
     status: 200,
     headers: {
       'content-type': contentTypeForPath(resolvedCandidate),
