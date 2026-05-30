@@ -200,7 +200,7 @@ const INSERT_REPLACEMENT_SQL = `
     RETURNING id
   )
   UPDATE creative_assets
-     SET served_asset_ref = '/api/internal/hermes/media/' || ins.id
+     SET served_asset_ref = '/api/internal/hermes/media/' || ins.id::text
     FROM ins
    WHERE creative_assets.id = ins.id
   RETURNING creative_assets.id, creative_assets.tenant_id, creative_assets.storage_kind,

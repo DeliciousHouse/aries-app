@@ -80,7 +80,7 @@ function streamFile(buffer: Buffer, resolvedPath: string): Response {
  * Resolves on-disk bytes for `storage_key` while keeping it inside `root`.
  * Reuses the same isWithinRoot + double-realpath (symlink-safe) guard the
  * basename path uses. Returns the streamed Response, or a 404 Response for a
- * missing / escaping / unreadable path. Throws only on unexpected FS errors.
+ * missing / escaping path (ENOENT/ENOTDIR). Other FS errors (e.g. EACCES) propagate as unexpected.
  */
 async function resolveBytesWithinRoot(root: string, storageKey: string): Promise<Response> {
   const normalizedRoot = path.normalize(root);

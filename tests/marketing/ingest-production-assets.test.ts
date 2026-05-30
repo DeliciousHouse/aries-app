@@ -233,7 +233,7 @@ test('ingestProductionCreativeAssetsToDb — resolves Hermes host path via mount
     // served_asset_ref is now id-based and written by the CTE post-INSERT from
     // the row's id, so it is no longer an INSERT parameter.
     assert.ok(
-      sql.includes("'/api/internal/hermes/media/' || ins.id"),
+      sql.includes("'/api/internal/hermes/media/' || ins.id::text"),
       'served_asset_ref must be set id-based by the CTE',
     );
     assert.equal(
@@ -287,7 +287,7 @@ test('ingestProductionCreativeAssetsToDb — inserts row with correct SQL shape'
     );
     // served_asset_ref is id-based, written back by the CTE from the row's id.
     assert.ok(
-      sql.includes("'/api/internal/hermes/media/' || ins.id"),
+      sql.includes("'/api/internal/hermes/media/' || ins.id::text"),
       'served_asset_ref must be set id-based by the CTE',
     );
     assert.ok(sql.includes("'generated_by_aries'"), 'source_type must be generated_by_aries');
