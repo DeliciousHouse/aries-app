@@ -1,4 +1,3 @@
-import path from 'node:path';
 
 import { normalizePublishDispatch } from '../../../../backend/integrations/workflow-orchestrator';
 import { mapAriesExecutionError, runAriesWorkflow } from '../../../../backend/execution';
@@ -7,6 +6,7 @@ import { assertMediaUrlsBelongToTenant } from '../../../../backend/integrations/
 import { runPublishVerification } from '../../../../backend/integrations/publish-verification';
 import { schedulePublishVerificationHonchoWrite } from '@/backend/memory/write-events';
 import { signMediaToken } from '@/lib/signed-media-token';
+import { resolveSignableBasename } from '@/backend/marketing/signable-basename';
 import {
   isMetaProvider,
   MetaPublishError,
@@ -302,11 +302,18 @@ export async function handlePublishDispatch(
       const rawMediaUrls: string[] = Array.isArray(event.payload.media_urls)
         ? (event.payload.media_urls as string[])
         : mediaUrls;
-      const signedMediaUrls = rawMediaUrls.map((url) => {
-        const basename = path.basename(url);
-        if (!basename || basename.includes('..')) return url;
-        return toSignedPublicUrl(url, tenantId, basename);
-      });
+      // Resolve id-addressed internal URLs to their on-disk basename before
+      // signing (Option A) so the public proxy stays basename-keyed. Sequential
+      // map — one PK lookup per URL, no Promise.all fan-out (guardrail #1).
+      const signedMediaUrls: string[] = [];
+      for (const url of rawMediaUrls) {
+        const basename = await resolveSignableBasename(url, tenantId);
+        if (!basename) {
+          signedMediaUrls.push(url);
+          continue;
+        }
+        signedMediaUrls.push(toSignedPublicUrl(url, tenantId, basename));
+      }
 
       const publishExecutor = options.publishExecutor ?? ((request) => publishToMetaGraph(request));
       const published = await publishExecutor({

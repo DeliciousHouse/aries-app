@@ -77,19 +77,35 @@ export function resolveHermesAssetReadPath(reportedPath: string): string | null 
 // the statement repeats its predicate — omitting `WHERE checksum IS NOT NULL`
 // makes every INSERT fail with "no unique or exclusion constraint matching the
 // ON CONFLICT specification", so a replayed publish callback ingested zero rows.
+//
+// served_asset_ref is id-based (`/api/internal/hermes/media/<id>`) so the media
+// route can address bytes by the authoritative PK and enforce ownership in SQL
+// (WHERE id=$1 AND tenant_id=$2) instead of a collision-prone shared-cache
+// basename match. The id is only known after INSERT, so a single CTE inserts
+// then writes the ref back atomically in one round-trip (no fan-out, guardrail
+// #1). On checksum conflict the INSERT yields 0 rows, the UPDATE touches
+// nothing, and the existing row keeps its ref — replay stays idempotent.
 const INSERT_PRODUCTION_ASSET_SQL = `
-  INSERT INTO creative_assets (
-    tenant_id, source_type, source_job_id, source_asset_id,
-    served_asset_ref, storage_kind, storage_key, media_type,
-    aspect_ratio, checksum, permission_scope,
-    learning_lifecycle, usable_for_generation
-  ) VALUES (
-    $1, 'generated_by_aries', $2, $3,
-    $4, 'runtime_asset', $5, 'image',
-    '4:5', $6, 'generated',
-    'observed', false
+  WITH ins AS (
+    INSERT INTO creative_assets (
+      tenant_id, source_type, source_job_id, source_asset_id,
+      storage_kind, storage_key, media_type,
+      aspect_ratio, checksum, permission_scope,
+      learning_lifecycle, usable_for_generation
+    ) VALUES (
+      $1, 'generated_by_aries', $2, $3,
+      'runtime_asset', $4, 'image',
+      '4:5', $5, 'generated',
+      'observed', false
+    )
+    ON CONFLICT (tenant_id, checksum) WHERE checksum IS NOT NULL DO NOTHING
+    RETURNING id
   )
-  ON CONFLICT (tenant_id, checksum) WHERE checksum IS NOT NULL DO NOTHING
+  UPDATE creative_assets
+     SET served_asset_ref = '/api/internal/hermes/media/' || ins.id::text
+    FROM ins
+   WHERE creative_assets.id = ins.id
+  RETURNING creative_assets.id
 `;
 
 export async function ingestProductionCreativeAssetsToDb(
@@ -146,16 +162,16 @@ export async function ingestProductionCreativeAssetsToDb(
       const bytes = await readFile(readPath);
       const checksum = crypto.createHash('sha256').update(bytes).digest('hex');
       const basename = path.basename(readPath);
-      const servedAssetRef = `/api/internal/hermes/media/${basename}`;
       const sourceAssetId = typeof asset.assetId === 'string' && asset.assetId.trim()
         ? asset.assetId.trim()
         : basename;
 
+      // served_asset_ref is written by the CTE post-INSERT from the row's id,
+      // so it is no longer passed as a parameter here.
       const result = await pool.query(INSERT_PRODUCTION_ASSET_SQL, [
         tenantId,
         jobId,
         sourceAssetId,
-        servedAssetRef,
         readPath,
         checksum,
       ]);

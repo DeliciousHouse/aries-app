@@ -228,19 +228,20 @@ test('ingestProductionCreativeAssetsToDb — resolves Hermes host path via mount
     assert.equal(result.skipped, 0);
     assert.equal(calls.length, 1, 'the resolved row must reach the DB');
 
-    const { params } = calls[0];
+    const { sql, params } = calls[0];
     assert.equal(params[2], 'img_1', 'source_asset_id preserved');
-    assert.equal(
-      params[3],
-      `/api/internal/hermes/media/${basename}`,
-      'served_asset_ref must be the basename-scoped media route',
+    // served_asset_ref is now id-based and written by the CTE post-INSERT from
+    // the row's id, so it is no longer an INSERT parameter.
+    assert.ok(
+      sql.includes("'/api/internal/hermes/media/' || ins.id::text"),
+      'served_asset_ref must be set id-based by the CTE',
     );
     assert.equal(
-      params[4],
+      params[3],
       path.join(mount, basename),
       'storage_key must be the readable mount path, not the unreadable host path',
     );
-    assert.ok(typeof params[5] === 'string' && (params[5] as string).length === 64, 'checksum sha256 hex');
+    assert.ok(typeof params[4] === 'string' && (params[4] as string).length === 64, 'checksum sha256 hex');
   });
 });
 
@@ -284,19 +285,23 @@ test('ingestProductionCreativeAssetsToDb — inserts row with correct SQL shape'
       sql.includes("ON CONFLICT (tenant_id, checksum) WHERE checksum IS NOT NULL DO NOTHING"),
       'SQL must have ON CONFLICT with the partial-index predicate',
     );
+    // served_asset_ref is id-based, written back by the CTE from the row's id.
+    assert.ok(
+      sql.includes("'/api/internal/hermes/media/' || ins.id::text"),
+      'served_asset_ref must be set id-based by the CTE',
+    );
     assert.ok(sql.includes("'generated_by_aries'"), 'source_type must be generated_by_aries');
     assert.ok(sql.includes("'runtime_asset'"), 'storage_kind must be runtime_asset');
     assert.ok(sql.includes("'generated'"), 'permission_scope must be generated');
     assert.ok(sql.includes("'image'"), 'media_type must be image');
     assert.ok(sql.includes("'4:5'"), 'aspect_ratio must be 4:5');
 
-    // params: [tenantId, jobId, sourceAssetId, servedAssetRef, storagePath, checksum]
+    // params: [tenantId, jobId, sourceAssetId, storagePath, checksum]
     assert.equal(params[0], 99, 'param $1 must be tenantId');
     assert.equal(params[1], 'mkt_insert_test', 'param $2 must be jobId');
     assert.equal(params[2], 'asset-001', 'param $3 must be sourceAssetId');
-    assert.ok(typeof params[3] === 'string' && (params[3] as string).startsWith('/api/internal/hermes/media/'), 'param $4 must be served_asset_ref');
-    assert.equal(params[4], path.join(mount, basename), 'param $5 must be the readable mount storagePath');
-    assert.ok(typeof params[5] === 'string' && (params[5] as string).length === 64, 'param $6 must be a sha256 hex string');
+    assert.equal(params[3], path.join(mount, basename), 'param $4 must be the readable mount storagePath');
+    assert.ok(typeof params[4] === 'string' && (params[4] as string).length === 64, 'param $5 must be a sha256 hex string');
   });
 });
 

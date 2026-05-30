@@ -181,18 +181,32 @@ const SELECT_CREATIVE_SQL = `
    LIMIT 1
 `;
 
+// served_asset_ref is id-based (`/api/internal/hermes/media/<id>`) so manual
+// uploads are servable through the authoritative id route (ownership enforced
+// in SQL). The id is only known after INSERT, so a CTE inserts then writes the
+// ref back atomically in one round-trip (no fan-out, guardrail #1). The id
+// route resolves `ingested_asset` bytes from the DATA_ROOT storage_key.
 const INSERT_REPLACEMENT_SQL = `
-  INSERT INTO creative_assets (
-    tenant_id, source_type, permission_scope, media_type,
-    storage_kind, storage_key, checksum, aspect_ratio,
-    learning_lifecycle, usable_for_generation
-  ) VALUES (
-    $1, 'manual_upload', 'user_uploaded', 'image',
-    'ingested_asset', $2, $3, $4,
-    'observed', FALSE
+  WITH ins AS (
+    INSERT INTO creative_assets (
+      tenant_id, source_type, permission_scope, media_type,
+      storage_kind, storage_key, checksum, aspect_ratio,
+      learning_lifecycle, usable_for_generation
+    ) VALUES (
+      $1, 'manual_upload', 'user_uploaded', 'image',
+      'ingested_asset', $2, $3, $4,
+      'observed', FALSE
+    )
+    RETURNING id
   )
-  RETURNING id, tenant_id, storage_kind, storage_key, source_type, permission_scope,
-            media_type, aspect_ratio, checksum
+  UPDATE creative_assets
+     SET served_asset_ref = '/api/internal/hermes/media/' || ins.id::text
+    FROM ins
+   WHERE creative_assets.id = ins.id
+  RETURNING creative_assets.id, creative_assets.tenant_id, creative_assets.storage_kind,
+            creative_assets.storage_key, creative_assets.source_type,
+            creative_assets.permission_scope, creative_assets.media_type,
+            creative_assets.aspect_ratio, creative_assets.checksum
 `;
 
 const ORPHAN_PREVIOUS_SQL = `

@@ -1,4 +1,3 @@
-import path from 'node:path';
 
 import { loadTenantContextOrResponse } from '@/lib/tenant-context-http';
 import { loadSocialContentJobRuntime } from '@/backend/marketing/runtime-state';
@@ -21,6 +20,7 @@ import {
 } from '@/backend/integrations/meta-publishing';
 import { runPublishVerification } from '@/backend/integrations/publish-verification';
 import { toSignedPublicUrl } from '@/app/api/publish/dispatch/handler';
+import { resolveSignableBasename } from '@/backend/marketing/signable-basename';
 import { pool } from '@/lib/db';
 
 type InstagramPublishBody = {
@@ -132,8 +132,10 @@ export async function handleInstagramPublish(req: Request, jobId: string) {
   // Sign the media URL into a public proxy URL.
   const signedMediaUrls: string[] = [];
   if (mediaUrl) {
-    const basename = path.basename(mediaUrl);
-    if (basename && !basename.includes('..')) {
+    // Resolve id-addressed internal URLs to their on-disk basename before
+    // signing (Option A); legacy basename URLs pass through unchanged.
+    const basename = await resolveSignableBasename(mediaUrl, tenantId);
+    if (basename) {
       signedMediaUrls.push(toSignedPublicUrl(mediaUrl, tenantId, basename));
     }
   }

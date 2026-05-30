@@ -1,8 +1,8 @@
 import { verifyInternalCallbackRequest } from '@/lib/internal-callback-auth';
 import { publishToMetaGraph, isMetaProvider, MetaPublishError } from '@/backend/integrations/meta-publishing';
 import { toSignedPublicUrl } from '@/app/api/publish/dispatch/handler';
+import { resolveSignableBasename } from '@/backend/marketing/signable-basename';
 import pool from '@/lib/db';
-import path from 'node:path';
 
 type ScheduledDispatchBody = {
   tenant_id?: string;
@@ -169,12 +169,18 @@ export async function POST(req: Request): Promise<Response> {
     rawMediaUrls = await resolveMediaUrls(postId, tenantId);
   }
 
-  // Sign media URLs so Meta Graph API can fetch them
-  const signedMediaUrls = rawMediaUrls.map((url) => {
-    const basename = path.basename(url);
-    if (!basename || basename.includes('..')) return url;
-    return toSignedPublicUrl(url, tenantId, basename);
-  });
+  // Sign media URLs so Meta Graph API can fetch them. Resolve id-addressed
+  // internal URLs to their on-disk basename before signing (Option A);
+  // sequential — one PK lookup per URL, no Promise.all fan-out (guardrail #1).
+  const signedMediaUrls: string[] = [];
+  for (const url of rawMediaUrls) {
+    const basename = await resolveSignableBasename(url, tenantId);
+    if (!basename) {
+      signedMediaUrls.push(url);
+      continue;
+    }
+    signedMediaUrls.push(toSignedPublicUrl(url, tenantId, basename));
+  }
 
   // Each platform is attempted independently and its outcome recorded, so a
   // cross-post that succeeds on one platform and fails on another reports the
