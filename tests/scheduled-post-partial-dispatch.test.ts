@@ -19,7 +19,7 @@ type WorkerModule = {
   rollupParentStatus: (statuses: string[]) => string;
   planPlatformOutcomes: (
     platforms: string[],
-    results: Array<{ provider: string; ok: boolean; error?: string; retryable?: boolean }>,
+    results: Array<{ provider: string; ok: boolean; error?: string; retryable?: boolean; kind?: string }>,
     transportError: string | null,
   ) => PlatformOutcome[];
 };
@@ -106,4 +106,39 @@ test('worker schema: scheduled_post_dispatches child table exists in init-db.js'
     /status IN \('pending','in_flight','dispatched','failed'\)/,
     'child status must allow the four-state lifecycle',
   );
+});
+
+
+test('planPlatformOutcomes: an auth kind prefixes the error_message with a reconnect signal', async () => {
+  const { planPlatformOutcomes } = await loadWorker();
+  const outcomes = planPlatformOutcomes(
+    ['facebook'],
+    [{ provider: 'facebook', ok: false, error: 'oauth_token_missing: token expired', retryable: false, kind: 'auth' }],
+    null,
+  );
+  const fb = outcomes.find((o) => o.platform === 'facebook')!;
+  // Retry policy unchanged: auth is terminal (retryable:false -> failed).
+  assert.equal(fb.status, 'failed');
+  assert.equal(fb.retryable, false);
+  // Surface-only: the operator can now see WHY a terminal row failed.
+  assert.match(fb.error ?? '', /reconnect required/i, 'auth reason surfaced in error_message');
+  assert.match(fb.error ?? '', /oauth_token_missing/, 'original code preserved');
+});
+
+test('planPlatformOutcomes: a non-auth kind leaves the error_message untouched', async () => {
+  const { planPlatformOutcomes } = await loadWorker();
+  const outcomes = planPlatformOutcomes(
+    ['facebook', 'instagram'],
+    [
+      { provider: 'facebook', ok: false, error: 'graph_api_error: 400', retryable: false, kind: 'permanent' },
+      { provider: 'instagram', ok: false, error: 'rate_limited', retryable: true, kind: 'transient' },
+    ],
+    null,
+  );
+  const fb = outcomes.find((o) => o.platform === 'facebook')!;
+  const ig = outcomes.find((o) => o.platform === 'instagram')!;
+  assert.equal(fb.error, 'graph_api_error: 400', 'permanent kind: error_message verbatim');
+  assert.equal(fb.status, 'failed');
+  assert.equal(ig.error, 'rate_limited', 'transient kind: error_message verbatim');
+  assert.equal(ig.status, 'pending', 'transient still retries — policy unchanged');
 });

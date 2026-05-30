@@ -125,8 +125,9 @@ test('resolveMediaUrls matches creative_asset_ids against the uuid id too', asyn
 });
 
 test('resolveMediaUrls falls back to job-scope when creative_asset_ids is empty', async () => {
-  // No Aries code populates creative_asset_ids yet (every prod posts row has
-  // '{}'). The job-scoped fallback keeps media resolution working today.
+  // The publish/synthesize writers populate creative_asset_ids on new rows; a
+  // legacy/empty row falls back to the job-scoped join (D2 safety net). This
+  // pins that the fallback still fires only for genuinely-empty rows.
   const tenantId = '7';
   const posts: PostRow[] = [
     { id: '100', tenant_id: tenantId, job_id: 'job-A', creative_asset_ids: [] },
@@ -198,4 +199,36 @@ test('resolveMediaUrls skips runtime_asset rows with no served_asset_ref', async
   ];
   const urls = await resolveMediaUrls('100', tenantId, buildFakeDb(posts, assets));
   assert.deepEqual(urls, [], 'a row with no servable ref is skipped, never served from a host path');
+});
+
+
+test('resolveMediaUrls: populated path is primary, empty row falls back to the whole job (same multi-asset job)', async () => {
+  // P2 regression: in one multi-image weekly job, a post with populated
+  // creative_asset_ids must resolve to ONLY its own asset (populated path
+  // primary), while a sibling post still on the empty default falls back to the
+  // job-scoped join and sees the whole job set. The two paths must be distinct.
+  const tenantId = '9';
+  process.env.APP_BASE_URL = 'https://aries.example.test';
+  const posts: PostRow[] = [
+    { id: 'populated', tenant_id: tenantId, job_id: 'job-multi', creative_asset_ids: ['img_2'] },
+    { id: 'legacy-empty', tenant_id: tenantId, job_id: 'job-multi', creative_asset_ids: [] },
+  ];
+  const assets: AssetRow[] = [
+    runtimeAsset('a1', tenantId, 'job-multi', 'one.png', 'img_1'),
+    runtimeAsset('a2', tenantId, 'job-multi', 'two.png', 'img_2'),
+    runtimeAsset('a3', tenantId, 'job-multi', 'three.png', 'img_3'),
+  ];
+  const db = buildFakeDb(posts, assets);
+
+  const populated = await resolveMediaUrls('populated', tenantId, db);
+  assert.deepEqual(
+    populated,
+    ['https://aries.example.test/api/internal/hermes/media/two.png'],
+    'populated path is primary: exactly the per-post asset, not the whole job',
+  );
+
+  const legacy = await resolveMediaUrls('legacy-empty', tenantId, db);
+  assert.equal(legacy.length, 3, 'empty row falls back to the whole job set');
+  assert.ok(legacy.some((u) => u.includes('one')) && legacy.some((u) => u.includes('three')),
+    'fallback returns every asset of the job, confirming the two paths differ');
 });

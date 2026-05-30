@@ -4,6 +4,7 @@ import test from 'node:test';
 import pool from '../lib/db';
 import {
   classifyMetaPublishFailure,
+  classifyMetaPublishFailureKind,
   publishToMetaGraph,
   MetaPublishError,
   waitForInstagramContainerReady,
@@ -780,4 +781,80 @@ test('publishToMetaGraph rejects a natively-scheduled story before any Graph cal
   } finally {
     restoreQuery();
   }
+});
+
+
+// ---- classifyMetaPublishFailureKind: the 4-class taxonomy ----
+//
+// Every known MetaPublishError code must map to exactly one kind from the
+// Current State table. The handlers + dispatch route + worker branch on this:
+// 'auth' -> needs_reconnect; 'transient' -> retryable; 'permanent' -> terminal;
+// 'outcome_unknown' -> never retry (claim left in place). outcome_unknown wins
+// over every other axis when outcomeUnknown is set.
+
+type KindCase = {
+  code: string;
+  status: number;
+  retryable?: boolean;
+  outcomeUnknown?: boolean;
+  expected: 'transient' | 'permanent' | 'auth' | 'outcome_unknown';
+};
+
+const KIND_CASES: KindCase[] = [
+  { code: 'unsupported_provider', status: 400, expected: 'permanent' },
+  { code: 'invalid_scheduled_for', status: 400, expected: 'permanent' },
+  { code: 'missing_content', status: 400, expected: 'permanent' },
+  { code: 'instagram_media_required', status: 400, expected: 'permanent' },
+  { code: 'story_single_media_required', status: 400, expected: 'permanent' },
+  { code: 'oauth_token_missing', status: 409, expected: 'auth' },
+  { code: 'external_account_missing', status: 409, expected: 'auth' },
+  { code: 'facebook_scheduled_publish_not_supported', status: 409, expected: 'permanent' },
+  { code: 'story_scheduled_publish_not_supported', status: 409, expected: 'permanent' },
+  { code: 'graph_network_error', status: 502, retryable: true, expected: 'transient' },
+  { code: 'graph_rate_limited', status: 429, retryable: true, expected: 'transient' },
+  { code: 'graph_api_error', status: 503, retryable: true, expected: 'transient' },
+  { code: 'graph_api_error', status: 400, retryable: false, expected: 'permanent' },
+  { code: 'instagram_container_timeout', status: 504, retryable: true, expected: 'transient' },
+  { code: 'instagram_container_failed', status: 422, retryable: false, expected: 'permanent' },
+  { code: 'facebook_publish_missing_id', status: 502, outcomeUnknown: true, expected: 'outcome_unknown' },
+  { code: 'instagram_publish_missing_id', status: 502, outcomeUnknown: true, expected: 'outcome_unknown' },
+];
+
+for (const c of KIND_CASES) {
+  test(`classifyMetaPublishFailureKind: ${c.code} (status ${c.status}) -> ${c.expected}`, () => {
+    const err = new MetaPublishError(c.code, `${c.code} message`, {
+      status: c.status,
+      retryable: c.retryable,
+      outcomeUnknown: c.outcomeUnknown,
+    });
+    assert.equal(classifyMetaPublishFailureKind(err), c.expected);
+  });
+}
+
+test('classifyMetaPublishFailureKind: outcome_unknown wins over transient (retryable + outcomeUnknown)', () => {
+  // A pathological error flagged BOTH retryable and outcomeUnknown must classify
+  // as outcome_unknown — never transient. Retrying a publish that secretly
+  // succeeded is a duplicate post.
+  const err = new MetaPublishError('weird_both', 'both flags set', {
+    status: 502,
+    retryable: true,
+    outcomeUnknown: true,
+  });
+  assert.equal(classifyMetaPublishFailureKind(err), 'outcome_unknown');
+});
+
+test('classifyMetaPublishFailureKind: a non-MetaPublishError throw is permanent', () => {
+  assert.equal(classifyMetaPublishFailureKind(new Error('boom')), 'permanent');
+  assert.equal(classifyMetaPublishFailureKind('a bare string'), 'permanent');
+  assert.equal(classifyMetaPublishFailureKind(undefined), 'permanent');
+});
+
+test('classifyMetaPublishFailureKind: auth wins over the retryable axis', () => {
+  // An auth code flagged retryable (defensive — should never happen) still
+  // classifies as auth so the operator sees the reconnect signal.
+  const err = new MetaPublishError('oauth_token_missing', 'expired', {
+    status: 409,
+    retryable: true,
+  });
+  assert.equal(classifyMetaPublishFailureKind(err), 'auth');
 });

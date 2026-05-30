@@ -103,6 +103,59 @@ export function classifyMetaPublishFailure(error: unknown): MetaPublishFailureCl
   return 'definitely_never_posted';
 }
 
+/**
+ * The Meta publish codes that mean "the tenant's Meta connection is broken and
+ * must be reconnected" — distinct from a malformed request (permanent) or a
+ * transient gateway hiccup (transient). Surfaced to operators as a
+ * reconnect-your-account signal rather than an opaque "publish failed".
+ */
+const META_AUTH_FAILURE_CODES: ReadonlySet<string> = new Set([
+  'oauth_token_missing',
+  'external_account_missing',
+]);
+
+/**
+ * The full failure taxonomy, derived (not stored) from a MetaPublishError's
+ * existing fields. Distinct from the 2-class `MetaPublishFailureClass` above,
+ * which only encodes the publish-acceptance axis:
+ *
+ *   'outcome_unknown' — the publish call was accepted (2xx) but no post id was
+ *   confirmed. NEVER auto-retry (a retry of a publish that secretly succeeded is
+ *   a duplicate). Wins over every other kind. Mirrors `outcomeUnknown`.
+ *
+ *   'auth' — the tenant's Meta connection is missing/expired. Terminal like any
+ *   other `retryable:false` failure, but operator-actionable: reconnect the
+ *   account. Does NOT change the retry policy beyond what `retryable:false`
+ *   already does.
+ *
+ *   'transient' — a network/5xx/rate-limit/container-timeout failure flagged
+ *   `retryable`. Safe for the worker to re-claim on a later pass.
+ *
+ *   'permanent' — a malformed request, unsupported operation, or any other
+ *   non-retryable failure (including non-MetaPublishError throws). Terminal.
+ */
+export type MetaPublishFailureKind = 'transient' | 'permanent' | 'auth' | 'outcome_unknown';
+
+/**
+ * Classify a thrown publish error into the 4-class taxonomy. Precedence:
+ * outcome-unknown (never retry) → auth (reconnect) → transient (retryable) →
+ * permanent (terminal). A non-MetaPublishError throw is treated as permanent
+ * here; the dispatch route independently treats raw non-Meta throws as
+ * retryable at the call site — that route behavior is unchanged by this fn.
+ */
+export function classifyMetaPublishFailureKind(error: unknown): MetaPublishFailureKind {
+  if (error instanceof MetaPublishError && error.outcomeUnknown) {
+    return 'outcome_unknown';
+  }
+  if (error instanceof MetaPublishError && META_AUTH_FAILURE_CODES.has(error.code)) {
+    return 'auth';
+  }
+  if (error instanceof MetaPublishError && error.retryable) {
+    return 'transient';
+  }
+  return 'permanent';
+}
+
 type MetaGraphResponse = Record<string, unknown>;
 
 type MetaPublishTarget = {

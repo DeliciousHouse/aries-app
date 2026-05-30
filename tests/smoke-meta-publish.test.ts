@@ -6,6 +6,11 @@ import {
   buildSignedPublicUrl,
   pickBestCaption,
 } from '../scripts/smoke-meta-publish';
+import {
+  MetaPublishError,
+  classifyMetaPublishFailure,
+  classifyMetaPublishFailureKind,
+} from '../backend/integrations/meta-publishing';
 
 test('buildPublishRouteUrl builds instagram URL correctly', () => {
   const url = buildPublishRouteUrl('https://aries.sugarandleather.com', 'mkt_abc123', 'instagram');
@@ -88,4 +93,60 @@ test('pickBestCaption omits hashtag block when hashtags array is empty', () => {
     posts: [{ channel: 'instagram_feed', caption: 'Clean caption', hashtags: [] }],
   };
   assert.equal(pickBestCaption(socialCopy, 'instagram'), 'Clean caption');
+});
+
+
+// ---------------------------------------------------------------------------
+// Publish-handler error-branch decision (P4)
+// ---------------------------------------------------------------------------
+//
+// The fb/ig publish handlers require DB/auth/session to drive end-to-end, so —
+// per the repo convention (publish-handler-caption-fallback.test.ts) — we pin
+// the error-branch DECISION in isolation. This mirrors the branch order in
+// publish-facebook/handler.ts and publish-instagram/handler.ts:
+//   outcome_unknown -> needs_manual_reconciliation (502, unchanged)
+//   auth            -> needs_reconnect (409)  [NEW]
+//   other Meta err  -> generic { reason: error.code } at error.status
+type HandlerBranch =
+  | { kind: 'needs_manual_reconciliation'; status: number }
+  | { kind: 'needs_reconnect'; reason: string; status: number }
+  | { kind: 'generic'; reason: string; status: number };
+
+function decidePublishHandlerBranch(error: unknown): HandlerBranch {
+  if (classifyMetaPublishFailure(error) === 'outcome_unknown') {
+    return { kind: 'needs_manual_reconciliation', status: 502 };
+  }
+  if (error instanceof MetaPublishError && classifyMetaPublishFailureKind(error) === 'auth') {
+    return { kind: 'needs_reconnect', reason: 'needs_reconnect', status: error.status };
+  }
+  if (error instanceof MetaPublishError) {
+    return { kind: 'generic', reason: error.code, status: error.status };
+  }
+  return { kind: 'generic', reason: 'publish_failed', status: 500 };
+}
+
+test('publish handler: oauth_token_missing -> needs_reconnect at 409', () => {
+  const err = new MetaPublishError('oauth_token_missing', 'token expired', { status: 409 });
+  const branch = decidePublishHandlerBranch(err);
+  assert.deepEqual(branch, { kind: 'needs_reconnect', reason: 'needs_reconnect', status: 409 });
+});
+
+test('publish handler: external_account_missing -> needs_reconnect at 409', () => {
+  const err = new MetaPublishError('external_account_missing', 'no page', { status: 409 });
+  const branch = decidePublishHandlerBranch(err);
+  assert.equal(branch.kind, 'needs_reconnect');
+  assert.equal(branch.status, 409);
+});
+
+test('publish handler: a transient graph error stays the generic retryable branch (not auth)', () => {
+  const err = new MetaPublishError('graph_network_error', 'ETIMEDOUT', { status: 502, retryable: true });
+  const branch = decidePublishHandlerBranch(err);
+  assert.equal(branch.kind, 'generic');
+  assert.equal(branch.reason, 'graph_network_error');
+});
+
+test('publish handler: outcome-unknown still wins (needs_manual_reconciliation, 502) — unchanged', () => {
+  const err = new MetaPublishError('instagram_publish_missing_id', 'no id', { status: 502, outcomeUnknown: true });
+  const branch = decidePublishHandlerBranch(err);
+  assert.deepEqual(branch, { kind: 'needs_manual_reconciliation', status: 502 });
 });
