@@ -225,6 +225,7 @@ test('shared facts dedupe stage payload reads across collector invocations', asy
       ['1:ads_analyst_compile', 1],
       ['1:meta_ads_extractor', 1],
       ['2:campaign_planner', 1],
+      ['2:social_content_planner', 1],
       ['2:strategy_review_preview', 1],
       ['2:website_brand_analysis', 1],
       ['3:production_review_preview', 1],

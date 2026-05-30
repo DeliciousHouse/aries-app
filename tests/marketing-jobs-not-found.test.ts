@@ -279,7 +279,7 @@ test('pre-onboarding path remains unchanged', async () => {
     assert.equal(response.status, 409);
     assert.equal(body.status, 'error');
     assert.equal(body.reason, 'onboarding_required');
-    assert.equal(body.message, 'Complete tenant onboarding before viewing brand campaign status.');
+    assert.equal(body.message, 'Complete tenant onboarding before viewing brand social content status.');
   });
 });
 

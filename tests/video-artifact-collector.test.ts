@@ -53,7 +53,7 @@ test('collectProductionReviewArtifacts emits one video artifact per rendered var
     });
     runtimeDoc.stages.production.run_id = runId;
 
-    await writeJson(path.join(tempRoot, runId, 'veo_video_generator.json'), {
+    await writeJson(path.join(tempRoot, 'tenant-video-artifacts', runId, 'veo_video_generator.json'), {
       type: 'veo_video_generator',
       run_id: runId,
       video_assets: {
@@ -184,7 +184,7 @@ test('collectProductionReviewArtifacts skips rate-limited video variants so revi
     });
     runtimeDoc.stages.production.run_id = runId;
 
-    await writeJson(path.join(tempRoot, runId, 'veo_video_generator.json'), {
+    await writeJson(path.join(tempRoot, 'tenant-video-rate-limited-artifacts', runId, 'veo_video_generator.json'), {
       type: 'veo_video_generator',
       run_id: runId,
       video_assets: {

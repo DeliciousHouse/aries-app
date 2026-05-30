@@ -31,7 +31,7 @@ test('deploy workflow uses a self-hosted runner on the deploy host with no SSH h
   );
   assert.match(
     workflow,
-    /- name: Log in to GHCR[\s\S]*?docker\/login-action@v3/,
+    /- name: Log in to GHCR[\s\S]*?docker\/login-action@/,
     'deploy workflow should authenticate the local host Docker daemon to GHCR before pulling the image',
   );
   assert.match(

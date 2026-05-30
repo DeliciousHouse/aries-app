@@ -66,7 +66,7 @@ test('post-workspace client wires the view through useSearchParams', () => {
   );
   assert.match(
     source,
-    /<Link[\s\S]*?href=\{currentStageHref\(props\.campaignId, view\)\}[\s\S]*?scroll=\{false\}/,
+    /<Link[\s\S]*?href=\{currentStageHref\(props\.postId, view\)\}[\s\S]*?scroll=\{false\}/,
     'post-workspace.tsx must disable Next Link scroll resets for view-pill navigation',
   );
 });

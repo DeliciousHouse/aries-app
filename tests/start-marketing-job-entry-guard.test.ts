@@ -31,7 +31,7 @@ test('startSocialContentJob entry guard accepts both weekly_social_content and o
   // wrapping but the two literal values must both appear.
   assert.match(
     ORCH_SRC,
-    /input\.jobType !== 'weekly_social_content'\s*&&\s*input\.jobType !== 'one_off_campaign'/,
+    /input\.jobType !== 'weekly_social_content'\s*&&\s*input\.jobType !== 'one_off_post'\s*&&\s*input\.jobType !== 'one_off_campaign'/,
     'entry guard must enumerate both supported job types',
   );
 });
@@ -42,7 +42,7 @@ test('startSocialContentJob sets up social-content runtime state for both job ty
   // Both job types must reach ensureSocialContentRuntimeState.
   assert.match(
     ORCH_SRC,
-    /input\.jobType === 'weekly_social_content'\s*\|\|\s*input\.jobType === 'one_off_campaign'[\s\S]{0,200}ensureSocialContentRuntimeState/,
+    /input\.jobType === 'weekly_social_content'\s*\|\|\s*input\.jobType === 'one_off_post'\s*\|\|\s*input\.jobType === 'one_off_campaign'[\s\S]{0,200}ensureSocialContentRuntimeState/,
     'ensureSocialContentRuntimeState must run for both supported job types',
   );
 });
@@ -66,7 +66,7 @@ test('startSocialContentJob passes publishingRequested=true for one_off_campaign
   // publish. The fix passes publishingRequested=true when jobType===one_off.
   assert.match(
     ORCH_SRC,
-    /input\.jobType === 'one_off_campaign'\s*\?\s*true/,
+    /input\.jobType === 'one_off_post' \|\| input\.jobType === 'one_off_campaign'\)\s*\?\s*true/,
     'ensureSocialContentRuntimeState must receive publishingRequested=true for one_off_campaign',
   );
 });

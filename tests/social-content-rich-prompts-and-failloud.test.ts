@@ -255,14 +255,14 @@ test('buildProductionResumeContext contextBlock appends canonical creative_asset
   const doc = makeMinimalDoc() as Parameters<typeof buildProductionResumeContext>[0]['doc'];
   const ctx = buildProductionResumeContext({ doc, researchOutput: FULL_RESEARCH_OUTPUT, strategyOutput: FULL_STRATEGY_OUTPUT });
 
-  const schemaHeading = 'Return your results in this EXACT JSON shape:';
+  const schemaHeading = 'Return your results in this EXACT JSON shape. You MUST include BOTH content_package[] AND artifacts.creative_assets[].';
   assert.equal(ctx.contextBlock.split(schemaHeading).length - 1, 1, 'schema heading should appear exactly once');
   assert.ok(
     ctx.contextBlock.includes('`artifacts.creative_assets[]`'),
     'contextBlock should mention canonical creative_assets output',
   );
   assert.ok(
-    ctx.contextBlock.includes('"assetId": "img_0"'),
+    ctx.contextBlock.includes('"assetId": "img_1"'),
     'contextBlock should include worked canonical creative_assets example',
   );
   assert.ok(

@@ -13,16 +13,6 @@ function readRepoFile(relativePath: string) {
   return readFileSync(path.join(PROJECT_ROOT, relativePath), 'utf8');
 }
 
-function setExecutionTestInvoker(
-  impl: (payload: Record<string, unknown>) => unknown | Promise<unknown>,
-): void {
-  (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__ = impl;
-}
-
-function clearExecutionTestInvoker(): void {
-  delete (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__;
-}
-
 function createFetchResponse(body: string, contentType: string): Response {
   return new Response(body, {
     status: 200,
@@ -81,6 +71,168 @@ function installBrandExampleFetchMock(): () => void {
   };
 }
 
+// Drives the marketing orchestrator through the real Hermes execution port using
+// its in-test synchronous-poll seam (HERMES_SYNC_POLL_FOR_TESTS=1). The orchestrator
+// no longer consults the legacy __ARIES_EXECUTION_TEST_INVOKER__ global; execution
+// flows through HermesMarketingPort, which submits to `${HERMES_GATEWAY_URL}/v1/runs`
+// and (under the sync flag) polls `${HERMES_GATEWAY_URL}/v1/runs/<id>` until terminal.
+// This mock answers both: POST returns a started run; GET returns a completed run
+// whose output is a `requires_approval` envelope, so each stage produces an approval
+// checkpoint exactly like a live run. Each successive Hermes run advances the staged
+// approval (research -> strategy approval, strategy resume -> production approval).
+const HERMES_TEST_GATEWAY_URL = 'https://hermes.example.test';
+
+function installHermesSyncApprovalFetchMock(): () => void {
+  const restoreBrandFetch = installBrandExampleFetchMock();
+  const brandFetch = globalThis.fetch;
+  let runCounter = 0;
+  // Maps a synthetic Hermes run id to the approval envelope its GET poll returns.
+  const envelopeByRunId = new Map<string, Record<string, unknown>>();
+
+  const approvalEnvelopeForStage = (stage: 'strategy' | 'production') => ({
+    ok: true,
+    status: 'requires_approval',
+    workflowKey: 'social_content_weekly',
+    output: [
+      {
+        run_id: `run-${stage}`,
+        executive_summary: {
+          market_positioning: 'Proof-led competitive research is complete.',
+          campaign_takeaway: 'Outcome-first hooks are winning.',
+        },
+        strategy_handoff: {
+          run_id: `run-${stage}`,
+          core_message: 'Launch campaigns with operator control.',
+          primary_cta: 'Book a walkthrough',
+        },
+      },
+    ],
+    approval: {
+      stage,
+      workflowStepId: stage === 'strategy' ? 'approve_stage_2' : 'approve_stage_3',
+      prompt: stage === 'strategy'
+        ? 'Research complete. Approve strategy to continue.'
+        : 'Strategy complete. Approve production to continue.',
+      resumeToken: stage === 'strategy' ? 'resume_strategy' : 'resume_production',
+    },
+  });
+
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+    const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
+
+    if (url.startsWith(`${HERMES_TEST_GATEWAY_URL}/v1/runs`)) {
+      // Submission: derive the resulting approval stage from the run payload.
+      if (method === 'POST' && url === `${HERMES_TEST_GATEWAY_URL}/v1/runs`) {
+        let action = 'run';
+        let resumeToken = '';
+        try {
+          const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {};
+          action = typeof body.action === 'string' ? body.action : 'run';
+          resumeToken = typeof body.resume_token === 'string'
+            ? body.resume_token
+            : typeof body.resumeToken === 'string'
+              ? body.resumeToken
+              : '';
+        } catch {
+          // ignore malformed bodies; default to a research run
+        }
+        // A resume of the strategy approval (resume_strategy) advances to the
+        // production approval; the initial run advances to the strategy approval.
+        const stage = action === 'resume' && resumeToken === 'resume_strategy'
+          ? 'production'
+          : 'strategy';
+        runCounter += 1;
+        const runId = `hermes-test-run-${runCounter}`;
+        envelopeByRunId.set(runId, approvalEnvelopeForStage(stage));
+        return new Response(JSON.stringify({ run_id: runId, status: 'started' }), {
+          status: 202,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+
+      // Poll: return the completed run carrying the staged approval envelope.
+      const runId = url.slice(`${HERMES_TEST_GATEWAY_URL}/v1/runs/`.length);
+      const envelope = envelopeByRunId.get(runId) ?? approvalEnvelopeForStage('strategy');
+      return new Response(JSON.stringify({ status: 'completed', output: envelope }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
+    return brandFetch(input as RequestInfo, init);
+  }) as typeof globalThis.fetch;
+
+  return () => {
+    globalThis.fetch = brandFetch;
+    restoreBrandFetch();
+  };
+}
+
+function withHermesExecutionEnv(): () => void {
+  const previous: Record<string, string | undefined> = {
+    HERMES_GATEWAY_URL: process.env.HERMES_GATEWAY_URL,
+    HERMES_API_SERVER_KEY: process.env.HERMES_API_SERVER_KEY,
+    HERMES_SESSION_KEY: process.env.HERMES_SESSION_KEY,
+    HERMES_SYNC_POLL_FOR_TESTS: process.env.HERMES_SYNC_POLL_FOR_TESTS,
+    HERMES_POLL_BRIDGE_ENABLED: process.env.HERMES_POLL_BRIDGE_ENABLED,
+    HERMES_POLL_INTERVAL_MS: process.env.HERMES_POLL_INTERVAL_MS,
+    INTERNAL_API_SECRET: process.env.INTERNAL_API_SECRET,
+  };
+  process.env.HERMES_GATEWAY_URL = HERMES_TEST_GATEWAY_URL;
+  process.env.HERMES_API_SERVER_KEY = 'hermes-test-api-key';
+  process.env.HERMES_SESSION_KEY = 'runtime-views-auth-hardening-test';
+  process.env.HERMES_SYNC_POLL_FOR_TESTS = '1';
+  process.env.HERMES_POLL_BRIDGE_ENABLED = '0';
+  process.env.HERMES_POLL_INTERVAL_MS = '1';
+  process.env.INTERNAL_API_SECRET = 'internal-secret-test';
+
+  return () => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  };
+}
+
+// Pre-seeds a brand-kit.json for the given tenant so extractAndSaveTenantBrandKit
+// takes the fresh-cache reuse path and never issues a DNS lookup for brand.example.
+// source_url must match the payload brandUrl exactly (isFreshBrandKit does an exact
+// compare in backend/marketing/brand-kit.ts), so no trailing slash here.
+async function seedBrandKitForTenant(dataRoot: string, tenantId: string, sourceUrl: string): Promise<void> {
+  const kitDir = path.join(dataRoot, 'generated', 'validated', tenantId);
+  await mkdir(kitDir, { recursive: true });
+  await writeFile(
+    path.join(kitDir, 'brand-kit.json'),
+    JSON.stringify({
+      tenant_id: tenantId,
+      source_url: sourceUrl,
+      canonical_url: sourceUrl,
+      brand_name: 'Brand Example',
+      logo_urls: ['https://brand.example/assets/logo.svg'],
+      colors: {
+        primary: '#111111',
+        secondary: '#f4f4f4',
+        accent: '#c24d2c',
+        palette: ['#111111', '#f4f4f4', '#c24d2c'],
+      },
+      font_families: ['Manrope'],
+      external_links: [],
+      extracted_at: new Date().toISOString(),
+      brand_voice_summary: 'Brand Example helps teams launch proof-led campaigns.',
+      offer_summary: null,
+      positioning: 'proof-led',
+      audience: 'marketing teams',
+      tone_of_voice: 'professional',
+      style_vibe: 'minimal',
+    }, null, 2),
+  );
+}
+
 async function withMarketingRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise<T> {
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousDataRoot = process.env.DATA_ROOT;
@@ -118,59 +270,6 @@ async function withMarketingRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>)
     else process.env.ARTIFACT_STAGE4_CACHE_DIR = previousStage4CacheDir;
     await rm(dataRoot, { recursive: true, force: true });
   }
-}
-
-function installMinimalMarketingInvoker(): void {
-  setExecutionTestInvoker((payload) => {
-    const args = (payload.args as Record<string, unknown> | undefined) ?? {};
-    const action = String(args.action || '');
-
-    if (action === 'run') {
-      return {
-        ok: true,
-        status: 'needs_approval',
-        output: [
-          {
-            run_id: 'run-research',
-            executive_summary: {
-              market_positioning: 'Proof-led competitive research is complete.',
-              campaign_takeaway: 'Outcome-first hooks are winning.',
-            },
-          },
-        ],
-        requiresApproval: {
-          resumeToken: 'resume_strategy',
-          prompt: 'Research complete. Approve strategy to continue.',
-        },
-      };
-    }
-
-    if (action === 'resume') {
-      const token = String(args.token || '');
-      if (token === 'resume_strategy') {
-        return {
-          ok: true,
-          status: 'needs_approval',
-          output: [
-            {
-              run_id: 'run-strategy',
-              strategy_handoff: {
-                run_id: 'run-strategy',
-                core_message: 'Launch campaigns with operator control.',
-                primary_cta: 'Book a walkthrough',
-              },
-            },
-          ],
-          requiresApproval: {
-            resumeToken: 'resume_production',
-            prompt: 'Strategy complete. Approve production to continue.',
-          },
-        };
-      }
-    }
-
-    throw new Error(`Unexpected action: ${action}`);
-  });
 }
 
 function makeAwaitingPublishApprovalRuntimeDoc(input: {
@@ -395,9 +494,9 @@ test('runtime campaign views stay populated when proposal artifacts exist even w
     const jobsRoot = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs');
     const jobId = 'proposal-backed-runtime-view';
     await mkdir(jobsRoot, { recursive: true });
-    await mkdir(path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, 'plan-run'), { recursive: true });
+    await mkdir(path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, 'tenant_runtime', 'plan-run'), { recursive: true });
     await writeFile(
-      path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, 'plan-run', 'campaign_planner.json'),
+      path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, 'tenant_runtime', 'plan-run', 'campaign_planner.json'),
       JSON.stringify({
         brand_slug: 'brand-example',
         campaign_plan: {
@@ -465,9 +564,9 @@ test('tenant runtime views keep only the latest rerun for the same campaign iden
     await mkdir(jobsRoot, { recursive: true });
 
     for (const runId of ['plan-run-old', 'plan-run-new']) {
-      await mkdir(path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, runId), { recursive: true });
+      await mkdir(path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, 'tenant_runtime_dedupe', runId), { recursive: true });
       await writeFile(
-        path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, runId, 'campaign_planner.json'),
+        path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, 'tenant_runtime_dedupe', runId, 'campaign_planner.json'),
         JSON.stringify({
           brand_slug: 'brand-example',
           campaign_plan: {
@@ -570,9 +669,10 @@ test('runtime views ignore malformed legacy marketing runtime documents without 
 });
 
 test('review decisions persist and can be reloaded from runtime-backed state', async () => {
-  await withMarketingRuntimeEnv(async () => {
-    installMinimalMarketingInvoker();
-    const restoreFetch = installBrandExampleFetchMock();
+  await withMarketingRuntimeEnv(async (dataRoot) => {
+    const restoreHermesEnv = withHermesExecutionEnv();
+    const restoreFetch = installHermesSyncApprovalFetchMock();
+    await seedBrandKitForTenant(dataRoot, 'tenant_123', 'https://brand.example/');
     const { startSocialContentJob } = await import('../backend/marketing/orchestrator');
     const views = await import('../backend/marketing/runtime-views');
 
@@ -581,8 +681,9 @@ test('review decisions persist and can be reloaded from runtime-backed state', a
         tenantId: 'tenant_123',
         jobType: 'weekly_social_content',
           payload: {
-            brandUrl: 'https://brand.example',
+            brandUrl: 'https://brand.example/',
             competitorUrl: 'https://betterup.com',
+            businessType: 'B2B SaaS',
           },
       });
 
@@ -614,15 +715,16 @@ test('review decisions persist and can be reloaded from runtime-backed state', a
       assert.equal(typeof saved, 'object');
     } finally {
       restoreFetch();
-      clearExecutionTestInvoker();
+      restoreHermesEnv();
     }
   });
 });
 
 test('approving a workflow approval review item resumes the marketing job', async () => {
-  await withMarketingRuntimeEnv(async () => {
-    installMinimalMarketingInvoker();
-    const restoreFetch = installBrandExampleFetchMock();
+  await withMarketingRuntimeEnv(async (dataRoot) => {
+    const restoreHermesEnv = withHermesExecutionEnv();
+    const restoreFetch = installHermesSyncApprovalFetchMock();
+    await seedBrandKitForTenant(dataRoot, 'tenant_123', 'https://brand.example/');
     const { startSocialContentJob } = await import('../backend/marketing/orchestrator');
     const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
     const views = await import('../backend/marketing/runtime-views');
@@ -632,8 +734,9 @@ test('approving a workflow approval review item resumes the marketing job', asyn
         tenantId: 'tenant_123',
         jobType: 'weekly_social_content',
           payload: {
-            brandUrl: 'https://brand.example',
+            brandUrl: 'https://brand.example/',
             competitorUrl: 'https://betterup.com',
+            businessType: 'B2B SaaS',
           },
       });
 
@@ -658,22 +761,23 @@ test('approving a workflow approval review item resumes the marketing job', asyn
       assert.equal(runtimeDoc?.approvals.current?.stage, 'production');
     } finally {
       restoreFetch();
-      clearExecutionTestInvoker();
+      restoreHermesEnv();
     }
   });
 });
 
 test('approve_stage_2 workflow reviews include research, brief, brand-kit, and uploaded brand assets', async () => {
   await withMarketingRuntimeEnv(async (dataRoot) => {
-    installMinimalMarketingInvoker();
-    const restoreFetch = installBrandExampleFetchMock();
+    const restoreHermesEnv = withHermesExecutionEnv();
+    const restoreFetch = installHermesSyncApprovalFetchMock();
+    await seedBrandKitForTenant(dataRoot, 'tenant_123', 'https://brand.example/');
     const { startSocialContentJob } = await import('../backend/marketing/orchestrator');
     const views = await import('../backend/marketing/runtime-views');
     const { ensureSocialContentWorkspaceRecord, saveSocialContentWorkspaceRecord } = await import('../backend/marketing/workspace-store');
 
     try {
       const payload = {
-        brandUrl: 'https://brand.example',
+        brandUrl: 'https://brand.example/',
         competitorUrl: 'https://betterup.com',
         businessName: 'Brand Example',
         businessType: 'B2B SaaS',
@@ -737,15 +841,16 @@ test('approve_stage_2 workflow reviews include research, brief, brand-kit, and u
       assert.equal(campaigns[0]?.approvalActionHref, `/review/${encodeURIComponent(`${started.jobId}::approval`)}`);
     } finally {
       restoreFetch();
-      clearExecutionTestInvoker();
+      restoreHermesEnv();
     }
   });
 });
 
 test('stale workflow approval ids do not advance a newer approval checkpoint', async () => {
-  await withMarketingRuntimeEnv(async () => {
-    installMinimalMarketingInvoker();
-    const restoreFetch = installBrandExampleFetchMock();
+  await withMarketingRuntimeEnv(async (dataRoot) => {
+    const restoreHermesEnv = withHermesExecutionEnv();
+    const restoreFetch = installHermesSyncApprovalFetchMock();
+    await seedBrandKitForTenant(dataRoot, 'tenant_123', 'https://brand.example/');
     const { startSocialContentJob } = await import('../backend/marketing/orchestrator');
     const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
     const views = await import('../backend/marketing/runtime-views');
@@ -755,8 +860,9 @@ test('stale workflow approval ids do not advance a newer approval checkpoint', a
         tenantId: 'tenant_123',
         jobType: 'weekly_social_content',
           payload: {
-            brandUrl: 'https://brand.example',
+            brandUrl: 'https://brand.example/',
             competitorUrl: 'https://betterup.com',
+            businessType: 'B2B SaaS',
           },
       });
 
@@ -795,7 +901,7 @@ test('stale workflow approval ids do not advance a newer approval checkpoint', a
       assert.equal(runtimeDoc?.approvals.current?.stage, 'production');
     } finally {
       restoreFetch();
-      clearExecutionTestInvoker();
+      restoreHermesEnv();
     }
   });
 });

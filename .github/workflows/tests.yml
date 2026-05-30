@@ -1,0 +1,63 @@
+name: Tests
+
+# Runs the FULL TypeScript test suite (not just the curated `verify` subset)
+# plus typecheck + lint on every PR and every push to master. This closes the
+# rot vector that let 63 contract tests go red unnoticed: the `verify` gate is
+# a curated subset and the repo's other CI is CodeQL-only, so tests outside
+# `verify` were never enforced. To make this BLOCK merges, add "Tests / full-suite"
+# as a required status check in branch protection (a GitHub repo setting).
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NODE_ENV: development
+      CODE_ROOT: ${{ github.workspace }}
+      APP_BASE_URL: https://aries.example.com
+      NEXTAUTH_URL: https://aries.example.com
+      AUTH_URL: https://aries.example.com
+      AUTH_TRUST_HOST: 'true'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # Node 24 matches the prod runtime (Dockerfile node:24-bookworm) and
+          # the sibling pr-agent-autofix workflow. The suite is validated locally
+          # on node 22; this gate running green on every PR is what verifies 24.
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck + lint (route types, banned patterns, repo boundary, protocol drift)
+        run: npm run lint
+
+      - name: Full test suite (all tests/**, concurrency=1)
+        shell: bash
+        run: |
+          # Full suite, no quarantine. The two tenant-context tests that 400'd on
+          # a clean runner are fixed (each pins its own per-test mkdtemp DATA_ROOT).
+          # The export below is belt-and-suspenders for any future test that relies
+          # on an ambient DATA_ROOT: $RUNNER_TEMP is always writable on the runner,
+          # avoiding the uncreatable /home/node/data fallback. Set here in the step
+          # shell (not job env) because the `runner` context is unavailable at
+          # job-env level — using ${{ runner.temp }} there is a startup failure.
+          export DATA_ROOT="${RUNNER_TEMP}/aries-data"
+          mapfile -t TEST_FILES < <(find tests -name '*.test.ts' | sort)
+          echo "Running ${#TEST_FILES[@]} test files"
+          npx --no-install tsx --test --test-concurrency=1 "${TEST_FILES[@]}"

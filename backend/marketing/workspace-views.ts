@@ -542,9 +542,19 @@ async function loadStagePayloadBundle(
       : null);
   const strategyPrimaryOutput = resolveStageOutput(runtimeDoc, 'strategy');
   const productionPrimaryOutput = resolveStageOutput(runtimeDoc, 'production');
-  const primaryOutputCampaignPlanner = strategyPrimaryOutput && Object.keys(strategyOutputs).length === 0
+  const primaryOutputCampaignPlannerRaw = strategyPrimaryOutput && Object.keys(strategyOutputs).length === 0
     ? primaryOutputToSocialContentPlanner(strategyPrimaryOutput)
     : null;
+  const primaryOutputCampaignPlanner = (() => {
+    if (!primaryOutputCampaignPlannerRaw) return null;
+    const plan = recordValue(primaryOutputCampaignPlannerRaw.campaign_plan);
+    const hasContent =
+      !!stringValue(plan?.core_message) ||
+      recordArray(plan?.channel_plans).length > 0 ||
+      recordArray(plan?.content_package).length > 0 ||
+      !!stringValue(primaryOutputCampaignPlannerRaw.creative_direction);
+    return hasContent ? primaryOutputCampaignPlannerRaw : null;
+  })();
   const primaryOutputProductionPreview = productionPrimaryOutput && Object.keys(productionOutputs).length === 0
     ? primaryOutputToProductionPreview(productionPrimaryOutput)
     : null;
@@ -1384,8 +1394,21 @@ async function queryProductionCreativeAssets(
   }
 }
 
-export async function buildSocialContentWorkspaceView(jobId: string): Promise<SocialContentWorkspaceView> {
-  const runtimeDoc = await loadSocialContentJobRuntime(jobId);
+export type BuildSocialContentWorkspaceViewOptions = {
+  /**
+   * Reuse an already-loaded runtime doc instead of re-reading it from disk.
+   * Hot paths (the social content list fan-out) load the doc once and thread it
+   * through the status build and this view build to avoid redundant reads.
+   */
+  runtimeDoc?: SocialContentJobRuntimeDocument | null;
+};
+
+export async function buildSocialContentWorkspaceView(
+  jobId: string,
+  options: BuildSocialContentWorkspaceViewOptions = {},
+): Promise<SocialContentWorkspaceView> {
+  const runtimeDoc =
+    options.runtimeDoc !== undefined ? options.runtimeDoc : await loadSocialContentJobRuntime(jobId);
   if (!runtimeDoc) {
     return {
       jobId,

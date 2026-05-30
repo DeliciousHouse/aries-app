@@ -2,6 +2,42 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.13.7 — perf(social-content): collapse redundant per-job runtime-doc reads on the list path
+
+### Performance
+- **Campaign-list / results hot path** (`GET /api/social-content/posts` →
+  `listSocialContentJobsForTenant` / `listDeletedSocialContentJobsForTenant`)
+  now reads each job's runtime doc from disk **once** instead of three times.
+  v0.1.13.6 removed the double *hydration* (the 2× full workspace-view builds),
+  but each surviving build still reloaded the doc on its own: `getMarketingJobStatus`
+  loaded it (`buildMarketingJobStatus`), the list loaded it again explicitly, and
+  `buildSocialContentWorkspaceView` loaded it a third time. The list now loads the
+  doc once in phase 1 and threads it through both via a new optional `runtimeDoc`
+  parameter on `getMarketingJobStatus` and `buildSocialContentWorkspaceView`.
+  - **Correctness:** byte-identical output. `loadSocialContentJobRuntime` returns a
+    fresh object per call and the status/view builders treat the doc as read-only,
+    so threading one shared doc is equivalent to reloading it. The full view is still
+    built (dashboard + workflowState + creativeReview), so every `RuntimePostListItem`
+    card field and the `pendingApprovals` count are unchanged. Guarded by
+    `tests/runtime-views-list-projection.test.ts::assertViewEquivalence`
+    (threaded-doc view/status deep-equal the reload-doc view/status), now wired into
+    `npm run verify`.
+  - `undefined` (param omitted) loads the doc as before; `null` (caller proved the
+    doc is missing) hits the same not-found sentinel — so all existing single-arg
+    callers are unaffected.
+  - No new fan-out: the bounded `processConcurrent(…, 4)` is preserved
+    (CLAUDE.md operational guardrail #1); per-slot work is reduced, not parallelism
+    widened. Response shape unchanged.
+  - `backend/marketing/{runtime-views,workspace-views,jobs-status}.ts`
+  - **Investigated and rejected (not byte-identical):** a true lightweight list
+    projection (skip the workspace-view build) is infeasible — `view.workflowState`
+    and every gated dashboard count are joint outputs of the heavy build, which also
+    gates `pendingApprovals`. Dropping the DB production creative-asset merge on the
+    list path was also rejected: those rows are inserted `status:'approved'` but
+    `mergeReviewState` overrides that with the persisted review decision, so skipping
+    the merge would **undercount** `pendingApprovals` for any job with a rejected
+    Hermes-generated creative asset. Both findings recorded so they aren't re-attempted.
+
 ## v0.1.13.6 — perf(social-content): lightweight list projection to cut per-job hydration
 
 ### Performance

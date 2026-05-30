@@ -19,6 +19,7 @@ export interface FacebookPublishResult {
 export default function FacebookPublishDrawer(props: FacebookPublishDrawerProps) {
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const [caption, setCaption] = useState(props.defaultCaption ?? '');
+  const [placement, setPlacement] = useState<'feed' | 'story'>('feed');
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [result, setResult] = useState<FacebookPublishResult | null>(null);
@@ -50,7 +51,7 @@ export default function FacebookPublishDrawer(props: FacebookPublishDrawerProps)
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ caption: caption.trim() }),
+          body: JSON.stringify({ caption: caption.trim(), placement }),
         },
       );
 
@@ -139,6 +140,31 @@ export default function FacebookPublishDrawer(props: FacebookPublishDrawerProps)
           </div>
         ) : (
           <div className="space-y-5 px-6 py-5">
+            <div className="space-y-2 text-sm">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/45">Format</span>
+              <div role="group" aria-label="Post format" className="flex gap-2">
+                {(['feed', 'story'] as const).map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    data-testid={`fb-publish-placement-${option}`}
+                    aria-pressed={placement === option}
+                    onClick={() => {
+                      setErrorMessage(null);
+                      setPlacement(option);
+                    }}
+                    className={`flex-1 rounded-full border px-4 py-2 text-sm font-medium transition ${
+                      placement === option
+                        ? 'border-white/35 bg-white/10 text-white'
+                        : 'border-white/12 text-white/55 hover:border-white/20 hover:text-white/80'
+                    }`}
+                  >
+                    {option === 'feed' ? 'Feed post' : 'Story'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <label className="block space-y-2 text-sm" htmlFor="fb-publish-caption">
               <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/45">Caption</span>
               <textarea
@@ -154,7 +180,9 @@ export default function FacebookPublishDrawer(props: FacebookPublishDrawerProps)
                 className="w-full rounded-[1rem] border border-white/12 bg-black/30 px-4 py-3 text-sm text-white placeholder:text-white/30 focus:border-white/35 focus:outline-none"
               />
               <span className="text-xs text-white/45">
-                Posting immediately to the connected Facebook Page.
+                {placement === 'story'
+                  ? 'Publishing a 24h Facebook story (single image).'
+                  : 'Posting immediately to the connected Facebook Page.'}
               </span>
             </label>
 

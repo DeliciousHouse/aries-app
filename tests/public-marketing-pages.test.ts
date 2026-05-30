@@ -113,7 +113,7 @@ test('public marketing pages return valid elements with expected route shells an
     assert.equal(isValidElement(apiDocsElement), true);
     assert.equal(apiDocsElement.type, MarketingLayout);
     const apiDocsText = normalizeWhitespace(collectText(apiDocsElement.props.children));
-    assert.match(apiDocsText, /\/api\/contact/);
+    assert.match(apiDocsText, /\/api\/integrations/);
     assert.match(apiDocsText, /\/api\/marketing\/jobs/);
     assert.match(apiDocsText, /Browser-safe routes for the current Aries contract/);
   });
@@ -123,9 +123,9 @@ test('the authenticated route registry uses the required v1 top navigation label
   const routeSource = readRepoFile('frontend/app-shell/routes.ts');
 
   assert.match(routeSource, /title:\s*'Home'/);
-  assert.match(routeSource, /title:\s*'Campaigns'/);
+  assert.match(routeSource, /title:\s*'Social Content'/);
   assert.match(routeSource, /title:\s*'Calendar'/);
   assert.match(routeSource, /title:\s*'Results'/);
-  assert.match(routeSource, /href:\s*'\/dashboard\/campaigns'/);
+  assert.match(routeSource, /href:\s*'\/dashboard\/social-content'/);
   assert.match(routeSource, /href:\s*'\/dashboard\/results'/);
 });
