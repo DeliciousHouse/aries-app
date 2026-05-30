@@ -14,8 +14,8 @@ export type SupportedMetaProvider = 'facebook' | 'instagram';
  * a FEED media container on IG). 'story' is the 24h ephemeral format: FB
  * /{page}/photo_stories and IG media_type=STORIES. Stories are single-media
  * and cannot be natively scheduled, so the story branch rejects multi-media
- * and scheduledFor. Image stories only — video stories need video upload,
- * which this path does not implement.
+ * and scheduledFor. Both image and video stories are supported (IG STORIES
+ * container accepts video; FB /photo_stories for image, /video_stories for video).
  */
 export type MetaPlacement = 'feed' | 'story' | 'reel';
 export type MetaMediaType = 'image' | 'video';

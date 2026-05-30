@@ -153,14 +153,15 @@ export function validateMediaForSurface(input: ValidateMediaInput): void {
     return;
   }
 
-  // surface === 'feed' video. Provider-agnostic ceiling: enforce the stricter
-  // IG window (the caller knows the provider but feed-video constraints overlap;
-  // use the looser FB cap only as the absolute upper bound).
+  // surface === 'feed' video. The validator is provider-agnostic (no platform
+  // in the input), so enforce the STRICTER IG feed window: a feed video that
+  // passes here is publishable to both IG and FB feed. (FB alone allows longer,
+  // but allowing up to the FB cap would pass media IG-feed then rejects.)
   if (duration < IG_FEED_VIDEO_MIN_S) {
     fail('duration_out_of_range', `Feed video must be >= ${IG_FEED_VIDEO_MIN_S}s; got ${duration}s.`);
   }
-  if (duration > FB_FEED_VIDEO_MAX_S) {
-    fail('duration_out_of_range', `Feed video must be <= ${FB_FEED_VIDEO_MAX_S}s; got ${duration}s.`);
+  if (duration > IG_FEED_VIDEO_MAX_S) {
+    fail('duration_out_of_range', `Feed video must be <= ${IG_FEED_VIDEO_MAX_S}s; got ${duration}s.`);
   }
 }
 
