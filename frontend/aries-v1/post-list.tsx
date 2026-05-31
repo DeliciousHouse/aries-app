@@ -52,7 +52,14 @@ export default function AriesPostListScreen() {
         <LoadingStateGrid />
       ) : campaigns.error ? (
         <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
-          {customerSafeUiErrorMessage(campaigns.error.message, 'Social content is not available right now.')}
+          <p>{customerSafeUiErrorMessage(campaigns.error.message, 'Social content is not available right now.')}</p>
+          <button
+            type="button"
+            onClick={() => void campaigns.load({ force: true })}
+            className="mt-3 inline-flex items-center gap-2 rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-1.5 text-sm font-medium text-red-50 transition hover:bg-red-500/20"
+          >
+            Try again
+          </button>
         </div>
       ) : items.length === 0 && deletedItems.length === 0 ? (
         <EmptyStatePanel

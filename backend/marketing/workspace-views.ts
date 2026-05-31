@@ -15,6 +15,7 @@ import type {
   MarketingReviewSection,
   MarketingStageReviewPayload,
 } from '@/lib/api/marketing';
+import { processConcurrent } from '@/lib/process-concurrent';
 
 import { buildMarketingAssetLinks, findMarketingAsset } from './asset-library';
 import {
@@ -1663,12 +1664,22 @@ function postIdentity(post: MarketingDashboardSocialContentJob | null, jobId: st
 }
 
 export async function getWorkflowAwareDashboardContentForTenant(tenantId: string): Promise<MarketingDashboardContent> {
+  const jobIds = await listSocialContentJobIdsForTenant(tenantId);
+
+  // Bounded-parallel hydration (concurrency 4 = ≤20% of the default
+  // DB_POOL_MAX=20 per request; mirrors listSocialContentJobsForTenant). The
+  // prior serial loop hydrated every job's workspace view one-at-a-time, which
+  // is the dominant cost of GET /api/marketing/posts (per-job work is disk + PG
+  // I/O bound). Bounding the fan-out at 4 cuts wall-clock without exceeding the
+  // pool budget (CLAUDE.md guardrail #1). processConcurrent preserves input
+  // order, so dedup below still keeps the first occurrence in jobId order —
+  // byte-identical selection to the old loop.
+  const views = await processConcurrent(jobIds, (jobId) => buildSocialContentWorkspaceView(jobId), 4);
+
   const items: MarketingDashboardSocialContentJobContent[] = [];
   const seen = new Set<string>();
-
-  for (const jobId of await listSocialContentJobIdsForTenant(tenantId)) {
-    const view = await buildSocialContentWorkspaceView(jobId);
-    const key = postIdentity(view.dashboard.post, jobId);
+  for (const view of views) {
+    const key = postIdentity(view.dashboard.post, view.jobId);
     if (seen.has(key)) {
       continue;
     }

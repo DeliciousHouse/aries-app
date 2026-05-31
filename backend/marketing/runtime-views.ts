@@ -1268,8 +1268,12 @@ export function syncHistoryWithLastDecision(item: RuntimeReviewItem): RuntimeRev
   return { ...item, history: [...item.history, synthesized] };
 }
 
-async function buildReviewItemsForJob(jobId: string): Promise<RuntimeReviewItem[]> {
-  const runtimeDoc = await loadSocialContentJobRuntime(jobId);
+async function buildReviewItemsForJob(
+  jobId: string,
+  options: { runtimeDoc?: SocialContentJobRuntimeDocument | null } = {},
+): Promise<RuntimeReviewItem[]> {
+  const runtimeDoc =
+    options.runtimeDoc !== undefined ? options.runtimeDoc : await loadSocialContentJobRuntime(jobId);
   if (!runtimeDoc) {
     return [];
   }
@@ -1285,8 +1289,8 @@ async function buildReviewItemsForJob(jobId: string): Promise<RuntimeReviewItem[
     return [];
   }
 
-  const status = await getMarketingJobStatus(jobId);
-  const view = await buildSocialContentWorkspaceView(jobId);
+  const status = await getMarketingJobStatus(jobId, { runtimeDoc });
+  const view = await buildSocialContentWorkspaceView(jobId, { runtimeDoc });
   return buildReviewItemsFromContext(jobId, runtimeDoc, status, view);
 }
 
@@ -1947,11 +1951,44 @@ export async function listMarketingReviewQueueForTenant(tenantId: string): Promi
   // chosen to use ≤20% of the default DB_POOL_MAX=20 per request. Live audit
   // on this tenant (30+ jobs) saw 24-36s here under the prior serial loop.
   // See lib/process-concurrent.ts and CLAUDE.md guardrail #1.
+  //
+  // O(jobs-with-pending) hydration: a job contributes to the review queue only
+  // when it has non-approved review items. The persisted `pending_approval_count`
+  // (PR #521) IS that exact count and is oracle-verified against the live
+  // re-hydrating build (tests/marketing/pending-approval-count-denorm.test.ts).
+  // So when the persisted count is 0 we skip the expensive getMarketingJobStatus
+  // + buildSocialContentWorkspaceView hydration entirely and contribute nothing
+  // — byte-identical to the old per-job rebuild, which would have produced zero
+  // non-approved items for that job. Legacy records (count undefined) fall
+  // through to a full build and self-heal the scalar so the next load is O(1).
   const jobIds = await listSocialContentJobIdsForTenant(tenantId);
-  const perJob = await processConcurrent(jobIds, (jobId) => buildReviewItemsForJob(jobId), 4);
+  const perJob = await processConcurrent(
+    jobIds,
+    async (jobId): Promise<RuntimeReviewItem[]> => {
+      const runtimeDoc = await loadSocialContentJobRuntime(jobId);
+      if (!runtimeDoc) {
+        return [];
+      }
+      if (runtimeDoc.state === 'failed' || runtimeDoc.status === 'failed') {
+        return [];
+      }
+      const record = loadSocialContentWorkspaceRecord(jobId, runtimeDoc.tenant_id);
+      if (record && record.pending_approval_count === 0) {
+        return [];
+      }
+      const items = await buildReviewItemsForJob(jobId, { runtimeDoc });
+      const nonApproved = items.filter((item) => item.status !== 'approved');
+      if (!record || record.pending_approval_count === undefined) {
+        // Self-heal legacy records so subsequent loads read the count O(1).
+        persistPendingApprovalCount(jobId, runtimeDoc.tenant_id, nonApproved.length);
+      }
+      return nonApproved;
+    },
+    4,
+  );
   const items: RuntimeReviewItem[] = [];
   for (const reviewItems of perJob) {
-    items.push(...reviewItems.filter((item) => item.status !== 'approved'));
+    items.push(...reviewItems);
   }
   return buildRuntimeReviewQueue(items);
 }

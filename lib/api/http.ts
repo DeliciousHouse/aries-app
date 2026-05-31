@@ -21,6 +21,13 @@ export interface ApiClientOptions {
 
 export interface RequestJsonOptions extends RequestInit {
   query?: Record<string, string | number | boolean | null | undefined>;
+  /**
+   * Abort the request after this many ms and throw a retryable
+   * `request_timeout` ApiRequestError. Bounds a hung fetch (dropped
+   * connection, stuck upstream) so list screens surface an error+retry instead
+   * of an infinite spinner. Unset = no timeout (unchanged legacy behavior).
+   */
+  timeoutMs?: number;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -112,16 +119,45 @@ export async function requestJson<TResponse>(
   clientOptions: ApiClientOptions = {}
 ): Promise<TResponse> {
   const { baseUrl = '', fetchImpl = fetch } = clientOptions;
-  const { query, headers, ...init } = options;
+  const { query, headers, timeoutMs, ...init } = options;
   const url = buildApiUrl(path, baseUrl, query);
   const normalizedHeaders = new Headers(headers || undefined);
   if (!(init.body instanceof FormData) && !normalizedHeaders.has('content-type')) {
     normalizedHeaders.set('content-type', 'application/json');
   }
-  const response = await fetchImpl(url, {
-    ...init,
-    headers: normalizedHeaders,
-  });
+
+  // Bounded request timeout: a hung GET must surface as a retryable error, not
+  // an infinite spinner. Default (timeoutMs undefined) keeps the old behavior.
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  let controller: AbortController | undefined;
+  let signal = init.signal ?? undefined;
+  if (typeof timeoutMs === 'number' && timeoutMs > 0 && typeof AbortController !== 'undefined' && !signal) {
+    controller = new AbortController();
+    signal = controller.signal;
+    timeoutHandle = setTimeout(() => controller?.abort(), timeoutMs);
+  }
+
+  let response: Response;
+  try {
+    response = await fetchImpl(url, {
+      ...init,
+      headers: normalizedHeaders,
+      signal,
+    });
+  } catch (error) {
+    if (controller?.signal.aborted) {
+      throw new ApiRequestError(
+        `This request took longer than ${Math.round(timeoutMs! / 1000)}s and was cancelled. Check your connection and try again.`,
+        0,
+        'request_timeout',
+      );
+    }
+    throw error;
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
 
   const body = await readJsonBody(response);
 

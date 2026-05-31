@@ -425,13 +425,13 @@ export type PostsInventoryResponse = MarketingDashboardContent;
 export function createAriesV1Api(options: ApiClientOptions = {}) {
   return {
     getSocialContentList() {
-      return requestJson<SocialContentListResponse>('/api/social-content/posts', { method: 'GET' }, options);
+      return requestJson<SocialContentListResponse>('/api/social-content/posts', { method: 'GET', timeoutMs: 30000 }, options);
     },
     getReviews() {
-      return requestJson<ReviewQueueResponse>('/api/marketing/reviews', { method: 'GET' }, options);
+      return requestJson<ReviewQueueResponse>('/api/marketing/reviews', { method: 'GET', timeoutMs: 30000 }, options);
     },
     getPosts() {
-      return requestJson<PostsInventoryResponse>('/api/marketing/posts', { method: 'GET' }, options);
+      return requestJson<PostsInventoryResponse>('/api/marketing/posts', { method: 'GET', timeoutMs: 30000 }, options);
     },
     getReviewItem(reviewId: string) {
       return requestJson<ReviewItemResponse>(`/api/marketing/reviews/${encodeURIComponent(reviewId)}`, { method: 'GET' }, options);

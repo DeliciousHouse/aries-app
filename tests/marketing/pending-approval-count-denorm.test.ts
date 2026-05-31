@@ -437,3 +437,54 @@ test('write site: source-hash drift on an approved DB asset re-pends it and pers
     }
   });
 });
+
+test('list queue: count==0 jobs are skipped, but the skip path matches a full rebuild', async () => {
+  // Guards the O(jobs-with-pending) optimization in listMarketingReviewQueueForTenant:
+  // a job whose persisted pending_approval_count is 0 must be excluded WITHOUT
+  // re-hydrating its workspace view, and the resulting queue must be identical
+  // to building every job from scratch (no skip). Relies on the #521 invariant
+  // (persisted == live oracle), which the write-site tests above maintain.
+  await withEnv(async (dataRoot) => {
+    const mock = installMockPool();
+    try {
+      await writeFile(path.join(dataRoot, 'openai_codex_a.png'), Buffer.from('a'));
+      const { saveSocialContentJobRuntime } = await import('../../backend/marketing/runtime-state');
+      const { applyHermesMarketingCallback } = await import('../../backend/marketing/hermes-callbacks');
+      const views = await import('../../backend/marketing/runtime-views');
+      const store = await import('../../backend/marketing/workspace-store');
+
+      const tenantId = '42';
+      const jobId = 'mkt_queue_pending';
+      saveSocialContentJobRuntime(jobId, makeProductionRunningDoc(jobId));
+      await applyHermesMarketingCallback(makeRunRecord(jobId), makeProductionApprovalPayload() as never);
+
+      // Full-rebuild oracle: strip the persisted count so the queue builder takes
+      // the build-everything path (no skip), then snapshot the queue ids.
+      const stripped = store.loadSocialContentWorkspaceRecord(jobId, tenantId)!;
+      stripped.pending_approval_count = undefined;
+      store.saveSocialContentWorkspaceRecord(stripped);
+      const fullRebuild = (await views.listMarketingReviewQueueForTenant(tenantId)).reviews
+        .map((r) => r.id)
+        .sort();
+      assert.ok(fullRebuild.length > 0, 'a pending production approval must yield a non-empty queue');
+
+      // The list load above self-healed the count. The steady-state (skip) path
+      // must produce the identical queue.
+      const skipPath = (await views.listMarketingReviewQueueForTenant(tenantId)).reviews
+        .map((r) => r.id)
+        .sort();
+      assert.deepEqual(skipPath, fullRebuild, 'skip-path queue must equal the full-rebuild queue');
+
+      // Force the persisted count to 0 (simulate an all-approved job). The job
+      // must drop from the queue — proving count==0 short-circuits the heavy
+      // getMarketingJobStatus + buildSocialContentWorkspaceView hydration.
+      const zeroed = store.loadSocialContentWorkspaceRecord(jobId, tenantId)!;
+      zeroed.pending_approval_count = 0;
+      store.saveSocialContentWorkspaceRecord(zeroed);
+      const afterZero = (await views.listMarketingReviewQueueForTenant(tenantId)).reviews;
+      assert.equal(afterZero.length, 0, 'a count==0 job is skipped and contributes nothing to the queue');
+    } finally {
+      mock.restore();
+    }
+  });
+});
