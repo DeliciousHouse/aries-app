@@ -727,43 +727,49 @@ function UnscheduledTrayItem({
 
   const canSchedule = Boolean(post.jobId);
 
+  // WCAG 4.1.2 (nested-interactive): the draggable region carries dnd-kit's
+  // role="button" + tabindex=0, so it must NOT contain another focusable
+  // control. The Schedule button is a SIBLING of the draggable card, not a
+  // descendant — which also removes the pointer/key stopPropagation hacks that
+  // previously kept a click on the button from starting a drag.
   return (
-    <div
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
-      data-testid={`tray-item-${post.postId}`}
-      className={`cursor-grab rounded-2xl border border-white/[0.06] bg-white/[0.03] p-3 transition-all hover:border-primary/25 ${
-        isDragging ? 'opacity-40' : ''
-      }`}
-    >
-      {post.imageUrl ? (
-        <img
-          src={post.imageUrl}
-          alt={post.title}
-          className="mb-2 h-16 w-full rounded-xl object-cover"
-        />
-      ) : null}
-      <div className="mb-1.5 flex items-center gap-2">
-        <span className="flex h-4 w-4 items-center justify-center text-white/70">
-          {platformLogo(post.platform || 'meta')}
-        </span>
-        <span className="text-[9px] font-mono uppercase tracking-[0.16em] text-white/70">
-          {post.platform || 'meta'}
-        </span>
+    <div className="space-y-2">
+      <div
+        ref={setNodeRef}
+        {...attributes}
+        {...listeners}
+        data-testid={`tray-item-${post.postId}`}
+        className={`cursor-grab rounded-2xl border border-white/[0.06] bg-white/[0.03] p-3 transition-all hover:border-primary/25 ${
+          isDragging ? 'opacity-40' : ''
+        }`}
+      >
+        {post.imageUrl ? (
+          <img
+            src={post.imageUrl}
+            alt={post.title}
+            className="mb-2 h-16 w-full rounded-xl object-cover"
+            // Hide rather than render a broken tile if the Hermes asset evicted (404).
+            onError={(e) => {
+              e.currentTarget.style.display = 'none';
+            }}
+          />
+        ) : null}
+        <div className="mb-1.5 flex items-center gap-2">
+          <span className="flex h-4 w-4 items-center justify-center text-white/70">
+            {platformLogo(post.platform || 'meta')}
+          </span>
+          <span className="text-[9px] font-mono uppercase tracking-[0.16em] text-white/70">
+            {post.platform || 'meta'}
+          </span>
+        </div>
+        <p className="text-[11px] font-medium leading-snug text-white/85">{post.title}</p>
       </div>
-      <p className="text-[11px] font-medium leading-snug text-white/85">{post.title}</p>
       {canSchedule ? (
         <button
           type="button"
           data-testid={`tray-item-schedule-${post.postId}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onClickSchedule(post);
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-          onKeyDown={(e) => e.stopPropagation()}
-          className="mt-2 w-full rounded-xl border border-primary/20 bg-primary/10 py-1.5 text-[10px] font-medium text-violet-300 transition hover:border-primary/40 hover:text-primary"
+          onClick={() => onClickSchedule(post)}
+          className="w-full rounded-xl border border-primary/20 bg-primary/10 py-1.5 text-[10px] font-medium text-violet-300 transition hover:border-primary/40 hover:text-primary"
         >
           Schedule
         </button>

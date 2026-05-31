@@ -1359,6 +1359,7 @@ const SELECT_PRODUCTION_CREATIVE_ASSETS_SQL = `
    WHERE tenant_id = $1
      AND source_job_id = $2
      AND source_type = 'generated_by_aries'
+     AND orphaned_at IS NULL
    ORDER BY created_at ASC
 `;
 
