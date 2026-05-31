@@ -109,3 +109,69 @@ test('flag ON: reel/video entry persists with 4-segment key + video/reel shape',
     assert.equal(reel![7], 'video');
   });
 });
+
+// Fake pool that ALSO returns ingested creative assets for the SELECT so story
+// auto-promotion can link a creative (a story is single-media; entries with no
+// linked creative are skipped).
+function makeFakePoolWithAssets() {
+  const inserts: unknown[][] = [];
+  return {
+    inserts,
+    pool: {
+      async query(sql: string, params: unknown[] = []) {
+        if (/INSERT INTO posts/i.test(sql)) {
+          inserts.push(params);
+          return { rows: [{ id: inserts.length }], rowCount: 1 };
+        }
+        if (/FROM creative_assets/i.test(sql)) {
+          // index+1 => post_number; source_asset_id is what synthesize links.
+          return { rows: [{ id: 'uuid-1', source_asset_id: 'img_1' }, { id: 'uuid-2', source_asset_id: 'img_2' }], rowCount: 2 };
+        }
+        return { rows: [], rowCount: 0 };
+      },
+    },
+  };
+}
+
+function makeDocWithStoryBudget(jobId: string, schedule: unknown[], storyCount: number): SocialContentJobRuntimeDocument {
+  const doc = makeDoc(jobId, schedule) as unknown as { inputs: { request: Record<string, unknown> } };
+  doc.inputs.request = { scope: { story_count: storyCount } };
+  return doc as unknown as SocialContentJobRuntimeDocument;
+}
+
+const ALL_FEED_SCHEDULE = [
+  { post_number: 1, platforms: ['instagram'], placement: 'feed', media_type: 'image' },
+  { post_number: 2, platforms: ['instagram'], placement: 'feed', media_type: 'image' },
+];
+
+test('story_count default 0: no story posts synthesized (feed-only unchanged)', async () => {
+  await withDataRoot(async () => {
+    delete process.env.ARIES_VIDEO_PUBLISH_ENABLED;
+    const { pool, inserts } = makeFakePoolWithAssets();
+    await synthesizePublishPostsFromContentPackage({
+      jobId: 'job_nostory', tenantId: 15, doc: makeDoc('job_nostory', ALL_FEED_SCHEDULE), publishRunId: null, pool,
+    });
+    assert.equal(inserts.length, 2, 'only the two feed posts');
+    assert.ok(inserts.every((p) => p[8] === 'feed'), 'no story surface inserted');
+  });
+});
+
+test('story_count > 0: first N entries also promoted to live image-story posts', async () => {
+  await withDataRoot(async () => {
+    delete process.env.ARIES_VIDEO_PUBLISH_ENABLED;
+    const { pool, inserts } = makeFakePoolWithAssets();
+    const result = await synthesizePublishPostsFromContentPackage({
+      jobId: 'job_story', tenantId: 15, doc: makeDocWithStoryBudget('job_story', ALL_FEED_SCHEDULE, 1), publishRunId: null, pool,
+    });
+    // 2 feed posts + 1 promoted story (first entry, instagram).
+    assert.equal(inserts.length, 3);
+    const story = inserts.find((p) => p[8] === 'story');
+    assert.ok(story, 'story post inserted');
+    assert.equal(story![5], 'job_story:1:instagram:story', '4-segment :story key, distinct from :feed');
+    assert.equal(story![7], 'image', 'image media_type');
+    assert.deepEqual(story![6], ['img_1'], 'story reuses the first entry creative');
+    // The feed post for the same (post,platform) still exists — distinct key.
+    assert.ok(inserts.some((p) => p[5] === 'job_story:1:instagram:feed'), 'feed post coexists');
+    assert.ok(result.inserted >= 3);
+  });
+});

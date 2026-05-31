@@ -155,6 +155,10 @@ export function normalizeWeeklySocialContentPayload(payload: Record<string, unkn
     parseInteger(nextPayload.staticPostCount) ??
     parseInteger(nextPayload.staticPostsCount) ??
     DEFAULT_SOCIAL_CONTENT_COUNTS.staticPostCount;
+  const storyCount =
+    parseInteger(nextPayload.storyCount) ??
+    parseInteger(nextPayload.storiesCount) ??
+    DEFAULT_SOCIAL_CONTENT_COUNTS.storyCount;
   const imageCreativeCount =
     parseInteger(nextPayload.imageCreativeCount) ??
     parseInteger(nextPayload.imageCreativesCount) ??
@@ -193,6 +197,7 @@ export function normalizeWeeklySocialContentPayload(payload: Record<string, unkn
   nextPayload.postWindowDays = postWindowDays;
   nextPayload.windowDays = postWindowDays;
   nextPayload.staticPostCount = Math.max(0, staticPostCount);
+  nextPayload.storyCount = Math.max(0, storyCount);
   nextPayload.imageCreativeCount = Math.min(MAX_IMAGE_CREATIVE_COUNT, Math.max(0, imageCreativeCount));
   nextPayload.videoScriptCount = Math.max(0, videoScriptCount);
   nextPayload.videoRenderCount = Math.min(MAX_VIDEO_RENDER_COUNT, Math.max(0, videoRenderCount));
@@ -201,6 +206,7 @@ export function normalizeWeeklySocialContentPayload(payload: Record<string, unkn
 
   // Backwards-compatible fields consumed by existing marketing orchestrator.
   nextPayload.staticPostsCount = nextPayload.staticPostCount;
+  nextPayload.storiesCount = nextPayload.storyCount;
   nextPayload.imageCreativesCount = nextPayload.imageCreativeCount;
   nextPayload.videoScriptsCount = nextPayload.videoScriptCount;
   nextPayload.renderVideoAfterApproval = Math.min(MAX_VIDEO_RENDER_COUNT, Math.max(0, videoRenderCount)) > 0;

@@ -68,6 +68,8 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
   );
 
   const [staticPostCount, setStaticPostCount] = useState(7);
+  // Image-story posts to publish alongside feed posts. 0 = OFF (default).
+  const [storyCount, setStoryCount] = useState(0);
   const [imageCreativeCount, setImageCreativeCount] = useState(6);
   const [videoScriptCount, setVideoScriptCount] = useState(1);
   const [renderVideoAfterApproval, setRenderVideoAfterApproval] = useState(false);
@@ -146,6 +148,7 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
     const boundedWindowDays = Math.min(14, Math.max(1, postWindowDays || 7));
     formData.set("postWindowDays", String(boundedWindowDays));
     formData.set("staticPostCount", String(Math.max(0, staticPostCount)));
+    formData.set("storyCount", String(Math.max(0, storyCount)));
     formData.set("imageCreativeCount", String(Math.max(0, imageCreativeCount)));
     formData.set("videoScriptCount", String(Math.max(0, videoScriptCount)));
     formData.set("videoRenderCount", renderVideoAfterApproval ? "1" : "0");
@@ -370,6 +373,15 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
                   min={0}
                   value={staticPostCount}
                   onChange={(event) => setStaticPostCount(Number(event.target.value || 0))}
+                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50"
+                />
+              </Field>
+              <Field label="Image stories">
+                <input
+                  type="number"
+                  min={0}
+                  value={storyCount}
+                  onChange={(event) => setStoryCount(Number(event.target.value || 0))}
                   className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50"
                 />
               </Field>

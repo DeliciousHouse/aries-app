@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.13.16 — feat(social-content): automate image stories — story_count request + auto-promote to live IG/FB
+
+### Added
+- **`story_count` weekly-request axis (gated OFF, default 0).** The weekly
+  social-content request now carries `scope.story_count` (camelCase `storyCount`,
+  legacy alias `storiesCount`) end-to-end: `SOCIAL_CONTENT_DEFAULT_SCOPE`
+  (`backend/social-content/defaults.ts`), `WeeklySocialContentPayload` +
+  `DEFAULT_SOCIAL_CONTENT_COUNTS` (`types.ts`), normalization (`payload.ts`),
+  the Hermes request builder (`workflow-request.ts`), the job-scope reader
+  (`jobs-status.ts`), the new-job form handler + an "Image stories" input in
+  `frontend/social-content/new-job.tsx`. Default `0` keeps the Hermes payload
+  byte-for-byte equivalent to the pre-stories behavior.
+- **Aries-side image-story auto-promotion** (`synthesize-publish-posts.ts`).
+  When a weekly run requested `story_count > 0`, Aries promotes the first N
+  `content_package` entries into ADDITIONAL `surface='story'` image posts that
+  reuse the run's Hermes-generated creatives. This closes the automation loop
+  without any Hermes-prompt change: the upstream strategist/publish stages do
+  not emit `placement:'story'` today, so without this an operator's requested
+  stories would never materialise. Story posts publish **live** through the
+  existing scheduled-dispatch path (Meta rejects scheduled stories; the dispatch
+  route never forwards `scheduledFor`). Idempotent + non-colliding: the per-row
+  key carries the surface as its 4th segment (`…:story` vs `…:feed`), so a
+  replayed callback hits `ON CONFLICT DO NOTHING`.
+
+### Notes
+- Default `story_count=0` ⇒ both additions are inert; feed-only behavior is
+  unchanged (verified by the weekly-payload byte-shape test and a new
+  `story_count default 0` synthesis test).
+- The Aries publish path for image stories (FB `/photo_stories`, IG `STORIES`
+  container) shipped in #520 and is verified live on IG + FB. To turn stories on,
+  set the "Image stories" count > 0 when creating a weekly job.
+
 ## v0.1.13.7 — perf(social-content): collapse redundant per-job runtime-doc reads on the list path
 
 ### Performance
