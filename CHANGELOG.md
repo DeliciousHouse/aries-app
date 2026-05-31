@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.13.18 — fix(social-content): make composed story images actually publish (serving + persistence)
+
+Two bugs in v0.1.13.17 (#525) meant a composed story would silently never reach
+Meta with words/CTA. Both caught by a live publish, which failed with
+`Only photo or video can be accepted as media type`.
+
+### Fixed
+- **Public media proxy now serves `ingested_asset` bytes.**
+  `/api/public/media/[token]/[basename]` resolved bytes ONLY from the Hermes
+  mount, so a composed story image (an `ingested_asset` under
+  `DATA_ROOT/ingested-assets`) 404'd when Meta fetched the signed URL → publish
+  rejected. The proxy now falls back to
+  `DATA_ROOT/ingested-assets/<tenant>/<sha[:2]>/<basename>`, scoped to the token's
+  `tenantId` (a tenant can only fetch their own ingested bytes). This also
+  unblocks publishing **operator-uploaded** creatives, which shared the gap.
+- **Composed-asset persistence no longer leaves `served_asset_ref` NULL.**
+  The insert used a data-modifying CTE (`INSERT … ; UPDATE … WHERE id = ins.id`)
+  to backfill `served_asset_ref` with the new row's id — but PostgreSQL evaluates
+  the UPDATE against a snapshot that excludes the CTE's just-inserted row, so it
+  matched 0 rows and the ref stayed NULL (the composer then returned no id and
+  fell back to the bare creative). Replaced with a single self-referential
+  INSERT that generates the uuid in a subselect feeding both `id` and
+  `served_asset_ref`. Verified on the prod DB.
+
+### Added
+- `tests/public-media-ingested.test.ts`: the proxy serves ingested bytes from
+  DATA_ROOT, still serves mount bytes, 404s on miss, and is tenant-scoped.
+
 ## v0.1.13.17 — feat(social-content): compose story images with headline + aries.sugarandleather.com CTA
 
 ### Added

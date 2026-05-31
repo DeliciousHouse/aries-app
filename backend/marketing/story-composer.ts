@@ -220,29 +220,31 @@ export type ComposerDb = {
   query(sql: string, params?: unknown[]): Promise<{ rows: unknown[]; rowCount?: number | null }>;
 };
 
-// Mirrors upload-replace.ts: ingested_asset bytes live under
-// DATA_ROOT/ingested-assets/<tenant>/<sha[:2]>/<sha>.png and are served by the
-// id route. source_type='runtime_artifact' (an Aries-derived asset, NOT a base
-// 'generated_by_aries' creative — keeps it out of the base-creative lookup in
-// synthesize-publish-posts.ts), permission_scope='generated'.
+// ingested_asset bytes live under DATA_ROOT/ingested-assets/<tenant>/<sha[:2]>/
+// <sha>.png and are served by the id route. source_type='runtime_artifact' (an
+// Aries-derived asset, NOT a base 'generated_by_aries' creative — keeps it out
+// of the base-creative lookup in synthesize-publish-posts.ts),
+// permission_scope='generated'.
+//
+// served_asset_ref must embed the row's own id, but a row's generated id is not
+// knowable in a plain VALUES. A data-modifying CTE (INSERT ... ; UPDATE ...
+// WHERE id = ins.id) does NOT work here: PostgreSQL evaluates the UPDATE against
+// a snapshot that excludes the CTE's just-inserted row, so the UPDATE matches 0
+// rows and served_asset_ref stays NULL (verified on the prod DB). Instead,
+// generate the uuid in a subselect and use it for BOTH `id` and
+// `served_asset_ref` in a single INSERT — atomic and self-referential.
 const INSERT_COMPOSED_ASSET_SQL = `
-  WITH ins AS (
-    INSERT INTO creative_assets (
-      tenant_id, source_type, permission_scope, media_type,
-      storage_kind, storage_key, checksum, aspect_ratio,
-      learning_lifecycle, usable_for_generation
-    ) VALUES (
-      $1, 'runtime_artifact', 'generated', 'image',
-      'ingested_asset', $2, $3, '9:16',
-      'observed', FALSE
-    )
-    RETURNING id
+  INSERT INTO creative_assets (
+    id, tenant_id, source_type, permission_scope, media_type,
+    storage_kind, storage_key, checksum, aspect_ratio,
+    learning_lifecycle, usable_for_generation, served_asset_ref
   )
-  UPDATE creative_assets
-     SET served_asset_ref = '/api/internal/hermes/media/' || ins.id::text
-    FROM ins
-   WHERE creative_assets.id = ins.id
-  RETURNING creative_assets.id
+  SELECT
+    g.id, $1, 'runtime_artifact', 'generated', 'image',
+    'ingested_asset', $2, $3, '9:16',
+    'observed', FALSE, '/api/internal/hermes/media/' || g.id::text
+  FROM (SELECT gen_random_uuid() AS id) g
+  RETURNING id
 `;
 
 export interface PersistComposedStoryAssetInput {
