@@ -87,7 +87,7 @@ export default function OnboardingStatusScreen({
                 <Eye className="w-6 h-6 text-primary" />
               </div>
               <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-white/35">Onboarding status</p>
+                <p className="text-xs uppercase tracking-[0.24em] text-white/70">Onboarding status</p>
                 <h1 className="text-3xl font-bold">Inspect tenant provisioning progress</h1>
               </div>
             </div>
@@ -97,7 +97,7 @@ export default function OnboardingStatusScreen({
           </div>
 
           <label className="block space-y-2">
-            <span className="text-xs uppercase tracking-[0.22em] text-white/35">Tenant ID</span>
+            <span className="text-xs uppercase tracking-[0.22em] text-white/70">Tenant ID</span>
             <input
               value={tenantId}
               onChange={(event) => setTenantId(event.currentTarget.value)}
@@ -108,7 +108,7 @@ export default function OnboardingStatusScreen({
           </label>
 
           <label className="block space-y-2">
-            <span className="text-xs uppercase tracking-[0.22em] text-white/35">Signup Event ID (optional)</span>
+            <span className="text-xs uppercase tracking-[0.22em] text-white/70">Signup Event ID (optional)</span>
             <input
               value={signupEventId}
               onChange={(event) => setSignupEventId(event.currentTarget.value)}
@@ -141,7 +141,7 @@ export default function OnboardingStatusScreen({
             <Sparkles className="w-6 h-6 text-secondary" />
           </div>
           <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-white/35">Current state</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-white/70">Current state</p>
             <h2 className="text-3xl font-bold">Provisioning snapshot</h2>
           </div>
         </div>
@@ -196,12 +196,12 @@ export default function OnboardingStatusScreen({
             </div>
 
             <div>
-              <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-3">Artifact availability</p>
+              <p className="text-xs uppercase tracking-[0.22em] text-white/70 mb-3">Artifact availability</p>
               <div className="flex flex-wrap gap-3">
-                <span className={`px-4 py-2 rounded-full border ${success.artifacts.draft ? 'border-primary/30 bg-primary/15 text-white' : 'border-white/10 bg-white/5 text-white/45'}`}>draft</span>
-                <span className={`px-4 py-2 rounded-full border ${success.artifacts.validated ? 'border-primary/30 bg-primary/15 text-white' : 'border-white/10 bg-white/5 text-white/45'}`}>validated</span>
-                <span className={`px-4 py-2 rounded-full border ${success.artifacts.validation_report ? 'border-primary/30 bg-primary/15 text-white' : 'border-white/10 bg-white/5 text-white/45'}`}>validation report</span>
-                <span className={`px-4 py-2 rounded-full border ${success.artifacts.idempotency_marker ? 'border-primary/30 bg-primary/15 text-white' : 'border-white/10 bg-white/5 text-white/45'}`}>idempotency marker</span>
+                <span className={`px-4 py-2 rounded-full border ${success.artifacts.draft ? 'border-primary/30 bg-primary/15 text-white' : 'border-white/10 bg-white/5 text-white/70'}`}>draft</span>
+                <span className={`px-4 py-2 rounded-full border ${success.artifacts.validated ? 'border-primary/30 bg-primary/15 text-white' : 'border-white/10 bg-white/5 text-white/70'}`}>validated</span>
+                <span className={`px-4 py-2 rounded-full border ${success.artifacts.validation_report ? 'border-primary/30 bg-primary/15 text-white' : 'border-white/10 bg-white/5 text-white/70'}`}>validation report</span>
+                <span className={`px-4 py-2 rounded-full border ${success.artifacts.idempotency_marker ? 'border-primary/30 bg-primary/15 text-white' : 'border-white/10 bg-white/5 text-white/70'}`}>idempotency marker</span>
               </div>
             </div>
           </div>

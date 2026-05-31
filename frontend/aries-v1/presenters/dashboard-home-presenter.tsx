@@ -157,7 +157,7 @@ export default function DashboardHomePresenter({
             >
               {activeSurface.value}
             </motion.span>
-            <span className="mt-2 text-[10px] font-medium uppercase tracking-[0.32em] text-white/45 md:text-xs">
+            <span className="mt-2 text-[10px] font-medium uppercase tracking-[0.32em] text-white/70 md:text-xs">
               {activeSurface.label}
             </span>
           </div>
@@ -209,7 +209,7 @@ export default function DashboardHomePresenter({
                           animate={{ rotate: -(activeIndex * 72 - index * 72) }}
                           transition={{ duration: 1.5, ease: 'easeInOut' }}
                           className={`-ml-6 -mt-6 flex h-12 w-12 items-center justify-center rounded-full border bg-[#12121a] transition-all duration-500 md:-ml-7 md:-mt-7 md:h-14 md:w-14 ${
-                            isActive ? 'border-white/30 text-white' : 'border-white/10 text-white/45'
+                            isActive ? 'border-white/30 text-white' : 'border-white/10 text-white/70'
                           }`}
                           style={{
                             boxShadow: isActive ? `0 0 30px ${surface.glow}` : 'none',
@@ -236,7 +236,7 @@ export default function DashboardHomePresenter({
               >
                 {activeSurface.supporting}
               </motion.span>
-              <span className="mt-2 text-[9px] uppercase tracking-[0.28em] text-white/45 md:text-[9px] lg:text-[11px]">
+              <span className="mt-2 text-[9px] uppercase tracking-[0.28em] text-white/70 md:text-[9px] lg:text-[11px]">
                 Current focus
               </span>
             </div>
@@ -265,7 +265,7 @@ export default function DashboardHomePresenter({
               detail={model.activePost?.summary || 'Create social content and Aries will start grounding this surface in live runtime data.'}
             >
               {model.activePost ? (
-                <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.22em] text-white/45">
+                <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.22em] text-white/70">
                   <span>{model.activePost.stageLabel}</span>
                   <span>{model.activePost.pendingApprovals} pending approvals</span>
                 </div>
@@ -284,7 +284,7 @@ export default function DashboardHomePresenter({
         >
           <div className="flex items-start justify-between p-6 pb-5">
             <div>
-              <h4 className="mb-2 text-[11px] font-bold uppercase tracking-[0.15em] text-white/40">Working Now</h4>
+              <h4 className="mb-2 text-[11px] font-bold uppercase tracking-[0.15em] text-white/70">Working Now</h4>
               <h3 className="text-xl font-semibold tracking-tight text-white">{model.workingNow.title}</h3>
             </div>
             <Link href={model.workingNow.href} className="flex items-center gap-1 text-sm font-medium text-white/90 transition-colors hover:text-white">
@@ -359,7 +359,7 @@ export default function DashboardHomePresenter({
                           : 'generate-this-week-helper'
                       }
                       className={`mt-3 text-[13px] leading-relaxed ${
-                        generateThisWeek?.errorMessage ? 'text-rose-300' : 'text-white/40'
+                        generateThisWeek?.errorMessage ? 'text-rose-300' : 'text-white/70'
                       }`}
                     >
                       {helper}
@@ -379,7 +379,7 @@ export default function DashboardHomePresenter({
                   >
                     <div>
                       <span className="mb-1 block text-[15px] font-medium text-white/90">{item.title}</span>
-                      <span className="text-sm text-white/40">{item.meta}</span>
+                      <span className="text-sm text-white/70">{item.meta}</span>
                     </div>
                     <StatusChip status={item.status} />
                   </Link>
@@ -418,7 +418,7 @@ export default function DashboardHomePresenter({
         >
           <div className="flex items-start justify-between p-6 pb-5">
             <div>
-              <h4 className="mb-2 text-[11px] font-bold uppercase tracking-[0.15em] text-white/40">Needs Approval</h4>
+              <h4 className="mb-2 text-[11px] font-bold uppercase tracking-[0.15em] text-white/70">Needs Approval</h4>
               <h3 className="text-xl font-semibold tracking-tight text-white">
                 {model.reviews.count > 0 ? `${model.reviews.count} items waiting` : 'Approval queue is clear'}
               </h3>
@@ -450,7 +450,7 @@ export default function DashboardHomePresenter({
                 >
                   <div>
                     <span className="mb-1 block text-[15px] font-medium text-white/90">{item.title}</span>
-                    <span className="text-sm text-white/40">{item.meta}</span>
+                    <span className="text-sm text-white/70">{item.meta}</span>
                   </div>
                   <div className="shrink-0 whitespace-nowrap rounded-full border border-[#4a4025] bg-[#2a2515]/50 px-3 py-1 text-xs font-medium text-[#e5c07b]">
                     {item.status === 'changes_requested' ? 'Needs changes' : 'In review'}
@@ -468,7 +468,7 @@ export default function DashboardHomePresenter({
           className="overflow-hidden rounded-2xl border border-white/[0.05] bg-[#080808]"
         >
           <div className="p-6 pb-5">
-            <h4 className="mb-2 text-[11px] font-bold uppercase tracking-[0.15em] text-white/40">Operational Readiness</h4>
+            <h4 className="mb-2 text-[11px] font-bold uppercase tracking-[0.15em] text-white/70">Operational Readiness</h4>
             <h3 className="text-xl font-semibold tracking-tight text-white">What Aries is watching closely</h3>
           </div>
           <div className="h-px w-full bg-white/10" />
@@ -490,7 +490,7 @@ export default function DashboardHomePresenter({
                 <div>
                   <div className="mb-1 flex flex-wrap items-baseline gap-2">
                     <span className="text-[15px] font-medium text-white/90">{item.label}</span>
-                    <span className="text-xs uppercase tracking-[0.22em] text-white/35">{item.value}</span>
+                    <span className="text-xs uppercase tracking-[0.22em] text-white/70">{item.value}</span>
                   </div>
                   <p className="text-sm leading-relaxed text-white/50">{item.detail}</p>
                 </div>
@@ -506,7 +506,7 @@ export default function DashboardHomePresenter({
           className="overflow-hidden rounded-2xl border border-white/[0.06] bg-black"
         >
           <div className="p-6 pb-5">
-            <h4 className="mb-2 text-[11px] font-bold uppercase tracking-[0.15em] text-white/40">Connected Surfaces</h4>
+            <h4 className="mb-2 text-[11px] font-bold uppercase tracking-[0.15em] text-white/70">Connected Surfaces</h4>
             <h3 className="text-xl font-semibold tracking-tight text-white">Publishing and monitoring health</h3>
           </div>
           <div className="h-px w-full bg-white/[0.08]" />
@@ -590,7 +590,7 @@ export default function DashboardHomePresenter({
                         <div className="min-w-0 flex-1">
                           <p className="text-[15px] font-semibold leading-snug text-white">{channel.name}</p>
                           {showHandle ? (
-                            <p className="mt-0.5 truncate text-xs text-white/45">{channel.handle}</p>
+                            <p className="mt-0.5 truncate text-xs text-white/70">{channel.handle}</p>
                           ) : null}
                         </div>
                       </div>
@@ -710,7 +710,7 @@ function HeroSideCard(props: {
       className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-5 shadow-2xl backdrop-blur-xl transition-colors hover:bg-white/[0.07]"
     >
       <div className="pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full bg-primary/15 blur-[56px]" />
-      <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.eyebrow}</p>
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.24em] text-white/70">{props.eyebrow}</p>
       <h3 className="mb-3 text-lg font-semibold text-white">{props.title}</h3>
       <p className="text-sm leading-relaxed text-white/55">{props.detail}</p>
       {props.children ? <div className="mt-4">{props.children}</div> : null}

@@ -296,7 +296,7 @@ function DeletedCampaignsSection(props: {
             >
               <div className="space-y-1">
                 <p className="text-sm font-medium text-white/85">{campaign.name}</p>
-                <p className="text-xs text-white/45">
+                <p className="text-xs text-white/70">
                   {campaign.softCancelRequestedAt
                     ? `Cancelling... requested ${formatDeletedAt(campaign.softCancelRequestedAt)}`
                     : campaign.deletedAt
@@ -335,7 +335,7 @@ function formatDeletedAt(iso: string): string {
 function InfoRow(props: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.label}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">{props.label}</p>
       <p className="mt-1 text-white/80">{props.value}</p>
     </div>
   );
@@ -355,9 +355,9 @@ function PreviewGroup(props: { title: string; items: AriesDashboardPost[]; asset
   const assetsById = new Map(props.assets.map((asset) => [asset.id, asset] as const));
   return (
     <div className="rounded-[1.4rem] border border-white/8 bg-black/15 px-4 py-4">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.title}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">{props.title}</p>
       {props.items.length === 0 ? (
-        <p className="mt-3 text-sm text-white/45">{props.emptyLabel}</p>
+        <p className="mt-3 text-sm text-white/70">{props.emptyLabel}</p>
       ) : (
         <div className="mt-3 space-y-3">
           {props.items.slice(0, 3).map((item) => (
@@ -388,9 +388,9 @@ function PreviewGroup(props: { title: string; items: AriesDashboardPost[]; asset
 function PreviewAssetGroup(props: { title: string; items: AriesDashboardAsset[]; emptyLabel: string }) {
   return (
     <div className="rounded-[1.4rem] border border-white/8 bg-black/15 px-4 py-4">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.title}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">{props.title}</p>
       {props.items.length === 0 ? (
-        <p className="mt-3 text-sm text-white/45">{props.emptyLabel}</p>
+        <p className="mt-3 text-sm text-white/70">{props.emptyLabel}</p>
       ) : (
         <div className="mt-3 space-y-3">
           {props.items.slice(0, 3).map((item) => (

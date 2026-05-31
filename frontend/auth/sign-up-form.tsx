@@ -272,7 +272,7 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
                 aria-pressed={showPassword}
                 aria-controls="signup-password"
-                className={`absolute right-4 top-1/2 -translate-y-1/2 ${showPassword ? 'text-white' : 'text-white/40'} hover:text-white transition-colors`}
+                className={`absolute right-4 top-1/2 -translate-y-1/2 ${showPassword ? 'text-white' : 'text-white/70'} hover:text-white transition-colors`}
               >
                 {showPassword ? (
                   <svg aria-hidden="true" focusable="false" className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -311,7 +311,7 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
                 <div className="w-full border-t border-white/10" />
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-[#0B0A14] text-white/40 uppercase tracking-wider">or sign up with</span>
+                <span className="px-2 bg-[#0B0A14] text-white/70 uppercase tracking-wider">or sign up with</span>
               </div>
             </div>
 

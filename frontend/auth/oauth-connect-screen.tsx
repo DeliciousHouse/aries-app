@@ -163,7 +163,7 @@ export default function OAuthConnectScreen({
                   )}
                 </div>
                 <div>
-                  <p className="text-sm uppercase tracking-[0.2em] text-white/40 mb-1">OAuth handoff</p>
+                  <p className="text-sm uppercase tracking-[0.2em] text-white/70 mb-1">OAuth handoff</p>
                   <h2 className="text-lg font-semibold text-white">
                     {status === 'starting'
                       ? `Preparing ${providerLabel}`

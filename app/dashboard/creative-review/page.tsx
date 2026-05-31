@@ -1,6 +1,10 @@
 import AppShellLayout from '@/frontend/app-shell/layout';
 import AriesLatestPostView from '@/frontend/aries-v1/latest-post-view';
 
+export const metadata = {
+  title: 'Creative Review — Aries AI',
+};
+
 export default function DashboardCreativeReviewPage() {
   return (
     <AppShellLayout currentRouteId="creativeReview">

@@ -67,9 +67,9 @@ export default function SettingsPresenter({
             <div className="rounded-lg bg-white/5 p-2">
               <Building2 className="h-5 w-5 text-primary" />
             </div>
-            <h1 className="text-3xl font-display font-semibold tracking-tight text-white">Settings</h1>
+            <h2 className="text-3xl font-display font-semibold tracking-tight text-white">Settings</h2>
           </div>
-          <p className="max-w-3xl text-zinc-500">{model.hero.description}</p>
+          <p className="max-w-3xl text-zinc-400">{model.hero.description}</p>
         </div>
 
         <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/75">
@@ -88,7 +88,7 @@ export default function SettingsPresenter({
             className="glass-panel p-5"
           >
             <div className="mb-4 flex items-start justify-between">
-              <div className="rounded-xl bg-white/5 p-2 text-zinc-500">
+              <div className="rounded-xl bg-white/5 p-2 text-zinc-400">
                 {index === 0 ? <Radio className="h-5 w-5" /> : index === 1 ? <Sparkles className="h-5 w-5" /> : index === 2 ? <Users2 className="h-5 w-5" /> : <ShieldCheck className="h-5 w-5" />}
               </div>
               <div className={`rounded-md px-2 py-1 text-[10px] font-medium ${
@@ -147,7 +147,7 @@ export default function SettingsPresenter({
               <div className="mb-8 flex items-center justify-between gap-4">
                 <div>
                   <h2 className="text-2xl font-display font-semibold text-white">Brand identity</h2>
-                  <p className="mt-1 text-sm text-white/45">Define how Aries understands and represents the business.</p>
+                  <p className="mt-1 text-sm text-white/70">Define how Aries understands and represents the business.</p>
                 </div>
                 <button
                   type="button"
@@ -165,14 +165,14 @@ export default function SettingsPresenter({
                   <div className="grid gap-5 md:grid-cols-2">
                     <Field
                       label="Business name"
-                      icon={<Building2 className="h-4 w-4 text-white/25" />}
+                      icon={<Building2 className="h-4 w-4 text-white/70" />}
                       value={form.businessName}
                       onChange={(value) => onFieldChange('businessName', value)}
                       placeholder="Company name"
                     />
                     <Field
                       label="Website"
-                      icon={<Globe className="h-4 w-4 text-white/25" />}
+                      icon={<Globe className="h-4 w-4 text-white/70" />}
                       value={form.websiteUrl}
                       onChange={(value) => onFieldChange('websiteUrl', value)}
                       placeholder="https://yourcompany.com"
@@ -198,7 +198,7 @@ export default function SettingsPresenter({
                   />
                 </div>
               ) : (
-                <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 text-sm text-zinc-500">
+                <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 text-sm text-zinc-400">
                   Business profile data is not available for this tenant.
                 </div>
               )}
@@ -223,9 +223,9 @@ export default function SettingsPresenter({
                 </div>
 
                 <div>
-                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Palette</p>
+                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Palette</p>
                   {model.brandKit.palette.length === 0 ? (
-                    <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-4 text-sm text-zinc-500">
+                    <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-4 text-sm text-zinc-400">
                       No runtime brand colors are available yet.
                     </div>
                   ) : (
@@ -241,9 +241,9 @@ export default function SettingsPresenter({
                 </div>
 
                 <div>
-                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Fonts</p>
+                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Fonts</p>
                   {model.brandKit.fonts.length === 0 ? (
-                    <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-4 text-sm text-zinc-500">
+                    <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-4 text-sm text-zinc-400">
                       No runtime font families are available yet.
                     </div>
                   ) : (
@@ -272,7 +272,7 @@ export default function SettingsPresenter({
           >
             <div className="mb-8">
               <h2 className="text-2xl font-display font-semibold text-white">Publishing surfaces</h2>
-              <p className="mt-1 text-sm text-white/45">Connect channels, inspect status, and resolve anything blocking launch operations.</p>
+              <p className="mt-1 text-sm text-white/70">Connect channels, inspect status, and resolve anything blocking launch operations.</p>
             </div>
 
             {integrationsLoading ? (
@@ -286,7 +286,7 @@ export default function SettingsPresenter({
                 {integrationsErrorMessage}
               </div>
             ) : model.integrations.cards.length === 0 ? (
-              <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 text-sm text-zinc-500">
+              <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 text-sm text-zinc-400">
                 No integrations are available yet.
               </div>
             ) : (
@@ -296,7 +296,7 @@ export default function SettingsPresenter({
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-base font-semibold text-white">{card.displayName}</p>
-                        <p className="mt-1 text-sm text-white/45">{card.handle}</p>
+                        <p className="mt-1 text-sm text-white/70">{card.handle}</p>
                       </div>
                       <span className={`rounded-full border px-3 py-1 text-xs font-medium ${integrationTone(card.statusTone)}`}>
                         {card.stateLabel}
@@ -304,7 +304,7 @@ export default function SettingsPresenter({
                     </div>
 
                     <p className="mt-4 text-sm leading-relaxed text-white/58">{card.description}</p>
-                    <div className="mt-4 flex flex-wrap gap-3 text-xs uppercase tracking-[0.2em] text-white/35">
+                    <div className="mt-4 flex flex-wrap gap-3 text-xs uppercase tracking-[0.2em] text-white/70">
                       <span>{card.permissionSummary}</span>
                       <span>{card.syncLabel}</span>
                     </div>
@@ -350,11 +350,11 @@ export default function SettingsPresenter({
             <section className="glass-panel p-6 md:p-8">
               <div className="mb-6">
                 <h2 className="text-2xl font-display font-semibold text-white">Launch approval owner</h2>
-                <p className="mt-1 text-sm text-white/45">Choose who should be responsible for final human sign-off before launch.</p>
+                <p className="mt-1 text-sm text-white/70">Choose who should be responsible for final human sign-off before launch.</p>
               </div>
 
               <div className="space-y-4">
-                <label className="block text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">
+                <label className="block text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">
                   Launch approver
                 </label>
                 <select
@@ -384,11 +384,11 @@ export default function SettingsPresenter({
             <section className="glass-panel p-6 md:p-8">
               <div className="mb-6">
                 <h2 className="text-2xl font-display font-semibold text-white">Team roster</h2>
-                <p className="mt-1 text-sm text-white/45">Everyone who can influence launch safety and approvals in this tenant.</p>
+                <p className="mt-1 text-sm text-white/70">Everyone who can influence launch safety and approvals in this tenant.</p>
               </div>
 
               {model.team.members.length === 0 ? (
-                <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 text-sm text-zinc-500">
+                <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 text-sm text-zinc-400">
                   No team members are available yet.
                 </div>
               ) : (
@@ -399,7 +399,7 @@ export default function SettingsPresenter({
                         <div>
                           <p className="text-sm font-medium text-white">{member.name}</p>
                           <p className="mt-1 text-sm text-white/65">{member.role}</p>
-                          <p className="mt-2 text-sm text-white/45">{member.email}</p>
+                          <p className="mt-2 text-sm text-white/70">{member.email}</p>
                         </div>
                         {member.isApprover ? (
                           <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-100">
@@ -429,7 +429,7 @@ function Field(props: {
 }) {
   return (
     <div className="space-y-3">
-      <label className="block text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">
+      <label className="block text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">
         {props.label}
       </label>
       <div className="relative">

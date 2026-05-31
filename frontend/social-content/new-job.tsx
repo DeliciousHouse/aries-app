@@ -404,7 +404,7 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
                 />
               </Field>
               <div className="space-y-2">
-                <p className="text-xs uppercase tracking-[0.22em] text-white/35">Render video after approval</p>
+                <p className="text-xs uppercase tracking-[0.22em] text-white/70">Render video after approval</p>
                 <label className="flex items-center gap-3 text-sm text-white/80">
                   <input
                     type="checkbox"
@@ -416,7 +416,7 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
                 </label>
               </div>
               <div className="space-y-2">
-                <p className="text-xs uppercase tracking-[0.22em] text-white/35">Platforms</p>
+                <p className="text-xs uppercase tracking-[0.22em] text-white/70">Platforms</p>
                 <label className="flex items-center gap-3 text-sm text-white/80">
                   <input
                     type="checkbox"
@@ -479,7 +479,7 @@ function Section(props: { title: string; children: React.ReactNode }) {
 function Field(props: { label: string; required?: boolean; children: React.ReactNode }) {
   return (
     <label className="block space-y-2">
-      <span className="text-xs uppercase tracking-[0.22em] text-white/35">
+      <span className="text-xs uppercase tracking-[0.22em] text-white/70">
         {props.label}
         {props.required ? " *" : ""}
       </span>

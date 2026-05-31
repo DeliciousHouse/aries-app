@@ -134,7 +134,7 @@ function ReviewPreviewCard({ preview }: { preview: MarketingReviewPreviewCard })
   return (
     <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
       <div>
-        <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-2">{preview.channelType}</p>
+        <p className="text-xs uppercase tracking-[0.22em] text-white/70 mb-2">{preview.channelType}</p>
         <strong>{preview.platformName}</strong>
       </div>
       <p className="text-white/60 m-0">{preview.summary}</p>
@@ -192,7 +192,7 @@ function ReviewPreviewCard({ preview }: { preview: MarketingReviewPreviewCard })
               href={asset.url}
               target="_blank"
               rel="noreferrer"
-              className="text-sm text-primary hover:text-primary/80 transition-colors"
+              className="text-sm text-primary hover:text-violet-300 transition-colors"
             >
               {asset.label}
             </a>
@@ -248,7 +248,7 @@ function ReviewBundlePreview({ reviewBundle }: { reviewBundle: MarketingReviewBu
               <span><strong className="text-white">CTA:</strong> {reviewBundle.landingPage.cta || 'n/a'}</span>
               {reviewBundle.landingPage.slug ? <span><strong className="text-white">Slug:</strong> {reviewBundle.landingPage.slug}</span> : null}
               {reviewBundle.landingPage.asset ? (
-                <a href={reviewBundle.landingPage.asset.url} target="_blank" rel="noreferrer" className="text-primary hover:text-primary/80 transition-colors">
+                <a href={reviewBundle.landingPage.asset.url} target="_blank" rel="noreferrer" className="text-primary hover:text-violet-300 transition-colors">
                   Open landing page artifact
                 </a>
               ) : null}
@@ -289,7 +289,7 @@ function ReviewBundlePreview({ reviewBundle }: { reviewBundle: MarketingReviewBu
       </div>
 
       <div>
-        <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-3">Platform drafts to review before approval</p>
+        <p className="text-xs uppercase tracking-[0.22em] text-white/70 mb-3">Platform drafts to review before approval</p>
         {reviewBundle.platformPreviews.length === 0 ? (
           <p className="text-white/60">No platform-specific previews are available yet.</p>
         ) : (
@@ -319,7 +319,7 @@ function DashboardAssetPreviewCard({ asset }: { asset: MarketingDashboardAsset }
       />
       <div className="flex justify-between gap-4 flex-wrap">
         <div>
-          <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-2">{asset.type.replace(/_/g, ' ')}</p>
+          <p className="text-xs uppercase tracking-[0.22em] text-white/70 mb-2">{asset.type.replace(/_/g, ' ')}</p>
           <strong>{asset.title}</strong>
           <p className="mt-2 text-white/60">{asset.platformLabel}</p>
         </div>
@@ -391,7 +391,7 @@ function Field({
 }) {
   return (
     <label className="block space-y-2">
-      <span className="text-xs uppercase tracking-[0.22em] text-white/35">{label}</span>
+      <span className="text-xs uppercase tracking-[0.22em] text-white/70">{label}</span>
       {children}
       {hint ? <span className="text-sm text-white/50">{hint}</span> : null}
     </label>
@@ -600,7 +600,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
       <div className="glass rounded-[2.5rem] p-8">
         <div className="grid gap-5">
           <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-3">Approval control</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-white/70 mb-3">Approval control</p>
             <h1 className="text-3xl font-bold mb-3">{copy.controlTitle}</h1>
             <p className="text-white/60">
               {copy.controlDescription}
@@ -626,7 +626,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
             </Field>
 
             <div className="grid gap-2">
-              <span className="text-xs uppercase tracking-[0.22em] text-white/35">Current approval checkpoint</span>
+              <span className="text-xs uppercase tracking-[0.22em] text-white/70">Current approval checkpoint</span>
               <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white/75">
                 {approvalCheckpointLabel()}
               </div>
@@ -635,7 +635,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
             {pendingStage === 'publish' ? (
               <>
                 <div className="grid gap-2">
-                  <span className="text-xs uppercase tracking-[0.22em] text-white/35">Platforms to package</span>
+                  <span className="text-xs uppercase tracking-[0.22em] text-white/70">Platforms to package</span>
                   <div className="flex flex-wrap gap-3">
                     {PLATFORM_VALUES.map((platform) => {
                       const active = platforms.includes(platform);
@@ -656,7 +656,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
                 </div>
 
                 <div className="grid gap-2">
-                  <span className="text-xs uppercase tracking-[0.22em] text-white/35">Live draft publish</span>
+                  <span className="text-xs uppercase tracking-[0.22em] text-white/70">Live draft publish</span>
                   <div className="flex flex-wrap gap-3">
                     {PLATFORM_VALUES.filter((platform) => !['tiktok', 'youtube'].includes(platform)).map((platform) => {
                       const active = livePublishPlatforms.includes(platform);
@@ -677,7 +677,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
                 </div>
 
                 <div className="grid gap-2">
-                  <span className="text-xs uppercase tracking-[0.22em] text-white/35">Video render execution</span>
+                  <span className="text-xs uppercase tracking-[0.22em] text-white/70">Video render execution</span>
                   <div className="flex flex-wrap gap-3">
                     {['tiktok', 'youtube'].map((platform) => {
                       const active = videoRenderPlatforms.includes(platform);
@@ -772,7 +772,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
 
       <div className="glass rounded-[2.5rem] p-8">
         <div className="grid gap-5">
-          <p className="text-xs uppercase tracking-[0.24em] text-white/35">Outcome</p>
+          <p className="text-xs uppercase tracking-[0.24em] text-white/70">Outcome</p>
 
             {loadingStatus ? (
               <p className="text-white/60">{copy.loadingStatus}</p>
@@ -830,7 +830,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
                   <div className="grid gap-5">
                     {statusSuccess.dashboard.assets.length > 0 ? (
                       <div>
-                        <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-3">Assets ready in this approval</p>
+                        <p className="text-xs uppercase tracking-[0.22em] text-white/70 mb-3">Assets ready in this approval</p>
                         <div className="grid xl:grid-cols-2 gap-4">
                           {statusSuccess.dashboard.assets.slice(0, 8).map((asset) => (
                             <DashboardAssetPreviewCard key={asset.id} asset={asset} />
@@ -841,7 +841,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
 
                     {statusSuccess.dashboard.posts.length > 0 ? (
                       <div>
-                        <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-3">Posts and concepts in scope</p>
+                        <p className="text-xs uppercase tracking-[0.22em] text-white/70 mb-3">Posts and concepts in scope</p>
                         <div className="grid xl:grid-cols-2 gap-4">
                           {statusSuccess.dashboard.posts.slice(0, 6).map((post) => {
                             const preview = dashboardPreviewUrl(post.previewAssetId, dashboardAssetsById);
@@ -864,7 +864,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
 
                     {statusSuccess.dashboard.publishItems.length > 0 ? (
                       <div>
-                        <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-3">Publish items</p>
+                        <p className="text-xs uppercase tracking-[0.22em] text-white/70 mb-3">Publish items</p>
                         <div className="grid xl:grid-cols-2 gap-4">
                           {statusSuccess.dashboard.publishItems.slice(0, 6).map((item) => {
                             const preview = dashboardPreviewUrl(item.previewAssetId, dashboardAssetsById);
@@ -923,7 +923,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
                 ) : null}
 
                 <div>
-                  <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-3">Stage progress</p>
+                  <p className="text-xs uppercase tracking-[0.22em] text-white/70 mb-3">Stage progress</p>
                   <div className="grid md:grid-cols-2 gap-4">
                     {statusSuccess.stageCards.map((stage) => (
                       <StageCard key={stage.stage} stage={stage} />

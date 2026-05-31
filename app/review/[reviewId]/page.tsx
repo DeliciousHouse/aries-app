@@ -39,6 +39,10 @@ export async function loadReviewItemPageData(
   }
 }
 
+export const metadata = {
+  title: 'Review Item — Aries AI',
+};
+
 export default async function ReviewItemPage({
   params,
 }: {

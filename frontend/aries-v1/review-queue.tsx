@@ -132,7 +132,7 @@ export default function AriesReviewQueueScreen() {
 function InfoRow(props: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.label}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">{props.label}</p>
       <p className="mt-1 text-white/78">{props.value}</p>
     </div>
   );
