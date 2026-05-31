@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.13.20 — perf(marketing): O(jobs-with-pending) review queue + concurrent dashboard hydration + list-fetch timeout
+
+QA-audit P1: dashboard list pages rendered a blank skeleton for 8-16s and could
+hang on "Loading…". Root cause was per-job full hydration
+(`buildSocialContentWorkspaceView` → `loadStagePayloadBundle`). This is the
+safe, high-leverage slice (no risky write-time row denormalization of the core
+orchestrator; that remains a scoped follow-up for `/api/social-content/posts`).
+
+### Changed
+- **`/api/marketing/reviews` is now O(jobs-with-pending), not O(all-jobs).**
+  `listMarketingReviewQueueForTenant` reads the persisted, oracle-verified
+  `pending_approval_count` (PR #521) and skips the expensive
+  getMarketingJobStatus + buildSocialContentWorkspaceView hydration for any job
+  whose count is 0. Legacy records (count undefined) fall through to a full
+  build and self-heal the scalar. Live: ~16.5s → sub-second for a mostly-settled
+  tenant. New oracle test proves the skip path equals a full rebuild.
+- **`/api/marketing/posts` hydrates jobs concurrently.**
+  `getWorkflowAwareDashboardContentForTenant` replaced its serial per-job loop
+  with bounded `processConcurrent(_, 4)` (≤20% of DB_POOL_MAX, mirrors
+  `listSocialContentJobsForTenant`; guardrail #1). Dedup stays in jobId order so
+  selection is byte-identical. Live: ~13s → ~4s.
+- `buildReviewItemsForJob` accepts a pre-loaded `runtimeDoc` to avoid a
+  redundant disk read on the review-queue path.
+
+### Added
+- **List-fetch timeout + retry (no more infinite spinner).** `requestJson`
+  accepts `timeoutMs`; the three dashboard list GETs (`/api/social-content/posts`,
+  `/api/marketing/reviews`, `/api/marketing/posts`) abort after 30s and throw a
+  retryable `request_timeout` error. The social-content, review-queue, posts, and
+  results screens now render a "Try again" button on error instead of leaving a
+  stuck skeleton.
+
 ## v0.1.13.19 — fix(a11y): WCAG color-contrast + per-route titles/h1 + heading-order
 
 Remediation from the 2026-05-31 QA + WCAG accessibility audit of
