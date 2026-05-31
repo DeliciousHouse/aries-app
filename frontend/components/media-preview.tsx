@@ -174,7 +174,7 @@ export default function MediaPreview(props: MediaPreviewProps) {
       onError={() => setFailed(true)}
     />
   ) : (
-    <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-white/45 transition-colors group-hover:text-white/70">
+    <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-white/70 transition-colors group-hover:text-white/70">
       {fallbackPresentation.icon}
       <span className="px-4 text-xs font-medium uppercase tracking-[0.2em]">{fallbackPresentation.label}</span>
     </div>

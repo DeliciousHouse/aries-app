@@ -69,6 +69,7 @@ interface AppShellClientProps {
 export default function AppShellClient({
   children,
   currentRouteId,
+  title,
   reviewCount,
   user,
   logoutAction,
@@ -460,7 +461,7 @@ export default function AppShellClient({
                       className="fixed z-[120] w-64 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06] shadow-[0_28px_90px_rgba(0,0,0,0.38)] backdrop-blur-xl"
                       style={{ top: desktopMenuPosition.top, left: desktopMenuPosition.left }}
                     >
-                      <div className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.24em] text-white/40">
+                      <div className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.24em] text-white/70">
                         Review
                       </div>
                       <div className="space-y-1 p-2">
@@ -552,7 +553,7 @@ export default function AppShellClient({
               ].join(' ')}
             >
               <div className="text-sm font-bold uppercase tracking-[0.15em] text-white">Aries AI</div>
-              <div className="text-[10px] font-medium text-white/45">Marketing OS</div>
+              <div className="text-[10px] font-medium text-white/70">Marketing OS</div>
             </div>
           </Link>
 
@@ -671,7 +672,7 @@ export default function AppShellClient({
             <AriesMark sizeClassName="h-9 w-9" />
             <div className="flex flex-col leading-none">
               <span className="text-sm font-bold uppercase tracking-[0.15em] text-white">Aries AI</span>
-              <span className="mt-1 text-[10px] font-medium text-white/45">Marketing OS</span>
+              <span className="mt-1 text-[10px] font-medium text-white/70">Marketing OS</span>
             </div>
           </Link>
           <button
@@ -719,7 +720,7 @@ export default function AppShellClient({
                     <AriesMark sizeClassName="h-10 w-10 shrink-0" />
                     <div className="flex min-w-0 flex-col leading-none">
                       <span className="text-sm font-bold uppercase tracking-[0.15em] text-white">Aries AI</span>
-                      <span className="mt-1 text-[10px] font-medium text-white/45">Marketing OS</span>
+                      <span className="mt-1 text-[10px] font-medium text-white/70">Marketing OS</span>
                     </div>
                   </Link>
                   <button
@@ -781,7 +782,7 @@ export default function AppShellClient({
                       {avatarLetter}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block text-[10px] font-semibold uppercase tracking-[0.2em] text-white/45">Account</span>
+                      <span className="block text-[10px] font-semibold uppercase tracking-[0.2em] text-white/70">Account</span>
                       <span className="mt-0.5 block truncate text-sm font-medium text-white/90">{accountLabel || 'Account'}</span>
                     </span>
                     <ChevronDown
@@ -866,6 +867,10 @@ export default function AppShellClient({
         </AnimatePresence>
 
         <main className="relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden lg:min-h-screen lg:pl-[104px]">
+          {/* Single per-route page heading (visually hidden): satisfies WCAG 2.4.2/1.3.1
+              so every dashboard route exposes exactly one descriptive <h1> from its
+              route-config title. Visible section headings inside screens are <h2>+. */}
+          <h1 className="sr-only">{title}</h1>
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden px-4 pb-4 pt-5 md:px-8 md:pb-8 md:pt-5 lg:pl-6">
             <AnimatePresence mode="wait" initial={false}>
               <motion.div

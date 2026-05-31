@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.13.19 — fix(a11y): WCAG color-contrast + per-route titles/h1 + heading-order
+
+Remediation from the 2026-05-31 QA + WCAG accessibility audit of
+aries.sugarandleather.com. Presentational only — no behavior change.
+
+### Fixed
+- **Color contrast (WCAG 1.4.3).** Raised failing low-opacity white text (every
+  `text-white/NN` below 50% → `/70`), `text-zinc-500/600` → `text-zinc-400`, and
+  `text-primary/80` → `text-violet-300` (calendar "Schedule" buttons + the docs
+  badge), so secondary text clears 4.5:1 against the dark theme. Placeholder
+  opacities and decorative SVG fills are intentionally left unchanged.
+- **Page titles + single h1 (WCAG 2.4.2 / 1.3.1 / 2.4.6).** Every `/dashboard/*`
+  and `/review` route now exports a unique, descriptive `<title>` and exposes
+  exactly one `<h1>`: the app shell renders a visually-hidden `<h1>` from the
+  route config, and the four presenter-level visible `<h1>`s (Calendar, Settings,
+  Results, Social Content) plus the New-Social-Content screen heading were demoted
+  to `<h2>` to keep one h1 per page.
+- **Heading order (WCAG 1.3.1).** Footer column headings `h4` → `h2` and the home
+  marketing calendar sidebar labels `h4` → `h3`, so public pages no longer skip a
+  heading level.
+
 ## v0.1.13.18 — fix(social-content): make composed story images actually publish (serving + persistence)
 
 Two bugs in v0.1.13.17 (#525) meant a composed story would silently never reach

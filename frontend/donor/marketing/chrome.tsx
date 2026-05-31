@@ -194,7 +194,7 @@ export function DonorFooter() {
           <div className="hidden lg:block"></div>
 
           <div>
-            <h4 className="font-bold mb-6">Product</h4>
+            <h2 className="font-bold mb-6">Product</h2>
             <ul className="space-y-4 text-white/50 text-sm">
               <li><a href="/#how-it-works" className="hover:text-white transition-colors">How it works</a></li>
               <li><a href="/dashboard" className="hover:text-white transition-colors">Dashboard</a></li>
@@ -204,7 +204,7 @@ export function DonorFooter() {
           </div>
 
           <div>
-            <h4 className="font-bold mb-6">Get started</h4>
+            <h2 className="font-bold mb-6">Get started</h2>
             <ul className="space-y-4 text-white/50 text-sm">
               <li><a href="/onboarding/start" className="hover:text-white transition-colors">Set up your business</a></li>
               <li><a href="/login" className="hover:text-white transition-colors">Sign in</a></li>
@@ -214,7 +214,7 @@ export function DonorFooter() {
           </div>
 
           <div>
-            <h4 className="font-bold mb-6">Channels</h4>
+            <h2 className="font-bold mb-6">Channels</h2>
             <ul className="space-y-4 text-white/50 text-sm">
               <li>Meta</li>
               <li>Instagram</li>
@@ -224,7 +224,7 @@ export function DonorFooter() {
           </div>
         </div>
 
-        <div className="pt-8 border-t border-white/5 flex flex-col md:flex-row justify-center items-center gap-4 text-white/30 text-xs">
+        <div className="pt-8 border-t border-white/5 flex flex-col md:flex-row justify-center items-center gap-4 text-white/70 text-xs">
           <p>© 2026 Aries AI. Built for small businesses that want marketing results without marketing software overhead.</p>
           <div className="flex flex-wrap items-center justify-center gap-4">
             <a href="/terms" className="hover:text-white transition-colors">Terms</a>

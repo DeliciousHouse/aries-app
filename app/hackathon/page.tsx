@@ -79,7 +79,7 @@ export default function HackathonPage() {
 
               <HackathonRegistrationForm deadlineLabel={HACKATHON.registrationDeadline} />
 
-              <p className="mt-10 text-sm text-white/40">
+              <p className="mt-10 text-sm text-white/70">
                 Questions? Email{' '}
                 <a
                   href="mailto:support@sugarandleather.com?subject=Aries%20AI%20Hackathon"
@@ -100,7 +100,7 @@ export default function HackathonPage() {
 function FactCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-      <p className="text-xs uppercase tracking-[0.2em] text-white/45 font-semibold mb-1">{label}</p>
+      <p className="text-xs uppercase tracking-[0.2em] text-white/70 font-semibold mb-1">{label}</p>
       <p className="text-white/85">{value}</p>
     </div>
   );

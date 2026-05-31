@@ -177,7 +177,7 @@ export default function RescheduleDrawer(props: RescheduleDrawerProps) {
               <CalendarClock className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/40">Reschedule post</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Reschedule post</p>
               <h2 id="reschedule-drawer-title" className="mt-1 text-base font-semibold text-white">
                 When and where should this go live?
               </h2>
@@ -197,7 +197,7 @@ export default function RescheduleDrawer(props: RescheduleDrawerProps) {
 
         <div className="space-y-5 px-6 py-5">
           <label className="block space-y-2 text-sm" htmlFor="reschedule-datetime">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/45">Publish date & time</span>
+            <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Publish date & time</span>
             <input
               id="reschedule-datetime"
               data-testid="reschedule-datetime-input"
@@ -210,11 +210,11 @@ export default function RescheduleDrawer(props: RescheduleDrawerProps) {
               required
               className="w-full rounded-[1rem] border border-white/12 bg-black/30 px-4 py-3 font-mono text-sm text-white placeholder:text-white/30 focus:border-white/35 focus:outline-none"
             />
-            <span className="text-xs text-white/45">Times use the {tzLabel} business profile timezone.</span>
+            <span className="text-xs text-white/70">Times use the {tzLabel} business profile timezone.</span>
           </label>
 
           <fieldset className="space-y-3">
-            <legend className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/45">Publish to</legend>
+            <legend className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Publish to</legend>
             <div className="grid gap-2 sm:grid-cols-2">
               {PLATFORM_OPTIONS.map((option) => {
                 const checked = platforms.has(option.id);
@@ -256,7 +256,7 @@ export default function RescheduleDrawer(props: RescheduleDrawerProps) {
                 Pick at least one platform.
               </p>
             ) : (
-              <p className="text-xs text-white/40" data-testid="reschedule-platforms-summary">
+              <p className="text-xs text-white/70" data-testid="reschedule-platforms-summary">
                 {orderedPlatformChips.length === 1 ? 'Posting to' : 'Cross-posting to'}{' '}
                 <span className="font-medium text-white/70">{orderedPlatformChips.join(' + ')}</span>
               </p>

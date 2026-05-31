@@ -115,13 +115,13 @@ export default function ApiDocsPage() {
                   <p className="text-white/60 mb-6">{endpoint.desc}</p>
                   <div className="grid lg:grid-cols-2 gap-6">
                     <div>
-                      <p className="text-xs uppercase tracking-[0.2em] text-white/40 mb-3">Request body</p>
+                      <p className="text-xs uppercase tracking-[0.2em] text-white/70 mb-3">Request body</p>
                       <div className="rounded-[1.25rem] border border-white/10 bg-black/30 p-5 font-mono text-sm text-white/75 break-words overflow-hidden">
                         {endpoint.body}
                       </div>
                     </div>
                     <div>
-                      <p className="text-xs uppercase tracking-[0.2em] text-white/40 mb-3">Response</p>
+                      <p className="text-xs uppercase tracking-[0.2em] text-white/70 mb-3">Response</p>
                       <div
                         data-testid="api-docs-endpoint-response"
                         className="rounded-[1.25rem] border border-white/10 bg-black/30 p-5 font-mono text-sm text-white/75 break-words overflow-hidden"

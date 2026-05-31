@@ -103,7 +103,7 @@ export default function FacebookPublishDrawer(props: FacebookPublishDrawerProps)
               <FacebookIcon className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/40">Publish now</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Publish now</p>
               <h2 id="fb-publish-drawer-title" className="mt-1 text-base font-semibold text-white">
                 Publish to Facebook Page
               </h2>
@@ -141,7 +141,7 @@ export default function FacebookPublishDrawer(props: FacebookPublishDrawerProps)
         ) : (
           <div className="space-y-5 px-6 py-5">
             <div className="space-y-2 text-sm">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/45">Format</span>
+              <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Format</span>
               <div role="group" aria-label="Post format" className="flex gap-2">
                 {(['feed', 'story'] as const).map((option) => (
                   <button
@@ -166,7 +166,7 @@ export default function FacebookPublishDrawer(props: FacebookPublishDrawerProps)
             </div>
 
             <label className="block space-y-2 text-sm" htmlFor="fb-publish-caption">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/45">Caption</span>
+              <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Caption</span>
               <textarea
                 id="fb-publish-caption"
                 data-testid="fb-publish-caption"
@@ -179,7 +179,7 @@ export default function FacebookPublishDrawer(props: FacebookPublishDrawerProps)
                 placeholder="Write a caption for this post…"
                 className="w-full rounded-[1rem] border border-white/12 bg-black/30 px-4 py-3 text-sm text-white placeholder:text-white/30 focus:border-white/35 focus:outline-none"
               />
-              <span className="text-xs text-white/45">
+              <span className="text-xs text-white/70">
                 {placement === 'story'
                   ? 'Publishing a 24h Facebook story (single image).'
                   : 'Posting immediately to the connected Facebook Page.'}

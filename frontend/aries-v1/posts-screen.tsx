@@ -227,7 +227,7 @@ export default function AriesPostsScreen() {
                   <div className="space-y-1">
                     <p className="text-sm font-medium text-white">{item.title}</p>
                     <p className="text-sm text-white/55">{item.postName} · {item.platformLabel}</p>
-                    <p className="text-sm text-white/45">{item.summary}</p>
+                    <p className="text-sm text-white/70">{item.summary}</p>
                   </div>
                   <StatusChip status={item.status} />
                 </div>
@@ -260,7 +260,7 @@ export default function AriesPostsScreen() {
                   <div className="space-y-4 border-t border-white/8 px-5 py-5">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="space-y-1">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{item.typeLabel}</p>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">{item.typeLabel}</p>
                         <h3 className="text-lg font-semibold text-white">{item.title}</h3>
                         <p className="text-sm text-white/55">{item.postName} · {item.platformLabel}</p>
                       </div>
@@ -277,7 +277,7 @@ export default function AriesPostsScreen() {
                           href={safePreviewHref}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-2 text-primary transition hover:text-primary/80"
+                          className="inline-flex items-center gap-2 text-primary transition hover:text-violet-300"
                         >
                           {item.previewContentType === 'text/html' ? (
                             <Globe className="h-4 w-4" />
@@ -339,7 +339,7 @@ export default function AriesPostsScreen() {
 function Metric(props: { label: string; value: string; detail: string }) {
   return (
     <div className="rounded-[1.25rem] border border-white/8 bg-white/[0.035] px-5 py-5">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.label}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">{props.label}</p>
       <p className="mt-3 text-3xl font-semibold text-white">{props.value}</p>
       <p className="mt-2 text-sm text-white/55">{props.detail}</p>
     </div>

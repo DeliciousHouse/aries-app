@@ -10,6 +10,10 @@ function routeIdForView(view: string | undefined): AppRouteId {
   return 'socialContent';
 }
 
+export const metadata = {
+  title: 'Campaign — Aries AI',
+};
+
 export default async function DashboardCampaignWorkspacePage({
   params,
   searchParams,

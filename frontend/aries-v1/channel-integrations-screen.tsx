@@ -149,7 +149,7 @@ export default function AriesChannelIntegrationsScreen() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="space-y-1">
                         <p className="text-sm font-medium text-white">{card.display_name}</p>
-                        <p className="text-sm text-white/45">{card.description}</p>
+                        <p className="text-sm text-white/70">{card.description}</p>
                       </div>
                       <div className="flex items-center gap-3 shrink-0 flex-wrap justify-end">
                         {card.scopes_outdated && card.connection_state === 'connected' ? (

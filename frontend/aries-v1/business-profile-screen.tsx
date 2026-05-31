@@ -274,18 +274,18 @@ export default function AriesBusinessProfileScreen() {
         aside={
           <div className="space-y-4">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Current source</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Current source</p>
               <p className="mt-3 text-sm leading-7 text-white/72">{currentSourceUrl}</p>
             </div>
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Launch approver</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Launch approver</p>
               <p className="mt-3 text-sm leading-7 text-white/72">
                 {profile.launchApproverName || 'Owner default'}
               </p>
             </div>
             {profile.brandKit?.extracted_at ? (
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Last source review</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Last source review</p>
                 <p className="mt-3 text-sm leading-7 text-white/72">{profile.brandKit.extracted_at}</p>
               </div>
             ) : null}
@@ -452,7 +452,7 @@ export default function AriesBusinessProfileScreen() {
                     Add Profile
                   </Link>
                 </div>
-                <p className="mt-3 text-xs leading-6 text-white/42">
+                <p className="mt-3 text-xs leading-6 text-white/70">
                   Newly connected media portals update this Business Profile channel summary automatically.
                 </p>
               </div>
@@ -549,7 +549,7 @@ export default function AriesBusinessProfileScreen() {
 
             {profile.brandKit.logo_urls.length > 0 ? (
               <div className="space-y-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Visible marks</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Visible marks</p>
                 <div className="grid gap-3 md:grid-cols-2">
                   {profile.brandKit.logo_urls.map((logoUrl, index) => (
                     <div key={`${logoUrl}-${index}`} className="overflow-hidden rounded-[1.1rem] border border-white/8 bg-white px-4 py-4">
@@ -565,7 +565,7 @@ export default function AriesBusinessProfileScreen() {
 
             <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
               <div className="space-y-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Palette cues</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Palette cues</p>
                 {previewColors.length > 0 ? (
                   <div className="grid gap-3 sm:grid-cols-3">
                     {previewColors.map((color) => (
@@ -581,12 +581,12 @@ export default function AriesBusinessProfileScreen() {
               </div>
 
               <div className="space-y-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Typography cues</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Typography cues</p>
                 {previewFonts.length > 0 ? (
                   <div className="grid gap-3">
                     {previewFonts.map((font) => (
                       <div key={font} className="rounded-[1.1rem] border border-white/8 bg-black/15 p-4">
-                        <p className="text-xs uppercase tracking-[0.14em] text-white/45">{font}</p>
+                        <p className="text-xs uppercase tracking-[0.14em] text-white/70">{font}</p>
                         <p className="mt-3 text-2xl text-white" style={brandKitFontStyle(font)}>
                           {profile.businessName || profile.brandKit?.brand_name || 'Brand preview'}
                         </p>
@@ -601,7 +601,7 @@ export default function AriesBusinessProfileScreen() {
 
             {profile.brandKit.external_links.length > 0 ? (
               <div className="space-y-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Visible brand links</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Visible brand links</p>
                 <div className="grid gap-3 md:grid-cols-2">
                   {profile.brandKit.external_links.map((link) => (
                     <Link
@@ -687,7 +687,7 @@ function EditableField(props: { label: string; hint?: string; children: ReactNod
     <label className="block space-y-2">
       <span className="text-sm font-medium text-white/78">{props.label}</span>
       {props.children}
-      {props.hint ? <p className="text-sm leading-6 text-white/45">{props.hint}</p> : null}
+      {props.hint ? <p className="text-sm leading-6 text-white/70">{props.hint}</p> : null}
     </label>
   );
 }
@@ -695,7 +695,7 @@ function EditableField(props: { label: string; hint?: string; children: ReactNod
 function SnapshotCard(props: { label: string; value: string }) {
   return (
     <div className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.label}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">{props.label}</p>
       <p className="mt-3 text-sm leading-7 text-white/72">{props.value}</p>
     </div>
   );

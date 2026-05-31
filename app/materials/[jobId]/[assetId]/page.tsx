@@ -149,7 +149,7 @@ export default async function MaterialsViewerPage({
       <div className="mx-auto max-w-4xl px-6 py-10">
         <header className="mb-6 flex flex-wrap items-start justify-between gap-4 border-b border-white/10 pb-6">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">
               {kindLabel} preview
             </p>
             <h1 className="mt-2 text-2xl font-semibold text-white">{asset.label}</h1>

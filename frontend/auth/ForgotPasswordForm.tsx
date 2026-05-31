@@ -66,7 +66,7 @@ const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({ onNavigate, onS
     <div className="max-w-md mx-auto">
       <button
         onClick={() => onNavigate('login')}
-        className="self-start flex items-center gap-2 text-white/40 hover:text-white mb-8 transition-colors group"
+        className="self-start flex items-center gap-2 text-white/70 hover:text-white mb-8 transition-colors group"
       >
         <svg className="w-4 h-4 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 19l-7-7 7-7" />

@@ -33,7 +33,7 @@ function MetricCard({
 }) {
   return (
     <div className="glass rounded-[2rem] p-6">
-      <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-3">{label}</p>
+      <p className="text-xs uppercase tracking-[0.22em] text-white/70 mb-3">{label}</p>
       <div className="text-4xl font-bold mb-2">{value}</div>
       <p className="text-white/55 text-sm leading-relaxed">{meta}</p>
     </div>
@@ -149,7 +149,7 @@ export default function DashboardConsole(): JSX.Element {
               <Workflow className="w-6 h-6 text-primary" />
             </div>
             <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-white/35">Social content job</p>
+              <p className="text-xs uppercase tracking-[0.24em] text-white/70">Social content job</p>
               <h2 className="text-2xl font-bold">{copy.tenantTitle}</h2>
             </div>
           </div>
@@ -177,7 +177,7 @@ export default function DashboardConsole(): JSX.Element {
               <div className="rounded-[1.75rem] border border-white/10 bg-white/5 p-6">
                 <div className="flex items-start justify-between gap-4 flex-wrap">
                   <div>
-                    <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-2">Brand</p>
+                    <p className="text-xs uppercase tracking-[0.22em] text-white/70 mb-2">Brand</p>
                     <h3 className="text-3xl font-bold mb-2">{socialContentJob.tenantName || 'Current tenant'}</h3>
                     <p className="text-white/60 break-all">{socialContentJob.brandWebsiteUrl || 'Brand website unavailable'}</p>
                   </div>
@@ -186,7 +186,7 @@ export default function DashboardConsole(): JSX.Element {
                 {socialContentJob.postWindow ? (
                   <div className="grid md:grid-cols-2 gap-4 mt-6">
                     <div className="rounded-[1.25rem] border border-white/10 bg-black/20 p-4">
-                      <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-2">
+                      <p className="text-xs uppercase tracking-[0.22em] text-white/70 mb-2">
                         {copy.windowLabel}
                       </p>
                       <p className="text-white/80">
@@ -194,13 +194,13 @@ export default function DashboardConsole(): JSX.Element {
                       </p>
                     </div>
                     <div className="rounded-[1.25rem] border border-white/10 bg-black/20 p-4">
-                      <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-2">Next action</p>
+                      <p className="text-xs uppercase tracking-[0.22em] text-white/70 mb-2">Next action</p>
                       <p className="text-white/80">{socialContentJob.nextStep.replace(/_/g, ' ')}</p>
                     </div>
                   </div>
                 ) : null}
                 <div className="mt-6">
-                  <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-2">Strategy plan links</p>
+                  <p className="text-xs uppercase tracking-[0.22em] text-white/70 mb-2">Strategy plan links</p>
                   {strategyLinks.length === 0 ? (
                     <p className="text-sm text-white/55">
                       No strategy artifact links are published yet. They appear here once strategy outputs are available.
@@ -211,7 +211,7 @@ export default function DashboardConsole(): JSX.Element {
                         <Link
                           key={artifact.id}
                           href={artifact.actionHref!}
-                          className="text-sm text-primary hover:text-primary/80 transition-colors"
+                          className="text-sm text-primary hover:text-violet-300 transition-colors"
                         >
                           {artifact.actionLabel}
                         </Link>
@@ -227,7 +227,7 @@ export default function DashboardConsole(): JSX.Element {
                     <ImageIcon className="w-5 h-5 text-primary" />
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-[0.22em] text-white/35">Creative gallery</p>
+                    <p className="text-xs uppercase tracking-[0.22em] text-white/70">Creative gallery</p>
                     <h3 className="text-xl font-semibold">Generated previews</h3>
                   </div>
                 </div>
@@ -246,10 +246,10 @@ export default function DashboardConsole(): JSX.Element {
                         {preview.mediaAssets[0]?.contentType.startsWith('image/') ? (
                           <img src={preview.mediaAssets[0].url} alt={preview.platformName} className="w-full h-48 object-cover" />
                         ) : (
-                          <div className="h-48 flex items-center justify-center text-white/45 bg-black/20">Preview asset</div>
+                          <div className="h-48 flex items-center justify-center text-white/70 bg-black/20">Preview asset</div>
                         )}
                         <div className="p-4">
-                          <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-2">{preview.platformName}</p>
+                          <p className="text-xs uppercase tracking-[0.22em] text-white/70 mb-2">{preview.platformName}</p>
                           <h4 className="font-semibold mb-1">{preview.displayTitle || preview.summary}</h4>
                           <p className="text-sm text-white/55">{preview.summary}</p>
                         </div>
@@ -269,7 +269,7 @@ export default function DashboardConsole(): JSX.Element {
                 <Cable className="w-6 h-6 text-secondary" />
               </div>
               <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-white/35">Connection summary</p>
+                <p className="text-xs uppercase tracking-[0.24em] text-white/70">Connection summary</p>
                 <h2 className="text-2xl font-bold">Platform health</h2>
                 <p className="text-sm text-white/55 mt-2">
                   {summary.connected} connected of {summary.total} configured platforms.
@@ -314,7 +314,7 @@ export default function DashboardConsole(): JSX.Element {
                 <CalendarDays className="w-6 h-6 text-white" />
               </div>
               <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-white/35">Social content surfaces</p>
+                <p className="text-xs uppercase tracking-[0.24em] text-white/70">Social content surfaces</p>
                 <h2 className="text-2xl font-bold">Open the workspace</h2>
               </div>
             </div>

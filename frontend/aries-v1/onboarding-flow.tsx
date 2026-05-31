@@ -1465,7 +1465,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                             ? 'border-[#a96cff]/50 bg-[#8a52ff]/20 text-[#dec6ff]'
                             : complete
                               ? 'border-white/20 bg-white/[0.08] text-white/80'
-                              : 'border-white/10 text-white/40',
+                              : 'border-white/10 text-white/70',
                         )}
                       >
                         {complete ? <Check className="h-3 w-3" /> : `0${index + 1}`}
@@ -2087,7 +2087,7 @@ function Field(props: {
       <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/72">
         {props.label}
         {props.optional ? (
-          <span className="text-xs font-normal normal-case tracking-normal text-white/40">(optional)</span>
+          <span className="text-xs font-normal normal-case tracking-normal text-white/70">(optional)</span>
         ) : null}
         {validity === 'valid' ? <Check className="h-3.5 w-3.5 text-emerald-400" aria-hidden /> : null}
       </span>
@@ -2095,7 +2095,7 @@ function Field(props: {
       {props.error ? (
         <p role="alert" className="text-xs text-red-400">{props.error}</p>
       ) : props.hint ? (
-        <p className="text-sm leading-7 text-white/46">{props.hint}</p>
+        <p className="text-sm leading-7 text-white/70">{props.hint}</p>
       ) : null}
     </label>
   );
@@ -2107,7 +2107,7 @@ function SaveIndicator(props: { status: 'idle' | 'saving' | 'saved' | 'local-sav
     return (
       <span
         aria-live="polite"
-        className="inline-flex items-center gap-1.5 text-xs font-medium text-white/45"
+        className="inline-flex items-center gap-1.5 text-xs font-medium text-white/70"
       >
         <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
         Saving…

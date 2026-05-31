@@ -52,7 +52,7 @@ export default function AriesLandingPage() {
               <AriesMark sizeClassName="h-11 w-11" />
               <div>
                 <p className="text-sm font-semibold tracking-[0.18em] text-white/55 uppercase">Aries AI</p>
-                <p className="text-xs text-white/40">Marketing operating system</p>
+                <p className="text-xs text-white/70">Marketing operating system</p>
               </div>
             </Link>
             <div className="hidden items-center gap-6 text-sm text-white/60 md:flex">
@@ -122,7 +122,7 @@ export default function AriesLandingPage() {
               <div className="rounded-[2rem] border border-white/10 bg-[#0f151b] p-5">
                 <div className="flex items-center justify-between gap-3 border-b border-white/8 pb-4">
                   <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Home</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Home</p>
                     <h2 className="mt-2 text-2xl font-semibold text-white">Your marketing this week</h2>
                   </div>
                   <span className="rounded-full bg-amber-300/12 px-3 py-1.5 text-xs font-medium text-amber-50">
@@ -131,28 +131,28 @@ export default function AriesLandingPage() {
                 </div>
                 <div className="grid gap-4 py-5 md:grid-cols-2">
                   <div className="rounded-[1.5rem] border border-white/8 bg-white/[0.04] p-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Next action</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Next action</p>
                     <p className="mt-3 text-base font-semibold text-white">Approve the Spring Membership Drive launch set</p>
                     <p className="mt-2 text-sm leading-6 text-white/55">
                       Three items are ready for review. Once approved, Aries can schedule the first week.
                     </p>
                   </div>
                   <div className="rounded-[1.5rem] border border-white/8 bg-white/[0.04] p-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Scheduled next</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Scheduled next</p>
                     <p className="mt-3 text-base font-semibold text-white">Thu, Apr 2 at 8:30 AM</p>
                     <p className="mt-2 text-sm leading-6 text-white/55">
                       Approved Instagram member story queued for the next cycle.
                     </p>
                   </div>
                   <div className="rounded-[1.5rem] border border-white/8 bg-white/[0.04] p-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Working now</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Working now</p>
                     <p className="mt-3 text-base font-semibold text-white">27 booked consults</p>
                     <p className="mt-2 text-sm leading-6 text-emerald-200">
                       March Open House is pacing 18% ahead of target.
                     </p>
                   </div>
                   <div className="rounded-[1.5rem] border border-white/8 bg-white/[0.04] p-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Trust</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Trust</p>
                     <p className="mt-3 text-base font-semibold text-white">Every launch stays reviewable</p>
                     <p className="mt-2 text-sm leading-6 text-white/55">
                       Material edits return to review before scheduling continues.
@@ -178,7 +178,7 @@ export default function AriesLandingPage() {
               key={step}
               className="rounded-[1.8rem] border border-white/8 bg-white/[0.03] px-5 py-6"
             >
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-white/35">0{index + 1}</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-white/70">0{index + 1}</p>
               <p className="mt-4 text-lg font-medium text-white">{step}</p>
             </div>
           ))}
@@ -218,17 +218,17 @@ export default function AriesLandingPage() {
           </div>
           <div className="grid gap-4 md:grid-cols-3">
             <div className="rounded-[1.8rem] border border-white/8 bg-white/[0.03] p-5">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Booked consults</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Booked consults</p>
               <p className="mt-4 text-4xl font-semibold text-white">27</p>
               <p className="mt-2 text-sm text-emerald-200">+18% vs goal</p>
             </div>
             <div className="rounded-[1.8rem] border border-white/8 bg-white/[0.03] p-5">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Cost per booking</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Cost per booking</p>
               <p className="mt-4 text-4xl font-semibold text-white">$22</p>
               <p className="mt-2 text-sm text-emerald-200">11% below target</p>
             </div>
             <div className="rounded-[1.8rem] border border-white/8 bg-white/[0.03] p-5">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Next move</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Next move</p>
               <p className="mt-4 text-lg font-semibold text-white">Approve the winning variation</p>
               <p className="mt-2 text-sm text-white/60">Extend the highest-performing message before fatigue appears.</p>
             </div>
@@ -236,7 +236,7 @@ export default function AriesLandingPage() {
         </div>
       </section>
 
-      <footer className="border-t border-white/8 px-6 py-8 text-sm text-white/45 lg:px-10">
+      <footer className="border-t border-white/8 px-6 py-8 text-sm text-white/70 lg:px-10">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <p>Aries AI is built for small businesses that want marketing results without marketing software overhead.</p>
           <div className="flex flex-wrap items-center gap-4">

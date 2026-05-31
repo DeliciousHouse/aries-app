@@ -542,7 +542,7 @@ function GenerationProgressBar(props: { progress: GenerationProgressState }) {
       </div>
       <p className="mt-3 text-xs leading-5 text-white/60">{progress.description}</p>
       {(progress.imageCount !== null || progress.videoCount !== null) ? (
-        <div className="mt-3 flex flex-wrap gap-3 text-[11px] font-medium uppercase tracking-[0.18em] text-white/45">
+        <div className="mt-3 flex flex-wrap gap-3 text-[11px] font-medium uppercase tracking-[0.18em] text-white/70">
           {progress.imageCount !== null ? (
             <span className="rounded-full border border-white/10 bg-black/15 px-3 py-1">
               {progress.completedImageCount}/{progress.imageCount} images
@@ -562,7 +562,7 @@ function GenerationProgressBar(props: { progress: GenerationProgressState }) {
 function MetricCard(props: { label: string; value: string }) {
   return (
     <div className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.label}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">{props.label}</p>
       <p className="mt-2 text-sm text-white/78">{props.value}</p>
     </div>
   );
@@ -730,7 +730,7 @@ function BrandBriefCard(props: {
           <div className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 md:col-span-2">
             <label
               htmlFor="edit-brief-website-url"
-              className="block text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35"
+              className="block text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70"
             >
               Website URL
             </label>
@@ -770,11 +770,11 @@ function BrandBriefCard(props: {
           <EditableBriefField id="edit-brief-notes" label="Revision notes" multiline rows={5} maxLength={3000} placeholder="Context for this revision: what's changing and why." value={notes} onChange={setNotes} className="md:col-span-2" />
 
           <div className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 md:col-span-2">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Add logos / brand assets</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Add logos / brand assets</p>
             <label className="mt-3 flex cursor-pointer flex-col gap-3 rounded-[1.25rem] border border-dashed border-white/15 bg-white/[0.03] px-4 py-4 text-sm text-white/65 transition hover:border-white/25 hover:text-white">
               <span>Upload more logos, lockups, guides, or source files.</span>
               <input type="file" multiple className="hidden" onChange={(event) => setBrandAssets(Array.from(event.target.files || []))} />
-              <span className="text-white/45">Choose files</span>
+              <span className="text-white/70">Choose files</span>
             </label>
             {brandAssets.length > 0 ? (
               <div className="mt-3 space-y-2 text-sm text-white/65">
@@ -800,13 +800,13 @@ function BrandBriefCard(props: {
 
       {!editing && props.brief.notes ? (
         <div className="mt-4 rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Revision notes</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Revision notes</p>
           <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-white/68">{props.brief.notes}</p>
         </div>
       ) : null}
       {props.brief.brandAssets.length > 0 ? (
         <div className="mt-4 rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Uploaded brand assets</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Uploaded brand assets</p>
           <div className="mt-3 flex flex-wrap gap-3">
             {props.brief.brandAssets.map((asset) => (
               <a key={asset.id} href={asset.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-full border border-white/12 px-4 py-2 text-sm text-white/80 transition hover:border-white/20 hover:text-white">
@@ -839,7 +839,7 @@ function EditableBriefField(props: {
           screen readers no longer concatenate label + current value. */}
       <label
         htmlFor={props.id}
-        className="block text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35"
+        className="block text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70"
       >
         {props.label}
       </label>
@@ -866,7 +866,7 @@ function EditableBriefField(props: {
         />
       )}
       {props.maxLength ? (
-        <p id={counterId} className="mt-2 text-right text-[11px] text-white/45" aria-live="polite">
+        <p id={counterId} className="mt-2 text-right text-[11px] text-white/70" aria-live="polite">
           {props.value.length} / {props.maxLength}
         </p>
       ) : null}
@@ -877,7 +877,7 @@ function EditableBriefField(props: {
 function BriefField(props: { label: string; value: string }) {
   return (
     <div className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.label}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">{props.label}</p>
       <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-white/68">{props.value}</p>
     </div>
   );
@@ -909,7 +909,7 @@ function GateFallbackPanel(props: {
     >
       <div className="space-y-3">
         <p className="text-sm leading-7 text-white/65">{props.fallback.description}</p>
-        {props.fallback.detail ? <p className="text-sm leading-7 text-white/48">{props.fallback.detail}</p> : null}
+        {props.fallback.detail ? <p className="text-sm leading-7 text-white/70">{props.fallback.detail}</p> : null}
       </div>
     </ShellPanel>
   );
@@ -1140,8 +1140,8 @@ function PublishStatusSurface(props: {
                     <div className="space-y-1">
                       <p className="text-sm font-medium text-white">{item.title}</p>
                       <p className="text-sm text-white/55">{item.platformLabel}</p>
-                      <p className="text-sm text-white/45">{item.summary}</p>
-                      {item.destinationUrl ? <p className="text-sm text-white/40">{item.destinationUrl}</p> : null}
+                      <p className="text-sm text-white/70">{item.summary}</p>
+                      {item.destinationUrl ? <p className="text-sm text-white/70">{item.destinationUrl}</p> : null}
                     </div>
                     <StatusChip status={publishedResult ? 'live' : item.status === 'ready_to_publish' ? 'approved' : item.status === 'published_to_meta_paused' ? 'live' : 'in_review'}>
                       {publishedResult ? 'Published' : workflowStateLabel(item.status)}
@@ -1423,7 +1423,7 @@ function RuntimeStatusSurface(props: {
 
         {status.publishConfig ? (
           <div className="mt-4 rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35 mb-3">Publish configuration</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70 mb-3">Publish configuration</p>
             <div className="grid gap-1 text-sm text-white/70">
               <span>Platforms: {status.publishConfig.platforms.join(', ') || 'none selected'}</span>
               <span>Live draft publish: {status.publishConfig.livePublishPlatforms.join(', ') || 'not requested'}</span>

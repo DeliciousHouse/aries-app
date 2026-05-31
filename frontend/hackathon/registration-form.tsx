@@ -143,7 +143,7 @@ export default function HackathonRegistrationForm({ deadlineLabel }: HackathonRe
         </div>
       ) : null}
 
-      <p className="text-xs text-white/40">
+      <p className="text-xs text-white/70">
         We&apos;ll only email you about this hackathon. Your address is not shared.
       </p>
     </form>
