@@ -175,3 +175,39 @@ test('story_count > 0: first N entries also promoted to live image-story posts',
     assert.ok(result.inserted >= 3);
   });
 });
+
+test('story_count > 0 with composer: story post is backed by the COMPOSED asset', async () => {
+  await withDataRoot(async () => {
+    delete process.env.ARIES_VIDEO_PUBLISH_ENABLED;
+    const { pool, inserts } = makeFakePoolWithAssets();
+    const composeCalls: Array<{ baseAssetId: string; headline: string }> = [];
+    await synthesizePublishPostsFromContentPackage({
+      jobId: 'job_compose', tenantId: 15, doc: makeDocWithStoryBudget('job_compose', ALL_FEED_SCHEDULE, 1), publishRunId: null, pool,
+      composeStoryAsset: async ({ baseAssetId, headline }) => {
+        composeCalls.push({ baseAssetId, headline });
+        return 'composed-asset-uuid';
+      },
+    });
+    const story = inserts.find((p) => p[8] === 'story');
+    assert.ok(story, 'story post inserted');
+    assert.deepEqual(story![6], ['composed-asset-uuid'], 'story uses composed asset, not raw img_1');
+    assert.equal(composeCalls.length, 1, 'composed once per entry (reused across platforms)');
+    assert.equal(composeCalls[0].baseAssetId, 'img_1');
+    // Feed post is unaffected — still the raw creative.
+    const feed = inserts.find((p) => p[5] === 'job_compose:1:instagram:feed');
+    assert.deepEqual(feed![6], ['img_1'], 'feed still uses the raw creative');
+  });
+});
+
+test('story composer that returns null falls back to the raw creative', async () => {
+  await withDataRoot(async () => {
+    delete process.env.ARIES_VIDEO_PUBLISH_ENABLED;
+    const { pool, inserts } = makeFakePoolWithAssets();
+    await synthesizePublishPostsFromContentPackage({
+      jobId: 'job_fallback', tenantId: 15, doc: makeDocWithStoryBudget('job_fallback', ALL_FEED_SCHEDULE, 1), publishRunId: null, pool,
+      composeStoryAsset: async () => null,
+    });
+    const story = inserts.find((p) => p[8] === 'story');
+    assert.deepEqual(story![6], ['img_1'], 'falls back to raw creative when composition fails');
+  });
+});

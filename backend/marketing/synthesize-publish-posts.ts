@@ -64,6 +64,20 @@ export interface SynthesizePublishPostsArgs {
   pool: {
     query(sql: string, params?: unknown[]): Promise<{ rows: unknown[]; rowCount?: number | null }>;
   };
+  /**
+   * Optional story-image composer. When provided, a promoted story post is
+   * backed by a COMPOSED 9:16 image (headline + brand CTA baked in) instead of
+   * the bare feed creative — because Meta story publishing renders only pixels
+   * (no caption, no link sticker). Returns the composed creative_asset id, or
+   * null to fall back to the raw creative. Omitted in unit tests (pure) and
+   * wired to `composeStoryAssetForBaseCreative` in production (hermes-callbacks).
+   */
+  composeStoryAsset?: (args: {
+    tenantId: number;
+    jobId: string;
+    baseAssetId: string;
+    headline: string;
+  }) => Promise<string | null>;
 }
 
 export interface SynthesizePublishPostsResult {
@@ -80,6 +94,8 @@ export interface SynthesizePublishPostsResult {
 type ContentPackageEntry = {
   postNumber: number;
   caption: string;
+  /** The post hook — used as the story headline when composing story images. */
+  headline: string;
   platforms: string[];
 };
 
@@ -270,7 +286,13 @@ function parseContentPackage(raw: unknown): ContentPackageEntry[] {
     if (platforms.length === 0) return;
     const caption = buildCaption(record);
     if (!caption) return;
-    entries.push({ postNumber, caption, platforms: Array.from(new Set(platforms)) });
+    // Story headline = the hook (punchy), falling back to the body, then the
+    // first line of the caption. IG/FB stories show only the image, so this is
+    // baked into the composed story pixels.
+    const hook = typeof record.hook === 'string' ? record.hook.trim() : '';
+    const body = typeof record.body === 'string' ? record.body.trim() : '';
+    const headline = hook || body || caption.split('\n')[0] || '';
+    entries.push({ postNumber, caption, headline, platforms: Array.from(new Set(platforms)) });
   });
   return entries;
 }
@@ -389,7 +411,7 @@ function ensureSynthesizedPublishApprovalRecord(
 export async function synthesizePublishPostsFromContentPackage(
   args: SynthesizePublishPostsArgs,
 ): Promise<SynthesizePublishPostsResult> {
-  const { jobId, tenantId, doc, publishRunId, pool } = args;
+  const { jobId, tenantId, doc, publishRunId, pool, composeStoryAsset } = args;
 
   if (!Number.isFinite(tenantId) || tenantId <= 0) {
     return { inserted: 0, skipped: 0, total: 0, approvalRecordReady: false, reason: 'no_tenant' };
@@ -532,6 +554,20 @@ export async function synthesizePublishPostsFromContentPackage(
         skipped++;
         continue;
       }
+      // Compose a story image (headline + brand CTA baked into a 9:16 canvas)
+      // ONCE per entry and reuse it across the entry's platforms. Meta stories
+      // render only pixels, so a bare creative would post wordless. Fall back to
+      // the raw creative if no composer is wired or composition fails.
+      let storyAssetIds: string[] = [assetId];
+      if (composeStoryAsset) {
+        const composedId = await composeStoryAsset({
+          tenantId,
+          jobId,
+          baseAssetId: assetId,
+          headline: entry.headline,
+        }).catch(() => null);
+        if (composedId) storyAssetIds = [composedId];
+      }
       for (const platform of entry.platforms) {
         total++;
         const idempotencyKey = `${jobId}:${entry.postNumber}:${platform}:story`;
@@ -543,7 +579,7 @@ export async function synthesizePublishPostsFromContentPackage(
             platform,
             entry.caption,
             idempotencyKey,
-            [assetId],
+            storyAssetIds,
             'image',
             'story',
           ]);

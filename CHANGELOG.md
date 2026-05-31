@@ -2,6 +2,53 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.13.17 — feat(social-content): compose story images with headline + aries.sugarandleather.com CTA
+
+### Added
+- **Server-side story image composition** (`backend/marketing/story-composer.ts`).
+  Meta IG/FB story publishing renders ONLY the image — captions are ignored and
+  link/text stickers are unsupported via the Graph API — so a raw feed creative
+  posted as a story shows up wordless with no call-to-action. The composer builds
+  a 1080×1920 (9:16) story: darkened/blurred full-bleed background, the creative
+  contained up top, a bottom scrim, the post's **hook as a bold headline** (wrapped,
+  length-adaptive), and a brand-color **CTA pill carrying the site host**
+  (`aries.sugarandleather.com`, derived from `APP_BASE_URL`, never the bare
+  leather-goods host; CTA font auto-sizes so the URL never clips).
+  - Composed image is persisted like an operator upload — written under
+    `DATA_ROOT/ingested-assets` as a `creative_assets` row
+    (`source_type='runtime_artifact'`, `storage_kind='ingested_asset'`,
+    `aspect_ratio='9:16'`) served by the id route, so the existing dispatch
+    signing path makes it fetchable by Meta. No new serving route.
+  - `composeStoryAssetForBaseCreative` resolves base bytes (runtime_asset from the
+    Hermes mount, ingested_asset from DATA_ROOT), composes, persists, and returns
+    the composed asset id — returning `null` on any failure so a publish never
+    blocks (falls back to the raw creative).
+- **Wired into story synthesis** (`synthesize-publish-posts.ts`,
+  `hermes-callbacks.ts`): a promoted `surface='story'` post is now backed by the
+  COMPOSED asset (composed once per post, reused across platforms), using the
+  post's hook as the headline. Falls back to the raw creative if no composer is
+  wired (unit tests) or composition fails.
+
+### Fixed
+- **Public media proxy now serves `ingested_asset` bytes.**
+  `/api/public/media/[token]/[basename]` previously resolved bytes ONLY from the
+  Hermes mount, so any `ingested_asset` (a composed story image — and, latently,
+  operator-uploaded creatives) 404'd when Meta fetched the signed URL, failing
+  the publish with `Only photo or video can be accepted as media type`. The proxy
+  now falls back to `DATA_ROOT/ingested-assets/<tenant>/<sha[:2]>/<basename>`,
+  scoped to the token's `tenantId` (a tenant can only fetch their own ingested
+  bytes). Caught by a live publish that failed before this fix.
+
+### Notes
+- Fixes the wordless / no-CTA stories from v0.1.13.16's bare-creative path.
+- Uses DejaVu Sans (present in the runtime container's fontconfig set) for SVG
+  text via sharp.
+- Composed-asset persistence uses a single self-referential INSERT
+  (`gen_random_uuid()` in a subselect feeding both `id` and `served_asset_ref`):
+  a data-modifying CTE (`INSERT … ; UPDATE … WHERE id = ins.id`) leaves
+  `served_asset_ref` NULL because PostgreSQL evaluates the UPDATE against a
+  snapshot excluding the CTE's just-inserted row (verified on the prod DB).
+
 ## v0.1.13.16 — feat(social-content): automate image stories — story_count request + auto-promote to live IG/FB
 
 ### Added
