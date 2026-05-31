@@ -197,7 +197,7 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
     <div className={wrapperClassName}>
       <div className={contentClassName}>
         <div className="glass rounded-[2.5rem] p-8 md:p-10">
-          <p className="mb-3 text-xs uppercase tracking-[0.3em] text-primary">Weekly social content</p>
+          <p className="mb-3 text-xs uppercase tracking-[0.3em] text-violet-300">Weekly social content</p>
           <h1 className="mb-3 text-4xl font-bold">Create my weekly social posts</h1>
           <p className="text-white/60">
             Share a few details and Aries will prepare your weekly social content plan.

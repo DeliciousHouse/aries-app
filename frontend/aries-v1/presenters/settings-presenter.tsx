@@ -65,7 +65,7 @@ export default function SettingsPresenter({
         <div>
           <div className="mb-2 flex items-center gap-3">
             <div className="rounded-lg bg-white/5 p-2">
-              <Building2 className="h-5 w-5 text-primary" />
+              <Building2 className="h-5 w-5 text-violet-300" />
             </div>
             <h2 className="text-3xl font-display font-semibold tracking-tight text-white">Settings</h2>
           </div>

@@ -75,7 +75,7 @@ export default function HackathonRegistrationForm({ deadlineLabel }: HackathonRe
   if (done) {
     return (
       <div className="rounded-2xl border border-primary/30 bg-primary/10 p-6">
-        <p className="text-primary uppercase tracking-[0.2em] text-xs font-semibold mb-2">
+        <p className="text-violet-300 uppercase tracking-[0.2em] text-xs font-semibold mb-2">
           You&apos;re in
         </p>
         <p className="text-white/90 text-lg mb-2">
@@ -165,7 +165,7 @@ function Field({
     <label className="block">
       <span className="block text-sm font-medium text-white/80 mb-2">
         {label}
-        {required ? <span className="text-primary"> *</span> : null}
+        {required ? <span className="text-violet-300"> *</span> : null}
       </span>
       {children}
       {error ? <p className="mt-2 text-sm text-red-300">{error}</p> : null}

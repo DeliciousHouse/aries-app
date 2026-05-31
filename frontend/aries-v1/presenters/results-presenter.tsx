@@ -80,7 +80,7 @@ export default function ResultsPresenter({ model }: ResultsPresenterProps) {
 
         <div className="mt-6 hidden lg:block">
           <div className="glass-panel border-primary/10 bg-primary/5 p-4">
-            <div className="mb-2 flex items-center gap-2 text-primary">
+            <div className="mb-2 flex items-center gap-2 text-violet-300">
               <Sparkles className="h-4 w-4" />
               <span className="text-xs font-bold uppercase tracking-[0.2em]">Operator insight</span>
             </div>
@@ -96,7 +96,7 @@ export default function ResultsPresenter({ model }: ResultsPresenterProps) {
           <div>
             <div className="mb-2 flex items-center gap-3">
               <div className="rounded-lg bg-white/5 p-2">
-                <BarChart3 className="h-5 w-5 text-primary" />
+                <BarChart3 className="h-5 w-5 text-violet-300" />
               </div>
               <h2 className="text-3xl font-display font-semibold tracking-tight text-white">
                 Results
@@ -105,7 +105,7 @@ export default function ResultsPresenter({ model }: ResultsPresenterProps) {
             <p className="max-w-3xl text-zinc-400">{model.hero.description}</p>
           </div>
           <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/75">
-            <Layers3 className="h-4 w-4 text-primary" />
+            <Layers3 className="h-4 w-4 text-violet-300" />
             {filteredCampaigns.length} post{filteredCampaigns.length === 1 ? '' : 's'} in view
           </div>
         </div>
@@ -136,7 +136,7 @@ export default function ResultsPresenter({ model }: ResultsPresenterProps) {
                   className="glass-panel group p-5"
                 >
                   <div className="mb-4 flex items-start justify-between">
-                    <div className="rounded-xl bg-white/5 p-2 text-zinc-400 transition-colors group-hover:text-primary">
+                    <div className="rounded-xl bg-white/5 p-2 text-zinc-400 transition-colors group-hover:text-violet-300">
                       {index === 0 ? <Layers3 className="h-5 w-5" /> : index === 1 ? <TrendingUp className="h-5 w-5" /> : index === 2 ? <Clock3 className="h-5 w-5" /> : <CheckCircle2 className="h-5 w-5" />}
                     </div>
                     <div className={`rounded-md px-2 py-1 text-[10px] font-medium ${

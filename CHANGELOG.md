@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.13.22 — fix(a11y): raise `text-primary` foreground to `text-violet-300` (WCAG 1.4.3 follow-up)
+
+The v0.1.13.19 contrast pass fixed low-opacity white text but left `text-primary`
+(`#7c3aed` / violet-600) used as a FOREGROUND color. On the dark theme that is
+only 2.89:1 — it fails 4.5:1 for normal text. The live re-scan caught 77 such
+failures on `/dashboard/posts` alone (the "Open asset preview" links), plus the
+eyebrow labels on terms / privacy / sitemap / hackathon / onboarding / new-job.
+
+### Fixed
+- Site-wide codemod: `text-primary` (foreground) → `text-violet-300` (~7.5:1 on
+  the dark theme), 69 sites across 29 files. Covers links, eyebrow labels, badges,
+  and accent icons. `bg-primary` / `border-primary` / gradient `*-primary` are
+  unchanged, so buttons keep the brand violet (white-on-violet already passes).
+  `text-primary/NN` opacities were already handled in v0.1.13.19/.21.
+  admin + creative-memory (light-surface, out of audit scope) excluded.
+
 ## v0.1.13.21 — fix(a11y+media): flatten calendar tray interactivity + GC/guard evicted Hermes media
 
 QA-audit fixes #4 (nested-interactive) and #3 (broken images).

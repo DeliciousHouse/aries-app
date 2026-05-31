@@ -382,7 +382,7 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
     <div className="min-h-screen bg-background px-6 py-10 md:px-8 lg:px-10">
       <div className="max-w-7xl mx-auto space-y-6">
         <div className="glass rounded-[2.5rem] p-8 md:p-10">
-          <p className="text-xs uppercase tracking-[0.3em] text-primary mb-3">{copy.headerEyebrow}</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-violet-300 mb-3">{copy.headerEyebrow}</p>
           <h1 className="text-4xl font-bold mb-3">{copy.headerTitle}</h1>
           <p className="text-white/60">{copy.headerDescription}</p>
         </div>
@@ -555,7 +555,7 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
                       </pre>
                     ) : null}
                     {art.actionHref && art.actionLabel ? (
-                      <Link href={art.actionHref} className="text-xs font-bold text-primary hover:underline">
+                      <Link href={art.actionHref} className="text-xs font-bold text-violet-300 hover:underline">
                         {art.actionLabel} →
                       </Link>
                     ) : null}

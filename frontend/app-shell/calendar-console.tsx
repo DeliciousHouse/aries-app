@@ -134,7 +134,7 @@ export default function CalendarConsole(): JSX.Element {
               ) : null}
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center">
-                  <CalendarDays className="w-6 h-6 text-primary" />
+                  <CalendarDays className="w-6 h-6 text-violet-300" />
                 </div>
                 <div>
                   <p className="text-xs uppercase tracking-[0.24em] text-white/70">Window</p>

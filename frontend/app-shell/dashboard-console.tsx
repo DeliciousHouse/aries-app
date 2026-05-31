@@ -146,7 +146,7 @@ export default function DashboardConsole(): JSX.Element {
         <div className="glass rounded-[2.5rem] p-8">
           <div className="flex items-center gap-3 mb-6">
             <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center">
-              <Workflow className="w-6 h-6 text-primary" />
+              <Workflow className="w-6 h-6 text-violet-300" />
             </div>
             <div>
               <p className="text-xs uppercase tracking-[0.24em] text-white/70">Social content job</p>
@@ -211,7 +211,7 @@ export default function DashboardConsole(): JSX.Element {
                         <Link
                           key={artifact.id}
                           href={artifact.actionHref!}
-                          className="text-sm text-primary hover:text-violet-300 transition-colors"
+                          className="text-sm text-violet-300 hover:text-violet-300 transition-colors"
                         >
                           {artifact.actionLabel}
                         </Link>
@@ -224,7 +224,7 @@ export default function DashboardConsole(): JSX.Element {
               <div>
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-10 h-10 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center">
-                    <ImageIcon className="w-5 h-5 text-primary" />
+                    <ImageIcon className="w-5 h-5 text-violet-300" />
                   </div>
                   <div>
                     <p className="text-xs uppercase tracking-[0.22em] text-white/70">Creative gallery</p>

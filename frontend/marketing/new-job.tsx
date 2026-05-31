@@ -269,7 +269,7 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
     <div className={wrapperClassName}>
       <div className={contentClassName}>
         <div className="glass rounded-[2.5rem] p-8 md:p-10">
-          <p className="mb-3 text-xs uppercase tracking-[0.3em] text-primary">Aries workflow</p>
+          <p className="mb-3 text-xs uppercase tracking-[0.3em] text-violet-300">Aries workflow</p>
           <h2 className="mb-3 text-4xl font-bold">New Social Content</h2>
           <p className="text-white/60">
             Create a real social content brief with brand inputs, review constraints, and uploads that persist into the post workspace.
@@ -282,7 +282,7 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
               <div>
                 <div className="mb-4 flex items-center gap-3">
                   <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10">
-                    <Rocket className="h-6 w-6 text-primary" />
+                    <Rocket className="h-6 w-6 text-violet-300" />
                   </div>
                   <div>
                     <p className="text-xs uppercase tracking-[0.24em] text-white/70">Content intake</p>
@@ -576,7 +576,7 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                   const [stage, detail] = item.split(' feed ');
                   return (
                     <div key={item} className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-white/70">
-                      <span className="mr-2 rounded-full border border-primary/25 bg-primary/10 px-2 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-primary">
+                      <span className="mr-2 rounded-full border border-primary/25 bg-primary/10 px-2 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-violet-300">
                         Step {index + 1}
                       </span>
                       {stage && detail ? (

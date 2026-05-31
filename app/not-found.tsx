@@ -8,7 +8,7 @@ export default function NotFound() {
   return (
     <div className="min-h-screen bg-background text-white flex items-center justify-center px-6">
       <div className="glass rounded-[2.5rem] p-10 md:p-14 max-w-2xl text-center">
-        <p className="text-xs uppercase tracking-[0.3em] text-primary mb-4">404</p>
+        <p className="text-xs uppercase tracking-[0.3em] text-violet-300 mb-4">404</p>
         <h1 className="text-5xl md:text-6xl font-bold mb-5">
           <span className="text-gradient">Page not found</span>
         </h1>
