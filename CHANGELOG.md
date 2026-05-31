@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.13.24 — fix(a11y): unique per-view <title> for the campaign workspace (WCAG 2.4.2)
+
+The stage routes `/dashboard/{brand-review,creative-review,strategy-review,publish-status}`
+client-redirect to `/dashboard/social-content/<id>?view=…` when a campaign exists,
+so all four collapsed to the workspace's static `"Campaign — Aries AI"` title.
+Replaced the static export with `generateMetadata` keyed by the `view` param →
+"Brand Review / Creative Review / Strategy Review / Publish Status / Campaign — Aries AI".
+The h1 was already per-view; this makes the document `<title>` unique too.
+
 ## v0.1.13.23 — fix(a11y): EmptyStatePanel h3 → h2 (heading-order on /review + empty states)
 
 The shared `EmptyStatePanel` rendered its title as `<h3>`. With the per-route
