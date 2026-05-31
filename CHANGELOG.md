@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.13.23 — fix(a11y): EmptyStatePanel h3 → h2 (heading-order on /review + empty states)
+
+The shared `EmptyStatePanel` rendered its title as `<h3>`. With the per-route
+sr-only `<h1>` from v0.1.13.19, an empty screen (e.g. `/review` with an empty
+queue) went `h1 → h3`, skipping a level (axe heading-order, moderate). Bumped to
+`<h2>` — valid after the page h1 and after any section h2, so no screen skips.
+Caught by the final live 27-route re-scan.
+
 ## v0.1.13.22 — fix(a11y): raise `text-primary` foreground to `text-violet-300` (WCAG 1.4.3 follow-up)
 
 The v0.1.13.19 contrast pass fixed low-opacity white text but left `text-primary`
