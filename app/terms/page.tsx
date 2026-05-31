@@ -29,7 +29,7 @@ export default function TermsPage() {
       <section className="container mx-auto px-6 pt-32 pb-20">
         <div className="max-w-4xl space-y-8">
           <div className="glass rounded-[2.5rem] p-8 md:p-10">
-            <p className="text-xs uppercase tracking-[0.3em] text-primary mb-3">Legal</p>
+            <p className="text-xs uppercase tracking-[0.3em] text-violet-300 mb-3">Legal</p>
             <h1 className="text-4xl font-bold mb-3">Terms of Service</h1>
             <p className="text-white/60">
               A plain-language summary of what you can expect from Aries and what we expect from you.

@@ -340,7 +340,7 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
       <div className="text-center mt-8">
         <p className="text-sm text-white/60">
           Already have an account?{' '}
-          <button type="button" onClick={() => onNavigate('login', email)} className="font-bold text-white hover:text-primary transition-colors">Sign In</button>
+          <button type="button" onClick={() => onNavigate('login', email)} className="font-bold text-white hover:text-violet-300 transition-colors">Sign In</button>
         </p>
       </div>
     </div>

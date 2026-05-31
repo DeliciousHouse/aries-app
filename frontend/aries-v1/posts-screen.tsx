@@ -284,7 +284,7 @@ export default function AriesPostsScreen() {
                           href={safePreviewHref}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-2 text-primary transition hover:text-violet-300"
+                          className="inline-flex items-center gap-2 text-violet-300 transition hover:text-violet-300"
                         >
                           {item.previewContentType === 'text/html' ? (
                             <Globe className="h-4 w-4" />

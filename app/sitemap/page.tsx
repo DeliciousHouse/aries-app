@@ -50,7 +50,7 @@ export default function SiteMapPage() {
       <section className="container mx-auto px-6 pt-32 pb-20">
         <div className="max-w-5xl space-y-8">
           <div className="glass rounded-[2.5rem] p-8 md:p-10">
-            <p className="text-xs uppercase tracking-[0.3em] text-primary mb-3">Navigation</p>
+            <p className="text-xs uppercase tracking-[0.3em] text-violet-300 mb-3">Navigation</p>
             <h1 className="text-4xl font-bold mb-3">Sitemap</h1>
             <p className="text-white/60">Browse primary Aries routes by workflow area.</p>
           </div>

@@ -40,7 +40,7 @@ export default function HackathonPage() {
         <div className="container mx-auto px-6">
           <div className="max-w-4xl mx-auto">
             <div className="glass rounded-[2.5rem] p-8 md:p-12">
-              <span className="inline-flex px-4 py-2 rounded-full border border-primary/20 bg-primary/10 text-primary text-xs uppercase tracking-[0.2em] font-semibold mb-6">
+              <span className="inline-flex px-4 py-2 rounded-full border border-primary/20 bg-primary/10 text-violet-300 text-xs uppercase tracking-[0.2em] font-semibold mb-6">
                 Invite-only · Direct link
               </span>
               <h1 className="text-5xl md:text-6xl font-bold leading-tight mb-6">
@@ -63,7 +63,7 @@ export default function HackathonPage() {
                 <ul className="space-y-2 text-white/75">
                   {HACKATHON.what.map((item) => (
                     <li key={item} className="flex gap-3">
-                      <span className="text-primary mt-1">▸</span>
+                      <span className="text-violet-300 mt-1">▸</span>
                       <span>{item}</span>
                     </li>
                   ))}
@@ -71,7 +71,7 @@ export default function HackathonPage() {
               </div>
 
               <div className="mb-10 rounded-2xl border border-primary/20 bg-primary/5 p-6">
-                <p className="text-sm uppercase tracking-[0.2em] text-primary font-semibold mb-2">
+                <p className="text-sm uppercase tracking-[0.2em] text-violet-300 font-semibold mb-2">
                   Prize
                 </p>
                 <p className="text-white/80">{HACKATHON.prize}</p>

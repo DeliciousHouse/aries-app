@@ -200,14 +200,14 @@ export default function CalendarPresenter({
           <div>
             <div className="mb-2 flex items-center gap-3">
               <div className="rounded-lg bg-white/5 p-2">
-                <CalendarIcon className="h-5 w-5 text-primary" />
+                <CalendarIcon className="h-5 w-5 text-violet-300" />
               </div>
               <h2 className="text-3xl font-display font-semibold tracking-tight text-white">Calendar</h2>
             </div>
             <p className="max-w-3xl text-zinc-400">{model.hero.description}</p>
           </div>
           <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/75">
-            <Layers3 className="h-4 w-4 text-primary" />
+            <Layers3 className="h-4 w-4 text-violet-300" />
             {events.length} queued post{events.length === 1 ? '' : 's'}
           </div>
         </div>
@@ -692,7 +692,7 @@ function UnscheduledTray({
   return (
     <section className="glass-panel h-fit p-5">
       <div className="mb-4 flex items-center gap-2">
-        <Inbox className="h-4 w-4 text-primary" />
+        <Inbox className="h-4 w-4 text-violet-300" />
         <h2 className="text-sm font-semibold text-white">Backlog</h2>
       </div>
       <p className="mb-4 text-xs leading-5 text-white/70">
@@ -769,7 +769,7 @@ function UnscheduledTrayItem({
           type="button"
           data-testid={`tray-item-schedule-${post.postId}`}
           onClick={() => onClickSchedule(post)}
-          className="w-full rounded-xl border border-primary/20 bg-primary/10 py-1.5 text-[10px] font-medium text-violet-300 transition hover:border-primary/40 hover:text-primary"
+          className="w-full rounded-xl border border-primary/20 bg-primary/10 py-1.5 text-[10px] font-medium text-violet-300 transition hover:border-primary/40 hover:text-violet-300"
         >
           Schedule
         </button>
@@ -809,7 +809,7 @@ function CalendarCell({
         } ${active ? 'bg-primary/[0.03]' : ''} ${isOver ? 'ring-2 ring-inset ring-primary/60' : ''}`}
       >
         <div className="mb-4 flex items-start justify-between">
-          <span className={`text-sm font-medium ${active ? 'text-primary' : 'text-zinc-400'}`}>
+          <span className={`text-sm font-medium ${active ? 'text-violet-300' : 'text-zinc-400'}`}>
             {String(dayNumber)}
           </span>
           {active ? (
@@ -936,7 +936,7 @@ function platformTone(platform: string) {
   if (key.includes('youtube')) return 'border-red-500/40 text-red-400 bg-red-500/5';
   if (key.includes('facebook')) return 'border-sky-500/40 text-sky-300 bg-sky-500/5';
   if (key.includes('x')) return 'border-zinc-400/40 text-zinc-300 bg-zinc-400/5';
-  return 'border-primary/40 text-primary bg-primary/5';
+  return 'border-primary/40 text-violet-300 bg-primary/5';
 }
 
 function platformLogo(platform: string) {

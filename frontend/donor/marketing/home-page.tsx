@@ -52,7 +52,7 @@ function EarlyAccessCopy({
 
   return (
     <div>
-      <span className="inline-flex rounded-full border border-primary/20 bg-primary/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.2em] text-primary">
+      <span className="inline-flex rounded-full border border-primary/20 bg-primary/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.2em] text-violet-300">
         Early access
       </span>
       <HeadingTag id={titleId} className="mt-6 text-4xl font-light leading-tight md:text-[52px]">
@@ -638,7 +638,7 @@ function Hero() {
         <div className="container mx-auto px-6 relative z-20 text-center pt-48 md:pt-32 lg:pt-0">
           <motion.div style={{ opacity: useTransform(smoothProgress, [0, 0.05], [1, 0]) }} className="mb-8">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-reflection relative">
-              <Sparkles className="w-4 h-4 text-primary" />
+              <Sparkles className="w-4 h-4 text-violet-300" />
               <span className="text-sm font-medium text-white/80">The system small businesses actually use to grow</span>
             </div>
           </motion.div>
@@ -806,7 +806,7 @@ function Hero() {
           >
               <div className="flex items-center gap-3 mb-2">
               <div className="p-2 bg-primary/20 rounded-lg">
-                <BarChart3 className="w-5 h-5 text-primary" />
+                <BarChart3 className="w-5 h-5 text-violet-300" />
               </div>
               <span className="font-bold text-white">Approvals</span>
             </div>
@@ -997,7 +997,7 @@ function Features() {
 function HowItWorks() {
   const steps = [
     {
-      icon: <Search className="w-6 h-6 text-primary" />,
+      icon: <Search className="w-6 h-6 text-violet-300" />,
       title: 'Connect your business',
       description: 'Set up once with your website, brand, and goals. Aries handles the rest.',
     },
@@ -1203,7 +1203,7 @@ function platformCalendarMeta(platform: string) {
   return {
     Icon: Sparkles,
     border: 'border-primary/20',
-    iconClass: 'text-primary',
+    iconClass: 'text-violet-300',
   };
 }
 
@@ -1423,7 +1423,7 @@ function ContentCalendar() {
                     onClick={() => setViewMode('week')}
                     className={cn(
                       'px-4 py-2 rounded-lg text-sm font-bold transition-all',
-                      viewMode === 'week' ? 'bg-primary/20 text-primary' : 'hover:bg-white/5 text-white/50',
+                      viewMode === 'week' ? 'bg-primary/20 text-violet-300' : 'hover:bg-white/5 text-white/50',
                     )}
                   >
                     Week
@@ -1433,7 +1433,7 @@ function ContentCalendar() {
                     onClick={() => setViewMode('month')}
                     className={cn(
                       'px-4 py-2 rounded-lg text-sm font-bold transition-all',
-                      viewMode === 'month' ? 'bg-primary/20 text-primary' : 'hover:bg-white/5 text-white/50',
+                      viewMode === 'month' ? 'bg-primary/20 text-violet-300' : 'hover:bg-white/5 text-white/50',
                     )}
                   >
                     Month
@@ -1527,7 +1527,7 @@ function ContentCalendar() {
                         )}
                         onClick={() => setActiveDate(String(day))}
                       >
-                        <span className={cn('text-[10px] font-bold mb-1', String(day) === activeDate ? 'text-primary' : 'text-white/70')}>
+                        <span className={cn('text-[10px] font-bold mb-1', String(day) === activeDate ? 'text-violet-300' : 'text-white/70')}>
                           {day}
                         </span>
                         <div className="flex-1 space-y-1 overflow-hidden">
@@ -1633,7 +1633,7 @@ function Pricing() {
                   {plan.features.map((feature) => (
                     <div key={feature} className="flex items-center gap-3">
                       <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center">
-                        <Check className="w-3 h-3 text-primary" />
+                        <Check className="w-3 h-3 text-violet-300" />
                       </div>
                       <span className="text-sm text-white/80">{feature}</span>
                     </div>
@@ -1671,7 +1671,7 @@ function FeatureShowcaseFallback() {
     {
       title: 'Content clarity',
       description: 'Aries keeps your plan, creative, schedule, and results in one place so you never lose track of what is running or what needs attention.',
-      icon: <Zap className="w-5 h-5 text-primary" />,
+      icon: <Zap className="w-5 h-5 text-violet-300" />,
     },
     {
       title: 'Approval confidence',
@@ -1681,7 +1681,7 @@ function FeatureShowcaseFallback() {
     {
       title: 'Results you can act on',
       description: 'Every weekly content summary ends with a clear next step instead of a wall of charts, so you always know what to do next.',
-      icon: <BarChart3 className="w-5 h-5 text-primary" />,
+      icon: <BarChart3 className="w-5 h-5 text-violet-300" />,
     },
   ];
 

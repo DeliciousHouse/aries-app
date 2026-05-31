@@ -77,7 +77,7 @@ export default function CampaignListPresenter({ model }: SocialContentListPresen
                     <Rocket className="h-5 w-5" />
                   </div>
                   <div>
-                    <h3 className="text-lg font-semibold text-white transition-colors group-hover:text-primary">
+                    <h3 className="text-lg font-semibold text-white transition-colors group-hover:text-violet-300">
                       {campaign.name}
                     </h3>
                     <div className="mt-1 flex items-center gap-2">
@@ -237,7 +237,7 @@ export default function CampaignListPresenter({ model }: SocialContentListPresen
                                 step.state === 'complete'
                                   ? 'text-emerald-400'
                                   : step.state === 'active'
-                                    ? 'text-primary'
+                                    ? 'text-violet-300'
                                     : 'text-white/70'
                               }`}
                             >
@@ -273,7 +273,7 @@ function statusLabel(status: SocialContentListViewModel['items'][number]['status
 }
 
 function statusIconTone(status: SocialContentListViewModel['items'][number]['status']) {
-  if (status === 'live') return 'bg-primary/10 text-primary';
+  if (status === 'live') return 'bg-primary/10 text-violet-300';
   if (status === 'scheduled') return 'bg-sky-500/10 text-sky-300';
   if (status === 'approved') return 'bg-indigo-500/10 text-indigo-300';
   if (status === 'in_review') return 'bg-amber-500/10 text-amber-300';

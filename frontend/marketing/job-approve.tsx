@@ -192,7 +192,7 @@ function ReviewPreviewCard({ preview }: { preview: MarketingReviewPreviewCard })
               href={asset.url}
               target="_blank"
               rel="noreferrer"
-              className="text-sm text-primary hover:text-violet-300 transition-colors"
+              className="text-sm text-violet-300 hover:text-violet-300 transition-colors"
             >
               {asset.label}
             </a>
@@ -248,7 +248,7 @@ function ReviewBundlePreview({ reviewBundle }: { reviewBundle: MarketingReviewBu
               <span><strong className="text-white">CTA:</strong> {reviewBundle.landingPage.cta || 'n/a'}</span>
               {reviewBundle.landingPage.slug ? <span><strong className="text-white">Slug:</strong> {reviewBundle.landingPage.slug}</span> : null}
               {reviewBundle.landingPage.asset ? (
-                <a href={reviewBundle.landingPage.asset.url} target="_blank" rel="noreferrer" className="text-primary hover:text-violet-300 transition-colors">
+                <a href={reviewBundle.landingPage.asset.url} target="_blank" rel="noreferrer" className="text-violet-300 hover:text-violet-300 transition-colors">
                   Open landing page artifact
                 </a>
               ) : null}
@@ -591,7 +591,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
     <div className="min-h-screen bg-background px-6 py-10 md:px-8 lg:px-10">
       <div className="max-w-7xl mx-auto grid gap-6">
         <div className="glass rounded-[2.5rem] p-8 md:p-10">
-          <p className="text-xs uppercase tracking-[0.3em] text-primary mb-3">{copy.headerEyebrow}</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-violet-300 mb-3">{copy.headerEyebrow}</p>
           <h1 className="text-4xl font-bold mb-3">{copy.headerTitle}</h1>
           <p className="text-white/60">{copy.headerDescription}</p>
         </div>

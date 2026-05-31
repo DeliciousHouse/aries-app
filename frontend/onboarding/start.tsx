@@ -24,7 +24,7 @@ export default function OnboardingStartScreen(): JSX.Element {
     <div className="min-h-screen bg-background px-6 py-10 md:px-8 lg:px-10">
       <div className="mx-auto max-w-4xl">
         <div className="glass rounded-[2.5rem] p-8 md:p-10">
-          <p className="text-xs uppercase tracking-[0.3em] text-primary mb-3">Internal tooling</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-violet-300 mb-3">Internal tooling</p>
           <h1 className="text-4xl font-bold mb-3">Tenant onboarding tooling moved off the public path</h1>
           <p className="text-white/65 leading-relaxed">
             Public new-customer setup now starts from the premium intake so business context stays isolated through auth and workspace creation.

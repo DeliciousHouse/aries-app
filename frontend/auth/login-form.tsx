@@ -203,7 +203,7 @@ const LoginForm: React.FC<LoginFormProps> = ({
 
         <p className="mt-8 text-center text-sm text-white/60">
           Don't have an account?{' '}
-          <Link href={signupHref || '/signup'} className="font-bold text-white hover:text-primary transition-colors">
+          <Link href={signupHref || '/signup'} className="font-bold text-white hover:text-violet-300 transition-colors">
             create one
           </Link>
         </p>

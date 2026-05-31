@@ -279,7 +279,7 @@ export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenP
       )}
 
       <div className="rounded-[2rem] border border-white/10 bg-white/5 p-5 flex items-center gap-3 text-white/60">
-        <Sparkles className="w-5 h-5 text-primary" />
+        <Sparkles className="w-5 h-5 text-violet-300" />
         Connect and reconnect actions keep the browser inside Aries by routing through the branded OAuth interstitial.
       </div>
     </div>

@@ -73,7 +73,7 @@ export default function OnboardingStatusScreen({
     <div className="min-h-screen bg-background px-6 py-10 md:px-8 lg:px-10">
       <div className="max-w-7xl mx-auto grid gap-6">
         <div className="glass rounded-[2.5rem] p-8 md:p-10">
-          <p className="text-xs uppercase tracking-[0.3em] text-primary mb-3">Aries workflow</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-violet-300 mb-3">Aries workflow</p>
           <h1 className="text-4xl font-bold mb-3">Onboarding status</h1>
           <p className="text-white/60">Monitor tenant provisioning through the donor-derived shell while staying on Aries internal status routes.</p>
         </div>
@@ -84,7 +84,7 @@ export default function OnboardingStatusScreen({
           <div>
             <div className="flex items-center gap-3 mb-4">
               <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center">
-                <Eye className="w-6 h-6 text-primary" />
+                <Eye className="w-6 h-6 text-violet-300" />
               </div>
               <div>
                 <p className="text-xs uppercase tracking-[0.24em] text-white/70">Onboarding status</p>
