@@ -167,6 +167,27 @@ function buildScheduleShapeLookup(doc: SocialContentJobRuntimeDocument): Map<str
   return lookup;
 }
 
+/**
+ * The number of image-story posts the weekly run requested (`scope.story_count`,
+ * mirrored as `storyCount`/`storiesCount` on the persisted request). Default 0
+ * (OFF). Stories are never natively scheduled on Meta, so a requested story is
+ * synthesized as an additional `surface='story'` post that publishes live via
+ * the scheduled-dispatch path. Reads defensively from the persisted request blob.
+ */
+function readRequestedStoryCount(doc: SocialContentJobRuntimeDocument): number {
+  const request = recordValue((doc as { inputs?: { request?: unknown } }).inputs?.request);
+  if (!request) return 0;
+  const scope = recordValue(request.scope);
+  const raw = request.storyCount ?? request.storiesCount ?? scope?.story_count;
+  const n =
+    typeof raw === 'number'
+      ? raw
+      : typeof raw === 'string' && raw.trim().length > 0
+        ? Number.parseInt(raw, 10)
+        : NaN;
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0;
+}
+
 const SELECT_CREATIVE_ASSETS_SQL = `
   SELECT id, source_asset_id
     FROM creative_assets
@@ -480,6 +501,67 @@ export async function synthesizePublishPostsFromContentPackage(
           error: (err as Error)?.message ?? String(err),
         });
         skipped++;
+      }
+    }
+  }
+
+  // Image-story auto-promotion. When the weekly scope requested image stories
+  // (`scope.story_count > 0`), promote the first N content_package entries into
+  // ADDITIONAL `surface='story'` posts that reuse the same Hermes-generated
+  // creative. This is what makes image stories flow automatically end-to-end:
+  // the upstream Hermes strategist/publish stages do not emit `placement:'story'`
+  // today, so without this an operator's requested stories would never
+  // materialise. Story posts publish LIVE via the scheduled-dispatch path (Meta
+  // rejects scheduled stories; the dispatch route never forwards `scheduledFor`).
+  //
+  // Default `story_count=0` => this block is inert and feed-only behavior is
+  // byte-for-byte unchanged. Idempotent + non-colliding: the per-row key carries
+  // the surface as its 4th segment, so a story post (`:story`) never collides
+  // with the feed post (`:feed`) for the same (post_number, platform); a
+  // replayed callback hits ON CONFLICT DO NOTHING. If a future Hermes schedule
+  // DOES emit a story placement for one of these posts, the main loop already
+  // inserted that `:story` row and this promotion is a no-op for it.
+  const storyBudget = readRequestedStoryCount(doc);
+  if (storyBudget > 0) {
+    for (const entry of entries.slice(0, storyBudget)) {
+      const assetId = assetIdsByPostNumber.get(entry.postNumber);
+      // A story is single-media with no text fallback. Skip entries with no
+      // linked creative rather than emit a media-less story that would fail at
+      // publish (publishInstagram requires >= 1 media url).
+      if (!assetId) {
+        skipped++;
+        continue;
+      }
+      for (const platform of entry.platforms) {
+        total++;
+        const idempotencyKey = `${jobId}:${entry.postNumber}:${platform}:story`;
+        try {
+          const result = await pool.query(INSERT_SYNTHESIZED_POST_SQL, [
+            tenantId,
+            jobId,
+            publishRunId,
+            platform,
+            entry.caption,
+            idempotencyKey,
+            [assetId],
+            'image',
+            'story',
+          ]);
+          if ((result.rowCount ?? 0) > 0) {
+            inserted++;
+          } else {
+            skipped++;
+          }
+        } catch (err) {
+          console.warn('[synthesize-publish-posts] story row insert failed — skipping', {
+            jobId,
+            tenantId,
+            platform,
+            postNumber: entry.postNumber,
+            error: (err as Error)?.message ?? String(err),
+          });
+          skipped++;
+        }
       }
     }
   }

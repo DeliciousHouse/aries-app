@@ -1178,6 +1178,7 @@ function parsePositiveInteger(value: unknown): number | null {
 type WeeklyScopeConfig = {
   windowDays: number;
   staticPostCount: number;
+  storyCount: number;
   imageCreativeCount: number;
   videoScriptCount: number;
   videoRenderCount: number;
@@ -1193,6 +1194,11 @@ function socialWeeklyScopeConfig(runtimeDoc: SocialContentJobRuntimeDocument): W
   const staticPostCount =
     parsePositiveInteger(request.staticPostCount ?? scope.static_post_count) ??
     SOCIAL_CONTENT_DEFAULT_SCOPE.static_post_count;
+  // story_count defaults to 0 (OFF); parsePositiveInteger returns null for 0, so
+  // an explicit 0 and an absent value both resolve to the 0 default — correct.
+  const storyCount =
+    parsePositiveInteger(request.storyCount ?? request.storiesCount ?? scope.story_count) ??
+    SOCIAL_CONTENT_DEFAULT_SCOPE.story_count;
   const imageCreativeCount =
     parsePositiveInteger(request.imageCreativeCount ?? scope.image_creative_count) ??
     SOCIAL_CONTENT_DEFAULT_SCOPE.image_creative_count;
@@ -1209,7 +1215,7 @@ function socialWeeklyScopeConfig(runtimeDoc: SocialContentJobRuntimeDocument): W
     if (scopeChannels.length > 0) return scopeChannels;
     return [...SOCIAL_CONTENT_DEFAULT_SCOPE.channels];
   })();
-  return { windowDays, staticPostCount, imageCreativeCount, videoScriptCount, videoRenderCount, channels };
+  return { windowDays, staticPostCount, storyCount, imageCreativeCount, videoScriptCount, videoRenderCount, channels };
 }
 
 function socialPlatformLabel(platform: string): string {

@@ -97,6 +97,7 @@ export type SocialContentWeeklyRequest = {
     scope: {
       window_days: number;
       static_post_count: number;
+      story_count: number;
       image_creative_count: number;
       video_script_count: number;
       video_render_count: number;
@@ -224,6 +225,7 @@ export function buildSocialContentWeeklyRequest(input: {
       scope: {
         window_days: requestedWindowDays,
         static_post_count: integerValue(req.staticPostCount, SOCIAL_CONTENT_DEFAULT_SCOPE.static_post_count),
+        story_count: integerValue(req.storyCount ?? req.storiesCount, SOCIAL_CONTENT_DEFAULT_SCOPE.story_count),
         image_creative_count: imageCreativeCount,
         video_script_count: integerValue(req.videoScriptCount, SOCIAL_CONTENT_DEFAULT_SCOPE.video_script_count),
         video_render_count: videoRenderCount,
