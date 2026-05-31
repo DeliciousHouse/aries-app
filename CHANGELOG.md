@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.13.21 — fix(a11y+media): flatten calendar tray interactivity + GC/guard evicted Hermes media
+
+QA-audit fixes #4 (nested-interactive) and #3 (broken images).
+
+### Fixed
+- **Calendar nested-interactive (WCAG 4.1.2).** The unscheduled-post tray rendered
+  each item as a dnd-kit draggable `<div role="button" tabindex="0">` that WRAPPED
+  its "Schedule" `<button>` — a focusable control inside a focusable control (axe:
+  "Element has focusable descendants", 59 nodes on this tenant's backlog). The
+  Schedule button is now a SIBLING of the draggable card, which also lets us drop
+  the pointer/key `stopPropagation` hacks that kept a button click from starting a
+  drag. Drag-to-schedule and click-to-schedule both still work.
+- **Broken creative tiles + orphaned media rows (P2).**
+  - `queryProductionCreativeAssets` now filters `orphaned_at IS NULL`, so a
+    superseded/evicted creative is no longer surfaced (its dead
+    `/api/internal/hermes/media/<id>` URL is no longer emitted).
+  - New `scripts/gc-missing-hermes-assets.ts` (dry-run by default) marks
+    `runtime_asset` rows whose file has evicted from `HERMES_IMAGE_CACHE_MOUNT`
+    as `orphaned_at`, after a 7-day grace; `gc-orphan-uploads.ts` then reclaims
+    them. Strictly never touches `ingested_asset` (composed stories / uploads).
+  - The calendar tray `<img>` hides itself on error instead of showing a broken
+    tile (the MediaPreview surfaces already fall back to "Preview archived").
+
+### Notes
+- Older runtime-artifact thumbnails whose Hermes cache files evicted still issue a
+  `/api/internal/hermes/media` request that 404s before the MediaPreview fallback
+  renders; those are not creative_assets rows (GC dry-run found 0 orphaned rows),
+  so eliminating the request itself would need a dashboard-content-pipeline
+  file-existence pass or a media-route placeholder — tracked as follow-up.
+
 ## v0.1.13.20 — perf(marketing): O(jobs-with-pending) review queue + concurrent dashboard hydration + list-fetch timeout
 
 QA-audit P1: dashboard list pages rendered a blank skeleton for 8-16s and could
