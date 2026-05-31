@@ -36,6 +36,7 @@ import type { ApproveSocialContentJobRequest, ApproveSocialContentJobResponse } 
 import { ingestProductionCreativeAssetsToDb } from './ingest-production-assets';
 import { recomputeAndPersistPendingApprovalCount } from './runtime-views';
 import { synthesizePublishPostsFromContentPackage } from './synthesize-publish-posts';
+import { composeStoryAssetForBaseCreative, resolveStoryCtaText } from './story-composer';
 import { autoSchedulePosts } from './auto-schedule';
 import { getBusinessProfile } from '@/backend/tenant/business-profile';
 import { pool } from '@/lib/db';
@@ -1286,12 +1287,26 @@ async function synthesizePublishPostsOnCompletion(
   try {
     const tenantNum = Number(doc.tenant_id);
     if (!Number.isFinite(tenantNum) || tenantNum <= 0) return;
+    const brandPrimaryHex = doc.brand_kit?.colors?.primary ?? null;
     await synthesizePublishPostsFromContentPackage({
       jobId: doc.job_id,
       tenantId: tenantNum,
       doc,
       publishRunId,
       pool,
+      // Back promoted story posts with a composed 9:16 image (headline + brand
+      // CTA baked in) — Meta story publishing renders only pixels. Returns null
+      // on failure so the story falls back to the raw creative.
+      composeStoryAsset: ({ tenantId, jobId, baseAssetId, headline }) =>
+        composeStoryAssetForBaseCreative({
+          db: pool,
+          tenantId,
+          jobId,
+          baseAssetId,
+          headline,
+          ctaText: resolveStoryCtaText(),
+          brandPrimaryHex,
+        }),
     });
   } catch (err) {
     console.warn('[hermes-callbacks] synthesizePublishPostsFromContentPackage failed — continuing', {

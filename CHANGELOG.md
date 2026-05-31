@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.13.17 — feat(social-content): compose story images with headline + aries.sugarandleather.com CTA
+
+### Added
+- **Server-side story image composition** (`backend/marketing/story-composer.ts`).
+  Meta IG/FB story publishing renders ONLY the image — captions are ignored and
+  link/text stickers are unsupported via the Graph API — so a raw feed creative
+  posted as a story shows up wordless with no call-to-action. The composer builds
+  a 1080×1920 (9:16) story: darkened/blurred full-bleed background, the creative
+  contained up top, a bottom scrim, the post's **hook as a bold headline** (wrapped,
+  length-adaptive), and a brand-color **CTA pill carrying the site host**
+  (`aries.sugarandleather.com`, derived from `APP_BASE_URL`, never the bare
+  leather-goods host; CTA font auto-sizes so the URL never clips).
+  - Composed image is persisted like an operator upload — written under
+    `DATA_ROOT/ingested-assets` as a `creative_assets` row
+    (`source_type='runtime_artifact'`, `storage_kind='ingested_asset'`,
+    `aspect_ratio='9:16'`) served by the id route, so the existing dispatch
+    signing path makes it fetchable by Meta. No new serving route.
+  - `composeStoryAssetForBaseCreative` resolves base bytes (runtime_asset from the
+    Hermes mount, ingested_asset from DATA_ROOT), composes, persists, and returns
+    the composed asset id — returning `null` on any failure so a publish never
+    blocks (falls back to the raw creative).
+- **Wired into story synthesis** (`synthesize-publish-posts.ts`,
+  `hermes-callbacks.ts`): a promoted `surface='story'` post is now backed by the
+  COMPOSED asset (composed once per post, reused across platforms), using the
+  post's hook as the headline. Falls back to the raw creative if no composer is
+  wired (unit tests) or composition fails.
+
+### Notes
+- Fixes the wordless / no-CTA stories from v0.1.13.16's bare-creative path.
+- Uses DejaVu Sans (present in the runtime container's fontconfig set) for SVG
+  text via sharp.
+
 ## v0.1.13.16 — feat(social-content): automate image stories — story_count request + auto-promote to live IG/FB
 
 ### Added
