@@ -637,7 +637,7 @@ async function initDb() {
       -- (e.g. one YouTube channel, one Instagram account).
       CREATE TABLE IF NOT EXISTS insights_accounts (
         id                     BIGSERIAL PRIMARY KEY,
-        tenant_id              BIGINT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        tenant_id              INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
         platform               TEXT NOT NULL,
         external_account_id    TEXT NOT NULL,
         display_name           TEXT,
@@ -656,7 +656,7 @@ async function initDb() {
       -- used by the weekly social-content feature.
       CREATE TABLE IF NOT EXISTS insights_posts (
         id                       BIGSERIAL PRIMARY KEY,
-        tenant_id                BIGINT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        tenant_id                INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
         account_id               BIGINT NOT NULL REFERENCES insights_accounts(id) ON DELETE CASCADE,
         platform                 TEXT NOT NULL,
         external_post_id         TEXT NOT NULL,
@@ -683,7 +683,7 @@ async function initDb() {
       -- saves is NULL for platforms that don't expose saves.
       -- raw_source records adapter + mapping version for auditability.
       CREATE TABLE IF NOT EXISTS insights_account_metrics_daily (
-        tenant_id              BIGINT NOT NULL,
+        tenant_id              INTEGER NOT NULL,
         account_id             BIGINT NOT NULL REFERENCES insights_accounts(id) ON DELETE CASCADE,
         platform               TEXT NOT NULL,
         date                   DATE NOT NULL,
@@ -706,7 +706,7 @@ async function initDb() {
 
       -- Daily time-series for post-level metrics.
       CREATE TABLE IF NOT EXISTS insights_post_metrics_daily (
-        tenant_id              BIGINT NOT NULL,
+        tenant_id              INTEGER NOT NULL,
         post_id                BIGINT NOT NULL REFERENCES insights_posts(id) ON DELETE CASCADE,
         platform               TEXT NOT NULL,
         date                   DATE NOT NULL,
@@ -729,7 +729,7 @@ async function initDb() {
       -- Raw comments fetched from platforms.
       CREATE TABLE IF NOT EXISTS insights_comments (
         id                  BIGSERIAL PRIMARY KEY,
-        tenant_id           BIGINT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        tenant_id           INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
         post_id             BIGINT NOT NULL REFERENCES insights_posts(id) ON DELETE CASCADE,
         platform            TEXT NOT NULL,
         external_comment_id TEXT NOT NULL,
@@ -745,7 +745,7 @@ async function initDb() {
       -- LLM sentiment + lead classification results per comment.
       CREATE TABLE IF NOT EXISTS insights_comment_classifications (
         comment_id         BIGINT PRIMARY KEY REFERENCES insights_comments(id) ON DELETE CASCADE,
-        tenant_id          BIGINT NOT NULL,
+        tenant_id          INTEGER NOT NULL,
         sentiment          TEXT,    -- 'positive'|'neutral'|'negative'
         is_lead            BOOLEAN,
         category           TEXT,    -- 'question'|'compliment'|'complaint'|'spam'|'other'
@@ -757,7 +757,7 @@ async function initDb() {
       -- Demographics snapshots. demographics is NULL when unavailable;
       -- unavailable_reason explains why (e.g. 'below_threshold', 'permission_missing').
       CREATE TABLE IF NOT EXISTS insights_audience_snapshots (
-        tenant_id          BIGINT NOT NULL,
+        tenant_id          INTEGER NOT NULL,
         account_id         BIGINT NOT NULL REFERENCES insights_accounts(id) ON DELETE CASCADE,
         platform           TEXT NOT NULL,
         snapshot_date      DATE NOT NULL,
@@ -773,7 +773,7 @@ async function initDb() {
       -- so upsert is safe.
       CREATE TABLE IF NOT EXISTS insights_narratives (
         id              BIGSERIAL PRIMARY KEY,
-        tenant_id       BIGINT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        tenant_id       INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
         period          TEXT NOT NULL,       -- 'week'|'30day'|'90day'
         platform        TEXT NOT NULL,       -- platform value or 'all'
         section_key     TEXT NOT NULL,       -- 'hero'|'goal'|'attention'|...
@@ -789,7 +789,7 @@ async function initDb() {
       -- Audit log: one row per sync run (interval, manual, or backfill).
       CREATE TABLE IF NOT EXISTS insights_sync_runs (
         id              BIGSERIAL PRIMARY KEY,
-        tenant_id       BIGINT NOT NULL,
+        tenant_id       INTEGER NOT NULL,
         account_id      BIGINT NOT NULL,
         platform        TEXT NOT NULL,
         trigger         TEXT NOT NULL,    -- 'interval'|'handler'|'backfill'
@@ -807,7 +807,7 @@ async function initDb() {
       -- Audit log: every LLM call with cost, tokens, and outcome.
       CREATE TABLE IF NOT EXISTS insights_llm_calls (
         id            BIGSERIAL PRIMARY KEY,
-        tenant_id     BIGINT NOT NULL,
+        tenant_id     INTEGER NOT NULL,
         purpose       TEXT NOT NULL,    -- 'classify_comment'|'generate_narrative'
         model         TEXT NOT NULL,
         cost_cents    NUMERIC(10,4) NOT NULL,
