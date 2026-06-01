@@ -9,6 +9,8 @@ import {
 } from '../backend/marketing/auto-schedule';
 import {
   readWeeklySchedule,
+  buildAutoScheduleRows,
+  type AutoSchedulePostRow,
 } from '../backend/marketing/hermes-callbacks';
 
 // All tests inject a frozen `now` so the time math is deterministic regardless
@@ -498,4 +500,53 @@ test('absent surface/mediaType defaults to feed/image', () => {
   });
   assert.equal(slots[0]?.surface, 'feed');
   assert.equal(slots[0]?.mediaType, 'image');
+});
+
+// --- buildAutoScheduleRows: surface comes from the POST, not the schedule ----
+// Regression for the auto-promotion surface-drop: an auto-promoted image story
+// (posts.surface='story', idempotency `<job>:1:instagram:story`) shares ordinal 1
+// with its feed sibling, and the strategist weekly_schedule emits NO story
+// placement. The row builder must take surface/media_type from the post's own
+// columns so the story is scheduled as a story — not collapsed onto the feed
+// entry and published to the feed.
+const STORY_JOB = 'mkt_story_promotion';
+const WEEKLY_FEED_ONLY = [
+  { post_number: 1, recommended_day: 'Wednesday', platforms: ['instagram', 'facebook'] },
+];
+
+test('buildAutoScheduleRows: promoted story post keeps surface=story despite a feed-only schedule', () => {
+  const postRows: AutoSchedulePostRow[] = [
+    // feed sibling for ordinal 1
+    { id: 10, platform: 'instagram', idempotency_key: `${STORY_JOB}:1:instagram:feed`, surface: 'feed', media_type: 'image' },
+    // auto-promoted image story for the SAME ordinal 1
+    { id: 11, platform: 'instagram', idempotency_key: `${STORY_JOB}:1:instagram:story`, surface: 'story', media_type: 'image' },
+  ];
+
+  const rows = buildAutoScheduleRows(postRows, WEEKLY_FEED_ONLY, STORY_JOB);
+
+  const feed = rows.find((r) => r.postId === 10);
+  const story = rows.find((r) => r.postId === 11);
+  assert.equal(feed?.surface, 'feed');
+  assert.equal(story?.surface, 'story', 'story post must NOT inherit the feed schedule surface');
+  // Both still pick up the strategist recommended DAY from the schedule.
+  assert.equal(feed?.recommendedDay, 'Wednesday');
+  assert.equal(story?.recommendedDay, 'Wednesday');
+});
+
+test('buildAutoScheduleRows: media_type also comes from the post (video preserved)', () => {
+  const postRows: AutoSchedulePostRow[] = [
+    { id: 20, platform: 'facebook', idempotency_key: `${STORY_JOB}:1:facebook:reel`, surface: 'reel', media_type: 'video' },
+  ];
+  const rows = buildAutoScheduleRows(postRows, WEEKLY_FEED_ONLY, STORY_JOB);
+  assert.equal(rows[0]?.surface, 'reel');
+  assert.equal(rows[0]?.mediaType, 'video');
+});
+
+test('buildAutoScheduleRows: null/legacy surface falls back to feed/image', () => {
+  const postRows: AutoSchedulePostRow[] = [
+    { id: 30, platform: 'instagram', idempotency_key: `${STORY_JOB}:1:instagram:feed`, surface: null, media_type: null },
+  ];
+  const rows = buildAutoScheduleRows(postRows, WEEKLY_FEED_ONLY, STORY_JOB);
+  assert.equal(rows[0]?.surface, 'feed');
+  assert.equal(rows[0]?.mediaType, 'image');
 });

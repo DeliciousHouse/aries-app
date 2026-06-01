@@ -37,7 +37,7 @@ import { ingestProductionCreativeAssetsToDb } from './ingest-production-assets';
 import { recomputeAndPersistPendingApprovalCount } from './runtime-views';
 import { synthesizePublishPostsFromContentPackage } from './synthesize-publish-posts';
 import { composeStoryAssetForBaseCreative, resolveStoryCtaText } from './story-composer';
-import { autoSchedulePosts } from './auto-schedule';
+import { autoSchedulePosts, type AutoScheduleInputRow } from './auto-schedule';
 import { getBusinessProfile } from '@/backend/tenant/business-profile';
 import { pool } from '@/lib/db';
 
@@ -1365,10 +1365,13 @@ async function autoScheduleApprovedPostsForJob(doc: SocialContentJobRuntimeDocum
   }
 
   // Include idempotency_key so we can recover the strategist-assigned
-  // post_number regardless of insert order. ORDER BY id is added for stable
-  // logging output even though the ordinal mapping does not depend on it.
-  const postRows = await pool.query<{ id: number; platform: string; idempotency_key: string | null }>(
-    `SELECT id, platform, idempotency_key
+  // post_number regardless of insert order, and surface/media_type so an
+  // auto-promoted image story is scheduled on its OWN surface (synthesize wrote
+  // surface='story', which the strategist weekly_schedule never emits) rather
+  // than collapsing onto its feed sibling's slot. ORDER BY id is added for
+  // stable logging output even though the ordinal mapping does not depend on it.
+  const postRows = await pool.query<AutoSchedulePostRow>(
+    `SELECT id, platform, idempotency_key, surface, media_type
        FROM posts
       WHERE job_id = $1 AND tenant_id = $2
       ORDER BY id`,
@@ -1379,16 +1382,62 @@ async function autoScheduleApprovedPostsForJob(doc: SocialContentJobRuntimeDocum
     return;
   }
 
+  const tenantTimezone = await readTenantTimezone(tenantNum);
+
+  const rows = buildAutoScheduleRows(postRows.rows, weeklySchedule, doc.job_id);
+
+  const result = await autoSchedulePosts({
+    jobId: doc.job_id,
+    tenantId: tenantNum,
+    tenantTimezone,
+    campaignStart: postWindow.start,
+    campaignEnd: postWindow.end,
+    rows,
+    queryable: pool,
+  });
+
+  console.info('[hermes-callbacks] autoSchedulePosts completed', {
+    jobId: doc.job_id,
+    scheduled: result.scheduled,
+    skipped: result.skipped,
+    errors: result.errors.length,
+  });
+}
+
+/** Shape of the `posts` columns auto-scheduling reads. */
+export interface AutoSchedulePostRow {
+  id: number;
+  platform: string;
+  idempotency_key: string | null;
+  surface: string | null;
+  media_type: string | null;
+}
+
+/**
+ * Map synthesized `posts` rows to auto-schedule input rows. The strategist's
+ * `weekly_schedule[]` supplies the recommended DAY per (ordinal, platform), but
+ * the publish SURFACE and MEDIA TYPE are taken from the post's OWN columns:
+ * synthesize already resolved the strategist placement into `posts.surface` for
+ * feed posts and wrote `surface='story'` for auto-promoted image stories, which
+ * the strategist schedule never emits. Deriving surface from the schedule here
+ * (as the code once did) silently re-routed every promoted story back onto its
+ * feed sibling's slot — the composed 9:16 image then published to the feed
+ * instead of as a story. Exported for direct unit testing of that contract.
+ */
+export function buildAutoScheduleRows(
+  postRows: ReadonlyArray<AutoSchedulePostRow>,
+  weeklySchedule: ReadonlyArray<WeeklyScheduleEntry>,
+  jobId: string,
+): AutoScheduleInputRow[] {
   // Map post_number → (platform → recommendedDay) using the strategist's
-  // weekly_schedule output. Falls back to (idx + 1) when the strategist
-  // omitted an explicit post_number, matching how synthesize-publish-posts
-  // assigns ordinals when the field is missing.
+  // weekly_schedule output. Falls back to (idx + 1) when the strategist omitted
+  // an explicit post_number, matching how synthesize-publish-posts assigns
+  // ordinals when the field is missing. Only the recommended DAY is consumed.
   const targetByPlatformByOrdinal = new Map<number, Map<string, PlatformScheduleTarget>>();
   weeklySchedule.forEach((entry, idx) => {
     const ordinal = typeof entry.post_number === 'number' ? entry.post_number : idx + 1;
     const platformMap = new Map<string, PlatformScheduleTarget>();
     const day = entry.recommended_day ?? null;
-    // Entry-level surface/media_type are the default; platform_targets may override.
     const entrySurface = normalizeScheduleSurface(entry.placement);
     const entryMediaType = normalizeScheduleMediaType(entry.media_type);
     // Accept `platforms` (flat string[], current Hermes wire shape) or `platform_targets` (legacy).
@@ -1414,45 +1463,29 @@ async function autoScheduleApprovedPostsForJob(doc: SocialContentJobRuntimeDocum
     targetByPlatformByOrdinal.set(ordinal, platformMap);
   });
 
-  const tenantTimezone = await readTenantTimezone(tenantNum);
-
-  const rows = postRows.rows
-    .map((row) => {
-      const ordinal = parsePostNumberFromIdempotencyKey(row.idempotency_key, doc.job_id);
+  return postRows
+    .map((row): AutoScheduleInputRow | null => {
+      const ordinal = parsePostNumberFromIdempotencyKey(row.idempotency_key, jobId);
       if (ordinal === null) {
-        console.warn(
-          '[hermes-callbacks] autoSchedulePosts skipping row with unparseable idempotency_key',
-          { jobId: doc.job_id, postId: row.id, idempotencyKey: row.idempotency_key },
-        );
+        console.warn('[hermes-callbacks] autoSchedulePosts skipping row with unparseable idempotency_key', {
+          jobId,
+          postId: row.id,
+          idempotencyKey: row.idempotency_key,
+        });
         return null;
       }
+      // Recommended DAY comes from the strategist schedule; SURFACE + MEDIA TYPE
+      // come from the post's own authoritative columns (see doc-comment above).
       const target = targetByPlatformByOrdinal.get(ordinal)?.get(row.platform.toLowerCase());
       return {
         postId: row.id,
         platform: row.platform,
         recommendedDay: target?.recommendedDay ?? null,
-        surface: target?.surface ?? 'feed',
-        mediaType: target?.mediaType ?? 'image',
+        surface: normalizeScheduleSurface(row.surface),
+        mediaType: normalizeScheduleMediaType(row.media_type),
       };
     })
-    .filter((row): row is NonNullable<typeof row> => row !== null);
-
-  const result = await autoSchedulePosts({
-    jobId: doc.job_id,
-    tenantId: tenantNum,
-    tenantTimezone,
-    campaignStart: postWindow.start,
-    campaignEnd: postWindow.end,
-    rows,
-    queryable: pool,
-  });
-
-  console.info('[hermes-callbacks] autoSchedulePosts completed', {
-    jobId: doc.job_id,
-    scheduled: result.scheduled,
-    skipped: result.skipped,
-    errors: result.errors.length,
-  });
+    .filter((r): r is AutoScheduleInputRow => r !== null);
 }
 
 export type MetaScheduleSurface = 'feed' | 'story' | 'reel';
