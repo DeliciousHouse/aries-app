@@ -19,6 +19,11 @@ const REGISTRY: Partial<Record<Platform, InsightsAdapter>> = {
   // facebook:  facebookInsightsAdapter,   ← Phase 4+
 };
 
+/** Returns true only if a live adapter is registered for the platform. */
+export function hasAdapter(platform: Platform): boolean {
+  return platform in REGISTRY && REGISTRY[platform] != null;
+}
+
 /**
  * Returns the adapter for a given platform.
  * Throws if no adapter has been registered (e.g. a platform in the DB

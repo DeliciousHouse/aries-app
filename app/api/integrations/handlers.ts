@@ -10,6 +10,7 @@ import { buildOauthConnectInput } from '@/lib/oauth-connect-input';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 import { syncAllAccountsForTenant } from '@/backend/insights/sync/dispatcher';
 import { isSupportedPlatform } from '@/backend/insights/platforms/registry';
+import { hasAdapter } from '@/backend/insights/sync/adapter-factory';
 
 const platforms = (Object.keys(PROVIDER_REGISTRY) as Array<keyof typeof PROVIDER_REGISTRY>).filter(
   (platform) => platform !== 'openai',
@@ -366,7 +367,7 @@ export async function handleIntegrationsSync(req: Request, tenantContextLoader?:
     // Insights platforms (youtube, instagram, facebook) are synced directly
     // by our dispatcher — no Hermes workflow needed for a simple DB write loop.
     // All other providers fall through to the existing Hermes path below.
-    if (isSupportedPlatform(provider)) {
+    if (isSupportedPlatform(provider) && hasAdapter(provider)) {
       const results = await syncAllAccountsForTenant(Number(tenantId), 'handler');
       const allOk = results.every((r) => r.status === 'ok' || r.status === 'partial');
       return new Response(
