@@ -23,7 +23,7 @@ green for the right reason, and makes the requires-infra vs self-contained split
 - Documented the oauth `status` (Postgres) vs `connection_status` (in-memory) two-store split
   (a recon false-positive, not drift) + added a positive DB-path assertion. No column change.
 - Added an ECONNREFUSED⇒fallback counter-branch so the network-vs-auth boundary
-  (28P01⇒503, ECONNREFUSED⇒200 fallback) is two named tests.
+  (28P01⇒503, ECONNREFUSED⇒201 fallback-create) is two named tests.
 - Shared `tests/helpers/requires-infra.ts` (`requireDbEnvOrSkip`, superset DB_* keys, canonical
   skip string) adopted by all 7 live-DB files; `tests/REQUIRES_INFRA.md` index;
   `scripts/list-requires-infra.mjs` + `npm run test:requires-infra-report` (314 self-contained /

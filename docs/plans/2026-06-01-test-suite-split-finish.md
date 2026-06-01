@@ -158,10 +158,10 @@ Triage every `not ok` into: (1) one of the four in-scope files (B/C/D), (2) a re
 ### Phase D — Lock the 28P01 non-fallback invariant
 
 **Implementation.** Test 3 (`onboarding-draft-route.test.ts:246-273`) already proves 503-on-28P01 at the route layer. Add a focused **unit** assertion directly over the classifier so the invariant is pinned at its source and cannot silently regress if someone edits the code list:
-- In `tests/onboarding-draft-route.test.ts` (or a sibling `tests/onboarding-draft-fallback-classifier.test.ts` if the classifier is exported; otherwise keep it route-level), assert that a `28P01`-coded error does **not** trigger fallback (route returns 503 `onboarding_draft_unavailable`, body redacts `password authentication failed|aries_user|28P01`) while a `ECONNREFUSED`-coded error **does** fall back to the `DATA_ROOT` store (route returns 200). This makes the network-vs-auth boundary an explicit, named test rather than an implicit single-case.
+- In `tests/onboarding-draft-route.test.ts` (or a sibling `tests/onboarding-draft-fallback-classifier.test.ts` if the classifier is exported; otherwise keep it route-level), assert that a `28P01`-coded error does **not** trigger fallback (route returns 503 `onboarding_draft_unavailable`, body redacts `password authentication failed|aries_user|28P01`) while a `ECONNREFUSED`-coded error **does** fall back to the `DATA_ROOT` store (route returns 201 — POST create succeeds via the fallback store). This makes the network-vs-auth boundary an explicit, named test rather than an implicit single-case.
 - If `shouldUseFallbackDraftStore` is not currently exported, do **not** export it solely for the test (avoid widening the module surface) — drive both branches through the route via `installDbMock` with the two error codes, matching the existing test-3 shape (`:261-264`).
 
-**Acceptance.** Both branches (28P01⇒503, ECONNREFUSED⇒200-fallback) assert green in suite. The redaction assertion (`:270-272` shape) still holds. No classifier code change.
+**Acceptance.** Both branches (28P01⇒503, ECONNREFUSED⇒201 fallback-create) assert green in suite. The redaction assertion (`:270-272` shape) still holds. No classifier code change.
 
 ### Phase E — Make the requires-infra split explicit (the roadmap deliverable)
 
@@ -200,7 +200,7 @@ This is an internal trust/quality gate, so the "rendered UI" bar is the CI surfa
 | Marketing hydration | brand/strategy/publish review hydrate from **tenant-scoped** Stage-2/4 artifacts (`jobs-status.ts:387` primary branch) | `frontend-api-layer.test.ts` `:815`/`:1873`/`:2333` fixtures rewritten tenant-scoped under `mkdtemp` DATA_ROOT | full-suite |
 | Source-fingerprint | stale, different-source strategy review is NOT leaked even with production path layout | `frontend-api-layer.test.ts:2325` retains source mismatch; `recordMatchesCurrentSource` nulls the doc | full-suite |
 | Auth two-store | DB mutation uses `status` (Postgres); memory store unchanged at `connection_status` | `oauth-connect.test.ts` SQL mock (`status`) + memory seed (`connection_status`) + new positive DB-path assertion | full-suite, fast verify |
-| Infra classifier | 28P01⇒503 redacted (no fallback); ECONNREFUSED⇒200 fallback | `onboarding-draft-route.test.ts` `installDbMock` two-code branch | full-suite, fast verify |
+| Infra classifier | 28P01⇒503 redacted (no fallback); ECONNREFUSED⇒201 fallback-create | `onboarding-draft-route.test.ts` `installDbMock` two-code branch | full-suite, fast verify |
 | Requires-infra split | the 7 live-DB files skip uniformly via `requireDbEnvOrSkip`; report prints the buckets | `tests/helpers/requires-infra.ts` guard + `scripts/list-requires-infra.mjs` | full-suite (skip path) |
 | Ordering | no cross-file pollution from the rewrites | each touched file run isolated AND in the full sorted glob | Phase A + F |
 | Boundary | no real socket / HTTP / Postgres in self-contained tests | unhandled-SQL throw never fires; no `ECONNREFUSED` in log | Phase C/D |

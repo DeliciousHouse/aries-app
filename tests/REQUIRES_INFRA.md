@@ -23,8 +23,10 @@ export ARIES_TEST_REQUIRES_INFRA_ENABLED=1
 npm run test:requires-infra          # runs only the files below, --test-concurrency=1
 ```
 
-Without `ARIES_TEST_REQUIRES_INFRA_ENABLED` (or without all five `DB_*`), the command is
-informational only and these files skip — exactly as the `full-suite` CI gate sees them.
+Without `ARIES_TEST_REQUIRES_INFRA_ENABLED` (or without all five `DB_*`), `npm run
+test:requires-infra` does **not** execute these files — it prints the split and exits early.
+(It is in a normal `npm test` / `full-suite` run that the files are collected and self-skip
+with `t.skip('database env not configured')` — exactly as the CI gate sees them.)
 
 ## Index
 
