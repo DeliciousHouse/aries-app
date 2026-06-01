@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.13.25 — perf(social-content): write-time dashboard-row denormalization with a freshness guard
+
+The QA-audit P1 fix for the slow list endpoints. `/api/social-content/posts`
+(`listSocialContentJobsForTenant` + `listDeletedSocialContentJobsForTenant`) and
+`/api/marketing/posts` (`getWorkflowAwareDashboardContentForTenant`) full-hydrated
+EVERY job (`loadStagePayloadBundle` ~10 file reads + review builds + `getMarketingJobStatus`)
+just to render summary cards — ~9-10s warm. Now the whole `view.dashboard` row is
+denormalized to `dashboard_list_projection` on the workspace record at every write
+site (via `recomputeAndPersistPendingApprovalCount`, which denorms BOTH the
+pending-approval count and the row off one `(status, view)` build) and read O(1):
+two file reads per job, skipping the heavy build. `referenceDate` is pinned to
+`created_at` so the snapshot is a pure function of state (byte-identical to a rebuild;
+the detail view's derived calendar now also anchors to creation week).
+
+Hardened against the staleness/crash classes a 4-skeptic adversarial review found:
+- **Freshness guard.** The projection carries `sourceUpdatedAt` (= `runtimeDoc.updated_at`
+  at build). The fast path serves it only when that matches the live `updated_at`,
+  else it rebuilds + self-heals. This auto-invalidates the projection for EVERY
+  runtime-doc writer (the stale-run reaper, orchestrator transitions) without wiring
+  each — the writer bumps `updated_at`, the guard notices. Previously the self-heal
+  only fired when the projection was absent, so a reaped/transitioned job served a
+  stale `running` card forever.
+- **DB-only writers recompute.** `posts.published_status` (manual IG/FB publish,
+  scheduled-dispatch) and `creative_assets` (upload-replace) don't touch the runtime
+  doc, so they call `recomputeAndPersistPendingApprovalCount` themselves.
+- **Crash guards.** `new Date(runtimeDoc.created_at)` is now `Number.isFinite(Date.parse(...))`-
+  guarded — a malformed `created_at` no longer throws `RangeError` and 500s the whole
+  tenant list. The malformed-projection load guard validates the dashboard arrays +
+  `statuses.countsByStatus` (a partial `dashboard:{}` would crash `mergeDashboardContent`).
+  The on-read count recompute is wrapped so one bad job degrades to count 0 instead
+  of 500-ing the list.
+
+New oracle tests: byte-identical persisted-row vs fresh-rebuild, stale-projection
+self-heal, and malformed-`created_at` no-throw. Full suite green (2153/2153).
+
 ## v0.1.13.24 — fix(a11y): unique per-view <title> for the campaign workspace (WCAG 2.4.2)
 
 The stage routes `/dashboard/{brand-review,creative-review,strategy-review,publish-status}`

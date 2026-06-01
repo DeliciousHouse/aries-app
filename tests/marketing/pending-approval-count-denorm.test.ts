@@ -488,3 +488,152 @@ test('list queue: count==0 jobs are skipped, but the skip path matches a full re
     }
   });
 });
+
+test('dashboard projection: persisted list row + tenant dashboard equal a fresh rebuild (byte-identical)', async () => {
+  // Golden invariant for the write-time dashboard_list_projection denorm: the
+  // O(1) list path that reads the persisted projection must produce output
+  // byte-identical to a from-scratch rebuild. Also proves the referenceDate pin
+  // removes calendar drift (the persisted snapshot is built at callback time;
+  // the rebuild happens later — they must still match).
+  await withEnv(async (dataRoot) => {
+    const mock = installMockPool();
+    try {
+      await writeFile(path.join(dataRoot, 'openai_codex_a.png'), Buffer.from('a'));
+      const { saveSocialContentJobRuntime } = await import('../../backend/marketing/runtime-state');
+      const { applyHermesMarketingCallback } = await import('../../backend/marketing/hermes-callbacks');
+      const views = await import('../../backend/marketing/runtime-views');
+      const wsViews = await import('../../backend/marketing/workspace-views');
+      const store = await import('../../backend/marketing/workspace-store');
+
+      const jobId = 'mkt_denorm_dashboard';
+      const tenantId = '42';
+      saveSocialContentJobRuntime(jobId, makeProductionRunningDoc(jobId));
+      await applyHermesMarketingCallback(makeRunRecord(jobId), makeProductionApprovalPayload() as never);
+
+      // The callback's recompute wrapper persisted the dashboard projection.
+      const record = store.loadSocialContentWorkspaceRecord(jobId, tenantId);
+      assert.ok(record?.dashboard_list_projection, 'callback must persist dashboard_list_projection');
+
+      // Endpoint-2 (campaign list) + endpoint-1 (tenant dashboard) served from the
+      // persisted projection (the O(1) fast path).
+      const fromProjection = (await views.listSocialContentJobsForTenant(tenantId)).posts;
+      const dashFromProjection = await wsViews.getWorkflowAwareDashboardContentForTenant(tenantId);
+      assert.equal(fromProjection.length, 1, 'one campaign expected');
+
+      // Force a from-scratch rebuild for endpoint 2: strip the projection, re-list
+      // (the self-heal rebuilds it via buildSocialContentWorkspaceView).
+      const strip = () => {
+        const r = store.loadSocialContentWorkspaceRecord(jobId, tenantId)!;
+        r.dashboard_list_projection = undefined;
+        store.saveSocialContentWorkspaceRecord(r);
+      };
+      strip();
+      const rebuilt = (await views.listSocialContentJobsForTenant(tenantId)).posts;
+      strip();
+      const dashRebuilt = await wsViews.getWorkflowAwareDashboardContentForTenant(tenantId);
+
+      assert.deepEqual(
+        fromProjection,
+        rebuilt,
+        'campaign-list rows from the persisted projection must equal a fresh rebuild',
+      );
+      assert.deepEqual(
+        dashFromProjection,
+        dashRebuilt,
+        'tenant dashboard from the persisted projection must equal a fresh rebuild',
+      );
+    } finally {
+      mock.restore();
+    }
+  });
+});
+
+test('staleness guard: a projection whose sourceUpdatedAt no longer matches the runtime doc is rebuilt, not served stale', async () => {
+  // Adversarial-review regression: the fast read path must NOT serve a present-but-
+  // STALE projection. Several write sites mutate the runtime doc WITHOUT recomputing
+  // the projection — the stale-run reaper (default-ON, every 5 min) flips state to
+  // failed_stale, orchestrator transitions flip to running/failed — each bumping
+  // runtimeDoc.updated_at. The freshness stamp (sourceUpdatedAt) makes the read path
+  // notice the mismatch and rebuild, so a reaped job never keeps rendering its old
+  // 'running' card. Here we corrupt the stamp directly (deterministic, no save-timing
+  // dependency) to simulate any such bypassing write.
+  await withEnv(async (dataRoot) => {
+    const mock = installMockPool();
+    try {
+      await writeFile(path.join(dataRoot, 'openai_codex_a.png'), Buffer.from('a'));
+      const { saveSocialContentJobRuntime, loadSocialContentJobRuntime } = await import(
+        '../../backend/marketing/runtime-state'
+      );
+      const { applyHermesMarketingCallback } = await import('../../backend/marketing/hermes-callbacks');
+      const views = await import('../../backend/marketing/runtime-views');
+      const store = await import('../../backend/marketing/workspace-store');
+
+      const jobId = 'mkt_denorm_stale';
+      const tenantId = '42';
+      saveSocialContentJobRuntime(jobId, makeProductionRunningDoc(jobId));
+      await applyHermesMarketingCallback(makeRunRecord(jobId), makeProductionApprovalPayload() as never);
+
+      const doc = await loadSocialContentJobRuntime(jobId);
+      assert.ok(doc, 'runtime doc must exist');
+      const rec = store.loadSocialContentWorkspaceRecord(jobId, tenantId);
+      assert.ok(rec?.dashboard_list_projection, 'callback must persist a projection');
+      assert.equal(
+        rec!.dashboard_list_projection!.sourceUpdatedAt,
+        doc!.updated_at,
+        'a fresh projection is stamped with the current runtimeDoc.updated_at',
+      );
+
+      // Simulate a runtime-doc write that bypassed recompute: stamp goes stale.
+      rec!.dashboard_list_projection!.sourceUpdatedAt = '1970-01-01T00:00:00.000Z';
+      store.saveSocialContentWorkspaceRecord(rec!);
+
+      // The fast path must rebuild (stamp mismatch), not serve the stale projection.
+      const served = (await views.listSocialContentJobsForTenant(tenantId)).posts;
+      assert.equal(served.length, 1, 'one campaign expected');
+
+      // Self-heal: the persisted stamp is restored to the live updated_at.
+      assert.equal(
+        store.loadSocialContentWorkspaceRecord(jobId, tenantId)!.dashboard_list_projection!.sourceUpdatedAt,
+        doc!.updated_at,
+        'stale projection self-heals: stamp restored to runtimeDoc.updated_at',
+      );
+
+      // And the rebuilt-from-stale row equals a from-scratch rebuild (correct value).
+      const r2 = store.loadSocialContentWorkspaceRecord(jobId, tenantId)!;
+      r2.dashboard_list_projection = undefined;
+      store.saveSocialContentWorkspaceRecord(r2);
+      const freshRebuild = (await views.listSocialContentJobsForTenant(tenantId)).posts;
+      assert.deepEqual(served, freshRebuild, 'rebuilt-from-stale row must equal a fresh rebuild');
+    } finally {
+      mock.restore();
+    }
+  });
+});
+
+test('robustness: a malformed created_at does not throw (referenceDate parse guard)', async () => {
+  // Adversarial-review regression: loadSocialContentJobRuntime never validates
+  // created_at, so a legacy/partial doc can carry a malformed value. The projection
+  // build pins referenceDate to created_at; an unguarded `new Date(bad)` threw
+  // RangeError at .toISOString() and, via processConcurrent re-throw, 500-ed the
+  // WHOLE tenant list. The guard must fall back to wall-clock and still list the job.
+  await withEnv(async (dataRoot) => {
+    const mock = installMockPool();
+    try {
+      await writeFile(path.join(dataRoot, 'openai_codex_a.png'), Buffer.from('a'));
+      const { saveSocialContentJobRuntime } = await import('../../backend/marketing/runtime-state');
+      const views = await import('../../backend/marketing/runtime-views');
+
+      const jobId = 'mkt_denorm_badcreated';
+      const tenantId = '42';
+      const doc = makeProductionRunningDoc(jobId);
+      (doc as unknown as { created_at: string }).created_at = 'not-a-real-date';
+      saveSocialContentJobRuntime(jobId, doc);
+
+      // Must not throw — degrades to wall-clock and still surfaces the campaign.
+      const { posts } = await views.listSocialContentJobsForTenant(tenantId);
+      assert.equal(posts.length, 1, 'job still lists despite a malformed created_at');
+    } finally {
+      mock.restore();
+    }
+  });
+});

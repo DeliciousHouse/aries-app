@@ -38,6 +38,7 @@ import {
 } from './real-artifacts';
 import {
   ensureSocialContentWorkspaceRecord,
+  loadSocialContentWorkspaceRecord,
   marketingWorkspaceAssetUrl,
   saveSocialContentWorkspaceRecord,
   syncSocialContentWorkflowState,
@@ -1441,7 +1442,26 @@ export async function buildSocialContentWorkspaceView(
   const facts = createSocialContentJobFacts(runtimeDoc, null);
   const rawDashboard = buildSocialContentDashboardProjection(
     runtimeDoc,
-    await getMarketingDashboardSocialContentJobContent(jobId),
+    // Pin the dashboard reference date to the job's created_at. Otherwise the
+    // base dashboard's derived (no-explicit-startsAt) calendar events anchor to
+    // wall-clock `new Date()`, so the SAME job's view.dashboard drifts day-over-
+    // day with zero state change. Pinning makes view.dashboard a pure function
+    // of state — required so the persisted dashboard_list_projection snapshot
+    // stays byte-identical to a later rebuild (and aligns with the projection
+    // layer, which already anchors its own calendar events to created_at).
+    //
+    // GUARD the parse exactly like the rest of the codebase (dashboard-projection
+    // startsAt(), jobs-status weeklyWindowStart()): loadSocialContentJobRuntime
+    // never validates created_at, so a legacy/hand-edited/partial doc can carry a
+    // missing or malformed value. An unguarded `new Date(bad)` is an Invalid Date
+    // that throws RangeError at .toISOString() downstream and, via processConcurrent
+    // re-throw, 500s the WHOLE tenant list/dashboard. Fall back to wall-clock.
+    await getMarketingDashboardSocialContentJobContent(jobId, {
+      referenceDate: (() => {
+        const parsed = Date.parse(runtimeDoc.created_at);
+        return Number.isFinite(parsed) ? new Date(parsed) : new Date();
+      })(),
+    }),
     { realPublishedPostCount: await countPublishedPostsForJob(runtimeDoc.tenant_id, runtimeDoc.job_id) },
   );
   const payloads = await loadStagePayloadBundle(runtimeDoc, facts);
@@ -1667,25 +1687,74 @@ function postIdentity(post: MarketingDashboardSocialContentJob | null, jobId: st
 export async function getWorkflowAwareDashboardContentForTenant(tenantId: string): Promise<MarketingDashboardContent> {
   const jobIds = await listSocialContentJobIdsForTenant(tenantId);
 
-  // Bounded-parallel hydration (concurrency 4 = ≤20% of the default
-  // DB_POOL_MAX=20 per request; mirrors listSocialContentJobsForTenant). The
-  // prior serial loop hydrated every job's workspace view one-at-a-time, which
-  // is the dominant cost of GET /api/marketing/posts (per-job work is disk + PG
-  // I/O bound). Bounding the fan-out at 4 cuts wall-clock without exceeding the
-  // pool budget (CLAUDE.md guardrail #1). processConcurrent preserves input
-  // order, so dedup below still keeps the first occurrence in jobId order —
-  // byte-identical selection to the old loop.
-  const views = await processConcurrent(jobIds, (jobId) => buildSocialContentWorkspaceView(jobId), 4);
+  // FAST PATH: read each job's denormalized dashboard projection (post + the
+  // posts/assets/publishItems/calendarEvents/statuses arrays) O(1) from the
+  // workspace record and skip the expensive buildSocialContentWorkspaceView
+  // (loadStagePayloadBundle). The projection IS view.dashboard (post +
+  // listRow.dashboard arrays), persisted byte-identically at every write site.
+  // Legacy / never-computed jobs fall back to the full build (the campaign-list
+  // endpoint + the write sites persist the projection, so those jobs become
+  // O(1) on a subsequent load). Bounded concurrency 4 (guardrail #1);
+  // processConcurrent preserves input order so dedup stays first-wins in jobId
+  // order — byte-identical selection to the old loop.
+  const built = await processConcurrent(
+    jobIds,
+    async (jobId): Promise<MarketingDashboardSocialContentJobContent> => {
+      const runtimeDoc = await loadSocialContentJobRuntime(jobId);
+      const projection = loadSocialContentWorkspaceRecord(jobId)?.dashboard_list_projection;
+      // Same FRESHNESS GUARD as the campaign-list path: serve the projection O(1)
+      // only when its baked sourceUpdatedAt matches the current runtimeDoc.updated_at.
+      // A stale projection (doc mutated since — reaper/orchestrator) or an absent
+      // one falls through to the rebuild so this endpoint never serves a stale row.
+      if (projection && runtimeDoc && projection.sourceUpdatedAt === runtimeDoc.updated_at) {
+        return {
+          post: projection.post,
+          posts: projection.listRow.dashboard.posts,
+          assets: projection.listRow.dashboard.assets,
+          publishItems: projection.listRow.dashboard.publishItems,
+          calendarEvents: projection.listRow.dashboard.calendarEvents,
+          statuses: projection.listRow.dashboard.statuses,
+        };
+      }
+      // Rebuild (correct value). Then self-heal-persist so this job is O(1) next
+      // time even if it's only ever loaded through this endpoint. Dynamic import
+      // of the recompute helper avoids a static workspace-views<->runtime-views
+      // cycle; persistence is best-effort and never blocks the response. Read the
+      // projection back so the served shape is identical to the fast path.
+      if (runtimeDoc) {
+        try {
+          const { recomputeAndPersistPendingApprovalCount } = await import('./runtime-views');
+          await recomputeAndPersistPendingApprovalCount(jobId, { runtimeDoc });
+          const healed = loadSocialContentWorkspaceRecord(jobId)?.dashboard_list_projection;
+          if (healed && healed.sourceUpdatedAt === runtimeDoc.updated_at) {
+            return {
+              post: healed.post,
+              posts: healed.listRow.dashboard.posts,
+              assets: healed.listRow.dashboard.assets,
+              publishItems: healed.listRow.dashboard.publishItems,
+              calendarEvents: healed.listRow.dashboard.calendarEvents,
+              statuses: healed.listRow.dashboard.statuses,
+            };
+          }
+        } catch {
+          // fall through to a direct build below
+        }
+      }
+      return (await buildSocialContentWorkspaceView(jobId, { runtimeDoc })).dashboard;
+    },
+    4,
+  );
 
   const items: MarketingDashboardSocialContentJobContent[] = [];
   const seen = new Set<string>();
-  for (const view of views) {
-    const key = postIdentity(view.dashboard.post, view.jobId);
+  for (let i = 0; i < jobIds.length; i++) {
+    const item = built[i];
+    const key = postIdentity(item.post, jobIds[i]);
     if (seen.has(key)) {
       continue;
     }
     seen.add(key);
-    items.push(view.dashboard);
+    items.push(item);
   }
 
   return mergeDashboardContent(items);
