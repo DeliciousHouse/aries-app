@@ -2,6 +2,43 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.14.0 — Composio integration: optional, flag-gated account/publish/analytics layer (default OFF)
+
+Adds Composio as an **optional, isolated** provider layer for end-user social/ad
+account connection, publishing, and analytics — without touching the existing
+direct Meta path. Ships **default OFF**: with `COMPOSIO_ENABLED=false` (the
+default) and `PUBLISH_PROVIDER=direct_meta` / `ANALYTICS_PROVIDER=direct_meta`,
+no Composio code loads and behavior is identical to before. `npm run verify` +
+`test:concurrent` green; existing `meta-publishing` / `publish-dispatch-approval`
+tests pass unchanged.
+
+**Aries-owned abstractions first** (`backend/integrations/providers/`):
+`AccountConnectionProvider`, `PublisherProvider`, `AnalyticsProvider`,
+`CapabilityProvider`, normalized result/metric types, and a `provider-factory`
+that turns flags into providers. `COMPOSIO_ENABLED` is a hard master switch —
+when off, the factory always returns the direct Meta provider regardless of the
+selectors. `auto` mode tries Composio first and falls back to direct Meta for
+Facebook/Instagram.
+
+**Composio adapter** (`backend/integrations/composio/`) behind those interfaces,
+using the verified `@composio/core` SDK surface (`connectedAccounts.initiate/
+list/get/delete`, `tools.execute`), loaded lazily so the package is only required
+when enabled. **`DirectMetaProvider`** (`backend/integrations/direct/`) wraps the
+existing `publishToMetaGraph` with identical behavior — `meta-publishing.ts` is
+untouched.
+
+**Safety invariants enforced + tested (24 new tests):** ads/campaigns always
+created PAUSED/draft; organic posts support dry-run preview and refuse a live
+post without an explicit approval; analytics normalize with missing metrics as
+`null` (never fabricated); connections persist Composio connected-account IDs,
+never raw OAuth tokens (the new `connected_accounts` table has no token column).
+
+**Surface:** connection endpoints under `/api/integrations/composio/*` (isolated
++ removable), a nontechnical `/connections` UI, the `connected_accounts` table
+(init-db + dated migration), env plumbing in `docker-compose.yml` with OFF
+defaults, and `docs/integrations/composio.md`. Also reconciles a pre-existing
+`package.json` version drift (was `0.1.13.1`).
+
 ## v0.1.13.26 — public-readiness roadmap kickoff: plans + requires-infra test split
 
 Kickoff for Brendan's 15-area public-readiness roadmap. Docs + test-only — **zero
