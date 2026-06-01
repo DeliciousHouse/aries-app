@@ -27,10 +27,10 @@ function buildQueryable(opts: FixtureOptions = {}): {
   const query = (async (sql: string, params: unknown[]): Promise<{ rows: unknown[]; rowCount: number }> => {
     const trimmed = sql.trim();
     calls.push({ sql: trimmed, params });
-    if (trimmed.startsWith('SELECT id, tenant_id FROM posts')) {
+    if (trimmed.startsWith('SELECT id, tenant_id') && trimmed.includes('FROM posts')) {
       const [postId, tenantId] = params as [number, number];
       if (postId === ownedPostId && tenantId === ownedTenantId) {
-        return { rows: [{ id: postId, tenant_id: tenantId }], rowCount: 1 };
+        return { rows: [{ id: postId, tenant_id: tenantId, surface: 'feed', media_type: 'image' }], rowCount: 1 };
       }
       return { rows: [], rowCount: 0 };
     }

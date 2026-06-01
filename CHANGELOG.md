@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.14.1 — Turn on weekly image stories + fix the surface-drop that mis-published them to the feed
+
+Flips the weekly social-content `story_count` default from 0 (OFF) to 1 (ON) so
+every weekly run now ships one image story alongside the feed posts. Aries
+synthesizes the story from the run's Hermes creative, composes it into a 9:16
+canvas with the post headline + brand CTA baked in (`story-composer.ts`), and
+publishes it LIVE through the scheduled-dispatch path (Meta cannot natively
+schedule stories). Levers: `SOCIAL_CONTENT_DEFAULT_SCOPE.story_count` and
+`DEFAULT_SOCIAL_CONTENT_COUNTS.storyCount` (both 0 → 1), plus the new-job UI
+default (`new-job.tsx`, 0 → 1) so operator-created jobs request stories too.
+
+**Surface-drop bug fixed (the reason flipping the flag alone would have
+mis-published).** `autoScheduleApprovedPostsForJob` derived each scheduled row's
+surface from the strategist `weekly_schedule` by ordinal — which never emits a
+`story` placement — and never read the post's own `surface='story'` column. So an
+auto-promoted story collapsed onto its feed sibling's slot and the composed 9:16
+image published to the **feed**, not as a story. The row builder is now extracted
+as `buildAutoScheduleRows` and takes surface/media_type from the post's own
+authoritative columns (the schedule supplies only the recommended day). The manual
+schedule route (`schedule/route.ts`) had the same defect — it now reads
+`posts.surface`/`media_type` and passes them to `upsertScheduledPost` instead of
+defaulting to feed. New regression tests in `marketing-auto-schedule.test.ts`
+cover the surface-preservation contract (previously untested).
+
+Proven live before shipping: an image story posted to both IG (Graph-confirmed
+`media_product_type=STORY`) and FB (`/photo_stories`, status published) on the
+@sugarandleatherai account via the deployed dispatch path. `npm run verify` green;
+629 marketing/scheduling/meta/social-content tests pass.
+
 ## v0.1.14.0 — Composio integration: optional, flag-gated account/publish/analytics layer (default OFF)
 
 Adds Composio as an **optional, isolated** provider layer for end-user social/ad

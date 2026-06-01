@@ -14,9 +14,9 @@ function buildQueryable(): { queryable: ScheduleRouteQueryable; calls: Captured[
   const query = (async (sql: string, params: unknown[]) => {
     const trimmed = sql.trim();
     calls.push({ sql: trimmed, params });
-    if (trimmed.startsWith('SELECT id, tenant_id FROM posts')) {
+    if (trimmed.startsWith('SELECT id, tenant_id') && trimmed.includes('FROM posts')) {
       const [postId, tenantId] = params as [number, number];
-      return { rows: [{ id: postId, tenant_id: tenantId }], rowCount: 1 };
+      return { rows: [{ id: postId, tenant_id: tenantId, surface: 'feed', media_type: 'image' }], rowCount: 1 };
     }
     if (trimmed.startsWith('INSERT INTO scheduled_posts')) {
       const [postId, tenantId, scheduledFor, platforms] = params as [number, number, string, string[]];
