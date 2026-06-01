@@ -41,6 +41,13 @@ function resetOauthStore(): void {
   store.connectedByTenantProvider.clear();
 }
 
+// TWO-STORE COLUMN CONTRACT (not a bug — do not "unify"):
+//   - Live Postgres column is `status`            (backend/integrations/oauth-db.ts:10)
+//   - Live in-memory store column is `connection_status` (backend/integrations/oauth-memory-store.ts:10)
+// The SQL mock rows below use `status`; this in-memory seed uses `connection_status`. Each mirrors
+// its own store's real shape. The post-mutation "unchanged" assertions (~:413/:506) deliberately read
+// the IN-MEMORY store's `connection_status` to prove disconnect/reconnect mutated Postgres ONLY and
+// left the memory store untouched. Renaming either column would break a correct test.
 function seedConnectedProvider(input: {
   tenantId: string;
   provider: 'facebook' | 'instagram';
@@ -65,6 +72,10 @@ function seedConnectedProvider(input: {
  * Build a pool.query mock that services SELECT by tenant+provider, SELECT by id,
  * and treats all writes (INSERT/UPDATE/DELETE) as no-ops. Numeric tenant IDs and
  * connection IDs are required since oauth-db.ts parseInts them.
+ *
+ * Row shape uses `status` — the LIVE Postgres column (oauth-db.ts:10), which is
+ * deliberately different from the in-memory store's `connection_status`
+ * (oauth-memory-store.ts:10). See the two-store contract note on seedConnectedProvider.
  */
 function makeQueryMock(connections: Array<{
   id: string;
@@ -384,7 +395,7 @@ test('oauth disconnect routes ignore forged connection_id and disconnect only th
         updated_at: now,
       },
     ];
-    t.mock.method(pool, 'query', makeQueryMock(connRows) as typeof pool.query);
+    const queryMock = t.mock.method(pool, 'query', makeQueryMock(connRows) as typeof pool.query);
 
     const response = await handleIntegrationsDisconnect(
       new Request('https://aries.example.com/api/auth/oauth/facebook/disconnect', {
@@ -411,6 +422,15 @@ test('oauth disconnect routes ignore forged connection_id and disconnect only th
     assert.equal(body.disconnected, true);
     // Memory store for tenant '2' / conn '102' is unchanged (disconnect is DB-only now)
     assert.equal(oauthStore().connectionsById.get('102')?.connection_status, 'connected');
+    // Positive DB-path pin: the disconnect mutation went through the Postgres mock (a write SQL to an
+    // oauth_ table fired), proving disconnect persists to Postgres — the memory-store check above proves
+    // the in-memory `connection_status` shape was NOT touched. Two stores, two columns, both correct.
+    assert.ok(
+      queryMock.mock.calls.some((call) =>
+        /\b(UPDATE oauth_|DELETE FROM oauth_|INSERT INTO oauth_(audit_events|tokens))/.test(String(call.arguments[0])),
+      ),
+      'expected a Postgres write (UPDATE/DELETE/INSERT on an oauth_ table) during disconnect',
+    );
   });
 });
 

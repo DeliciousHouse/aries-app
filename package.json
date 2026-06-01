@@ -43,6 +43,8 @@
     "creative-memory:backfill": "node scripts/creative-memory-backfill.mjs",
     "creative-memory:smoke": "node scripts/creative-memory-smoke.mjs",
     "test:creative-memory": "tsx --test tests/creative-memory-*.test.ts",
+    "test:requires-infra-report": "node scripts/list-requires-infra.mjs",
+    "test:requires-infra": "node scripts/list-requires-infra.mjs --run",
     "eval:creative-memory-learning": "tsx scripts/eval-creative-memory-learning.ts"
   },
   "dependencies": {

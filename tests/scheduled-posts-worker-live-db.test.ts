@@ -5,6 +5,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 
+import { requireDbEnvOrSkip } from './helpers/requires-infra';
+
 // Real-Postgres integration test for the scheduled-posts worker's claim path.
 //
 // This is the test that would have caught the `FOR UPDATE cannot be applied to
@@ -64,7 +66,7 @@ test('scheduled-posts worker claim queries run against real Postgres', async (t)
         'database in CI/prod validation — a skip here means the real planner ' +
         'was never exercised.\n',
     );
-    t.skip('database env not configured');
+    requireDbEnvOrSkip(t);
     return;
   }
 

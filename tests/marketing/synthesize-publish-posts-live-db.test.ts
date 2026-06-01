@@ -5,6 +5,8 @@ import path from 'node:path';
 import test from 'node:test';
 import pg from 'pg';
 
+import { requireDbEnvOrSkip } from '../helpers/requires-infra';
+
 import { synthesizePublishPostsFromContentPackage } from '../../backend/marketing/synthesize-publish-posts';
 import { findLatestMarketingApprovalRecord } from '../../backend/marketing/approval-store';
 import { UNSCHEDULED_POSTS_QUERY } from '../../app/api/social-content/scheduled-posts/route';
@@ -121,7 +123,7 @@ test('synthesized publish posts are approved, calendar-visible, and pass the pub
         'database in CI/prod validation — a skip means the real posts insert ' +
         'path, partial unique index, and backlog query were never exercised.\n',
     );
-    t.skip('database env not configured');
+    requireDbEnvOrSkip(t);
     return;
   }
 
@@ -263,7 +265,7 @@ test('synthesized publish posts are approved, calendar-visible, and pass the pub
 
 test('synthesizePublishPostsFromContentPackage defers when a CONSUMABLE publish_package is present', async (t) => {
   if (!dbConfig) {
-    t.skip('database env not configured');
+    requireDbEnvOrSkip(t);
     return;
   }
   const prevDataRoot = process.env.DATA_ROOT;
@@ -335,7 +337,7 @@ test('synthesizePublishPostsFromContentPackage defers when a CONSUMABLE publish_
 // nothing reached the calendar. A thin publish_package must NOT block synthesis.
 test('synthesizePublishPostsFromContentPackage does NOT defer for a thin plan-only publish_package', async (t) => {
   if (!dbConfig) {
-    t.skip('database env not configured');
+    requireDbEnvOrSkip(t);
     return;
   }
   const prevDataRoot = process.env.DATA_ROOT;
