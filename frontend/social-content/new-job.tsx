@@ -68,8 +68,8 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
   );
 
   const [staticPostCount, setStaticPostCount] = useState(7);
-  // Image-story posts to publish alongside feed posts. 0 = OFF (default).
-  const [storyCount, setStoryCount] = useState(0);
+  // Image-story posts to publish alongside feed posts. Default 1 (ON); 0 = OFF.
+  const [storyCount, setStoryCount] = useState(1);
   const [imageCreativeCount, setImageCreativeCount] = useState(6);
   const [videoScriptCount, setVideoScriptCount] = useState(1);
   const [renderVideoAfterApproval, setRenderVideoAfterApproval] = useState(false);
