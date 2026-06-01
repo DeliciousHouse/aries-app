@@ -8,6 +8,7 @@ import {
 } from '@/backend/integrations/meta-publishing';
 import { toSignedPublicUrl } from '@/app/api/publish/dispatch/handler';
 import { resolveSignableBasename } from '@/backend/marketing/signable-basename';
+import { recomputeAndPersistPendingApprovalCount } from '@/backend/marketing/runtime-views';
 import pool from '@/lib/db';
 
 type ScheduledDispatchBody = {
@@ -289,20 +290,36 @@ export async function POST(req: Request): Promise<Response> {
 
   // Roll the per-platform outcomes up into one posts.published_status write.
   const postStatus = planPostStatusUpdate(results);
+  let dispatchedJobId: string | null = null;
   if (postId && postStatus === 'published') {
-    await pool.query(
-      `UPDATE posts
+    const updated = await pool
+      .query<{ job_id: string | null }>(
+        `UPDATE posts
        SET published_status = 'published',
            platform_post_id = COALESCE($2, platform_post_id),
            published_at = COALESCE(published_at, now())
-       WHERE id = $1 AND tenant_id = $3`,
-      [postId, firstPublishedPostId, tenantId],
-    ).catch(() => {});
+       WHERE id = $1 AND tenant_id = $3
+       RETURNING job_id`,
+        [postId, firstPublishedPostId, tenantId],
+      )
+      .catch(() => null);
+    dispatchedJobId = updated?.rows?.[0]?.job_id ?? null;
   } else if (postId && postStatus === 'failed') {
-    await pool.query(
-      `UPDATE posts SET published_status = 'failed' WHERE id = $1 AND tenant_id = $2`,
-      [postId, tenantId],
-    ).catch(() => {});
+    const updated = await pool
+      .query<{ job_id: string | null }>(
+        `UPDATE posts SET published_status = 'failed' WHERE id = $1 AND tenant_id = $2 RETURNING job_id`,
+        [postId, tenantId],
+      )
+      .catch(() => null);
+    dispatchedJobId = updated?.rows?.[0]?.job_id ?? null;
+  }
+  // A publish flips posts.published_status, which feeds the campaign-list
+  // dashboard's published/scheduled/live counts (via countPublishedPostsForJob).
+  // Refresh the denormalized dashboard_list_projection (+ pending count) so the
+  // campaign list reflects the publish without re-hydrating every job on read.
+  // Non-fatal: a recompute failure must never fail the dispatch response.
+  if (dispatchedJobId) {
+    await recomputeAndPersistPendingApprovalCount(dispatchedJobId).catch(() => {});
   }
   // 202 when at least one platform was dispatched; 502 when every platform
   // failed and at least one is retryable; 422 when all failures are terminal.

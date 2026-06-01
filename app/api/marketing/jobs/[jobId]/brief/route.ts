@@ -126,15 +126,15 @@ export async function handlePatchMarketingJobBrief(
   };
   saveSocialContentJobRuntime(jobId, runtimeDoc);
   invalidateMarketingJobStatus(jobId);
-  if (requestBody.uploads.length > 0) {
-    // Brand-asset upload changes brand-review-item existence, hence the
-    // pending_approval_count. Recompute+persist so the list badge stays exact
-    // even for records that already have a persisted count (read-through
-    // fallback only fires when it is unset).
-    await recomputeAndPersistPendingApprovalCount(jobId, { runtimeDoc }).catch((err) => {
-      console.error('[brief] pending-approval-count recompute failed', err);
-    });
-  }
+  // A brief edit mutates runtimeDoc.inputs.request (name/goal/offer), which the
+  // denormalized campaign-list row derives (name/objective/summary) — AND a
+  // brand-asset upload changes brand-review existence, hence pending_approval_count.
+  // Recompute+persist BOTH denorm fields UNCONDITIONALLY (not just on uploads) so
+  // the list reflects the edited brief without re-hydrating. Change-only writes
+  // make the no-op (nothing changed) cheap, and a failure is non-fatal.
+  await recomputeAndPersistPendingApprovalCount(jobId, { runtimeDoc }).catch((err) => {
+    console.error('[brief] denorm recompute failed', err);
+  });
 
   return NextResponse.json({ ok: true }, { status: 200 });
 }

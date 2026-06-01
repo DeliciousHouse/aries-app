@@ -2,6 +2,7 @@
 import { loadTenantContextOrResponse } from '@/lib/tenant-context-http';
 import { loadSocialContentJobRuntime } from '@/backend/marketing/runtime-state';
 import { buildSocialContentWorkspaceView } from '@/backend/marketing/workspace-views';
+import { recomputeAndPersistPendingApprovalCount } from '@/backend/marketing/runtime-views';
 import {
   findLatestMarketingApprovalRecord,
   loadMarketingApprovalRecord,
@@ -267,6 +268,16 @@ export async function handleInstagramPublish(req: Request, jobId: string) {
       jobId,
       idempotencyKey: `${jobId}:publish:instagram:1`,
       creativeAssetIds: publishedAssetId ? [publishedAssetId] : null,
+    });
+
+    // A successful publish inserts a job-linked posts row (published_status), which
+    // feeds countPublishedPostsForJob -> the denormalized dashboard projection's
+    // live/scheduled/published counts. That's a DB-only write the projection's
+    // runtimeDoc.updated_at freshness stamp does NOT catch, so refresh the
+    // projection here (non-fatal) or the campaign list/dashboard would render
+    // stale pre-publish counts until an unrelated mutation recomputes.
+    await recomputeAndPersistPendingApprovalCount(jobId).catch((err) => {
+      console.error('[publish-instagram] denorm recompute failed', err);
     });
 
     const permalink = instagramPermalink(published.platformPostId);

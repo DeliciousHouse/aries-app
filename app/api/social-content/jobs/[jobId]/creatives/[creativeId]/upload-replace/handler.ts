@@ -15,6 +15,7 @@ import {
   type VisionQAClient,
 } from '@/backend/creative-memory/vision-qa';
 import { loadSocialContentJobRuntime } from '@/backend/marketing/runtime-state';
+import { recomputeAndPersistPendingApprovalCount } from '@/backend/marketing/runtime-views';
 import pool from '@/lib/db';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
@@ -201,6 +202,19 @@ export async function handleSocialContentUploadReplace(
     },
     deps,
   );
+
+  if (result.status === 202) {
+    // A successful replace orphans the previous generated asset and inserts a
+    // manual_upload creative_assets row, changing the merged asset set that feeds
+    // the denormalized dashboard projection (assets/previewAssets/imageAds counts,
+    // creativeReview status). That's a DB-only write the projection's
+    // runtimeDoc.updated_at freshness stamp does NOT catch, so refresh the
+    // projection here (non-fatal) or the campaign list/dashboard would keep
+    // showing the pre-replace asset set until an unrelated mutation recomputes.
+    await recomputeAndPersistPendingApprovalCount(jobId).catch((err) => {
+      console.error('[upload-replace] denorm recompute failed', err);
+    });
+  }
 
   return applyResult(result);
 }
