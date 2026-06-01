@@ -3,6 +3,8 @@ import test from 'node:test';
 import pg from 'pg';
 import type { Pool } from 'pg';
 
+import { requireDbEnvOrSkip } from './helpers/requires-infra';
+
 import {
   persistPublishedPost,
   runPublishVerification,
@@ -273,7 +275,7 @@ test('creative_asset_ids round-trips through the real posts schema and resolver'
         'database in CI/prod validation — a skip means the live posts schema ' +
         'and the real resolveMediaUrls SQL were never exercised.\n',
     );
-    t.skip('database env not configured');
+    requireDbEnvOrSkip(t);
     return;
   }
 

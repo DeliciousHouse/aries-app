@@ -2,6 +2,43 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.13.26 — public-readiness roadmap kickoff: plans + requires-infra test split
+
+Kickoff for Brendan's 15-area public-readiness roadmap. Docs + test-only — **zero
+`backend/` or `app/` runtime edits**.
+
+**Plans (docs/plans/2026-06-01-*).** A 38-agent reconcile→plan→review→audit workflow
+mapped all 15 roadmap areas to shipped / plan-exists / needs-plan and wrote a grounded,
+adversarially-reviewed implementation plan for every gap (completeness audit: 0 uncovered).
+`2026-06-01-public-readiness-reconciliation.md` is the index + dependency-ordered execution
+plan. Already-shipped work is cited, not re-planned: #519 (Meta failure taxonomy + reconnect
+signal + creative_asset_ids backfill) and #520 (video/Reel/Story publish surfaces, flag-gated).
+
+**Requires-infra test split (roadmap area 1a — `2026-06-01-test-suite-split-finish.md`).**
+Closes the residual correctness/clarity debt inside the now-green `full-suite` gate so it is
+green for the right reason, and makes the requires-infra vs self-contained split explicit:
+- Tenant-scoped 3 flat hydration fixtures in `frontend-api-layer.test.ts` so they exercise the
+  production tenant-scoped artifact read (`jobs-status.ts:387`) instead of a dead flat path;
+  the source-fingerprint leak-prevention test is preserved.
+- Documented the oauth `status` (Postgres) vs `connection_status` (in-memory) two-store split
+  (a recon false-positive, not drift) + added a positive DB-path assertion. No column change.
+- Added an ECONNREFUSED⇒fallback counter-branch so the network-vs-auth boundary
+  (28P01⇒503, ECONNREFUSED⇒201 fallback-create) is two named tests.
+- Shared `tests/helpers/requires-infra.ts` (`requireDbEnvOrSkip`, superset DB_* keys, canonical
+  skip string) adopted by all 7 live-DB files; `tests/REQUIRES_INFRA.md` index;
+  `scripts/list-requires-infra.mjs` + `npm run test:requires-infra-report` (314 self-contained /
+  7 requires-infra) + flag-gated `npm run test:requires-infra`.
+- New default-OFF flag `ARIES_TEST_REQUIRES_INFRA_ENABLED` (test-harness only; documented in
+  `CLAUDE.md` + `.env.example`, deliberately not in `docker-compose.yml`).
+
+Verified: typecheck clean; full CI-exact suite 2154 pass / 0 fail / 9 requires-infra skip.
+
+**Operational (run separately, approved by Brendan):** the prod `creative_asset_ids` backfill
+(`2026-06-01-publish-reliability-backfill-verify.md`, roadmap 1c) was run via
+`scripts/backfill-creative-asset-ids.mjs` — dry-run → review → `--write` → idempotency re-check.
+**2 legacy single-asset rows populated**, 0 ambiguous, 60 genuinely-empty rows left on fallback;
+re-run reports populated 0 (idempotent). Those posts now resolve their own image per-post.
+
 ## v0.1.13.25 — perf(social-content): write-time dashboard-row denormalization with a freshness guard
 
 The QA-audit P1 fix for the slow list endpoints. `/api/social-content/posts`

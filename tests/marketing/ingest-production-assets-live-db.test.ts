@@ -5,6 +5,8 @@ import path from 'node:path';
 import test from 'node:test';
 import pg from 'pg';
 
+import { requireDbEnvOrSkip } from '../helpers/requires-infra';
+
 import { ingestProductionCreativeAssetsToDb } from '../../backend/marketing/ingest-production-assets';
 import type { SocialContentJobRuntimeDocument } from '../../backend/marketing/runtime-state';
 
@@ -93,7 +95,7 @@ test('ingestProductionCreativeAssetsToDb INSERT runs against real Postgres witho
         'DB_PASSWORD/DB_NAME not all set. This test MUST run against a real ' +
         'database — a mock pool cannot catch a malformed ON CONFLICT clause.\n',
     );
-    t.skip('database env not configured');
+    requireDbEnvOrSkip(t);
     return;
   }
 

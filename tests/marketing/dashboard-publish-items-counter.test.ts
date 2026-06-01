@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import pg from 'pg';
 
+import { requireDbEnvOrSkip } from '../helpers/requires-infra';
+
 import { buildSocialContentDashboardProjection } from '../../backend/social-content/dashboard-projection';
 import { countPublishedPostsForJob } from '../../backend/marketing/published-posts-count';
 import type { MarketingDashboardSocialContentJobContent } from '../../backend/marketing/dashboard-content';
@@ -143,7 +145,7 @@ test('countPublishedPostsForJob counts real posts rows by job_id (live Postgres)
         'test MUST run against real Postgres — a skip means the counter query ' +
         'was never exercised against the live `posts` schema.\n',
     );
-    t.skip('database env not configured');
+    requireDbEnvOrSkip(t);
     return;
   }
 

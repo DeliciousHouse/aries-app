@@ -812,8 +812,11 @@ test('/api/marketing/jobs/:jobId and /latest block downstream approval metadata 
     const tenantId = 'tenant_real';
     const stage2RunId = 'run-strategy-revisions-api';
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
-    const plannerPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, stage2RunId, 'campaign_planner.json');
-    const strategyReviewPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, stage2RunId, 'strategy_review_preview.json');
+    // Tenant-scoped layout matches the production primary read (jobs-status.ts:387:
+    // <cacheRoot>/<tenantId>/<runId>/<step>.json). A flat <cacheRoot>/<runId>/... write
+    // matches neither primary nor log-root fallback, so the artifact would never be read.
+    const plannerPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, tenantId, stage2RunId, 'campaign_planner.json');
+    const strategyReviewPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, tenantId, stage2RunId, 'strategy_review_preview.json');
 
     await mkdir(path.dirname(runtimeFile), { recursive: true });
     await mkdir(path.dirname(plannerPath), { recursive: true });
@@ -1869,9 +1872,12 @@ test('/api/marketing/jobs/:jobId keeps fresher runtime review fields while backf
     const { handleGetMarketingJobStatus } = await import('../app/api/marketing/jobs/[jobId]/handler');
     const jobId = 'mkt_publish_review_runtime_first_backfill';
     const stage4RunId = 'run-publish-runtime-first';
+    // Canonical tenant for this fixture (already used in the aries-review path below);
+    // tenant-scope the Stage-4 cache writes so they hit the production primary read (jobs-status.ts:387).
+    const tenantId = 'tenant_real';
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
-    const preflightPath = path.join(process.env.ARTIFACT_STAGE4_CACHE_DIR!, stage4RunId, 'performance_marketer_preflight.json');
-    const metaPublisherPath = path.join(process.env.ARTIFACT_STAGE4_CACHE_DIR!, stage4RunId, 'meta_ads_publisher.json');
+    const preflightPath = path.join(process.env.ARTIFACT_STAGE4_CACHE_DIR!, tenantId, stage4RunId, 'performance_marketer_preflight.json');
+    const metaPublisherPath = path.join(process.env.ARTIFACT_STAGE4_CACHE_DIR!, tenantId, stage4RunId, 'meta_ads_publisher.json');
     const campaignRoot = path.join(process.env.ARTIFACT_PIPELINE_CWD!, 'output', 'brand-runtime-first-campaign');
     const landingPagePath = path.join(campaignRoot, 'landing-pages', 'runtime-first.html');
     const metaScriptPath = path.join(campaignRoot, 'scripts', 'meta-ads.md');
@@ -2330,9 +2336,12 @@ test('/api/marketing/jobs/:jobId does not leak stale strategy review content fro
     const staleRunId = 'run-stale-sugar';
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
     const validatedRoot = path.join(process.env.DATA_ROOT!, 'generated', 'validated', tenantId);
-    const plannerPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, staleRunId, 'campaign_planner.json');
-    const websiteAnalysisPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, staleRunId, 'website_brand_analysis.json');
-    const strategyReviewPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, staleRunId, 'strategy_review_preview.json');
+    // Tenant-scope the PATH LAYOUT so the stale artifacts are reachable by the production
+    // primary read (jobs-status.ts:387) — the leak prevention must come from the source
+    // fingerprint mismatch (recordMatchesCurrentSource), NOT from the artifact being unreachable.
+    const plannerPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, tenantId, staleRunId, 'campaign_planner.json');
+    const websiteAnalysisPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, tenantId, staleRunId, 'website_brand_analysis.json');
+    const strategyReviewPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, tenantId, staleRunId, 'strategy_review_preview.json');
     const proposalPath = path.join(process.env.ARTIFACT_PIPELINE_CWD!, 'output', 'sugarandleather-com-campaign-proposal.md');
 
     await mkdir(path.dirname(runtimeFile), { recursive: true });

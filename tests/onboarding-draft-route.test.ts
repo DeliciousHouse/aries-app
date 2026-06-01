@@ -272,3 +272,31 @@ test('/api/onboarding/draft returns a safe unavailable error when persistence fa
     assert.doesNotMatch(JSON.stringify(createdBody), /password authentication failed|aries_user|28P01/i);
   });
 });
+
+test('/api/onboarding/draft falls back to the DATA_ROOT store when persistence fails with a network error', async (t) => {
+  // Counter-branch to the 28P01 case above — pins the network-vs-auth boundary as two
+  // explicit, named tests. A NETWORK/transient error (ECONNREFUSED) IS recoverable per
+  // shouldUseFallbackDraftStore (backend/onboarding/draft-store.ts:350-374), so pre-auth
+  // intake must survive a Postgres outage by writing to the DATA_ROOT fallback store: the
+  // route creates the draft (201) instead of surfacing 503. If a future edit drops
+  // ECONNREFUSED from the classifier, this test goes red (the create would 503 instead).
+  await withDraftEnv(async () => {
+    process.env.DB_HOST = 'localhost';
+    process.env.DB_USER = 'aries_user';
+    process.env.DB_PASSWORD = 'aries_pass';
+    process.env.DB_NAME = 'aries_dev';
+
+    installDbMock(t, () => {
+      const err = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:5432'), { code: 'ECONNREFUSED' });
+      throw err;
+    });
+    const route = await import('../app/api/onboarding/draft/route');
+
+    const createdResponse = await route.POST();
+    const createdBody = (await createdResponse.json()) as { draft?: { status: string }; error?: string };
+
+    assert.equal(createdResponse.status, 201);
+    assert.equal(createdBody.draft?.status, 'draft');
+    assert.equal(createdBody.error, undefined);
+  });
+});
