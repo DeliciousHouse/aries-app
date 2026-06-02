@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.14.2 — Plan: first-post onboarding variant board → Aries + Honcho taste profile
+
+Adds the plan doc `docs/plans/2026-06-02-onboarding-variant-board.md` (planning
+only — no runtime code changes). It specs a flag-gated
+(`ARIES_ONBOARDING_VARIANT_BOARD_ENABLED`, default OFF) gstack-style comparison
+board for a new user's first post: 3 full-post variants (Aries fans out 3 Hermes
+runs — no Hermes contract change), with pick + 1-5 star rating +
+regenerate/more-like-this/freeform edit. The chosen variant anchors the remaining
+6 week-1 posts (Phase B, generated *after* the pick) and writes taste to BOTH a
+new Aries `marketing_taste_profile` table and Honcho (via the existing
+`recordCreativeVoicePreferenceEvent` path). 4 phases, grounded in the current
+onboarding/Hermes/Honcho code with file:line references. Docs-only; flag OFF = no
+behavior change. Active goal saved for a fresh implementation session.
+
 ## v0.1.14.1 — Turn on weekly image stories + fix the surface-drop that mis-published them to the feed
 
 Flips the weekly social-content `story_count` default from 0 (OFF) to 1 (ON) so
