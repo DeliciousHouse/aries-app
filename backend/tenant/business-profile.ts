@@ -446,6 +446,8 @@ async function runtimeBrandKitAsTenantBrandKit(tenantId: string): Promise<{ bran
         secondary: runtimeBrandKit.colors.secondary,
         accent: runtimeBrandKit.colors.accent,
         palette: [...runtimeBrandKit.colors.palette],
+        background: runtimeBrandKit.colors.background ?? null,
+        mode: runtimeBrandKit.colors.mode ?? null,
       },
       font_families: [...runtimeBrandKit.font_families],
       external_links: [...runtimeBrandKit.external_links],

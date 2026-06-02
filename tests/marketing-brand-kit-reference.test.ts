@@ -11,7 +11,7 @@ test('marketingBrandKitReferenceFromTenantBrandKit copies all 15 fields includin
     canonical_url: 'https://www.example.com',
     brand_name: 'Example Brand',
     logo_urls: ['https://example.com/logo.png'],
-    colors: { primary: '#111111', secondary: '#222222', accent: '#333333', palette: ['#111111', '#222222'] },
+    colors: { primary: '#111111', secondary: '#222222', accent: '#333333', palette: ['#111111', '#222222'], background: '#050505', mode: 'dark' },
     font_families: ['Georgia', 'Helvetica'],
     external_links: [{ platform: 'instagram', url: 'https://instagram.com/example' }],
     extracted_at: '2025-01-01T00:00:00.000Z',
@@ -35,6 +35,10 @@ test('marketingBrandKitReferenceFromTenantBrandKit copies all 15 fields includin
   assert.equal(ref.colors.secondary, kit.colors.secondary);
   assert.equal(ref.colors.accent, kit.colors.accent);
   assert.deepEqual(ref.colors.palette, kit.colors.palette);
+  // Theme signal (dark/light + page background) must survive the copy layer —
+  // dropping it loses the "render on a dark background" instruction in the brief.
+  assert.equal(ref.colors.background, kit.colors.background);
+  assert.equal(ref.colors.mode, kit.colors.mode);
   assert.deepEqual(ref.font_families, kit.font_families);
   assert.deepEqual(ref.external_links, kit.external_links);
   assert.equal(ref.extracted_at, kit.extracted_at);
