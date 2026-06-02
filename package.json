@@ -27,6 +27,7 @@
     "smoke:meta-publish": "tsx scripts/smoke-meta-publish.ts",
     "test:e2e": "tsx --test tests/frontend-api-layer.test.ts tests/onboarding-runtime-cutover.test.ts tests/public-marketing-pages.test.ts tests/runtime-api-truth.test.ts tests/runtime-pages.test.ts",
     "db:init": "node scripts/init-db.js",
+    "db:seed-insights": "node scripts/seed-insights.mjs",
     "verify": "npm run guardrails:agent && node scripts/verify-regression-suite.mjs",
     "guardrails:agent": "node scripts/pre-ship-agent-guardrails.mjs",
     "validate:public-routes": "tsx --test tests/runtime-pages.test.ts tests/public-marketing-pages.test.ts",

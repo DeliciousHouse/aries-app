@@ -231,6 +231,32 @@ services:
     restart: unless-stopped
     networks:
       - docker_stack
+  # Long-lived sidecar that syncs platform analytics (YouTube, Instagram, etc.)
+  # for every tenant with a connected insights_account. Runs every 30 minutes.
+  # Single replica avoids duplicate API calls and redundant DB writes that would
+  # occur if the sync ran inside every Next.js process (ARIES_WEB_CONCURRENCY=4).
+  aries-insights-sync-worker:
+    image: ${ARIES_APP_IMAGE:-aries-app:local}
+    command: ["node_modules/.bin/tsx", "scripts/automations/insights-sync-worker.ts"]
+    depends_on:
+      aries-app:
+        condition: service_healthy
+    environment:
+      HOME: /home/node
+      NODE_ENV: production
+      CODE_ROOT: /app
+      DATA_ROOT: /data
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_POOL_MAX: 3
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      HONCHO_WRITE_PUBLISH_ENABLED: ${HONCHO_WRITE_PUBLISH_ENABLED:-false}
+      ARIES_TENANT_PSEUDONYM_SALT: ${ARIES_TENANT_PSEUDONYM_SALT:-}
+    restart: unless-stopped
+    networks:
+      - docker_stack
 
   # Delayed real-Meta performance -> Honcho memory. Reads #513's stored
   # insights_post_metrics_daily snapshots (NEVER fetches Meta) and writes a
@@ -259,9 +285,6 @@ services:
       APP_BASE_URL: http://aries-app:${PORT:-3000}
       NEXTAUTH_URL: http://aries-app:${PORT:-3000}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
-      # Honcho write surface (same vars as the app service). Defaults match the
-      # app service so the worker writes through the same gate; recordPerformanceEvent
-      # no-ops when HONCHO_WRITE_PUBLISH_ENABLED is off.
       HONCHO_ENABLED: ${HONCHO_ENABLED:-true}
       HONCHO_WRITE_PUBLISH_ENABLED: ${HONCHO_WRITE_PUBLISH_ENABLED:-true}
       HONCHO_BASE_URL: ${HONCHO_BASE_URL:-}

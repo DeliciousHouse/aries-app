@@ -8,6 +8,9 @@ import { mapAriesExecutionError, runAriesWorkflow } from '../../../backend/execu
 import { PROVIDER_REGISTRY } from '../../../backend/integrations/provider-registry';
 import { buildOauthConnectInput } from '@/lib/oauth-connect-input';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
+import { syncAllAccountsForTenant } from '@/backend/insights/sync/dispatcher';
+import { isSupportedPlatform } from '@/backend/insights/platforms/registry';
+import { hasAdapter } from '@/backend/insights/sync/adapter-factory';
 
 const platforms = (Object.keys(PROVIDER_REGISTRY) as Array<keyof typeof PROVIDER_REGISTRY>).filter(
   (platform) => platform !== 'openai',
@@ -360,6 +363,30 @@ export async function handleIntegrationsSync(req: Request, tenantContextLoader?:
   try {
     const tenantId = tenantResult.tenantContext.tenantId;
     const provider = String(body.platform || '').toLowerCase();
+
+    // Insights platforms (youtube, instagram, facebook) are synced directly
+    // by our dispatcher — no Hermes workflow needed for a simple DB write loop.
+    // All other providers fall through to the existing Hermes path below.
+    if (isSupportedPlatform(provider) && hasAdapter(provider)) {
+      const results = await syncAllAccountsForTenant(Number(tenantId), 'handler');
+      const allOk = results.every((r) => r.status === 'ok' || r.status === 'partial');
+      return new Response(
+        JSON.stringify({
+          status: allOk ? 'ok' : 'partial',
+          platform: provider,
+          accounts: results.length,
+          results: results.map((r) => ({
+            accountId:    r.accountId,
+            status:       r.status,
+            postsSeen:    r.postsSeen,
+            commentsSeen: r.commentsSeen,
+            ...(r.errorMessage ? { error: r.errorMessage } : {}),
+          })),
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+
     const event = buildIntegrationSyncEvent({
       tenant_id: tenantId,
       provider,

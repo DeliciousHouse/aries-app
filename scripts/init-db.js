@@ -689,6 +689,200 @@ async function initDb() {
         ON slack_event_ids (received_at);
     `);
 
+    // ─── Insights module ────────────────────────────────────────────────────────
+    // Platform-agnostic analytics tables. Every table is prefixed insights_ so
+    // ownership is obvious at a glance and future features can't collide.
+    await client.query(`
+      -- One row per connected platform account on a tenant
+      -- (e.g. one YouTube channel, one Instagram account).
+      CREATE TABLE IF NOT EXISTS insights_accounts (
+        id                     BIGSERIAL PRIMARY KEY,
+        tenant_id              INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        platform               TEXT NOT NULL,
+        external_account_id    TEXT NOT NULL,
+        display_name           TEXT,
+        connected_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+        last_sync_at           TIMESTAMPTZ,
+        backfill_completed_at  TIMESTAMPTZ,
+        platform_data          JSONB NOT NULL DEFAULT '{}',
+        UNIQUE (tenant_id, platform, external_account_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_insights_accounts_tenant_platform
+        ON insights_accounts (tenant_id, platform);
+
+      -- One row per piece of content fetched from a platform
+      -- (YouTube video, Instagram reel, etc.).
+      -- Named insights_posts to avoid collision with the existing posts table
+      -- used by the weekly social-content feature.
+      CREATE TABLE IF NOT EXISTS insights_posts (
+        id                       BIGSERIAL PRIMARY KEY,
+        tenant_id                INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        account_id               BIGINT NOT NULL REFERENCES insights_accounts(id) ON DELETE CASCADE,
+        platform                 TEXT NOT NULL,
+        external_post_id         TEXT NOT NULL,
+        published_at             TIMESTAMPTZ NOT NULL,
+        media_type               TEXT NOT NULL,  -- 'video'|'short'|'image'|'carousel'|'reel'|'story'|'text'|'live'
+        title                    TEXT,
+        caption                  TEXT,           -- YT description and IG/FB caption both land here
+        permalink                TEXT,
+        duration_seconds         INT,            -- null when not applicable
+        platform_data            JSONB NOT NULL DEFAULT '{}',
+        fetched_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+        last_metrics_fetched_at  TIMESTAMPTZ,   -- drives post-publish checkpoint sync
+        UNIQUE (tenant_id, platform, external_post_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_insights_posts_tenant_platform_published
+        ON insights_posts (tenant_id, platform, published_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_insights_posts_tenant_published
+        ON insights_posts (tenant_id, published_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_insights_posts_tenant_platform_metrics
+        ON insights_posts (tenant_id, platform, last_metrics_fetched_at);
+
+      -- Daily time-series for account-level metrics (channel views, followers, etc.).
+      -- reach is NULL for platforms without a unique-viewer concept (e.g. YouTube).
+      -- saves is NULL for platforms that don't expose saves.
+      -- raw_source records adapter + mapping version for auditability.
+      CREATE TABLE IF NOT EXISTS insights_account_metrics_daily (
+        tenant_id              INTEGER NOT NULL,
+        account_id             BIGINT NOT NULL REFERENCES insights_accounts(id) ON DELETE CASCADE,
+        platform               TEXT NOT NULL,
+        date                   DATE NOT NULL,
+        views                  BIGINT,
+        reach                  BIGINT,
+        watch_time_minutes     BIGINT,
+        followers              BIGINT,
+        followers_delta        INT,
+        profile_visits         INT,
+        likes                  INT,
+        comments_count         INT,
+        shares                 INT,
+        saves                  INT,
+        platform_data          JSONB NOT NULL DEFAULT '{}',
+        raw_source             JSONB NOT NULL,
+        PRIMARY KEY (tenant_id, account_id, date)
+      );
+      CREATE INDEX IF NOT EXISTS idx_insights_account_metrics_daily_tenant_platform_date
+        ON insights_account_metrics_daily (tenant_id, platform, date DESC);
+
+      -- Daily time-series for post-level metrics.
+      CREATE TABLE IF NOT EXISTS insights_post_metrics_daily (
+        tenant_id              INTEGER NOT NULL,
+        post_id                BIGINT NOT NULL REFERENCES insights_posts(id) ON DELETE CASCADE,
+        platform               TEXT NOT NULL,
+        date                   DATE NOT NULL,
+        views                  BIGINT,
+        reach                  BIGINT,
+        watch_time_minutes     BIGINT,
+        avg_view_duration_sec  INT,
+        avg_view_percentage    NUMERIC(5,2),
+        likes                  INT,
+        comments_count         INT,
+        shares                 INT,
+        saves                  INT,
+        platform_data          JSONB NOT NULL DEFAULT '{}',
+        raw_source             JSONB NOT NULL,
+        PRIMARY KEY (tenant_id, post_id, date)
+      );
+      CREATE INDEX IF NOT EXISTS idx_insights_post_metrics_daily_tenant_platform_date
+        ON insights_post_metrics_daily (tenant_id, platform, date DESC);
+
+      -- Raw comments fetched from platforms.
+      CREATE TABLE IF NOT EXISTS insights_comments (
+        id                  BIGSERIAL PRIMARY KEY,
+        tenant_id           INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        post_id             BIGINT NOT NULL REFERENCES insights_posts(id) ON DELETE CASCADE,
+        platform            TEXT NOT NULL,
+        external_comment_id TEXT NOT NULL,
+        received_at         TIMESTAMPTZ NOT NULL,
+        author_handle       TEXT,
+        body_text           TEXT NOT NULL,
+        platform_data       JSONB NOT NULL DEFAULT '{}',
+        UNIQUE (tenant_id, platform, external_comment_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_insights_comments_tenant_platform_received
+        ON insights_comments (tenant_id, platform, received_at DESC);
+
+      -- LLM sentiment + lead classification results per comment.
+      CREATE TABLE IF NOT EXISTS insights_comment_classifications (
+        comment_id         BIGINT PRIMARY KEY REFERENCES insights_comments(id) ON DELETE CASCADE,
+        tenant_id          INTEGER NOT NULL,
+        sentiment          TEXT,    -- 'positive'|'neutral'|'negative'
+        is_lead            BOOLEAN,
+        category           TEXT,    -- 'question'|'compliment'|'complaint'|'spam'|'other'
+        classifier_version TEXT NOT NULL,
+        cost_cents         NUMERIC(10,4) NOT NULL,
+        classified_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      -- Demographics snapshots. demographics is NULL when unavailable;
+      -- unavailable_reason explains why (e.g. 'below_threshold', 'permission_missing').
+      CREATE TABLE IF NOT EXISTS insights_audience_snapshots (
+        tenant_id          INTEGER NOT NULL,
+        account_id         BIGINT NOT NULL REFERENCES insights_accounts(id) ON DELETE CASCADE,
+        platform           TEXT NOT NULL,
+        snapshot_date      DATE NOT NULL,
+        demographics       JSONB,
+        unavailable_reason TEXT,
+        raw_source         JSONB NOT NULL,
+        PRIMARY KEY (tenant_id, account_id, snapshot_date)
+      );
+
+      -- LLM-generated narrative copy for each dashboard section.
+      -- input_hash dedupes: if the underlying numbers haven't changed,
+      -- no new LLM call is needed. UNIQUE on (tenant, period, platform, section_key)
+      -- so upsert is safe.
+      CREATE TABLE IF NOT EXISTS insights_narratives (
+        id              BIGSERIAL PRIMARY KEY,
+        tenant_id       INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        period          TEXT NOT NULL,       -- 'week'|'30day'|'90day'
+        platform        TEXT NOT NULL,       -- platform value or 'all'
+        section_key     TEXT NOT NULL,       -- 'hero'|'goal'|'attention'|...
+        body            JSONB NOT NULL,
+        prompt_version  TEXT NOT NULL,
+        model           TEXT NOT NULL,
+        input_hash      TEXT NOT NULL,
+        cost_cents      NUMERIC(10,4) NOT NULL,
+        generated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (tenant_id, period, platform, section_key)
+      );
+
+      -- Audit log: one row per sync run (interval, manual, or backfill).
+      CREATE TABLE IF NOT EXISTS insights_sync_runs (
+        id              BIGSERIAL PRIMARY KEY,
+        tenant_id       INTEGER NOT NULL,
+        account_id      BIGINT NOT NULL,
+        platform        TEXT NOT NULL,
+        trigger         TEXT NOT NULL,    -- 'interval'|'handler'|'backfill'
+        started_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+        finished_at     TIMESTAMPTZ,
+        status          TEXT NOT NULL,    -- 'running'|'ok'|'partial'|'failed'
+        posts_seen      INT NOT NULL DEFAULT 0,
+        comments_seen   INT NOT NULL DEFAULT 0,
+        api_units_used  INT NOT NULL DEFAULT 0,
+        error_message   TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_insights_sync_runs_tenant_platform_started
+        ON insights_sync_runs (tenant_id, platform, started_at DESC);
+
+      -- Audit log: every LLM call with cost, tokens, and outcome.
+      CREATE TABLE IF NOT EXISTS insights_llm_calls (
+        id            BIGSERIAL PRIMARY KEY,
+        tenant_id     INTEGER NOT NULL,
+        purpose       TEXT NOT NULL,    -- 'classify_comment'|'generate_narrative'
+        model         TEXT NOT NULL,
+        cost_cents    NUMERIC(10,4) NOT NULL,
+        input_tokens  INT,
+        output_tokens INT,
+        duration_ms   INT,
+        succeeded     BOOLEAN NOT NULL,
+        error_code    TEXT,
+        called_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_insights_llm_calls_tenant_called_at
+        ON insights_llm_calls (tenant_id, called_at DESC);
+    `);
+    // ─── End insights module ─────────────────────────────────────────────────
+
     console.log('Database initialized successfully.');
   } catch (err) {
     console.error('Error initializing database:', err);
