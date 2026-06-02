@@ -15,7 +15,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { buildProductionResumeContext } from '../../backend/social-content/workflow-request';
+import {
+  createSocialContentJobRuntimeDocument,
+  marketingBrandKitReferenceFromTenantBrandKit,
+} from '../../backend/marketing/runtime-state';
 import type { SocialContentJobRuntimeDocument } from '../../backend/marketing/runtime-state';
+import type { TenantBrandKit } from '../../backend/marketing/brand-kit';
 
 const BRAND_URL = 'https://aries.sugarandleather.com/';
 const LOGO_URL = 'https://aries.sugarandleather.com/aries-logo.webp';
@@ -92,4 +97,41 @@ test('unknown theme (legacy kit) → no theme instruction, no crash', () => {
   const { contextBlock } = buildProductionResumeContext({ doc, researchOutput: null, strategyOutput: null });
 
   assert.doesNotMatch(contextBlock, /Brand theme:/, 'legacy kit without a detected theme must not emit a theme line');
+});
+
+test('end-to-end: a dark TenantBrandKit → marketing reference → brief keeps the DARK + logo lines', () => {
+  // Regression: marketingBrandKitReferenceFromTenantBrandKit field-copies colors
+  // and previously dropped background/mode, so the brief lost its dark-theme
+  // instruction even though the persisted kit was dark. Exercise the real copy
+  // path (kit → reference → doc → brief).
+  const kit: TenantBrandKit = {
+    tenant_id: '15',
+    source_url: BRAND_URL,
+    canonical_url: BRAND_URL,
+    brand_name: 'Aries AI',
+    logo_urls: [LOGO_URL],
+    colors: { primary: '#7c3aed', secondary: '#a855f7', accent: '#c084fc', palette: ['#7c3aed', '#a855f7', '#c084fc', '#ffffff'], background: '#050505', mode: 'dark' },
+    font_families: ['Inter'],
+    external_links: [],
+    extracted_at: new Date().toISOString(),
+    brand_voice_summary: 'Marketing on autopilot.',
+    offer_summary: null,
+    positioning: null,
+    audience: null,
+    tone_of_voice: null,
+    style_vibe: null,
+  };
+  const ref = marketingBrandKitReferenceFromTenantBrandKit(kit, '/data/generated/validated/15/brand-kit.json');
+  const doc = createSocialContentJobRuntimeDocument({
+    jobId: 'mkt_e2e_theme',
+    tenantId: '15',
+    payload: { brandUrl: BRAND_URL, competitorUrl: 'https://gohighlevel.com', imageCreativeCount: 1 },
+    brandKit: ref,
+  });
+  const { contextBlock } = buildProductionResumeContext({ doc, researchOutput: null, strategyOutput: null });
+
+  assert.match(contextBlock, /Brand theme: DARK/, 'brief built via the reference copy must keep the DARK instruction');
+  assert.ok(contextBlock.includes('#050505'), 'brief must name the dark background through the copy layer');
+  assert.ok(contextBlock.includes('#7c3aed'), 'brief must carry the purple brand palette through the copy layer');
+  assert.ok(contextBlock.includes(LOGO_URL), 'brief must reference the real logo through the copy layer');
 });

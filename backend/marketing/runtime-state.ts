@@ -446,6 +446,8 @@ export function marketingBrandKitReferenceFromTenantBrandKit(
       secondary: brandKit.colors.secondary,
       accent: brandKit.colors.accent,
       palette: [...brandKit.colors.palette],
+      background: brandKit.colors.background ?? null,
+      mode: brandKit.colors.mode ?? null,
     },
     font_families: [...brandKit.font_families],
     external_links: brandKit.external_links.map((entry) => ({ ...entry })),

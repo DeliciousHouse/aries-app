@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.7 — Carry brand background/mode through the brand-kit copy layer (so the brief actually emits the dark instruction)
+
+Follow-up to v0.1.15.5/6. Live verification showed the persisted kit was correct
+(`background:#050505, mode:dark`, purple palette) but the production image brief
+**still omitted the "Brand theme: DARK" line** — only the palette + logo lines
+came through. Root cause: `marketingBrandKitReferenceFromTenantBrandKit`
+(`backend/marketing/runtime-state.ts`) field-copies `colors` and was never
+updated for the new `background`/`mode` fields, so `doc.brand_kit` — the object
+the brief reads — lost the theme signal. `backend/tenant/business-profile.ts`
+had the same field-by-field omission.
+
+### Fixed
+- `marketingBrandKitReferenceFromTenantBrandKit` and the business-profile
+  brand-kit reconstruction now copy `colors.background` + `colors.mode`.
+- **Live-verified on tenant 15:** the brief built from the real kit now emits
+  `Brand theme: DARK. Render on a dark background (#050505) …`, the purple
+  palette, and the `Brand logo: …aries-logo.webp` line.
+
+### Tests
+- `tests/marketing-brand-kit-reference.test.ts` asserts `background`/`mode`
+  survive the reference copy.
+- `tests/marketing/workflow-request-brand-theme.test.ts` gains an end-to-end case
+  exercising the real `kit → reference → brief` path (verified failing without
+  the copy-layer fix).
+
 ## v0.1.15.6 — Brand-color extraction: resolve the Tailwind v4 theme tokens (the real aries.sugarandleather.com shape)
 
 Follow-up to v0.1.15.5. Live verification on the real `aries.sugarandleather.com`
