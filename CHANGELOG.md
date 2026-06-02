@@ -2,6 +2,46 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.5 — Brand-color extraction: detect dark/light theme + carry the real logo into the image brief
+
+Fixes marketing images rendering on a white background with invented logos for
+dark-themed brands. `aries.sugarandleather.com` is a `bg-black` Tailwind site,
+but brand-color extraction only read inline colors, CSS `--brand/--primary`
+vars, and the `theme-color` meta — none of which the site sets — so it returned
+`primary:#ffffff` and the production image brief told Hermes `Brand palette:
+#ffffff`, yielding light images. The brief also never referenced the brand logo
+(captured in `logo_urls` but never fed to image generation), so Hermes invented
+its own marks. Found via live end-to-end verification on tenant 15.
+
+### Added
+- `colors.background` + `colors.mode` (`'light' | 'dark' | null`) on the brand
+  kit. `detectThemeBackground` (`backend/marketing/brand-kit.ts`) recovers the
+  page background from, in order: a `bg-*` Tailwind utility on `<body>`/`<html>`,
+  the dominant dark/light `bg-*` utility across the markup, an inline `<body>`
+  background, a `body{}`/`:root{--background}` CSS rule, then the `theme-color`
+  meta — and classifies dark vs light by relative luminance. Optional/absent on
+  kits extracted before this shipped (re-extracted automatically on the next
+  weekly run via `ensureFreshBrandKitForWeeklyRun`).
+
+### Changed
+- The production image brief (`backend/social-content/workflow-request.ts`) now
+  emits an explicit theme instruction — `Brand theme: DARK. Render on a dark
+  background (#000000) — do NOT use a white or light background` for dark brands
+  (light analog for light brands) — and a `Brand logo: <url> — use the actual
+  brand logo … do NOT invent, redraw, or substitute a different logo` line.
+  `brand-kit-payload.ts` threads `background`/`mode` through the Hermes payload.
+- Pixel-perfect logo rendering remains a Hermes-side follow-up: faithfully
+  reproducing the mark needs gpt-image to receive the logo as a reference image
+  (separate repo); Aries now supplies the URL + the do-not-invent instruction.
+
+### Tests
+- `tests/marketing/brand-kit-dark-theme.test.ts` — extraction classifies a
+  `bg-black` site as dark/#000000, a `bg-white` site as light/#ffffff, and reads
+  `theme-color` as a fallback (verified failing without the fix).
+- `tests/marketing/workflow-request-brand-theme.test.ts` — the dark brief forbids
+  white backgrounds and references the real logo; light/legacy kits don't get a
+  dark instruction.
+
 ## v0.1.15.4 — Ingest production creative_assets on the publish-skip completion path
 
 Fixes "No launch items" after a successful render. When the production stage
