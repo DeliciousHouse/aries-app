@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.2 — Ship the reconciler's package source to the runtime image
+
+Hotfix for v0.1.15.1. The Hermes reconciler worker (`tsx`-spawned, not bundled
+by Next.js) resolves `@aries/hermes-protocol` from source at runtime via the
+tsconfig path `packages/aries-hermes-protocol/src`, but the Docker runner stage
+did not copy `packages/` — so the worker crash-looped on
+`Cannot find module '@aries/hermes-protocol'` and the crash-loop guard correctly
+stopped respawning it. The rest of the app was unaffected (the web build bundles
+the package into `.next`).
+
+### Fixed
+- Copy `packages/` into the runner image so `tsx` workers can resolve
+  `@aries/hermes-protocol` (and any future workspace package) at runtime. The
+  reconciler now starts and ingests completed Hermes runs as intended.
+
 ## v0.1.15.1 — Durable Hermes run reconciler (fixes stalled marketing pipeline)
 
 Restores marketing content generation in production. Hermes `/v1/runs` is a
