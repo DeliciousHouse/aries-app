@@ -5,8 +5,11 @@ import { hashCallbackToken } from '@/lib/internal-callback-auth';
 import { PROTOCOL_VERSION } from '@aries/hermes-protocol';
 import {
   createExecutionRunRecord,
+  isTerminalExecutionStatus,
+  loadExecutionRunRecord,
   markExecutionRunFailed,
   markExecutionRunSubmitted,
+  type ExecutionRunRecord,
 } from '../../execution/run-store';
 import {
   handleHermesRunCallback,
@@ -88,6 +91,14 @@ const PROFILE_GATEWAY_ENV: Record<HermesTargetProfile, { url: string; key: strin
 
 function targetProfileForStage(stage: MarketingStage | undefined): HermesTargetProfile {
   return stage ? STAGE_TO_PROFILE[stage] : 'aries-research';
+}
+
+function isHermesTargetProfile(value: unknown): value is HermesTargetProfile {
+  return (
+    value === 'aries-research'
+    || value === 'aries-strategist'
+    || value === 'aries-content-generator'
+  );
 }
 
 /**
@@ -375,6 +386,17 @@ export function buildHermesInstructions(workflowKey: string): string {
  * Legacy sync polling is retained only for diagnostics/tests behind:
  * `HERMES_SYNC_POLL_FOR_TESTS=1`.
  */
+/**
+ * Outcome of reconciling one execution run. `pending` means "not terminal yet,
+ * try next tick"; `ingested` means a terminal Hermes result was delivered to the
+ * callback handler (duplicate=true if the event was already applied).
+ */
+export type ReconcileRunOutcome =
+  | { status: 'skipped'; reason: string }
+  | { status: 'pending' }
+  | { status: 'ingested'; callbackStatus: HermesRunCallbackStatus; duplicate: boolean }
+  | { status: 'error'; reason: string };
+
 export class HermesMarketingPort implements MarketingExecutionPort {
   readonly name = 'hermes' as const;
 
@@ -502,7 +524,10 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       throw new Error('hermes_gateway_response_invalid:Hermes /v1/runs response is missing run_id.');
     }
 
-    markExecutionRunSubmitted(input.ariesRunId, { externalRunId: hermesRunId });
+    // submitRawRun posts to the DEFAULT gateway (this.gatewayUrl()), so record
+    // target_profile=null — the reconciler must poll that same default gateway,
+    // not a stage-derived per-profile one.
+    markExecutionRunSubmitted(input.ariesRunId, { externalRunId: hermesRunId, targetProfile: null });
     if (this.pollBridgeEnabled()) {
       void this.runPollBridge(hermesRunId, input.ariesRunId, input.workflowKey, input.stage).catch((error) => {
         console.error('[hermes-port] poll-bridge failed (submitRawRun)', {
@@ -743,7 +768,9 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       }, workflowKey);
     }
 
-    markExecutionRunSubmitted(run.aries_run_id, { externalRunId: hermesRunId });
+    // invoke() posts to the per-profile gateway (gatewayUrlForProfile(targetProfile)),
+    // so record that profile — the reconciler polls the same gateway later.
+    markExecutionRunSubmitted(run.aries_run_id, { externalRunId: hermesRunId, targetProfile });
     if (this.syncPollingEnabled()) {
       return this.pollRunUntilTerminal(hermesRunId, run.aries_run_id, targetProfile);
     }
@@ -814,14 +841,178 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     }
   }
 
+  /**
+   * Durable, out-of-request reconciliation of a single execution run.
+   *
+   * The in-process poll-bridge (runPollBridge) is a fire-and-forget promise
+   * spawned by the request that submitted the run; in the Next.js prod runtime
+   * it is not guaranteed to survive long enough to deliver, so completed Hermes
+   * runs are never ingested and the stale-run reaper eventually fails the job.
+   * This method is the durable replacement: it is called by a dedicated worker
+   * process (scripts/hermes-reconciler-worker.ts) that re-discovers in-flight
+   * runs from disk every tick, so it does not depend on any request lifecycle.
+   *
+   * It performs ONE Hermes status GET (not the 20-minute terminal poll). If the
+   * run is not yet terminal it returns `pending` and the next tick retries. If
+   * it is terminal it drives the SAME idempotent callback path the bridge uses
+   * (handleHermesRunCallback). The deterministic event_id (reconcile-<hermesRunId>)
+   * makes repeated RECONCILER passes a no-op. It does NOT dedupe against a
+   * still-alive in-process bridge (that uses a random bridge-<uuid> event_id) —
+   * that coexistence is safe instead via the per-run file lock plus the
+   * callback handler's terminal-immutability and already-terminal-doc guards,
+   * which drop a redundant second delivery.
+   */
+  async reconcileExecutionRun(
+    ariesRunId: string,
+    opts: { record?: ExecutionRunRecord } = {},
+  ): Promise<ReconcileRunOutcome> {
+    // The sweep already loaded the record from disk; reuse it to avoid a second
+    // readFile+JSON.parse per candidate. handleHermesRunCallback re-loads under
+    // the per-run lock for the authoritative write, so a slightly-stale record
+    // here only affects the cheap pre-poll guards (which the callback's terminal
+    // guards + deterministic event_id make idempotent anyway).
+    const record = opts.record ?? loadExecutionRunRecord(ariesRunId);
+    if (!record) {
+      return { status: 'skipped', reason: 'not_found' };
+    }
+    if (record.provider !== 'hermes') {
+      return { status: 'skipped', reason: 'non_hermes' };
+    }
+    if (record.domain !== 'marketing') {
+      // Only marketing runs carry the stage→profile + ingestion semantics this
+      // path reconstructs. Route-domain runs are left untouched.
+      return { status: 'skipped', reason: 'non_marketing' };
+    }
+    if (isTerminalExecutionStatus(record.status)) {
+      return { status: 'skipped', reason: 'already_terminal' };
+    }
+    if (record.status === 'awaiting_approval') {
+      // A requires_approval callback already landed; the run is legitimately
+      // paused. Re-polling Hermes would only re-deliver the same approval.
+      return { status: 'skipped', reason: 'awaiting_approval' };
+    }
+    const hermesRunId = record.external_run_id;
+    if (!hermesRunId) {
+      // Never reached Hermes (submission failed before run_id). Nothing to poll;
+      // the reaper handles genuinely-dead never-submitted runs.
+      return { status: 'skipped', reason: 'not_submitted' };
+    }
+    const stage = record.stage;
+    if (!stage) {
+      return { status: 'skipped', reason: 'no_stage' };
+    }
+
+    // Poll the gateway the run was actually submitted to. Records written since
+    // profile persistence carry target_profile: null = default gateway
+    // (submitRawRun), or a profile name = per-profile gateway (invoke). Records
+    // that predate persistence (target_profile undefined) fall back to deriving
+    // from stage. That fallback is exact for invoke-path runs (which dominate
+    // the in-flight set); a pre-persistence submitRawRun run — only
+    // social_copy_finalize today, which is default OFF, so none exist — would
+    // misroute to the stage gateway, harmlessly 404→pending until the reaper
+    // clears it. An unrecognized stored value also falls back to stage-derived
+    // rather than crashing gatewayUrlForProfile.
+    let profile: HermesTargetProfile | null;
+    if (record.target_profile === undefined) {
+      profile = STAGE_TO_PROFILE[stage];
+    } else if (record.target_profile === null) {
+      profile = null;
+    } else if (isHermesTargetProfile(record.target_profile)) {
+      profile = record.target_profile;
+    } else {
+      profile = STAGE_TO_PROFILE[stage];
+    }
+    const polled = await this.pollRunOnce(hermesRunId, profile);
+    if (polled.kind !== 'terminal') {
+      // pending (still running) or transient (gateway hiccup / not-yet-indexed):
+      // leave the run untouched for the next tick. We deliberately do NOT mark
+      // the run failed on a transient error — the reaper is the backstop for
+      // genuinely-dead runs, and a flaky GET must not lose a completed run.
+      return { status: 'pending' };
+    }
+
+    const terminal = this.resultFromTerminalRun(hermesRunId, ariesRunId, polled.record);
+    const payload = this.buildBridgeCallbackPayload(
+      ariesRunId,
+      hermesRunId,
+      record.workflow_key,
+      stage,
+      terminal,
+      `reconcile-${hermesRunId}`,
+    );
+    if (!payload) {
+      return { status: 'skipped', reason: 'no_payload' };
+    }
+
+    const result = await handleHermesRunCallback(payload);
+    if (result.status === 'error') {
+      // A live in-process bridge / concurrent callback holds the per-run lock.
+      // Benign — retry on the next tick.
+      if (result.reason === 'execution_run_locked') {
+        return { status: 'pending' };
+      }
+      return { status: 'error', reason: result.reason };
+    }
+    return { status: 'ingested', callbackStatus: payload.status, duplicate: result.duplicate === true };
+  }
+
+  /**
+   * Single Hermes status GET against the gateway the run was submitted to
+   * (null profile → default gateway). Unlike pollRunUntilTerminal this never
+   * loops and never marks the run failed — it just classifies the current
+   * status so the reconciler can decide per tick. A bounded AbortController
+   * timeout keeps one wedged gateway connection from stalling the whole
+   * sequential sweep (a stall would delay ingesting every other in-flight run).
+   */
+  private async pollRunOnce(
+    runId: string,
+    profile: HermesTargetProfile | null,
+  ): Promise<
+    | { kind: 'pending' }
+    | { kind: 'transient' }
+    | { kind: 'terminal'; record: Record<string, unknown> }
+  > {
+    const gatewayUrl = profile ? this.gatewayUrlForProfile(profile) : this.gatewayUrl();
+    const authHeader = profile ? this.authHeaderForProfile(profile) : this.authHeader();
+    const timeoutMs = readEnvInt(this.env, 'HERMES_RECONCILER_POLL_TIMEOUT_MS', 15_000);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let response: Response;
+    try {
+      response = await this.fetchImpl(
+        `${gatewayUrl}/v1/runs/${encodeURIComponent(runId)}`,
+        { method: 'GET', headers: { authorization: authHeader }, signal: controller.signal },
+      );
+    } catch {
+      return { kind: 'transient' };
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!response.ok) {
+      return { kind: 'transient' };
+    }
+    const record = await this.parseJsonBody(response);
+    if (!record || typeof record.status !== 'string') {
+      return { kind: 'transient' };
+    }
+    if (TERMINAL_STATUSES.has(record.status)) {
+      return { kind: 'terminal', record };
+    }
+    return { kind: 'pending' };
+  }
+
   private buildBridgeCallbackPayload(
     ariesRunId: string,
     hermesRunId: string,
     workflowKey: string,
     stage: MarketingStage,
     terminal: MarketingExecutionResult,
+    // The in-process bridge fires once per submission, so a random event_id is
+    // fine. The durable reconciler re-polls the SAME run every tick, so it must
+    // pass a DETERMINISTIC event_id (reconcile-<hermesRunId>) — otherwise each
+    // pass would bypass handleHermesRunCallback's event_id dedup and re-apply.
+    eventId: string = `bridge-${randomUUID()}`,
   ): HermesRunCallbackPayload | null {
-    const eventId = `bridge-${randomUUID()}`;
     const callbackStage = this.callbackStageForMarketingStage(stage);
 
     if (terminal.kind !== 'completed') {

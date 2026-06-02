@@ -117,12 +117,13 @@ The container stores generated runtime artifacts under `/data`, bind-mounted fro
 
 ## Side processes
 
-Two background side-processes run inside each container:
+Three background side-processes run inside each container:
 
 - **Stale-run reaper** (`ARIES_REAPER_ENABLED=1`): marks stuck marketing jobs `failed_stale` every `ARIES_REAPER_INTERVAL_MS` ms (default 5 minutes).
 - **Hermes kanban GC** (`ARIES_KANBAN_GC_ENABLED=1`): archives completed Hermes kanban tasks older than `ARIES_KANBAN_GC_RETENTION_DAYS` days every `ARIES_KANBAN_GC_INTERVAL_MS` ms (default 24 hours).
+- **Hermes run reconciler** (`ARIES_RECONCILER_ENABLED=1`): Hermes `/v1/runs` is a polled API that never calls back, so this standing worker re-discovers in-flight marketing runs every `ARIES_RECONCILER_INTERVAL_MS` ms (default 60 seconds) and ingests any Hermes has finished, through the same idempotent callback path. It replaces the unreliable in-process poll-bridge; its 60s sweep beats the reaper's tightest stage threshold so finished creative is ingested before a job can be reaped.
 
-Set either variable to `0` to disable.
+Set any of these variables to `0` to disable the corresponding side-process.
 
 ## Hermes gateway wiring
 

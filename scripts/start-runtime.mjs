@@ -17,6 +17,14 @@ let partnerOutboxChild = null;
 let staleRunReaperChild = null;
 /** @type {import('node:child_process').ChildProcess | null} */
 let hermesKanbanGcChild = null;
+/** @type {import('node:child_process').ChildProcess | null} */
+let hermesReconcilerChild = null;
+let hermesReconcilerStopping = false;
+/** Timestamps (ms) of recent reconciler respawns — windowed crash-loop guard. */
+let hermesReconcilerRestartTimes = [];
+const hermesReconcilerRestartWindowMs = 60_000;
+const hermesReconcilerMaxRestartsPerWindow = 5;
+const hermesReconcilerRestartDelayMs = 2_000;
 const rawPort = process.env.PORT?.trim();
 const parsedPort = rawPort ? Number(rawPort) : defaultPort;
 const isValidPort = Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535;
@@ -79,6 +87,16 @@ function reaperWorkerEnabled() {
 
 function hermesKanbanGcWorkerEnabled() {
   const v = process.env.ARIES_KANBAN_GC_ENABLED?.trim().toLowerCase();
+  if (!v) {
+    return true;
+  }
+  return v !== '0' && v !== 'false' && v !== 'no' && v !== 'off';
+}
+
+function hermesReconcilerWorkerEnabled() {
+  // Default ON: durable replacement for the in-process Hermes poll-bridge.
+  // Disable only with an explicit 0/false/no/off.
+  const v = process.env.ARIES_RECONCILER_ENABLED?.trim().toLowerCase();
   if (!v) {
     return true;
   }
@@ -178,6 +196,67 @@ function stopHermesKanbanGcWorker() {
   }
 }
 
+function spawnHermesReconcilerWorker() {
+  if (!hermesReconcilerWorkerEnabled()) {
+    return;
+  }
+  hermesReconcilerStopping = false;
+  const tsx = path.join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+  const worker = path.join(projectRoot, 'scripts', 'hermes-reconciler-worker.ts');
+  try {
+    hermesReconcilerChild = spawn(process.execPath, [tsx, worker], {
+      stdio: 'inherit',
+      // Tag this process's Postgres connections (pg_stat_activity) and keep a
+      // small dedicated pool ceiling per guardrail #1 — ingestion runs here too,
+      // but sequentially, so a handful of connections is plenty.
+      env: { ...runtimeEnv, APP_INSTANCE_ID: 'hermes-reconciler', DB_POOL_MAX: '5' },
+      detached: false,
+    });
+    hermesReconcilerChild.on('exit', (code, signal) => {
+      hermesReconcilerChild = null;
+      console.error(
+        `[runtime] hermes reconciler worker exited code=${String(code)} signal=${String(signal ?? '')}`,
+      );
+      // This worker is the durable replacement for the Hermes poll-bridge — if
+      // it dies, marketing jobs silently stop ingesting. Auto-respawn unless we
+      // asked it to stop during shutdown. The guard is WINDOWED, not a lifetime
+      // cap: only a tight crash loop (many restarts inside the window, e.g. an
+      // import error) gives up; transient crashes spread over the container's
+      // (weeks-long) lifetime always recover, because old timestamps age out.
+      if (hermesReconcilerStopping) {
+        return;
+      }
+      const nowMs = Date.now();
+      hermesReconcilerRestartTimes = hermesReconcilerRestartTimes.filter(
+        (t) => nowMs - t < hermesReconcilerRestartWindowMs,
+      );
+      if (hermesReconcilerRestartTimes.length >= hermesReconcilerMaxRestartsPerWindow) {
+        console.error(
+          `[runtime] hermes reconciler worker crashed ${hermesReconcilerMaxRestartsPerWindow}x within ${hermesReconcilerRestartWindowMs}ms; not restarting (crash loop). Restart the container after fixing.`,
+        );
+        return;
+      }
+      hermesReconcilerRestartTimes.push(nowMs);
+      console.error(
+        `[runtime] respawning hermes reconciler worker (${hermesReconcilerRestartTimes.length}/${hermesReconcilerMaxRestartsPerWindow} within ${hermesReconcilerRestartWindowMs}ms)`,
+      );
+      const restartTimer = setTimeout(() => spawnHermesReconcilerWorker(), hermesReconcilerRestartDelayMs);
+      restartTimer.unref();
+    });
+    console.log('[runtime] started hermes reconciler worker');
+  } catch (error) {
+    console.error('[runtime] failed to start hermes reconciler worker', error);
+  }
+}
+
+function stopHermesReconcilerWorker() {
+  hermesReconcilerStopping = true;
+  if (hermesReconcilerChild && !hermesReconcilerChild.killed) {
+    hermesReconcilerChild.kill('SIGTERM');
+    hermesReconcilerChild = null;
+  }
+}
+
 function normalizeProcessManager(rawValue) {
   const normalized = rawValue?.trim().toLowerCase() || 'cluster';
   if (normalized === 'cluster' || normalized === 'node') {
@@ -217,6 +296,7 @@ function startClusterRuntime() {
   spawnPartnerOutboxWorker();
   spawnStaleRunReaperWorker();
   spawnHermesKanbanGcWorker();
+  spawnHermesReconcilerWorker();
 
   cluster.on('exit', (worker, code, signal) => {
     const instanceId = workerInstanceIds.get(worker.id) ?? 0;
@@ -253,6 +333,7 @@ function startClusterRuntime() {
     stopPartnerOutboxWorker();
     stopStaleRunReaperWorker();
     stopHermesKanbanGcWorker();
+    stopHermesReconcilerWorker();
     const workers = Object.values(cluster.workers ?? {}).filter(Boolean);
     if (workers.length === 0) {
       process.exit(0);
@@ -266,6 +347,7 @@ function startClusterRuntime() {
       stopPartnerOutboxWorker();
       stopStaleRunReaperWorker();
       stopHermesKanbanGcWorker();
+      stopHermesReconcilerWorker();
       for (const worker of Object.values(cluster.workers ?? {}).filter(Boolean)) {
         worker.kill('SIGKILL');
       }
@@ -287,6 +369,7 @@ function startSingleNodeRuntime() {
   spawnPartnerOutboxWorker();
   spawnStaleRunReaperWorker();
   spawnHermesKanbanGcWorker();
+  spawnHermesReconcilerWorker();
 
   const child = spawn(process.execPath, [nextCliPath(), 'start', '-p', String(parsedPort)], {
     stdio: 'inherit',
@@ -302,6 +385,7 @@ function startSingleNodeRuntime() {
     stopPartnerOutboxWorker();
     stopStaleRunReaperWorker();
     stopHermesKanbanGcWorker();
+    stopHermesReconcilerWorker();
     if (!child.killed) {
       child.kill(signal);
     }

@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
   statSync,
   unlinkSync,
@@ -48,6 +49,14 @@ export type ExecutionRunRecord = {
   stage: MarketingStage | null;
   workflow_step_id: string | null;
   external_run_id: string | null;
+  /**
+   * The Hermes target profile this run was SUBMITTED to (so a reconciler polls
+   * the same gateway). null = default gateway (HERMES_GATEWAY_URL, e.g.
+   * submitRawRun); a profile name = that per-profile gateway (invoke path).
+   * Optional/absent on records written before profile persistence shipped —
+   * the reconciler falls back to deriving the profile from `stage` for those.
+   */
+  target_profile?: string | null;
   status: ExecutionRunStatus;
   event_ids: string[];
   created_at: string;
@@ -131,6 +140,71 @@ function isExecutionRunRecord(value: unknown): value is ExecutionRunRecord {
     && typeof (value as { aries_run_id?: unknown }).aries_run_id === 'string';
 }
 
+/**
+ * True when the record's status is terminal (no further callbacks expected).
+ * Exposed so out-of-process sweepers (e.g. the Hermes reconciler worker) can
+ * filter in-flight runs without re-deriving the terminal set.
+ */
+export function isTerminalExecutionStatus(status: ExecutionRunStatus): boolean {
+  return TERMINAL_EXECUTION_STATUSES.has(status);
+}
+
+/**
+ * Enumerate execution-run records on disk. The store is one JSON file per run
+ * under DATA_ROOT/generated/draft/execution-runs/<aries_run_id>.json (there is
+ * no SQL index), so callers that need to scan runs — the Hermes reconciler in
+ * particular — must list the directory. Unreadable / non-record files are
+ * skipped silently; a missing directory yields an empty array.
+ *
+ * `modifiedWithinMs` bounds the cost on aged volumes: when set, a cheap
+ * statSync mtime check skips files untouched since the cutoff WITHOUT the
+ * readFile+JSON.parse. saveExecutionRunRecord stamps updated_at (→ mtime) on
+ * every write, and a run needing reconciliation is always recent (Hermes
+ * finishes in minutes; the stale-run reaper fails stalled jobs within 90 min),
+ * so a generous window never skips a reconcilable run — it only avoids parsing
+ * ancient terminal records every tick. This caps the hot-path cost at ~one
+ * window of runs instead of O(all runs ever created). (Disk-level retention of
+ * old terminal files is a separate, sign-off-gated GC.)
+ */
+export function listExecutionRunRecords(
+  options: { modifiedWithinMs?: number } = {},
+): ExecutionRunRecord[] {
+  const root = executionRunsRoot();
+  let entries: string[];
+  try {
+    entries = readdirSync(root);
+  } catch {
+    return [];
+  }
+  const cutoffMs =
+    typeof options.modifiedWithinMs === 'number' && options.modifiedWithinMs > 0
+      ? Date.now() - options.modifiedWithinMs
+      : null;
+  const records: ExecutionRunRecord[] = [];
+  for (const entry of entries) {
+    if (!entry.endsWith('.json')) {
+      continue;
+    }
+    const ariesRunId = entry.slice(0, -'.json'.length);
+    try {
+      if (cutoffMs !== null) {
+        const stat = statSync(path.join(root, entry));
+        if (stat.mtimeMs < cutoffMs) {
+          continue;
+        }
+      }
+      const record = loadExecutionRunRecord(ariesRunId);
+      if (record) {
+        records.push(record);
+      }
+    } catch {
+      // Malformed filename (path-traversal guard) or unreadable file — skip.
+      continue;
+    }
+  }
+  return records;
+}
+
 export function loadExecutionRunRecord(ariesRunId: string): ExecutionRunRecord | null {
   const filePath = executionRunPath(ariesRunId);
   if (!existsSync(filePath)) {
@@ -181,13 +255,18 @@ export function createExecutionRunRecord(input: CreateExecutionRunRecordInput): 
 
 export function markExecutionRunSubmitted(
   ariesRunId: string,
-  input: { externalRunId?: string | null },
+  input: { externalRunId?: string | null; targetProfile?: string | null },
 ): ExecutionRunRecord | null {
   const record = loadExecutionRunRecord(ariesRunId);
   if (!record) {
     return null;
   }
   record.external_run_id = nonEmpty(input.externalRunId);
+  // Record which gateway the run was submitted to so a later reconcile polls the
+  // same one. Only overwrite when the caller supplies it (undefined = leave as-is).
+  if (input.targetProfile !== undefined) {
+    record.target_profile = input.targetProfile;
+  }
   if (!CALLBACK_ADVANCED_STATUSES.has(record.status)) {
     record.status = 'submitted';
   }
@@ -202,6 +281,12 @@ export function markExecutionRunFailed(
   const record = loadExecutionRunRecord(ariesRunId);
   if (!record) {
     return null;
+  }
+  // Terminal records are immutable — never overwrite a completed/cancelled (or
+  // already-failed) run with a late failure (e.g. a reconciler/bridge race where
+  // the run completed between the candidate check and the poll).
+  if (TERMINAL_EXECUTION_STATUSES.has(record.status)) {
+    return record;
   }
   record.status = 'failed';
   record.last_error = error;
