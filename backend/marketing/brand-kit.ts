@@ -695,34 +695,74 @@ function relativeLuminance(hex: string): number | null {
 }
 
 /**
+ * Resolve the page-background design token from CSS. Tailwind v4 exposes it as
+ * `--color-background` (consumed by `bg-background` on the page wrapper); older
+ * shadcn setups use `--background`. This is the most authoritative page-bg
+ * signal because the root element literally renders `var(--color-background)`.
+ * The external stylesheets are already part of `cssBlocks`.
+ */
+function resolveThemeBackgroundVar(cssBlocks: string[]): string | null {
+  for (const css of cssBlocks) {
+    const match =
+      css.match(/--color-background\s*:\s*([^;}]+)/i) ||
+      css.match(/(?:^|[;{\s])--background\s*:\s*([^;}]+)/i);
+    if (match) {
+      const color = normalizeColor(match[1].trim());
+      if (color) {
+        return color;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Find a literal dark/light bg-* utility on the <html>, <body>, or the first
+ * full-height page wrapper (e.g. `<div class="min-h-screen bg-black">`). Uses
+ * exact-token matching so translucent overlays like `bg-white/5` (a glass
+ * effect on a dark theme, NOT the page background) are correctly ignored.
+ */
+function rootElementBackground(html: string): string | null {
+  const patterns = [
+    /<html\b[^>]*\bclass=["']([^"']*)["']/i,
+    /<body\b[^>]*\bclass=["']([^"']*)["']/i,
+    /<[a-z]+\b[^>]*\bclass=["']([^"']*\bmin-h-screen\b[^"']*)["']/i,
+  ];
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (!match) {
+      continue;
+    }
+    for (const cls of match[1].split(/\s+/)) {
+      if (TAILWIND_BG_HEX[cls]) {
+        return TAILWIND_BG_HEX[cls];
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * Detect the page's dominant background color + whether the brand reads light
- * or dark. Resolution order: (1) a bg-* utility on the <body>/<html> tag,
- * (2) the most common dark/light bg-* utility across the markup, (3) an inline
- * <body> background color, (4) a `body{background}` / `:root{--background}`
- * CSS rule, (5) the theme-color meta. Returns nulls when nothing is found so
- * callers fall back to today's behavior.
+ * or dark. Resolution order, most authoritative first: (1) the
+ * `--color-background`/`--background` CSS token, (2) a literal bg-* utility on
+ * <html>/<body>/the page wrapper, (3) the most common *plain* (non-opacity)
+ * bg-* utility across the markup, (4) an inline <body> background, (5) a
+ * `body{background}` CSS rule, (6) the theme-color meta. Returns nulls when
+ * nothing is found so callers fall back to today's behavior.
  */
 function detectThemeBackground(
   html: string,
   cssBlocks: string[],
 ): { background: string | null; mode: 'light' | 'dark' | null } {
-  let background: string | null = null;
+  let background: string | null = resolveThemeBackgroundVar(cssBlocks) || rootElementBackground(html);
 
-  // (1) bg-* utility on the root <body>/<html> element.
-  const rootClassMatch = html.match(/<(?:body|html)\b[^>]*\bclass=["']([^"']*)["']/i);
-  if (rootClassMatch) {
-    for (const cls of rootClassMatch[1].split(/\s+/)) {
-      if (TAILWIND_BG_HEX[cls]) {
-        background = TAILWIND_BG_HEX[cls];
-        break;
-      }
-    }
-  }
-
-  // (2) most common dark/light bg-* utility across the whole document.
+  // (3) most common *plain* dark/light bg-* utility across the document.
+  // The `(?![\w/])` guard excludes opacity variants (bg-white/5, bg-black/35),
+  // which are overlays — not the page background.
   if (!background) {
     const counts = new Map<string, number>();
-    for (const match of html.matchAll(/\bbg-(?:black|white|(?:zinc|neutral|slate|gray|stone)-9[05]0)\b/g)) {
+    for (const match of html.matchAll(/\bbg-(?:black|white|(?:zinc|neutral|slate|gray|stone)-9[05]0)(?![\w/])/g)) {
       const cls = match[0];
       counts.set(cls, (counts.get(cls) ?? 0) + 1);
     }
@@ -732,7 +772,7 @@ function detectThemeBackground(
     }
   }
 
-  // (3) inline background-color on <body>.
+  // (4) inline background-color on <body>.
   if (!background) {
     const inline = html.match(/<body\b[^>]*\bstyle=["'][^"']*background(?:-color)?\s*:\s*([^;"']+)/i);
     if (inline) {
@@ -740,12 +780,11 @@ function detectThemeBackground(
     }
   }
 
-  // (4) body{background} / :root{--background} CSS rules.
+  // (5) body{background} CSS rule.
   if (!background) {
     for (const css of cssBlocks) {
       const bodyRule = css.match(/\bbody\s*\{[^}]*?background(?:-color)?\s*:\s*([^;}]+)/i);
-      const rootVar = css.match(/--background[\w-]*\s*:\s*([^;}]+)/i);
-      const candidate = normalizeColor((bodyRule?.[1] || rootVar?.[1] || '').trim());
+      const candidate = normalizeColor((bodyRule?.[1] || '').trim());
       if (candidate) {
         background = candidate;
         break;
@@ -753,7 +792,7 @@ function detectThemeBackground(
     }
   }
 
-  // (5) theme-color meta.
+  // (6) theme-color meta.
   if (!background) {
     background = normalizeColor(extractMetaContent(html, 'name', 'theme-color') || '');
   }
@@ -782,7 +821,13 @@ function extractBrandColors(html: string, cssBlocks: string[]): TenantBrandColor
   }
 
   for (const css of cssBlocks) {
-    for (const match of css.matchAll(/--(?:(?:brand|color-brand)[\w-]*|primary|secondary|accent)\s*:\s*([^;}{]+)/gi)) {
+    // Match brand/theme color tokens. Includes Tailwind v4's `--color-primary`
+    // / `--color-secondary` / `--color-accent` (precise names — NOT the bundled
+    // default palette like `--color-red-500`) alongside shadcn's bare
+    // `--primary`/`--secondary`/`--accent` and any `--brand*`/`--color-brand*`.
+    for (const match of css.matchAll(
+      /--(?:brand[\w-]*|color-brand[\w-]*|color-(?:primary|secondary|accent)|primary|secondary|accent)\s*:\s*([^;}{]+)/gi,
+    )) {
       const color = normalizeColor(match[1] || '');
       if (color) {
         palette.push(color);
