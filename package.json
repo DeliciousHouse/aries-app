@@ -1,6 +1,6 @@
 {
   "name": "aries-platform-bootstrap-runtime",
-  "version": "0.1.13.1",
+  "version": "0.1.14.1",
   "description": "Next.js application for weekly social content automation: connect platforms, generate and review a week of content, and publish on a schedule.",
   "license": "Apache-2.0",
   "repository": {
@@ -44,6 +44,8 @@
     "creative-memory:backfill": "node scripts/creative-memory-backfill.mjs",
     "creative-memory:smoke": "node scripts/creative-memory-smoke.mjs",
     "test:creative-memory": "tsx --test tests/creative-memory-*.test.ts",
+    "test:requires-infra-report": "node scripts/list-requires-infra.mjs",
+    "test:requires-infra": "node scripts/list-requires-infra.mjs --run",
     "eval:creative-memory-learning": "tsx scripts/eval-creative-memory-learning.ts"
   },
   "dependencies": {
@@ -62,12 +64,12 @@
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "recharts": "^3.8.0",
-    "resend": "^4.8.0",
+    "resend": "^6.12.3",
     "sharp": "^0.34.5",
     "tailwind-merge": "^3.6.0",
     "tailwindcss-animate": "^1.0.7",
     "tsx": "^4.22.3",
-    "zod": "^3.25.76"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.0",
@@ -81,11 +83,11 @@
     "@types/react-dom": "^19.2.3",
     "@types/react-test-renderer": "^19.1.0",
     "autoprefixer": "^10.4.27",
-    "jsdom": "^25.0.1",
+    "jsdom": "^29.1.1",
     "postcss": "^8.5.15",
     "react-test-renderer": "^19.2.6",
     "tailwindcss": "^4.3.0",
-    "typescript": "5.7.3"
+    "typescript": "^6.0.3"
   },
   "overrides": {
     "postcss": "$postcss"

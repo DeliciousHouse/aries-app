@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { mapAriesExecutionError } from '@/backend/execution';
 import { invalidateMarketingJobStatus } from '@/backend/marketing/jobs-status';
+import { recomputeAndPersistPendingApprovalCount } from '@/backend/marketing/runtime-views';
 import { startSocialContentJob } from '@/backend/marketing/orchestrator';
 import {
   ensureSocialContentWorkspaceRecord,
@@ -243,11 +244,13 @@ async function parseCreateJobRequest(req: Request): Promise<{
         channels: parseStringListField(formData.getAll('channels')),
         forbiddenVisualPatterns: parseStringListField(formData.getAll('forbiddenVisualPatterns')),
         staticPostCount: coerceFieldValue(formData.get('staticPostCount')),
+        storyCount: coerceFieldValue(formData.get('storyCount')),
         imageCreativeCount: coerceFieldValue(formData.get('imageCreativeCount')),
         videoScriptCount: coerceFieldValue(formData.get('videoScriptCount')),
         videoRenderCount: coerceFieldValue(formData.get('videoRenderCount')),
         postWindowDays: coerceFieldValue(formData.get('postWindowDays')),
         staticPostsCount: coerceFieldValue(formData.get('staticPostsCount')),
+        storiesCount: coerceFieldValue(formData.get('storiesCount')),
         imageCreativesCount: coerceFieldValue(formData.get('imageCreativesCount')),
         videoScriptsCount: coerceFieldValue(formData.get('videoScriptsCount')),
         renderVideoAfterApproval: coerceFieldValue(formData.get('renderVideoAfterApproval')),
@@ -554,6 +557,10 @@ export async function handlePostMarketingJobs(
     });
     if (requestBody.uploads.length > 0) {
       saveSocialContentWorkspaceAssets(workspace, requestBody.uploads);
+      // Brand assets affect brand-review-item existence -> pending_approval_count.
+      await recomputeAndPersistPendingApprovalCount(result.jobId).catch((err) => {
+        console.error('[jobs.create] pending-approval-count recompute failed', err);
+      });
     }
 
     invalidateMarketingJobStatus(result.jobId);

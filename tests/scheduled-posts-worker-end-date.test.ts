@@ -5,6 +5,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 
+import { requireDbEnvOrSkip } from './helpers/requires-infra';
+
 // T6 [CRITICAL] regression: lock the event_campaign auto-stop filter into the
 // worker's exported CLAIM_ROW_SQL and DUE_ROWS_SQL. The filter is the only
 // structural guarantee that posts stop publishing past campaign_end_date --
@@ -142,7 +144,7 @@ test('campaign_end_date column exists and the new claim filter plans against rea
         'This test must pass in CI/prod validation -- a skip here means the ' +
         'real planner never saw the new campaign_end_date filter.\n',
     );
-    t.skip('database env not configured');
+    requireDbEnvOrSkip(t);
     return;
   }
 

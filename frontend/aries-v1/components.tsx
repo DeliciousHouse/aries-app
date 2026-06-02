@@ -53,7 +53,7 @@ export function ShellPanel(props: {
         <header className="flex items-start justify-between gap-4 border-b border-white/8 px-6 py-5 md:px-7">
           <div className="space-y-1">
             {props.eyebrow ? (
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/40">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">
                 {props.eyebrow}
               </p>
             ) : null}
@@ -123,7 +123,7 @@ export function DashboardHero(props: {
 export function MetricCard(props: DashboardHeroMetric) {
   return (
     <div className="rounded-[1.35rem] border border-white/8 bg-white/[0.06] px-5 py-5">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.label}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">{props.label}</p>
       <p className="mt-3 text-3xl font-semibold text-white">{props.value}</p>
       <p
         className={clsx(
@@ -307,7 +307,7 @@ export function CampaignSummaryCard(props: { campaign: AriesPost }) {
           </div>
         </div>
         <div className="rounded-[1.5rem] border border-white/8 bg-black/20 p-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-white/35">Trust note</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-white/70">Trust note</p>
           <p className="mt-3 text-sm leading-7 text-white/75">{props.campaign.trustNote}</p>
           <Link
             href={`/dashboard/social-content/${props.campaign.id}`}
@@ -325,7 +325,7 @@ export function CampaignSummaryCard(props: { campaign: AriesPost }) {
 function InfoTile(props: { label: string; value: string }) {
   return (
     <div className="rounded-[1.25rem] border border-white/8 bg-white/[0.06] px-4 py-4">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.label}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">{props.label}</p>
       <p className="mt-2 text-sm font-medium text-white/80">{props.value}</p>
     </div>
   );
@@ -360,7 +360,7 @@ export function CampaignStageRail(props: { campaign: AriesPost }) {
               ? 'border-white/20 bg-white/[0.08] text-white'
               : step.complete
                 ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100'
-                : 'border-white/8 bg-transparent text-white/45',
+                : 'border-white/8 bg-transparent text-white/70',
           )}
         >
           {step.complete ? <CheckCircle2 className="h-4 w-4" /> : <Clock3 className="h-4 w-4" />}
@@ -381,7 +381,7 @@ export function AssetGallery(props: { campaign: AriesPost }) {
         >
           <div className="relative flex h-44 items-end bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.14),transparent_45%),linear-gradient(180deg,#1a222b_0%,#0f151b_100%)] p-5">
             <div className="max-w-[14rem] space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-white/40">{asset.channel}</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-white/70">{asset.channel}</p>
               <h3 className="text-lg font-semibold text-white">{asset.name}</h3>
               <p className="text-sm text-white/60">{asset.summary}</p>
             </div>
@@ -401,7 +401,7 @@ export function AssetGallery(props: { campaign: AriesPost }) {
 export function PlacementPreview(props: { version: AriesAssetVersion; label: string }) {
   return (
     <div className="rounded-[1.8rem] border border-white/8 bg-[#131a21] p-4">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.label}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">{props.label}</p>
       <div className="mt-4 overflow-hidden rounded-[1.4rem] border border-white/8 bg-[linear-gradient(180deg,#f5f1e8_0%,#ece4d5_100%)] p-5 text-[#171717]">
         <div className="space-y-4 rounded-[1.1rem] border border-black/10 bg-white/70 px-4 py-5 shadow-[0_12px_30px_rgba(0,0,0,0.08)]">
           <div className="space-y-2">
@@ -513,9 +513,9 @@ export function EmptyStatePanel(props: {
       )}
     >
       <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-full bg-white/7">
-        <AlertCircle className="h-5 w-5 text-white/45" />
+        <AlertCircle className="h-5 w-5 text-white/70" />
       </div>
-      <h3 className="text-base font-semibold text-white">{props.title}</h3>
+      <h2 className="text-base font-semibold text-white">{props.title}</h2>
       <p className="mx-auto mt-2 max-w-xl text-sm leading-7 text-white/55">{props.description}</p>
       {props.action ? <div className="mt-5">{props.action}</div> : null}
     </div>
@@ -550,7 +550,7 @@ export function ChannelHealthIndicator(props: { channel: AriesChannelConnection 
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
           <p className="text-sm font-medium text-white">{props.channel.name}</p>
-          <p className="text-sm text-white/45">{props.channel.handle}</p>
+          <p className="text-sm text-white/70">{props.channel.handle}</p>
         </div>
         <span className="inline-flex items-center gap-2 rounded-full bg-white/[0.05] px-3 py-1.5 text-xs text-white/70">
           <span className={clsx('h-2.5 w-2.5 rounded-full', tone)} />
@@ -596,7 +596,7 @@ export function SurfaceField(props: {
     <label className="block space-y-2.5">
       <div className="space-y-1">
         <span className="text-sm font-medium text-white/78">{props.label}</span>
-        {props.hint ? <p className="text-xs leading-5 text-white/45">{props.hint}</p> : null}
+        {props.hint ? <p className="text-xs leading-5 text-white/70">{props.hint}</p> : null}
       </div>
       {props.children}
     </label>
@@ -640,7 +640,7 @@ export function ActivityFeed(props: {
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-sm font-medium text-white">{item.label}</p>
-              <span className="text-xs text-white/35">{item.at}</span>
+              <span className="text-xs text-white/70">{item.at}</span>
             </div>
             <p className="text-sm leading-6 text-white/55">{item.detail}</p>
           </div>

@@ -57,8 +57,18 @@ jobs:
         run: |
           set -euo pipefail
 
-          gh label create agent:auto-merge --color 0E8A16 --description "Agent-created PR is eligible for autonomous fixes and merge" --force
-          gh label create agent:needs-attention --color D93F0B --description "Agent automation needs human attention before merge" --force
+          ensure_label() {  # best-effort; never abort the run on a transient labels-API flake
+            local name="$1" color="$2" desc="$3" attempt
+            for attempt in 1 2 3; do
+              if gh label create "$name" --color "$color" --description "$desc" --force; then return 0; fi
+              echo "::warning::gh label create $name failed (attempt $attempt/3); retrying"
+              sleep $((attempt * 3))
+            done
+            echo "::warning::gh label create $name failed after 3 attempts; continuing (labels are idempotent)"
+            return 0
+          }
+          ensure_label agent:auto-merge 0E8A16 "Agent-created PR is eligible for autonomous fixes and merge"
+          ensure_label agent:needs-attention D93F0B "Agent automation needs human attention before merge"
 
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             pr_number="${INPUT_PR_NUMBER:-}"

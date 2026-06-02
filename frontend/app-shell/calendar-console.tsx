@@ -105,7 +105,7 @@ export default function CalendarConsole(): JSX.Element {
       <div className="glass rounded-[2.5rem] p-8">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-3">
+            <p className="text-xs uppercase tracking-[0.24em] text-white/70 mb-3">
               {copy.eyebrow}
             </p>
             <h2 className="text-3xl font-bold mb-3">
@@ -134,10 +134,10 @@ export default function CalendarConsole(): JSX.Element {
               ) : null}
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center">
-                  <CalendarDays className="w-6 h-6 text-primary" />
+                  <CalendarDays className="w-6 h-6 text-violet-300" />
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-[0.24em] text-white/35">Window</p>
+                  <p className="text-xs uppercase tracking-[0.24em] text-white/70">Window</p>
                   <h3 className="text-2xl font-bold">{windowLabel}</h3>
                 </div>
               </div>
@@ -148,16 +148,16 @@ export default function CalendarConsole(): JSX.Element {
                   return (
                     <div key={key} className="rounded-[1.5rem] border border-white/10 bg-white/5 p-4 min-h-[180px]">
                       <div className="mb-4">
-                        <p className="text-xs uppercase tracking-[0.22em] text-white/35">{day.toLocaleDateString(undefined, { weekday: 'short' })}</p>
+                        <p className="text-xs uppercase tracking-[0.22em] text-white/70">{day.toLocaleDateString(undefined, { weekday: 'short' })}</p>
                         <h4 className="text-xl font-semibold">{day.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</h4>
                       </div>
                       <div className="space-y-3">
                         {dayEvents.length === 0 ? (
-                          <div className="text-sm text-white/40">No scheduled post</div>
+                          <div className="text-sm text-white/70">No scheduled post</div>
                         ) : (
                           dayEvents.map((event) => (
                             <div key={event.id} className="rounded-[1.25rem] border border-white/10 bg-black/20 p-3">
-                              <div className="text-[11px] uppercase tracking-[0.2em] text-white/35 mb-2">{event.platform}</div>
+                              <div className="text-[11px] uppercase tracking-[0.2em] text-white/70 mb-2">{event.platform}</div>
                               <div className="font-medium mb-1">{event.title}</div>
                               <div className="text-sm text-white/55">{event.status}</div>
                             </div>
@@ -181,7 +181,7 @@ export default function CalendarConsole(): JSX.Element {
                     <Sparkles className="w-6 h-6 text-secondary" />
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-[0.24em] text-white/35">Aries schedule sync</p>
+                    <p className="text-xs uppercase tracking-[0.24em] text-white/70">Aries schedule sync</p>
                     <h2 className="text-2xl font-bold">Sync calendar state</h2>
                   </div>
                 </div>
@@ -191,7 +191,7 @@ export default function CalendarConsole(): JSX.Element {
               </div>
 
               <label className="block space-y-2">
-                <span className="text-xs uppercase tracking-[0.22em] text-white/35">Window start</span>
+                <span className="text-xs uppercase tracking-[0.22em] text-white/70">Window start</span>
                 <input
                   value={windowStart}
                   onChange={(event) => setWindowStart(event.target.value)}
@@ -201,7 +201,7 @@ export default function CalendarConsole(): JSX.Element {
               </label>
 
               <label className="block space-y-2">
-                <span className="text-xs uppercase tracking-[0.22em] text-white/35">Window end</span>
+                <span className="text-xs uppercase tracking-[0.22em] text-white/70">Window end</span>
                 <input
                   value={windowEnd}
                   onChange={(event) => setWindowEnd(event.target.value)}
@@ -232,7 +232,7 @@ export default function CalendarConsole(): JSX.Element {
           </div>
 
           <div className="glass rounded-[2.5rem] p-8">
-            <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-3">Social content actions</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-white/70 mb-3">Social content actions</p>
             <div className="flex flex-col gap-3">
               <Link href={socialContentJob ? `/marketing/job-status?jobId=${encodeURIComponent(socialContentJob.jobId)}` : '/marketing/new-job'} className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all text-center">
                 {socialContentJob ? copy.statusActionLabel : copy.newActionLabel}

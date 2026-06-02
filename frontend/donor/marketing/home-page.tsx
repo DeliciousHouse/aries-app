@@ -52,7 +52,7 @@ function EarlyAccessCopy({
 
   return (
     <div>
-      <span className="inline-flex rounded-full border border-primary/20 bg-primary/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.2em] text-primary">
+      <span className="inline-flex rounded-full border border-primary/20 bg-primary/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.2em] text-violet-300">
         Early access
       </span>
       <HeadingTag id={titleId} className="mt-6 text-4xl font-light leading-tight md:text-[52px]">
@@ -69,7 +69,7 @@ function EarlyAccessCopy({
             className="group min-h-28 rounded-[1.25rem] border border-white/10 bg-black/35 p-5 transition-colors hover:border-primary/35 hover:bg-primary/10"
           >
             <div className="text-3xl font-light leading-none tracking-[0.08em] text-white">{count}</div>
-            <div className="mt-5 text-[10px] font-semibold uppercase leading-5 tracking-[0.3em] text-white/45">
+            <div className="mt-5 text-[10px] font-semibold uppercase leading-5 tracking-[0.3em] text-white/70">
               {labelLines.map((line) => (
                 <span key={line} className="block">
                   {line}
@@ -243,7 +243,7 @@ export function EarlyAccessForm({
           {message}
         </p>
       ) : isHeroVariant ? null : (
-        <p className="mt-4 text-sm leading-6 text-white/42">
+        <p className="mt-4 text-sm leading-6 text-white/70">
           We will only use this email to contact you about Aries early access.
         </p>
       )}
@@ -638,7 +638,7 @@ function Hero() {
         <div className="container mx-auto px-6 relative z-20 text-center pt-48 md:pt-32 lg:pt-0">
           <motion.div style={{ opacity: useTransform(smoothProgress, [0, 0.05], [1, 0]) }} className="mb-8">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-reflection relative">
-              <Sparkles className="w-4 h-4 text-primary" />
+              <Sparkles className="w-4 h-4 text-violet-300" />
               <span className="text-sm font-medium text-white/80">The system small businesses actually use to grow</span>
             </div>
           </motion.div>
@@ -806,7 +806,7 @@ function Hero() {
           >
               <div className="flex items-center gap-3 mb-2">
               <div className="p-2 bg-primary/20 rounded-lg">
-                <BarChart3 className="w-5 h-5 text-primary" />
+                <BarChart3 className="w-5 h-5 text-violet-300" />
               </div>
               <span className="font-bold text-white">Approvals</span>
             </div>
@@ -997,7 +997,7 @@ function Features() {
 function HowItWorks() {
   const steps = [
     {
-      icon: <Search className="w-6 h-6 text-primary" />,
+      icon: <Search className="w-6 h-6 text-violet-300" />,
       title: 'Connect your business',
       description: 'Set up once with your website, brand, and goals. Aries handles the rest.',
     },
@@ -1203,7 +1203,7 @@ function platformCalendarMeta(platform: string) {
   return {
     Icon: Sparkles,
     border: 'border-primary/20',
-    iconClass: 'text-primary',
+    iconClass: 'text-violet-300',
   };
 }
 
@@ -1303,7 +1303,7 @@ function ContentCalendar() {
             </div>
 
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/70" />
               <input
                 type="text"
                 placeholder="Search posts..."
@@ -1315,7 +1315,7 @@ function ContentCalendar() {
 
             <div className="space-y-6">
               <div>
-                <h4 className="text-xs font-bold uppercase tracking-widest text-white/30 mb-4">Platforms</h4>
+                <h3 className="text-xs font-bold uppercase tracking-widest text-white/70 mb-4">Platforms</h3>
                 <div className="space-y-2">
                   {platforms.map((platform) => {
                     const isActive = activePlatforms.includes(platform.name);
@@ -1361,7 +1361,7 @@ function ContentCalendar() {
               </div>
 
               <div>
-                <h4 className="text-xs font-bold uppercase tracking-widest text-white/30 mb-4">Status</h4>
+                <h3 className="text-xs font-bold uppercase tracking-widest text-white/70 mb-4">Status</h3>
                 <div className="space-y-3 px-2">
                   <div className="flex items-center gap-3">
                     <div className="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.5)]" />
@@ -1423,7 +1423,7 @@ function ContentCalendar() {
                     onClick={() => setViewMode('week')}
                     className={cn(
                       'px-4 py-2 rounded-lg text-sm font-bold transition-all',
-                      viewMode === 'week' ? 'bg-primary/20 text-primary' : 'hover:bg-white/5 text-white/50',
+                      viewMode === 'week' ? 'bg-primary/20 text-violet-300' : 'hover:bg-white/5 text-white/50',
                     )}
                   >
                     Week
@@ -1433,7 +1433,7 @@ function ContentCalendar() {
                     onClick={() => setViewMode('month')}
                     className={cn(
                       'px-4 py-2 rounded-lg text-sm font-bold transition-all',
-                      viewMode === 'month' ? 'bg-primary/20 text-primary' : 'hover:bg-white/5 text-white/50',
+                      viewMode === 'month' ? 'bg-primary/20 text-violet-300' : 'hover:bg-white/5 text-white/50',
                     )}
                   >
                     Month
@@ -1454,7 +1454,7 @@ function ContentCalendar() {
                   {displayedSchedule.map((day, dayIndex) => (
                     <div key={day.day} className="flex flex-col gap-6">
                       <div className="text-center">
-                        <span className="block text-xs font-bold uppercase tracking-widest text-white/30 mb-2">{day.day}</span>
+                        <span className="block text-xs font-bold uppercase tracking-widest text-white/70 mb-2">{day.day}</span>
                         <button
                           type="button"
                           onClick={() => setActiveDate(day.date)}
@@ -1503,7 +1503,7 @@ function ContentCalendar() {
                         ))}
 
                         <div className="h-12 border border-dashed border-white/5 flex items-center justify-center group hover:border-white/20 transition-colors cursor-pointer">
-                          <Plus className="w-3 h-3 text-white/10 group-hover:text-white/30 transition-colors" />
+                          <Plus className="w-3 h-3 text-white/70 group-hover:text-white/70 transition-colors" />
                         </div>
                       </div>
                     </div>
@@ -1512,7 +1512,7 @@ function ContentCalendar() {
               ) : (
                 <div className="grid grid-cols-7 gap-2">
                   {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-                    <div key={day} className="text-center text-[10px] font-bold uppercase tracking-widest text-white/20 py-2">
+                    <div key={day} className="text-center text-[10px] font-bold uppercase tracking-widest text-white/70 py-2">
                       {day}
                     </div>
                   ))}
@@ -1527,7 +1527,7 @@ function ContentCalendar() {
                         )}
                         onClick={() => setActiveDate(String(day))}
                       >
-                        <span className={cn('text-[10px] font-bold mb-1', String(day) === activeDate ? 'text-primary' : 'text-white/40')}>
+                        <span className={cn('text-[10px] font-bold mb-1', String(day) === activeDate ? 'text-violet-300' : 'text-white/70')}>
                           {day}
                         </span>
                         <div className="flex-1 space-y-1 overflow-hidden">
@@ -1633,7 +1633,7 @@ function Pricing() {
                   {plan.features.map((feature) => (
                     <div key={feature} className="flex items-center gap-3">
                       <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center">
-                        <Check className="w-3 h-3 text-primary" />
+                        <Check className="w-3 h-3 text-violet-300" />
                       </div>
                       <span className="text-sm text-white/80">{feature}</span>
                     </div>
@@ -1671,7 +1671,7 @@ function FeatureShowcaseFallback() {
     {
       title: 'Content clarity',
       description: 'Aries keeps your plan, creative, schedule, and results in one place so you never lose track of what is running or what needs attention.',
-      icon: <Zap className="w-5 h-5 text-primary" />,
+      icon: <Zap className="w-5 h-5 text-violet-300" />,
     },
     {
       title: 'Approval confidence',
@@ -1681,7 +1681,7 @@ function FeatureShowcaseFallback() {
     {
       title: 'Results you can act on',
       description: 'Every weekly content summary ends with a clear next step instead of a wall of charts, so you always know what to do next.',
-      icon: <BarChart3 className="w-5 h-5 text-primary" />,
+      icon: <BarChart3 className="w-5 h-5 text-violet-300" />,
     },
   ];
 
@@ -1851,7 +1851,7 @@ export default function DonorHomePage() {
           <blockquote className="text-lg text-white/80 italic leading-relaxed">
             "Aries helped me go from idea to approved weekly content plan in 2 hours."
           </blockquote>
-          <p className="mt-4 text-sm text-white/40 font-medium uppercase tracking-wider">
+          <p className="mt-4 text-sm text-white/70 font-medium uppercase tracking-wider">
             Early access user
           </p>
         </div>

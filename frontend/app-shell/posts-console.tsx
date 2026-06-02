@@ -34,11 +34,11 @@ export default function PostsConsole(): JSX.Element {
             href={preview.previewHref}
             className="rounded-[1.5rem] border border-white/10 bg-white/5 overflow-hidden hover:bg-white/10 transition-colors"
           >
-            <div className="h-44 flex items-center justify-center bg-black/20 text-white/45">
+            <div className="h-44 flex items-center justify-center bg-black/20 text-white/70">
               {preview.platformName}
             </div>
             <div className="p-4">
-              <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-2">{preview.channelType}</p>
+              <p className="text-xs uppercase tracking-[0.22em] text-white/70 mb-2">{preview.channelType}</p>
               <h3 className="font-semibold mb-1">{preview.title}</h3>
               <p className="text-sm text-white/60">{preview.summary}</p>
             </div>
@@ -56,7 +56,7 @@ export default function PostsConsole(): JSX.Element {
             <div key={event.id} className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid md:grid-cols-[1fr_auto] gap-4">
               <div className="space-y-3">
                 <div className="flex items-center gap-3">
-                  <CheckCircle className="w-5 h-5 text-primary" />
+                  <CheckCircle className="w-5 h-5 text-violet-300" />
                   <div>
                     <h3 className="font-semibold">{event.title}</h3>
                     <p className="text-sm text-white/50">{event.platform} · {event.status}</p>
@@ -67,7 +67,7 @@ export default function PostsConsole(): JSX.Element {
                   <span>{`${formatInTenantZone(event.startsAt, tz)} ${tenantZoneAbbreviation(event.startsAt, tz)}`}</span>
                 </div>
                 {matchingPreview ? (
-                  <Link href={matchingPreview.previewHref} className="inline-flex items-center gap-2 text-primary hover:text-primary/80 transition-colors">
+                  <Link href={matchingPreview.previewHref} className="inline-flex items-center gap-2 text-violet-300 hover:text-violet-300 transition-colors">
                     Open linked preview <Sparkles className="w-4 h-4" />
                   </Link>
                 ) : null}
@@ -87,7 +87,7 @@ export default function PostsConsole(): JSX.Element {
       <div className="glass rounded-[2.5rem] p-8">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-3">Post queue</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-white/70 mb-3">Post queue</p>
             <h2 className="text-3xl font-bold mb-3">Planned and created content</h2>
             <p className="text-white/60 leading-relaxed max-w-2xl">
               Review every scheduled post in the current social content, along with live status and direct links back to the exact preview bundle.
@@ -116,7 +116,7 @@ export default function PostsConsole(): JSX.Element {
           <div className="glass rounded-[2.5rem] p-8">
             <div className="space-y-4">
               <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-3">Social content actions</p>
+                <p className="text-xs uppercase tracking-[0.24em] text-white/70 mb-3">Social content actions</p>
                 <h3 className="text-2xl font-bold">Continue in the live workspace</h3>
               </div>
               <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-white/70">

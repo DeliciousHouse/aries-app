@@ -505,7 +505,7 @@ export default function CreativeActionDrawer(props: CreativeActionDrawerProps) {
       <aside className="relative ml-auto flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-white/10 bg-[#11161c] shadow-[0_-24px_120px_rgba(0,0,0,0.55)]">
         <header className="flex items-start justify-between gap-4 border-b border-white/8 px-6 py-5">
           <div className="space-y-1">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/40">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">
               Image actions
             </p>
             <h2
@@ -694,7 +694,7 @@ export default function CreativeActionDrawer(props: CreativeActionDrawerProps) {
               <span>Always match this job&apos;s creative voice and style</span>
             </label>
             <div className="space-y-1.5">
-              <label className="text-[11px] font-medium uppercase tracking-[0.14em] text-white/45" htmlFor="voice-pref-label">
+              <label className="text-[11px] font-medium uppercase tracking-[0.14em] text-white/70" htmlFor="voice-pref-label">
                 Optional label
               </label>
               <input
@@ -742,7 +742,7 @@ function QaScoreGrid({ qa }: { qa: QaPayload }) {
   return (
     <div className="space-y-3 rounded-[1rem] border border-white/8 bg-white/3 px-4 py-4" data-testid="creative-action-qa-scores">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/70">
           Brand QA scores
         </p>
         <span

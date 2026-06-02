@@ -5,6 +5,9 @@ import path from 'node:path';
 import { resolveDataPath } from '@/lib/runtime-paths';
 import { repairLegacyMarketingText, repairStaleMarketingOffer } from '@/backend/marketing/brand-kit';
 import { marketingPayloadDefaultsFromBusinessProfile } from '@/backend/tenant/business-profile';
+// Type-only import (erased at runtime) — avoids a runtime cycle with
+// runtime-views.ts, which value-imports this module.
+import type { PersistedDashboardListProjection } from './runtime-views';
 
 export type SocialContentWorkflowState =
   | 'draft'
@@ -98,6 +101,25 @@ export type SocialContentWorkspaceRecord = {
   stage_reviews: Record<MarketingReviewStageKey, SocialContentStageReviewState>;
   creative_asset_reviews: Record<string, SocialContentCreativeAssetReviewState>;
   status_history: SocialContentStatusHistoryEntry[];
+  // Write-time denormalization of the campaign-list "pending approvals" badge.
+  // The authoritative count is buildReviewItemsFromContext(...).filter(s !==
+  // 'approved').length (runtime-views.ts), which requires a full per-job
+  // workspace-view hydration. Persisting it here lets the campaign-list /
+  // results hot path read the badge O(1) instead of re-hydrating every job.
+  // OPTIONAL by design: absent on legacy records predating this field — the
+  // list path read-through-fallbacks (recompute once, persist, self-heal).
+  // Every write site that can change the count MUST recompute + persist it
+  // (see recomputeAndPersistPendingApprovalCount in runtime-views.ts).
+  pending_approval_count?: number;
+  // Write-time denormalization of the FULL campaign-list row (mirrors
+  // pending_approval_count, but for the whole row instead of a scalar). Lets
+  // /api/social-content/posts and /api/marketing/posts serve O(rows) without
+  // re-running buildSocialContentWorkspaceView (loadStagePayloadBundle) per job.
+  // OPTIONAL by design: absent on legacy records → the list path read-through
+  // self-heals (build once, persist). Every write site that can change the row
+  // MUST recompute + persist it (recomputeAndPersistPendingApprovalCount now
+  // persists both this and pending_approval_count off the same hydration).
+  dashboard_list_projection?: PersistedDashboardListProjection;
   created_at: string;
   updated_at: string;
 };
@@ -377,6 +399,55 @@ export function loadSocialContentWorkspaceRecord(jobId: string, tenantId?: strin
     parsed.stage_reviews.creative = normalizeStageReviewState(parsed.stage_reviews.creative);
     parsed.creative_asset_reviews ||= {};
     parsed.status_history ||= [];
+    // Legacy records predate pending_approval_count. Leave it `undefined`
+    // (rather than defaulting to 0) so the list read-through fallback can tell
+    // "never computed" apart from "genuinely zero pending" and self-heal.
+    if (parsed.pending_approval_count !== undefined
+        && (typeof parsed.pending_approval_count !== 'number'
+            || !Number.isFinite(parsed.pending_approval_count)
+            || parsed.pending_approval_count < 0)) {
+      parsed.pending_approval_count = undefined;
+    }
+    // Legacy/malformed dashboard_list_projection → reset to undefined so the
+    // list read-through self-heals (rebuild once, persist) instead of serving a
+    // half-empty row. A valid projection is
+    //   { listRow: { dashboard: {posts[],assets[],publishItems[],calendarEvents[],statuses{}} },
+    //     post, sourceUpdatedAt:string }.
+    // We validate the dashboard ARRAYS (not just the 'dashboard' key): a partial
+    // `dashboard:{}` would otherwise pass the shape check and then crash
+    // mergeDashboardContent (`merged.posts.push(...item.posts)` on undefined) and
+    // 500 the whole /api/marketing/posts response. We also require the
+    // sourceUpdatedAt freshness stamp (string); a pre-stamp projection resets so
+    // it rebuilds once with a stamp.
+    if (parsed.dashboard_list_projection !== undefined) {
+      const proj = parsed.dashboard_list_projection as Record<string, unknown> | null;
+      const listRow = (proj as { listRow?: Record<string, unknown> } | null)?.listRow;
+      const dashboard = (listRow as { dashboard?: Record<string, unknown> } | undefined)?.dashboard;
+      const projOk =
+        !!proj &&
+        typeof proj === 'object' &&
+        'post' in proj &&
+        typeof proj.sourceUpdatedAt === 'string' &&
+        !!listRow &&
+        typeof listRow === 'object' &&
+        !!dashboard &&
+        typeof dashboard === 'object' &&
+        Array.isArray((dashboard as { posts?: unknown }).posts) &&
+        Array.isArray((dashboard as { assets?: unknown }).assets) &&
+        Array.isArray((dashboard as { publishItems?: unknown }).publishItems) &&
+        Array.isArray((dashboard as { calendarEvents?: unknown }).calendarEvents) &&
+        !!(dashboard as { statuses?: unknown }).statuses &&
+        typeof (dashboard as { statuses?: unknown }).statuses === 'object' &&
+        // statuses.countsByStatus must be a non-null object too: mergeDashboardContent
+        // indexes `item.statuses.countsByStatus[status]`, so a corrupted `statuses:{}`
+        // (object, but no countsByStatus) would still throw and 500 /api/marketing/posts.
+        !!(dashboard as { statuses?: { countsByStatus?: unknown } }).statuses!.countsByStatus &&
+        typeof (dashboard as { statuses?: { countsByStatus?: unknown } }).statuses!.countsByStatus ===
+          'object';
+      if (!projOk) {
+        parsed.dashboard_list_projection = undefined;
+      }
+    }
     parsed.brief = normalizeSocialContentBrief(parsed.brief as unknown as Record<string, unknown>, parsed.brief);
     return parsed;
   } catch {
@@ -390,6 +461,63 @@ export function saveSocialContentWorkspaceRecord(record: SocialContentWorkspaceR
   record.updated_at = nowIso();
   writeFileSync(filePath, JSON.stringify(record, null, 2));
   return filePath;
+}
+
+/**
+ * Persist the denormalized pending-approval badge count onto the workspace
+ * record. Loads the existing record (the workspace-view build that produced the
+ * count has already ensured/saved it), mutates only the scalar, and writes back
+ * only when the value actually changed — so this never churns updated_at or the
+ * file on no-op recomputes (the common case on read-through). Returns true when
+ * a write occurred. No-op (returns false) when the record is missing — callers
+ * recompute off a freshly-built view whose ensure step created the record, so a
+ * missing record here means the job has no workspace state to badge.
+ */
+export function persistPendingApprovalCount(
+  jobId: string,
+  tenantId: string,
+  count: number,
+): boolean {
+  const record = loadSocialContentWorkspaceRecord(jobId, tenantId);
+  if (!record) {
+    return false;
+  }
+  const normalized = Number.isFinite(count) && count >= 0 ? Math.floor(count) : 0;
+  if (record.pending_approval_count === normalized) {
+    return false;
+  }
+  record.pending_approval_count = normalized;
+  saveSocialContentWorkspaceRecord(record);
+  return true;
+}
+
+/**
+ * Persist the denormalized campaign-list row projection onto the workspace
+ * record. Object analog of persistPendingApprovalCount: loads the record,
+ * no-ops when missing, and writes back ONLY when the projection actually
+ * changed (deep-equal via JSON compare) so it never churns updated_at / the
+ * file on no-op recomputes (updated_at is the campaign-list sort key).
+ */
+export function persistDashboardListProjection(
+  jobId: string,
+  tenantId: string,
+  projection: PersistedDashboardListProjection,
+): boolean {
+  const record = loadSocialContentWorkspaceRecord(jobId, tenantId);
+  if (!record) {
+    return false;
+  }
+  const next = JSON.stringify(projection);
+  const prev =
+    record.dashboard_list_projection === undefined
+      ? undefined
+      : JSON.stringify(record.dashboard_list_projection);
+  if (prev === next) {
+    return false;
+  }
+  record.dashboard_list_projection = projection;
+  saveSocialContentWorkspaceRecord(record);
+  return true;
 }
 
 export async function ensureSocialContentWorkspaceRecord(input: CreateSocialContentWorkspaceInput): Promise<SocialContentWorkspaceRecord> {

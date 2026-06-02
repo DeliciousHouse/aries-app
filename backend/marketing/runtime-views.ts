@@ -43,6 +43,9 @@ import {
 } from './workspace-views';
 import {
   ensureSocialContentWorkspaceRecord,
+  loadSocialContentWorkspaceRecord,
+  persistDashboardListProjection,
+  persistPendingApprovalCount,
   saveSocialContentWorkspaceRecord,
   setCreativeAssetDecision,
   setStageReviewDecision,
@@ -112,6 +115,58 @@ export type RuntimePostListItem = {
    * this against the tenant's current brand-kit extracted_at. */
   brandKitExtractedAt?: string | null;
 };
+
+/**
+ * Write-time-denormalized list-row projection persisted on the workspace record
+ * so the campaign-list hot paths (`/api/social-content/posts` and
+ * `/api/marketing/posts`) serve O(rows) without re-running the expensive
+ * `buildSocialContentWorkspaceView` (loadStagePayloadBundle) + `getMarketingJobStatus`
+ * per job. Mirrors PR #521's `pending_approval_count` denormalization, but for
+ * the whole row instead of a scalar.
+ *
+ * - `listRow` is the exact `buildCampaignListItem` output MINUS the per-call
+ *   fields (`id`/`jobId`/`pendingApprovals`/`brandKitExtractedAt` + the
+ *   deleted-list extras) which are re-layered cheaply on read.
+ * - `post` is `view.dashboard.post`; the tenant-aggregate path
+ *   (`getWorkflowAwareDashboardContentForTenant`) rebuilds the full
+ *   `MarketingDashboardSocialContentJobContent` as `{ post, ...listRow.dashboard }`.
+ *
+ * Byte-identical by construction: it is the literal output of the same
+ * `buildCampaignListItem`/`buildSocialContentWorkspaceView` the live path runs.
+ */
+export type PersistedDashboardListProjection = {
+  listRow: Omit<
+    RuntimePostListItem,
+    'id' | 'jobId' | 'pendingApprovals' | 'brandKitExtractedAt' | 'deletedAt' | 'deletedBy' | 'softCancelRequestedAt'
+  >;
+  post: MarketingDashboardSocialContentJob | null;
+  /**
+   * FRESHNESS GUARD. The `runtimeDoc.updated_at` the projection was built from.
+   * The read path serves the projection O(1) ONLY when this matches the current
+   * `runtimeDoc.updated_at`; otherwise it treats the projection as stale and
+   * rebuilds (+ self-heals). This makes EVERY runtime-doc writer — the stale-run
+   * reaper, orchestrator state transitions, any future `saveSocialContentJobRuntime`
+   * caller — automatically invalidate the projection WITHOUT needing to wire a
+   * recompute at each site (the writer bumps `updated_at`, the guard notices).
+   *
+   * NOTE: writers that change view.dashboard WITHOUT touching the runtime doc —
+   * i.e. DB-table writes to `posts.published_status` (publish) or `creative_assets`
+   * (upload-replace) — are NOT caught by this stamp and MUST call
+   * `recomputeAndPersistPendingApprovalCount(jobId)` themselves. Hermes callbacks,
+   * the manual IG/FB publish handlers, scheduled-dispatch, and upload-replace all do.
+   */
+  sourceUpdatedAt: string;
+};
+
+const DASHBOARD_PROJECTION_PER_CALL_FIELDS = [
+  'id',
+  'jobId',
+  'pendingApprovals',
+  'brandKitExtractedAt',
+  'deletedAt',
+  'deletedBy',
+  'softCancelRequestedAt',
+] as const;
 
 export type RuntimeReviewDecision = {
   action: 'approve' | 'changes_requested' | 'reject';
@@ -495,6 +550,54 @@ function buildCampaignListItem(
       statuses: view.dashboard.statuses,
     },
     brandKitExtractedAt: brandKitExtractedAt ?? null,
+  };
+}
+
+/**
+ * Build the persisted list-row projection from a freshly-hydrated
+ * `(status, view)` context — the literal `buildCampaignListItem` output minus
+ * the per-call fields. Used at every write site (via the recompute helper) so
+ * the persisted blob is byte-identical to what the live list path would build.
+ */
+function dashboardListProjectionFromContext(
+  status: SocialContentJobStatusResponse,
+  view: SocialContentWorkspaceView,
+  sourceUpdatedAt: string,
+): PersistedDashboardListProjection {
+  const row = buildCampaignListItem(status, view, 0, null);
+  const listRow: Record<string, unknown> = { ...row };
+  for (const field of DASHBOARD_PROJECTION_PER_CALL_FIELDS) {
+    delete listRow[field];
+  }
+  // JSON round-trip so the in-memory projection is byte-identical to the one a
+  // later load reads back off disk: JSON.stringify DROPS undefined-valued keys
+  // (e.g. approvalActionHref:undefined on revisions_requested jobs), so without
+  // this normalization the self-heal (in-memory, key present-undefined) and the
+  // fast path (reloaded, key absent) would not be deep-equal. Over HTTP both
+  // serialize identically; this makes the invariant hold in-process too.
+  return JSON.parse(
+    JSON.stringify({
+      listRow: listRow as PersistedDashboardListProjection['listRow'],
+      post: view.dashboard.post,
+      sourceUpdatedAt,
+    }),
+  ) as PersistedDashboardListProjection;
+}
+
+/** Re-layer the per-call fields onto a persisted projection to produce the
+ *  exact `RuntimePostListItem` the live `buildCampaignListItem` would return. */
+function listItemFromProjection(
+  jobId: string,
+  projection: PersistedDashboardListProjection,
+  pendingApprovals: number,
+  brandKitExtractedAt: string | null,
+): RuntimePostListItem {
+  return {
+    ...projection.listRow,
+    id: jobId,
+    jobId,
+    pendingApprovals,
+    brandKitExtractedAt,
   };
 }
 
@@ -1266,8 +1369,12 @@ export function syncHistoryWithLastDecision(item: RuntimeReviewItem): RuntimeRev
   return { ...item, history: [...item.history, synthesized] };
 }
 
-async function buildReviewItemsForJob(jobId: string): Promise<RuntimeReviewItem[]> {
-  const runtimeDoc = await loadSocialContentJobRuntime(jobId);
+async function buildReviewItemsForJob(
+  jobId: string,
+  options: { runtimeDoc?: SocialContentJobRuntimeDocument | null } = {},
+): Promise<RuntimeReviewItem[]> {
+  const runtimeDoc =
+    options.runtimeDoc !== undefined ? options.runtimeDoc : await loadSocialContentJobRuntime(jobId);
   if (!runtimeDoc) {
     return [];
   }
@@ -1283,8 +1390,8 @@ async function buildReviewItemsForJob(jobId: string): Promise<RuntimeReviewItem[
     return [];
   }
 
-  const status = await getMarketingJobStatus(jobId);
-  const view = await buildSocialContentWorkspaceView(jobId);
+  const status = await getMarketingJobStatus(jobId, { runtimeDoc });
+  const view = await buildSocialContentWorkspaceView(jobId, { runtimeDoc });
   return buildReviewItemsFromContext(jobId, runtimeDoc, status, view);
 }
 
@@ -1337,6 +1444,57 @@ async function buildReviewItemsFromContext(
 
   const merged = mergeReviewState(jobId, runtimeDoc.tenant_id, items);
   return applyReviewItemEdits(merged, jobId, runtimeDoc.tenant_id);
+}
+
+/**
+ * Compute the live pending-approval badge count for one job and persist it onto
+ * the workspace record as `pending_approval_count` (write-time denormalization).
+ *
+ * The count == buildReviewItemsFromContext(...).filter(s !== 'approved').length
+ * — the SAME expression the campaign-list path used to compute per-job. By
+ * persisting it at every mutation that can change it, the list path reads the
+ * badge O(1) instead of re-hydrating every job's full workspace view.
+ *
+ * Call this at EVERY write site that can change the count:
+ *   1. recordMarketingReviewDecision (operator approve/reject/changes)
+ *   2. applyHermesMarketingCallback (Hermes stage advances + the production
+ *      creative_assets ingestion that writes the DB directly)
+ *   3. the list read-through fallback (legacy jobs predating the field)
+ *
+ * Builds the full (status, view) context the same way buildReviewItemsForJob
+ * does, so the persisted count is byte-equal to the live re-hydrating oracle.
+ * Failed jobs and missing docs persist 0 (mirrors buildReviewItemsFromContext's
+ * failed-job guard). Returns the computed count (whether or not a write
+ * occurred); persistence is skipped when the value is unchanged.
+ */
+export async function recomputeAndPersistPendingApprovalCount(
+  jobId: string,
+  options: { runtimeDoc?: SocialContentJobRuntimeDocument | null } = {},
+): Promise<number> {
+  const runtimeDoc =
+    options.runtimeDoc !== undefined ? options.runtimeDoc : await loadSocialContentJobRuntime(jobId);
+  if (!runtimeDoc) {
+    return 0;
+  }
+  // Build the (status, view) context ONCE and denormalize BOTH the campaign-list
+  // row projection AND the pending-approval count off it. This is every write
+  // site's single recompute entry point, so dashboard_list_projection stays in
+  // lockstep with pending_approval_count. We build for failed jobs too (unlike
+  // the count-only fast path before) so their list row is denormalized and the
+  // campaign list renders the failed card without re-hydrating.
+  const status = await getMarketingJobStatus(jobId, { runtimeDoc });
+  const view = await buildSocialContentWorkspaceView(jobId, { runtimeDoc });
+  persistDashboardListProjection(
+    jobId,
+    runtimeDoc.tenant_id,
+    dashboardListProjectionFromContext(status, view, runtimeDoc.updated_at),
+  );
+  // Failed jobs have no actionable review items (buildReviewItemsFromContext
+  // returns [] via its failed guard), so the count is 0.
+  const items = await buildReviewItemsFromContext(jobId, runtimeDoc, status, view);
+  const count = items.filter((item) => item.status !== 'approved').length;
+  persistPendingApprovalCount(jobId, runtimeDoc.tenant_id, count);
+  return count;
 }
 
 function applyReviewItemEdits(
@@ -1615,72 +1773,101 @@ export async function listSocialContentJobsForTenant(
   const hasMore = !unlimited && jobIds.length > limit;
   const pageJobIds = hasMore ? jobIds.slice(0, limit) : jobIds;
 
-  // Two-phase bounded-parallel fan-out so dedup happens before the heaviest
-  // per-job work, matching the prior serial loop's first-wins ordering.
+  // Bounded-parallel fan-out (concurrency 4 = ≤20% of DB_POOL_MAX; guardrail #1).
   //
-  // Phase 1 (hydrate ONCE per job): load the runtime doc a SINGLE time and thread
-  // it through getMarketingJobStatus AND buildSocialContentWorkspaceView, so the
-  // job's runtime doc is read from disk once on this path instead of three times
-  // (status reloaded it, the list reloaded it explicitly, and the view reloaded it
-  // again). The full view is still built (dashboard + workflowState + creativeReview
-  // incl. the DB production-asset merge), so the cards and the phase-2
-  // pendingApprovals count are byte-identical to the prior per-job hydration —
-  // only the redundant doc reads are removed.
+  // FAST PATH (steady state): each job's full campaign-list row is denormalized
+  // onto the workspace record (`dashboard_list_projection`, written at every
+  // mutation by recomputeAndPersistPendingApprovalCount). So per job we do just
+  // TWO cheap reads — the runtime doc + the workspace record — and skip the
+  // expensive buildSocialContentWorkspaceView (loadStagePayloadBundle) AND
+  // getMarketingJobStatus entirely. pendingApprovals is the O(1) #521 scalar.
   //
-  // [marketing-hydration] workspace-view still emits once per job here.
-  // See lib/process-concurrent.ts and CLAUDE.md guardrail #1.
+  // SELF-HEAL PATH (legacy / never-computed): a record with no projection is
+  // built ONCE (status + view), both denorm fields persisted, and the row used —
+  // so the job is O(1) on every subsequent load. This is byte-identical to the
+  // prior per-job hydration because the row is assembled from the SAME
+  // buildCampaignListItem output (captured into the projection).
+  //
+  // A missing runtime doc is the only case that produced the old
+  // `tenantName===null && brandWebsiteUrl===null && status==='error'` filter
+  // (the missing-doc branch of buildMarketingJobStatus), so we drop it here
+  // without building status. See lib/process-concurrent.ts + guardrail #1.
+  type Phase1Entry = {
+    jobId: string;
+    projection: PersistedDashboardListProjection;
+    pendingApprovals: number;
+    brandKitExtractedAt: string | null;
+    dedupKey: string;
+  };
   const phase1 = await processConcurrent(
     pageJobIds,
-    async (jobId) => {
+    async (jobId): Promise<Phase1Entry | null> => {
       const runtimeDoc = await loadSocialContentJobRuntime(jobId);
-      const status = await getMarketingJobStatus(jobId, { runtimeDoc });
-      if (status.tenantName === null && status.brandWebsiteUrl === null && status.status === 'error') {
+      if (!runtimeDoc) {
         return null;
       }
+      const record = loadSocialContentWorkspaceRecord(jobId, runtimeDoc.tenant_id);
+      const brandKitExtractedAt = runtimeDoc.brand_kit?.extracted_at ?? null;
+
+      // FAST PATH requires a FRESH projection: the baked sourceUpdatedAt must
+      // match the current runtimeDoc.updated_at. A stale projection (the doc was
+      // mutated since — reaper, orchestrator transition, any runtime-doc write)
+      // or an absent one both fall through to the self-heal rebuild below.
+      if (
+        record?.dashboard_list_projection &&
+        record.dashboard_list_projection.sourceUpdatedAt === runtimeDoc.updated_at
+      ) {
+        const projection = record.dashboard_list_projection;
+        // Wrap the missing-count recompute so one bad job degrades to count 0
+        // rather than throwing out of processConcurrent and 500-ing the whole list.
+        const pendingApprovals =
+          record.pending_approval_count ??
+          (await recomputeAndPersistPendingApprovalCount(jobId, { runtimeDoc }).catch(() => 0));
+        return {
+          jobId,
+          projection,
+          pendingApprovals,
+          brandKitExtractedAt,
+          dedupKey: projection.post?.externalPostId || projection.post?.name || `job::${jobId}`,
+        };
+      }
+
+      // Legacy / never-computed / STALE: build once, persist both denorm fields, use it.
+      const status = await getMarketingJobStatus(jobId, { runtimeDoc });
       const view = await buildSocialContentWorkspaceView(jobId, { runtimeDoc });
-      return { jobId, runtimeDoc, status, view };
+      const projection = dashboardListProjectionFromContext(status, view, runtimeDoc.updated_at);
+      persistDashboardListProjection(jobId, runtimeDoc.tenant_id, projection);
+      const pendingApprovals = (
+        await buildReviewItemsFromContext(jobId, runtimeDoc, status, view)
+      ).filter((item) => item.status !== 'approved').length;
+      persistPendingApprovalCount(jobId, runtimeDoc.tenant_id, pendingApprovals);
+      return {
+        jobId,
+        projection,
+        pendingApprovals,
+        brandKitExtractedAt,
+        dedupKey: projection.post?.externalPostId || projection.post?.name || `job::${jobId}`,
+      };
     },
     4,
   );
 
-  // Dedup serially in input-order so duplicates of a campaign (e.g. reruns
-  // sharing externalPostId) collapse to the first-seen entry exactly as
-  // the original serial loop did.
-  type Phase1Entry = NonNullable<(typeof phase1)[number]>;
+  // Dedup serially in input-order so duplicate campaigns (e.g. reruns sharing
+  // externalPostId) collapse to the first-seen entry exactly as before.
   const survivors: Phase1Entry[] = [];
   const seen = new Set<string>();
   for (const entry of phase1) {
     if (!entry) continue;
-    const key = entry.view.dashboard.post?.externalPostId || entry.view.dashboard.post?.name || `job::${entry.jobId}`;
-    if (seen.has(key)) {
+    if (seen.has(entry.dedupKey)) {
       continue;
     }
-    seen.add(key);
+    seen.add(entry.dedupKey);
     survivors.push(entry);
   }
 
-  // No new fan-out — same bounded processConcurrent(…, 4); per-slot work is just
-  // reduced to reusing the phase-1 context instead of re-hydrating (guardrail #1).
-  const phase2 = await processConcurrent(
-    survivors,
-    async ({ jobId, runtimeDoc, status, view }) => {
-      const pendingApprovals = runtimeDoc
-        ? (await buildReviewItemsFromContext(jobId, runtimeDoc, status, view)).filter(
-            (item) => item.status !== 'approved',
-          ).length
-        : (await buildReviewItemsForJob(jobId)).filter((item) => item.status !== 'approved').length;
-      const jobBrandKitExtractedAt = runtimeDoc?.brand_kit?.extracted_at ?? null;
-      return { pendingApprovals, jobBrandKitExtractedAt };
-    },
-    4,
+  const posts: RuntimePostListItem[] = survivors.map((entry) =>
+    listItemFromProjection(entry.jobId, entry.projection, entry.pendingApprovals, entry.brandKitExtractedAt),
   );
-
-  const posts: RuntimePostListItem[] = [];
-  for (let i = 0; i < survivors.length; i++) {
-    const { status, view } = survivors[i];
-    const { pendingApprovals, jobBrandKitExtractedAt } = phase2[i];
-    posts.push(buildCampaignListItem(status, view, pendingApprovals, jobBrandKitExtractedAt));
-  }
 
   posts.sort((left, right) => {
     const leftUpdated = Date.parse(left.updatedAt || '');
@@ -1699,65 +1886,90 @@ export async function listSocialContentJobsForTenant(
 export async function listDeletedSocialContentJobsForTenant(
   tenantId: string,
 ): Promise<RuntimePostListItem[]> {
-  // Same two-phase fan-out pattern as listSocialContentJobsForTenant. Phase 1
-  // loads the runtime doc once (also the cross-tenant ownership guard) and threads
-  // it through getMarketingJobStatus AND buildSocialContentWorkspaceView so the doc
-  // is read from disk a single time per job instead of three. The full view is
-  // still built, so the list output and the phase-2 pendingApprovals count are
-  // byte-identical to the prior per-job hydration.
+  // Same fast-path / self-heal denormalization as listSocialContentJobsForTenant
+  // (read the persisted dashboard_list_projection O(1), skip the heavy build;
+  // legacy jobs build once + persist). Recycle-bin jobs share the workspace
+  // record. The deleted-only extras (deletedAt/deletedBy/softCancelRequestedAt)
+  // come from the runtime doc and are layered on AFTER, as before.
   const jobIds = await listDeletedSocialContentJobIdsForTenant(tenantId);
 
+  type DeletedEntry = {
+    jobId: string;
+    projection: PersistedDashboardListProjection;
+    pendingApprovals: number;
+    brandKitExtractedAt: string | null;
+    deletedAt: string | null;
+    deletedBy: string | null;
+    softCancelRequestedAt: string | null;
+    dedupKey: string;
+  };
   const phase1 = await processConcurrent(
     jobIds,
-    async (jobId) => {
+    async (jobId): Promise<DeletedEntry | null> => {
       const doc = await loadSocialContentJobRuntime(jobId);
       if (!doc || doc.tenant_id !== tenantId) {
         return null;
       }
-      const status = await getMarketingJobStatus(jobId, { runtimeDoc: doc });
-      if (status.tenantName === null && status.brandWebsiteUrl === null && status.status === 'error') {
-        return null;
+      const extras = {
+        brandKitExtractedAt: doc.brand_kit?.extracted_at ?? null,
+        deletedAt: doc.deleted_at ?? null,
+        deletedBy: doc.deleted_by ?? null,
+        softCancelRequestedAt: doc.soft_cancel_requested_at ?? null,
+      };
+      const record = loadSocialContentWorkspaceRecord(jobId, doc.tenant_id);
+      if (
+        record?.dashboard_list_projection &&
+        record.dashboard_list_projection.sourceUpdatedAt === doc.updated_at
+      ) {
+        const projection = record.dashboard_list_projection;
+        const pendingApprovals =
+          record.pending_approval_count ??
+          (await recomputeAndPersistPendingApprovalCount(jobId, { runtimeDoc: doc }).catch(() => 0));
+        return {
+          jobId,
+          projection,
+          pendingApprovals,
+          ...extras,
+          dedupKey: projection.post?.externalPostId || projection.post?.name || `job::${jobId}`,
+        };
       }
+      const status = await getMarketingJobStatus(jobId, { runtimeDoc: doc });
       const view = await buildSocialContentWorkspaceView(jobId, { runtimeDoc: doc });
-      return { jobId, doc, status, view };
-    },
-    4,
-  );
-
-  type Phase1Entry = NonNullable<(typeof phase1)[number]>;
-  const survivors: Phase1Entry[] = [];
-  const seen = new Set<string>();
-  for (const entry of phase1) {
-    if (!entry) continue;
-    const key = entry.view.dashboard.post?.externalPostId || entry.view.dashboard.post?.name || `job::${entry.jobId}`;
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    survivors.push(entry);
-  }
-
-  const phase2 = await processConcurrent(
-    survivors,
-    async ({ jobId, doc, status, view }) => {
+      const projection = dashboardListProjectionFromContext(status, view, doc.updated_at);
+      persistDashboardListProjection(jobId, doc.tenant_id, projection);
       const pendingApprovals = (
         await buildReviewItemsFromContext(jobId, doc, status, view)
       ).filter((item) => item.status !== 'approved').length;
-      return { pendingApprovals };
+      persistPendingApprovalCount(jobId, doc.tenant_id, pendingApprovals);
+      return {
+        jobId,
+        projection,
+        pendingApprovals,
+        ...extras,
+        dedupKey: projection.post?.externalPostId || projection.post?.name || `job::${jobId}`,
+      };
     },
     4,
   );
 
-  const deletedPosts: RuntimePostListItem[] = [];
-  for (let i = 0; i < survivors.length; i++) {
-    const { doc, status, view } = survivors[i];
-    const { pendingApprovals } = phase2[i];
-    const item = buildCampaignListItem(status, view, pendingApprovals, doc.brand_kit?.extracted_at ?? null);
-    item.deletedAt = doc.deleted_at ?? null;
-    item.deletedBy = doc.deleted_by ?? null;
-    item.softCancelRequestedAt = doc.soft_cancel_requested_at ?? null;
-    deletedPosts.push(item);
+  const survivors: DeletedEntry[] = [];
+  const seen = new Set<string>();
+  for (const entry of phase1) {
+    if (!entry) continue;
+    if (seen.has(entry.dedupKey)) {
+      continue;
+    }
+    seen.add(entry.dedupKey);
+    survivors.push(entry);
   }
+
+  const deletedPosts: RuntimePostListItem[] = survivors.map((entry) => {
+    const item = listItemFromProjection(entry.jobId, entry.projection, entry.pendingApprovals, entry.brandKitExtractedAt);
+    item.deletedAt = entry.deletedAt;
+    item.deletedBy = entry.deletedBy;
+    item.softCancelRequestedAt = entry.softCancelRequestedAt;
+    return item;
+  });
 
   return deletedPosts.sort((left, right) => {
     const leftDeleted = Date.parse(left.deletedAt || '');
@@ -1864,11 +2076,44 @@ export async function listMarketingReviewQueueForTenant(tenantId: string): Promi
   // chosen to use ≤20% of the default DB_POOL_MAX=20 per request. Live audit
   // on this tenant (30+ jobs) saw 24-36s here under the prior serial loop.
   // See lib/process-concurrent.ts and CLAUDE.md guardrail #1.
+  //
+  // O(jobs-with-pending) hydration: a job contributes to the review queue only
+  // when it has non-approved review items. The persisted `pending_approval_count`
+  // (PR #521) IS that exact count and is oracle-verified against the live
+  // re-hydrating build (tests/marketing/pending-approval-count-denorm.test.ts).
+  // So when the persisted count is 0 we skip the expensive getMarketingJobStatus
+  // + buildSocialContentWorkspaceView hydration entirely and contribute nothing
+  // — byte-identical to the old per-job rebuild, which would have produced zero
+  // non-approved items for that job. Legacy records (count undefined) fall
+  // through to a full build and self-heal the scalar so the next load is O(1).
   const jobIds = await listSocialContentJobIdsForTenant(tenantId);
-  const perJob = await processConcurrent(jobIds, (jobId) => buildReviewItemsForJob(jobId), 4);
+  const perJob = await processConcurrent(
+    jobIds,
+    async (jobId): Promise<RuntimeReviewItem[]> => {
+      const runtimeDoc = await loadSocialContentJobRuntime(jobId);
+      if (!runtimeDoc) {
+        return [];
+      }
+      if (runtimeDoc.state === 'failed' || runtimeDoc.status === 'failed') {
+        return [];
+      }
+      const record = loadSocialContentWorkspaceRecord(jobId, runtimeDoc.tenant_id);
+      if (record && record.pending_approval_count === 0) {
+        return [];
+      }
+      const items = await buildReviewItemsForJob(jobId, { runtimeDoc });
+      const nonApproved = items.filter((item) => item.status !== 'approved');
+      if (!record || record.pending_approval_count === undefined) {
+        // Self-heal legacy records so subsequent loads read the count O(1).
+        persistPendingApprovalCount(jobId, runtimeDoc.tenant_id, nonApproved.length);
+      }
+      return nonApproved;
+    },
+    4,
+  );
   const items: RuntimeReviewItem[] = [];
   for (const reviewItems of perJob) {
-    items.push(...reviewItems.filter((item) => item.status !== 'approved'));
+    items.push(...reviewItems);
   }
   return buildRuntimeReviewQueue(items);
 }
@@ -2090,6 +2335,15 @@ export async function recordMarketingReviewDecision(input: {
   }
 
   const lastDecision = persistReviewDecision(input.tenantId, item, input.reviewId, input.action, input.actedBy, input.note);
+
+  // WRITE SITE #1 (operator approve / reject / changes_requested): the decision
+  // above mutated stage_reviews / creative_asset_reviews / the persisted review
+  // state — all inputs to the pending-approval count. Recompute + persist the
+  // denormalized badge count so the campaign-list reads it O(1) and stays
+  // oracle-exact. Reload the doc: approve/deny paths above may have advanced the
+  // stage (markStageCompleted etc.), so the in-scope runtimeDoc is stale.
+  await recomputeAndPersistPendingApprovalCount(jobId);
+
   const refreshed = (await resolveRuntimeReviewItem(jobId, item.id)) || (await resolveRuntimeReviewItem(jobId, input.reviewId));
   if (!refreshed) {
     return {

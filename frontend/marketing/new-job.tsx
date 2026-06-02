@@ -269,8 +269,8 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
     <div className={wrapperClassName}>
       <div className={contentClassName}>
         <div className="glass rounded-[2.5rem] p-8 md:p-10">
-          <p className="mb-3 text-xs uppercase tracking-[0.3em] text-primary">Aries workflow</p>
-          <h1 className="mb-3 text-4xl font-bold">New Social Content</h1>
+          <p className="mb-3 text-xs uppercase tracking-[0.3em] text-violet-300">Aries workflow</p>
+          <h2 className="mb-3 text-4xl font-bold">New Social Content</h2>
           <p className="text-white/60">
             Create a real social content brief with brand inputs, review constraints, and uploads that persist into the post workspace.
           </p>
@@ -282,10 +282,10 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
               <div>
                 <div className="mb-4 flex items-center gap-3">
                   <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10">
-                    <Rocket className="h-6 w-6 text-primary" />
+                    <Rocket className="h-6 w-6 text-violet-300" />
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-[0.24em] text-white/35">Content intake</p>
+                    <p className="text-xs uppercase tracking-[0.24em] text-white/70">Content intake</p>
                     <h2 className="text-3xl font-bold">Capture the brief once</h2>
                   </div>
                 </div>
@@ -411,7 +411,7 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                     {marketingCreate.fieldErrors.competitorUrl}
                   </p>
                 ) : null}
-                <p className="mt-2 text-sm text-white/45">
+                <p className="mt-2 text-sm text-white/70">
                   Enter the competitor&apos;s website. Do not paste a Facebook page or Meta Ad Library URL here.
                 </p>
               </Field>
@@ -473,7 +473,7 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                       ariaLabel="Post end date"
                       invalid={!!oneOffFieldError('oneOff.campaignEndDate')}
                     />
-                    <p className="mt-2 text-xs text-white/45">Aries stops publishing past end-of-day in your timezone.</p>
+                    <p className="mt-2 text-xs text-white/70">Aries stops publishing past end-of-day in your timezone.</p>
                     {oneOffFieldError('oneOff.campaignEndDate') ? (
                       <p className="mt-2 text-sm text-red-300">{oneOffFieldError('oneOff.campaignEndDate')}</p>
                     ) : null}
@@ -536,7 +536,7 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                 </span>
               </button>
               {jobMode === 'weekly' && !websiteUrlIsValid && !submitting && (
-                <p id="start-social-content-hint" className="mt-2 text-center text-xs text-white/45">
+                <p id="start-social-content-hint" className="mt-2 text-center text-xs text-white/70">
                   {websiteUrl.trim()
                     ? 'Enter a valid URL like https://example.com to start social content.'
                     : 'Enter a website URL to start social content.'}
@@ -562,7 +562,7 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                   <Sparkles className="h-6 w-6 text-secondary" />
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-[0.24em] text-white/35">What happens next</p>
+                  <p className="text-xs uppercase tracking-[0.24em] text-white/70">What happens next</p>
                   <h2 className="text-3xl font-bold">Review-first flow</h2>
                 </div>
               </div>
@@ -576,7 +576,7 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                   const [stage, detail] = item.split(' feed ');
                   return (
                     <div key={item} className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-white/70">
-                      <span className="mr-2 rounded-full border border-primary/25 bg-primary/10 px-2 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-primary">
+                      <span className="mr-2 rounded-full border border-primary/25 bg-primary/10 px-2 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-violet-300">
                         Step {index + 1}
                       </span>
                       {stage && detail ? (
@@ -626,7 +626,7 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
 function Field(props: { label: string; required?: boolean; children: React.ReactNode }) {
   return (
     <label className="block space-y-2">
-      <span className="text-xs uppercase tracking-[0.22em] text-white/35">
+      <span className="text-xs uppercase tracking-[0.22em] text-white/70">
         {props.label}
         {props.required ? ' *' : ''}
       </span>

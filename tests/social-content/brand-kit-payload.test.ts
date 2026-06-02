@@ -200,6 +200,7 @@ test('buildSocialContentWeeklyRequest keeps the weekly payload byte-shape stable
       scope: {
         window_days: 7,
         static_post_count: 3,
+        story_count: 1,
         image_creative_count: 2,
         video_script_count: 1,
         video_render_count: 0,

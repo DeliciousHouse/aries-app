@@ -9,6 +9,7 @@ import {
   type SocialContentWorkspaceAssetUpload,
 } from '@/backend/marketing/workspace-store';
 import { loadSocialContentJobRuntime, saveSocialContentJobRuntime } from '@/backend/marketing/runtime-state';
+import { recomputeAndPersistPendingApprovalCount } from '@/backend/marketing/runtime-views';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
 function coerceFieldValue(value: FormDataEntryValue | null): string {
@@ -125,6 +126,15 @@ export async function handlePatchMarketingJobBrief(
   };
   saveSocialContentJobRuntime(jobId, runtimeDoc);
   invalidateMarketingJobStatus(jobId);
+  // A brief edit mutates runtimeDoc.inputs.request (name/goal/offer), which the
+  // denormalized campaign-list row derives (name/objective/summary) — AND a
+  // brand-asset upload changes brand-review existence, hence pending_approval_count.
+  // Recompute+persist BOTH denorm fields UNCONDITIONALLY (not just on uploads) so
+  // the list reflects the edited brief without re-hydrating. Change-only writes
+  // make the no-op (nothing changed) cheap, and a failure is non-fatal.
+  await recomputeAndPersistPendingApprovalCount(jobId, { runtimeDoc }).catch((err) => {
+    console.error('[brief] denorm recompute failed', err);
+  });
 
   return NextResponse.json({ ok: true }, { status: 200 });
 }

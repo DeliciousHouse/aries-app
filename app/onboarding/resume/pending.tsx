@@ -32,7 +32,7 @@ export default function OnboardingResumePending(): JSX.Element {
     <main className="min-h-screen bg-[#08070b] text-white">
       <div className="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center px-6 text-center">
         <div className="h-16 w-16 rounded-full border border-white/12 bg-white/5" aria-hidden="true" />
-        <p className="mt-6 text-xs uppercase tracking-[0.35em] text-white/45">Onboarding handoff</p>
+        <p className="mt-6 text-xs uppercase tracking-[0.35em] text-white/70">Onboarding handoff</p>
         <div role="status" aria-live="polite" aria-atomic="true">
           {stuck ? (
             <>

@@ -50,7 +50,14 @@ export default function AriesReviewQueueScreen() {
   if (reviews.error) {
     return (
       <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
-        {customerSafeUiErrorMessage(reviews.error.message, 'The review queue is not available right now.')}
+        <p>{customerSafeUiErrorMessage(reviews.error.message, 'The review queue is not available right now.')}</p>
+        <button
+          type="button"
+          onClick={() => void reviews.load()}
+          className="mt-3 inline-flex items-center gap-2 rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-1.5 text-sm font-medium text-red-50 transition hover:bg-red-500/20"
+        >
+          Try again
+        </button>
       </div>
     );
   }
@@ -132,7 +139,7 @@ export default function AriesReviewQueueScreen() {
 function InfoRow(props: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.label}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">{props.label}</p>
       <p className="mt-1 text-white/78">{props.value}</p>
     </div>
   );

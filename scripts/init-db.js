@@ -125,6 +125,34 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_oauth_audit_tenant_time ON oauth_audit_events (tenant_id, occurred_at DESC);
     `);
 
+    // connected_accounts — end-user social/ad connections established through the
+    // optional Composio integration layer (backend/integrations/composio).
+    // SECURITY: this table intentionally has NO access/refresh-token column. It
+    // persists the Composio connected_account_id (a pointer to the credential
+    // Composio holds) and the auth_config_id, never the raw OAuth secret itself.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS connected_accounts (
+        id BIGSERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        external_user_id TEXT NOT NULL,
+        platform TEXT NOT NULL CHECK (platform IN ('facebook','instagram','meta_ads','tiktok','youtube','linkedin','reddit')),
+        provider TEXT NOT NULL DEFAULT 'composio' CHECK (provider IN ('composio','direct_meta','none')),
+        connected_account_id TEXT,
+        auth_config_id TEXT,
+        external_account_id TEXT,
+        external_account_name TEXT,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('not_connected','pending','connected','reauthorization_required','error')),
+        capabilities_json JSONB,
+        last_capability_check_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (tenant_id, platform)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_connected_accounts_tenant ON connected_accounts (tenant_id);
+      CREATE INDEX IF NOT EXISTS idx_connected_accounts_tenant_platform ON connected_accounts (tenant_id, platform);
+    `);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS onboarding_drafts (
         draft_id TEXT PRIMARY KEY,
@@ -434,6 +462,13 @@ async function initDb() {
       ALTER TABLE posts DROP CONSTRAINT IF EXISTS posts_status_check;
       ALTER TABLE posts ADD CONSTRAINT posts_status_check CHECK (status IN ('draft','in_review','approved','scheduled','publishing','published','failed','rolled_back'));
 
+      -- Surface axis (feed|story|reel), orthogonal to media_type (image|video).
+      -- Stories can be image or video; reels are always video; feed can be
+      -- either. See migrations/20260531120000_posts_surface.sql.
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS surface TEXT NOT NULL DEFAULT 'feed';
+      ALTER TABLE posts DROP CONSTRAINT IF EXISTS posts_surface_check;
+      ALTER TABLE posts ADD CONSTRAINT posts_surface_check CHECK (surface IN ('feed','story','reel'));
+
       -- Vision QA runs table for brand compliance checks
       CREATE TABLE IF NOT EXISTS vision_qa_runs (
         id BIGSERIAL PRIMARY KEY,
@@ -508,6 +543,14 @@ async function initDb() {
       -- "no end date" -- the legacy weekly_social_content behaviour. The scheduled-posts
       -- worker filters claim-time on (campaign_end_date IS NULL OR campaign_end_date >= NOW()).
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS campaign_end_date TIMESTAMPTZ;
+      -- Mirror surface + media_type onto scheduled_posts so the worker dispatch
+      -- path forwards the publish shape without JOINing posts at claim time.
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS surface TEXT NOT NULL DEFAULT 'feed';
+      ALTER TABLE scheduled_posts DROP CONSTRAINT IF EXISTS scheduled_posts_surface_check;
+      ALTER TABLE scheduled_posts ADD CONSTRAINT scheduled_posts_surface_check CHECK (surface IN ('feed','story','reel'));
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS media_type TEXT NOT NULL DEFAULT 'image';
+      ALTER TABLE scheduled_posts DROP CONSTRAINT IF EXISTS scheduled_posts_media_type_check;
+      ALTER TABLE scheduled_posts ADD CONSTRAINT scheduled_posts_media_type_check CHECK (media_type IN ('image','video'));
 
       CREATE INDEX IF NOT EXISTS idx_posts_tenant_created ON posts (tenant_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_vision_qa_runs_tenant_post ON vision_qa_runs (tenant_id, post_id);
@@ -526,6 +569,23 @@ async function initDb() {
       CREATE TABLE IF NOT EXISTS honcho_write_idempotency_keys (
         key TEXT PRIMARY KEY,
         written_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      -- Worker-side ledger for the honcho-performance-worker (delayed real-Meta
+      -- performance -> Honcho memory). Distinct from honcho_write_idempotency_keys
+      -- (the Honcho-side claim inside recordPerformanceEvent): this lets the
+      -- due-posts query cheaply skip already-written (job_id, platform, metric_day)
+      -- without re-driving the Honcho idempotency claim every 30-min tick.
+      -- tenant_id INTEGER matches organizations.id (int4) -- do not use BIGINT.
+      -- metric_day is the post's UTC publish day (the #513 metric day), so
+      -- 24h/72h/7d/30d re-polls of the same metric-day collapse to one ledger row.
+      CREATE TABLE IF NOT EXISTS honcho_perf_writes (
+        tenant_id  INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        job_id     TEXT    NOT NULL,
+        platform   TEXT    NOT NULL,
+        metric_day DATE    NOT NULL,
+        written_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (tenant_id, job_id, platform, metric_day)
       );
 
       -- Hackathon landing page registrations. Standalone table -- not tied to

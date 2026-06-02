@@ -85,7 +85,7 @@ const LoginForm: React.FC<LoginFormProps> = ({
             <label htmlFor="login-email" className="block text-sm font-medium text-white/80 mb-1.5">Email Address</label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Mail className="h-5 w-5 text-white/40" />
+                <Mail className="h-5 w-5 text-white/70" />
               </div>
               <input
                 id="login-email"
@@ -117,7 +117,7 @@ const LoginForm: React.FC<LoginFormProps> = ({
             </div>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Lock className="h-5 w-5 text-white/40" />
+                <Lock className="h-5 w-5 text-white/70" />
               </div>
               <input
                 id="login-password"
@@ -164,7 +164,7 @@ const LoginForm: React.FC<LoginFormProps> = ({
               <div className="w-full border-t border-white/10" />
             </div>
             <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-background/80 backdrop-blur-sm text-white/40 uppercase tracking-wider">or continue with</span>
+              <span className="px-2 bg-background/80 backdrop-blur-sm text-white/70 uppercase tracking-wider">or continue with</span>
             </div>
           </div>
 
@@ -203,7 +203,7 @@ const LoginForm: React.FC<LoginFormProps> = ({
 
         <p className="mt-8 text-center text-sm text-white/60">
           Don't have an account?{' '}
-          <Link href={signupHref || '/signup'} className="font-bold text-white hover:text-primary transition-colors">
+          <Link href={signupHref || '/signup'} className="font-bold text-white hover:text-violet-300 transition-colors">
             create one
           </Link>
         </p>

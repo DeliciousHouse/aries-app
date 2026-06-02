@@ -34,8 +34,10 @@ import { scheduleHermesPublishPerformanceHonchoWrite } from '@/backend/memory/wr
 import { approveSocialContentJob } from './orchestrator';
 import type { ApproveSocialContentJobRequest, ApproveSocialContentJobResponse } from './orchestrator';
 import { ingestProductionCreativeAssetsToDb } from './ingest-production-assets';
+import { recomputeAndPersistPendingApprovalCount } from './runtime-views';
 import { synthesizePublishPostsFromContentPackage } from './synthesize-publish-posts';
-import { autoSchedulePosts } from './auto-schedule';
+import { composeStoryAssetForBaseCreative, resolveStoryCtaText } from './story-composer';
+import { autoSchedulePosts, type AutoScheduleInputRow } from './auto-schedule';
 import { getBusinessProfile } from '@/backend/tenant/business-profile';
 import { pool } from '@/lib/db';
 
@@ -1285,12 +1287,26 @@ async function synthesizePublishPostsOnCompletion(
   try {
     const tenantNum = Number(doc.tenant_id);
     if (!Number.isFinite(tenantNum) || tenantNum <= 0) return;
+    const brandPrimaryHex = doc.brand_kit?.colors?.primary ?? null;
     await synthesizePublishPostsFromContentPackage({
       jobId: doc.job_id,
       tenantId: tenantNum,
       doc,
       publishRunId,
       pool,
+      // Back promoted story posts with a composed 9:16 image (headline + brand
+      // CTA baked in) — Meta story publishing renders only pixels. Returns null
+      // on failure so the story falls back to the raw creative.
+      composeStoryAsset: ({ tenantId, jobId, baseAssetId, headline }) =>
+        composeStoryAssetForBaseCreative({
+          db: pool,
+          tenantId,
+          jobId,
+          baseAssetId,
+          headline,
+          ctaText: resolveStoryCtaText(),
+          brandPrimaryHex,
+        }),
     });
   } catch (err) {
     console.warn('[hermes-callbacks] synthesizePublishPostsFromContentPackage failed — continuing', {
@@ -1349,10 +1365,13 @@ async function autoScheduleApprovedPostsForJob(doc: SocialContentJobRuntimeDocum
   }
 
   // Include idempotency_key so we can recover the strategist-assigned
-  // post_number regardless of insert order. ORDER BY id is added for stable
-  // logging output even though the ordinal mapping does not depend on it.
-  const postRows = await pool.query<{ id: number; platform: string; idempotency_key: string | null }>(
-    `SELECT id, platform, idempotency_key
+  // post_number regardless of insert order, and surface/media_type so an
+  // auto-promoted image story is scheduled on its OWN surface (synthesize wrote
+  // surface='story', which the strategist weekly_schedule never emits) rather
+  // than collapsing onto its feed sibling's slot. ORDER BY id is added for
+  // stable logging output even though the ordinal mapping does not depend on it.
+  const postRows = await pool.query<AutoSchedulePostRow>(
+    `SELECT id, platform, idempotency_key, surface, media_type
        FROM posts
       WHERE job_id = $1 AND tenant_id = $2
       ORDER BY id`,
@@ -1363,49 +1382,9 @@ async function autoScheduleApprovedPostsForJob(doc: SocialContentJobRuntimeDocum
     return;
   }
 
-  // Map post_number → (platform → recommendedDay) using the strategist's
-  // weekly_schedule output. Falls back to (idx + 1) when the strategist
-  // omitted an explicit post_number, matching how synthesize-publish-posts
-  // assigns ordinals when the field is missing.
-  const dayByPlatformByOrdinal = new Map<number, Map<string, string | null>>();
-  weeklySchedule.forEach((entry, idx) => {
-    const ordinal = typeof entry.post_number === 'number' ? entry.post_number : idx + 1;
-    const platformMap = new Map<string, string | null>();
-    // Accept `platforms` (flat string[], current Hermes wire shape) or `platform_targets` (legacy).
-    if (Array.isArray(entry.platforms) && entry.platforms.length > 0) {
-      for (const p of entry.platforms) {
-        const platformKey = String(p || '').trim().toLowerCase();
-        if (platformKey) platformMap.set(platformKey, entry.recommended_day ?? null);
-      }
-    } else {
-      for (const target of entry.platform_targets ?? []) {
-        const platformKey = String(target.platform || '').trim().toLowerCase();
-        if (platformKey) platformMap.set(platformKey, entry.recommended_day ?? null);
-      }
-    }
-    dayByPlatformByOrdinal.set(ordinal, platformMap);
-  });
-
   const tenantTimezone = await readTenantTimezone(tenantNum);
 
-  const rows = postRows.rows
-    .map((row) => {
-      const ordinal = parsePostNumberFromIdempotencyKey(row.idempotency_key, doc.job_id);
-      if (ordinal === null) {
-        console.warn(
-          '[hermes-callbacks] autoSchedulePosts skipping row with unparseable idempotency_key',
-          { jobId: doc.job_id, postId: row.id, idempotencyKey: row.idempotency_key },
-        );
-        return null;
-      }
-      return {
-        postId: row.id,
-        platform: row.platform,
-        recommendedDay:
-          dayByPlatformByOrdinal.get(ordinal)?.get(row.platform.toLowerCase()) ?? null,
-      };
-    })
-    .filter((row): row is NonNullable<typeof row> => row !== null);
+  const rows = buildAutoScheduleRows(postRows.rows, weeklySchedule, doc.job_id);
 
   const result = await autoSchedulePosts({
     jobId: doc.job_id,
@@ -1425,11 +1404,120 @@ async function autoScheduleApprovedPostsForJob(doc: SocialContentJobRuntimeDocum
   });
 }
 
+/** Shape of the `posts` columns auto-scheduling reads. */
+export interface AutoSchedulePostRow {
+  id: number;
+  platform: string;
+  idempotency_key: string | null;
+  surface: string | null;
+  media_type: string | null;
+}
+
+/**
+ * Map synthesized `posts` rows to auto-schedule input rows. The strategist's
+ * `weekly_schedule[]` supplies the recommended DAY per (ordinal, platform), but
+ * the publish SURFACE and MEDIA TYPE are taken from the post's OWN columns:
+ * synthesize already resolved the strategist placement into `posts.surface` for
+ * feed posts and wrote `surface='story'` for auto-promoted image stories, which
+ * the strategist schedule never emits. Deriving surface from the schedule here
+ * (as the code once did) silently re-routed every promoted story back onto its
+ * feed sibling's slot — the composed 9:16 image then published to the feed
+ * instead of as a story. Exported for direct unit testing of that contract.
+ */
+export function buildAutoScheduleRows(
+  postRows: ReadonlyArray<AutoSchedulePostRow>,
+  weeklySchedule: ReadonlyArray<WeeklyScheduleEntry>,
+  jobId: string,
+): AutoScheduleInputRow[] {
+  // Map post_number → (platform → recommendedDay) using the strategist's
+  // weekly_schedule output. Falls back to (idx + 1) when the strategist omitted
+  // an explicit post_number, matching how synthesize-publish-posts assigns
+  // ordinals when the field is missing. Only the recommended DAY is consumed.
+  const targetByPlatformByOrdinal = new Map<number, Map<string, PlatformScheduleTarget>>();
+  weeklySchedule.forEach((entry, idx) => {
+    const ordinal = typeof entry.post_number === 'number' ? entry.post_number : idx + 1;
+    const platformMap = new Map<string, PlatformScheduleTarget>();
+    const day = entry.recommended_day ?? null;
+    const entrySurface = normalizeScheduleSurface(entry.placement);
+    const entryMediaType = normalizeScheduleMediaType(entry.media_type);
+    // Accept `platforms` (flat string[], current Hermes wire shape) or `platform_targets` (legacy).
+    if (Array.isArray(entry.platforms) && entry.platforms.length > 0) {
+      for (const p of entry.platforms) {
+        const platformKey = String(p || '').trim().toLowerCase();
+        if (platformKey) {
+          platformMap.set(platformKey, { recommendedDay: day, surface: entrySurface, mediaType: entryMediaType });
+        }
+      }
+    } else {
+      for (const target of entry.platform_targets ?? []) {
+        const platformKey = String(target.platform || '').trim().toLowerCase();
+        if (platformKey) {
+          platformMap.set(platformKey, {
+            recommendedDay: day,
+            surface: normalizeScheduleSurface(target.placement ?? entry.placement),
+            mediaType: normalizeScheduleMediaType(target.media_type ?? entry.media_type),
+          });
+        }
+      }
+    }
+    targetByPlatformByOrdinal.set(ordinal, platformMap);
+  });
+
+  return postRows
+    .map((row): AutoScheduleInputRow | null => {
+      const ordinal = parsePostNumberFromIdempotencyKey(row.idempotency_key, jobId);
+      if (ordinal === null) {
+        console.warn('[hermes-callbacks] autoSchedulePosts skipping row with unparseable idempotency_key', {
+          jobId,
+          postId: row.id,
+          idempotencyKey: row.idempotency_key,
+        });
+        return null;
+      }
+      // Recommended DAY comes from the strategist schedule; SURFACE + MEDIA TYPE
+      // come from the post's own authoritative columns (see doc-comment above).
+      const target = targetByPlatformByOrdinal.get(ordinal)?.get(row.platform.toLowerCase());
+      return {
+        postId: row.id,
+        platform: row.platform,
+        recommendedDay: target?.recommendedDay ?? null,
+        surface: normalizeScheduleSurface(row.surface),
+        mediaType: normalizeScheduleMediaType(row.media_type),
+      };
+    })
+    .filter((r): r is AutoScheduleInputRow => r !== null);
+}
+
+export type MetaScheduleSurface = 'feed' | 'story' | 'reel';
+export type MetaScheduleMediaType = 'image' | 'video';
+
 export interface WeeklyScheduleEntry {
   post_number?: number;
   recommended_day?: string | null;
   platforms?: string[];
-  platform_targets?: Array<{ platform?: string }>;
+  /**
+   * Per-entry surface + media_type the strategist emits for the whole post.
+   * `platform_targets[]` may override these per platform.
+   */
+  placement?: MetaScheduleSurface;
+  media_type?: MetaScheduleMediaType;
+  platform_targets?: Array<{ platform?: string; placement?: MetaScheduleSurface; media_type?: MetaScheduleMediaType }>;
+}
+
+/** A platform's resolved (surface, media_type) for one schedule ordinal. */
+export interface PlatformScheduleTarget {
+  recommendedDay: string | null;
+  surface: MetaScheduleSurface;
+  mediaType: MetaScheduleMediaType;
+}
+
+function normalizeScheduleSurface(value: unknown): MetaScheduleSurface {
+  const v = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return v === 'story' || v === 'reel' ? v : 'feed';
+}
+
+function normalizeScheduleMediaType(value: unknown): MetaScheduleMediaType {
+  return typeof value === 'string' && value.trim().toLowerCase() === 'video' ? 'video' : 'image';
 }
 
 export function readWeeklySchedule(doc: SocialContentJobRuntimeDocument): WeeklyScheduleEntry[] {
@@ -1594,6 +1682,35 @@ function createApprovalCheckpoint(
 }
 
 export async function applyHermesMarketingCallback(
+  run: ExecutionRunRecord,
+  payload: HermesRunCallbackPayload,
+): Promise<void> {
+  await applyHermesMarketingCallbackInner(run, payload);
+
+  // WRITE SITES #2 + #3 (Hermes stage advances + production creative_assets
+  // ingestion): this callback is the single entry point for every Hermes-driven
+  // mutation -- stage transitions (markStageCompleted / markJobCompleted /
+  // maybeAutoAdvanceNextStage), approval checkpoints, and the production
+  // creative_assets DB ingestion (ingestProductionCreativeAssetsOnCompletion)
+  // that writes creative_assets WITHOUT building a workspace view. All of those
+  // can change the pending-approval count, and saveSocialContentJobRuntime
+  // itself is sync/no-DB-context (so it cannot recompute). Recompute + persist
+  // the denormalized badge count here, once, off the settled doc -- covering the
+  // full advance + ingestion surface in one place with tenant/DB context.
+  // Non-fatal: a recompute failure must never break callback idempotency.
+  if (run.marketing_job_id) {
+    try {
+      await recomputeAndPersistPendingApprovalCount(run.marketing_job_id);
+    } catch (err) {
+      console.warn('[hermes-callbacks] pending-approval count recompute failed -- continuing', {
+        jobId: run.marketing_job_id,
+        error: (err as Error)?.message ?? String(err),
+      });
+    }
+  }
+}
+
+async function applyHermesMarketingCallbackInner(
   run: ExecutionRunRecord,
   payload: HermesRunCallbackPayload,
 ): Promise<void> {

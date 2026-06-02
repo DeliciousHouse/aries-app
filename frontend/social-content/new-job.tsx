@@ -68,6 +68,8 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
   );
 
   const [staticPostCount, setStaticPostCount] = useState(7);
+  // Image-story posts to publish alongside feed posts. Default 1 (ON); 0 = OFF.
+  const [storyCount, setStoryCount] = useState(1);
   const [imageCreativeCount, setImageCreativeCount] = useState(6);
   const [videoScriptCount, setVideoScriptCount] = useState(1);
   const [renderVideoAfterApproval, setRenderVideoAfterApproval] = useState(false);
@@ -146,6 +148,7 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
     const boundedWindowDays = Math.min(14, Math.max(1, postWindowDays || 7));
     formData.set("postWindowDays", String(boundedWindowDays));
     formData.set("staticPostCount", String(Math.max(0, staticPostCount)));
+    formData.set("storyCount", String(Math.max(0, storyCount)));
     formData.set("imageCreativeCount", String(Math.max(0, imageCreativeCount)));
     formData.set("videoScriptCount", String(Math.max(0, videoScriptCount)));
     formData.set("videoRenderCount", renderVideoAfterApproval ? "1" : "0");
@@ -194,7 +197,7 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
     <div className={wrapperClassName}>
       <div className={contentClassName}>
         <div className="glass rounded-[2.5rem] p-8 md:p-10">
-          <p className="mb-3 text-xs uppercase tracking-[0.3em] text-primary">Weekly social content</p>
+          <p className="mb-3 text-xs uppercase tracking-[0.3em] text-violet-300">Weekly social content</p>
           <h1 className="mb-3 text-4xl font-bold">Create my weekly social posts</h1>
           <p className="text-white/60">
             Share a few details and Aries will prepare your weekly social content plan.
@@ -373,6 +376,15 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
                   className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50"
                 />
               </Field>
+              <Field label="Image stories">
+                <input
+                  type="number"
+                  min={0}
+                  value={storyCount}
+                  onChange={(event) => setStoryCount(Number(event.target.value || 0))}
+                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50"
+                />
+              </Field>
               <Field label="Image creatives">
                 <input
                   type="number"
@@ -392,7 +404,7 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
                 />
               </Field>
               <div className="space-y-2">
-                <p className="text-xs uppercase tracking-[0.22em] text-white/35">Render video after approval</p>
+                <p className="text-xs uppercase tracking-[0.22em] text-white/70">Render video after approval</p>
                 <label className="flex items-center gap-3 text-sm text-white/80">
                   <input
                     type="checkbox"
@@ -404,7 +416,7 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
                 </label>
               </div>
               <div className="space-y-2">
-                <p className="text-xs uppercase tracking-[0.22em] text-white/35">Platforms</p>
+                <p className="text-xs uppercase tracking-[0.22em] text-white/70">Platforms</p>
                 <label className="flex items-center gap-3 text-sm text-white/80">
                   <input
                     type="checkbox"
@@ -467,7 +479,7 @@ function Section(props: { title: string; children: React.ReactNode }) {
 function Field(props: { label: string; required?: boolean; children: React.ReactNode }) {
   return (
     <label className="block space-y-2">
-      <span className="text-xs uppercase tracking-[0.22em] text-white/35">
+      <span className="text-xs uppercase tracking-[0.22em] text-white/70">
         {props.label}
         {props.required ? " *" : ""}
       </span>

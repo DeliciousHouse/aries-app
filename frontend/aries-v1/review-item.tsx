@@ -188,7 +188,7 @@ function InlineCopyEditor(props: InlineCopyEditorProps) {
     <ShellPanel eyebrow="Edit" title="Caption and copy">
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-3">
-          <p className="text-xs uppercase tracking-[0.18em] text-white/40">
+          <p className="text-xs uppercase tracking-[0.18em] text-white/70">
             Inline edits autosave. Last write wins.
           </p>
           <span
@@ -200,7 +200,7 @@ function InlineCopyEditor(props: InlineCopyEditorProps) {
                 ? 'inline-flex items-center gap-1.5 text-xs text-emerald-300/85'
                 : savingState === 'error'
                 ? 'inline-flex items-center gap-1.5 text-xs text-rose-300/85'
-                : 'inline-flex items-center gap-1.5 text-xs text-white/45'
+                : 'inline-flex items-center gap-1.5 text-xs text-white/70'
             }
           >
             {savingState === 'saving' ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : null}
@@ -215,7 +215,7 @@ function InlineCopyEditor(props: InlineCopyEditorProps) {
         </div>
 
         <div>
-          <label htmlFor="inline-edit-headline" className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/45">
+          <label htmlFor="inline-edit-headline" className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">
             Headline
           </label>
           <input
@@ -237,7 +237,7 @@ function InlineCopyEditor(props: InlineCopyEditorProps) {
         </div>
 
         <div>
-          <label htmlFor="inline-edit-caption" className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/45">
+          <label htmlFor="inline-edit-caption" className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">
             Caption
           </label>
           <textarea
@@ -257,7 +257,7 @@ function InlineCopyEditor(props: InlineCopyEditorProps) {
           />
           {charLimit !== null ? (
             <p
-              className={`mt-1.5 text-right text-xs tabular-nums ${overLimit ? 'text-rose-300/85' : characterCount >= charLimit * 0.9 ? 'text-amber-300/80' : 'text-white/35'}`}
+              className={`mt-1.5 text-right text-xs tabular-nums ${overLimit ? 'text-rose-300/85' : characterCount >= charLimit * 0.9 ? 'text-amber-300/80' : 'text-white/70'}`}
             >
               {characterCount.toLocaleString()} / {charLimit.toLocaleString()}
               {props.channelHint === 'instagram' ? ' · Instagram' : props.channelHint === 'facebook' ? ' · Facebook' : ''}
@@ -429,7 +429,7 @@ export default function AriesReviewItemScreen(props: { reviewId: string; initial
             <p className="text-sm leading-7 text-white/65">{reviewItem.summary}</p>
             </div>
             <div className="rounded-[1.5rem] border border-white/8 bg-black/15 px-5 py-5 text-sm leading-7 text-white/65">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">What this decision does</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">What this decision does</p>
             <p className="mt-3">
               {reviewItem.reviewType === 'workflow_approval'
                 ? 'Approving this clears the current approval and opens the next prepared stage. Requesting changes keeps this package open for revision.'
@@ -546,7 +546,7 @@ export default function AriesReviewItemScreen(props: { reviewId: string; initial
                   <div className="space-y-5 border-t border-white/8 pt-5">
                     {section.brandKitVisuals.logos.length > 0 ? (
                       <div className="space-y-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Visible marks</p>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Visible marks</p>
                         <div className="grid gap-3 sm:grid-cols-2">
                           {section.brandKitVisuals.logos.map((logoUrl, index) => (
                             <div
@@ -570,7 +570,7 @@ export default function AriesReviewItemScreen(props: { reviewId: string; initial
 
                     {section.brandKitVisuals.colors.length > 0 ? (
                       <div className="space-y-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Palette cues</p>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Palette cues</p>
                         <div className="grid gap-3 sm:grid-cols-3">
                           {section.brandKitVisuals.colors.map((color) => (
                             <div key={`${section.id}-${color.hex}`} className="rounded-[1.1rem] border border-white/8 bg-black/15 p-3">
@@ -585,11 +585,11 @@ export default function AriesReviewItemScreen(props: { reviewId: string; initial
 
                     {section.brandKitVisuals.fonts.length > 0 ? (
                       <div className="space-y-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Typography cues</p>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Typography cues</p>
                         <div className="grid gap-3">
                           {section.brandKitVisuals.fonts.map((font) => (
                             <div key={`${section.id}-${font.family}`} className="rounded-[1.1rem] border border-white/8 bg-black/15 p-4">
-                              <p className="text-xs uppercase tracking-[0.14em] text-white/45">{font.label}</p>
+                              <p className="text-xs uppercase tracking-[0.14em] text-white/70">{font.label}</p>
                               <p className="mt-3 text-2xl text-white" style={brandKitFontStyle(font.family)}>
                                 {font.sampleText}
                               </p>
@@ -618,11 +618,11 @@ export default function AriesReviewItemScreen(props: { reviewId: string; initial
                 maxLength={600}
                 aria-describedby="note-char-count"
               />
-              <p id="note-char-count" className={`mt-1.5 text-right text-xs tabular-nums ${note.length >= 550 ? 'text-amber-400/70' : 'text-white/30'}`}>
+              <p id="note-char-count" className={`mt-1.5 text-right text-xs tabular-nums ${note.length >= 550 ? 'text-amber-400/70' : 'text-white/70'}`}>
                 {note.length} / 600
               </p>
               {noteIsEmpty ? (
-                <p className="mt-1.5 text-xs text-white/45" data-testid="destructive-note-helper">
+                <p className="mt-1.5 text-xs text-white/70" data-testid="destructive-note-helper">
                   A comment is required to request changes.
                 </p>
               ) : null}

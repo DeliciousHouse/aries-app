@@ -193,7 +193,7 @@ export function DashboardAssetCard({
       />
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.22em] text-white/35">{asset.type.replace(/_/g, ' ')}</p>
+          <p className="text-xs uppercase tracking-[0.22em] text-white/70">{asset.type.replace(/_/g, ' ')}</p>
           <h3 className="mt-2 text-base font-semibold text-white">{asset.title}</h3>
           <p className="mt-2 text-sm text-white/55">{asset.platformLabel}</p>
         </div>
@@ -228,7 +228,7 @@ export function DashboardPostCard({
       />
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.22em] text-white/35">{post.platformLabel}</p>
+          <p className="text-xs uppercase tracking-[0.22em] text-white/70">{post.platformLabel}</p>
           <h3 className="mt-2 text-base font-semibold text-white">{post.title}</h3>
           <p className="mt-2 text-sm text-white/55">{post.summary}</p>
         </div>
@@ -248,7 +248,7 @@ function ReviewPreviewGallery({ previews }: { previews: MarketingReviewPreviewCa
 
         return (
           <div key={preview.id} className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
-            <p className="text-xs uppercase tracking-[0.22em] text-white/35">{preview.platformName}</p>
+            <p className="text-xs uppercase tracking-[0.22em] text-white/70">{preview.platformName}</p>
             <div className="grid gap-3 sm:grid-cols-2">
               {imageAssets.length > 0 ? (
                 imageAssets.map((asset) => (
@@ -382,7 +382,7 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
     <div className="min-h-screen bg-background px-6 py-10 md:px-8 lg:px-10">
       <div className="max-w-7xl mx-auto space-y-6">
         <div className="glass rounded-[2.5rem] p-8 md:p-10">
-          <p className="text-xs uppercase tracking-[0.3em] text-primary mb-3">{copy.headerEyebrow}</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-violet-300 mb-3">{copy.headerEyebrow}</p>
           <h1 className="text-4xl font-bold mb-3">{copy.headerTitle}</h1>
           <p className="text-white/60">{copy.headerDescription}</p>
         </div>
@@ -391,7 +391,7 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
         <div className="glass rounded-[2.5rem] p-8">
           <div className="grid gap-5">
             <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-3">{copy.overviewEyebrow}</p>
+              <p className="text-xs uppercase tracking-[0.24em] text-white/70 mb-3">{copy.overviewEyebrow}</p>
               <h1 className="text-3xl font-bold mb-3">{copy.overviewTitle}</h1>
               <p className="text-white/60">
                 {copy.overviewDescription}
@@ -399,7 +399,7 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
             </div>
 
             <label className="block space-y-2">
-              <span className="text-xs uppercase tracking-[0.22em] text-white/35">Job ID</span>
+              <span className="text-xs uppercase tracking-[0.22em] text-white/70">Job ID</span>
               <input
                 value={jobId}
                 onChange={(event) => setJobId(event.target.value)}
@@ -472,7 +472,7 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
           ) : (
             <div className="grid gap-5">
               <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-3">Current state</p>
+                <p className="text-xs uppercase tracking-[0.24em] text-white/70 mb-3">Current state</p>
                 <h2 className="text-3xl font-bold mb-3">{copy.pipelineTitle}</h2>
               </div>
               <div className="space-y-3">
@@ -505,7 +505,7 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
 
               {successResult.stageCards?.length ? (
                 <div className="grid gap-3">
-                  <p className="text-xs uppercase tracking-[0.24em] text-white/35">Stage Progress</p>
+                  <p className="text-xs uppercase tracking-[0.24em] text-white/70">Stage Progress</p>
                   {successResult.stageCards.map((card) => (
                     <div key={card.stage} className="rounded-xl border border-white/5 bg-white/5 p-4 flex items-center justify-between gap-4">
                       <div>
@@ -540,7 +540,7 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
         <div className="grid lg:grid-cols-2 gap-6 mt-6">
           {successResult.artifacts?.length ? (
             <div className="glass rounded-[2.5rem] p-8">
-              <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-6">Deliverables & Artifacts</p>
+              <p className="text-xs uppercase tracking-[0.24em] text-white/70 mb-6">Deliverables & Artifacts</p>
               <div className="grid gap-4">
                 {successResult.artifacts.map((art) => (
                   <div key={art.id} className="rounded-2xl border border-white/10 bg-white/5 p-5">
@@ -555,7 +555,7 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
                       </pre>
                     ) : null}
                     {art.actionHref && art.actionLabel ? (
-                      <Link href={art.actionHref} className="text-xs font-bold text-primary hover:underline">
+                      <Link href={art.actionHref} className="text-xs font-bold text-violet-300 hover:underline">
                         {art.actionLabel} →
                       </Link>
                     ) : null}
@@ -567,14 +567,14 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
 
           {successResult.timeline?.length ? (
             <div className="glass rounded-[2.5rem] p-8">
-              <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-6">Audit Trail</p>
+              <p className="text-xs uppercase tracking-[0.24em] text-white/70 mb-6">Audit Trail</p>
               <div className="space-y-6">
                 {successResult.timeline.map((entry) => (
                   <div key={entry.id} className="relative pl-6 border-l-2 border-white/10">
                     <div className={timelineEntryDotClass(entry.tone)} />
                     <div className="flex justify-between items-start mb-1">
                       <h4 className="text-sm font-bold">{entry.label}</h4>
-                      <time className="text-[10px] text-white/30">{entry.at ? `${formatInTenantZone(entry.at, tz)} ${tenantZoneAbbreviation(entry.at, tz)}` : ''}</time>
+                      <time className="text-[10px] text-white/70">{entry.at ? `${formatInTenantZone(entry.at, tz)} ${tenantZoneAbbreviation(entry.at, tz)}` : ''}</time>
                     </div>
                     <p className="text-xs text-white/50">{entry.description}</p>
                   </div>
@@ -587,7 +587,7 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
 
       {successResult?.reviewBundle?.platformPreviews?.length ? (
         <div className="glass rounded-[2.5rem] p-8 mt-6">
-          <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-6">Launch review previews</p>
+          <p className="text-xs uppercase tracking-[0.24em] text-white/70 mb-6">Launch review previews</p>
           <ReviewPreviewGallery previews={successResult.reviewBundle.platformPreviews} />
         </div>
       ) : null}
@@ -595,7 +595,7 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
       {successResult && (successResult.dashboard.assets.length > 0 || successResult.dashboard.posts.length > 0 || successResult.dashboard.publishItems.length > 0) ? (
         <div className="grid gap-6 mt-6 xl:grid-cols-3">
           <div className="glass rounded-[2.5rem] p-8">
-            <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-6">Assets</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-white/70 mb-6">Assets</p>
             <div className="grid gap-4">
               {successResult.dashboard.assets.map((asset) => (
                 <DashboardAssetCard
@@ -607,7 +607,7 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
             </div>
           </div>
           <div className="glass rounded-[2.5rem] p-8">
-            <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-6">Posts</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-white/70 mb-6">Posts</p>
             <div className="grid gap-4">
               {successResult.dashboard.posts.map((post) => (
                 <DashboardPostCard
@@ -619,7 +619,7 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
             </div>
           </div>
           <div className="glass rounded-[2.5rem] p-8">
-            <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-6">Publish queue</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-white/70 mb-6">Publish queue</p>
             <div className="grid gap-4">
               {successResult.dashboard.publishItems.map((item) => (
                 <DashboardPostCard

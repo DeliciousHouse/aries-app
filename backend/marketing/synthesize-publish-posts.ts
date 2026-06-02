@@ -64,6 +64,20 @@ export interface SynthesizePublishPostsArgs {
   pool: {
     query(sql: string, params?: unknown[]): Promise<{ rows: unknown[]; rowCount?: number | null }>;
   };
+  /**
+   * Optional story-image composer. When provided, a promoted story post is
+   * backed by a COMPOSED 9:16 image (headline + brand CTA baked in) instead of
+   * the bare feed creative — because Meta story publishing renders only pixels
+   * (no caption, no link sticker). Returns the composed creative_asset id, or
+   * null to fall back to the raw creative. Omitted in unit tests (pure) and
+   * wired to `composeStoryAssetForBaseCreative` in production (hermes-callbacks).
+   */
+  composeStoryAsset?: (args: {
+    tenantId: number;
+    jobId: string;
+    baseAssetId: string;
+    headline: string;
+  }) => Promise<string | null>;
 }
 
 export interface SynthesizePublishPostsResult {
@@ -80,10 +94,115 @@ export interface SynthesizePublishPostsResult {
 type ContentPackageEntry = {
   postNumber: number;
   caption: string;
+  /** The post hook — used as the story headline when composing story images. */
+  headline: string;
   platforms: string[];
 };
 
 const VALID_PLATFORMS = new Set(['instagram', 'facebook']);
+
+type PostSurface = 'feed' | 'story' | 'reel';
+type PostMediaType = 'image' | 'video';
+
+/** A per-(postNumber, platform) publish shape resolved from the weekly schedule. */
+type ScheduleShape = { surface: PostSurface; mediaType: PostMediaType };
+
+/**
+ * Rollout gate. When OFF (default), video/reel entries are stripped at
+ * synthesis so the campaign still succeeds on image/feed. Treat 1/true/yes/on
+ * as enabled, matching the ARIES_SOCIAL_COPY_FINALIZE_ENABLED convention.
+ */
+function isVideoPublishEnabled(): boolean {
+  const raw = (process.env.ARIES_VIDEO_PUBLISH_ENABLED ?? '').trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+}
+
+function normalizeSurface(value: unknown): PostSurface {
+  const v = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return v === 'story' || v === 'reel' ? v : 'feed';
+}
+
+function normalizeMediaType(value: unknown): PostMediaType {
+  return typeof value === 'string' && value.trim().toLowerCase() === 'video' ? 'video' : 'image';
+}
+
+/**
+ * Read the strategist's weekly schedule from the publish stage and build a
+ * lookup of (post_number, platform) -> { surface, media_type }. Mirrors
+ * readWeeklySchedule()/the schedule loop in hermes-callbacks.ts, kept local to
+ * avoid a circular import (hermes-callbacks imports this module).
+ *
+ * A reel entry with no media_type is a contract violation (a reel is always
+ * video): we coerce it to video and let the validator/gate decide, rather than
+ * silently posting an image reel.
+ */
+function buildScheduleShapeLookup(doc: SocialContentJobRuntimeDocument): Map<string, ScheduleShape> {
+  const lookup = new Map<string, ScheduleShape>();
+  const primary = recordValue(doc.stages?.publish?.primary_output);
+  if (!primary) return lookup;
+  const rawSchedule =
+    Array.isArray((primary as { schedule?: unknown }).schedule)
+      ? (primary as { schedule?: unknown[] }).schedule
+      : Array.isArray((primary as { weekly_schedule?: unknown }).weekly_schedule)
+        ? (primary as { weekly_schedule?: unknown[] }).weekly_schedule
+        : null;
+  if (!Array.isArray(rawSchedule)) return lookup;
+
+  rawSchedule.forEach((rawEntry, idx) => {
+    const entry = recordValue(rawEntry);
+    if (!entry) return;
+    const ordinal =
+      typeof entry.post_number === 'number' && Number.isInteger(entry.post_number) && entry.post_number > 0
+        ? entry.post_number
+        : idx + 1;
+    const entrySurface = normalizeSurface(entry.placement);
+    const entryMediaType = normalizeMediaType(entry.media_type);
+
+    const addPlatform = (platformRaw: unknown, surface: PostSurface, mediaType: PostMediaType) => {
+      const platform = String(platformRaw ?? '').trim().toLowerCase();
+      if (!platform) return;
+      // A reel is always video; never persist an image reel.
+      const effectiveMediaType = surface === 'reel' ? 'video' : mediaType;
+      lookup.set(`${ordinal}:${platform}`, { surface, mediaType: effectiveMediaType });
+    };
+
+    if (Array.isArray(entry.platforms) && entry.platforms.length > 0) {
+      for (const platformRaw of entry.platforms) addPlatform(platformRaw, entrySurface, entryMediaType);
+    } else if (Array.isArray(entry.platform_targets)) {
+      for (const targetRaw of entry.platform_targets) {
+        const target = recordValue(targetRaw);
+        if (!target) continue;
+        addPlatform(
+          target.platform,
+          normalizeSurface(target.placement ?? entry.placement),
+          normalizeMediaType(target.media_type ?? entry.media_type),
+        );
+      }
+    }
+  });
+  return lookup;
+}
+
+/**
+ * The number of image-story posts the weekly run requested (`scope.story_count`,
+ * mirrored as `storyCount`/`storiesCount` on the persisted request). Default 0
+ * (OFF). Stories are never natively scheduled on Meta, so a requested story is
+ * synthesized as an additional `surface='story'` post that publishes live via
+ * the scheduled-dispatch path. Reads defensively from the persisted request blob.
+ */
+function readRequestedStoryCount(doc: SocialContentJobRuntimeDocument): number {
+  const request = recordValue((doc as { inputs?: { request?: unknown } }).inputs?.request);
+  if (!request) return 0;
+  const scope = recordValue(request.scope);
+  const raw = request.storyCount ?? request.storiesCount ?? scope?.story_count;
+  const n =
+    typeof raw === 'number'
+      ? raw
+      : typeof raw === 'string' && raw.trim().length > 0
+        ? Number.parseInt(raw, 10)
+        : NaN;
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0;
+}
 
 const SELECT_CREATIVE_ASSETS_SQL = `
   SELECT id, source_asset_id
@@ -101,10 +220,10 @@ const SELECT_CREATIVE_ASSETS_SQL = `
 const INSERT_SYNTHESIZED_POST_SQL = `
   INSERT INTO posts (
     tenant_id, job_id, hermes_run_id, platform, media_type,
-    caption, status, published_status, idempotency_key, creative_asset_ids
+    caption, status, published_status, idempotency_key, creative_asset_ids, surface
   ) VALUES (
-    $1, $2, $3, $4, 'image',
-    $5, 'approved', 'approved', $6, $7
+    $1, $2, $3, $4, $8,
+    $5, 'approved', 'approved', $6, $7, $9
   )
   ON CONFLICT (tenant_id, platform, idempotency_key) WHERE idempotency_key IS NOT NULL
   DO NOTHING
@@ -167,7 +286,13 @@ function parseContentPackage(raw: unknown): ContentPackageEntry[] {
     if (platforms.length === 0) return;
     const caption = buildCaption(record);
     if (!caption) return;
-    entries.push({ postNumber, caption, platforms: Array.from(new Set(platforms)) });
+    // Story headline = the hook (punchy), falling back to the body, then the
+    // first line of the caption. IG/FB stories show only the image, so this is
+    // baked into the composed story pixels.
+    const hook = typeof record.hook === 'string' ? record.hook.trim() : '';
+    const body = typeof record.body === 'string' ? record.body.trim() : '';
+    const headline = hook || body || caption.split('\n')[0] || '';
+    entries.push({ postNumber, caption, headline, platforms: Array.from(new Set(platforms)) });
   });
   return entries;
 }
@@ -286,7 +411,7 @@ function ensureSynthesizedPublishApprovalRecord(
 export async function synthesizePublishPostsFromContentPackage(
   args: SynthesizePublishPostsArgs,
 ): Promise<SynthesizePublishPostsResult> {
-  const { jobId, tenantId, doc, publishRunId, pool } = args;
+  const { jobId, tenantId, doc, publishRunId, pool, composeStoryAsset } = args;
 
   if (!Number.isFinite(tenantId) || tenantId <= 0) {
     return { inserted: 0, skipped: 0, total: 0, approvalRecordReady: false, reason: 'no_tenant' };
@@ -341,6 +466,9 @@ export async function synthesizePublishPostsFromContentPackage(
     });
   }
 
+  const scheduleShapeByKey = buildScheduleShapeLookup(doc);
+  const videoPublishEnabled = isVideoPublishEnabled();
+
   let inserted = 0;
   let skipped = 0;
   let total = 0;
@@ -349,8 +477,25 @@ export async function synthesizePublishPostsFromContentPackage(
     const assetId = assetIdsByPostNumber.get(entry.postNumber);
     const creativeAssetIds = assetId ? [assetId] : [];
     for (const platform of entry.platforms) {
+      // Resolve the publish shape (surface + media_type) for this post/platform
+      // from the strategist schedule; absent => feed/image (backward compat).
+      const shape = scheduleShapeByKey.get(`${entry.postNumber}:${platform}`)
+        ?? { surface: 'feed' as PostSurface, mediaType: 'image' as PostMediaType };
+
+      // Rollout gate: when video publishing is OFF, strip reel/video entries so
+      // the campaign still succeeds on the image/feed shapes. A reel has no
+      // image fallback, so the whole (post, platform) target is skipped.
+      if (!videoPublishEnabled && (shape.surface === 'reel' || shape.mediaType === 'video')) {
+        skipped++;
+        continue;
+      }
+
       total++;
-      const idempotencyKey = `${jobId}:${entry.postNumber}:${platform}`;
+      // 4-segment idempotency key so a feed + reel on the same post number and
+      // platform do not collide on the (tenant_id, platform, idempotency_key)
+      // unique index. parsePostNumberFromIdempotencyKey tolerates the 4th
+      // segment (it slices to the first colon after the job id).
+      const idempotencyKey = `${jobId}:${entry.postNumber}:${platform}:${shape.surface}`;
       try {
         const result = await pool.query(INSERT_SYNTHESIZED_POST_SQL, [
           tenantId,
@@ -360,6 +505,8 @@ export async function synthesizePublishPostsFromContentPackage(
           entry.caption,
           idempotencyKey,
           creativeAssetIds,
+          shape.mediaType,
+          shape.surface,
         ]);
         if ((result.rowCount ?? 0) > 0) {
           inserted++;
@@ -376,6 +523,81 @@ export async function synthesizePublishPostsFromContentPackage(
           error: (err as Error)?.message ?? String(err),
         });
         skipped++;
+      }
+    }
+  }
+
+  // Image-story auto-promotion. When the weekly scope requested image stories
+  // (`scope.story_count > 0`), promote the first N content_package entries into
+  // ADDITIONAL `surface='story'` posts that reuse the same Hermes-generated
+  // creative. This is what makes image stories flow automatically end-to-end:
+  // the upstream Hermes strategist/publish stages do not emit `placement:'story'`
+  // today, so without this an operator's requested stories would never
+  // materialise. Story posts publish LIVE via the scheduled-dispatch path (Meta
+  // rejects scheduled stories; the dispatch route never forwards `scheduledFor`).
+  //
+  // Default `story_count=0` => this block is inert and feed-only behavior is
+  // byte-for-byte unchanged. Idempotent + non-colliding: the per-row key carries
+  // the surface as its 4th segment, so a story post (`:story`) never collides
+  // with the feed post (`:feed`) for the same (post_number, platform); a
+  // replayed callback hits ON CONFLICT DO NOTHING. If a future Hermes schedule
+  // DOES emit a story placement for one of these posts, the main loop already
+  // inserted that `:story` row and this promotion is a no-op for it.
+  const storyBudget = readRequestedStoryCount(doc);
+  if (storyBudget > 0) {
+    for (const entry of entries.slice(0, storyBudget)) {
+      const assetId = assetIdsByPostNumber.get(entry.postNumber);
+      // A story is single-media with no text fallback. Skip entries with no
+      // linked creative rather than emit a media-less story that would fail at
+      // publish (publishInstagram requires >= 1 media url).
+      if (!assetId) {
+        skipped++;
+        continue;
+      }
+      // Compose a story image (headline + brand CTA baked into a 9:16 canvas)
+      // ONCE per entry and reuse it across the entry's platforms. Meta stories
+      // render only pixels, so a bare creative would post wordless. Fall back to
+      // the raw creative if no composer is wired or composition fails.
+      let storyAssetIds: string[] = [assetId];
+      if (composeStoryAsset) {
+        const composedId = await composeStoryAsset({
+          tenantId,
+          jobId,
+          baseAssetId: assetId,
+          headline: entry.headline,
+        }).catch(() => null);
+        if (composedId) storyAssetIds = [composedId];
+      }
+      for (const platform of entry.platforms) {
+        total++;
+        const idempotencyKey = `${jobId}:${entry.postNumber}:${platform}:story`;
+        try {
+          const result = await pool.query(INSERT_SYNTHESIZED_POST_SQL, [
+            tenantId,
+            jobId,
+            publishRunId,
+            platform,
+            entry.caption,
+            idempotencyKey,
+            storyAssetIds,
+            'image',
+            'story',
+          ]);
+          if ((result.rowCount ?? 0) > 0) {
+            inserted++;
+          } else {
+            skipped++;
+          }
+        } catch (err) {
+          console.warn('[synthesize-publish-posts] story row insert failed — skipping', {
+            jobId,
+            tenantId,
+            platform,
+            postNumber: entry.postNumber,
+            error: (err as Error)?.message ?? String(err),
+          });
+          skipped++;
+        }
       }
     }
   }

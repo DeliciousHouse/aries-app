@@ -1,0 +1,172 @@
+/**
+ * Composio AccountConnectionProvider — the end-user connect/list/disconnect
+ * lifecycle. Persists only the Composio connected-account id (never tokens).
+ *
+ * Connection flow:
+ *   1. createConnectLink -> gateway.initiateConnection -> persist a `pending`
+ *      row (connected_account_id null) and return the redirect URL.
+ *   2. User approves at the platform; Composio activates the connection.
+ *   3. refreshConnectionStatus reconciles: it lists the user's Composio
+ *      connections for this auth config, picks the ACTIVE one, and stores its
+ *      connected_account_id + external account details.
+ */
+
+import type { AccountConnectionProvider } from '../providers/interfaces';
+import type {
+  ConnectLinkResult,
+  ConnectedAccount,
+  IntegrationPlatform,
+  RequestedCapability,
+} from '../providers/types';
+import type { ComposioConfig } from './composio-config';
+import type { ComposioGateway, GatewayConnection } from './composio-client';
+import {
+  deleteConnectionRow,
+  getConnectionRow,
+  listConnectionRows,
+  notConnectedAccount,
+  upsertConnection,
+  type Queryable,
+} from './connection-store';
+import { ComposioConfigError } from './errors';
+import { isActiveStatus, mapComposioStatus } from './status-map';
+import pool from '@/lib/db';
+
+export class ComposioAccountProvider implements AccountConnectionProvider {
+  readonly kind = 'composio' as const;
+
+  constructor(
+    private readonly gateway: ComposioGateway,
+    private readonly config: ComposioConfig,
+    private readonly db: Queryable = pool,
+  ) {}
+
+  private requireTenant(options?: { tenantId: string }): string {
+    if (!options?.tenantId) {
+      throw new ComposioConfigError('A tenantId is required for Composio connection operations.');
+    }
+    return options.tenantId;
+  }
+
+  async createConnectLink(
+    externalUserId: string,
+    platform: IntegrationPlatform,
+    _requestedCapability: RequestedCapability,
+    options?: { tenantId: string; callbackUrl?: string },
+  ): Promise<ConnectLinkResult> {
+    const tenantId = this.requireTenant(options);
+    const authConfigId = this.config.authConfigIdFor(platform);
+    if (!authConfigId) {
+      throw new ComposioConfigError(
+        `No Composio auth config is set for ${platform}. Set COMPOSIO_${platform.toUpperCase()}_AUTH_CONFIG_ID or COMPOSIO_DEFAULT_AUTH_CONFIG_ID.`,
+      );
+    }
+
+    const initiated = await this.gateway.initiateConnection(externalUserId, authConfigId, options?.callbackUrl);
+
+    await upsertConnection(
+      {
+        tenantId,
+        externalUserId,
+        platform,
+        provider: 'composio',
+        connectedAccountId: null,
+        authConfigId,
+        status: 'pending',
+      },
+      this.db,
+    );
+
+    return {
+      provider: 'composio',
+      platform,
+      connectUrl: initiated.redirectUrl ?? '',
+      connectionRequestId: initiated.connectionRequestId,
+    };
+  }
+
+  async listConnections(externalUserId: string, options?: { tenantId: string }): Promise<ConnectedAccount[]> {
+    const tenantId = this.requireTenant(options);
+    return listConnectionRows(tenantId, this.db);
+  }
+
+  async getConnection(
+    externalUserId: string,
+    platform: IntegrationPlatform,
+    options?: { tenantId: string },
+  ): Promise<ConnectedAccount | null> {
+    const tenantId = this.requireTenant(options);
+    return getConnectionRow(tenantId, platform, this.db);
+  }
+
+  async disconnectConnection(
+    externalUserId: string,
+    platform: IntegrationPlatform,
+    options?: { tenantId: string },
+  ): Promise<{ disconnected: boolean }> {
+    const tenantId = this.requireTenant(options);
+    const existing = await getConnectionRow(tenantId, platform, this.db);
+    if (existing?.connectedAccountId) {
+      try {
+        await this.gateway.deleteConnection(existing.connectedAccountId);
+      } catch {
+        // Best-effort revoke at Composio; we still drop the local row so the
+        // user is not stuck "connected" to something Aries can't use.
+      }
+    }
+    const { deleted } = await deleteConnectionRow(tenantId, platform, this.db);
+    return { disconnected: deleted };
+  }
+
+  async refreshConnectionStatus(
+    externalUserId: string,
+    platform: IntegrationPlatform,
+    options?: { tenantId: string },
+  ): Promise<ConnectedAccount | null> {
+    const tenantId = this.requireTenant(options);
+    const authConfigId = this.config.authConfigIdFor(platform);
+
+    // Find the user's Composio connections for this platform's auth config and
+    // prefer an ACTIVE one. This reconciles a pending connection once the user
+    // has completed the OAuth approval out-of-band.
+    let connections: GatewayConnection[] = [];
+    try {
+      connections = await this.gateway.listConnections({
+        userIds: [externalUserId],
+        authConfigIds: authConfigId ? [authConfigId] : undefined,
+      });
+    } catch {
+      // Fall back to whatever we already have stored.
+      return getConnectionRow(tenantId, platform, this.db);
+    }
+
+    // When several platforms share COMPOSIO_DEFAULT_AUTH_CONFIG_ID the
+    // auth-config filter returns connections for ALL of them, so narrow to this
+    // platform's toolkit before picking — otherwise we could persist another
+    // platform's connected-account id onto this row. If no connection reports a
+    // toolkit slug (older payloads), fall back to the unfiltered set.
+    const expectedSlug = this.config.toolkitSlugFor(platform);
+    const slugMatched = connections.filter((c) => c.toolkitSlug === expectedSlug);
+    const candidates = slugMatched.length > 0 ? slugMatched : connections.some((c) => c.toolkitSlug) ? [] : connections;
+
+    const active = candidates.find((c) => isActiveStatus(c.status)) ?? candidates[0];
+    if (!active) {
+      return getConnectionRow(tenantId, platform, this.db) ?? notConnectedAccount(tenantId, externalUserId, platform, 'composio');
+    }
+
+    return upsertConnection(
+      {
+        tenantId,
+        externalUserId,
+        platform,
+        provider: 'composio',
+        connectedAccountId: active.id,
+        authConfigId: active.authConfigId ?? authConfigId ?? null,
+        externalAccountId: active.externalAccountId,
+        externalAccountName: active.externalAccountName,
+        status: mapComposioStatus(active.status),
+      },
+      this.db,
+    );
+  }
+}

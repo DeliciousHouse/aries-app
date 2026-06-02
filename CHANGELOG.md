@@ -2,6 +2,352 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.14.1 — Turn on weekly image stories + fix the surface-drop that mis-published them to the feed
+
+Flips the weekly social-content `story_count` default from 0 (OFF) to 1 (ON) so
+every weekly run now ships one image story alongside the feed posts. Aries
+synthesizes the story from the run's Hermes creative, composes it into a 9:16
+canvas with the post headline + brand CTA baked in (`story-composer.ts`), and
+publishes it LIVE through the scheduled-dispatch path (Meta cannot natively
+schedule stories). Levers: `SOCIAL_CONTENT_DEFAULT_SCOPE.story_count` and
+`DEFAULT_SOCIAL_CONTENT_COUNTS.storyCount` (both 0 → 1), plus the new-job UI
+default (`new-job.tsx`, 0 → 1) so operator-created jobs request stories too.
+
+**Surface-drop bug fixed (the reason flipping the flag alone would have
+mis-published).** `autoScheduleApprovedPostsForJob` derived each scheduled row's
+surface from the strategist `weekly_schedule` by ordinal — which never emits a
+`story` placement — and never read the post's own `surface='story'` column. So an
+auto-promoted story collapsed onto its feed sibling's slot and the composed 9:16
+image published to the **feed**, not as a story. The row builder is now extracted
+as `buildAutoScheduleRows` and takes surface/media_type from the post's own
+authoritative columns (the schedule supplies only the recommended day). The manual
+schedule route (`schedule/route.ts`) had the same defect — it now reads
+`posts.surface`/`media_type` and passes them to `upsertScheduledPost` instead of
+defaulting to feed. New regression tests in `marketing-auto-schedule.test.ts`
+cover the surface-preservation contract (previously untested).
+
+Proven live before shipping: an image story posted to both IG (Graph-confirmed
+`media_product_type=STORY`) and FB (`/photo_stories`, status published) on the
+@sugarandleatherai account via the deployed dispatch path. `npm run verify` green;
+629 marketing/scheduling/meta/social-content tests pass.
+
+## v0.1.14.0 — Composio integration: optional, flag-gated account/publish/analytics layer (default OFF)
+
+Adds Composio as an **optional, isolated** provider layer for end-user social/ad
+account connection, publishing, and analytics — without touching the existing
+direct Meta path. Ships **default OFF**: with `COMPOSIO_ENABLED=false` (the
+default) and `PUBLISH_PROVIDER=direct_meta` / `ANALYTICS_PROVIDER=direct_meta`,
+no Composio code loads and behavior is identical to before. `npm run verify` +
+`test:concurrent` green; existing `meta-publishing` / `publish-dispatch-approval`
+tests pass unchanged.
+
+**Aries-owned abstractions first** (`backend/integrations/providers/`):
+`AccountConnectionProvider`, `PublisherProvider`, `AnalyticsProvider`,
+`CapabilityProvider`, normalized result/metric types, and a `provider-factory`
+that turns flags into providers. `COMPOSIO_ENABLED` is a hard master switch —
+when off, the factory always returns the direct Meta provider regardless of the
+selectors. `auto` mode tries Composio first and falls back to direct Meta for
+Facebook/Instagram.
+
+**Composio adapter** (`backend/integrations/composio/`) behind those interfaces,
+using the verified `@composio/core` SDK surface (`connectedAccounts.initiate/
+list/get/delete`, `tools.execute`), loaded lazily so the package is only required
+when enabled. **`DirectMetaProvider`** (`backend/integrations/direct/`) wraps the
+existing `publishToMetaGraph` with identical behavior — `meta-publishing.ts` is
+untouched.
+
+**Safety invariants enforced + tested (24 new tests):** ads/campaigns always
+created PAUSED/draft; organic posts support dry-run preview and refuse a live
+post without an explicit approval; analytics normalize with missing metrics as
+`null` (never fabricated); connections persist Composio connected-account IDs,
+never raw OAuth tokens (the new `connected_accounts` table has no token column).
+
+**Surface:** connection endpoints under `/api/integrations/composio/*` (isolated
++ removable), a nontechnical `/connections` UI, the `connected_accounts` table
+(init-db + dated migration), env plumbing in `docker-compose.yml` with OFF
+defaults, and `docs/integrations/composio.md`. Also reconciles a pre-existing
+`package.json` version drift (was `0.1.13.1`).
+
+## v0.1.13.26 — public-readiness roadmap kickoff: plans + requires-infra test split
+
+Kickoff for Brendan's 15-area public-readiness roadmap. Docs + test-only — **zero
+`backend/` or `app/` runtime edits**.
+
+**Plans (docs/plans/2026-06-01-*).** A 38-agent reconcile→plan→review→audit workflow
+mapped all 15 roadmap areas to shipped / plan-exists / needs-plan and wrote a grounded,
+adversarially-reviewed implementation plan for every gap (completeness audit: 0 uncovered).
+`2026-06-01-public-readiness-reconciliation.md` is the index + dependency-ordered execution
+plan. Already-shipped work is cited, not re-planned: #519 (Meta failure taxonomy + reconnect
+signal + creative_asset_ids backfill) and #520 (video/Reel/Story publish surfaces, flag-gated).
+
+**Requires-infra test split (roadmap area 1a — `2026-06-01-test-suite-split-finish.md`).**
+Closes the residual correctness/clarity debt inside the now-green `full-suite` gate so it is
+green for the right reason, and makes the requires-infra vs self-contained split explicit:
+- Tenant-scoped 3 flat hydration fixtures in `frontend-api-layer.test.ts` so they exercise the
+  production tenant-scoped artifact read (`jobs-status.ts:387`) instead of a dead flat path;
+  the source-fingerprint leak-prevention test is preserved.
+- Documented the oauth `status` (Postgres) vs `connection_status` (in-memory) two-store split
+  (a recon false-positive, not drift) + added a positive DB-path assertion. No column change.
+- Added an ECONNREFUSED⇒fallback counter-branch so the network-vs-auth boundary
+  (28P01⇒503, ECONNREFUSED⇒201 fallback-create) is two named tests.
+- Shared `tests/helpers/requires-infra.ts` (`requireDbEnvOrSkip`, superset DB_* keys, canonical
+  skip string) adopted by all 7 live-DB files; `tests/REQUIRES_INFRA.md` index;
+  `scripts/list-requires-infra.mjs` + `npm run test:requires-infra-report` (314 self-contained /
+  7 requires-infra) + flag-gated `npm run test:requires-infra`.
+- New default-OFF flag `ARIES_TEST_REQUIRES_INFRA_ENABLED` (test-harness only; documented in
+  `CLAUDE.md` + `.env.example`, deliberately not in `docker-compose.yml`).
+
+Verified: typecheck clean; full CI-exact suite 2154 pass / 0 fail / 9 requires-infra skip.
+
+**Operational (run separately, approved by Brendan):** the prod `creative_asset_ids` backfill
+(`2026-06-01-publish-reliability-backfill-verify.md`, roadmap 1c) was run via
+`scripts/backfill-creative-asset-ids.mjs` — dry-run → review → `--write` → idempotency re-check.
+**2 legacy single-asset rows populated**, 0 ambiguous, 60 genuinely-empty rows left on fallback;
+re-run reports populated 0 (idempotent). Those posts now resolve their own image per-post.
+
+## v0.1.13.25 — perf(social-content): write-time dashboard-row denormalization with a freshness guard
+
+The QA-audit P1 fix for the slow list endpoints. `/api/social-content/posts`
+(`listSocialContentJobsForTenant` + `listDeletedSocialContentJobsForTenant`) and
+`/api/marketing/posts` (`getWorkflowAwareDashboardContentForTenant`) full-hydrated
+EVERY job (`loadStagePayloadBundle` ~10 file reads + review builds + `getMarketingJobStatus`)
+just to render summary cards — ~9-10s warm. Now the whole `view.dashboard` row is
+denormalized to `dashboard_list_projection` on the workspace record at every write
+site (via `recomputeAndPersistPendingApprovalCount`, which denorms BOTH the
+pending-approval count and the row off one `(status, view)` build) and read O(1):
+two file reads per job, skipping the heavy build. `referenceDate` is pinned to
+`created_at` so the snapshot is a pure function of state (byte-identical to a rebuild;
+the detail view's derived calendar now also anchors to creation week).
+
+Hardened against the staleness/crash classes a 4-skeptic adversarial review found:
+- **Freshness guard.** The projection carries `sourceUpdatedAt` (= `runtimeDoc.updated_at`
+  at build). The fast path serves it only when that matches the live `updated_at`,
+  else it rebuilds + self-heals. This auto-invalidates the projection for EVERY
+  runtime-doc writer (the stale-run reaper, orchestrator transitions) without wiring
+  each — the writer bumps `updated_at`, the guard notices. Previously the self-heal
+  only fired when the projection was absent, so a reaped/transitioned job served a
+  stale `running` card forever.
+- **DB-only writers recompute.** `posts.published_status` (manual IG/FB publish,
+  scheduled-dispatch) and `creative_assets` (upload-replace) don't touch the runtime
+  doc, so they call `recomputeAndPersistPendingApprovalCount` themselves.
+- **Crash guards.** `new Date(runtimeDoc.created_at)` is now `Number.isFinite(Date.parse(...))`-
+  guarded — a malformed `created_at` no longer throws `RangeError` and 500s the whole
+  tenant list. The malformed-projection load guard validates the dashboard arrays +
+  `statuses.countsByStatus` (a partial `dashboard:{}` would crash `mergeDashboardContent`).
+  The on-read count recompute is wrapped so one bad job degrades to count 0 instead
+  of 500-ing the list.
+
+New oracle tests: byte-identical persisted-row vs fresh-rebuild, stale-projection
+self-heal, and malformed-`created_at` no-throw. Full suite green (2153/2153).
+
+## v0.1.13.24 — fix(a11y): unique per-view <title> for the campaign workspace (WCAG 2.4.2)
+
+The stage routes `/dashboard/{brand-review,creative-review,strategy-review,publish-status}`
+client-redirect to `/dashboard/social-content/<id>?view=…` when a campaign exists,
+so all four collapsed to the workspace's static `"Campaign — Aries AI"` title.
+Replaced the static export with `generateMetadata` keyed by the `view` param →
+"Brand Review / Creative Review / Strategy Review / Publish Status / Campaign — Aries AI".
+The h1 was already per-view; this makes the document `<title>` unique too.
+
+## v0.1.13.23 — fix(a11y): EmptyStatePanel h3 → h2 (heading-order on /review + empty states)
+
+The shared `EmptyStatePanel` rendered its title as `<h3>`. With the per-route
+sr-only `<h1>` from v0.1.13.19, an empty screen (e.g. `/review` with an empty
+queue) went `h1 → h3`, skipping a level (axe heading-order, moderate). Bumped to
+`<h2>` — valid after the page h1 and after any section h2, so no screen skips.
+Caught by the final live 27-route re-scan.
+
+## v0.1.13.22 — fix(a11y): raise `text-primary` foreground to `text-violet-300` (WCAG 1.4.3 follow-up)
+
+The v0.1.13.19 contrast pass fixed low-opacity white text but left `text-primary`
+(`#7c3aed` / violet-600) used as a FOREGROUND color. On the dark theme that is
+only 2.89:1 — it fails 4.5:1 for normal text. The live re-scan caught 77 such
+failures on `/dashboard/posts` alone (the "Open asset preview" links), plus the
+eyebrow labels on terms / privacy / sitemap / hackathon / onboarding / new-job.
+
+### Fixed
+- Site-wide codemod: `text-primary` (foreground) → `text-violet-300` (~7.5:1 on
+  the dark theme), 69 sites across 29 files. Covers links, eyebrow labels, badges,
+  and accent icons. `bg-primary` / `border-primary` / gradient `*-primary` are
+  unchanged, so buttons keep the brand violet (white-on-violet already passes).
+  `text-primary/NN` opacities were already handled in v0.1.13.19/.21.
+  admin + creative-memory (light-surface, out of audit scope) excluded.
+
+## v0.1.13.21 — fix(a11y+media): flatten calendar tray interactivity + GC/guard evicted Hermes media
+
+QA-audit fixes #4 (nested-interactive) and #3 (broken images).
+
+### Fixed
+- **Calendar nested-interactive (WCAG 4.1.2).** The unscheduled-post tray rendered
+  each item as a dnd-kit draggable `<div role="button" tabindex="0">` that WRAPPED
+  its "Schedule" `<button>` — a focusable control inside a focusable control (axe:
+  "Element has focusable descendants", 59 nodes on this tenant's backlog). The
+  Schedule button is now a SIBLING of the draggable card, which also lets us drop
+  the pointer/key `stopPropagation` hacks that kept a button click from starting a
+  drag. Drag-to-schedule and click-to-schedule both still work.
+- **Broken creative tiles + orphaned media rows (P2).**
+  - `queryProductionCreativeAssets` now filters `orphaned_at IS NULL`, so a
+    superseded/evicted creative is no longer surfaced (its dead
+    `/api/internal/hermes/media/<id>` URL is no longer emitted).
+  - New `scripts/gc-missing-hermes-assets.ts` (dry-run by default) marks
+    `runtime_asset` rows whose file has evicted from `HERMES_IMAGE_CACHE_MOUNT`
+    as `orphaned_at`, after a 7-day grace; `gc-orphan-uploads.ts` then reclaims
+    them. Strictly never touches `ingested_asset` (composed stories / uploads).
+  - The calendar tray `<img>` hides itself on error instead of showing a broken
+    tile (the MediaPreview surfaces already fall back to "Preview archived").
+
+### Notes
+- Older runtime-artifact thumbnails whose Hermes cache files evicted still issue a
+  `/api/internal/hermes/media` request that 404s before the MediaPreview fallback
+  renders; those are not creative_assets rows (GC dry-run found 0 orphaned rows),
+  so eliminating the request itself would need a dashboard-content-pipeline
+  file-existence pass or a media-route placeholder — tracked as follow-up.
+
+## v0.1.13.20 — perf(marketing): O(jobs-with-pending) review queue + concurrent dashboard hydration + list-fetch timeout
+
+QA-audit P1: dashboard list pages rendered a blank skeleton for 8-16s and could
+hang on "Loading…". Root cause was per-job full hydration
+(`buildSocialContentWorkspaceView` → `loadStagePayloadBundle`). This is the
+safe, high-leverage slice (no risky write-time row denormalization of the core
+orchestrator; that remains a scoped follow-up for `/api/social-content/posts`).
+
+### Changed
+- **`/api/marketing/reviews` is now O(jobs-with-pending), not O(all-jobs).**
+  `listMarketingReviewQueueForTenant` reads the persisted, oracle-verified
+  `pending_approval_count` (PR #521) and skips the expensive
+  getMarketingJobStatus + buildSocialContentWorkspaceView hydration for any job
+  whose count is 0. Legacy records (count undefined) fall through to a full
+  build and self-heal the scalar. Live: ~16.5s → sub-second for a mostly-settled
+  tenant. New oracle test proves the skip path equals a full rebuild.
+- **`/api/marketing/posts` hydrates jobs concurrently.**
+  `getWorkflowAwareDashboardContentForTenant` replaced its serial per-job loop
+  with bounded `processConcurrent(_, 4)` (≤20% of DB_POOL_MAX, mirrors
+  `listSocialContentJobsForTenant`; guardrail #1). Dedup stays in jobId order so
+  selection is byte-identical. Live: ~13s → ~4s.
+- `buildReviewItemsForJob` accepts a pre-loaded `runtimeDoc` to avoid a
+  redundant disk read on the review-queue path.
+
+### Added
+- **List-fetch timeout + retry (no more infinite spinner).** `requestJson`
+  accepts `timeoutMs`; the three dashboard list GETs (`/api/social-content/posts`,
+  `/api/marketing/reviews`, `/api/marketing/posts`) abort after 30s and throw a
+  retryable `request_timeout` error. The social-content, review-queue, posts, and
+  results screens now render a "Try again" button on error instead of leaving a
+  stuck skeleton.
+
+## v0.1.13.19 — fix(a11y): WCAG color-contrast + per-route titles/h1 + heading-order
+
+Remediation from the 2026-05-31 QA + WCAG accessibility audit of
+aries.sugarandleather.com. Presentational only — no behavior change.
+
+### Fixed
+- **Color contrast (WCAG 1.4.3).** Raised failing low-opacity white text (every
+  `text-white/NN` below 50% → `/70`), `text-zinc-500/600` → `text-zinc-400`, and
+  `text-primary/80` → `text-violet-300` (calendar "Schedule" buttons + the docs
+  badge), so secondary text clears 4.5:1 against the dark theme. Placeholder
+  opacities and decorative SVG fills are intentionally left unchanged.
+- **Page titles + single h1 (WCAG 2.4.2 / 1.3.1 / 2.4.6).** Every `/dashboard/*`
+  and `/review` route now exports a unique, descriptive `<title>` and exposes
+  exactly one `<h1>`: the app shell renders a visually-hidden `<h1>` from the
+  route config, and the four presenter-level visible `<h1>`s (Calendar, Settings,
+  Results, Social Content) plus the New-Social-Content screen heading were demoted
+  to `<h2>` to keep one h1 per page.
+- **Heading order (WCAG 1.3.1).** Footer column headings `h4` → `h2` and the home
+  marketing calendar sidebar labels `h4` → `h3`, so public pages no longer skip a
+  heading level.
+
+## v0.1.13.18 — fix(social-content): make composed story images actually publish (serving + persistence)
+
+Two bugs in v0.1.13.17 (#525) meant a composed story would silently never reach
+Meta with words/CTA. Both caught by a live publish, which failed with
+`Only photo or video can be accepted as media type`.
+
+### Fixed
+- **Public media proxy now serves `ingested_asset` bytes.**
+  `/api/public/media/[token]/[basename]` resolved bytes ONLY from the Hermes
+  mount, so a composed story image (an `ingested_asset` under
+  `DATA_ROOT/ingested-assets`) 404'd when Meta fetched the signed URL → publish
+  rejected. The proxy now falls back to
+  `DATA_ROOT/ingested-assets/<tenant>/<sha[:2]>/<basename>`, scoped to the token's
+  `tenantId` (a tenant can only fetch their own ingested bytes). This also
+  unblocks publishing **operator-uploaded** creatives, which shared the gap.
+- **Composed-asset persistence no longer leaves `served_asset_ref` NULL.**
+  The insert used a data-modifying CTE (`INSERT … ; UPDATE … WHERE id = ins.id`)
+  to backfill `served_asset_ref` with the new row's id — but PostgreSQL evaluates
+  the UPDATE against a snapshot that excludes the CTE's just-inserted row, so it
+  matched 0 rows and the ref stayed NULL (the composer then returned no id and
+  fell back to the bare creative). Replaced with a single self-referential
+  INSERT that generates the uuid in a subselect feeding both `id` and
+  `served_asset_ref`. Verified on the prod DB.
+
+### Added
+- `tests/public-media-ingested.test.ts`: the proxy serves ingested bytes from
+  DATA_ROOT, still serves mount bytes, 404s on miss, and is tenant-scoped.
+
+## v0.1.13.17 — feat(social-content): compose story images with headline + aries.sugarandleather.com CTA
+
+### Added
+- **Server-side story image composition** (`backend/marketing/story-composer.ts`).
+  Meta IG/FB story publishing renders ONLY the image — captions are ignored and
+  link/text stickers are unsupported via the Graph API — so a raw feed creative
+  posted as a story shows up wordless with no call-to-action. The composer builds
+  a 1080×1920 (9:16) story: darkened/blurred full-bleed background, the creative
+  contained up top, a bottom scrim, the post's **hook as a bold headline** (wrapped,
+  length-adaptive), and a brand-color **CTA pill carrying the site host**
+  (`aries.sugarandleather.com`, derived from `APP_BASE_URL`, never the bare
+  leather-goods host; CTA font auto-sizes so the URL never clips).
+  - Composed image is persisted like an operator upload — written under
+    `DATA_ROOT/ingested-assets` as a `creative_assets` row
+    (`source_type='runtime_artifact'`, `storage_kind='ingested_asset'`,
+    `aspect_ratio='9:16'`) served by the id route, so the existing dispatch
+    signing path makes it fetchable by Meta. No new serving route.
+  - `composeStoryAssetForBaseCreative` resolves base bytes (runtime_asset from the
+    Hermes mount, ingested_asset from DATA_ROOT), composes, persists, and returns
+    the composed asset id — returning `null` on any failure so a publish never
+    blocks (falls back to the raw creative).
+- **Wired into story synthesis** (`synthesize-publish-posts.ts`,
+  `hermes-callbacks.ts`): a promoted `surface='story'` post is now backed by the
+  COMPOSED asset (composed once per post, reused across platforms), using the
+  post's hook as the headline. Falls back to the raw creative if no composer is
+  wired (unit tests) or composition fails.
+
+### Notes
+- Fixes the wordless / no-CTA stories from v0.1.13.16's bare-creative path.
+- Uses DejaVu Sans (present in the runtime container's fontconfig set) for SVG
+  text via sharp.
+
+## v0.1.13.16 — feat(social-content): automate image stories — story_count request + auto-promote to live IG/FB
+
+### Added
+- **`story_count` weekly-request axis (gated OFF, default 0).** The weekly
+  social-content request now carries `scope.story_count` (camelCase `storyCount`,
+  legacy alias `storiesCount`) end-to-end: `SOCIAL_CONTENT_DEFAULT_SCOPE`
+  (`backend/social-content/defaults.ts`), `WeeklySocialContentPayload` +
+  `DEFAULT_SOCIAL_CONTENT_COUNTS` (`types.ts`), normalization (`payload.ts`),
+  the Hermes request builder (`workflow-request.ts`), the job-scope reader
+  (`jobs-status.ts`), the new-job form handler + an "Image stories" input in
+  `frontend/social-content/new-job.tsx`. Default `0` keeps the Hermes payload
+  byte-for-byte equivalent to the pre-stories behavior.
+- **Aries-side image-story auto-promotion** (`synthesize-publish-posts.ts`).
+  When a weekly run requested `story_count > 0`, Aries promotes the first N
+  `content_package` entries into ADDITIONAL `surface='story'` image posts that
+  reuse the run's Hermes-generated creatives. This closes the automation loop
+  without any Hermes-prompt change: the upstream strategist/publish stages do
+  not emit `placement:'story'` today, so without this an operator's requested
+  stories would never materialise. Story posts publish **live** through the
+  existing scheduled-dispatch path (Meta rejects scheduled stories; the dispatch
+  route never forwards `scheduledFor`). Idempotent + non-colliding: the per-row
+  key carries the surface as its 4th segment (`…:story` vs `…:feed`), so a
+  replayed callback hits `ON CONFLICT DO NOTHING`.
+
+### Notes
+- Default `story_count=0` ⇒ both additions are inert; feed-only behavior is
+  unchanged (verified by the weekly-payload byte-shape test and a new
+  `story_count default 0` synthesis test).
+- The Aries publish path for image stories (FB `/photo_stories`, IG `STORIES`
+  container) shipped in #520 and is verified live on IG + FB. To turn stories on,
+  set the "Image stories" count > 0 when creating a weekly job.
+
 ## v0.1.13.7 — perf(social-content): collapse redundant per-job runtime-doc reads on the list path
 
 ### Performance

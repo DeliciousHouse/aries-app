@@ -1,8 +1,15 @@
 import { verifyInternalCallbackRequest } from '@/lib/internal-callback-auth';
-import { publishToMetaGraph, isMetaProvider, MetaPublishError } from '@/backend/integrations/meta-publishing';
+import {
+  publishToMetaGraph,
+  isMetaProvider,
+  MetaPublishError,
+  classifyMetaPublishFailureKind,
+  type MetaPublishFailureKind,
+} from '@/backend/integrations/meta-publishing';
 import { toSignedPublicUrl } from '@/app/api/publish/dispatch/handler';
+import { resolveSignableBasename } from '@/backend/marketing/signable-basename';
+import { recomputeAndPersistPendingApprovalCount } from '@/backend/marketing/runtime-views';
 import pool from '@/lib/db';
-import path from 'node:path';
 
 type ScheduledDispatchBody = {
   tenant_id?: string;
@@ -10,6 +17,8 @@ type ScheduledDispatchBody = {
   platforms?: string[];
   content?: string;
   media_urls?: string[];
+  surface?: string;
+  media_type?: string;
 };
 
 // Minimal queryable surface so route tests can inject a fake DB.
@@ -40,12 +49,17 @@ async function readBody(req: Request): Promise<ScheduledDispatchBody> {
 // The join matches either form so the populated path is correct regardless of
 // which id producers write.
 //
-// Fallback: when `creative_asset_ids` is empty (no Aries code populates it
-// yet — every prod `posts` row has `creative_asset_ids = '{}'`), fall back to
-// the job-scoped join on `posts.job_id = creative_assets.source_job_id`. That
-// fallback is non-regressive for today's data (each job currently produces a
-// single shared image) and becomes per-post-exact the moment a producer starts
-// writing `creative_asset_ids`. See the F1 note returned to the team lead.
+// `posts.creative_asset_ids` is populated by the publish/synthesize writers
+// (synthesize-publish-posts.ts, publish-verification.ts, the fb/ig publish
+// handlers) and backfilled for pre-existing rows by
+// scripts/backfill-creative-asset-ids.mjs. The populated per-post join is the
+// primary path.
+//
+// Fallback (D2): when `creative_asset_ids` is empty — a legacy row predating
+// those writers, or a multi-asset legacy row the backfill left untouched — fall
+// back to the job-scoped join on `posts.job_id = creative_assets.source_job_id`.
+// Kept as a safety net for genuinely-empty rows; it fires only when no per-post
+// ids are recorded.
 //
 // storage_kind values come from the creative_assets CHECK constraint:
 //   - 'runtime_asset'  — Aries-generated (ingest-production-assets.ts).
@@ -160,6 +174,17 @@ export async function POST(req: Request): Promise<Response> {
   const content = typeof body.content === 'string' ? body.content : '';
   const postId = typeof body.post_id === 'string' ? body.post_id : '';
 
+  // Publish shape forwarded by the worker. 'feed'/'reel'/'story' map to the
+  // MetaPlacement axis; image/video select the media branch. Default feed/image
+  // for legacy worker rows that don't forward the fields.
+  const surfaceRaw = typeof body.surface === 'string' ? body.surface.trim().toLowerCase() : '';
+  const surface: 'feed' | 'story' | 'reel' =
+    surfaceRaw === 'story' || surfaceRaw === 'reel' ? surfaceRaw : 'feed';
+  const mediaType: 'image' | 'video' =
+    typeof body.media_type === 'string' && body.media_type.trim().toLowerCase() === 'video'
+      ? 'video'
+      : 'image';
+
   // Prefer explicit media_urls, otherwise look up creative assets for the tenant
   let rawMediaUrls: string[] = Array.isArray(body.media_urls)
     ? body.media_urls.filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
@@ -169,12 +194,18 @@ export async function POST(req: Request): Promise<Response> {
     rawMediaUrls = await resolveMediaUrls(postId, tenantId);
   }
 
-  // Sign media URLs so Meta Graph API can fetch them
-  const signedMediaUrls = rawMediaUrls.map((url) => {
-    const basename = path.basename(url);
-    if (!basename || basename.includes('..')) return url;
-    return toSignedPublicUrl(url, tenantId, basename);
-  });
+  // Sign media URLs so Meta Graph API can fetch them. Resolve id-addressed
+  // internal URLs to their on-disk basename before signing (Option A);
+  // sequential — one PK lookup per URL, no Promise.all fan-out (guardrail #1).
+  const signedMediaUrls: string[] = [];
+  for (const url of rawMediaUrls) {
+    const basename = await resolveSignableBasename(url, tenantId);
+    if (!basename) {
+      signedMediaUrls.push(url);
+      continue;
+    }
+    signedMediaUrls.push(toSignedPublicUrl(url, tenantId, basename));
+  }
 
   // Each platform is attempted independently and its outcome recorded, so a
   // cross-post that succeeds on one platform and fails on another reports the
@@ -204,6 +235,10 @@ export async function POST(req: Request): Promise<Response> {
     ok: boolean;
     error?: string;
     retryable?: boolean;
+    // Informational failure taxonomy so the worker can surface *why* a terminal
+    // row failed (e.g. an expired token → reconnect). Does NOT change the retry
+    // policy — `retryable` alone drives pending-vs-failed.
+    kind?: MetaPublishFailureKind;
   }> = [];
 
   // Tracks the platform_post_id of the first platform that went live, so the
@@ -214,7 +249,7 @@ export async function POST(req: Request): Promise<Response> {
   for (const platform of platforms) {
     if (!isMetaProvider(platform)) {
       // Unsupported provider can never succeed — terminal, not retryable.
-      results.push({ provider: platform, ok: false, error: 'unsupported_provider', retryable: false });
+      results.push({ provider: platform, ok: false, error: 'unsupported_provider', retryable: false, kind: 'permanent' });
       continue;
     }
     try {
@@ -223,6 +258,8 @@ export async function POST(req: Request): Promise<Response> {
         provider: platform,
         content,
         mediaUrls: signedMediaUrls,
+        placement: surface,
+        mediaType,
       });
       results.push({ provider: platform, ok: true });
       if (firstPublishedPostId === null && published.platformPostId) {
@@ -235,7 +272,11 @@ export async function POST(req: Request): Promise<Response> {
       // A non-Meta error (e.g. a transient network throw) is treated as
       // retryable; a MetaPublishError carries its own retryable flag.
       const retryable = error instanceof MetaPublishError ? error.retryable : true;
-      results.push({ provider: platform, ok: false, error: errMsg, retryable });
+      // Derive the failure taxonomy for surfacing only. A raw non-Meta throw is
+      // 'permanent' per the classifier, but the route still treats it as
+      // retryable above (network blips re-claim) — the two are independent.
+      const kind = classifyMetaPublishFailureKind(error);
+      results.push({ provider: platform, ok: false, error: errMsg, retryable, kind });
       // Do NOT abort the loop: a later platform may still succeed, and the
       // worker needs every platform's outcome to write per-platform state.
       // Do NOT write posts.published_status here — a per-platform write would
@@ -249,20 +290,36 @@ export async function POST(req: Request): Promise<Response> {
 
   // Roll the per-platform outcomes up into one posts.published_status write.
   const postStatus = planPostStatusUpdate(results);
+  let dispatchedJobId: string | null = null;
   if (postId && postStatus === 'published') {
-    await pool.query(
-      `UPDATE posts
+    const updated = await pool
+      .query<{ job_id: string | null }>(
+        `UPDATE posts
        SET published_status = 'published',
            platform_post_id = COALESCE($2, platform_post_id),
            published_at = COALESCE(published_at, now())
-       WHERE id = $1 AND tenant_id = $3`,
-      [postId, firstPublishedPostId, tenantId],
-    ).catch(() => {});
+       WHERE id = $1 AND tenant_id = $3
+       RETURNING job_id`,
+        [postId, firstPublishedPostId, tenantId],
+      )
+      .catch(() => null);
+    dispatchedJobId = updated?.rows?.[0]?.job_id ?? null;
   } else if (postId && postStatus === 'failed') {
-    await pool.query(
-      `UPDATE posts SET published_status = 'failed' WHERE id = $1 AND tenant_id = $2`,
-      [postId, tenantId],
-    ).catch(() => {});
+    const updated = await pool
+      .query<{ job_id: string | null }>(
+        `UPDATE posts SET published_status = 'failed' WHERE id = $1 AND tenant_id = $2 RETURNING job_id`,
+        [postId, tenantId],
+      )
+      .catch(() => null);
+    dispatchedJobId = updated?.rows?.[0]?.job_id ?? null;
+  }
+  // A publish flips posts.published_status, which feeds the campaign-list
+  // dashboard's published/scheduled/live counts (via countPublishedPostsForJob).
+  // Refresh the denormalized dashboard_list_projection (+ pending count) so the
+  // campaign list reflects the publish without re-hydrating every job on read.
+  // Non-fatal: a recompute failure must never fail the dispatch response.
+  if (dispatchedJobId) {
+    await recomputeAndPersistPendingApprovalCount(dispatchedJobId).catch(() => {});
   }
   // 202 when at least one platform was dispatched; 502 when every platform
   // failed and at least one is retryable; 422 when all failures are terminal.

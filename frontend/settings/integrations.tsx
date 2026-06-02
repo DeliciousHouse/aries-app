@@ -146,7 +146,7 @@ export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenP
           <div className="max-w-3xl">
             <div className="flex items-center gap-3 mb-4">
               <AriesMark sizeClassName="w-11 h-11" />
-              <p className="text-xs uppercase tracking-[0.24em] text-white/35">OAuth broker</p>
+              <p className="text-xs uppercase tracking-[0.24em] text-white/70">OAuth broker</p>
             </div>
             <h2 className="text-3xl font-bold mb-3">
               Connect providers with the same Aries handoff flow across the product
@@ -178,7 +178,7 @@ export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenP
           ['Attention required', String(summary.attention_required)],
         ].map(([label, value]) => (
           <div key={label} className="glass rounded-[2rem] p-6">
-            <span className="text-xs uppercase tracking-[0.22em] text-white/35">{label}</span>
+            <span className="text-xs uppercase tracking-[0.22em] text-white/70">{label}</span>
             <strong className="block text-4xl font-bold mt-3">{value}</strong>
           </div>
         ))}
@@ -193,11 +193,11 @@ export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenP
       <div className="glass rounded-[2.5rem] p-8">
         <div className="flex gap-4 flex-wrap items-end">
           <div className="flex-1 min-w-[220px]">
-            <label htmlFor="integrations-search" className="block text-xs uppercase tracking-[0.22em] text-white/35 mb-2">
+            <label htmlFor="integrations-search" className="block text-xs uppercase tracking-[0.22em] text-white/70 mb-2">
               Search platform
             </label>
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/35" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/70" />
               <input
                 id="integrations-search"
                 className="w-full rounded-2xl border border-white/10 bg-white/5 pl-10 pr-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
@@ -209,7 +209,7 @@ export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenP
           </div>
 
           <div className="w-full md:w-[190px]">
-            <label htmlFor="integrations-filter" className="block text-xs uppercase tracking-[0.22em] text-white/35 mb-2">
+            <label htmlFor="integrations-filter" className="block text-xs uppercase tracking-[0.22em] text-white/70 mb-2">
               Filter status
             </label>
             <select
@@ -226,7 +226,7 @@ export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenP
           </div>
 
           <div className="w-full md:w-[190px]">
-            <label htmlFor="integrations-sort" className="block text-xs uppercase tracking-[0.22em] text-white/35 mb-2">
+            <label htmlFor="integrations-sort" className="block text-xs uppercase tracking-[0.22em] text-white/70 mb-2">
               Sort by
             </label>
             <select
@@ -279,7 +279,7 @@ export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenP
       )}
 
       <div className="rounded-[2rem] border border-white/10 bg-white/5 p-5 flex items-center gap-3 text-white/60">
-        <Sparkles className="w-5 h-5 text-primary" />
+        <Sparkles className="w-5 h-5 text-violet-300" />
         Connect and reconnect actions keep the browser inside Aries by routing through the branded OAuth interstitial.
       </div>
     </div>

@@ -5,7 +5,7 @@ import { z } from 'zod';
 // ---------------------------------------------------------------------------
 
 /** Bump when any schema changes. Both Aries and Hermes must agree on this. */
-export const PROTOCOL_VERSION = '1.1.0';
+export const PROTOCOL_VERSION = '1.1.1';
 
 /** Strict semver pattern: MAJOR.MINOR.PATCH with optional pre-release suffix. */
 const SEMVER_RE = /^\d+\.\d+\.\d+(-[a-zA-Z0-9._-]+)?$/;
@@ -159,8 +159,8 @@ export const HermesRunCallbackPayloadSchema = z.object({
   stage: CallbackStageSchema.optional(),
   /** Stage outputs. Either a single object or an array of stage result objects. */
   output: z.union([
-    z.record(z.unknown()),
-    z.array(z.record(z.unknown())),
+    z.record(z.string(), z.unknown()),
+    z.array(z.record(z.string(), z.unknown())),
   ]).optional(),
   artifacts: z.array(z.unknown()).optional(),
   /** Present only when status === 'requires_approval'. */
@@ -230,8 +230,8 @@ export const HermesRunStatusResponseSchema = z.object({
   status: CallbackStatusSchema,
   output: z.union([
     z.string(),
-    z.record(z.unknown()),
-    z.array(z.record(z.unknown())),
+    z.record(z.string(), z.unknown()),
+    z.array(z.record(z.string(), z.unknown())),
   ]).optional(),
   error: z.string().optional(),
 });

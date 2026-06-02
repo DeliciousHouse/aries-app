@@ -51,7 +51,7 @@ export default function ResultsPresenter({ model }: ResultsPresenterProps) {
   return (
     <div className="flex flex-col gap-8 pb-12 lg:flex-row">
       <aside className="w-full shrink-0 space-y-2 lg:w-64">
-        <h3 className="mb-4 px-2 text-xs font-bold uppercase tracking-[0.28em] text-zinc-500">Segments</h3>
+        <h3 className="mb-4 px-2 text-xs font-bold uppercase tracking-[0.28em] text-zinc-400">Segments</h3>
         <div className="flex gap-2 overflow-x-auto pb-4 no-scrollbar lg:flex-col lg:overflow-visible lg:pb-0">
           {model.filters.map((filter) => (
             <button
@@ -80,7 +80,7 @@ export default function ResultsPresenter({ model }: ResultsPresenterProps) {
 
         <div className="mt-6 hidden lg:block">
           <div className="glass-panel border-primary/10 bg-primary/5 p-4">
-            <div className="mb-2 flex items-center gap-2 text-primary">
+            <div className="mb-2 flex items-center gap-2 text-violet-300">
               <Sparkles className="h-4 w-4" />
               <span className="text-xs font-bold uppercase tracking-[0.2em]">Operator insight</span>
             </div>
@@ -96,16 +96,16 @@ export default function ResultsPresenter({ model }: ResultsPresenterProps) {
           <div>
             <div className="mb-2 flex items-center gap-3">
               <div className="rounded-lg bg-white/5 p-2">
-                <BarChart3 className="h-5 w-5 text-primary" />
+                <BarChart3 className="h-5 w-5 text-violet-300" />
               </div>
-              <h1 className="text-3xl font-display font-semibold tracking-tight text-white">
+              <h2 className="text-3xl font-display font-semibold tracking-tight text-white">
                 Results
-              </h1>
+              </h2>
             </div>
-            <p className="max-w-3xl text-zinc-500">{model.hero.description}</p>
+            <p className="max-w-3xl text-zinc-400">{model.hero.description}</p>
           </div>
           <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/75">
-            <Layers3 className="h-4 w-4 text-primary" />
+            <Layers3 className="h-4 w-4 text-violet-300" />
             {filteredCampaigns.length} post{filteredCampaigns.length === 1 ? '' : 's'} in view
           </div>
         </div>
@@ -136,7 +136,7 @@ export default function ResultsPresenter({ model }: ResultsPresenterProps) {
                   className="glass-panel group p-5"
                 >
                   <div className="mb-4 flex items-start justify-between">
-                    <div className="rounded-xl bg-white/5 p-2 text-zinc-500 transition-colors group-hover:text-primary">
+                    <div className="rounded-xl bg-white/5 p-2 text-zinc-400 transition-colors group-hover:text-violet-300">
                       {index === 0 ? <Layers3 className="h-5 w-5" /> : index === 1 ? <TrendingUp className="h-5 w-5" /> : index === 2 ? <Clock3 className="h-5 w-5" /> : <CheckCircle2 className="h-5 w-5" />}
                     </div>
                     <div className={`rounded-md px-2 py-1 text-[10px] font-medium ${
@@ -166,13 +166,13 @@ export default function ResultsPresenter({ model }: ResultsPresenterProps) {
               <div className="mb-6 flex flex-col justify-between gap-4 md:flex-row md:items-center">
                 <div>
                   <h2 className="text-lg font-semibold text-white">Social content status mix</h2>
-                  <p className="text-xs text-zinc-500">A live view of how the current social content portfolio is distributed right now.</p>
+                  <p className="text-xs text-zinc-400">A live view of how the current social content portfolio is distributed right now.</p>
                 </div>
                 <div className="flex flex-wrap gap-3 text-[10px] font-bold uppercase tracking-[0.22em]">
                   {statusChartData.map((entry) => (
                     <div key={entry.id} className="flex items-center gap-2">
                       <div className="h-2 w-2 rounded-full" style={{ backgroundColor: entry.color }} />
-                      <span className="text-zinc-500">{entry.label}</span>
+                      <span className="text-zinc-400">{entry.label}</span>
                     </div>
                   ))}
                 </div>
@@ -243,7 +243,7 @@ export default function ResultsPresenter({ model }: ResultsPresenterProps) {
 
                   <div className="space-y-3">
                     {model.stageBreakdown.length === 0 ? (
-                      <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4 text-sm text-zinc-500">
+                      <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4 text-sm text-zinc-400">
                         Stage breakdown will appear once posts move through the runtime.
                       </div>
                     ) : (
@@ -254,7 +254,7 @@ export default function ResultsPresenter({ model }: ResultsPresenterProps) {
                         >
                           <div>
                             <p className="text-sm font-medium text-white">{stage.label}</p>
-                            <p className="text-[10px] uppercase tracking-[0.22em] text-zinc-500">Current stage</p>
+                            <p className="text-[10px] uppercase tracking-[0.22em] text-zinc-400">Current stage</p>
                           </div>
                           <span className="text-sm font-semibold text-white">{stage.count}</span>
                         </div>
@@ -282,7 +282,7 @@ export default function ResultsPresenter({ model }: ResultsPresenterProps) {
                 </div>
                 <div className="space-y-4">
                   {filteredCampaigns.length === 0 ? (
-                    <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 text-sm leading-relaxed text-zinc-500">
+                    <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 text-sm leading-relaxed text-zinc-400">
                       No posts match the selected segment right now.
                     </div>
                   ) : (
@@ -341,7 +341,7 @@ function statusPill(status: ResultsViewModel['posts'][number]['status']) {
 function InfoRow(props: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-white/[0.05] bg-black/20 px-4 py-3">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.label}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">{props.label}</p>
       <p className="mt-2 text-sm text-white/80">{props.value}</p>
     </div>
   );

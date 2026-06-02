@@ -68,7 +68,7 @@ export default function Docs() {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 border border-primary/20 text-primary mb-6"
+              className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 border border-primary/20 text-violet-300 mb-6"
             >
               <Book className="w-4 h-4" />
               <span className="text-xs font-bold uppercase tracking-widest font-display">Documentation</span>
@@ -116,7 +116,7 @@ export default function Docs() {
                       >
                         <div className={cn(
                           "w-8 h-8 rounded-lg flex items-center justify-center transition-colors",
-                          activeSection === section.id ? "bg-primary/20 text-primary" : "bg-white/5 text-white/40 group-hover:text-white/60"
+                          activeSection === section.id ? "bg-primary/20 text-violet-300" : "bg-white/5 text-white/70 group-hover:text-white/60"
                         )}>
                           <Icon className="w-4 h-4" />
                         </div>
@@ -146,7 +146,7 @@ export default function Docs() {
               >
                 <div className="flex items-center gap-4 mb-8">
                   <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center border border-white/10">
-                    <BookOpen className="w-6 h-6 text-primary" />
+                    <BookOpen className="w-6 h-6 text-violet-300" />
                   </div>
                   <h2 className="text-3xl font-bold tracking-tight">Overview</h2>
                 </div>
@@ -169,7 +169,7 @@ export default function Docs() {
               >
                 <div className="flex items-center gap-4 mb-8">
                   <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center border border-white/10">
-                    <Terminal className="w-6 h-6 text-primary" />
+                    <Terminal className="w-6 h-6 text-violet-300" />
                   </div>
                   <h2 className="text-3xl font-bold tracking-tight">Getting Started</h2>
                 </div>
@@ -198,7 +198,7 @@ export default function Docs() {
               >
                 <div className="flex items-center gap-4 mb-8">
                   <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center border border-white/10">
-                    <Layout className="w-6 h-6 text-primary" />
+                    <Layout className="w-6 h-6 text-violet-300" />
                   </div>
                   <h2 className="text-3xl font-bold tracking-tight">How It Works</h2>
                 </div>
@@ -221,7 +221,7 @@ export default function Docs() {
               >
                 <div className="flex items-center gap-4 mb-8">
                   <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center border border-white/10">
-                    <GitBranch className="w-6 h-6 text-primary" />
+                    <GitBranch className="w-6 h-6 text-violet-300" />
                   </div>
                   <h2 className="text-3xl font-bold tracking-tight">Weekly Content</h2>
                 </div>
@@ -257,7 +257,7 @@ export default function Docs() {
               >
                 <div className="flex items-center gap-4 mb-8">
                   <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center border border-white/10">
-                    <Plug className="w-6 h-6 text-primary" />
+                    <Plug className="w-6 h-6 text-violet-300" />
                   </div>
                   <h2 className="text-3xl font-bold tracking-tight">Integrations</h2>
                 </div>
@@ -296,7 +296,7 @@ export default function Docs() {
               >
                 <div className="flex items-center gap-4 mb-8">
                   <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center border border-white/10">
-                    <ShieldCheck className="w-6 h-6 text-primary" />
+                    <ShieldCheck className="w-6 h-6 text-violet-300" />
                   </div>
                   <h2 className="text-3xl font-bold tracking-tight">Security</h2>
                 </div>

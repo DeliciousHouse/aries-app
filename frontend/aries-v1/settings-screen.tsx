@@ -105,7 +105,7 @@ export default function AriesSettingsScreen() {
                   Add Profile
                 </Link>
               </div>
-              <p className="mt-3 text-xs leading-6 text-white/42">
+              <p className="mt-3 text-xs leading-6 text-white/70">
                 Newly connected media portals update this Business Profile summary automatically.
               </p>
             </div>
@@ -137,7 +137,7 @@ export default function AriesSettingsScreen() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="space-y-1">
                       <p className="text-sm font-medium text-white">{card.display_name}</p>
-                      <p className="text-sm text-white/45">{card.description}</p>
+                      <p className="text-sm text-white/70">{card.description}</p>
                     </div>
                     <StatusChip status={card.connection_state === 'connected' ? 'approved' : card.connection_state === 'reauth_required' ? 'changes_requested' : 'draft'}>
                       {card.connection_state === 'connected'

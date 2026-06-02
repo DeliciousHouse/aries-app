@@ -12,7 +12,7 @@ export default function SettingsScreen(_props: SettingsScreenProps): JSX.Element
   return (
     <div className="grid xl:grid-cols-2 gap-6">
       <div className="glass rounded-[2.5rem] p-8">
-        <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-4">Runtime truth</p>
+        <p className="text-xs uppercase tracking-[0.24em] text-white/70 mb-4">Runtime truth</p>
         <h2 className="text-3xl font-bold mb-4">Settings are intentionally read-only</h2>
         <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-5 mb-5">
           <strong className="block mb-2 text-red-100">No live tenant settings endpoint</strong>
@@ -26,7 +26,7 @@ export default function SettingsScreen(_props: SettingsScreenProps): JSX.Element
       </div>
 
       <div className="glass rounded-[2.5rem] p-8">
-        <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-4">Next best actions</p>
+        <p className="text-xs uppercase tracking-[0.24em] text-white/70 mb-4">Next best actions</p>
         <div className="space-y-4 mb-6">
           <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-white/70">
             Review platform credentials and token health in <strong>Settings</strong>.

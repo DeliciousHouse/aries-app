@@ -101,6 +101,8 @@ export interface WeeklySocialContentPayload {
   channels: Array<'meta' | 'instagram' | 'linkedin' | 'x' | 'tiktok' | 'youtube'>;
   postWindowDays: number;
   staticPostCount: number;
+  /** Image-story posts to request alongside feed posts. Default 1 (ON); 0 = OFF. */
+  storyCount: number;
   imageCreativeCount: number;
   videoScriptCount: number;
   videoRenderCount: number;
@@ -130,6 +132,7 @@ export const DEFAULT_SOCIAL_CONTENT_FORBIDDEN_PATTERNS: string[] = [
 export const DEFAULT_SOCIAL_CONTENT_COUNTS = {
   postWindowDays: 7 as const,
   staticPostCount: 7,
+  storyCount: 1,
   imageCreativeCount: 6,
   videoScriptCount: 1,
   videoRenderCount: 0,

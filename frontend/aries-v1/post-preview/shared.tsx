@@ -203,7 +203,7 @@ export function PostHeader(props: PostHeaderProps) {
           </span>
         ) : null}
         {props.author.timestampLabel ? (
-          <span data-role="post-timestamp" className="text-xs text-white/45">
+          <span data-role="post-timestamp" className="text-xs text-white/70">
             {props.author.timestampLabel}
           </span>
         ) : null}

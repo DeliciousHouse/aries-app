@@ -55,6 +55,10 @@ const steps = [
     args: ['--test', 'tests/process-concurrent.test.ts'],
   },
   {
+    name: 'Honcho writes V0-V14 verification harness',
+    args: ['--test', 'tests/verify-honcho-writes.test.ts'],
+  },
+  {
     // PRD §20 canonical behavioral invariants — codified as runtime checks so
     // future PRs get a green/red CI signal on spec conformance.  See
     // tests/prd-invariants/README.md and docs/product/aries-ai-prd.md §20.
@@ -108,6 +112,10 @@ const steps = [
       'tests/marketing/strategy-review-summary-no-objective-fallback.test.ts',
       'tests/marketing-job-retry-research.test.ts',
       'tests/marketing-auto-schedule.test.ts',
+      'tests/meta-media-validation.test.ts',
+      'tests/meta-publishing-video.test.ts',
+      'tests/hermes-callback-video-surface.test.ts',
+      'tests/synthesize-publish-posts-surface.test.ts',
       'tests/social-content-cancel-schedule.test.ts',
     ],
   },
@@ -161,6 +169,19 @@ const steps = [
       'tests/marketing-validated-runtime.test.ts',
       'tests/review-surfaces-public.test.ts',
       'tests/public-generated-routes.test.ts',
+    ],
+  },
+  {
+    // honcho-performance-insights (delayed real-Meta perf -> Honcho memory).
+    // Fixture-primary: payload builder + due-posts SQL shape + worker tick
+    // (mocked recordPerformanceEvent). The #513 (insights_*) live-DB legs are
+    // separate (tests/memory/perf-insights-live-db.test.ts) and #513-gated.
+    name: 'honcho performance-insights unit tests',
+    args: [
+      '--test',
+      'tests/memory/perf-insights-payload.test.ts',
+      'tests/memory/perf-insights-read.test.ts',
+      'tests/memory/honcho-performance-worker.test.ts',
     ],
   },
 ];

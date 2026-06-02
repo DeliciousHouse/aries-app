@@ -33,7 +33,7 @@ export default function CampaignListPresenter({ model }: SocialContentListPresen
     <div className="space-y-6 pb-12">
       <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center md:gap-6">
         <div>
-          <h1 className="mb-2 text-3xl font-display font-semibold tracking-tight text-white">Social Content</h1>
+          <h2 className="mb-2 text-3xl font-display font-semibold tracking-tight text-white">Social Content</h2>
           <p className="text-sm text-text-muted">{model.hero.description}</p>
         </div>
         <Link
@@ -77,7 +77,7 @@ export default function CampaignListPresenter({ model }: SocialContentListPresen
                     <Rocket className="h-5 w-5" />
                   </div>
                   <div>
-                    <h3 className="text-lg font-semibold text-white transition-colors group-hover:text-primary">
+                    <h3 className="text-lg font-semibold text-white transition-colors group-hover:text-violet-300">
                       {campaign.name}
                     </h3>
                     <div className="mt-1 flex items-center gap-2">
@@ -193,7 +193,7 @@ export default function CampaignListPresenter({ model }: SocialContentListPresen
                 </div>
 
                 <div className="rounded-3xl border border-primary/15 bg-primary/5 p-5 shadow-[0_0_30px_rgba(123,97,255,0.05)]">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Trust note</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Trust note</p>
                   <p className="mt-3 text-sm leading-relaxed text-white/65">{selectedCampaign.trustNote}</p>
                 </div>
 
@@ -211,7 +211,7 @@ export default function CampaignListPresenter({ model }: SocialContentListPresen
                               ? 'bg-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.3)]'
                               : step.state === 'active'
                                 ? 'bg-primary text-white shadow-[0_0_20px_rgba(124,58,237,0.4)]'
-                                : 'bg-white/5 text-white/30'
+                                : 'bg-white/5 text-white/70'
                           }`}
                         >
                           {step.state === 'complete' ? (
@@ -237,13 +237,13 @@ export default function CampaignListPresenter({ model }: SocialContentListPresen
                                 step.state === 'complete'
                                   ? 'text-emerald-400'
                                   : step.state === 'active'
-                                    ? 'text-primary'
-                                    : 'text-white/40'
+                                    ? 'text-violet-300'
+                                    : 'text-white/70'
                               }`}
                             >
                               {step.badge}
                             </span>
-                            <span className="text-xs text-white/30">{step.meta}</span>
+                            <span className="text-xs text-white/70">{step.meta}</span>
                           </div>
                           <h4 className="mb-1 text-base font-semibold text-white">{step.title}</h4>
                           <p className="text-sm leading-relaxed text-white/50">{step.detail}</p>
@@ -273,7 +273,7 @@ function statusLabel(status: SocialContentListViewModel['items'][number]['status
 }
 
 function statusIconTone(status: SocialContentListViewModel['items'][number]['status']) {
-  if (status === 'live') return 'bg-primary/10 text-primary';
+  if (status === 'live') return 'bg-primary/10 text-violet-300';
   if (status === 'scheduled') return 'bg-sky-500/10 text-sky-300';
   if (status === 'approved') return 'bg-indigo-500/10 text-indigo-300';
   if (status === 'in_review') return 'bg-amber-500/10 text-amber-300';
@@ -375,7 +375,7 @@ function MetricBox(props: { label: string; value: string }) {
   return (
     <div className="glass-panel flex flex-col items-center justify-center p-4 text-center">
       <span className="text-2xl font-semibold text-white">{props.value}</span>
-      <span className="mt-2 text-xs uppercase tracking-[0.22em] text-white/35">{props.label}</span>
+      <span className="mt-2 text-xs uppercase tracking-[0.22em] text-white/70">{props.label}</span>
     </div>
   );
 }
@@ -383,7 +383,7 @@ function MetricBox(props: { label: string; value: string }) {
 function InfoRow(props: { label: string; value: string }) {
   return (
     <div className="flex items-start justify-between gap-4 rounded-xl border border-white/8 bg-white/[0.02] px-4 py-3">
-      <span className="text-xs uppercase tracking-[0.22em] text-white/35">{props.label}</span>
+      <span className="text-xs uppercase tracking-[0.22em] text-white/70">{props.label}</span>
       <span className="max-w-[14rem] text-right text-sm text-white/75">{props.value}</span>
     </div>
   );

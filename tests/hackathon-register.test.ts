@@ -5,6 +5,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 
+import { requireDbEnvOrSkip } from './helpers/requires-infra';
+
 // Source-level + live-DB tests for the hackathon registration endpoint.
 // Source-level always runs; the live-DB upsert smoke test skips without
 // DB env. The route lives at app/api/hackathon/register/route.ts and the
@@ -94,7 +96,7 @@ test('hackathon_registrations table accepts insert + upsert against real Postgre
       '\n[hackathon-register] SKIPPED: DB env not configured. The live-DB ' +
         'smoke runs after init-db migration applies in prod.\n',
     );
-    t.skip('database env not configured');
+    requireDbEnvOrSkip(t);
     return;
   }
 

@@ -1,8 +1,8 @@
-import path from 'node:path';
 
 import { loadTenantContextOrResponse } from '@/lib/tenant-context-http';
 import { loadSocialContentJobRuntime } from '@/backend/marketing/runtime-state';
 import { buildSocialContentWorkspaceView } from '@/backend/marketing/workspace-views';
+import { recomputeAndPersistPendingApprovalCount } from '@/backend/marketing/runtime-views';
 import {
   findLatestMarketingApprovalRecord,
   loadMarketingApprovalRecord,
@@ -14,6 +14,7 @@ import {
 import { loadSocialCopyArtifact } from '@/backend/social-content/social-copy-store';
 import {
   classifyMetaPublishFailure,
+  classifyMetaPublishFailureKind,
   isMetaProvider,
   MetaPublishError,
   normalizeMetaPlacement,
@@ -21,6 +22,7 @@ import {
 } from '@/backend/integrations/meta-publishing';
 import { runPublishVerification } from '@/backend/integrations/publish-verification';
 import { toSignedPublicUrl } from '@/app/api/publish/dispatch/handler';
+import { resolveSignableBasename } from '@/backend/marketing/signable-basename';
 import { pool } from '@/lib/db';
 
 type InstagramPublishBody = {
@@ -132,8 +134,10 @@ export async function handleInstagramPublish(req: Request, jobId: string) {
   // Sign the media URL into a public proxy URL.
   const signedMediaUrls: string[] = [];
   if (mediaUrl) {
-    const basename = path.basename(mediaUrl);
-    if (basename && !basename.includes('..')) {
+    // Resolve id-addressed internal URLs to their on-disk basename before
+    // signing (Option A); legacy basename URLs pass through unchanged.
+    const basename = await resolveSignableBasename(mediaUrl, tenantId);
+    if (basename) {
       signedMediaUrls.push(toSignedPublicUrl(mediaUrl, tenantId, basename));
     }
   }
@@ -266,6 +270,16 @@ export async function handleInstagramPublish(req: Request, jobId: string) {
       creativeAssetIds: publishedAssetId ? [publishedAssetId] : null,
     });
 
+    // A successful publish inserts a job-linked posts row (published_status), which
+    // feeds countPublishedPostsForJob -> the denormalized dashboard projection's
+    // live/scheduled/published counts. That's a DB-only write the projection's
+    // runtimeDoc.updated_at freshness stamp does NOT catch, so refresh the
+    // projection here (non-fatal) or the campaign list/dashboard would render
+    // stale pre-publish counts until an unrelated mutation recomputes.
+    await recomputeAndPersistPendingApprovalCount(jobId).catch((err) => {
+      console.error('[publish-instagram] denorm recompute failed', err);
+    });
+
     const permalink = instagramPermalink(published.platformPostId);
 
     return new Response(
@@ -330,6 +344,29 @@ export async function handleInstagramPublish(req: Request, jobId: string) {
           retryAfterSeconds: null,
         }),
         { status: 502, headers: { 'content-type': 'application/json' } },
+      );
+    }
+
+    if (error instanceof MetaPublishError && classifyMetaPublishFailureKind(error) === 'auth') {
+      // The tenant's Meta connection is missing/expired. Terminal like any other
+      // retryable:false failure, but operator-actionable: surface a distinct
+      // reconnect signal instead of an opaque publish_failed.
+      console.warn('[publish-instagram] publish failed — Meta account needs reconnect', {
+        approvalId,
+        platform: PLATFORM_KEY,
+        jobId,
+        code: error.code,
+      });
+      return new Response(
+        JSON.stringify({
+          status: 'error',
+          reason: 'needs_reconnect',
+          code: error.code,
+          message: `${error.message} Reconnect your Instagram/Meta account to resume publishing.`,
+          retryable: false,
+          retryAfterSeconds: null,
+        }),
+        { status: error.status, headers: { 'content-type': 'application/json' } },
       );
     }
 

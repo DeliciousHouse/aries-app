@@ -200,14 +200,14 @@ export default function CalendarPresenter({
           <div>
             <div className="mb-2 flex items-center gap-3">
               <div className="rounded-lg bg-white/5 p-2">
-                <CalendarIcon className="h-5 w-5 text-primary" />
+                <CalendarIcon className="h-5 w-5 text-violet-300" />
               </div>
-              <h1 className="text-3xl font-display font-semibold tracking-tight text-white">Calendar</h1>
+              <h2 className="text-3xl font-display font-semibold tracking-tight text-white">Calendar</h2>
             </div>
-            <p className="max-w-3xl text-zinc-500">{model.hero.description}</p>
+            <p className="max-w-3xl text-zinc-400">{model.hero.description}</p>
           </div>
           <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/75">
-            <Layers3 className="h-4 w-4 text-primary" />
+            <Layers3 className="h-4 w-4 text-violet-300" />
             {events.length} queued post{events.length === 1 ? '' : 's'}
           </div>
         </div>
@@ -262,7 +262,7 @@ export default function CalendarPresenter({
                       type="button"
                       onClick={() => setView(mode)}
                       className={`px-4 py-2 text-sm font-medium transition-all ${
-                        view === mode ? 'rounded-lg bg-[#222] text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'
+                        view === mode ? 'rounded-lg bg-[#222] text-white shadow-lg' : 'text-zinc-400 hover:text-zinc-300'
                       }`}
                     >
                       {mode === 'week' ? 'Week' : 'Month'}
@@ -286,7 +286,7 @@ export default function CalendarPresenter({
                     ).map((day) => (
                       <div
                         key={day}
-                        className="text-center text-[10px] font-bold tracking-[0.3em] text-zinc-600"
+                        className="text-center text-[10px] font-bold tracking-[0.3em] text-zinc-400"
                       >
                         {day}
                       </div>
@@ -330,11 +330,11 @@ export default function CalendarPresenter({
               <h2 className="mb-6 text-lg font-semibold text-white">Social content status at a glance</h2>
               <div className="space-y-4">
                 {campaignsLoading ? (
-                  <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 text-sm text-zinc-500">
+                  <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 text-sm text-zinc-400">
                     Loading posts…
                   </div>
                 ) : model.posts.length === 0 ? (
-                  <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 text-sm text-zinc-500">
+                  <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 text-sm text-zinc-400">
                     No social content is available yet.
                   </div>
                 ) : (
@@ -351,7 +351,7 @@ export default function CalendarPresenter({
                         </span>
                       </div>
                       <p className="mt-2 text-sm text-white/55">{campaign.nextScheduled}</p>
-                      <div className="mt-3 flex flex-wrap gap-3 text-xs uppercase tracking-[0.2em] text-white/35">
+                      <div className="mt-3 flex flex-wrap gap-3 text-xs uppercase tracking-[0.2em] text-white/70">
                         <span>{campaign.stageLabel}</span>
                         <span>{campaign.pendingApprovals} pending approvals</span>
                       </div>
@@ -382,12 +382,12 @@ export default function CalendarPresenter({
                 <div className="flex items-center justify-between border-b border-white/5 p-5 md:p-6">
                   <div>
                     <h2 className="text-xl font-medium text-white">{selectedEvent.title}</h2>
-                    <p className="mt-1 text-sm text-zinc-500">{selectedEvent.scheduledFor}</p>
+                    <p className="mt-1 text-sm text-zinc-400">{selectedEvent.scheduledFor}</p>
                   </div>
                   <button
                     type="button"
                     onClick={() => setSelectedEventId(null)}
-                    className="rounded-full p-2 text-zinc-500 transition-colors hover:bg-white/5 hover:text-white"
+                    className="rounded-full p-2 text-zinc-400 transition-colors hover:bg-white/5 hover:text-white"
                     aria-label="Close"
                   >
                     <CloseIcon className="h-5 w-5" />
@@ -407,7 +407,7 @@ export default function CalendarPresenter({
 
                   {selectedEvent.dispatches.length > 0 ? (
                     <div className="space-y-2">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">
                         Per-platform dispatch
                       </p>
                       {selectedEvent.dispatches.map((dispatch) => (
@@ -692,14 +692,14 @@ function UnscheduledTray({
   return (
     <section className="glass-panel h-fit p-5">
       <div className="mb-4 flex items-center gap-2">
-        <Inbox className="h-4 w-4 text-primary" />
+        <Inbox className="h-4 w-4 text-violet-300" />
         <h2 className="text-sm font-semibold text-white">Backlog</h2>
       </div>
-      <p className="mb-4 text-xs leading-5 text-white/45">
+      <p className="mb-4 text-xs leading-5 text-white/70">
         Approved posts with no publish date. Drag onto a calendar cell or click to schedule.
       </p>
       {posts.length === 0 ? (
-        <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-4 text-xs text-zinc-500">
+        <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-4 text-xs text-zinc-400">
           No approved posts are waiting to be scheduled.
         </div>
       ) : (
@@ -727,43 +727,49 @@ function UnscheduledTrayItem({
 
   const canSchedule = Boolean(post.jobId);
 
+  // WCAG 4.1.2 (nested-interactive): the draggable region carries dnd-kit's
+  // role="button" + tabindex=0, so it must NOT contain another focusable
+  // control. The Schedule button is a SIBLING of the draggable card, not a
+  // descendant — which also removes the pointer/key stopPropagation hacks that
+  // previously kept a click on the button from starting a drag.
   return (
-    <div
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
-      data-testid={`tray-item-${post.postId}`}
-      className={`cursor-grab rounded-2xl border border-white/[0.06] bg-white/[0.03] p-3 transition-all hover:border-primary/25 ${
-        isDragging ? 'opacity-40' : ''
-      }`}
-    >
-      {post.imageUrl ? (
-        <img
-          src={post.imageUrl}
-          alt={post.title}
-          className="mb-2 h-16 w-full rounded-xl object-cover"
-        />
-      ) : null}
-      <div className="mb-1.5 flex items-center gap-2">
-        <span className="flex h-4 w-4 items-center justify-center text-white/70">
-          {platformLogo(post.platform || 'meta')}
-        </span>
-        <span className="text-[9px] font-mono uppercase tracking-[0.16em] text-white/40">
-          {post.platform || 'meta'}
-        </span>
+    <div className="space-y-2">
+      <div
+        ref={setNodeRef}
+        {...attributes}
+        {...listeners}
+        data-testid={`tray-item-${post.postId}`}
+        className={`cursor-grab rounded-2xl border border-white/[0.06] bg-white/[0.03] p-3 transition-all hover:border-primary/25 ${
+          isDragging ? 'opacity-40' : ''
+        }`}
+      >
+        {post.imageUrl ? (
+          <img
+            src={post.imageUrl}
+            alt={post.title}
+            className="mb-2 h-16 w-full rounded-xl object-cover"
+            // Hide rather than render a broken tile if the Hermes asset evicted (404).
+            onError={(e) => {
+              e.currentTarget.style.display = 'none';
+            }}
+          />
+        ) : null}
+        <div className="mb-1.5 flex items-center gap-2">
+          <span className="flex h-4 w-4 items-center justify-center text-white/70">
+            {platformLogo(post.platform || 'meta')}
+          </span>
+          <span className="text-[9px] font-mono uppercase tracking-[0.16em] text-white/70">
+            {post.platform || 'meta'}
+          </span>
+        </div>
+        <p className="text-[11px] font-medium leading-snug text-white/85">{post.title}</p>
       </div>
-      <p className="text-[11px] font-medium leading-snug text-white/85">{post.title}</p>
       {canSchedule ? (
         <button
           type="button"
           data-testid={`tray-item-schedule-${post.postId}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onClickSchedule(post);
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-          onKeyDown={(e) => e.stopPropagation()}
-          className="mt-2 w-full rounded-xl border border-primary/20 bg-primary/10 py-1.5 text-[10px] font-medium text-primary/80 transition hover:border-primary/40 hover:text-primary"
+          onClick={() => onClickSchedule(post)}
+          className="w-full rounded-xl border border-primary/20 bg-primary/10 py-1.5 text-[10px] font-medium text-violet-300 transition hover:border-primary/40 hover:text-violet-300"
         >
           Schedule
         </button>
@@ -803,7 +809,7 @@ function CalendarCell({
         } ${active ? 'bg-primary/[0.03]' : ''} ${isOver ? 'ring-2 ring-inset ring-primary/60' : ''}`}
       >
         <div className="mb-4 flex items-start justify-between">
-          <span className={`text-sm font-medium ${active ? 'text-primary' : 'text-zinc-500'}`}>
+          <span className={`text-sm font-medium ${active ? 'text-violet-300' : 'text-zinc-400'}`}>
             {String(dayNumber)}
           </span>
           {active ? (
@@ -930,7 +936,7 @@ function platformTone(platform: string) {
   if (key.includes('youtube')) return 'border-red-500/40 text-red-400 bg-red-500/5';
   if (key.includes('facebook')) return 'border-sky-500/40 text-sky-300 bg-sky-500/5';
   if (key.includes('x')) return 'border-zinc-400/40 text-zinc-300 bg-zinc-400/5';
-  return 'border-primary/40 text-primary bg-primary/5';
+  return 'border-primary/40 text-violet-300 bg-primary/5';
 }
 
 function platformLogo(platform: string) {
@@ -959,7 +965,7 @@ function statusPill(status: string) {
 function InfoPanel(props: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-4">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.label}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">{props.label}</p>
       <p className="mt-2 text-sm text-white/80">{props.value}</p>
     </div>
   );

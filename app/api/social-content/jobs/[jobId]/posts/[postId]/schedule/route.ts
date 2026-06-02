@@ -174,7 +174,7 @@ export async function handlePatchScheduleSocialContentPost(
 
   try {
     const lookup = await client.query(
-      'SELECT id, tenant_id FROM posts WHERE id = $1 AND tenant_id = $2 LIMIT 1',
+      'SELECT id, tenant_id, surface, media_type FROM posts WHERE id = $1 AND tenant_id = $2 LIMIT 1',
       [postIdInt, tenantId],
     );
     if ((lookup.rowCount ?? lookup.rows.length) === 0 || lookup.rows.length === 0) {
@@ -185,6 +185,15 @@ export async function handlePatchScheduleSocialContentPost(
       });
       return NextResponse.json(POST_NOT_FOUND, { status: 404 });
     }
+    // The post's own surface/media_type are authoritative — mirror them onto the
+    // scheduled_posts row so an image story (or reel) dispatches on the right
+    // Meta surface instead of defaulting to 'feed'.
+    const postRow = lookup.rows[0] as { surface?: unknown; media_type?: unknown } | undefined;
+    const postSurfaceRaw = typeof postRow?.surface === 'string' ? postRow.surface.trim().toLowerCase() : '';
+    const postSurface: 'feed' | 'story' | 'reel' =
+      postSurfaceRaw === 'story' || postSurfaceRaw === 'reel' ? postSurfaceRaw : 'feed';
+    const postMediaType: 'image' | 'video' =
+      typeof postRow?.media_type === 'string' && postRow.media_type.trim().toLowerCase() === 'video' ? 'video' : 'image';
 
     // Publish-approval gate: a post may only be queued for auto-publish once a
     // human has approved the publish stage. Mirrors the marketing publish path
@@ -214,6 +223,8 @@ export async function handlePatchScheduleSocialContentPost(
       scheduledFor,
       platforms: normalizedPlatforms,
       campaignEndDate,
+      surface: postSurface,
+      mediaType: postMediaType,
     });
 
     scheduleScheduledPostHonchoWrite({

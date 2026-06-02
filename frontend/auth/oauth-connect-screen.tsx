@@ -153,9 +153,9 @@ export default function OAuthConnectScreen({
               <div className="flex items-center gap-4">
                 <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20">
                   {status === 'starting' ? (
-                    <LoaderCircle className="w-6 h-6 text-primary animate-spin" />
+                    <LoaderCircle className="w-6 h-6 text-violet-300 animate-spin" />
                   ) : status === 'redirecting' ? (
-                    <ChromeIcon className="w-6 h-6 text-primary" />
+                    <ChromeIcon className="w-6 h-6 text-violet-300" />
                   ) : result === 'connected' ? (
                     <CheckCircle2 className="w-6 h-6 text-emerald-400" />
                   ) : (
@@ -163,7 +163,7 @@ export default function OAuthConnectScreen({
                   )}
                 </div>
                 <div>
-                  <p className="text-sm uppercase tracking-[0.2em] text-white/40 mb-1">OAuth handoff</p>
+                  <p className="text-sm uppercase tracking-[0.2em] text-white/70 mb-1">OAuth handoff</p>
                   <h2 className="text-lg font-semibold text-white">
                     {status === 'starting'
                       ? `Preparing ${providerLabel}`

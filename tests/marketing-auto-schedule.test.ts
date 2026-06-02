@@ -9,6 +9,8 @@ import {
 } from '../backend/marketing/auto-schedule';
 import {
   readWeeklySchedule,
+  buildAutoScheduleRows,
+  type AutoSchedulePostRow,
 } from '../backend/marketing/hermes-callbacks';
 
 // All tests inject a frozen `now` so the time math is deterministic regardless
@@ -31,15 +33,15 @@ test('PLATFORM_POSTING_DEFAULTS pins Instagram 11:00 and Facebook 13:05 tenant-l
   // The hours are research-backed (Sprout Social / Later / Hootsuite 2024-25).
   // Pinning them prevents accidental drift during a refactor — if someone
   // wants to change the defaults they have to update this test deliberately.
-  assert.equal(PLATFORM_POSTING_DEFAULTS.instagram.hour, 11);
-  assert.equal(PLATFORM_POSTING_DEFAULTS.instagram.minute, 0);
-  assert.equal(PLATFORM_POSTING_DEFAULTS.instagram.staggerMinutes, 0);
+  assert.equal(PLATFORM_POSTING_DEFAULTS.instagram.feed.hour, 11);
+  assert.equal(PLATFORM_POSTING_DEFAULTS.instagram.feed.minute, 0);
+  assert.equal(PLATFORM_POSTING_DEFAULTS.instagram.feed.staggerMinutes, 0);
 
-  assert.equal(PLATFORM_POSTING_DEFAULTS.facebook.hour, 13);
-  assert.equal(PLATFORM_POSTING_DEFAULTS.facebook.minute, 0);
+  assert.equal(PLATFORM_POSTING_DEFAULTS.facebook.feed.hour, 13);
+  assert.equal(PLATFORM_POSTING_DEFAULTS.facebook.feed.minute, 0);
   // Facebook is offset 5 minutes from Instagram to avoid duplicate-minute
   // burst posting flagged by Meta's spam heuristics. Effective time = 13:05.
-  assert.equal(PLATFORM_POSTING_DEFAULTS.facebook.staggerMinutes, 5);
+  assert.equal(PLATFORM_POSTING_DEFAULTS.facebook.feed.staggerMinutes, 5);
 });
 
 // --- Per-platform timing ------------------------------------------------------
@@ -452,4 +454,99 @@ test('readWeeklySchedule returns [] when publish stage has no schedule output', 
   const doc = makeMinimalDoc({});
   const entries = readWeeklySchedule(doc as never);
   assert.equal(entries.length, 0);
+});
+
+// --- Surface dimension (feed / story / reel) ---------------------------------
+
+test('computeAutoScheduleSlots picks per-surface slots and carries surface/mediaType', () => {
+  const rows: AutoScheduleInputRow[] = [
+    { postId: 1, platform: 'instagram', recommendedDay: 'Monday', surface: 'feed', mediaType: 'image' },
+    { postId: 2, platform: 'instagram', recommendedDay: 'Monday', surface: 'reel', mediaType: 'video' },
+    { postId: 3, platform: 'instagram', recommendedDay: 'Monday', surface: 'story', mediaType: 'video' },
+  ];
+  const { slots } = computeAutoScheduleSlots({
+    rows,
+    tenantTimezone: TZ_NY,
+    campaignStart: CAMPAIGN_START,
+    campaignEnd: CAMPAIGN_END,
+    now: NOW,
+  });
+  assert.equal(slots.length, 3);
+  const bySurface = new Map(slots.map((s) => [s.surface, s]));
+  assert.equal(bySurface.get('feed')?.mediaType, 'image');
+  assert.equal(bySurface.get('reel')?.mediaType, 'video');
+  assert.equal(bySurface.get('story')?.mediaType, 'video');
+  // Reel slot hour differs from feed slot hour (distinct per-surface window).
+  assert.notEqual(bySurface.get('feed')?.appliedWallTime, bySurface.get('reel')?.appliedWallTime);
+});
+
+test('PLATFORM_POSTING_DEFAULTS nests by surface for both platforms', () => {
+  assert.equal(typeof PLATFORM_POSTING_DEFAULTS.instagram.reel.hour, 'number');
+  assert.equal(typeof PLATFORM_POSTING_DEFAULTS.instagram.story.hour, 'number');
+  assert.equal(typeof PLATFORM_POSTING_DEFAULTS.facebook.reel.hour, 'number');
+  assert.equal(typeof PLATFORM_POSTING_DEFAULTS.facebook.story.hour, 'number');
+});
+
+test('absent surface/mediaType defaults to feed/image', () => {
+  const rows: AutoScheduleInputRow[] = [
+    { postId: 9, platform: 'facebook', recommendedDay: 'Tuesday' },
+  ];
+  const { slots } = computeAutoScheduleSlots({
+    rows,
+    tenantTimezone: TZ_NY,
+    campaignStart: CAMPAIGN_START,
+    campaignEnd: CAMPAIGN_END,
+    now: NOW,
+  });
+  assert.equal(slots[0]?.surface, 'feed');
+  assert.equal(slots[0]?.mediaType, 'image');
+});
+
+// --- buildAutoScheduleRows: surface comes from the POST, not the schedule ----
+// Regression for the auto-promotion surface-drop: an auto-promoted image story
+// (posts.surface='story', idempotency `<job>:1:instagram:story`) shares ordinal 1
+// with its feed sibling, and the strategist weekly_schedule emits NO story
+// placement. The row builder must take surface/media_type from the post's own
+// columns so the story is scheduled as a story — not collapsed onto the feed
+// entry and published to the feed.
+const STORY_JOB = 'mkt_story_promotion';
+const WEEKLY_FEED_ONLY = [
+  { post_number: 1, recommended_day: 'Wednesday', platforms: ['instagram', 'facebook'] },
+];
+
+test('buildAutoScheduleRows: promoted story post keeps surface=story despite a feed-only schedule', () => {
+  const postRows: AutoSchedulePostRow[] = [
+    // feed sibling for ordinal 1
+    { id: 10, platform: 'instagram', idempotency_key: `${STORY_JOB}:1:instagram:feed`, surface: 'feed', media_type: 'image' },
+    // auto-promoted image story for the SAME ordinal 1
+    { id: 11, platform: 'instagram', idempotency_key: `${STORY_JOB}:1:instagram:story`, surface: 'story', media_type: 'image' },
+  ];
+
+  const rows = buildAutoScheduleRows(postRows, WEEKLY_FEED_ONLY, STORY_JOB);
+
+  const feed = rows.find((r) => r.postId === 10);
+  const story = rows.find((r) => r.postId === 11);
+  assert.equal(feed?.surface, 'feed');
+  assert.equal(story?.surface, 'story', 'story post must NOT inherit the feed schedule surface');
+  // Both still pick up the strategist recommended DAY from the schedule.
+  assert.equal(feed?.recommendedDay, 'Wednesday');
+  assert.equal(story?.recommendedDay, 'Wednesday');
+});
+
+test('buildAutoScheduleRows: media_type also comes from the post (video preserved)', () => {
+  const postRows: AutoSchedulePostRow[] = [
+    { id: 20, platform: 'facebook', idempotency_key: `${STORY_JOB}:1:facebook:reel`, surface: 'reel', media_type: 'video' },
+  ];
+  const rows = buildAutoScheduleRows(postRows, WEEKLY_FEED_ONLY, STORY_JOB);
+  assert.equal(rows[0]?.surface, 'reel');
+  assert.equal(rows[0]?.mediaType, 'video');
+});
+
+test('buildAutoScheduleRows: null/legacy surface falls back to feed/image', () => {
+  const postRows: AutoSchedulePostRow[] = [
+    { id: 30, platform: 'instagram', idempotency_key: `${STORY_JOB}:1:instagram:feed`, surface: null, media_type: null },
+  ];
+  const rows = buildAutoScheduleRows(postRows, WEEKLY_FEED_ONLY, STORY_JOB);
+  assert.equal(rows[0]?.surface, 'feed');
+  assert.equal(rows[0]?.mediaType, 'image');
 });
