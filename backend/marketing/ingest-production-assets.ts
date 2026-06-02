@@ -38,6 +38,54 @@ export interface IngestProductionAssetsResult {
   total: number;
 }
 
+/**
+ * Read the onboarding variant-board grouping tags off the job doc. They are
+ * stamped at job-creation time into doc.inputs.request (variant_batch_id +
+ * variant_index) by startFirstPostVariantBatch — NOT carried on the Hermes
+ * callback (the callback payload has no callback_context). Returns nulls unless
+ * BOTH a non-empty batch id and a valid non-negative integer index are present
+ * (a half-set pair is treated as untagged so a normal weekly post stays NULL).
+ */
+export function readVariantTagsFromDoc(
+  doc: SocialContentJobRuntimeDocument,
+): { variantBatchId: string | null; variantIndex: number | null } {
+  const request = doc.inputs?.request as Record<string, unknown> | undefined;
+  if (!request || typeof request !== 'object') {
+    return { variantBatchId: null, variantIndex: null };
+  }
+  const rawBatch = request.variant_batch_id ?? request.variantBatchId;
+  const variantBatchId = typeof rawBatch === 'string' && rawBatch.trim() ? rawBatch.trim() : null;
+
+  const rawIndex = request.variant_index ?? request.variantIndex;
+  let variantIndex: number | null = null;
+  if (typeof rawIndex === 'number' && Number.isInteger(rawIndex) && rawIndex >= 0) {
+    variantIndex = rawIndex;
+  } else if (typeof rawIndex === 'string' && /^\d+$/.test(rawIndex.trim())) {
+    variantIndex = Number.parseInt(rawIndex.trim(), 10);
+  }
+
+  if (variantBatchId === null || variantIndex === null) {
+    return { variantBatchId: null, variantIndex: null };
+  }
+  return { variantBatchId, variantIndex };
+}
+
+/**
+ * True for an onboarding variant-board generation job that has NOT yet been
+ * promoted by a pick. These jobs are candidates on the board, not final posts —
+ * they must NOT auto-publish to Meta even when ARIES_AUTO_APPROVE_MARKETING_PIPELINE
+ * is on. The pick endpoint (Phase 3) sets doc.inputs.request.variant_pick_finalized
+ * on the chosen job to release it to publish; the unchosen ones stay held.
+ * A normal (non-variant) weekly job has no variant_batch_id → returns false →
+ * unchanged behavior.
+ */
+export function isVariantBoardJobAwaitingPick(doc: SocialContentJobRuntimeDocument): boolean {
+  const { variantBatchId } = readVariantTagsFromDoc(doc);
+  if (!variantBatchId) return false;
+  const request = doc.inputs?.request as Record<string, unknown> | undefined;
+  return request?.variant_pick_finalized !== true;
+}
+
 type CreativeAssetEntry = {
   assetId: string;
   type: string;
@@ -91,12 +139,14 @@ const INSERT_PRODUCTION_ASSET_SQL = `
       tenant_id, source_type, source_job_id, source_asset_id,
       storage_kind, storage_key, media_type,
       aspect_ratio, checksum, permission_scope,
-      learning_lifecycle, usable_for_generation
+      learning_lifecycle, usable_for_generation,
+      variant_batch_id, variant_index
     ) VALUES (
       $1, 'generated_by_aries', $2, $3,
       'runtime_asset', $4, 'image',
       '4:5', $5, 'generated',
-      'observed', false
+      'observed', false,
+      $6, $7
     )
     ON CONFLICT (tenant_id, checksum) WHERE checksum IS NOT NULL DO NOTHING
     RETURNING id
@@ -127,6 +177,10 @@ export async function ingestProductionCreativeAssetsToDb(
   if (!Array.isArray(creativeAssets) || creativeAssets.length === 0) {
     return { inserted: 0, skipped: 0, total: 0 };
   }
+
+  // Variant grouping tags are batch-level (same for every asset this job
+  // produced); read once from the doc, not per asset.
+  const { variantBatchId, variantIndex } = readVariantTagsFromDoc(doc);
 
   let inserted = 0;
   let skipped = 0;
@@ -174,6 +228,8 @@ export async function ingestProductionCreativeAssetsToDb(
         sourceAssetId,
         readPath,
         checksum,
+        variantBatchId,
+        variantIndex,
       ]);
 
       const rowCount = result.rowCount ?? 0;

@@ -33,7 +33,7 @@ import { getMarketingExecutionPort, type MarketingExecutionPort } from './execut
 import { scheduleHermesPublishPerformanceHonchoWrite } from '@/backend/memory/write-events';
 import { approveSocialContentJob } from './orchestrator';
 import type { ApproveSocialContentJobRequest, ApproveSocialContentJobResponse } from './orchestrator';
-import { ingestProductionCreativeAssetsToDb } from './ingest-production-assets';
+import { ingestProductionCreativeAssetsToDb, isVariantBoardJobAwaitingPick } from './ingest-production-assets';
 import { recomputeAndPersistPendingApprovalCount } from './runtime-views';
 import { synthesizePublishPostsFromContentPackage } from './synthesize-publish-posts';
 import { composeStoryAssetForBaseCreative, resolveStoryCtaText } from './story-composer';
@@ -1144,7 +1144,14 @@ export async function maybeAutoApproveMarketingCheckpoint(
   env: NodeJS.ProcessEnv = process.env,
   payload?: HermesRunCallbackPayload,
 ): Promise<void> {
-  if (!autoApproveMarketingPipelineEnabled(env)) return;
+  // Onboarding variant-board jobs must auto-advance through strategy/production
+  // on their own — the board + the user's pick IS the approval — even when the
+  // global ARIES_AUTO_APPROVE_MARKETING_PIPELINE flag is OFF; otherwise the 3
+  // variants would stall at strategy approval and never generate. Their PUBLISH
+  // stage is still held until the pick releases the chosen job (handled below).
+  const globalAutoApprove = autoApproveMarketingPipelineEnabled(env);
+  const variantAwaitingPick = isVariantBoardJobAwaitingPick(doc);
+  if (!globalAutoApprove && !variantAwaitingPick) return;
 
   const checkpoint = doc.approvals.current;
   if (!checkpoint) return;
@@ -1158,6 +1165,15 @@ export async function maybeAutoApproveMarketingCheckpoint(
   // a checkpoint here would be a misroute and should not be auto-approved.
   const stage = checkpoint.stage;
   if (stage !== 'strategy' && stage !== 'production' && stage !== 'publish') return;
+
+  // A variant-board job that hasn't been picked yet holds at publish: the board
+  // shows the production image, and only the pick (variant_pick_finalized) lets
+  // the chosen job publish. The unchosen variants never publish.
+  if (variantAwaitingPick && stage === 'publish') {
+    appendHistory(doc, 'variant-board job: holding publish checkpoint until pick', { stage });
+    saveSocialContentJobRuntime(doc.job_id, doc);
+    return;
+  }
 
   // Publish-stage guardrail: refuse to auto-approve when the callback payload
   // explicitly signals the run is not ready. Without this, a "completed"
@@ -1195,9 +1211,11 @@ export async function maybeAutoApproveMarketingCheckpoint(
     }
   }
 
-  appendHistory(doc, `auto-approving ${stage} checkpoint (ARIES_AUTO_APPROVE_MARKETING_PIPELINE=1)`, {
-    stage,
-  });
+  appendHistory(
+    doc,
+    `auto-approving ${stage} checkpoint${variantAwaitingPick ? ' (variant-board auto-advance to production)' : ' (ARIES_AUTO_APPROVE_MARKETING_PIPELINE=1)'}`,
+    { stage },
+  );
   saveSocialContentJobRuntime(doc.job_id, doc);
 
   try {
@@ -1349,6 +1367,15 @@ async function synthesizePublishPostsOnCompletion(
  * [IG only] would mis-ordinal the third row).
  */
 async function autoScheduleApprovedPostsForJob(doc: SocialContentJobRuntimeDocument): Promise<void> {
+  // Onboarding variant-board candidates must NOT auto-publish before the user
+  // picks — a held variant is a board option, not a final post. The pick endpoint
+  // releases the chosen job (variant_pick_finalized). Non-variant jobs are
+  // unaffected (no variant_batch_id → false).
+  if (isVariantBoardJobAwaitingPick(doc)) {
+    console.info('[hermes-callbacks] autoSchedulePosts skipped — variant-board job awaiting pick', { jobId: doc.job_id });
+    return;
+  }
+
   const tenantNum = Number(doc.tenant_id);
   if (!Number.isFinite(tenantNum) || tenantNum <= 0) return;
 

@@ -19,6 +19,8 @@ import {
 import { listSocialContentJobIdsForTenant } from '@/backend/marketing/runtime-state';
 import { listMarketingReviewItemsForTenant } from '@/backend/marketing/runtime-views';
 import { startSocialContentJob } from '@/backend/marketing/orchestrator';
+import { startFirstPostVariantBatch } from '@/backend/marketing/onboarding-variant-batch';
+import { isOnboardingVariantBoardEnabled } from '@/backend/onboarding/variant-board-env';
 import { ensureSocialContentWorkspaceRecord } from '@/backend/marketing/workspace-store';
 
 import OnboardingResumePending from './pending';
@@ -102,12 +104,23 @@ export default async function OnboardingResumePage(
 
   const claim = await claimOnboardingDraftMaterialization(draftId);
   if (claim.draft.status === 'materialized' && claim.draft.materializedJobId) {
-    redirect(`/dashboard/social-content/${encodeURIComponent(claim.draft.materializedJobId)}?welcome=1`);
+    const materializedId = claim.draft.materializedJobId;
+    // A variant batch id (vbatch_*) routes back to the board; a normal job id to
+    // the dashboard.
+    redirect(
+      materializedId.startsWith('vbatch_')
+        ? `/onboarding/variants/${encodeURIComponent(materializedId)}`
+        : `/dashboard/social-content/${encodeURIComponent(materializedId)}?welcome=1`,
+    );
   }
 
   if (!claim.claimed) {
     return <OnboardingResumePending />;
   }
+
+  // Set once the variant batch is pinned to the draft (see onBatchCreated below):
+  // from that point a failure must not reset the draft, or a revisit re-fans out.
+  let variantBatchStarted = false;
 
   try {
     const tenantId = await resolveTenantForDraft({
@@ -150,6 +163,29 @@ export default async function OnboardingResumePage(
       mode: 'guided',
     };
 
+    // Flag ON: the first post becomes a 3-variant board. Fan out the variants,
+    // materialize the draft against the batch id, and send the user to the board.
+    // Flag OFF: the existing single weekly job — byte-identical to before.
+    if (isOnboardingVariantBoardEnabled()) {
+      const batch = await startFirstPostVariantBatch({
+        tenantId,
+        createdBy: session.user.id,
+        payload,
+        // Pin the draft to the batch BEFORE any job submits, so a later submit
+        // failure leaves a recoverable pointer (a revisit routes back to the
+        // board) instead of re-running the 3-job fan-out and orphaning jobs.
+        onBatchCreated: async (batchId) => {
+          variantBatchStarted = true;
+          await updateOnboardingDraft(draftId, {
+            status: 'materialized',
+            materializedTenantId: tenantId,
+            materializedJobId: batchId,
+          });
+        },
+      });
+      redirect(`/onboarding/variants/${encodeURIComponent(batch.variantBatchId)}`);
+    }
+
     const result = await startSocialContentJob({
       tenantId,
       jobType: 'weekly_social_content',
@@ -171,7 +207,19 @@ export default async function OnboardingResumePage(
 
     redirect(`/dashboard/social-content/${encodeURIComponent(result.jobId)}?welcome=1`);
   } catch (error) {
-    await updateOnboardingDraft(draftId, { status: 'ready_for_auth' });
+    // redirect() throws NEXT_REDIRECT as control flow — a successful redirect must
+    // NOT reset the (already-materialized) draft, or a revisit would re-materialize
+    // and re-run the job/variant fan-out. Only reset on a genuine failure.
+    const digest = (error as { digest?: unknown } | null)?.digest;
+    if (typeof digest === 'string' && digest.startsWith('NEXT_REDIRECT')) {
+      throw error;
+    }
+    // Once a variant batch is pinned to the draft (materialized), a later failure
+    // must NOT reset to ready_for_auth — a revisit would re-run the 3-job fan-out
+    // and orphan the live jobs. The board recovers (renders what landed, times out).
+    if (!variantBatchStarted) {
+      await updateOnboardingDraft(draftId, { status: 'ready_for_auth' });
+    }
     throw error;
   }
 }

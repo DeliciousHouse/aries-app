@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.0 — First-post onboarding variant board → Aries + Honcho taste profile
+
+Ships the flag-gated (`ARIES_ONBOARDING_VARIANT_BOARD_ENABLED`, default OFF)
+first-post onboarding variant board specced in v0.1.14.2's plan. When ON, a new
+user's first post is generated as 3 competing full-post variants (Aries fans out
+3 single-post `weekly_social_content` jobs — no Hermes contract change), shown on
+an in-app comparison board where the user rates each (1-5 stars), regenerates /
+"more like this" / freeform-edits, and picks one. The pick anchors the remaining
+6 week-1 posts (Phase B, generated *after* the pick) and writes taste to BOTH a
+new `marketing_taste_profile` table (read-time bias, 5%/week decay) and Honcho
+(`variant_taste_signal`).
+
+- **Phase 1 (data + flag):** `marketing_taste_profile` / `marketing_taste_signal`
+  tables + store (Laplace confidence, read-time decay), Honcho
+  `recordOnboardingVariantTasteSignalEvent`, `loadTasteForBrief`,
+  `isOnboardingVariantBoardEnabled()`.
+- **Phase 2 (fan-out):** `startFirstPostVariantBatch`, `creative_assets`
+  `variant_batch_id` / `variant_index` grouping (doc-driven, not callback), a
+  read-time board with timeout auto-pick, and a guard so variant jobs do NOT
+  auto-publish until the pick.
+- **Phase 3 (UI):** `frontend/aries-v1/variant-board.tsx` (accessible stars,
+  regenerate/edit, pick), `GET`/`POST /api/onboarding/variants/[batchId]`,
+  onboarding resume branch (idempotent fan-out, no double-run on revisit).
+- **Phase 4:** dual taste write (DB + Honcho) on pick + ratings + edits, Phase-B
+  anchored generation of posts #2-7, atomic pick claim.
+
+Flag default OFF ⇒ onboarding byte-identical to today. Migrations
+`20260602000000_marketing_taste_profile.sql` and
+`20260602010000_creative_assets_variant_columns.sql` are additive
+(`IF NOT EXISTS`); apply to existing DBs before flipping the flag. `init-db.js`
+carries the same DDL for fresh DBs.
+
 ## v0.1.14.2 — Plan: first-post onboarding variant board → Aries + Honcho taste profile
 
 Adds the plan doc `docs/plans/2026-06-02-onboarding-variant-board.md` (planning
