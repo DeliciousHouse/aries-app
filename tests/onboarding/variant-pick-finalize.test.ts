@@ -110,6 +110,35 @@ test('finalizeVariantPick writes pick + rating taste to DB and Honcho, and trigg
   assert.equal(result.phaseBJobId, 'mkt_phaseB');
 });
 
+test('finalizeVariantPick approves the chosen job held publish checkpoint (resume to publish)', async () => {
+  let approveCall: Record<string, unknown> | null = null;
+  await finalizeVariantPick(
+    { tenantCtx, batchId: 'vbatch_x', pickedVariantIndex: 1, pickedCreativeId: 'creative_b' },
+    {
+      loadBatch: async () => makeBatch(),
+      applyTaste: (async () => ({}) as never) as never,
+      scheduleHoncho: (() => {}) as never,
+      loadJobDoc: (async (jobId: string) =>
+        ({
+          job_id: jobId,
+          tenant_id: '7',
+          approvals: { current: { stage: 'publish', approval_id: 'mkta_pub_1', publish_config: null } },
+          inputs: { request: { brandUrl: 'https://x', goal: 'g' } },
+        }) as never) as never,
+      approveJob: (async (req: Record<string, unknown>) => {
+        approveCall = req;
+        return { status: 'accepted' } as never;
+      }) as never,
+      startJob: (async () => ({ jobId: 'mkt_phaseB' }) as never) as never,
+      now: new Date('2026-06-02T00:00:00.000Z'),
+    },
+  );
+  assert.ok(approveCall, 'the chosen job publish checkpoint is approved');
+  assert.equal((approveCall as Record<string, unknown>).jobId, 'mkt_1', 'the chosen variant job (job_ids[1])');
+  assert.deepEqual((approveCall as Record<string, unknown>).approvedStages, ['publish']);
+  assert.equal((approveCall as Record<string, unknown>).approvalId, 'mkta_pub_1');
+});
+
 test('finalizeVariantPick is a no-op when the batch is missing', async () => {
   const result = await finalizeVariantPick(
     { tenantCtx, batchId: 'nope', pickedVariantIndex: 0 },

@@ -16,7 +16,10 @@
 import { scheduleOnboardingVariantTasteSignalHoncho } from '@/backend/memory';
 
 import {
+  approveSocialContentJob,
   startSocialContentJob,
+  type ApproveSocialContentJobRequest,
+  type ApproveSocialContentJobResponse,
   type StartSocialContentJobRequest,
   type StartSocialContentJobResponse,
 } from './orchestrator';
@@ -110,6 +113,10 @@ export type FinalizeVariantPickDeps = {
   applyTaste?: typeof applyTasteSignal;
   scheduleHoncho?: typeof scheduleOnboardingVariantTasteSignalHoncho;
   startJob?: (req: StartSocialContentJobRequest) => Promise<StartSocialContentJobResponse>;
+  approveJob?: (
+    req: ApproveSocialContentJobRequest,
+    doc?: SocialContentJobRuntimeDocument,
+  ) => Promise<ApproveSocialContentJobResponse>;
   loadJobDoc?: (jobId: string) => Promise<SocialContentJobRuntimeDocument | null>;
   loadBatch?: (batchId: string) => Promise<VariantBatchRecord | null>;
   now?: Date;
@@ -128,6 +135,7 @@ export async function finalizeVariantPick(
   const applyTaste = deps.applyTaste ?? applyTasteSignal;
   const scheduleHoncho = deps.scheduleHoncho ?? scheduleOnboardingVariantTasteSignalHoncho;
   const startJob = deps.startJob ?? startSocialContentJob;
+  const approveJob = deps.approveJob ?? approveSocialContentJob;
   const loadJobDoc = deps.loadJobDoc ?? loadSocialContentJobRuntime;
   const loadBatch = deps.loadBatch ?? loadVariantBatch;
   const ymd = ymdUtcToday(deps.now ?? new Date());
@@ -204,7 +212,35 @@ export async function finalizeVariantPick(
     }
   }
 
-  // --- 2. Phase B: posts #2-7 anchored to the chosen variant's direction ----
+  // --- 2. Resume the chosen variant's publish ------------------------------
+  // Variant jobs are HELD at their publish checkpoint until picked. recordVariantPick
+  // set variant_pick_finalized on the chosen job; approve its publish checkpoint so
+  // the chosen post actually publishes. (If the checkpoint hasn't emitted yet, the
+  // global auto-approve promotes it once it does.)
+  try {
+    const chosenJobId = batch.job_ids[pickedVariantIndex];
+    if (chosenJobId) {
+      const chosenDoc = await loadJobDoc(chosenJobId);
+      const cp = chosenDoc?.approvals?.current;
+      if (chosenDoc && cp && cp.stage === 'publish' && cp.approval_id && chosenDoc.tenant_id === tenantCtx.tenantId) {
+        await approveJob(
+          {
+            jobId: chosenJobId,
+            tenantId: tenantCtx.tenantId,
+            approvedBy: 'ai-orchestrator-variant-pick',
+            approvalId: cp.approval_id,
+            approvedStages: ['publish'],
+            publishConfig: cp.publish_config ?? undefined,
+          },
+          chosenDoc,
+        );
+      }
+    }
+  } catch (err) {
+    console.warn('[variant-pick-finalize] resume chosen-job publish failed — continuing', err);
+  }
+
+  // --- 3. Phase B: posts #2-7 anchored to the chosen variant's direction ----
   try {
     const chosenJobId = batch.job_ids[pickedVariantIndex];
     const basePayload = chosenJobId ? extractBasePayload(await loadJobDoc(chosenJobId)) : null;

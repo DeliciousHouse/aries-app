@@ -685,3 +685,72 @@ test('publish guardrail: healthy mkt_b83fc598 fixture preflight → NO refusal (
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Onboarding variant-board jobs: auto-advance through strategy/production even
+// when the GLOBAL auto-approve flag is OFF (the board + pick is the approval),
+// but hold publish until the pick releases the chosen job.
+// ---------------------------------------------------------------------------
+
+function variantInputs(extra: Record<string, unknown> = {}) {
+  return { request: { variant_batch_id: 'vbatch_x', variant_index: 0, ...extra }, brand_url: BRAND_URL };
+}
+
+test('variant-board job + flag OFF + strategy → auto-advances (approve fires) so the board can generate', async () => {
+  await withDataRoot(async () => {
+    await withEnvOverride('ARIES_AUTO_APPROVE_MARKETING_PIPELINE', '0', async () => {
+      const doc = makeDoc({ inputs: variantInputs() });
+      const stub = makeApproveStub();
+      await maybeAutoApproveMarketingCheckpoint(doc, stub.approve);
+      assert.equal(stub.calls.length, 1, 'variant job auto-advances strategy even with the global flag OFF');
+      assert.deepEqual(stub.calls[0]?.input.approvedStages, ['strategy']);
+    });
+  });
+});
+
+test('variant-board job + flag OFF + publish → HELD (no approve; awaits pick)', async () => {
+  await withDataRoot(async () => {
+    await withEnvOverride('ARIES_AUTO_APPROVE_MARKETING_PIPELINE', '0', async () => {
+      const doc = makePublishDoc();
+      doc.inputs = variantInputs();
+      const stub = makeApproveStub();
+      await maybeAutoApproveMarketingCheckpoint(doc, stub.approve);
+      assert.equal(stub.calls.length, 0, 'an unpicked variant holds publish');
+    });
+  });
+});
+
+test('variant-board job + flag ON + publish → still HELD (the pick gates publish, not the flag)', async () => {
+  await withDataRoot(async () => {
+    await withEnvOverride('ARIES_AUTO_APPROVE_MARKETING_PIPELINE', '1', async () => {
+      const doc = makePublishDoc();
+      doc.inputs = variantInputs();
+      const stub = makeApproveStub();
+      await maybeAutoApproveMarketingCheckpoint(doc, stub.approve);
+      assert.equal(stub.calls.length, 0, 'even with global auto-approve ON, an unpicked variant holds publish');
+    });
+  });
+});
+
+test('FINALIZED variant job + flag OFF + publish → follows the global flag (held; resumed explicitly by the pick)', async () => {
+  await withDataRoot(async () => {
+    await withEnvOverride('ARIES_AUTO_APPROVE_MARKETING_PIPELINE', '0', async () => {
+      const doc = makePublishDoc();
+      doc.inputs = variantInputs({ variant_pick_finalized: true });
+      const stub = makeApproveStub();
+      await maybeAutoApproveMarketingCheckpoint(doc, stub.approve);
+      assert.equal(stub.calls.length, 0, 'a finalized variant is no longer a variant-hold; the global flag gates it');
+    });
+  });
+});
+
+test('non-variant job + flag OFF + strategy → unchanged (no approve)', async () => {
+  await withDataRoot(async () => {
+    await withEnvOverride('ARIES_AUTO_APPROVE_MARKETING_PIPELINE', '0', async () => {
+      const doc = makeDoc();
+      const stub = makeApproveStub();
+      await maybeAutoApproveMarketingCheckpoint(doc, stub.approve);
+      assert.equal(stub.calls.length, 0, 'a normal job still follows the global flag (OFF → no approve)');
+    });
+  });
+});
