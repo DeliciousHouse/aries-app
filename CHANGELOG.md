@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.1 — Durable Hermes run reconciler (fixes stalled marketing pipeline)
+
+Restores marketing content generation in production. Hermes `/v1/runs` is a
+polled API that never calls back, so Aries drove runs to completion with an
+in-process "poll-bridge" spawned by the submitting request — which did not
+survive the Next.js production request lifecycle, so completed runs were never
+ingested and every marketing job was eventually failed by the stale-run reaper
+(no marketing job had completed since 2026-05-27).
+
+### Added
+- A durable Hermes run reconciler (`ARIES_RECONCILER_ENABLED`, default ON): a
+  standing worker spawned by the runtime alongside the web cluster (the
+  stale-run reaper's model). Every 60s it re-discovers in-flight marketing runs
+  and ingests any Hermes has finished, through the same idempotent callback path
+  the bridge used — but as a standing process, so it survives the request churn
+  that orphaned the bridge. Tunables: `ARIES_RECONCILER_INTERVAL_MS`,
+  `ARIES_RECONCILER_MAX_RECORD_AGE_MS`, `ARIES_RECONCILER_MIN_AGE_MS`,
+  `ARIES_RECONCILER_TICK_TIMEOUT_MS`, `HERMES_RECONCILER_POLL_TIMEOUT_MS`.
+
+### Fixed
+- Marketing jobs (weekly content and the onboarding variant board) no longer
+  stall and get reaped when Hermes finishes a run — completed creative is
+  ingested within about a minute.
+- Execution-run records now record which Hermes gateway they were submitted to,
+  so reconciliation always polls the correct per-profile gateway.
+- A terminal execution run can no longer be overwritten to failed by a late
+  poll (completion-vs-reconciler race).
+
 ## v0.1.15.0 — First-post onboarding variant board → Aries + Honcho taste profile
 
 Ships the flag-gated (`ARIES_ONBOARDING_VARIANT_BOARD_ENABLED`, default OFF)
