@@ -1966,6 +1966,15 @@ async function applyHermesMarketingCallbackInner(
         }
       }
       clearApprovalCheckpoint(doc, 'publish approval skipped because publishing is disabled');
+      // Ingest production creative_assets on THIS terminal path too. The
+      // `payload.status === 'completed'` branch below ingests on completion, but
+      // when publishing is not required the job completes directly from the
+      // production `requires_approval` (approve_publish) callback and previously
+      // returned here WITHOUT ingesting — leaving rendered images out of
+      // creative_assets, so the dashboard showed "No launch items" despite a real
+      // render. doc.stages.production.primary_output is already populated by the
+      // markStageCompleted call above, so this reads the rendered image paths.
+      await ingestProductionCreativeAssetsOnCompletion(doc);
       saveSocialContentJobRuntime(doc.job_id, doc);
       return;
     }
