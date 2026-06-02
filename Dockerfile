@@ -68,6 +68,11 @@ COPY --from=builder --chown=node:node /app/templates ./templates
 COPY --from=builder --chown=node:node /app/types ./types
 COPY --from=builder --chown=node:node /app/validators ./validators
 COPY --from=builder --chown=node:node /app/scripts ./scripts
+# tsx-spawned workers (e.g. the Hermes reconciler) resolve `@aries/hermes-protocol`
+# from source at runtime via the tsconfig path → packages/aries-hermes-protocol/src.
+# Next.js bundles it into .next at build time, but the standalone tsx workers need
+# the raw package source present in the runner image.
+COPY --from=builder --chown=node:node /app/packages ./packages
 COPY --from=builder --chown=node:node /app/next-env.d.ts ./next-env.d.ts
 COPY --from=builder --chown=node:node /app/next.config.mjs ./next.config.mjs
 COPY --from=builder --chown=node:node /app/postcss.config.mjs ./postcss.config.mjs
