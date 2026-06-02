@@ -17,6 +17,14 @@ export type TenantBrandColors = {
   secondary: string | null;
   accent: string | null;
   palette: string[];
+  /**
+   * The page's dominant background color and whether the brand reads light or
+   * dark. Captured so image generation renders on the brand's actual background
+   * (e.g. a `bg-black` Tailwind site is dark) instead of defaulting to white.
+   * Optional/absent on kits extracted before this shipped.
+   */
+  background?: string | null;
+  mode?: 'light' | 'dark' | null;
 };
 
 export type TenantBrandKit = {
@@ -653,6 +661,112 @@ function weightedHtmlColors(html: string): Array<[string, number]> {
   return (colorful.length > 0 ? colorful : entries).slice(0, 6);
 }
 
+/**
+ * Hex equivalents for the dark/light Tailwind background utility classes a
+ * marketing site is most likely to set on its <body>/<html>/page wrapper.
+ * Used to recover the brand's real background when it is expressed only as a
+ * utility class (e.g. aries.sugarandleather.com uses `bg-black`) and never
+ * appears as an inline color, CSS var, or theme-color meta — the cases the
+ * palette extractor below already covers.
+ */
+const TAILWIND_BG_HEX: Record<string, string> = {
+  'bg-black': '#000000',
+  'bg-white': '#ffffff',
+  'bg-zinc-950': '#09090b',
+  'bg-zinc-900': '#18181b',
+  'bg-neutral-950': '#0a0a0a',
+  'bg-neutral-900': '#171717',
+  'bg-slate-950': '#020617',
+  'bg-slate-900': '#0f172a',
+  'bg-gray-950': '#030712',
+  'bg-gray-900': '#111827',
+  'bg-stone-950': '#0c0a09',
+  'bg-stone-900': '#1c1917',
+};
+
+/** Perceptual relative luminance (0 = black, 1 = white) from a #rrggbb color. */
+function relativeLuminance(hex: string): number | null {
+  const channels = hexChannels(hex);
+  if (!channels) {
+    return null;
+  }
+  const [r, g, b] = channels.map((c) => c / 255);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/**
+ * Detect the page's dominant background color + whether the brand reads light
+ * or dark. Resolution order: (1) a bg-* utility on the <body>/<html> tag,
+ * (2) the most common dark/light bg-* utility across the markup, (3) an inline
+ * <body> background color, (4) a `body{background}` / `:root{--background}`
+ * CSS rule, (5) the theme-color meta. Returns nulls when nothing is found so
+ * callers fall back to today's behavior.
+ */
+function detectThemeBackground(
+  html: string,
+  cssBlocks: string[],
+): { background: string | null; mode: 'light' | 'dark' | null } {
+  let background: string | null = null;
+
+  // (1) bg-* utility on the root <body>/<html> element.
+  const rootClassMatch = html.match(/<(?:body|html)\b[^>]*\bclass=["']([^"']*)["']/i);
+  if (rootClassMatch) {
+    for (const cls of rootClassMatch[1].split(/\s+/)) {
+      if (TAILWIND_BG_HEX[cls]) {
+        background = TAILWIND_BG_HEX[cls];
+        break;
+      }
+    }
+  }
+
+  // (2) most common dark/light bg-* utility across the whole document.
+  if (!background) {
+    const counts = new Map<string, number>();
+    for (const match of html.matchAll(/\bbg-(?:black|white|(?:zinc|neutral|slate|gray|stone)-9[05]0)\b/g)) {
+      const cls = match[0];
+      counts.set(cls, (counts.get(cls) ?? 0) + 1);
+    }
+    const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (top && TAILWIND_BG_HEX[top[0]]) {
+      background = TAILWIND_BG_HEX[top[0]];
+    }
+  }
+
+  // (3) inline background-color on <body>.
+  if (!background) {
+    const inline = html.match(/<body\b[^>]*\bstyle=["'][^"']*background(?:-color)?\s*:\s*([^;"']+)/i);
+    if (inline) {
+      background = normalizeColor(inline[1]);
+    }
+  }
+
+  // (4) body{background} / :root{--background} CSS rules.
+  if (!background) {
+    for (const css of cssBlocks) {
+      const bodyRule = css.match(/\bbody\s*\{[^}]*?background(?:-color)?\s*:\s*([^;}]+)/i);
+      const rootVar = css.match(/--background[\w-]*\s*:\s*([^;}]+)/i);
+      const candidate = normalizeColor((bodyRule?.[1] || rootVar?.[1] || '').trim());
+      if (candidate) {
+        background = candidate;
+        break;
+      }
+    }
+  }
+
+  // (5) theme-color meta.
+  if (!background) {
+    background = normalizeColor(extractMetaContent(html, 'name', 'theme-color') || '');
+  }
+
+  if (!background) {
+    return { background: null, mode: null };
+  }
+
+  const luminance = relativeLuminance(background);
+  const mode = luminance === null ? null : luminance < 0.5 ? 'dark' : 'light';
+  return { background, mode };
+}
+
 function extractBrandColors(html: string, cssBlocks: string[]): TenantBrandColors {
   const palette: string[] = [];
   const htmlColors = weightedHtmlColors(html).map(([color]) => color);
@@ -699,11 +813,15 @@ function extractBrandColors(html: string, cssBlocks: string[]): TenantBrandColor
     ? [...colorfulPalette, ...dedupedPalette.filter((value) => isNeutralColor(value))]
     : dedupedPalette;
 
+  const { background, mode } = detectThemeBackground(html, cssBlocks);
+
   return {
     primary: prioritizedPalette[0] ?? null,
     secondary: prioritizedPalette[1] ?? null,
     accent: prioritizedPalette[2] ?? null,
     palette: prioritizedPalette,
+    background,
+    mode,
   };
 }
 
@@ -1237,11 +1355,20 @@ function normalizeBrandColors(colors: Partial<TenantBrandColors> | null | undefi
     ...((colors?.palette || []).map((value) => normalizeColor(value) || '')),
   ].filter(Boolean)).slice(0, 6);
 
+  const background = normalizeColor(colors?.background || '') || null;
+  const mode = colors?.mode === 'dark' || colors?.mode === 'light'
+    ? colors.mode
+    : background
+      ? ((relativeLuminance(background) ?? 1) < 0.5 ? 'dark' : 'light')
+      : null;
+
   return {
     primary: palette[0] ?? null,
     secondary: palette[1] ?? null,
     accent: palette[2] ?? null,
     palette,
+    background,
+    mode,
   };
 }
 

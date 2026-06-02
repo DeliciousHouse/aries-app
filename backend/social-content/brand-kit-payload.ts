@@ -24,6 +24,8 @@ export type SocialContentBrandPayload = {
     secondary: string | null;
     accent: string | null;
     palette: string[];
+    background: string | null;
+    mode: 'light' | 'dark' | null;
   };
   font_families: string[];
   offer: string;
@@ -104,11 +106,14 @@ function resolvedOnboarding(
 }
 
 function brandKitColors(brandKit: MarketingBrandKitReference | null | undefined): SocialContentBrandPayload['colors'] {
+  const mode = brandKit?.colors?.mode;
   return {
     primary: brandKit?.colors?.primary ?? null,
     secondary: brandKit?.colors?.secondary ?? null,
     accent: brandKit?.colors?.accent ?? null,
     palette: Array.isArray(brandKit?.colors?.palette) ? [...brandKit.colors.palette] : [],
+    background: brandKit?.colors?.background ?? null,
+    mode: mode === 'light' || mode === 'dark' ? mode : null,
   };
 }
 

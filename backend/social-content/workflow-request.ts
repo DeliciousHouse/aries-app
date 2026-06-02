@@ -293,6 +293,11 @@ export function buildProductionResumeContext(input: {
   const styleVibe = brandKitPayload.brand.style_vibe;
   const offer = brandKitPayload.objective.offer;
   const palette = brandKitPayload.brand.colors.palette;
+  const brandBackground = brandKitPayload.brand.colors.background;
+  const brandMode = brandKitPayload.brand.colors.mode;
+  const brandLogoUrl = brandKitPayload.brand.logo_urls.find((url) => !url.startsWith('data:'))
+    ?? brandKitPayload.brand.logo_urls[0]
+    ?? null;
   const mustAvoid = brandKitPayload.brand.must_avoid_aesthetics;
   const configuredChannels = stringArray(req.channels);
   const imageTargetChannels = weeklySocialChannels(configuredChannels);
@@ -391,6 +396,22 @@ export function buildProductionResumeContext(input: {
     if (brandVoice) lines.push(`Brand voice: ${brandVoice.slice(0, 200)}`);
     if (styleVibe) lines.push(`Style and vibe: ${styleVibe}`);
     if (palette.length > 0) lines.push(`Brand palette: ${palette.join(', ')}`);
+    if (brandMode === 'dark') {
+      lines.push(
+        `Brand theme: DARK. Render on a dark background${brandBackground ? ` (${brandBackground})` : ''} — do NOT use a white or light background; match the brand's dark aesthetic.`,
+      );
+    } else if (brandMode === 'light') {
+      lines.push(
+        `Brand theme: light. Render on a light background${brandBackground ? ` (${brandBackground})` : ''} consistent with the brand.`,
+      );
+    } else if (brandBackground) {
+      lines.push(`Brand background: ${brandBackground} — keep backgrounds consistent with this brand color.`);
+    }
+    if (brandLogoUrl) {
+      lines.push(
+        `Brand logo: ${brandLogoUrl} — use the actual brand logo when a mark is shown; do NOT invent, redraw, or substitute a different logo.`,
+      );
+    }
     if (mustAvoid.length > 0) lines.push(`Must avoid: ${mustAvoid.slice(0, 6).join(', ')}`);
 
     if (researchLines.length > 0) {
