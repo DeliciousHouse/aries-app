@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.6 — Brand-color extraction: resolve the Tailwind v4 theme tokens (the real aries.sugarandleather.com shape)
+
+Follow-up to v0.1.15.5. Live verification on the real `aries.sugarandleather.com`
+showed v0.1.15.5 still mis-detected the brand as **light/#ffffff** because of two
+gaps the synthetic tests didn't cover:
+
+1. The page background is `bg-background` → the CSS token `--color-background`
+   (`#050505`, dark) defined in an **external** stylesheet (already fetched into
+   `cssBlocks`). v0.1.15.5 only looked for shadcn's `--background`, not Tailwind
+   v4's `--color-background`.
+2. The visible UI is full of translucent `bg-white/5` / `bg-white/10` **glass
+   overlays** on the dark theme. The "count bg-* utilities" heuristic matched
+   those opacity variants (43× `bg-white`) and out-voted the 6× plain `bg-black`,
+   reporting a white brand. Plain `bg-white` actually appears once.
+
+### Fixed
+- `detectThemeBackground` now resolves, most-authoritative first: the
+  `--color-background`/`--background` CSS token → a literal bg-* utility on
+  `<html>`/`<body>`/the `min-h-screen` page wrapper → the most common **plain**
+  bg-* utility (opacity variants like `bg-white/5` excluded via `(?![\w/])`) →
+  inline `<body>` background → `body{}` rule → `theme-color`.
+- Palette extraction now also reads Tailwind v4's `--color-primary` /
+  `--color-secondary` / `--color-accent` (precise names — not the bundled default
+  palette like `--color-red-500`), so the real brand colors come through.
+- **Live-verified on `aries.sugarandleather.com`:** extraction now yields
+  `background:#050505, mode:dark, palette:[#7c3aed,#a855f7,#c084fc]` (the real
+  dark + purple brand) and the aries logo — was `primary:#ffffff`.
+
+### Tests
+- `tests/marketing/brand-kit-dark-theme.test.ts` gains a real-world case: external
+  `--color-background:#050505` + a `bg-background` wrapper + `bg-white/N` glass
+  overlays → dark/#050505 with the purple palette (verified failing on v0.1.15.5).
+
 ## v0.1.15.5 — Brand-color extraction: detect dark/light theme + carry the real logo into the image brief
 
 Fixes marketing images rendering on a white background with invented logos for
