@@ -76,10 +76,10 @@ OAuth tokens (LinkedIn, X, YouTube, Reddit, TikTok) are encrypted with `OAUTH_TO
 
 ## Hermes callback execution boundary
 
-Aries never runs long-lived server processes for workflow execution. Instead:
+Aries does not execute workflows itself — Hermes does. Aries' only standing processes are lightweight delivery/maintenance side-processes (the run reconciler, stale-run reaper, and kanban GC). The execution boundary is:
 
 1. Aries submits a run to Hermes: `POST HERMES_GATEWAY_URL/v1/runs` with `Authorization: Bearer HERMES_API_SERVER_KEY`.
-2. Hermes executes the workflow asynchronously and posts authenticated callbacks to `POST APP_BASE_URL/api/internal/hermes/runs` with `Authorization: Bearer INTERNAL_API_SECRET`.
+2. Hermes `/v1/runs` is a **polled** API — it executes the workflow asynchronously but does not invoke the submission's `callback_url`. The durable Hermes run reconciler side-process (`backend/marketing/hermes-reconciler.ts`, spawned by `start-runtime.mjs`) polls in-flight runs to completion and, for each finished run, feeds the same idempotent callback path internally (deterministic `event_id = reconcile-<hermesRunId>`). The external `POST APP_BASE_URL/api/internal/hermes/runs` route (`Authorization: Bearer INTERNAL_API_SECRET`) remains the trusted ingestion boundary for callbacks.
 3. The callback route (`app/api/internal/hermes/runs/route.ts`) verifies the bearer token with a constant-time compare, validates the payload, verifies a per-run callback token (SHA-256 hash stored in the DB), then calls `handleHermesRunCallback` to advance job state and read models.
 
 `HERMES_API_SERVER_KEY` and `INTERNAL_API_SECRET` are intentionally separate secrets: the first is outbound (Aries → Hermes), the second is inbound (Hermes → Aries).
@@ -133,7 +133,7 @@ Publish, retry, and calendar sync routes:
 
 ## Process model
 
-The production container runs `scripts/start-runtime.mjs`, which defaults to Node cluster mode (`ARIES_PROCESS_MANAGER=cluster`) with `ARIES_WEB_CONCURRENCY=2` workers. A stale-run reaper side-process marks stuck marketing jobs `failed_stale` every 5 minutes. A Hermes kanban GC side-process archives completed tasks on a configurable interval.
+The production container runs `scripts/start-runtime.mjs`, which defaults to Node cluster mode (`ARIES_PROCESS_MANAGER=cluster`) with `ARIES_WEB_CONCURRENCY=2` workers. A stale-run reaper side-process marks stuck marketing jobs `failed_stale` every 5 minutes. A Hermes kanban GC side-process archives completed tasks on a configurable interval. A Hermes run reconciler side-process (`ARIES_RECONCILER_ENABLED=1`, default ON) re-discovers in-flight marketing runs every `ARIES_RECONCILER_INTERVAL_MS` (default 60s) and ingests any Hermes has finished, via the same idempotent callback path; it is the durable delivery mechanism that drives polled Hermes runs to completion (see the Hermes callback execution boundary below).
 
 Health and readiness:
 
