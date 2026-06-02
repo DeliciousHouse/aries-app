@@ -64,6 +64,17 @@ services:
       HERMES_POLL_INTERVAL_MS: ${HERMES_POLL_INTERVAL_MS:-}
       ARIES_REAPER_ENABLED: ${ARIES_REAPER_ENABLED:-1}
       ARIES_REAPER_INTERVAL_MS: ${ARIES_REAPER_INTERVAL_MS:-300000}
+      # Durable Hermes run reconciler — replaces the unreliable in-process
+      # poll-bridge. start-runtime.mjs spawns scripts/hermes-reconciler-worker.ts
+      # as a sibling of the Next.js cluster (inherits /data, the HERMES_* gateways
+      # and the image-cache mount). Every interval it re-discovers in-flight
+      # marketing execution runs and ingests any Hermes has finished, via the same
+      # idempotent callback path the bridge used — but as a standing process, so
+      # it survives the request lifecycle that orphaned the bridge. Default ON; set
+      # ARIES_RECONCILER_ENABLED=0 to fall back to bridge-only delivery. The 60s
+      # interval beats the reaper's tightest stage threshold (strategy = 5 min).
+      ARIES_RECONCILER_ENABLED: ${ARIES_RECONCILER_ENABLED:-1}
+      ARIES_RECONCILER_INTERVAL_MS: ${ARIES_RECONCILER_INTERVAL_MS:-60000}
       ARIES_KANBAN_GC_ENABLED: ${ARIES_KANBAN_GC_ENABLED:-1}
       ARIES_KANBAN_GC_INTERVAL_MS: ${ARIES_KANBAN_GC_INTERVAL_MS:-86400000}
       ARIES_KANBAN_GC_RETENTION_DAYS: ${ARIES_KANBAN_GC_RETENTION_DAYS:-7}
