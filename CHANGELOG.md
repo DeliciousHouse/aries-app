@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.4 — Ingest production creative_assets on the publish-skip completion path
+
+Fixes "No launch items" after a successful render. When the production stage
+returns an `approve_publish` checkpoint and publishing is not required, the
+marketing callback takes the publish-skip path: it marks the job completed and
+previously returned WITHOUT ingesting production creative_assets (that ingestion
+only ran in the separate `completed` branch). So the rendered image landed on
+disk but never in the `creative_assets` table, and the dashboard showed "No
+launch items" despite a real render. Found via live end-to-end verification of
+the v0.1.15.1 Hermes reconciler.
+
+### Fixed
+- Call `ingestProductionCreativeAssetsOnCompletion` on the publish-skip
+  completion path too, so generated images are ingested into `creative_assets`
+  and appear in the dashboard. Regression test
+  (`tests/marketing/publish-skip-creative-ingest.test.ts`) drives the exact path
+  and asserts the `creative_assets` INSERT (verified failing without the fix).
+
 ## v0.1.15.3 — Composio: ship the @composio/core SDK so the integration is runtime-ready (still default OFF)
 
 Makes the Composio integration (v0.1.14.0) actually runnable in prod by adding
