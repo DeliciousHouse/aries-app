@@ -8,7 +8,7 @@
  *   new Composio({ apiKey })
  *   composio.connectedAccounts.initiate(userId, authConfigId, { callbackUrl })
  *     -> { id, redirectUrl, waitForConnection() }
- *   composio.connectedAccounts.list({ userIds, authConfigIds, statuses }) -> { items }
+ *   composio.connectedAccounts.list({ userIds, authConfigIds }) -> { items }
  *   composio.connectedAccounts.get(id) / .delete(id) / .waitForConnection(id, ms)
  *   composio.tools.execute(slug, { userId, connectedAccountId, arguments })
  */
@@ -47,7 +47,6 @@ export interface ComposioGateway {
   listConnections(filter: {
     userIds?: string[];
     authConfigIds?: string[];
-    statuses?: string[];
   }): Promise<GatewayConnection[]>;
   getConnection(connectedAccountId: string): Promise<GatewayConnection | null>;
   deleteConnection(connectedAccountId: string): Promise<void>;
@@ -136,10 +135,12 @@ class LiveComposioGateway implements ComposioGateway {
   async listConnections(filter: {
     userIds?: string[];
     authConfigIds?: string[];
-    statuses?: string[];
   }): Promise<GatewayConnection[]> {
     const composio = await this.client();
-    const result = await composio.connectedAccounts.list(filter);
+    const result = await composio.connectedAccounts.list({
+      userIds: filter.userIds,
+      authConfigIds: filter.authConfigIds,
+    });
     return (result.items ?? []).map(toGatewayConnection);
   }
 

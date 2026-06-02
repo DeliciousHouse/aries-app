@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.3 — Composio: ship the @composio/core SDK so the integration is runtime-ready (still default OFF)
+
+Makes the Composio integration (v0.1.14.0) actually runnable in prod by adding
+the real SDK to the image and validating the adapter against it. **Still ships
+default OFF** — `COMPOSIO_ENABLED=false`, `PUBLISH_PROVIDER=direct_meta`; no
+behavior change. Turning it on is a host `.env` edit (`COMPOSIO_API_KEY` +
+an auth-config id + `COMPOSIO_ENABLED=true`), see `docs/integrations/composio.md`.
+
+- Added `@composio/core@^0.10.0` as a prod dependency (installed into the runner
+  via `npm ci --omit=dev`; resolved by the gateway's lazy `import()` at runtime).
+- Removed the hand-written `composio-sdk.d.ts` type shim and compiled the adapter
+  against the **real** SDK types (`tsc` 0 errors). Fixed the one real-API
+  mismatch: `connectedAccounts.list` no longer passes a plainly-typed `statuses`.
+- Aligned `mapComposioStatus` with the real status enum
+  (`INITIALIZING|INITIATED|ACTIVE|FAILED|EXPIRED|REVOKED`).
+- Verified `next build` bundles the SDK cleanly (all 5 Composio routes + the
+  `/connections` page compile); 67 provider/publisher/analytics/store tests pass.
+
 ## v0.1.15.2 — Ship the reconciler's package source to the runtime image
 
 Hotfix for v0.1.15.1. The Hermes reconciler worker (`tsx`-spawned, not bundled

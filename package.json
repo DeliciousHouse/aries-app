@@ -1,6 +1,6 @@
 {
   "name": "aries-platform-bootstrap-runtime",
-  "version": "0.1.15.2",
+  "version": "0.1.15.3",
   "description": "Next.js application for weekly social content automation: connect platforms, generate and review a week of content, and publish on a schedule.",
   "license": "Apache-2.0",
   "repository": {
@@ -49,6 +49,7 @@
     "eval:creative-memory-learning": "tsx scripts/eval-creative-memory-learning.ts"
   },
   "dependencies": {
+    "@composio/core": "^0.10.0",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/utilities": "^3.2.2",
     "bcryptjs": "^3.0.3",
