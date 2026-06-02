@@ -90,6 +90,8 @@ export {
   recordCreativeVoicePreferenceEvent,
   scheduleCreativeVoicePreferenceHonchoWrite,
   scrubPreferenceLabelForHoncho,
+  recordOnboardingVariantTasteSignalEvent,
+  scheduleOnboardingVariantTasteSignalHoncho,
 } from './write-events';
 export type {
   MarketingApprovalMemoryStage,
@@ -100,4 +102,5 @@ export type {
   RecordScheduledPostHonchoWriteInput,
   RecordPublishPerformanceHonchoWriteInput,
   RecordCreativeVoicePreferenceHonchoWriteInput,
+  RecordOnboardingVariantTasteSignalHonchoWriteInput,
 } from './write-events';

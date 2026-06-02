@@ -30,6 +30,7 @@ import {
   recordApprovalEvent,
   recordCreativeVoicePreferenceEvent,
   recordDenialEvent,
+  recordOnboardingVariantTasteSignalEvent,
   recordPerformanceEvent,
   recordPublishEvent,
   recordScheduleEvent,
@@ -573,3 +574,163 @@ test('V14 — label scrub (V2 mode): name+email redacted, creative descriptor pr
       assert.equal(claim.creative_voice_style_label, 'Bold Minimalist by [redacted_name]', 'wire claim carries redacted label');
     },
   ));
+
+// ===========================================================================
+// V15 — onboarding variant-board pick → peer-user-<pseudonym> preference,
+//       auto-approved, session-onboarding-<runId>, kind=preference,
+//       claim.event=variant_taste_signal, explicit_user_intent=true, no raw ids.
+// ===========================================================================
+test('V15 — variant taste signal: peer-user preference auto-approved, onboarding session, no raw ids', () =>
+  withEnv({ ...BASE_ENV, HONCHO_WRITE_PREFERENCES_ENABLED: 'true' }, async () => {
+    const pool = buildPool();
+    const { transport, calls } = captureTransport();
+    await recordOnboardingVariantTasteSignalEvent(
+      {
+        tenantCtx: TENANT_CTX,
+        memoryActorUserId: '42',
+        jobId: 'v15',
+        slotIndex: 0,
+        variantId: 'variant_a',
+        rating: '5',
+        picked: true,
+        eventDateYmd: '20260602',
+        explicitUserIntent: true,
+      },
+      pool as never,
+      { transport },
+    );
+    const writes = msgWrites(calls);
+    assert.equal(writes.length, 1);
+    const msg = firstMessage(writes[0]!);
+    assert.ok(String(msg.peer_id).startsWith('peer-user-'), 'appended to peer-user-*');
+    assert.ok(String(writes[0]!.path).includes('session-onboarding-v15'), 'onboarding session id');
+    const content = JSON.parse(msg.content as string) as Record<string, unknown>;
+    assert.equal(content.kind, 'preference');
+    const claim = JSON.parse(content.claim as string) as Record<string, unknown>;
+    assert.equal(claim.event, 'variant_taste_signal');
+    assert.equal(claim.schema_version, 1);
+    assert.equal(claim.variant_id, 'variant_a');
+    assert.equal(claim.rating, '5');
+    assert.equal(claim.picked, true);
+    const wire = JSON.stringify(writes[0]!.body);
+    assert.ok(!/"u1"/.test(wire), 'raw userId u1 absent from wire');
+    assert.ok(!wire.includes('aries-tenant-tid'), 'raw tenantId tid absent from wire');
+    // Pin the curator DECISION path: auto_approve appends a transport message and
+    // queues NOTHING; queue_for_review would instead insert an aries_research_findings row.
+    assert.equal(pool.stats().findings.length, 0, 'auto_approve path: nothing queued for review');
+  }));
+
+// ===========================================================================
+// V16 — variant taste signal with explicitUserIntent=false → zero writes,
+//       no key claimed (writer short-circuits before claiming).
+// ===========================================================================
+test('V16 — variant taste signal inferred (explicitUserIntent=false): zero writes, no key claimed', () =>
+  withEnv({ ...BASE_ENV, HONCHO_WRITE_PREFERENCES_ENABLED: 'true' }, async () => {
+    const pool = buildPool();
+    const { transport, calls } = captureTransport();
+    await recordOnboardingVariantTasteSignalEvent(
+      {
+        tenantCtx: TENANT_CTX,
+        memoryActorUserId: '42',
+        jobId: 'v16',
+        slotIndex: 0,
+        variantId: 'variant_a',
+        rating: '5',
+        picked: true,
+        eventDateYmd: '20260602',
+        explicitUserIntent: false,
+      },
+      pool as never,
+      { transport },
+    );
+    assert.equal(msgWrites(calls).length, 0, 'no Honcho write for inferred signal');
+    assert.equal(pool.stats().idemAttempts, 0, 'short-circuits before claiming a key');
+  }));
+
+// ===========================================================================
+// V17 — variant taste signal idempotency + edit-ops scrub: identical signal
+//       writes once; a <First Last> name in edit_ops is redacted in the claim.
+// ===========================================================================
+test('V17 — variant taste signal: idempotent on re-fire, edit_ops scrubbed in the wire claim', () =>
+  withEnv(
+    { ...BASE_ENV, HONCHO_WRITE_PREFERENCES_ENABLED: 'true', ARIES_MEMORY_LABEL_REDACTION_V2: '1' },
+    async () => {
+      const pool = buildPool();
+      const { transport, calls } = captureTransport();
+      const input = {
+        tenantCtx: TENANT_CTX,
+        memoryActorUserId: '42',
+        jobId: 'v17',
+        slotIndex: 0,
+        variantId: 'variant_b',
+        rating: '4',
+        editOps: 'more like this, ask John Smith',
+        picked: false,
+        eventDateYmd: '20260602',
+        explicitUserIntent: true,
+      };
+      await recordOnboardingVariantTasteSignalEvent(input, pool as never, { transport });
+      assert.equal(msgWrites(calls).length, 1, 'first signal writes once');
+      await recordOnboardingVariantTasteSignalEvent(input, pool as never, { transport });
+      assert.equal(msgWrites(calls).length, 1, 'identical signal must not write again');
+      assert.equal(pool.stats().idemWins, 1, 'exactly one idempotency key claimed');
+
+      const claim = JSON.parse(
+        (JSON.parse(firstMessage(msgWrites(calls)[0]!).content as string) as Record<string, unknown>).claim as string,
+      ) as Record<string, unknown>;
+      assert.ok(String(claim.edit_ops).includes('[redacted_name]'), 'John Smith redacted in edit_ops');
+      assert.ok(!String(claim.edit_ops).includes('John Smith'), 'raw name absent from claim');
+    },
+  ));
+
+// ===========================================================================
+// V18 — a rate→pick transition on the same variant/rating/day is a DISTINCT event
+//       (picked is folded into the idempotency key), not a deduped no-op. Guards
+//       against silently dropping the strongest (picked) signal.
+// ===========================================================================
+test('V18 — variant taste signal: rate→pick transition on the same variant/day writes a distinct event', () =>
+  withEnv({ ...BASE_ENV, HONCHO_WRITE_PREFERENCES_ENABLED: 'true' }, async () => {
+    const pool = buildPool();
+    const { transport, calls } = captureTransport();
+    const base = {
+      tenantCtx: TENANT_CTX,
+      memoryActorUserId: '42',
+      jobId: 'v18',
+      slotIndex: 0,
+      variantId: 'variant_a',
+      rating: '5',
+      eventDateYmd: '20260602',
+      explicitUserIntent: true,
+    };
+    await recordOnboardingVariantTasteSignalEvent({ ...base, picked: false }, pool as never, { transport });
+    await recordOnboardingVariantTasteSignalEvent({ ...base, picked: true }, pool as never, { transport });
+    assert.equal(msgWrites(calls).length, 2, 'picked transition is a distinct event, not deduped');
+    assert.equal(pool.stats().idemWins, 2, 'two distinct idempotency keys claimed');
+  }));
+
+// ===========================================================================
+// V19 — a non-slug-safe runId (contains '/' or ':') skips BEFORE claiming an
+//       idempotency key, so a corrected re-fire can still land (no poison-pill).
+// ===========================================================================
+test('V19 — variant taste signal: non-slug runId skips before burning an idempotency key', () =>
+  withEnv({ ...BASE_ENV, HONCHO_WRITE_PREFERENCES_ENABLED: 'true' }, async () => {
+    const pool = buildPool();
+    const { transport, calls } = captureTransport();
+    await recordOnboardingVariantTasteSignalEvent(
+      {
+        tenantCtx: TENANT_CTX,
+        memoryActorUserId: '42',
+        jobId: 'bad/run:id',
+        slotIndex: 0,
+        variantId: 'variant_a',
+        rating: '5',
+        picked: true,
+        eventDateYmd: '20260602',
+        explicitUserIntent: true,
+      },
+      pool as never,
+      { transport },
+    );
+    assert.equal(msgWrites(calls).length, 0, 'no write for a non-slug runId');
+    assert.equal(pool.stats().idemAttempts, 0, 'fails fast before claiming an idempotency key');
+  }));

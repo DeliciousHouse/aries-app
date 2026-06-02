@@ -33,7 +33,7 @@ import { getMarketingExecutionPort, type MarketingExecutionPort } from './execut
 import { scheduleHermesPublishPerformanceHonchoWrite } from '@/backend/memory/write-events';
 import { approveSocialContentJob } from './orchestrator';
 import type { ApproveSocialContentJobRequest, ApproveSocialContentJobResponse } from './orchestrator';
-import { ingestProductionCreativeAssetsToDb } from './ingest-production-assets';
+import { ingestProductionCreativeAssetsToDb, isVariantBoardJobAwaitingPick } from './ingest-production-assets';
 import { recomputeAndPersistPendingApprovalCount } from './runtime-views';
 import { synthesizePublishPostsFromContentPackage } from './synthesize-publish-posts';
 import { composeStoryAssetForBaseCreative, resolveStoryCtaText } from './story-composer';
@@ -1349,6 +1349,15 @@ async function synthesizePublishPostsOnCompletion(
  * [IG only] would mis-ordinal the third row).
  */
 async function autoScheduleApprovedPostsForJob(doc: SocialContentJobRuntimeDocument): Promise<void> {
+  // Onboarding variant-board candidates must NOT auto-publish before the user
+  // picks — a held variant is a board option, not a final post. The pick endpoint
+  // releases the chosen job (variant_pick_finalized). Non-variant jobs are
+  // unaffected (no variant_batch_id → false).
+  if (isVariantBoardJobAwaitingPick(doc)) {
+    console.info('[hermes-callbacks] autoSchedulePosts skipped — variant-board job awaiting pick', { jobId: doc.job_id });
+    return;
+  }
+
   const tenantNum = Number(doc.tenant_id);
   if (!Number.isFinite(tenantNum) || tenantNum <= 0) return;
 

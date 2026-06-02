@@ -989,3 +989,163 @@ export function scheduleCreativeVoicePreferenceHonchoWrite(input: RecordCreative
     })();
   });
 }
+
+export type RecordOnboardingVariantTasteSignalHonchoWriteInput = {
+  tenantCtx: MinimalTenantCtx;
+  memoryActorUserId: string;
+  /** Onboarding run id — used as the Honcho session-onboarding-<runId> id (and
+   * the queue job id when not auto-approved). Must satisfy assertSlug:
+   * /^[A-Za-z0-9_-]{1,128}$/. */
+  jobId: string;
+  /** Which of the board slots this signal is for (0-based; MVP = 0). */
+  slotIndex: number;
+  /** Stable id of the variant the signal is about. */
+  variantId: string;
+  /** Rating signal for the variant (e.g. a 1-5 string, or 'up'/'down'). */
+  rating: string;
+  /** Compact edit-operation tags applied to the variant; scrubbed + truncated. */
+  editOps?: string | null;
+  /** True when this variant was the one the user picked/shipped. */
+  picked: boolean;
+  /** UTC calendar day (YYYYMMDD). */
+  eventDateYmd: string;
+  /** Must be true (explicit board interaction); inferred paths must not call this. */
+  explicitUserIntent: boolean;
+};
+
+/**
+ * Persist an explicit onboarding variant-board taste signal to Honcho
+ * `peer-user-*`, `session-onboarding-<runId>`. Mirrors
+ * recordCreativeVoicePreferenceEvent: kind='preference', confidence 0.92,
+ * explicit_user_intent → curator auto-approves; idempotent on
+ * [jobId, 'variant_taste', variantId, rating, userPseudonym, ymd]; gated on
+ * isHonchoWritePreferencesEnabled() (the variant board is a preference signal,
+ * so it reuses the preferences write flag — no separate flag).
+ */
+export async function recordOnboardingVariantTasteSignalEvent(
+  input: RecordOnboardingVariantTasteSignalHonchoWriteInput,
+  client = pool,
+  opts?: { transport?: HonchoTransport },
+): Promise<void> {
+  if (!isHonchoEnabled() || !isHonchoWritePreferencesEnabled()) return;
+  if (!input.explicitUserIntent) return;
+
+  const actor = input.memoryActorUserId?.trim();
+  if (!actor) {
+    console.warn('[honcho-write-events] recordOnboardingVariantTasteSignalEvent skipped: memoryActorUserId missing');
+    return;
+  }
+
+  const jobId = input.jobId?.trim();
+  if (!jobId) {
+    console.warn('[honcho-write-events] recordOnboardingVariantTasteSignalEvent skipped: jobId missing');
+    return;
+  }
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(jobId)) {
+    // jobId becomes session-onboarding-<runId>; assertSlug throws downstream AFTER
+    // the idempotency key is claimed, which would permanently drop the write on
+    // retry. Fail fast before claiming so a corrected re-fire can still land.
+    console.warn('[honcho-write-events] recordOnboardingVariantTasteSignalEvent skipped: jobId is not slug-safe');
+    return;
+  }
+
+  const variantId = input.variantId?.trim();
+  if (!variantId) {
+    console.warn('[honcho-write-events] recordOnboardingVariantTasteSignalEvent skipped: variantId missing');
+    return;
+  }
+
+  const ymd = input.eventDateYmd?.trim();
+  if (!ymd || !/^\d{8}$/.test(ymd)) {
+    console.warn('[honcho-write-events] recordOnboardingVariantTasteSignalEvent skipped: invalid eventDateYmd');
+    return;
+  }
+
+  const userPseudonym = pseudonymForUser(actor);
+  const rating = String(input.rating ?? '').trim().slice(0, 16);
+  const slotIndex = Number.isFinite(input.slotIndex) ? Math.trunc(input.slotIndex) : -1;
+  // Scrub any free-text edit ops the same way labels are scrubbed; cap length so
+  // the serialized claim stays well under the 200-char self-imposed budget.
+  const scrubbedEditOps = scrubPreferenceLabelForHoncho(input.editOps ?? null).trim().slice(0, 64);
+  // Fingerprint the mutable signal fields into the idempotency key so genuinely
+  // distinct signals (a re-rate, an edit, or a rate→pick transition on the same
+  // variant/day) each get a fresh key, while an identical re-fire still dedupes.
+  // Mirrors the reference writer folding enabledFlag + labelPrint into its key.
+  const editOpsPrint = scrubbedEditOps.length > 0
+    ? createHash('sha256').update(scrubbedEditOps).digest('hex').slice(0, 16)
+    : 'none';
+  const pickedFlag = input.picked ? '1' : '0';
+
+  const key = idempotencyKey([
+    jobId,
+    'variant_taste',
+    variantId,
+    rating,
+    pickedFlag,
+    editOpsPrint,
+    String(slotIndex),
+    userPseudonym,
+    ymd,
+  ]);
+  const claimed = await claimIdempotencyKey(key, client);
+  if (!claimed) return;
+
+  const claim = JSON.stringify({
+    event: 'variant_taste_signal',
+    schema_version: 1,
+    slot_index: slotIndex,
+    variant_id: variantId.slice(0, 48),
+    rating,
+    edit_ops: scrubbedEditOps,
+    picked: input.picked,
+  });
+
+  const finding: CandidateFinding = {
+    kind: 'preference',
+    claim,
+    sources: [firstPartyAriesSource()],
+    confidence: 0.92,
+    peerHint: 'user',
+    metadata: { explicit_user_intent: true },
+  };
+
+  const outcome = curateFinding(finding, { jobId, approvedBy: userPseudonym });
+  const transport = opts?.transport ?? new HonchoHttpTransport(process.env, fetchWithTimeout(HONCHO_WRITE_FETCH_TIMEOUT_MS));
+  const mem = new TenantMemoryClient(transport);
+
+  try {
+    if (outcome.decision === 'auto_approve') {
+      const peerRef = peerRefForAutoApprove(outcome, { preferenceActorUserId: actor });
+      await appendHonchoApproved({
+        ctx: input.tenantCtx,
+        client: mem,
+        peer: peerRef,
+        session: { kind: 'onboarding', runId: jobId },
+        message: outcome.approved,
+      });
+      return;
+    }
+    if (outcome.decision === 'queue_for_review') {
+      await persistQueuedFinding(String(input.tenantCtx.tenantId), jobId, finding, outcome, client);
+    }
+  } catch (err) {
+    console.error('[honcho-write-events] recordOnboardingVariantTasteSignalEvent failed', err);
+  }
+}
+
+export function scheduleOnboardingVariantTasteSignalHoncho(input: RecordOnboardingVariantTasteSignalHonchoWriteInput): void {
+  if (!isHonchoEnabled() || !isHonchoWritePreferencesEnabled()) return;
+  if (!input.memoryActorUserId?.trim()) {
+    console.warn('[honcho-write-events] scheduleOnboardingVariantTasteSignalHoncho skipped: memoryActorUserId missing');
+    return;
+  }
+  setImmediate(() => {
+    void (async () => {
+      try {
+        await recordOnboardingVariantTasteSignalEvent(input);
+      } catch (err) {
+        console.error('[honcho-write-events] scheduled recordOnboardingVariantTasteSignalEvent failed', err);
+      }
+    })();
+  });
+}

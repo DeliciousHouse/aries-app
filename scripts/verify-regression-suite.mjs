@@ -55,7 +55,7 @@ const steps = [
     args: ['--test', 'tests/process-concurrent.test.ts'],
   },
   {
-    name: 'Honcho writes V0-V14 verification harness',
+    name: 'Honcho writes V0-V19 verification harness',
     args: ['--test', 'tests/verify-honcho-writes.test.ts'],
   },
   {
@@ -183,6 +183,31 @@ const steps = [
       'tests/memory/perf-insights-read.test.ts',
       'tests/memory/honcho-performance-worker.test.ts',
     ],
+  },
+  {
+    name: 'onboarding variant-board taste-profile unit tests',
+    args: [
+      '--test',
+      'tests/onboarding/variant-board-flag.test.ts',
+      'tests/onboarding/taste-profile-store.test.ts',
+    ],
+  },
+  {
+    name: 'onboarding variant fan-out + board unit tests',
+    args: [
+      '--test',
+      'tests/onboarding/ingest-variant-tags.test.ts',
+      'tests/onboarding/ingest-variant-binding.test.ts',
+      'tests/onboarding/variant-fanout.test.ts',
+      'tests/onboarding/variant-board.test.ts',
+      'tests/onboarding/variant-pick.test.ts',
+      'tests/onboarding/variant-endpoints.test.ts',
+      'tests/onboarding/variant-pick-finalize.test.ts',
+    ],
+  },
+  {
+    name: 'onboarding variant board render (jsdom)',
+    args: ['--test', 'tests/onboarding/variant-board-render.component.test.ts'],
   },
 ];
 

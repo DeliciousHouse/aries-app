@@ -220,6 +220,8 @@ async function initDb() {
         learning_lifecycle TEXT NOT NULL DEFAULT 'observed' CHECK (learning_lifecycle IN ('observed','analyzed','suggested','approved_for_generation','archived')),
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        variant_batch_id TEXT,
+        variant_index INTEGER,
         UNIQUE (tenant_id, id),
         CONSTRAINT creative_assets_exact_image_text_generation_check CHECK (media_type <> 'image' OR usable_for_generation = FALSE OR learning_lifecycle <> 'approved_for_generation' OR array_length(exact_image_text, 1) IS NOT NULL),
         CONSTRAINT creative_assets_competitor_not_usable_check CHECK ((source_type <> 'competitor_meta_ad' AND permission_scope <> 'public_ad_library') OR usable_for_generation = FALSE)
@@ -373,6 +375,8 @@ async function initDb() {
       ALTER TABLE creative_assets ADD COLUMN IF NOT EXISTS exact_image_text TEXT[] NOT NULL DEFAULT '{}';
       ALTER TABLE creative_assets ADD COLUMN IF NOT EXISTS usable_for_generation BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE creative_assets ADD COLUMN IF NOT EXISTS learning_lifecycle TEXT NOT NULL DEFAULT 'observed';
+      ALTER TABLE creative_assets ADD COLUMN IF NOT EXISTS variant_batch_id TEXT;
+      ALTER TABLE creative_assets ADD COLUMN IF NOT EXISTS variant_index INTEGER;
       ALTER TABLE prompt_recipes ADD COLUMN IF NOT EXISTS context_pack JSONB NOT NULL DEFAULT '{}'::jsonb;
       ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS creative_asset_id UUID;
       ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS variant_kind TEXT NOT NULL DEFAULT 'memory_assisted';
@@ -388,6 +392,7 @@ async function initDb() {
       ALTER TABLE campaign_learning_labels DROP CONSTRAINT IF EXISTS campaign_learning_labels_label_check;
       ALTER TABLE campaign_learning_labels ADD CONSTRAINT campaign_learning_labels_label_check CHECK (label IN ('useful','not_useful','winner','loser','used_in_campaign','needs_changes','approved','rejected'));
       CREATE UNIQUE INDEX IF NOT EXISTS idx_creative_assets_tenant_checksum_unique ON creative_assets (tenant_id, checksum) WHERE checksum IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_creative_assets_variant_batch ON creative_assets (tenant_id, variant_batch_id) WHERE variant_batch_id IS NOT NULL;
       CREATE UNIQUE INDEX IF NOT EXISTS idx_style_cards_tenant_name_unique ON style_cards (tenant_id, name);
       CREATE UNIQUE INDEX IF NOT EXISTS idx_market_pattern_notes_natural_unique ON market_pattern_notes (tenant_id, source_label, pattern);
     `);
@@ -565,6 +570,39 @@ async function initDb() {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         PRIMARY KEY (tenant_id, user_id)
       );
+
+      -- Onboarding first-post variant-board taste learning. Mirrored in
+      -- migrations/20260602000000_marketing_taste_profile.sql (run manually on
+      -- existing DBs). dimensions is an opaque jsonb map of dimension ->
+      -- per-value counters; confidence + 5%/week decay are computed at READ time
+      -- in backend/marketing/taste-profile-store.ts. tenant_id/user_id INTEGER
+      -- match organizations.id/users.id (int4) -- do not use BIGINT.
+      CREATE TABLE IF NOT EXISTS marketing_taste_profile (
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        dimensions JSONB NOT NULL DEFAULT '{}'::jsonb,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (tenant_id, user_id)
+      );
+
+      -- Append-only event log: one row per pick/rate/edit signal on a variant.
+      CREATE TABLE IF NOT EXISTS marketing_taste_signal (
+        id BIGSERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        job_id TEXT NOT NULL,
+        variant_batch_id TEXT NOT NULL,
+        slot_index INT NOT NULL DEFAULT 0,
+        variant_id TEXT NOT NULL,
+        picked BOOLEAN NOT NULL DEFAULT FALSE,
+        rating INT,
+        edit_ops JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT marketing_taste_signal_rating_range CHECK (rating IS NULL OR rating BETWEEN 1 AND 5)
+      );
+      CREATE INDEX IF NOT EXISTS idx_marketing_taste_signal_tenant_user ON marketing_taste_signal (tenant_id, user_id);
+      CREATE INDEX IF NOT EXISTS idx_marketing_taste_signal_batch ON marketing_taste_signal (variant_batch_id);
+      CREATE INDEX IF NOT EXISTS idx_marketing_taste_signal_tenant_user_created ON marketing_taste_signal (tenant_id, user_id, created_at DESC);
 
       CREATE TABLE IF NOT EXISTS honcho_write_idempotency_keys (
         key TEXT PRIMARY KEY,
