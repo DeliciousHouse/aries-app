@@ -397,8 +397,9 @@ export function buildProductionResumeContext(input: {
     if (styleVibe) lines.push(`Style and vibe: ${styleVibe}`);
     if (palette.length > 0) lines.push(`Brand palette: ${palette.join(', ')}`);
     if (brandMode === 'dark') {
+      const bg = brandBackground || '#050505';
       lines.push(
-        `Brand theme: DARK. Render on a dark background${brandBackground ? ` (${brandBackground})` : ''} — do NOT use a white or light background; match the brand's dark aesthetic.`,
+        `CRITICAL BRAND REQUIREMENT — this is a DARK-themed brand. The image MUST have a dark, near-black background (${bg}). When you write this image's visual_prompt, it MUST explicitly describe a dark/near-black background and MUST NOT contain the words "bright", "white background", "light background", "soft white", or "studio". Use the brand's dark aesthetic; apply the brand palette as glowing accents on the dark background, not as a light backdrop.`,
       );
     } else if (brandMode === 'light') {
       lines.push(
@@ -461,9 +462,19 @@ export function buildProductionResumeContext(input: {
   contextLines.push('  "hashtags": ["#tag1", "#tag2", "#tag3"],');
   contextLines.push('  "platforms": ["instagram", "facebook"],');
   contextLines.push('  "format": "single_image",');
-  contextLines.push('  "visual_prompt": "<the image prompt used for this post>"');
+  contextLines.push(
+    brandMode === 'dark'
+      ? `  "visual_prompt": "<the image prompt — MUST describe a dark/near-black ${brandBackground || '#050505'} background with the brand palette as accents; NEVER bright/white/light/studio for this dark brand>"`
+      : '  "visual_prompt": "<the image prompt used for this post>"',
+  );
   contextLines.push('}');
   contextLines.push('');
+  if (brandMode === 'dark') {
+    contextLines.push(
+      `NON-NEGOTIABLE: this brand is DARK. Every image you generate MUST have a dark, near-black background (${brandBackground || '#050505'}). Do NOT produce bright, white, light, or "soft white studio" backgrounds — a light background is a brand violation and will be rejected.`,
+    );
+    contextLines.push('');
+  }
   contextLines.push('Required: when you finish image_generate, place the results in your final response under `artifacts.creative_assets[]` with this shape per item:');
   contextLines.push('{');
   contextLines.push('  "assetId": "img_1",');
