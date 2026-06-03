@@ -20,6 +20,7 @@ import { oauthStatusAsync } from '@/backend/integrations/status';
 import { isSupportedPlatform } from '@/backend/insights/platforms/registry';
 import { buildNarrativeSnapshot, type NarrativePeriod } from './snapshot-builder';
 import { buildNarrativeText } from './template-builder';
+import { computeAriesScore } from './score-builder';
 import crypto from 'crypto';
 
 const TEMPLATE_VERSION = 'template-v1';
@@ -159,12 +160,29 @@ export async function handleGetInsightsNarrative(
     }
 
     // ── Cache miss: build snapshot + narrative ───────────────────────────────
-    const snapshot = await buildNarrativeSnapshot(tenantId, period, platform);
-    const text     = buildNarrativeText(snapshot);
+    const snapshot  = await buildNarrativeSnapshot(tenantId, period, platform);
+    const text      = buildNarrativeText(snapshot);
+    const ariesScore = computeAriesScore(
+      period,
+      snapshot.engagementRate,
+      snapshot.reachDelta,
+      snapshot.engagementRatePrev,
+    );
     const inputHash = snapshotHash(tenantId, period, platform);
 
     const body: Record<string, unknown> = {
       narrative: text,
+      // Aries Score (Hero Band right side)
+      score:     ariesScore.score,
+      scoreDelta: ariesScore.scoreDelta,
+      judgment:  ariesScore.judgment,
+      // Period meta line (below narrative)
+      periodMeta: {
+        posts:       snapshot.posts,
+        postsLabel:  snapshot.postsLabel,
+        comments:    snapshot.comments,
+        hoursSaved:  snapshot.hoursSaved,
+      },
       snapshot: {
         posts:            snapshot.posts,
         postsLabel:       snapshot.postsLabel,

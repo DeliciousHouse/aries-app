@@ -26,14 +26,17 @@ export interface NarrativeSnapshot {
   platform: string;
   period: NarrativePeriod;
   posts: number;
-  postsLabel: string;       // 'post' | 'video' | platform-specific
+  postsLabel: string;          // 'post' | 'video' | platform-specific
   reach: number;
   reachPrev: number;
-  reachDelta: number;       // % change vs previous equivalent period
-  reachLabel: string;       // 'people' | 'unique viewers' | 'impressions'
-  engagementRate: number;   // (likes+comments+shares)/reach*100
-  topPost: TopPost | null;
+  reachDelta: number;          // % change vs previous equivalent period
+  reachLabel: string;          // 'people' | 'unique viewers' | 'impressions'
+  engagementRate: number;      // (likes+comments+shares)/reach*100
+  engagementRatePrev: number;  // same metric for previous period (used for scoreDelta)
+  comments: number;            // total comments received in period
   unreplied: number;
+  hoursSaved: number;          // estimated hours Aries saved this period
+  topPost: TopPost | null;
   watchTimeMinutes: number | null;  // populated for youtube and 'all'
   hasData: boolean;
 }
@@ -111,9 +114,18 @@ export async function buildNarrativeSnapshot(
       [tenantId, fromDate, platformFilter],
     );
 
-    // Previous period reach (for delta calculation)
-    const prevRes = await client.query<{ reach: string }>(
-      `SELECT COALESCE(SUM(COALESCE(reach, views, 0)), 0) AS reach
+    // Previous period totals (for delta + scoreDelta)
+    const prevRes = await client.query<{
+      reach:          string;
+      likes:          string;
+      comments_count: string;
+      shares:         string;
+    }>(
+      `SELECT
+         COALESCE(SUM(COALESCE(reach, views, 0)), 0) AS reach,
+         COALESCE(SUM(likes), 0)                     AS likes,
+         COALESCE(SUM(comments_count), 0)            AS comments_count,
+         COALESCE(SUM(shares), 0)                    AS shares
        FROM insights_account_metrics_daily
        WHERE tenant_id = $1
          AND date >= $2
@@ -154,31 +166,51 @@ export async function buildNarrativeSnapshot(
       [tenantId, fromDate, platformFilter],
     );
 
-    // Unreplied comments received in period
-    const unrepliedRes = await client.query<{ count: string }>(
-      `SELECT COUNT(*) AS count
+    // Comments received in period: total + unreplied in one query
+    const commentsRes = await client.query<{
+      total:    string;
+      unreplied: string;
+    }>(
+      `SELECT
+         COUNT(*)                                    AS total,
+         COUNT(*) FILTER (WHERE is_replied = false)  AS unreplied
        FROM insights_comments
        WHERE tenant_id = $1
          AND received_at >= $2
-         AND is_replied = false
          AND ($3::text IS NULL OR platform = $3)`,
       [tenantId, fromDate, platformFilter],
     );
 
     // ── Assemble snapshot ────────────────────────────────────────────────────
     const m         = metricsRes.rows[0];
+    const p         = prevRes.rows[0];
     const reach     = Number(m.reach);
-    const reachPrev = Number(prevRes.rows[0].reach);
+    const reachPrev = Number(p.reach);
     const likes     = Number(m.likes);
-    const comments  = Number(m.comments_count);
+    const commentsFromMetrics = Number(m.comments_count);
     const shares    = Number(m.shares);
     const watchTime = Number(m.watch_time_minutes);
     const posts     = Number(postCountRes.rows[0].count);
-    const unreplied = Number(unrepliedRes.rows[0].count);
+
+    const prevLikes    = Number(p.likes);
+    const prevComments = Number(p.comments_count);
+    const prevShares   = Number(p.shares);
+
+    const commentsTotal = Number(commentsRes.rows[0].total);
+    const unreplied     = Number(commentsRes.rows[0].unreplied);
 
     const engagementRate = reach > 0
-      ? Math.round(((likes + comments + shares) / reach) * 10000) / 100
+      ? Math.round(((likes + commentsFromMetrics + shares) / reach) * 10000) / 100
       : 0;
+
+    const engagementRatePrev = reachPrev > 0
+      ? Math.round(((prevLikes + prevComments + prevShares) / reachPrev) * 10000) / 100
+      : 0;
+
+    // Hours saved: writing + scheduling per post, plus handling replied comments
+    const hoursPerPost = platform === 'youtube' ? 0.9 : 0.35;
+    const handledComments = Math.max(0, commentsTotal - unreplied);
+    const hoursSaved = Math.round((posts * hoursPerPost + handledComments * 0.05) * 10) / 10;
 
     let topPost: TopPost | null = null;
     if (topPostRes.rows.length > 0) {
@@ -195,16 +227,19 @@ export async function buildNarrativeSnapshot(
       platform,
       period,
       posts,
-      postsLabel:       getPostsLabel(platform),
+      postsLabel:          getPostsLabel(platform),
       reach,
       reachPrev,
-      reachDelta:       pctDelta(reach, reachPrev),
-      reachLabel:       getReachLabel(platform),
+      reachDelta:          pctDelta(reach, reachPrev),
+      reachLabel:          getReachLabel(platform),
       engagementRate,
-      topPost,
+      engagementRatePrev,
+      comments:            commentsTotal,
       unreplied,
-      watchTimeMinutes: includeWatchTime(platform) ? watchTime : null,
-      hasData:          posts > 0 || reach > 0,
+      hoursSaved,
+      topPost,
+      watchTimeMinutes:    includeWatchTime(platform) ? watchTime : null,
+      hasData:             posts > 0 || reach > 0,
     };
   } finally {
     client.release();
