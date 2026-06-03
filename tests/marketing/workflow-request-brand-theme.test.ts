@@ -71,8 +71,9 @@ test('dark brand → brief instructs a dark background and the real logo', () =>
   );
   const { contextBlock } = buildProductionResumeContext({ doc, researchOutput: null, strategyOutput: null });
 
-  assert.match(contextBlock, /Brand theme: DARK/, 'brief must declare a DARK theme');
-  assert.match(contextBlock, /do NOT use a white or light background/i, 'brief must forbid white backgrounds for dark brands');
+  assert.match(contextBlock, /DARK-themed brand/, 'brief must declare a DARK-themed brand');
+  assert.match(contextBlock, /MUST NOT contain the words "bright"/i, 'brief must forbid bright/white wording in the visual_prompt');
+  assert.match(contextBlock, /NON-NEGOTIABLE: this brand is DARK/, 'brief must carry the non-negotiable dark rule in the JSON instructions');
   assert.ok(contextBlock.includes('#000000'), 'brief must name the dark background color');
   assert.ok(contextBlock.includes(LOGO_URL), 'brief must reference the real brand logo URL');
   assert.match(contextBlock, /do NOT invent, redraw, or substitute a different logo/i, 'brief must forbid inventing a logo');
@@ -85,7 +86,7 @@ test('light brand → brief does not force a dark background', () => {
   );
   const { contextBlock } = buildProductionResumeContext({ doc, researchOutput: null, strategyOutput: null });
 
-  assert.doesNotMatch(contextBlock, /Brand theme: DARK/, 'light brand must not get a DARK instruction');
+  assert.doesNotMatch(contextBlock, /DARK-themed brand|NON-NEGOTIABLE/, 'light brand must not get the DARK instruction');
   assert.match(contextBlock, /Brand theme: light/, 'light brand should declare a light theme');
 });
 
@@ -96,7 +97,7 @@ test('unknown theme (legacy kit) → no theme instruction, no crash', () => {
   );
   const { contextBlock } = buildProductionResumeContext({ doc, researchOutput: null, strategyOutput: null });
 
-  assert.doesNotMatch(contextBlock, /Brand theme:/, 'legacy kit without a detected theme must not emit a theme line');
+  assert.doesNotMatch(contextBlock, /Brand theme:|DARK-themed brand|NON-NEGOTIABLE/, 'legacy kit without a detected theme must not emit a theme line');
 });
 
 test('end-to-end: a dark TenantBrandKit → marketing reference → brief keeps the DARK + logo lines', () => {
@@ -130,7 +131,7 @@ test('end-to-end: a dark TenantBrandKit → marketing reference → brief keeps 
   });
   const { contextBlock } = buildProductionResumeContext({ doc, researchOutput: null, strategyOutput: null });
 
-  assert.match(contextBlock, /Brand theme: DARK/, 'brief built via the reference copy must keep the DARK instruction');
+  assert.match(contextBlock, /DARK-themed brand/, 'brief built via the reference copy must keep the DARK instruction');
   assert.ok(contextBlock.includes('#050505'), 'brief must name the dark background through the copy layer');
   assert.ok(contextBlock.includes('#7c3aed'), 'brief must carry the purple brand palette through the copy layer');
   assert.ok(contextBlock.includes(LOGO_URL), 'brief must reference the real logo through the copy layer');
