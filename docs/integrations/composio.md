@@ -143,7 +143,40 @@ in `missingPermissions` / `warnings`.
 Metrics are normalized into one envelope (`NormalizedMetrics`). Every numeric
 field is `number | null`; **a missing metric is `null`, never a fabricated 0**.
 `rawMetrics` keeps the untouched provider payload, and `unavailableReason`
-explains a wholesale gap (no slug, no active connection, unsuccessful call).
+explains a wholesale gap (no mapper for the platform/op, no active connection,
+unsuccessful call).
+
+Analytics ships with **verified default tool slugs** per platform
+(`backend/integrations/composio/analytics-mappers.ts`), so it works once an
+account is connected — no per-op slug config required (a
+`COMPOSIO_<PLATFORM>_<OP>_ACTION` env var still overrides the default). Each
+mapper builds the tool's real arguments (IG needs `ig_media_id` + a `metric[]`,
+FB needs `page_id`, YouTube `id[]`, LinkedIn a `urn:li:organization:` URN, Meta
+Ads `object_id` + `level`) and parses its real response shape (Graph
+`data[].values[].value`, YouTube `items[].statistics`, LinkedIn
+`elements[].totalShareStatistics`, Meta Ads rows).
+
+Verified analytics tools (2026-06-03):
+
+| Platform | Post insights | Account insights | Ad insights |
+|---|---|---|---|
+| Facebook | `FACEBOOK_GET_POST_INSIGHTS` | `FACEBOOK_GET_PAGE_INSIGHTS` | — |
+| Instagram | `INSTAGRAM_GET_IG_MEDIA_INSIGHTS` | `INSTAGRAM_GET_USER_INSIGHTS` | — |
+| YouTube | `YOUTUBE_GET_VIDEO_DETAILS_BATCH` | `YOUTUBE_GET_CHANNEL_STATISTICS` | — |
+| LinkedIn | — (org-level only) | `LINKEDIN_GET_SHARE_STATS` | — |
+| TikTok | — (no tool) | `TIKTOK_GET_USER_STATS` | — |
+| Meta Ads | — | — | `METAADS_GET_INSIGHTS` (toolkit `metaads`) |
+| Reddit | — | — | — |
+
+Platforms/ops with no tool report `unavailable` rather than guessing. FB post
+metrics are limited to `post_media_view` (Facebook deprecated most post metrics
+in Nov 2025). Meta Ads requires its own `metaads` connection (custom auth config).
+
+> **Note:** the provider + mappers are validated infrastructure. Rendering these
+> metrics in the operator dashboard goes through the existing insights module
+> (`backend/insights/*`) via a Composio `InsightsAdapter` — see
+> `docs/plans/2026-06-03-composio-analytics-render.md`. That bridge is verified
+> against a live connected account, so it lands once an account is connected.
 
 ## Connection endpoints
 

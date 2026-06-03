@@ -20,6 +20,7 @@ import {
   type IntegrationPlatform,
 } from '../providers/types';
 import type { ComposioConfig } from './composio-config';
+import { getAnalyticsMapper } from './analytics-mappers';
 
 /** Platform-specific advisory warnings from Phase 6 of the integration plan. */
 const PLATFORM_WARNINGS: Partial<Record<IntegrationPlatform, string[]>> = {
@@ -63,18 +64,22 @@ export function computeCapabilities(ctx: PreflightContext): Capabilities {
 
   const { config, platform } = ctx;
   const has = (op: Parameters<ComposioConfig['actionSlugFor']>[1]) => config.actionSlugFor(platform, op) !== null;
+  // Analytics ships with verified default tool slugs (analytics-mappers), so a
+  // capability is available when EITHER a mapper exists OR an env slug is set.
+  const canAnalytics = (op: Parameters<ComposioConfig['actionSlugFor']>[1]) =>
+    has(op) || getAnalyticsMapper(platform, op) !== null;
 
   caps.canPublishOrganic = has('publish_post');
   caps.canUploadMedia = has('upload_media') || has('publish_post');
-  caps.canReadPostInsights = has('post_insights');
-  caps.canReadAdInsights = has('ad_insights');
+  caps.canReadPostInsights = canAnalytics('post_insights');
+  caps.canReadAdInsights = canAnalytics('ad_insights');
   caps.canPublishAds = has('create_ad');
 
   if (!caps.canPublishOrganic) {
     caps.missingPermissions.push(`${platform}.publish_post action slug`);
   }
   if (!caps.canReadPostInsights) {
-    caps.missingPermissions.push(`${platform}.post_insights action slug`);
+    caps.missingPermissions.push(`${platform}.post_insights (no analytics tool for this platform)`);
   }
   if (platform === 'meta_ads' && !caps.canPublishAds) {
     caps.missingPermissions.push('meta_ads.create_ad action slug');

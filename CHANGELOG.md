@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.9 — Composio analytics: real per-platform mappers for all platforms (foundation)
+
+Makes the Composio AnalyticsProvider actually return data instead of a generic
+stub. Adds `analytics-mappers.ts` with verified-against-live-schema (2026-06-03)
+per-platform request builders + response parsers:
+- Facebook (`FACEBOOK_GET_POST_INSIGHTS` / `FACEBOOK_GET_PAGE_INSIGHTS`),
+  Instagram (`INSTAGRAM_GET_IG_MEDIA_INSIGHTS` / `INSTAGRAM_GET_USER_INSIGHTS`),
+  YouTube (`YOUTUBE_GET_VIDEO_DETAILS_BATCH` / `YOUTUBE_GET_CHANNEL_STATISTICS`),
+  LinkedIn (`LINKEDIN_GET_SHARE_STATS`), TikTok (`TIKTOK_GET_USER_STATS`),
+  Meta Ads (`METAADS_GET_INSIGHTS`, toolkit `metaads`).
+- Each builds the tool's REAL args (IG `ig_media_id`+`metric[]`, FB `page_id`,
+  YouTube `id[]`, LinkedIn org URN, Meta Ads `object_id`+`level`) and parses its
+  REAL response (Graph `data[].values[].value`, YouTube `items[].statistics`,
+  LinkedIn `elements[].totalShareStatistics`, Meta Ads rows with roas/costPerResult).
+- Verified slugs are defaults, so analytics works once connected — no per-op slug
+  config needed (env still overrides). Platforms/ops with no tool (Reddit, per-post
+  TikTok) report `unavailable`, never fabricated. Fixed meta_ads toolkit slug
+  (`metaads`). Capability preflight now reflects mapper availability.
+- Replaces the generic `metrics-normalizer` (deleted). 40 Composio tests pass.
+
+Rendering these metrics in the dashboard goes through the existing insights module
+via a Composio `InsightsAdapter` — planned in
+`docs/plans/2026-06-03-composio-analytics-render.md`, landed + live-verified once an
+account is connected. Still default OFF.
+
 ## v0.1.15.8 — Composio: use connectedAccounts.link() (the retired initiate() 400s on managed OAuth)
 
 Fixes the Composio connect path before it ships live. `@composio/core@0.10.0`'s

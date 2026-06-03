@@ -21,7 +21,7 @@ import { composioApiKey, composioAuthConfigId } from '../providers/integration-c
 export const TOOLKIT_SLUG: Record<IntegrationPlatform, string> = {
   facebook: 'facebook',
   instagram: 'instagram',
-  meta_ads: 'meta_ads',
+  meta_ads: 'metaads',
   tiktok: 'tiktok',
   youtube: 'youtube',
   linkedin: 'linkedin',
