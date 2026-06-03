@@ -34,6 +34,9 @@ export function fakeGateway(opts?: {
   const calls: RecordedExecute[] = [];
   return {
     calls,
+    async findOrCreateManagedAuthConfig(toolkitSlug: string): Promise<string> {
+      return `ac_${toolkitSlug.toLowerCase()}`;
+    },
     async initiateConnection(): Promise<GatewayInitiateResult> {
       return { connectionRequestId: 'cr_1', redirectUrl: 'https://composio.dev/connect/abc' };
     },

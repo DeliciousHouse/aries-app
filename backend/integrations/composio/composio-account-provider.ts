@@ -55,11 +55,12 @@ export class ComposioAccountProvider implements AccountConnectionProvider {
     options?: { tenantId: string; callbackUrl?: string },
   ): Promise<ConnectLinkResult> {
     const tenantId = this.requireTenant(options);
-    const authConfigId = this.config.authConfigIdFor(platform);
+    // Prefer an explicitly-configured auth config; otherwise auto-provision a
+    // Composio-managed one for the toolkit so connecting works with zero
+    // dashboard setup (just the API key).
+    let authConfigId = this.config.authConfigIdFor(platform);
     if (!authConfigId) {
-      throw new ComposioConfigError(
-        `No Composio auth config is set for ${platform}. Set COMPOSIO_${platform.toUpperCase()}_AUTH_CONFIG_ID or COMPOSIO_DEFAULT_AUTH_CONFIG_ID.`,
-      );
+      authConfigId = await this.gateway.findOrCreateManagedAuthConfig(this.config.toolkitSlugFor(platform));
     }
 
     const initiated = await this.gateway.initiateConnection(externalUserId, authConfigId, options?.callbackUrl);

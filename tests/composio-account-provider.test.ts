@@ -22,16 +22,17 @@ function conn(id: string, toolkitSlug: string, status = 'ACTIVE'): GatewayConnec
   };
 }
 
-test('createConnectLink without an auth config throws a clear config error', async () => {
+test('createConnectLink with no configured auth config auto-provisions a managed one', async () => {
+  // No env auth config -> the provider asks the gateway to find-or-create a
+  // Composio-managed auth config for the toolkit, so connecting needs zero
+  // dashboard setup.
   const provider = new ComposioAccountProvider(
     fakeGateway(),
     fakeConfig({ authConfigId: null }),
-    fakeDb({ connectionRow: null }),
+    fakeDb(),
   );
-  await assert.rejects(
-    () => provider.createConnectLink(userId, 'facebook', 'full', { tenantId }),
-    ComposioConfigError,
-  );
+  const result = await provider.createConnectLink(userId, 'facebook', 'full', { tenantId });
+  assert.equal(result.connectUrl, 'https://composio.dev/connect/abc');
 });
 
 test('createConnectLink returns the redirect URL and persists a pending row', async () => {

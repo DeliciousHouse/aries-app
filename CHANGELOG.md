@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.10 — Composio connect: auto-provision a managed auth config (no dashboard setup)
+
+Removes the manual "create an auth config + paste the ac_ id" step. When no
+`COMPOSIO_<PLATFORM>_AUTH_CONFIG_ID` / `COMPOSIO_DEFAULT_AUTH_CONFIG_ID` is set,
+`createConnectLink` now calls the gateway's `findOrCreateManagedAuthConfig(toolkit)`
+— it lists existing Composio-managed auth configs for the toolkit
+(`authConfigs.list({ toolkit, isComposioManaged: true })`) and reuses one, else
+creates a managed config (`authConfigs.create(TOOLKIT, { type: 'use_composio_managed_auth' })`)
+and returns its `ac_...`. So connecting works with just `COMPOSIO_API_KEY` +
+`COMPOSIO_ENABLED=true`. An explicit env auth-config id still takes precedence
+(needed for Meta Ads / custom auth). Validated against the real SDK types; 40
+tests pass. Still default OFF.
+
 ## v0.1.15.9 — Composio analytics: real per-platform mappers for all platforms (foundation)
 
 Makes the Composio AnalyticsProvider actually return data instead of a generic
