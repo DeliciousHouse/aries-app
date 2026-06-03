@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.10 — Make the dark-background brief instruction a hard constraint (the agent was overriding the soft version)
+
+Follow-up to v0.1.15.5/6/7. With the brief correctly emitting a dark theme line,
+a live render still came out on a **light/white background**: the Hermes
+content-generator agent ignored the soft advisory ("Render on a dark
+background…") and wrote `visual_prompt`s like "bright minimal SaaS studio… soft
+white background" (confirmed via the actual `content_package[].visual_prompt`).
+
+Root cause confirmed by isolation: (a) the image model **can** render dark — a
+one-shot forceful prompt produced a correct `#050505` + purple image; (b) there
+is **no** hardcoded bright/clean prior in the content-generator's SOUL.md/config
+— the white background is just the LLM's default SaaS aesthetic. So a strong,
+explicit constraint in the brief is enough to steer it.
+
+### Changed
+- For dark brands, the brief now carries a **hard constraint** instead of an
+  advisory: the image MUST have a dark/near-black background, the `visual_prompt`
+  it writes MUST describe that background and MUST NOT contain
+  "bright"/"white"/"light"/"soft white"/"studio", plus a `NON-NEGOTIABLE: this
+  brand is DARK …` line + a dark-specific `visual_prompt` schema hint
+  (`backend/social-content/workflow-request.ts`). Light/unknown brands unchanged.
+
+### Notes
+- Brand-fidelity counterpart to the resolved image-gen outage, which turned out
+  to be **stale content-generator gateway state** (fixed by a gateway restart),
+  not an OpenAI policy change — renders work again on the same model/token.
+
 ## v0.1.15.9 — Composio analytics: real per-platform mappers for all platforms (foundation)
 
 Makes the Composio AnalyticsProvider actually return data instead of a generic
