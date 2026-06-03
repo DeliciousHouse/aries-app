@@ -6,8 +6,8 @@
  *
  * Verified SDK surface (https://docs.composio.dev — TypeScript SDK):
  *   new Composio({ apiKey })
- *   composio.connectedAccounts.initiate(userId, authConfigId, { callbackUrl })
- *     -> { id, redirectUrl, waitForConnection() }
+ *   composio.connectedAccounts.link(userId, authConfigId, { callbackUrl })
+ *     -> { id, redirectUrl } (the modern hosted-auth method; initiate() is retired)
  *   composio.connectedAccounts.list({ userIds, authConfigIds }) -> { items }
  *   composio.connectedAccounts.get(id) / .delete(id) / .waitForConnection(id, ms)
  *   composio.tools.execute(slug, { userId, connectedAccountId, arguments })
@@ -124,7 +124,11 @@ class LiveComposioGateway implements ComposioGateway {
 
   async initiateConnection(userId: string, authConfigId: string, callbackUrl?: string): Promise<GatewayInitiateResult> {
     const composio = await this.client();
-    const req = await composio.connectedAccounts.initiate(
+    // Use `link()`, not the retired `initiate()`: initiate() returns 400 for
+    // Composio-managed OAuth as of 2026-05-08. `link()` is the modern hosted-auth
+    // method (managed + custom auth configs), same shape:
+    // link(userId, authConfigId, { callbackUrl }) -> { id, redirectUrl }.
+    const req = await composio.connectedAccounts.link(
       userId,
       authConfigId,
       callbackUrl ? { callbackUrl } : undefined,

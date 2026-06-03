@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.8 — Composio: use connectedAccounts.link() (the retired initiate() 400s on managed OAuth)
+
+Fixes the Composio connect path before it ships live. `@composio/core@0.10.0`'s
+`connectedAccounts.initiate()` is retired — it returns 400 for Composio-managed
+OAuth as of 2026-05-08 — so the connection-link gateway swaps to the modern
+`connectedAccounts.link(userId, authConfigId, { callbackUrl })`, which has the
+same `{ id, redirectUrl }` shape and works for managed + custom auth configs.
+Type-validated against the real SDK (tsc 0 errors); 27 Composio tests pass.
+Still default OFF. (To enable, the prod `.env` still needs an auth-config id
+`ac_...`, not the project id — see docs/integrations/composio.md.)
+
 ## v0.1.15.7 — Carry brand background/mode through the brand-kit copy layer (so the brief actually emits the dark instruction)
 
 Follow-up to v0.1.15.5/6. Live verification showed the persisted kit was correct
