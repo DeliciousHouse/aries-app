@@ -39,6 +39,12 @@ export interface GatewayToolResult {
 }
 
 export interface ComposioGateway {
+  /**
+   * Find an existing Composio-managed auth config for a toolkit, or create one.
+   * Lets the connect flow work without anyone hand-creating an auth config in
+   * the dashboard. Returns the `ac_...` id.
+   */
+  findOrCreateManagedAuthConfig(toolkitSlug: string): Promise<string>;
   initiateConnection(
     userId: string,
     authConfigId: string,
@@ -120,6 +126,29 @@ class LiveComposioGateway implements ComposioGateway {
       })();
     }
     return this.clientPromise;
+  }
+
+  async findOrCreateManagedAuthConfig(toolkitSlug: string): Promise<string> {
+    const composio = await this.client();
+    const toolkit = toolkitSlug.toUpperCase();
+    // Reuse an existing auth config for this toolkit when one is already present.
+    try {
+      const existing = (await composio.authConfigs.list({ toolkit, isComposioManaged: true })) as unknown as {
+        items?: Array<{ id?: string }>;
+      };
+      const found = existing?.items?.find((c) => typeof c?.id === 'string' && c.id);
+      if (found?.id) return found.id;
+    } catch {
+      // listing is best-effort; fall through to create
+    }
+    const created = (await composio.authConfigs.create(toolkit, {
+      name: `Aries ${toolkit} (managed)`,
+      type: 'use_composio_managed_auth',
+    })) as unknown as { id?: string };
+    if (!created?.id) {
+      throw new ComposioConfigError(`Composio did not return an auth config id when provisioning managed auth for ${toolkit}.`);
+    }
+    return created.id;
   }
 
   async initiateConnection(userId: string, authConfigId: string, callbackUrl?: string): Promise<GatewayInitiateResult> {
