@@ -834,6 +834,7 @@ async function initDb() {
         received_at         TIMESTAMPTZ NOT NULL,
         author_handle       TEXT,
         body_text           TEXT NOT NULL,
+        is_replied          BOOLEAN NOT NULL DEFAULT false,
         platform_data       JSONB NOT NULL DEFAULT '{}',
         UNIQUE (tenant_id, platform, external_comment_id)
       );
