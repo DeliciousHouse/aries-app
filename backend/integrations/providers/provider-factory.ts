@@ -11,9 +11,10 @@
  *      auto        -> Composio first, fall back to direct Meta on failure or
  *                     for any platform Composio cannot service.
  *
- * The Composio providers are imported lazily (only constructed when actually
- * selected) so a disabled deployment never even loads the adapter — keeping the
- * whole layer cleanly removable.
+ * The Composio adapter is statically imported but its providers are only
+ * CONSTRUCTED when actually selected, and the heavy @composio/core SDK is only
+ * loaded (via `await import`) on first gateway use — so a disabled deployment
+ * pays nothing at runtime and the layer stays cleanly removable.
  */
 
 import type {
@@ -30,13 +31,20 @@ import {
 } from './integration-config';
 import { DirectMetaProvider } from '../direct/direct-meta-provider';
 import { AutoPublisherProvider, AutoAnalyticsProvider } from './auto-providers';
-
-// Composio providers are required lazily so the adapter (and its SDK) is never
-// loaded when Composio is disabled or unselected.
-function loadComposio() {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  return require('../composio') as typeof import('../composio');
-}
+// Static import of the Composio adapter factories. This is intentionally NOT a
+// runtime require(): under Turbopack's production build, require() of this
+// compiled ES module does not expose its named exports (it returned a module
+// object without createComposio*Provider), which 500'd every Composio request.
+// Importing statically is safe: the composio module only references provider
+// classes + config at load time — the heavy @composio/core SDK is still loaded
+// lazily via `await import('@composio/core')` inside the gateway, and the
+// providers are only constructed when actually selected below.
+import {
+  createComposioAccountProvider,
+  createComposioPublisherProvider,
+  createComposioAnalyticsProvider,
+  createComposioCapabilityProvider,
+} from '../composio';
 
 /**
  * The effective publish selector after applying the master switch. Exposed so
@@ -57,7 +65,7 @@ export function getPublisherProvider(env: NodeJS.ProcessEnv = process.env): Publ
   const selector = effectivePublishProvider(env);
   if (selector === 'direct_meta') return direct;
 
-  const composio = loadComposio().createComposioPublisherProvider(env);
+  const composio = createComposioPublisherProvider(env);
   if (selector === 'composio') return composio;
   // auto: Composio first, direct Meta fallback.
   return new AutoPublisherProvider(composio, direct);
@@ -68,7 +76,7 @@ export function getAnalyticsProvider(env: NodeJS.ProcessEnv = process.env): Anal
   const selector = effectiveAnalyticsProvider(env);
   if (selector === 'direct_meta') return direct;
 
-  const composio = loadComposio().createComposioAnalyticsProvider(env);
+  const composio = createComposioAnalyticsProvider(env);
   if (selector === 'composio') return composio;
   return new AutoAnalyticsProvider(composio, direct);
 }
@@ -82,12 +90,12 @@ export function getAccountConnectionProvider(
   env: NodeJS.ProcessEnv = process.env,
 ): AccountConnectionProvider | null {
   if (!isComposioEnabled(env)) return null;
-  return loadComposio().createComposioAccountProvider(env);
+  return createComposioAccountProvider(env);
 }
 
 export function getCapabilityProvider(
   env: NodeJS.ProcessEnv = process.env,
 ): CapabilityProvider {
   if (!isComposioEnabled(env)) return new DirectMetaProvider();
-  return loadComposio().createComposioCapabilityProvider(env);
+  return createComposioCapabilityProvider(env);
 }

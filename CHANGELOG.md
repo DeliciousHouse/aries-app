@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.12 — fix: Composio factory static import (require() broke every Composio request in prod)
+
+Hotfix. With Composio enabled in prod, every Composio API call 500'd with
+`TypeError: ...createComposioAccountProvider is not a function` — so `/connections`
+showed "Unexpected end of JSON input" and Connect/list/capabilities all failed.
+Cause: `provider-factory.ts` loaded the adapter via `require('../composio')`, and
+under Turbopack's production build that require returned a module object WITHOUT
+the named exports. Fixed by statically `import`ing the create* factories. Safe:
+the heavy `@composio/core` SDK is still loaded lazily (`await import`) inside the
+gateway; providers are still only constructed when selected. Caught only by a real
+`next build` + live request (typecheck + unit tests passed), so verified by build +
+post-deploy live check.
+
 ## v0.1.15.11 — Composio connect: auto-provision a managed auth config (no dashboard setup)
 
 Removes the manual "create an auth config + paste the ac_ id" step. When no
