@@ -230,11 +230,17 @@ test('ingestProductionCreativeAssetsToDb — resolves Hermes host path via mount
 
     const { sql, params } = calls[0];
     assert.equal(params[2], 'img_1', 'source_asset_id preserved');
-    // served_asset_ref is now id-based and written by the CTE post-INSERT from
-    // the row's id, so it is no longer an INSERT parameter.
+    // served_asset_ref is id-based, built in the INSERT from the row's OWN
+    // subselect-generated id (g.id) — NOT a data-modifying CTE, whose outer
+    // UPDATE runs on a pre-INSERT snapshot and silently leaves the ref NULL
+    // (the #517 regression). It must never reintroduce the `ins.id` CTE form.
     assert.ok(
-      sql.includes("'/api/internal/hermes/media/' || ins.id::text"),
-      'served_asset_ref must be set id-based by the CTE',
+      sql.includes("'/api/internal/hermes/media/' || g.id::text"),
+      'served_asset_ref must be built in the INSERT from the subselect id (g.id)',
+    );
+    assert.ok(
+      !/WITH\s+ins\s+AS/i.test(sql),
+      'must NOT use the data-modifying CTE form that leaves served_asset_ref NULL',
     );
     assert.equal(
       params[3],
@@ -285,10 +291,16 @@ test('ingestProductionCreativeAssetsToDb — inserts row with correct SQL shape'
       sql.includes("ON CONFLICT (tenant_id, checksum) WHERE checksum IS NOT NULL DO NOTHING"),
       'SQL must have ON CONFLICT with the partial-index predicate',
     );
-    // served_asset_ref is id-based, written back by the CTE from the row's id.
+    // served_asset_ref is id-based, built in the INSERT from the row's OWN
+    // subselect-generated id (g.id). The data-modifying CTE form leaves it NULL
+    // (the #517 regression) — guard against its reintroduction.
     assert.ok(
-      sql.includes("'/api/internal/hermes/media/' || ins.id::text"),
-      'served_asset_ref must be set id-based by the CTE',
+      sql.includes("'/api/internal/hermes/media/' || g.id::text"),
+      'served_asset_ref must be built in the INSERT from the subselect id (g.id)',
+    );
+    assert.ok(
+      !/WITH\s+ins\s+AS/i.test(sql),
+      'must NOT use the data-modifying CTE form that leaves served_asset_ref NULL',
     );
     assert.ok(sql.includes("'generated_by_aries'"), 'source_type must be generated_by_aries');
     assert.ok(sql.includes("'runtime_asset'"), 'storage_kind must be runtime_asset');

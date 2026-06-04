@@ -183,30 +183,33 @@ const SELECT_CREATIVE_SQL = `
 
 // served_asset_ref is id-based (`/api/internal/hermes/media/<id>`) so manual
 // uploads are servable through the authoritative id route (ownership enforced
-// in SQL). The id is only known after INSERT, so a CTE inserts then writes the
-// ref back atomically in one round-trip (no fan-out, guardrail #1). The id
-// route resolves `ingested_asset` bytes from the DATA_ROOT storage_key.
+// in SQL). The id route resolves `ingested_asset` bytes from the DATA_ROOT
+// storage_key.
+//
+// served_asset_ref must embed the row's own id. A data-modifying CTE
+// (`WITH ins AS (INSERT ... RETURNING id) UPDATE ... FROM ins WHERE id=ins.id`)
+// does NOT work: PostgreSQL evaluates the outer UPDATE against a snapshot taken
+// before the CTE's INSERT, so it matches 0 rows and served_asset_ref stays NULL
+// (the same #517 regression that broke production-asset ingestion; verified on
+// the prod DB). Instead, generate the uuid in a subselect and use it for BOTH
+// `id` and `served_asset_ref` in a single INSERT…SELECT — atomic, self-
+// referential, one round-trip (no fan-out, guardrail #1). Mirrors
+// story-composer.ts and ingest-production-assets.ts.
 const INSERT_REPLACEMENT_SQL = `
-  WITH ins AS (
-    INSERT INTO creative_assets (
-      tenant_id, source_type, permission_scope, media_type,
-      storage_kind, storage_key, checksum, aspect_ratio,
-      learning_lifecycle, usable_for_generation
-    ) VALUES (
-      $1, 'manual_upload', 'user_uploaded', 'image',
-      'ingested_asset', $2, $3, $4,
-      'observed', FALSE
-    )
-    RETURNING id
+  INSERT INTO creative_assets (
+    id, tenant_id, source_type, permission_scope, media_type,
+    storage_kind, storage_key, checksum, aspect_ratio,
+    learning_lifecycle, usable_for_generation, served_asset_ref
   )
-  UPDATE creative_assets
-     SET served_asset_ref = '/api/internal/hermes/media/' || ins.id::text
-    FROM ins
-   WHERE creative_assets.id = ins.id
-  RETURNING creative_assets.id, creative_assets.tenant_id, creative_assets.storage_kind,
-            creative_assets.storage_key, creative_assets.source_type,
-            creative_assets.permission_scope, creative_assets.media_type,
-            creative_assets.aspect_ratio, creative_assets.checksum
+  SELECT
+    g.id, $1, 'manual_upload', 'user_uploaded', 'image',
+    'ingested_asset', $2, $3, $4,
+    'observed', FALSE, '/api/internal/hermes/media/' || g.id::text
+  FROM (SELECT gen_random_uuid() AS id) g
+  RETURNING id, tenant_id, storage_kind,
+            storage_key, source_type,
+            permission_scope, media_type,
+            aspect_ratio, checksum
 `;
 
 const ORPHAN_PREVIOUS_SQL = `
