@@ -76,10 +76,7 @@ class StubDb implements UploadReplaceDb, GcDb {
       return { rows: found ? [found] : [], rowCount: found ? 1 : 0 };
     }
 
-    if (
-      trimmed.startsWith('INSERT INTO creative_assets') ||
-      trimmed.startsWith('WITH ins AS ( INSERT INTO creative_assets')
-    ) {
+    if (trimmed.startsWith('INSERT INTO creative_assets')) {
       const tenantId = Number(params[0]);
       const storageKey = String(params[1]);
       const sha = String(params[2]);
