@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.15 — chore(safety): default ARIES_AUTO_APPROVE_MARKETING_PIPELINE OFF in docker-compose
+
+When ON, the flag auto-approves the strategy/production/**publish** checkpoints with
+no human click and pushes to live social media. The compose default was `:-1`, so a
+deploy that lost the `.env` override would silently enable autopublish for every tenant
+in the container. Changed the default to `:-0` (safe-by-default); prod `.env` already
+pins it to `0`, so this is hardening with no runtime behavior change. Updated the
+CLAUDE.md note (publish-gate behavior, no per-tenant control, reaper interaction).
+
 ## v0.1.15.14 — fix(publishing): job-scope the creative_asset_ids ordinal match so Instagram posts the right single image
 
 Follow-up to v0.1.15.13. With `served_asset_ref` fixed, posts could resolve media

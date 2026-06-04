@@ -78,7 +78,12 @@ services:
       ARIES_KANBAN_GC_ENABLED: ${ARIES_KANBAN_GC_ENABLED:-1}
       ARIES_KANBAN_GC_INTERVAL_MS: ${ARIES_KANBAN_GC_INTERVAL_MS:-86400000}
       ARIES_KANBAN_GC_RETENTION_DAYS: ${ARIES_KANBAN_GC_RETENTION_DAYS:-7}
-      ARIES_AUTO_APPROVE_MARKETING_PIPELINE: ${ARIES_AUTO_APPROVE_MARKETING_PIPELINE:-1}
+      # Safe-by-default OFF: when ON, Aries auto-approves the strategy, production
+      # AND publish checkpoints with no human click and pushes to live social
+      # media. A missing .env line must NOT silently enable autopublish. Set
+      # ARIES_AUTO_APPROVE_MARKETING_PIPELINE=1 in .env to opt a single-tenant
+      # autonomous deployment back in.
+      ARIES_AUTO_APPROVE_MARKETING_PIPELINE: ${ARIES_AUTO_APPROVE_MARKETING_PIPELINE:-0}
       ARIES_BRAND_ENRICHMENT_ENABLED: ${ARIES_BRAND_ENRICHMENT_ENABLED:-1}
       # Video / Reel / Story-video publishing rollout switch. Default OFF until
       # Hermes emits media_type:"video" + per-asset video metadata (separate repo).
