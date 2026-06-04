@@ -145,12 +145,33 @@ test('ingestProductionCreativeAssetsToDb INSERT runs against real Postgres witho
       assert.equal(result.skipped, 0, 'no rows skipped — the ON CONFLICT clause is valid');
 
       // The rows are really in the table.
-      const rows = await client.query<{ source_asset_id: string; checksum: string }>(
-        `SELECT source_asset_id, checksum FROM creative_assets WHERE source_job_id = $1 ORDER BY source_asset_id`,
+      const rows = await client.query<{ id: string; source_asset_id: string; checksum: string; served_asset_ref: string | null }>(
+        `SELECT id, source_asset_id, checksum, served_asset_ref FROM creative_assets WHERE source_job_id = $1 ORDER BY source_asset_id`,
         [jobId],
       );
       assert.equal(rows.rows.length, 2, 'two creative_assets rows persisted');
       assert.ok(rows.rows.every((r) => r.checksum && r.checksum.length === 64), 'each row has a sha256 checksum');
+
+      // REGRESSION GUARD (#517): served_asset_ref MUST be populated and equal
+      // `/api/internal/hermes/media/<id>`. The prior data-modifying-CTE form
+      // (`WITH ins AS (INSERT ... RETURNING id) UPDATE ... FROM ins`) left this
+      // NULL because Postgres runs the outer UPDATE on a pre-INSERT snapshot —
+      // and resolveMediaUrls then returns [] for the post, so Instagram (which
+      // hard-requires a media URL) fails every publish with instagram_media_required.
+      // A mock pool cannot catch this; only a real-Postgres INSERT can. This is
+      // the test that proves the self-referential INSERT…SELECT actually writes
+      // the ref.
+      for (const r of rows.rows) {
+        assert.ok(
+          r.served_asset_ref && r.served_asset_ref.length > 0,
+          `served_asset_ref must be populated (NULL = the #517 regression that broke IG publishing) for ${r.source_asset_id}`,
+        );
+        assert.equal(
+          r.served_asset_ref,
+          `/api/internal/hermes/media/${r.id}`,
+          'served_asset_ref must embed the row\'s own id',
+        );
+      }
 
       // Idempotency: a replayed callback must ON CONFLICT DO NOTHING, not error
       // and not duplicate. This exercises the conflict arm of the partial index.

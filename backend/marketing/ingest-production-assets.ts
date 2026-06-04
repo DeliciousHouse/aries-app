@@ -129,33 +129,38 @@ export function resolveHermesAssetReadPath(reportedPath: string): string | null 
 // served_asset_ref is id-based (`/api/internal/hermes/media/<id>`) so the media
 // route can address bytes by the authoritative PK and enforce ownership in SQL
 // (WHERE id=$1 AND tenant_id=$2) instead of a collision-prone shared-cache
-// basename match. The id is only known after INSERT, so a single CTE inserts
-// then writes the ref back atomically in one round-trip (no fan-out, guardrail
-// #1). On checksum conflict the INSERT yields 0 rows, the UPDATE touches
-// nothing, and the existing row keeps its ref — replay stays idempotent.
+// basename match.
+//
+// served_asset_ref must embed the row's own id. A data-modifying CTE
+// (`WITH ins AS (INSERT ... RETURNING id) UPDATE ... FROM ins WHERE id=ins.id`)
+// does NOT work: PostgreSQL evaluates the outer UPDATE against a snapshot taken
+// before the CTE's INSERT, so it matches 0 rows and served_asset_ref stays NULL
+// — the regression PR #517 (commit 6786955) shipped, which silently left every
+// new runtime_asset unservable and broke Instagram publishing (IG hard-requires
+// a media URL; resolveMediaUrls skips null-ref rows). Verified on the prod DB.
+// Instead, generate the uuid in a subselect and use it for BOTH `id` and
+// `served_asset_ref` in a single INSERT…SELECT — atomic, self-referential, one
+// round-trip (no fan-out, guardrail #1). On checksum conflict the INSERT yields
+// 0 rows and the existing row keeps its ref — replay stays idempotent. The
+// partial unique index (WHERE checksum IS NOT NULL) is named so null-checksum
+// rows never collide. This mirrors story-composer.ts's INSERT_COMPOSED_ASSET_SQL.
 const INSERT_PRODUCTION_ASSET_SQL = `
-  WITH ins AS (
-    INSERT INTO creative_assets (
-      tenant_id, source_type, source_job_id, source_asset_id,
-      storage_kind, storage_key, media_type,
-      aspect_ratio, checksum, permission_scope,
-      learning_lifecycle, usable_for_generation,
-      variant_batch_id, variant_index
-    ) VALUES (
-      $1, 'generated_by_aries', $2, $3,
-      'runtime_asset', $4, 'image',
-      '4:5', $5, 'generated',
-      'observed', false,
-      $6, $7
-    )
-    ON CONFLICT (tenant_id, checksum) WHERE checksum IS NOT NULL DO NOTHING
-    RETURNING id
+  INSERT INTO creative_assets (
+    id, tenant_id, source_type, source_job_id, source_asset_id,
+    storage_kind, storage_key, media_type,
+    aspect_ratio, checksum, permission_scope,
+    learning_lifecycle, usable_for_generation,
+    variant_batch_id, variant_index, served_asset_ref
   )
-  UPDATE creative_assets
-     SET served_asset_ref = '/api/internal/hermes/media/' || ins.id::text
-    FROM ins
-   WHERE creative_assets.id = ins.id
-  RETURNING creative_assets.id
+  SELECT
+    g.id, $1, 'generated_by_aries', $2, $3,
+    'runtime_asset', $4, 'image',
+    '4:5', $5, 'generated',
+    'observed', false,
+    $6, $7, '/api/internal/hermes/media/' || g.id::text
+  FROM (SELECT gen_random_uuid() AS id) g
+  ON CONFLICT (tenant_id, checksum) WHERE checksum IS NOT NULL DO NOTHING
+  RETURNING id
 `;
 
 export async function ingestProductionCreativeAssetsToDb(
@@ -220,8 +225,8 @@ export async function ingestProductionCreativeAssetsToDb(
         ? asset.assetId.trim()
         : basename;
 
-      // served_asset_ref is written by the CTE post-INSERT from the row's id,
-      // so it is no longer passed as a parameter here.
+      // served_asset_ref is built inside the INSERT from the row's own (subselect-
+      // generated) id, so it is not passed as a parameter here.
       const result = await pool.query(INSERT_PRODUCTION_ASSET_SQL, [
         tenantId,
         jobId,
