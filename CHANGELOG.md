@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.13 — fix(marketing): served_asset_ref left NULL by data-modifying CTE broke all Instagram publishing
+
+Instagram published nothing since May 22. Root cause: PR #517 (commit 6786955)
+rewrote the `creative_assets` ingest INSERT as a data-modifying CTE —
+`WITH ins AS (INSERT ... RETURNING id) UPDATE creative_assets SET
+served_asset_ref=... FROM ins WHERE id=ins.id`. Postgres evaluates the outer
+UPDATE against a snapshot taken BEFORE the CTE's INSERT, so it matches 0 rows and
+`served_asset_ref` stays NULL (verified on the prod DB: `UPDATE 0`). With a NULL
+ref, `resolveMediaUrls` returns `[]` and Instagram — which hard-requires a public
+image URL — fails every publish with the terminal `instagram_media_required`.
+Facebook masked it by publishing text-only, so only Instagram went dark.
+
+The same broken CTE existed in the operator-upload path (`upload-replace.ts`).
+`story-composer.ts` already documented this exact Postgres-snapshot bug and the
+fix; this applies it to both sibling sites: a single self-referential
+`INSERT ... SELECT g.id, ..., '/api/internal/hermes/media/' || g.id::text
+FROM (SELECT gen_random_uuid() AS id) g` that builds the ref atomically from the
+row's own id. ON CONFLICT idempotency and the partial-unique-index semantics are
+preserved. Added a `served_asset_ref` non-NULL assertion to the live-DB ingest
+test — the prior test ran the real INSERT but never checked the ref, which is how
+the regression slipped CI. Validated end-to-end against real Postgres.
+
 ## v0.1.15.12 — fix: Composio factory static import (require() broke every Composio request in prod)
 
 Hotfix. With Composio enabled in prod, every Composio API call 500'd with
