@@ -49,6 +49,16 @@ async function readBody(req: Request): Promise<ScheduledDispatchBody> {
 // The join matches either form so the populated path is correct regardless of
 // which id producers write.
 //
+// CRITICAL: the source_asset_id ('img_N') ordinal is NOT unique — EVERY job
+// reuses img_1, img_2, ... So the ordinal branch MUST be scoped to the post's
+// own job (`ca.source_job_id = p.job_id`); without it, an ordinal-form post
+// matches the same-ordinal asset of every other job for the tenant, and
+// resolveMediaUrls returns several cross-campaign images → Instagram publishes
+// a wrong multi-image CAROUSEL (createInstagramContainer treats >1 url as a
+// carousel). The uuid branch (`ca.id`) is globally unique, so it stays unscoped.
+// synthesize-publish-posts.ts writes the ordinal form by default, so this is the
+// common path, not an edge case.
+//
 // `posts.creative_asset_ids` is populated by the publish/synthesize writers
 // (synthesize-publish-posts.ts, publish-verification.ts, the fb/ig publish
 // handlers) and backfilled for pre-existing rows by
@@ -92,12 +102,14 @@ export async function resolveMediaUrls(
       AND ca.orphaned_at IS NULL
       AND (
         -- Per-POST link: the asset id is listed in posts.creative_asset_ids,
-        -- matched against either the uuid id or the Hermes source_asset_id.
+        -- matched against either the uuid id (globally unique) or the Hermes
+        -- source_asset_id ordinal (job-scoped — 'img_N' repeats across jobs).
         (
           p.creative_asset_ids IS NOT NULL
           AND array_length(p.creative_asset_ids, 1) > 0
           AND (ca.id::text = ANY(p.creative_asset_ids)
-               OR ca.source_asset_id = ANY(p.creative_asset_ids))
+               OR (ca.source_asset_id = ANY(p.creative_asset_ids)
+                   AND ca.source_job_id = p.job_id))
         )
         -- Fallback: no per-post ids recorded — scope to the post's job.
         OR (
