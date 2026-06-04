@@ -45,8 +45,14 @@ function buildFakeDb(posts: PostRow[], assets: AssetRow[]): DispatchQueryable {
           if (a.orphaned_at !== null) return false;
           if (!USABLE_KINDS.includes(a.storage_kind)) return false;
           if (hasPerPostIds) {
-            // Per-post link: asset id or source_asset_id is in the array.
-            return ids.includes(a.id) || (a.source_asset_id !== null && ids.includes(a.source_asset_id));
+            // Per-post link: uuid id (globally unique, unscoped) OR the
+            // source_asset_id ordinal (job-scoped — 'img_N' repeats per job).
+            return (
+              ids.includes(a.id) ||
+              (a.source_asset_id !== null &&
+                ids.includes(a.source_asset_id) &&
+                a.source_job_id === post.job_id)
+            );
           }
           // Fallback: job-scoped when no per-post ids recorded.
           return post.job_id !== null && a.source_job_id === post.job_id;
@@ -108,6 +114,29 @@ test('resolveMediaUrls is POST-scoped: two posts of one job get only their own a
   const urlsB = await resolveMediaUrls('200', tenantId, db);
   assert.equal(urlsB.length, 1, 'post B resolves exactly its own asset');
   assert.ok(urlsB[0].includes('img-two'), 'post B must be its own asset only');
+});
+
+test('resolveMediaUrls ordinal match is JOB-SCOPED: img_1 does not bleed across jobs', async () => {
+  // Regression: source_asset_id ('img_1', 'img_2', ...) is reused by EVERY job.
+  // synthesize-publish-posts.ts writes the ordinal form into creative_asset_ids,
+  // so an unscoped ordinal match returned the same-ordinal asset from every other
+  // job for the tenant — resolveMediaUrls returned several cross-campaign images
+  // and Instagram published a wrong multi-image carousel. The ordinal match must
+  // be scoped to the post's own job_id.
+  const tenantId = '7';
+  const posts: PostRow[] = [
+    { id: '100', tenant_id: tenantId, job_id: 'job-A', creative_asset_ids: ['img_1'] },
+  ];
+  const assets: AssetRow[] = [
+    runtimeAsset('a-A', tenantId, 'job-A', 'a-img-one.png', 'img_1'),
+    // Same ordinal, DIFFERENT job — must NOT be returned for job-A's post.
+    runtimeAsset('a-B', tenantId, 'job-B', 'b-img-one.png', 'img_1'),
+    runtimeAsset('a-C', tenantId, 'job-C', 'c-img-one.png', 'img_1'),
+  ];
+  const urls = await resolveMediaUrls('100', tenantId, buildFakeDb(posts, assets));
+  assert.equal(urls.length, 1, `must resolve ONLY job-A's img_1, not other jobs' (got ${JSON.stringify(urls)})`);
+  assert.ok(urls[0].includes('a-img-one'), 'must be job-A asset');
+  assert.ok(!urls.some((u) => u.includes('b-img-one') || u.includes('c-img-one')), 'must NOT include other jobs\' img_1');
 });
 
 test('resolveMediaUrls matches creative_asset_ids against the uuid id too', async () => {

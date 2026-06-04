@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.14 — fix(publishing): job-scope the creative_asset_ids ordinal match so Instagram posts the right single image
+
+Follow-up to v0.1.15.13. With `served_asset_ref` fixed, posts could resolve media
+again — but `resolveMediaUrls` (`scheduled-dispatch/route.ts`) matched
+`creative_asset_ids` ordinals (`img_1`, `img_2`, ...) against `creative_assets`
+**without scoping to the post's job**. Because `synthesize-publish-posts.ts` writes
+the ordinal form by default and every job reuses `img_1`/`img_2`/..., an ordinal-form
+post matched the same-ordinal asset of *every* job for the tenant. `resolveMediaUrls`
+returned several cross-campaign images and Instagram published a wrong multi-image
+**carousel** (`createInstagramContainer` treats >1 url as a carousel). Measured on the
+prod DB: tenant-15 posts resolved 4-5 mixed-campaign images each instead of 1.
+
+Fix: scope the ordinal branch to `ca.source_job_id = p.job_id`. The uuid branch
+(`ca.id`) stays unscoped since uuids are globally unique. Each ordinal-form post now
+resolves to exactly its own job's single image (verified on the prod DB: 7 tenant-15
+posts went from 4-5 images each to exactly 1). Added a cross-job collision regression
+test to `scheduled-dispatch-media-resolution.test.ts`.
+
 ## v0.1.15.13 — fix(marketing): served_asset_ref left NULL by data-modifying CTE broke all Instagram publishing
 
 Instagram published nothing since May 22. Root cause: PR #517 (commit 6786955)
