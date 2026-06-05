@@ -1,7 +1,7 @@
 /**
  * tests/insights-endpoints.test.ts
  *
- * Integration tests for the Insights API endpoints (Sections 2–6).
+ * Integration tests for the Insights API endpoints (Sections 2–8).
  * Self-skips when the DB env vars are not configured.
  *
  * Run with:
@@ -32,7 +32,9 @@ import { handleGetInsightsAttention } from '@/backend/insights/attention/handler
 import { handleGetInsightsActivity } from '@/backend/insights/activity/handler';
 import { handleGetInsightsTrends } from '@/backend/insights/trends/handler';
 import { handleGetInsightsTop } from '@/backend/insights/top/handler';
-import { requireDbEnvOrSkip } from './helpers/requires-infra';
+import { handleGetInsightsConversations } from '@/backend/insights/conversations/handler';
+import { handleGetInsightsAries } from '@/backend/insights/aries/handler';
+import { requireDbEnvOrSkip, hasRequiredDbEnv } from './helpers/requires-infra';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -65,6 +67,7 @@ let tenantId = -1;
 let wiredPostCount = 0;
 
 test.before(async () => {
+  if (!hasRequiredDbEnv()) return;   // individual tests will self-skip via requireDbEnvOrSkip
   const client = await pool.connect();
   try {
     // Resolve seed tenant
@@ -109,6 +112,7 @@ test.before(async () => {
 });
 
 test.after(async () => {
+  if (!hasRequiredDbEnv()) { await pool.end(); return; }
   // Clean up wired aries_post_id and the temp post to leave the seed clean
   const client = await pool.connect();
   try {
@@ -407,4 +411,190 @@ test('GET /api/insights/top — 90day youtube returns valid response', async (t)
   assert.equal(body.sortBy, 'saves');
   const posts = body.posts as unknown[];
   console.log(`[top/90day/youtube/saves] ${posts.length} posts`);
+});
+
+// ── Section 7 — Conversations ─────────────────────────────────────────────────
+
+test('GET /api/insights/conversations — week returns valid shape', async (t) => {
+  if (!requireDbEnvOrSkip(t)) return;
+
+  const res = await handleGetInsightsConversations(
+    fakeRequest({ period: 'week', platform: 'all' }),
+    makeTenantLoader(tenantId),
+  );
+
+  assert.equal(res.status, 200);
+  const body = await json(res);
+  assert.equal(body.status, 'ok');
+  assert.equal(body.period, 'week');
+  assert.equal(body.platform, 'all');
+
+  assert.ok('meta' in body, 'missing meta');
+  assert.ok('conversations' in body, 'missing conversations');
+  assert.ok('leadQuality' in body, 'missing leadQuality');
+
+  const meta = body.meta as Record<string, unknown>;
+  assert.ok(typeof meta.total === 'number', 'meta.total must be number');
+  assert.ok(typeof meta.needsReply === 'number', 'meta.needsReply must be number');
+  assert.ok(typeof meta.positivePercent === 'number', 'meta.positivePercent must be number');
+  assert.ok(typeof meta.viewAllLabel === 'string', 'meta.viewAllLabel must be string');
+
+  const convos = body.conversations as unknown[];
+  assert.ok(Array.isArray(convos), 'conversations must be array');
+  assert.ok(convos.length <= 6, `feed capped at 6, got ${convos.length}`);
+
+  if (convos.length > 0) {
+    const first = convos[0] as Record<string, unknown>;
+    assert.ok('id' in first,         'conversation missing id');
+    assert.ok('author' in first,     'conversation missing author');
+    assert.ok('avatar' in first,     'conversation missing avatar');
+    assert.ok('text' in first,       'conversation missing text');
+    assert.ok('postRef' in first,    'conversation missing postRef');
+    assert.ok('platform' in first,   'conversation missing platform');
+    assert.ok('receivedAt' in first, 'conversation missing receivedAt');
+    assert.ok('timeAgo' in first,    'conversation missing timeAgo');
+    assert.ok('handled' in first,    'conversation missing handled');
+    // avatar must be exactly 2 chars
+    assert.ok(
+      typeof first.avatar === 'string' && first.avatar.length === 2,
+      `avatar should be 2 chars, got "${first.avatar}"`,
+    );
+    // unhandled come first (is_replied=false sorts before true)
+    assert.equal(first.handled, false, 'first item should be unhandled');
+  }
+
+  const lq = body.leadQuality as unknown[];
+  assert.ok(Array.isArray(lq), 'leadQuality must be array');
+
+  console.log(
+    `[conversations/week] total=${meta.total}, needsReply=${meta.needsReply}, ` +
+    `positive=${meta.positivePercent}%, feed=${convos.length}, lqRows=${lq.length}`,
+  );
+});
+
+test('GET /api/insights/conversations — 30day returns valid counts', async (t) => {
+  if (!requireDbEnvOrSkip(t)) return;
+
+  const res = await handleGetInsightsConversations(
+    fakeRequest({ period: '30day', platform: 'youtube' }),
+    makeTenantLoader(tenantId),
+  );
+
+  assert.equal(res.status, 200);
+  const body = await json(res);
+  assert.equal(body.status, 'ok');
+  assert.equal(body.platform, 'youtube');
+
+  const meta = body.meta as Record<string, unknown>;
+  // seed has 50 comments on youtube spread over ~20 days, so 30day should catch most
+  assert.ok(typeof meta.total === 'number' && meta.total >= 0, 'total must be non-negative');
+  assert.ok(
+    typeof meta.positivePercent === 'number' &&
+    meta.positivePercent >= 0 &&
+    meta.positivePercent <= 100,
+    `positivePercent out of range: ${meta.positivePercent}`,
+  );
+
+  console.log(`[conversations/30day/youtube] total=${meta.total}, needsReply=${meta.needsReply}`);
+});
+
+test('GET /api/insights/conversations — invalid period returns 400', async (t) => {
+  if (!requireDbEnvOrSkip(t)) return;
+
+  const res = await handleGetInsightsConversations(
+    fakeRequest({ period: 'badperiod', platform: 'all' }),
+    makeTenantLoader(tenantId),
+  );
+
+  assert.equal(res.status, 400);
+  const body = await json(res);
+  assert.ok(typeof body.error === 'string', 'error field must be string');
+});
+
+// ── Section 8 — Working with Aries ───────────────────────────────────────────
+
+test('GET /api/insights/aries — week returns valid shape', async (t) => {
+  if (!requireDbEnvOrSkip(t)) return;
+
+  const res = await handleGetInsightsAries(
+    fakeRequest({ period: 'week' }),
+    makeTenantLoader(tenantId),
+  );
+
+  assert.equal(res.status, 200);
+  const body = await json(res);
+  assert.equal(body.status, 'ok');
+  assert.equal(body.period, 'week');
+
+  // approvalFlow shape
+  assert.ok('approvalFlow' in body, 'missing approvalFlow');
+  const af = body.approvalFlow as Record<string, unknown>;
+  assert.ok(typeof af.drafts                  === 'number', 'approvalFlow.drafts must be number');
+  assert.ok(typeof af.firstTry               === 'number', 'approvalFlow.firstTry must be number');
+  assert.ok(typeof af.edited                 === 'number', 'approvalFlow.edited must be number');
+  assert.ok(typeof af.rebuilt                === 'number', 'approvalFlow.rebuilt must be number');
+  assert.ok(typeof af.firstTryRate           === 'number', 'approvalFlow.firstTryRate must be number');
+  assert.ok(typeof af.firstTryRatePriorPeriod === 'number', 'approvalFlow.firstTryRatePriorPeriod must be number');
+  assert.ok(typeof af.weeksOnAries           === 'number' && (af.weeksOnAries as number) >= 1, 'weeksOnAries must be ≥ 1');
+  // rate is a percentage 0–100
+  assert.ok((af.firstTryRate as number) >= 0 && (af.firstTryRate as number) <= 100, 'firstTryRate out of range');
+  // buckets are non-negative
+  assert.ok((af.drafts as number) >= 0,   'drafts must be ≥ 0');
+  assert.ok((af.firstTry as number) >= 0, 'firstTry must be ≥ 0');
+  assert.ok((af.edited as number) >= 0,   'edited must be ≥ 0');
+  assert.ok((af.rebuilt as number) >= 0,  'rebuilt must be ≥ 0');
+
+  // learnings shape (empty is valid — data lives in Honcho until wired)
+  assert.ok('learnings' in body, 'missing learnings');
+  assert.ok(Array.isArray(body.learnings), 'learnings must be array');
+
+  // learningCurve shape
+  assert.ok('learningCurve' in body, 'missing learningCurve');
+  const lc = body.learningCurve as Record<string, unknown>;
+  assert.ok(Array.isArray(lc.labels), 'learningCurve.labels must be array');
+  assert.ok(Array.isArray(lc.values), 'learningCurve.values must be array');
+  assert.equal((lc.labels as unknown[]).length, (lc.values as unknown[]).length, 'labels and values must have same length');
+
+  console.log(
+    `[aries/week] drafts=${af.drafts}, firstTryRate=${af.firstTryRate}%, ` +
+    `weeksOnAries=${af.weeksOnAries}, curvePoints=${(lc.labels as unknown[]).length}`,
+  );
+});
+
+test('GET /api/insights/aries — 30day returns valid counts', async (t) => {
+  if (!requireDbEnvOrSkip(t)) return;
+
+  const res = await handleGetInsightsAries(
+    fakeRequest({ period: '30day' }),
+    makeTenantLoader(tenantId),
+  );
+
+  assert.equal(res.status, 200);
+  const body = await json(res);
+  assert.equal(body.status, 'ok');
+
+  const af = body.approvalFlow as Record<string, unknown>;
+  // seed data has no campaign_learning_labels rows → zeros are correct
+  assert.ok(typeof af.drafts === 'number' && (af.drafts as number) >= 0, '30day drafts must be ≥ 0');
+  assert.ok(
+    typeof af.firstTryRatePriorPeriod === 'number' &&
+    (af.firstTryRatePriorPeriod as number) >= 0 &&
+    (af.firstTryRatePriorPeriod as number) <= 100,
+    `firstTryRatePriorPeriod out of range: ${af.firstTryRatePriorPeriod}`,
+  );
+
+  console.log(`[aries/30day] drafts=${af.drafts}, firstTryRate=${af.firstTryRate}%`);
+});
+
+test('GET /api/insights/aries — invalid period returns 400', async (t) => {
+  if (!requireDbEnvOrSkip(t)) return;
+
+  const res = await handleGetInsightsAries(
+    fakeRequest({ period: 'badperiod' }),
+    makeTenantLoader(tenantId),
+  );
+
+  assert.equal(res.status, 400);
+  const body = await json(res);
+  assert.ok(typeof body.error === 'string', 'error field must be string');
 });
