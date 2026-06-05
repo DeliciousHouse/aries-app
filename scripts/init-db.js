@@ -727,6 +727,37 @@ async function initDb() {
         ON slack_event_ids (received_at);
     `);
 
+    // ─── Weekly trigger schedule ─────────────────────────────────────────────────
+    // One row per tenant that opts into the weekly-content cadence. The
+    // weekly-job-trigger-worker (scripts/automations/weekly-job-trigger-worker.ts)
+    // atomically claims due rows and starts a weekly_social_content job for each.
+    // Mirrors the scheduled-posts-worker pattern but UPSTREAM: it fills the
+    // generate side of the pipeline so a human can review + approve, instead of
+    // requiring the unsafe ARIES_AUTO_APPROVE_MARKETING_PIPELINE flag.
+    //
+    // last_triggered_at is the claim marker — the worker's conditional UPDATE
+    // (last_triggered_at < window-start) is what makes "one job per tenant per
+    // cadence window" safe across concurrent ticks AND multiple containers.
+    // last_attempt_at / last_success_at split lets a failed submit be loud (an
+    // attempt with no matching success = a missed week) without losing the retry.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS marketing_schedule (
+        tenant_id INTEGER PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+        cadence TEXT NOT NULL DEFAULT 'weekly' CHECK (cadence IN ('weekly')),
+        day_of_week INTEGER NOT NULL DEFAULT 1 CHECK (day_of_week BETWEEN 0 AND 6),
+        hour INTEGER NOT NULL DEFAULT 9 CHECK (hour BETWEEN 0 AND 23),
+        timezone TEXT,
+        enabled BOOLEAN NOT NULL DEFAULT false,
+        last_triggered_at TIMESTAMPTZ,
+        last_attempt_at TIMESTAMPTZ,
+        last_success_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_marketing_schedule_enabled
+        ON marketing_schedule (enabled) WHERE enabled;
+    `);
+
     // ─── Insights module ────────────────────────────────────────────────────────
     // Platform-agnostic analytics tables. Every table is prefixed insights_ so
     // ownership is obvious at a glance and future features can't collide.

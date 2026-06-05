@@ -662,6 +662,55 @@ export async function listSocialContentJobIdsForTenant(
 }
 
 /**
+ * Idempotency lookup for the weekly trigger worker: returns the job_id of a
+ * recent `weekly_social_content` job for this tenant created by `createdBy` at or
+ * after `sinceEpochMs`, or null. Used by triggerWeeklyJobForTenant to make a
+ * re-trigger after a lost HTTP response (worker reverts its claim, next tick
+ * re-fires) a safe no-op instead of a duplicate Hermes job.
+ *
+ * Scoped to `created_by` so it only collapses the worker's OWN recent re-fires —
+ * never a manual generation, and never next week's legitimate run (which is a
+ * full cadence window later than any `sinceEpochMs` the caller would pass).
+ * Soft-deleted docs are ignored.
+ */
+export async function findRecentJobIdForTenant(
+  tenantId: string,
+  options: { jobType: string; createdBy: string; sinceEpochMs: number },
+): Promise<string | null> {
+  const root = marketingRuntimeRoot();
+  let entries: string[];
+  try {
+    entries = (await readdir(root)).filter((entry) => entry.endsWith('.json'));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return null;
+    }
+    throw error;
+  }
+
+  let best: { jobId: string; createdAt: number } | null = null;
+  for (const entry of entries) {
+    try {
+      const raw = await readFile(path.join(root, entry), 'utf8');
+      const doc = JSON.parse(raw) as Record<string, unknown>;
+      if (!doc || typeof doc !== 'object' || Array.isArray(doc)) continue;
+      if (doc.tenant_id !== tenantId) continue;
+      if (doc.job_type !== options.jobType) continue;
+      if (doc.created_by !== options.createdBy) continue;
+      const deletedAtRaw = typeof doc.deleted_at === 'string' ? doc.deleted_at.trim() : '';
+      if (deletedAtRaw.length > 0) continue;
+      const createdAt = Date.parse(typeof doc.created_at === 'string' ? doc.created_at : '');
+      if (!Number.isFinite(createdAt) || createdAt < options.sinceEpochMs) continue;
+      if (typeof doc.job_id !== 'string' || doc.job_id.length === 0) continue;
+      if (!best || createdAt > best.createdAt) best = { jobId: doc.job_id, createdAt };
+    } catch {
+      continue;
+    }
+  }
+  return best?.jobId ?? null;
+}
+
+/**
  * Returns true when the requesting tenant owns the given media basename. This
  * is the legacy basename-addressed ownership check, kept as a back-compat
  * fallback for the Hermes media route; id-addressed reads enforce ownership

@@ -30,6 +30,11 @@ const ALLOWLIST = new Set<string>([
   // server-side sidecar is the only legitimate caller; the secret-bearer is
   // the tenant authority.
   'app/api/internal/publishing/scheduled-dispatch/route.ts',
+  // Internal weekly-trigger-worker sidecar endpoint.  Same justification as the
+  // scheduled-dispatch route: guarded by verifyInternalCallbackRequest
+  // (INTERNAL_API_SECRET); the only legitimate caller is the trusted server-side
+  // weekly-job-trigger worker, and the secret-bearer is the tenant authority.
+  'app/api/internal/marketing/weekly-trigger/route.ts',
 ]);
 
 test('no app/api route reads tenant id directly from the request body', () => {
