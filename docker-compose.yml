@@ -79,6 +79,15 @@ services:
       ARIES_KANBAN_GC_INTERVAL_MS: ${ARIES_KANBAN_GC_INTERVAL_MS:-86400000}
       ARIES_KANBAN_GC_RETENTION_DAYS: ${ARIES_KANBAN_GC_RETENTION_DAYS:-7}
       ARIES_AUTO_APPROVE_MARKETING_PIPELINE: ${ARIES_AUTO_APPROVE_MARKETING_PIPELINE:-1}
+      # Safe half of autonomous mode: auto-schedule a job's already-approved posts
+      # to BOTH platforms once the publish stage completes, WITHOUT auto-approving
+      # the gate (a human still clicks approve). Default OFF — this is the
+      # human-in-the-loop alternative to ARIES_AUTO_APPROVE_MARKETING_PIPELINE.
+      ARIES_AUTOSCHEDULE_ON_APPROVAL: ${ARIES_AUTOSCHEDULE_ON_APPROVAL:-0}
+      # Stale-run reaper: how long a job may sit at an approval gate before it is
+      # reaped (default 7d). Long because a job awaiting a human is NOT stalled;
+      # the short per-stage thresholds would otherwise reap it at 5 min.
+      ARIES_REAPER_AWAITING_APPROVAL_THRESHOLD_MS: ${ARIES_REAPER_AWAITING_APPROVAL_THRESHOLD_MS:-604800000}
       ARIES_BRAND_ENRICHMENT_ENABLED: ${ARIES_BRAND_ENRICHMENT_ENABLED:-1}
       # Video / Reel / Story-video publishing rollout switch. Default OFF until
       # Hermes emits media_type:"video" + per-asset video metadata (separate repo).
@@ -245,6 +254,43 @@ services:
     restart: unless-stopped
     networks:
       - docker_stack
+
+  # Weekly-job trigger worker — starts a weekly_social_content job for each
+  # opted-in tenant (a marketing_schedule row with enabled=true) on its
+  # configured day/hour/tz. Single replica: the atomic claim UPDATE makes
+  # concurrency safe, but one replica keeps logs simple and load minimal. Gated
+  # by ARIES_WEEKLY_TRIGGER_ENABLED (default OFF) so this ships dormant; flip it
+  # on only after a marketing_schedule row exists for the test tenant. It POSTs
+  # to the in-network app's /api/internal/marketing/weekly-trigger (auth on
+  # INTERNAL_API_SECRET); the app process owns the Hermes submission.
+  aries-weekly-trigger-worker:
+    image: ${ARIES_APP_IMAGE:-aries-app:local}
+    command: ["node_modules/.bin/tsx", "scripts/automations/weekly-job-trigger-worker.ts"]
+    depends_on:
+      aries-app:
+        condition: service_healthy
+    environment:
+      HOME: /home/node
+      NODE_ENV: production
+      CODE_ROOT: /app
+      DATA_ROOT: /data
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_POOL_MAX: 3
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      ARIES_WEEKLY_TRIGGER_ENABLED: ${ARIES_WEEKLY_TRIGGER_ENABLED:-0}
+      ARIES_WEEKLY_TRIGGER_INTERVAL_MS: ${ARIES_WEEKLY_TRIGGER_INTERVAL_MS:-900000}
+      # In-network app, not the public URL — the weekly-trigger route authenticates
+      # on INTERNAL_API_SECRET, not on host.
+      APP_BASE_URL: http://aries-app:${PORT:-3000}
+      NEXTAUTH_URL: http://aries-app:${PORT:-3000}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
+    restart: unless-stopped
+    networks:
+      - docker_stack
+
   # Long-lived sidecar that syncs platform analytics (YouTube, Instagram, etc.)
   # for every tenant with a connected insights_account. Runs every 30 minutes.
   # Single replica avoids duplicate API calls and redundant DB writes that would
