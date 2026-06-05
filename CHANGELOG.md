@@ -2,6 +2,58 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.16 — feat(marketing): weekly social-content automation (human-in-the-loop, both platforms)
+
+Generate weekly content on a cadence, have a human review and approve it, and have
+it auto-post to both Instagram and Facebook — without the unsafe
+`ARIES_AUTO_APPROVE_MARKETING_PIPELINE` flag (which bypasses human review entirely).
+Two pieces, both flag-gated and **default OFF**, plus a reaper fix that makes
+human-in-the-loop viable.
+
+**Piece A — auto-schedule on approval** (`ARIES_AUTOSCHEDULE_ON_APPROVAL`, default
+OFF). Previously a job's approved posts only auto-scheduled when the no-review
+autonomous flag was on; with approval-gating on (the safe prod setting) approved
+posts stranded (36 stranded IG posts observed on tenant 15). Now, once a **human**
+approves the publish gate, the week's posts auto-schedule across both platforms. The
+hook is one guard at the single completion convergence point
+(`synthesizePublishPostsOnCompletion`), so it is correct for human-approve,
+auto-approve, multi-stage, and reconciler-delivered completions, fires once per
+terminal callback, and is idempotent on re-delivery (`upsertScheduledPost ON
+CONFLICT(post_id)`).
+
+**Piece B — weekly trigger worker** (`ARIES_WEEKLY_TRIGGER_ENABLED`, default OFF). A
+new single-replica docker-compose service (`aries-weekly-trigger-worker`) starts a
+`weekly_social_content` job for each opted-in tenant on its configured day/hour/
+timezone. Dedup is an atomic conditional-claim `UPDATE` on the new
+`marketing_schedule` table — safe across concurrent ticks and multiple containers.
+Timezone math is DST-aware (clamps the cadence slot to never resolve into the
+future during the fall-back ambiguous hour, which would otherwise re-fire every
+tick). A failed submit is loud and reverts the claim so the week is retried, not
+lost; a server-side idempotency guard collapses a re-fire after a lost HTTP response
+onto the existing job instead of duplicating it. Viability gates skip (with a
+surfaced reason, not a silent drop) when the tenant has no connected Meta account,
+a stale/unenriched brand kit, or an incomplete profile. Job start is delegated to a
+new internal route (`/api/internal/marketing/weekly-trigger`, `INTERNAL_API_SECRET`
+auth). Cadence is managed with a validated CLI
+(`scripts/marketing/upsert-marketing-schedule.ts`) that preserves omitted fields on a
+partial edit instead of resetting a customer's whole cadence — no raw SQL required.
+
+**Reaper companion** (`ARIES_REAPER_AWAITING_APPROVAL_THRESHOLD_MS`, default 7d). The
+stale-run reaper was reaping jobs that were correctly *waiting for a human* at the
+5-minute strategy threshold, which broke the approval flow. Jobs paused at an
+approval gate now get a long (7-day) window before being reaped, with a loud log;
+they are still reaped eventually so a genuinely wedged gate is caught. An explicit
+force-reap override (CLI `--threshold-ms` or the `STALE_RUN_REAPER_THRESHOLD_MS` env
+var) still wins.
+
+The publish back-half (`scheduled-posts-worker` → `/scheduled-dispatch`) is unchanged
+and already publishes to both platforms; this change fills the queue safely and
+triggers the weekly job. The new table ships in `scripts/init-db.js` (applied on
+container start) plus `migrations/` for record. All four pieces were adversarially
+reviewed (multi-agent) before merge; the review's four confirmed findings
+(seed-CLI partial-edit clobber, DST future-slot duplicate trigger, env-override
+force-reap gap, lost-response duplicate job) are fixed and covered by tests.
+
 ## v0.1.15.14 — fix(publishing): job-scope the creative_asset_ids ordinal match so Instagram posts the right single image
 
 Follow-up to v0.1.15.13. With `served_asset_ref` fixed, posts could resolve media
