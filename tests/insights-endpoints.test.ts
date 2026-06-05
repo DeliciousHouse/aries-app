@@ -1,7 +1,7 @@
 /**
  * tests/insights-endpoints.test.ts
  *
- * Integration tests for the Insights API endpoints (Sections 2–8).
+ * Integration tests for the Insights API endpoints (Sections 2–9).
  * Self-skips when the DB env vars are not configured.
  *
  * Run with:
@@ -34,6 +34,7 @@ import { handleGetInsightsTrends } from '@/backend/insights/trends/handler';
 import { handleGetInsightsTop } from '@/backend/insights/top/handler';
 import { handleGetInsightsConversations } from '@/backend/insights/conversations/handler';
 import { handleGetInsightsAries } from '@/backend/insights/aries/handler';
+import { handleGetInsightsAudience } from '@/backend/insights/audience/handler';
 import { requireDbEnvOrSkip, hasRequiredDbEnv } from './helpers/requires-infra';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -590,6 +591,79 @@ test('GET /api/insights/aries — invalid period returns 400', async (t) => {
   if (!requireDbEnvOrSkip(t)) return;
 
   const res = await handleGetInsightsAries(
+    fakeRequest({ period: 'badperiod' }),
+    makeTenantLoader(tenantId),
+  );
+
+  assert.equal(res.status, 400);
+  const body = await json(res);
+  assert.ok(typeof body.error === 'string', 'error field must be string');
+});
+
+// ── Section 9: Audience ───────────────────────────────────────────────────────
+
+test('GET /api/insights/audience — week returns correct shape', async (t) => {
+  if (!requireDbEnvOrSkip(t)) return;
+
+  const res = await handleGetInsightsAudience(
+    fakeRequest({ period: 'week', platform: 'all' }),
+    makeTenantLoader(tenantId),
+  );
+
+  assert.equal(res.status, 200);
+  const body = await json(res);
+  assert.equal(body.status, 'ok');
+  assert.equal(body.period,   'week');
+  assert.equal(body.platform, 'all');
+
+  // schedule: array of items
+  assert.ok(Array.isArray(body.schedule), 'schedule must be an array');
+  for (const item of body.schedule as Record<string, unknown>[]) {
+    assert.ok(typeof item.id           === 'number', 'item.id must be number');
+    assert.ok(typeof item.scheduledFor === 'string', 'item.scheduledFor must be string');
+    assert.ok(typeof item.platform     === 'string', 'item.platform must be string');
+    assert.ok(typeof item.title        === 'string', 'item.title must be string');
+    assert.ok(typeof item.surface      === 'string', 'item.surface must be string');
+  }
+
+  // demographics stub
+  const demo = body.demographics as Record<string, unknown>;
+  assert.equal(demo.hasData, false, 'demographics.hasData must be false');
+  assert.ok(Array.isArray(demo.ages),      'demographics.ages must be array');
+  assert.ok(Array.isArray(demo.locations), 'demographics.locations must be array');
+
+  // activeTimes stub
+  const at = body.activeTimes as Record<string, unknown>;
+  assert.equal(at.hasData, false,   'activeTimes.hasData must be false');
+  assert.equal(at.grid,    null,    'activeTimes.grid must be null');
+  assert.equal(at.peakWindow, null, 'activeTimes.peakWindow must be null');
+
+  console.log(`[audience/week] schedule=${(body.schedule as unknown[]).length} items`);
+});
+
+test('GET /api/insights/audience — platform filter accepted', async (t) => {
+  if (!requireDbEnvOrSkip(t)) return;
+
+  const res = await handleGetInsightsAudience(
+    fakeRequest({ period: '30day', platform: 'instagram' }),
+    makeTenantLoader(tenantId),
+  );
+
+  assert.equal(res.status, 200);
+  const body = await json(res);
+  assert.equal(body.platform, 'instagram');
+
+  // If any schedule items returned, they should target instagram
+  for (const item of body.schedule as Record<string, unknown>[]) {
+    assert.equal(item.platform, 'instagram', 'filtered items must be instagram');
+  }
+  console.log(`[audience/instagram] schedule=${(body.schedule as unknown[]).length} items`);
+});
+
+test('GET /api/insights/audience — invalid period returns 400', async (t) => {
+  if (!requireDbEnvOrSkip(t)) return;
+
+  const res = await handleGetInsightsAudience(
     fakeRequest({ period: 'badperiod' }),
     makeTenantLoader(tenantId),
   );
