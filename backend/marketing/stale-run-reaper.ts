@@ -35,6 +35,19 @@ const STAGE_THRESHOLD_ENV_BY_STAGE: Readonly<Record<MarketingStage, string>> = {
   publish: 'STALE_RUN_REAPER_PUBLISH_THRESHOLD_MS',
 };
 
+// A job paused at an approval gate (state=approval_required / status=
+// awaiting_approval) is NOT stalled — it is correctly waiting for a human. With
+// human-in-the-loop ON (ARIES_AUTO_APPROVE_MARKETING_PIPELINE=0, the safe prod
+// setting) the per-stage thresholds (strategy = 5 min) would reap a job the
+// operator simply hasn't approved yet, breaking the weekly-automation flow.
+// Give approval-waiting jobs a much longer window so the reaper still catches a
+// genuinely wedged gate (a human who never returns) without nuking a fresh one.
+// NOT un-reapable: a 7-day-old unapproved gate is itself a signal worth a loud
+// reap + alert, so the silent-wedge failure the reaper exists to catch is
+// preserved.
+const DEFAULT_AWAITING_APPROVAL_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const AWAITING_APPROVAL_THRESHOLD_ENV = 'ARIES_REAPER_AWAITING_APPROVAL_THRESHOLD_MS';
+
 const IN_FLIGHT_STATES: ReadonlySet<MarketingJobState> = new Set([
   'queued',
   'running',
@@ -79,6 +92,12 @@ export type StaleRunReaperReport = {
    */
   thresholdMs: number | null;
   thresholdsByStage: Record<MarketingStage, number>;
+  /**
+   * Threshold (ms) applied to approval-waiting jobs on the default path (no
+   * explicit override). When `thresholdMs` is set, that override wins for all
+   * states including approval-waiting, and this field is informational only.
+   */
+  awaitingApprovalThresholdMs: number;
   dryRun: boolean;
 };
 
@@ -116,6 +135,28 @@ export function staleRunReaperThresholdsByStage(): Record<MarketingStage, number
     production: staleRunReaperThresholdMs('production'),
     publish: staleRunReaperThresholdMs('publish'),
   };
+}
+
+/**
+ * Threshold (ms) applied to jobs paused at an approval gate when no explicit
+ * global `--threshold-ms` override is in force. Defaults to 7 days; override
+ * via `ARIES_REAPER_AWAITING_APPROVAL_THRESHOLD_MS`. See
+ * DEFAULT_AWAITING_APPROVAL_THRESHOLD_MS for why this is decoupled from the
+ * per-stage windows.
+ */
+export function awaitingApprovalReaperThresholdMs(): number {
+  return (
+    parsePositiveInt(process.env[AWAITING_APPROVAL_THRESHOLD_ENV]) ??
+    DEFAULT_AWAITING_APPROVAL_THRESHOLD_MS
+  );
+}
+
+/**
+ * A job is "awaiting approval" — correctly paused for a human, not stalled —
+ * when its state is approval_required OR its status is awaiting_approval.
+ */
+function isAwaitingApproval(state: MarketingJobState, status: MarketingJobStatus): boolean {
+  return state === 'approval_required' || status === 'awaiting_approval';
 }
 
 function isKnownSchema(value: unknown): boolean {
@@ -311,6 +352,17 @@ export async function runStaleRunReaper(
     : staleRunReaperThresholdsByStage();
   // thresholdMs is the explicit override, or null when filtering ran per-stage.
   const thresholdMs: number | null = options.thresholdMs ?? null;
+  // Approval-waiting jobs get a long window on the default path; an explicit
+  // global override still wins (the operator is force-reaping), so this only
+  // applies when no override was passed. "Explicit global override" means EITHER
+  // the CLI `--threshold-ms` (options.thresholdMs) OR the documented
+  // `STALE_RUN_REAPER_THRESHOLD_MS` env var — the latter is the ONLY lever the
+  // standing worker (runStaleRunReaper with no options.thresholdMs) has, so it
+  // must also bypass the 7d window during an incident force-reap. When set,
+  // thresholdsByStage already equals the override for every stage.
+  const hasGlobalThresholdOverride =
+    thresholdMs !== null || staleRunReaperGlobalThresholdOverrideMs() !== null;
+  const awaitingApprovalThresholdMs = awaitingApprovalReaperThresholdMs();
   const now = options.now ?? (() => new Date());
   const report: StaleRunReaperReport = {
     scanned: 0,
@@ -320,6 +372,7 @@ export async function runStaleRunReaper(
     errors: 0,
     thresholdMs,
     thresholdsByStage,
+    awaitingApprovalThresholdMs,
     dryRun: options.dryRun,
   };
 
@@ -409,7 +462,16 @@ export async function runStaleRunReaper(
       continue;
     }
 
-    const candidateThresholdMs = thresholdsByStage[stage];
+    // Approval-waiting jobs are not stalled — they are waiting on a human. On
+    // the default path (no explicit --threshold-ms override) give them the long
+    // awaiting-approval window instead of the short per-stage one, so a job the
+    // operator simply hasn't approved yet is not reaped at the 5-minute strategy
+    // threshold. An explicit override still wins (force-reap).
+    const awaitingApproval = isAwaitingApproval(state, status);
+    const candidateThresholdMs =
+      !hasGlobalThresholdOverride && awaitingApproval
+        ? awaitingApprovalThresholdMs
+        : thresholdsByStage[stage];
     const nowMs = now().getTime();
     const silentMs = nowMs - progressAtMs;
     if (silentMs <= candidateThresholdMs) {
@@ -452,7 +514,7 @@ export async function runStaleRunReaper(
       candidate.mutated = true;
       report.mutated += 1;
       report.candidates.push(candidate);
-      logInfo('reaped run', {
+      const reapFields = {
         jobId,
         tenantId,
         previous_state: state,
@@ -461,7 +523,15 @@ export async function runStaleRunReaper(
         silent_ms: silentMs,
         threshold_ms: candidateThresholdMs,
         filePath,
-      });
+      };
+      if (awaitingApproval) {
+        // Loud: a job sat at an approval gate past the long awaiting-approval
+        // window. This means a human never came back to approve — a real wedge
+        // worth surfacing, not a routine stall.
+        logWarn('reaped run that was awaiting approval past the long window — operator never approved', reapFields);
+      } else {
+        logInfo('reaped run', reapFields);
+      }
     } catch (err) {
       report.errors += 1;
       logWarn('failed to apply stale marker', {

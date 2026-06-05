@@ -1037,6 +1037,23 @@ export function autoApproveMarketingPipelineEnabled(env: NodeJS.ProcessEnv = pro
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
 }
 
+/**
+ * Returns true when `ARIES_AUTOSCHEDULE_ON_APPROVAL` is set to a truthy value.
+ *
+ * This is the safe half of autonomous mode: it auto-schedules a job's
+ * already-approved posts across both platforms once the publish stage
+ * completes, WITHOUT auto-approving the publish gate (a human still clicks
+ * approve). Decoupled from `ARIES_AUTO_APPROVE_MARKETING_PIPELINE` so a
+ * human-in-the-loop tenant can get "approve → both platforms scheduled"
+ * without the no-review autonomous flag.
+ *
+ * Default OFF. Exported for unit tests; not part of the public module API.
+ */
+export function autoScheduleOnApprovalEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = (env.ARIES_AUTOSCHEDULE_ON_APPROVAL ?? '').trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+}
+
 type AutoApproveFn = (
   input: ApproveSocialContentJobRequest,
   doc: SocialContentJobRuntimeDocument,
@@ -1333,14 +1350,22 @@ async function synthesizePublishPostsOnCompletion(
     });
   }
 
-  // Autonomous mode (ARIES_AUTO_APPROVE_MARKETING_PIPELINE) auto-fires every
-  // approval gate in the pipeline. Without an auto-schedule step here, the
-  // operator is left with N approved-but-unscheduled posts and a manual
-  // drag-to-Calendar step — inconsistent with the rest of autonomous mode and
-  // exactly where slice-A QA paused. Gated behind the same flag so
-  // human-approval tenants keep the legacy "approve, then place on Calendar"
-  // flow. Best-effort — a schedule failure must NOT undo synthesis.
-  if (autoApproveMarketingPipelineEnabled()) {
+  // Auto-schedule the freshly-synthesized, already-approved posts across both
+  // platforms. This is the single correct convergence point: the orchestrator
+  // approve path returns early before any posts exist, but here (the publish
+  // completion callback) the posts have just been synthesized as 'approved'.
+  // One hook → correct for human-approve, auto-approve, multi-stage, and
+  // reconciler-delivered completions; fires once per terminal callback; safe to
+  // re-fire (upsertScheduledPost is ON CONFLICT(post_id)).
+  //
+  // Two flags converge here:
+  //   - ARIES_AUTO_APPROVE_MARKETING_PIPELINE (autonomous mode) — also bypasses
+  //     human review at every gate; scheduling is the last step of that flow.
+  //   - ARIES_AUTOSCHEDULE_ON_APPROVAL (safe half) — schedules after a HUMAN
+  //     approves the publish gate, so human-in-the-loop tenants get
+  //     "approve → both platforms scheduled" without the no-review flag.
+  // Best-effort — a schedule failure must NOT undo synthesis.
+  if (autoApproveMarketingPipelineEnabled() || autoScheduleOnApprovalEnabled()) {
     try {
       await autoScheduleApprovedPostsForJob(doc);
     } catch (err) {
