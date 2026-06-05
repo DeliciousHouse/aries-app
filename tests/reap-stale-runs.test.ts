@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  awaitingApprovalReaperThresholdMs,
   runStaleRunReaper,
   staleRunReaperThresholdMs,
   staleRunReaperThresholdsByStage,
@@ -386,7 +387,9 @@ test('does not reap terminal docs (completed, failed, needs_connection)', async 
   });
 });
 
-test('reaps approval_required runs (still in-flight)', async () => {
+test('reaps approval_required runs when an explicit --threshold-ms override is forced', async () => {
+  // With an explicit override the operator is force-reaping; the long
+  // awaiting-approval window is bypassed (override wins for all states).
   await withScratch(async (dataRoot) => {
     const now = new Date('2026-05-06T12:00:00.000Z');
     const stale = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString();
@@ -407,8 +410,129 @@ test('reaps approval_required runs (still in-flight)', async () => {
       now: () => now,
       thresholdMs: 30 * 60 * 1000,
     });
-    assert.equal(report.candidates.length, 1, 'awaiting_approval should be reaped when stale');
+    assert.equal(report.candidates.length, 1, 'awaiting_approval should be reaped under an explicit override');
     assert.equal(report.mutated, 1);
+
+    const after = JSON.parse(await readFile(filePath, 'utf8')) as Record<string, unknown>;
+    assert.equal(after.status, 'failed_stale');
+    assert.equal(after.failure_reason, 'marketing_job_stalled');
+  });
+});
+
+// --- Awaiting-approval companion: don't reap a job a human hasn't approved yet -
+
+test('awaitingApprovalReaperThresholdMs defaults to 7 days', () => {
+  const prior = process.env.ARIES_REAPER_AWAITING_APPROVAL_THRESHOLD_MS;
+  delete process.env.ARIES_REAPER_AWAITING_APPROVAL_THRESHOLD_MS;
+  try {
+    assert.equal(awaitingApprovalReaperThresholdMs(), 7 * 24 * 60 * 60 * 1000);
+  } finally {
+    if (prior !== undefined) process.env.ARIES_REAPER_AWAITING_APPROVAL_THRESHOLD_MS = prior;
+  }
+});
+
+test('awaitingApprovalReaperThresholdMs honors ARIES_REAPER_AWAITING_APPROVAL_THRESHOLD_MS', () => {
+  const prior = process.env.ARIES_REAPER_AWAITING_APPROVAL_THRESHOLD_MS;
+  process.env.ARIES_REAPER_AWAITING_APPROVAL_THRESHOLD_MS = '120000';
+  try {
+    assert.equal(awaitingApprovalReaperThresholdMs(), 120_000);
+  } finally {
+    if (prior === undefined) delete process.env.ARIES_REAPER_AWAITING_APPROVAL_THRESHOLD_MS;
+    else process.env.ARIES_REAPER_AWAITING_APPROVAL_THRESHOLD_MS = prior;
+  }
+});
+
+test('default path: an approval-waiting job stale 2h is NOT reaped (under the 7d window)', async () => {
+  // This is the human-in-the-loop fix: with no override, the strategy stage
+  // threshold (5 min) MUST NOT reap a job that is merely waiting for the
+  // operator to click approve. Regression guard for the weekly-automation flow.
+  await withScratch(async (dataRoot) => {
+    const now = new Date('2026-05-06T12:00:00.000Z');
+    const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString();
+    const doc = makeRuntimeDoc({
+      jobId: 'job-awaiting-approval-fresh',
+      tenantId: 'tenant-1',
+      state: 'approval_required',
+      status: 'awaiting_approval',
+      updatedAtIso: twoHoursAgo,
+      stage: 'strategy',
+    });
+    const filePath = await writeRuntimeDoc(dataRoot, doc);
+
+    const report = await runStaleRunReaper({ dataRoot, dryRun: false, now: () => now });
+
+    assert.equal(report.candidates.length, 0, 'awaiting-approval job under 7d must not be reaped');
+    assert.equal(report.mutated, 0);
+    assert.ok(report.skipped >= 1, 'it is skipped, not reaped');
+    assert.equal(report.awaitingApprovalThresholdMs, 7 * 24 * 60 * 60 * 1000);
+
+    const after = JSON.parse(await readFile(filePath, 'utf8')) as Record<string, unknown>;
+    assert.equal(after.status, 'awaiting_approval', 'status unchanged — still waiting for the human');
+    assert.equal(after.failure_reason ?? null, null);
+  });
+});
+
+test('env global override (STALE_RUN_REAPER_THRESHOLD_MS) force-reaps an approval-waiting job', async () => {
+  // The standing worker passes no options.thresholdMs; the env global override is
+  // its only force-reap lever. It must bypass the 7d awaiting-approval window so
+  // an incident "reap everything aggressively" actually reaps approval-waiting
+  // jobs too (regression for the env-override-ignored bug).
+  const prior = process.env.STALE_RUN_REAPER_THRESHOLD_MS;
+  process.env.STALE_RUN_REAPER_THRESHOLD_MS = '60000'; // 1 minute
+  try {
+    await withScratch(async (dataRoot) => {
+      const now = new Date('2026-05-06T12:00:00.000Z');
+      const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString();
+      const filePath = await writeRuntimeDoc(
+        dataRoot,
+        makeRuntimeDoc({
+          jobId: 'job-awaiting-force-reap',
+          tenantId: 'tenant-1',
+          state: 'approval_required',
+          status: 'awaiting_approval',
+          updatedAtIso: twoHoursAgo,
+          stage: 'strategy',
+        }),
+      );
+
+      // No options.thresholdMs — the env override is the only lever (the worker path).
+      const report = await runStaleRunReaper({ dataRoot, dryRun: false, now: () => now });
+
+      assert.equal(report.candidates.length, 1, 'env force-reap must reach approval-waiting jobs');
+      assert.equal(report.mutated, 1);
+      assert.equal(report.candidates[0]!.thresholdMs, 60_000, 'reaped against the 1-min env override, not the 7d window');
+
+      const after = JSON.parse(await readFile(filePath, 'utf8')) as Record<string, unknown>;
+      assert.equal(after.status, 'failed_stale');
+    });
+  } finally {
+    if (prior === undefined) delete process.env.STALE_RUN_REAPER_THRESHOLD_MS;
+    else process.env.STALE_RUN_REAPER_THRESHOLD_MS = prior;
+  }
+});
+
+test('default path: an approval-waiting job stale 8d IS reaped (past the 7d window, still catchable)', async () => {
+  // Not un-reapable: a gate no human touched for 8 days is a genuine wedge and
+  // still gets reaped so the silent-wedge detection the reaper exists for is
+  // preserved.
+  await withScratch(async (dataRoot) => {
+    const now = new Date('2026-05-06T12:00:00.000Z');
+    const eightDaysAgo = new Date(now.getTime() - 8 * 24 * 60 * 60 * 1000).toISOString();
+    const doc = makeRuntimeDoc({
+      jobId: 'job-awaiting-approval-wedged',
+      tenantId: 'tenant-1',
+      state: 'approval_required',
+      status: 'awaiting_approval',
+      updatedAtIso: eightDaysAgo,
+      stage: 'strategy',
+    });
+    const filePath = await writeRuntimeDoc(dataRoot, doc);
+
+    const report = await runStaleRunReaper({ dataRoot, dryRun: false, now: () => now });
+
+    assert.equal(report.candidates.length, 1, 'an 8-day-old unapproved gate is a wedge and is reaped');
+    assert.equal(report.mutated, 1);
+    assert.equal(report.candidates[0]!.thresholdMs, 7 * 24 * 60 * 60 * 1000, 'reaped against the 7d awaiting-approval window');
 
     const after = JSON.parse(await readFile(filePath, 'utf8')) as Record<string, unknown>;
     assert.equal(after.status, 'failed_stale');
