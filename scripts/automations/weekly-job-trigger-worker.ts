@@ -341,8 +341,24 @@ async function tickSafe(pool: pg.Pool): Promise<void> {
 
 async function main(): Promise<void> {
   if (!weeklyTriggerEnabled()) {
-    console.log('[weekly-trigger-worker] ARIES_WEEKLY_TRIGGER_ENABLED is off; exiting.');
-    process.exit(0);
+    // IDLE, do not exit. This runs as a docker-compose service with
+    // `restart: unless-stopped`; a clean exit(0) makes Docker restart-loop the
+    // container (slow, but a perpetually-restarting service trips monitoring and
+    // spams logs). Staying alive doing nothing leaves the container cleanly "up"
+    // when the flag is off, while still responding to `docker stop`. Set the
+    // flag and restart the service to enable.
+    console.log('[weekly-trigger-worker] ARIES_WEEKLY_TRIGGER_ENABLED is off; idling (no work). Set the flag and restart to enable.');
+    if (process.env.ARIES_WEEKLY_TRIGGER_RUN_ONCE?.trim() === '1') {
+      process.exit(0); // one-shot / smoke invocations must not hang
+    }
+    const idle = setInterval(() => {}, 1 << 30); // ~12 days; just keeps the event loop alive
+    for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+      process.once(signal, () => {
+        clearInterval(idle);
+        process.exit(0);
+      });
+    }
+    return;
   }
 
   const intervalMs = resolveIntervalMs();

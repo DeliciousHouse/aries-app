@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.17 — fix(ops): weekly-trigger worker idles when disabled + deploy recreates it
+
+Two rollout-readiness fixes for the weekly-trigger worker shipped in v0.1.15.16
+(both were dormant, so no prior prod impact):
+
+- **Idle instead of exit when disabled.** `aries-weekly-trigger-worker` ran as a
+  `restart: unless-stopped` compose service but called `process.exit(0)` when
+  `ARIES_WEEKLY_TRIGGER_ENABLED` was off — which makes Docker restart-loop the
+  container. It now idles (stays cleanly "up", does no work, still responds to
+  `docker stop`) when the flag is off, and only runs the tick loop when enabled.
+  A one-shot invocation (`ARIES_WEEKLY_TRIGGER_RUN_ONCE=1`) still exits cleanly
+  rather than hanging.
+- **Deploy recreates the worker.** `deploy.yml` force-recreated only `aries-app`
+  and `aries-scheduled-posts-worker`, so the new worker never picked up fresh
+  images (it imports backend code and must stay in lockstep with the app). The
+  deploy now also recreates `aries-weekly-trigger-worker` (non-fatal, same as the
+  other sidecar); safe whether or not the flag is set, since it idles when off.
+
 ## v0.1.15.16 — feat(marketing): weekly social-content automation (human-in-the-loop, both platforms)
 
 Generate weekly content on a cadence, have a human review and approve it, and have
