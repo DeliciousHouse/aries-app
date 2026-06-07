@@ -44,6 +44,7 @@ All files below gate on the **superset** `DB_HOST` + `DB_PORT` + `DB_USER` + `DB
 | `tests/marketing/ingest-production-assets-live-db.test.ts` | production creative-asset ingestion writes rows the dashboard reads | `HERMES_IMAGE_CACHE_MOUNT` for asset resolution |
 | `tests/onboarding/taste-profile-requires-infra.test.ts` | `marketing_taste_profile` jsonb upsert merge/decay + `marketing_taste_signal` rating CHECK against the live schema (rolled back) | — |
 | `tests/onboarding/variant-board-requires-infra.test.ts` | `creative_assets` variant_batch_id/variant_index columns + the board grouping query against the live schema (rolled back) | — |
+| `tests/draft-expiry-sweep.requires-infra.test.ts` | the draft-expiry sweep's four statements plan against the real `posts`/`scheduled_posts` schema, the `'expired'` value is accepted by the `published_status`/`status` CHECK constraints, and the scheduled-row + too-recent guards hold (rolled back) | — |
 
 A file joins this list the moment it calls `requireDbEnvOrSkip(t)`; keep this table in sync
 (the report script will show the count drift if you forget).

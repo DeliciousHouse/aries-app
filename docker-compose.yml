@@ -291,6 +291,40 @@ services:
     networks:
       - docker_stack
 
+  # Draft-expiry sweep worker — expires STRANDED pre-publish posts (no
+  # scheduled_posts row, never published, older than the age window) so the
+  # unscheduled-approved backlog stops growing without bound once the weekly
+  # trigger fans out across tenants (the "36 stranded approved IG posts"
+  # symptom). Single replica; the sweep is idempotent and batched. Talks only to
+  # Postgres (no app round-trip). Gated by ARIES_DRAFT_EXPIRY_ENABLED (default
+  # OFF) so it ships dormant and idles cleanly when off. Before first enabling in
+  # prod, run one cycle with ARIES_DRAFT_EXPIRY_DRY_RUN=1 to observe candidate
+  # counts (read-only), then flip DRY_RUN back to 0 to commit.
+  aries-draft-expiry-sweep-worker:
+    image: ${ARIES_APP_IMAGE:-aries-app:local}
+    command: ["node_modules/.bin/tsx", "scripts/automations/draft-expiry-sweep-worker.ts"]
+    depends_on:
+      aries-app:
+        condition: service_healthy
+    environment:
+      HOME: /home/node
+      NODE_ENV: production
+      CODE_ROOT: /app
+      DATA_ROOT: /data
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_POOL_MAX: 3
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      ARIES_DRAFT_EXPIRY_ENABLED: ${ARIES_DRAFT_EXPIRY_ENABLED:-0}
+      ARIES_DRAFT_EXPIRY_DRY_RUN: ${ARIES_DRAFT_EXPIRY_DRY_RUN:-0}
+      ARIES_DRAFT_EXPIRY_INTERVAL_MS: ${ARIES_DRAFT_EXPIRY_INTERVAL_MS:-21600000}
+      ARIES_DRAFT_EXPIRY_AGE_DAYS: ${ARIES_DRAFT_EXPIRY_AGE_DAYS:-14}
+    restart: unless-stopped
+    networks:
+      - docker_stack
+
   # Long-lived sidecar that syncs platform analytics (YouTube, Instagram, etc.)
   # for every tenant with a connected insights_account. Runs every 30 minutes.
   # Single replica avoids duplicate API calls and redundant DB writes that would

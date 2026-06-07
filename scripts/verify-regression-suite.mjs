@@ -112,6 +112,7 @@ const steps = [
       'tests/marketing/strategy-review-summary-no-objective-fallback.test.ts',
       'tests/marketing-job-retry-research.test.ts',
       'tests/marketing-auto-schedule.test.ts',
+      'tests/marketing/draft-expiry-sweep.test.ts',
       'tests/meta-media-validation.test.ts',
       'tests/meta-publishing-video.test.ts',
       'tests/hermes-callback-video-surface.test.ts',
