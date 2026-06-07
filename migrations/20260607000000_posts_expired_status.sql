@@ -31,5 +31,4 @@ ALTER TABLE posts ADD COLUMN IF NOT EXISTS expired_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_posts_draft_expiry
   ON posts (updated_at)
-  WHERE published_status IN ('draft','in_review','approved')
-     OR status IN ('draft','in_review','approved');
+  WHERE published_status IN ('draft','in_review','approved');

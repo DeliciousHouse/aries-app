@@ -99,12 +99,16 @@ test('all four statements embed the one shared predicate (no drift)', () => {
   }
 });
 
-test('predicate encodes the four stranded conditions on $1 = cutoff', () => {
+test('predicate keys on canonical published_status + guards Meta-touched/published rows', () => {
   assert.ok(STRANDED_PREDICATE.includes('NOT EXISTS (SELECT 1 FROM scheduled_posts sp WHERE sp.post_id = p.id)'));
   assert.ok(STRANDED_PREDICATE.includes('p.published_at IS NULL'));
+  assert.ok(STRANDED_PREDICATE.includes('p.platform_post_id IS NULL'));
   assert.ok(STRANDED_PREDICATE.includes("p.published_status IN ('draft','in_review','approved')"));
-  assert.ok(STRANDED_PREDICATE.includes("p.status            IN ('draft','in_review','approved')"));
   assert.ok(STRANDED_PREDICATE.includes('p.updated_at < $1'));
+  // The legacy `status` column must NOT drive selection: it defaults to 'draft'
+  // on Meta-native-scheduled posts, so OR-ing on it would false-positive-expire
+  // a post that is live/scheduled on Meta.
+  assert.ok(!/\bp\.status\s+IN\b/.test(STRANDED_PREDICATE), 'must not select on legacy status column');
 });
 
 test('expire statement writes expired to both columns + stamps expired_at + re-checks guard', () => {
@@ -127,6 +131,7 @@ type Row = {
   published_status: string;
   status: string;
   published_at: string | null;
+  platform_post_id: string | null;
   updated_at: string; // ISO
   scheduled: boolean; // has a scheduled_posts row
   expired_at: string | null;
@@ -134,11 +139,14 @@ type Row = {
 
 const PRE_PUBLISH = new Set(['draft', 'in_review', 'approved']);
 
+// Mirrors STRANDED_PREDICATE: keys on canonical published_status only, guards on
+// published_at + platform_post_id (never expire a post that reached Meta).
 function isStranded(r: Row, cutoffIso: string): boolean {
   return (
     !r.scheduled &&
     r.published_at === null &&
-    (PRE_PUBLISH.has(r.published_status) || PRE_PUBLISH.has(r.status)) &&
+    r.platform_post_id === null &&
+    PRE_PUBLISH.has(r.published_status) &&
     Date.parse(r.updated_at) < Date.parse(cutoffIso)
   );
 }
@@ -199,6 +207,7 @@ function mkRow(p: Partial<Row> & { id: number }): Row {
     published_status: 'approved',
     status: 'approved',
     published_at: null,
+    platform_post_id: null,
     updated_at: '2026-05-01T00:00:00.000Z', // ~37 days before the fixed now → stranded
     scheduled: false,
     expired_at: null,
@@ -272,14 +281,33 @@ test('age boundary: updated_at exactly at the cutoff is NOT expired (strict <)',
   assert.equal(justBefore.published_status, 'expired');
 });
 
-test('dual-column OR: divergent rows match via either status column', async () => {
-  const viaLegacy = mkRow({ id: 1, published_status: 'published', status: 'approved' });
-  const viaCanonical = mkRow({ id: 2, published_status: 'approved', status: 'published' });
-  const rows = [viaLegacy, viaCanonical];
-  // published_at is null for both (mkRow default), so the published_status/status
-  // 'published' label alone does not exempt them — the OR catches the pre-publish side.
+test('canonical published_status drives selection; legacy status is ignored', async () => {
+  // The bug the adversarial review caught: a FB-native-scheduled post has
+  // published_status='scheduled' but the legacy status column left at its
+  // 'draft' default, no scheduled_posts row, published_at NULL, AND a Meta
+  // platform_post_id. The old OR-on-status leg would wrongly expire it.
+  const metaScheduled = mkRow({
+    id: 1,
+    published_status: 'scheduled',
+    status: 'draft',
+    platform_post_id: 'fb_17841_123',
+  });
+  // A genuinely stranded approved post (canonical pre-publish, never reached
+  // Meta). status is stale 'published' — ignored; canonical drives selection.
+  const stranded = mkRow({ id: 2, published_status: 'approved', status: 'published' });
+  const rows = [metaScheduled, stranded];
   const report = await runDraftExpirySweep(fakePool(rows), { dryRun: false, ageDays: AGE, now: NOW });
-  assert.equal(report.expired, 2);
+  assert.equal(report.expired, 1);
+  assert.equal(metaScheduled.published_status, 'scheduled', 'a Meta-scheduled post is never expired');
+  assert.equal(stranded.published_status, 'expired');
+});
+
+test('never expires a post that reached Meta (platform_post_id set)', async () => {
+  const rows = [mkRow({ id: 1, platform_post_id: 'ig_17841_999' })]; // approved + old but published to Meta
+  const report = await runDraftExpirySweep(fakePool(rows), { dryRun: false, ageDays: AGE, now: NOW });
+  assert.equal(report.candidates, 0);
+  assert.equal(report.expired, 0);
+  assert.equal(rows[0].published_status, 'approved');
 });
 
 test('batching: drains all stranded rows across multiple batches', async () => {

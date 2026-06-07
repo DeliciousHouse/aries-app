@@ -15,9 +15,11 @@
  *   - it never reached the publish queue: NO scheduled_posts row
  *     (matches the backlog-tray "sp.id IS NULL" filter);
  *   - it never went live: published_at IS NULL;
- *   - it is in a pre-publish status on EITHER the canonical published_status
- *     column OR the legacy status column ('draft' | 'in_review' | 'approved')
- *     — same dual-column semantics the backlog tray uses;
+ *   - it never reached Meta: platform_post_id IS NULL (so a post scheduled or
+ *     published natively on Meta, which leaves the legacy status column at its
+ *     'draft' default, is never expired);
+ *   - its CANONICAL published_status is pre-publish
+ *     ('draft' | 'in_review' | 'approved');
  *   - it has been untouched longer than the age window (updated_at < cutoff).
  *
  * The sweep marks such posts published_status='expired' (and the legacy status
@@ -105,14 +107,23 @@ export function resolveDraftExpiryAgeDays(env: NodeJS.ProcessEnv = process.env):
  * select-batch, and expire-batch statements so they can never drift apart.
  * `$1` is ALWAYS the cutoff ISO timestamp (updated_at strictly before it).
  * `p` is the posts alias in every statement that embeds this.
+ *
+ * Keyed on the CANONICAL `published_status` column, NOT the legacy `status`
+ * mirror. Most insert paths write only `published_status` and leave `status` at
+ * its `'draft'` column default — e.g. a FB-native-scheduled post
+ * (`persistScheduledPublishRecord`, backend/integrations/meta-publishing.ts)
+ * has `published_status='scheduled'` but `status='draft'`, no `scheduled_posts`
+ * row, and `published_at IS NULL`. OR-ing on the stale `status` default would
+ * expire that live-on-Meta post. So selection trusts `published_status` only,
+ * and `platform_post_id IS NULL` is a hard guard: a genuinely stranded draft
+ * never reached Meta, so it has no platform post id. (The expire statement still
+ * writes BOTH columns to 'expired' to keep them in lockstep.)
  */
 export const STRANDED_PREDICATE = `
       NOT EXISTS (SELECT 1 FROM scheduled_posts sp WHERE sp.post_id = p.id)
       AND p.published_at IS NULL
-      AND (
-            p.published_status IN ('draft','in_review','approved')
-         OR p.status            IN ('draft','in_review','approved')
-          )
+      AND p.platform_post_id IS NULL
+      AND p.published_status IN ('draft','in_review','approved')
       AND p.updated_at < $1`;
 
 export const COUNT_SQL = `SELECT count(*)::bigint AS n

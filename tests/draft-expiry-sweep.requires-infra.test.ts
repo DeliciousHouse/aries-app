@@ -131,7 +131,24 @@ test('draft-expiry sweep statements + expired constraint run against real Postgr
         const recent = await client.query(EXPIRE_BATCH_SQL, [cutoff, [recentId]]);
         assert.equal(recent.rowCount, 0, 'a too-recent post is never expired');
 
-        console.log('[draft-expiry-sweep-requires-infra] PASS: expired write + both guards verified.');
+        // 2d. A FB-native-scheduled post (published_status='scheduled', legacy
+        // status left at 'draft' default, a Meta platform_post_id, no
+        // scheduled_posts row, published_at NULL) is NOT expired. This is the
+        // false-positive the adversarial review caught — the predicate must key
+        // on canonical published_status + guard platform_post_id IS NULL, not
+        // OR on the stale legacy status.
+        const insMeta = await client.query(
+          `INSERT INTO posts (tenant_id, caption, published_status, status, platform_post_id, scheduled_at, published_at, created_at, updated_at)
+           VALUES ($1, 'draft-expiry meta-native guard', 'scheduled', 'draft', 'fb_17841_test',
+                   now() + interval '1 day', NULL, now() - interval '60 days', now() - interval '60 days')
+           RETURNING id`,
+          [tenantId],
+        );
+        const metaId = (insMeta.rows[0] as { id: number }).id;
+        const meta = await client.query(EXPIRE_BATCH_SQL, [cutoff, [metaId]]);
+        assert.equal(meta.rowCount, 0, 'a Meta-native-scheduled post is never expired');
+
+        console.log('[draft-expiry-sweep-requires-infra] PASS: expired write + all three guards verified.');
       } else {
         console.log(
           '[draft-expiry-sweep-requires-infra] PASS (plan-only): no organizations row to ' +

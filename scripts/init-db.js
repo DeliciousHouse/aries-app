@@ -695,11 +695,12 @@ async function initDb() {
       -- Draft-expiry sweep candidate scan: pre-publish posts ordered by
       -- updated_at. Partial index keeps the sweep's COUNT/SELECT cheap even as
       -- the posts table grows, since the vast majority of rows are terminal
-      -- (published/scheduled/failed/expired) and fall outside the index.
+      -- (published/scheduled/failed/expired) and fall outside the index. Keyed
+      -- on the canonical published_status only — matches the sweep predicate,
+      -- which trusts published_status (not the legacy status mirror).
       CREATE INDEX IF NOT EXISTS idx_posts_draft_expiry
         ON posts (updated_at)
-        WHERE published_status IN ('draft','in_review','approved')
-           OR status IN ('draft','in_review','approved');
+        WHERE published_status IN ('draft','in_review','approved');
 
       -- Scheduled posts worker: dispatch status tracking columns.
       -- 'in_flight' is a non-terminal claimed state: the worker commits it
