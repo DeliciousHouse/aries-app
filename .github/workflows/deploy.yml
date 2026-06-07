@@ -348,6 +348,15 @@ jobs:
             echo "WARNING: failed to recreate aries-weekly-trigger-worker; app deploy is healthy, continuing." >&2
           fi
 
+          # Roll the draft-expiry-sweep-worker sidecar to the same image too. It
+          # imports backend code (the sweep module) and must stay in lockstep
+          # with the app. Gated by ARIES_DRAFT_EXPIRY_ENABLED (default OFF) — when
+          # off it idles cleanly (no restart loop), so recreating it every deploy
+          # is safe whether or not the flag is set. Non-fatal, like above.
+          if ! ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always aries-draft-expiry-sweep-worker; then
+            echo "WARNING: failed to recreate aries-draft-expiry-sweep-worker; app deploy is healthy, continuing." >&2
+          fi
+
           echo "Post-deploy cleanup: pruning Docker buildx cache to keep approximately 2GB."
           if ! docker buildx prune --keep-storage=2GB --force; then
             echo "WARNING: docker buildx prune failed; deploy is healthy, continuing." >&2

@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.18 — feat(marketing): draft-expiry sweep for stranded pre-publish posts (default OFF)
+
+A standing sweep that expires STRANDED pre-publish posts so the
+unscheduled-approved backlog stops growing without bound once the weekly trigger
+fans out across tenants (the "36 stranded approved IG posts" symptom). It is the
+DB-row complement of the stale-run reaper, which reaps stranded job docs on disk.
+Flag-gated and **default OFF** — ships dormant.
+
+- **New worker `aries-draft-expiry-sweep-worker`** (gated by
+  `ARIES_DRAFT_EXPIRY_ENABLED`, default OFF). Every tick it expires posts that
+  never reached the publish queue (no `scheduled_posts` row), never went live
+  (`published_at IS NULL`), never reached Meta (`platform_post_id IS NULL`), are
+  in a `draft`/`in_review`/`approved` `published_status`, and are older than the
+  age window (`ARIES_DRAFT_EXPIRY_AGE_DAYS`, default 14 days) — by setting
+  `published_status='expired'`. This removes them from the operator's
+  approval/backlog trays **without publishing stale content**. Idempotent,
+  batched, and read-only in dry-run (`ARIES_DRAFT_EXPIRY_DRY_RUN=1`) so an
+  operator can observe one cycle before committing.
+- **Keys on the canonical `published_status`, not the legacy `status` mirror**
+  (which defaults to `'draft'` on Meta-native-scheduled posts), and guards on
+  `platform_post_id IS NULL`, so a post that is scheduled or live on Meta is
+  never expired.
+- Adds the `'expired'` value to the `posts` `published_status`/`status` CHECK
+  constraints, an `expired_at` audit column, and a partial index for the sweep's
+  candidate scan (applied on container start via `init-db.js` + a `migrations/`
+  record).
+- Sidecar is force-recreated each deploy (idles cleanly when the flag is off).
+
 ## v0.1.15.17 — fix(ops): weekly-trigger worker idles when disabled + deploy recreates it
 
 Two rollout-readiness fixes for the weekly-trigger worker shipped in v0.1.15.16
