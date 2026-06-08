@@ -449,8 +449,15 @@ async function initDb() {
       ALTER TABLE posts
         DROP CONSTRAINT IF EXISTS posts_published_status_check;
 
+      -- 'expired' is the terminal state the draft-expiry sweep
+      -- (scripts/automations/draft-expiry-sweep-worker.ts) writes to a stranded
+      -- pre-publish post: one that never reached the publish queue and is older
+      -- than the age window. It removes the post from the approval/backlog trays
+      -- without publishing it (stale content must not go out late). DROP + ADD
+      -- runs on every container start, so this constraint widening reaches an
+      -- existing prod posts table (CREATE TABLE IF NOT EXISTS would not).
       ALTER TABLE posts
-        ADD CONSTRAINT posts_published_status_check CHECK (published_status IN ('draft','in_review','approved','scheduled','publishing','published','failed','rolled_back','unverified'));
+        ADD CONSTRAINT posts_published_status_check CHECK (published_status IN ('draft','in_review','approved','scheduled','publishing','published','failed','rolled_back','unverified','expired'));
 
       -- Columns the prod posts table carries that init-db.js never declared.
       -- A fresh DB from this script previously drifted from prod, missing
@@ -465,7 +472,15 @@ async function initDb() {
       ALTER TABLE posts ADD COLUMN IF NOT EXISTS creative_asset_ids TEXT[] NOT NULL DEFAULT '{}';
       ALTER TABLE posts ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'draft';
       ALTER TABLE posts DROP CONSTRAINT IF EXISTS posts_status_check;
-      ALTER TABLE posts ADD CONSTRAINT posts_status_check CHECK (status IN ('draft','in_review','approved','scheduled','publishing','published','failed','rolled_back'));
+      -- Keep the legacy mirror column's allowed values in lockstep with
+      -- published_status: the draft-expiry sweep writes BOTH to 'expired' so
+      -- they never diverge.
+      ALTER TABLE posts ADD CONSTRAINT posts_status_check CHECK (status IN ('draft','in_review','approved','scheduled','publishing','published','failed','rolled_back','expired'));
+
+      -- When the draft-expiry sweep expires a stranded post it stamps
+      -- expired_at = now() for audit/observability (distinct from updated_at,
+      -- which many paths touch). NULL on every non-expired post.
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS expired_at TIMESTAMPTZ;
 
       -- Surface axis (feed|story|reel), orthogonal to media_type (image|video).
       -- Stories can be image or video; reels are always video; feed can be
@@ -676,6 +691,16 @@ async function initDb() {
       -- resolveMediaUrls and the scheduled-dispatch path look posts up by
       -- (tenant_id, job_id) to scope creative assets; index the link.
       CREATE INDEX IF NOT EXISTS idx_posts_tenant_job ON posts (tenant_id, job_id) WHERE job_id IS NOT NULL;
+
+      -- Draft-expiry sweep candidate scan: pre-publish posts ordered by
+      -- updated_at. Partial index keeps the sweep's COUNT/SELECT cheap even as
+      -- the posts table grows, since the vast majority of rows are terminal
+      -- (published/scheduled/failed/expired) and fall outside the index. Keyed
+      -- on the canonical published_status only — matches the sweep predicate,
+      -- which trusts published_status (not the legacy status mirror).
+      CREATE INDEX IF NOT EXISTS idx_posts_draft_expiry
+        ON posts (updated_at)
+        WHERE published_status IN ('draft','in_review','approved');
 
       -- Scheduled posts worker: dispatch status tracking columns.
       -- 'in_flight' is a non-terminal claimed state: the worker commits it
