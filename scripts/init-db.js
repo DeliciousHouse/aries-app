@@ -355,7 +355,7 @@ async function initDb() {
         UNIQUE (tenant_id, id),
         UNIQUE (tenant_id, idempotency_key),
         FOREIGN KEY (tenant_id, prompt_recipe_id) REFERENCES prompt_recipes(tenant_id, id) ON DELETE CASCADE,
-        FOREIGN KEY (tenant_id, generated_asset_id) REFERENCES generated_assets(tenant_id, id) ON DELETE CASCADE
+        FOREIGN KEY (tenant_id, generated_asset_id) REFERENCES generated_assets(tenant_id, id) ON DELETE SET NULL
       );
 
       CREATE INDEX IF NOT EXISTS idx_creative_assets_tenant_status ON creative_assets (tenant_id, learning_lifecycle, usable_for_generation);
