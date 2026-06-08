@@ -78,7 +78,7 @@
     "@testing-library/react": "^16.3.2",
     "@types/bcryptjs": "^3.0.0",
     "@types/jsdom": "^28.0.3",
-    "@types/node": "25.9.1",
+    "@types/node": "25.9.2",
     "@types/pg": "^8.18.0",
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
