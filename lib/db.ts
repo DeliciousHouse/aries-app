@@ -1,4 +1,4 @@
-import { Pool } from 'pg';
+import { Pool, PoolClient } from 'pg';
 
 const DEFAULT_DB_PORT = 5432;
 const DEFAULT_POOL_MAX = 20;
@@ -57,11 +57,13 @@ function createPool(): Pool {
 
 const globalWithPgPool = globalThis as GlobalWithPgPool;
 
-export const pool = globalWithPgPool.__ariesPgPool ?? createPool();
+export const pool: Pool = globalWithPgPool.__ariesPgPool ?? createPool();
 
 if (!globalWithPgPool.__ariesPgPool) {
   globalWithPgPool.__ariesPgPool = pool;
 }
+
+export type { PoolClient };
 
 export function getPoolStats(): PoolStats {
   return {

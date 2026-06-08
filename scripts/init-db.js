@@ -890,6 +890,7 @@ async function initDb() {
         received_at         TIMESTAMPTZ NOT NULL,
         author_handle       TEXT,
         body_text           TEXT NOT NULL,
+        is_replied          BOOLEAN NOT NULL DEFAULT false,
         platform_data       JSONB NOT NULL DEFAULT '{}',
         UNIQUE (tenant_id, platform, external_comment_id)
       );
@@ -974,6 +975,21 @@ async function initDb() {
       );
       CREATE INDEX IF NOT EXISTS idx_insights_llm_calls_tenant_called_at
         ON insights_llm_calls (tenant_id, called_at DESC);
+
+      -- content_type is set by Hermes at generation time on the posts table.
+      -- It is propagated to insights_posts on sync so the analytics module
+      -- stays self-contained (no cross-domain JOIN needed for content mix queries).
+      -- aries_post_id links each analytics row back to its Aries-generated source post,
+      -- enforcing the Aries-only analytics scope.
+      ALTER TABLE insights_posts ADD COLUMN IF NOT EXISTS content_type TEXT;
+      ALTER TABLE insights_posts ADD COLUMN IF NOT EXISTS aries_post_id BIGINT REFERENCES posts(id) ON DELETE SET NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_insights_posts_content_type
+        ON insights_posts (tenant_id, content_type)
+        WHERE content_type IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_insights_posts_aries_post_id
+        ON insights_posts (aries_post_id)
+        WHERE aries_post_id IS NOT NULL;
     `);
     // ─── End insights module ─────────────────────────────────────────────────
 

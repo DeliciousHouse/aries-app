@@ -46,6 +46,7 @@
     "test:creative-memory": "tsx --test tests/creative-memory-*.test.ts",
     "test:requires-infra-report": "node scripts/list-requires-infra.mjs",
     "test:requires-infra": "node scripts/list-requires-infra.mjs --run",
+    "test:insights": "APP_BASE_URL=https://aries.example.com tsx --test tests/insights-endpoints.test.ts",
     "eval:creative-memory-learning": "tsx scripts/eval-creative-memory-learning.ts"
   },
   "dependencies": {
