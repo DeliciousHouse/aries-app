@@ -14,7 +14,7 @@
  */
 
 import { NextResponse } from 'next/server';
-import pool from '@/lib/db';
+import pool, { type PoolClient } from '@/lib/db';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 import { oauthStatusAsync } from '@/backend/integrations/status';
 import { isSupportedPlatform } from '@/backend/insights/platforms/registry';
@@ -51,7 +51,7 @@ function snapshotHash(tenantId: number, period: string, platform: string): strin
 }
 
 async function getCachedNarrative(
-  client: ReturnType<typeof pool['connect']> extends Promise<infer T> ? T : never,
+  client: PoolClient,
   tenantId: number,
   period: string,
   platform: string,
@@ -83,7 +83,7 @@ async function getCachedNarrative(
 }
 
 async function upsertNarrative(
-  client: ReturnType<typeof pool['connect']> extends Promise<infer T> ? T : never,
+  client: PoolClient,
   tenantId: number,
   period: string,
   platform: string,

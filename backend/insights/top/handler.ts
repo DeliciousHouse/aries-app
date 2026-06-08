@@ -15,7 +15,7 @@
  */
 
 import { NextResponse } from 'next/server';
-import pool from '@/lib/db';
+import pool, { type PoolClient } from '@/lib/db';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 import { buildTopSnapshot, isValidSort, type TopSortKey } from './top-snapshot-builder';
 import { enrichPosts, buildPatternCard } from './top-template-builder';
@@ -45,7 +45,7 @@ function sectionKey(sortBy: string): string {
 }
 
 async function getCached(
-  client:   Awaited<ReturnType<typeof pool['connect']>>,
+  client:   PoolClient,
   tenantId: number,
   period:   string,
   platform: string,
@@ -73,7 +73,7 @@ async function getCached(
 }
 
 async function upsert(
-  client:   Awaited<ReturnType<typeof pool['connect']>>,
+  client:   PoolClient,
   tenantId: number,
   period:   string,
   platform: string,

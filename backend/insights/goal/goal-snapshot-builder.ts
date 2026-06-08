@@ -13,7 +13,7 @@
  * contributors: top 2 posts that drove the goal metric this period.
  */
 
-import pool from '@/lib/db';
+import pool, { type PoolClient } from '@/lib/db';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 
 export type GoalType = 'lead_generation' | 'content_growth' | 'product_sales' | 'brand_awareness';
@@ -91,7 +91,7 @@ function pctDelta(current: number, prev: number): number {
 // ── Per-goal metric queries ────────────────────────────────────────────────────
 
 async function queryLeadGeneration(
-  client: Awaited<ReturnType<typeof pool['connect']>>,
+  client: PoolClient,
   tenantId: number,
   fromDate: Date,
   prevFrom: Date,
@@ -128,7 +128,7 @@ async function queryLeadGeneration(
 }
 
 async function queryContentGrowth(
-  client: Awaited<ReturnType<typeof pool['connect']>>,
+  client: PoolClient,
   tenantId: number,
   fromDate: Date,
   prevFrom: Date,
@@ -161,7 +161,7 @@ async function queryContentGrowth(
 }
 
 async function queryProductSales(
-  client: Awaited<ReturnType<typeof pool['connect']>>,
+  client: PoolClient,
   tenantId: number,
   fromDate: Date,
   prevFrom: Date,
@@ -202,7 +202,7 @@ async function queryProductSales(
 }
 
 async function queryBrandAwareness(
-  client: Awaited<ReturnType<typeof pool['connect']>>,
+  client: PoolClient,
   tenantId: number,
   fromDate: Date,
   prevFrom: Date,
@@ -237,7 +237,7 @@ async function queryBrandAwareness(
 // ── Contributor queries ────────────────────────────────────────────────────────
 
 async function queryContributors(
-  client: Awaited<ReturnType<typeof pool['connect']>>,
+  client: PoolClient,
   tenantId: number,
   goal: GoalType,
   fromDate: Date,
