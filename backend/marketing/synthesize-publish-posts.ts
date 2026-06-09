@@ -53,7 +53,9 @@ import {
   findLatestMarketingApprovalRecord,
   saveMarketingApprovalRecord,
 } from './approval-store';
+import { isPostEditTasteLearningEnabled } from './post-edit-taste-learning-env';
 import type { SocialContentJobRuntimeDocument } from './runtime-state';
+import { visualStyleLens } from './taste-profile-store';
 
 export interface SynthesizePublishPostsArgs {
   jobId: string;
@@ -220,10 +222,12 @@ const SELECT_CREATIVE_ASSETS_SQL = `
 const INSERT_SYNTHESIZED_POST_SQL = `
   INSERT INTO posts (
     tenant_id, job_id, hermes_run_id, platform, media_type,
-    caption, status, published_status, idempotency_key, creative_asset_ids, surface
+    caption, status, published_status, idempotency_key, creative_asset_ids, surface,
+    style_dimension, style_value
   ) VALUES (
     $1, $2, $3, $4, $8,
-    $5, 'approved', 'approved', $6, $7, $9
+    $5, 'approved', 'approved', $6, $7, $9,
+    $10, $11
   )
   ON CONFLICT (tenant_id, platform, idempotency_key) WHERE idempotency_key IS NOT NULL
   DO NOTHING
@@ -469,6 +473,16 @@ export async function synthesizePublishPostsFromContentPackage(
   const scheduleShapeByKey = buildScheduleShapeLookup(doc);
   const videoPublishEnabled = isVideoPublishEnabled();
 
+  // PR2: stamp a stable visual-style lens (from the brand kit's style_vibe) on
+  // each synthesized row so a later operator edit (regenerate/delete/review-
+  // reject) has a concrete (dimension,value) to mark approved/rejected with no
+  // LLM. Flag OFF (default) => null lens => NULL columns => byte-identical rows.
+  const styleLens = isPostEditTasteLearningEnabled()
+    ? visualStyleLens(doc.brand_kit?.style_vibe ?? null)
+    : null;
+  const styleDimension = styleLens?.dimension ?? null;
+  const styleValue = styleLens?.value ?? null;
+
   let inserted = 0;
   let skipped = 0;
   let total = 0;
@@ -507,6 +521,8 @@ export async function synthesizePublishPostsFromContentPackage(
           creativeAssetIds,
           shape.mediaType,
           shape.surface,
+          styleDimension,
+          styleValue,
         ]);
         if ((result.rowCount ?? 0) > 0) {
           inserted++;
@@ -582,6 +598,8 @@ export async function synthesizePublishPostsFromContentPackage(
             storyAssetIds,
             'image',
             'story',
+            styleDimension,
+            styleValue,
           ]);
           if ((result.rowCount ?? 0) > 0) {
             inserted++;

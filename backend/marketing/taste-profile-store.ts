@@ -1,6 +1,15 @@
 /**
- * Per-(tenant, user) marketing taste profile — the fast, read-time-biasing
- * store fed by the onboarding first-post variant board (pick / rate / edit).
+ * Marketing taste profile — the fast, read-time-biasing store.
+ *
+ * Two row scopes share the table:
+ *  - Per-(tenant, user): fed by the onboarding first-post variant board
+ *    (pick / rate / edit) via applyTasteSignal — always has a logged-in user.
+ *  - Tenant-scoped (user_id IS NULL): fed by the userless weekly run's operator
+ *    edits via applyTenantTasteSignal, and read into the weekly brief via
+ *    getTasteForTenant. The NULL row IS the tenant aggregate the weekly run
+ *    biases against (no cross-user merge). See the 20260609 tenant-scope
+ *    migration for the two-index uniqueness that lets both scopes coexist.
+ *
  * Mirrors backend/marketing/operator-creative-preferences-store.ts (default
  * pool import, injectable `client: Queryable = pool`, INTEGER tenant/user ids).
  *
@@ -348,4 +357,148 @@ export async function loadTasteForBrief(
 ): Promise<TasteDimensions | null> {
   const view = await getTasteProfile(tenantId, userId, client);
   return projectTasteForBrief(view);
+}
+
+// ---------------------------------------------------------------------------
+// Tenant-scoped (userless) taste — the weekly-run read/write path (PR2).
+// ---------------------------------------------------------------------------
+
+/**
+ * Load the decayed TENANT-scoped taste profile (the `user_id IS NULL` row).
+ * This is the row the userless weekly run reads and the post-edit producers
+ * write; it is intentionally NOT a merge of per-user onboarding rows (those are
+ * an individual user's taste, not the tenant's shared run taste). Decay +
+ * Laplace are computed at read time, same as getTasteProfile. Returns null when
+ * the tenant id is invalid or no tenant-scoped row exists.
+ */
+export async function getTasteForTenant(
+  tenantId: string,
+  client: Queryable = pool,
+): Promise<TasteProfileView | null> {
+  const tid = parseTenantId(tenantId);
+  if (tid === null) return null;
+
+  const r = await client.query<{
+    dimensions: StoredTasteDimensions;
+    updated_at: Date;
+  }>(
+    `SELECT dimensions, updated_at
+       FROM marketing_taste_profile
+      WHERE tenant_id = $1 AND user_id IS NULL`,
+    [tid],
+  );
+  const row = r.rows[0];
+  if (!row) return null;
+  return {
+    dimensions: summarizeDimensions(row.dimensions ?? {}, Date.now()),
+    updated_at: row.updated_at.toISOString(),
+  };
+}
+
+/**
+ * Tenant-scoped sibling of loadTasteForBrief: the decayed tenant taste reduced
+ * to the small string[] brief-injection shape (high-confidence dimensions only).
+ * Returns null when there is no tenant row or nothing clears MIN_BRIEF_CONFIDENCE
+ * — the clean skip path the brief assembler relies on for byte-identical output.
+ */
+export async function loadTasteForBriefByTenant(
+  tenantId: string,
+  client: Queryable = pool,
+): Promise<TasteDimensions | null> {
+  const view = await getTasteForTenant(tenantId, client);
+  return projectTasteForBrief(view);
+}
+
+/**
+ * Record one TENANT-scoped taste signal (user_id IS NULL): bump a single
+ * (dimension, value) counter on the tenant row, stamping last_seen = now. Same
+ * SQL deep-merge as applyTasteSignal but keyed on the partial unique index
+ * `(tenant_id) WHERE user_id IS NULL`, so it never collides with a per-user row
+ * and the existing onboarding upsert is untouched. Returns the decayed view.
+ */
+export async function applyTenantTasteSignal(
+  input: {
+    tenantId: string;
+    dimension: string;
+    value: string;
+    outcome: 'approved' | 'rejected';
+    /** Signal strength added to the counter. Default 1. */
+    weight?: number;
+  },
+  client: Queryable = pool,
+): Promise<TasteProfileView> {
+  const tid = parseTenantId(input.tenantId);
+  if (tid === null) {
+    throw new Error('[taste-profile] invalid tenant_id');
+  }
+  const dimension = input.dimension.trim();
+  const value = input.value.trim();
+  if (!dimension) throw new Error('[taste-profile] empty dimension');
+  if (!value) throw new Error('[taste-profile] empty value');
+
+  const weight = Math.max(1, Math.trunc(input.weight ?? 1));
+  const approvedDelta = input.outcome === 'approved' ? weight : 0;
+  const rejectedDelta = input.outcome === 'rejected' ? weight : 0;
+  const nowIso = new Date().toISOString();
+
+  const r = await client.query<{
+    dimensions: StoredTasteDimensions;
+    updated_at: Date;
+  }>(
+    `INSERT INTO marketing_taste_profile (tenant_id, user_id, dimensions, updated_at)
+     VALUES (
+       $1, NULL,
+       jsonb_build_object(
+         $2::text,
+         jsonb_build_object(
+           $3::text,
+           jsonb_build_object('approved_count', $4::int, 'rejected_count', $5::int, 'last_seen', $6::text)
+         )
+       ),
+       now()
+     )
+     ON CONFLICT (tenant_id) WHERE user_id IS NULL DO UPDATE SET
+       dimensions = jsonb_set(
+         COALESCE(marketing_taste_profile.dimensions, '{}'::jsonb),
+         ARRAY[$2::text],
+         (
+           COALESCE(marketing_taste_profile.dimensions -> $2, '{}'::jsonb) || jsonb_build_object(
+             $3::text,
+             jsonb_build_object(
+               'approved_count',
+                 COALESCE((marketing_taste_profile.dimensions -> $2 -> $3 ->> 'approved_count')::int, 0) + $4::int,
+               'rejected_count',
+                 COALESCE((marketing_taste_profile.dimensions -> $2 -> $3 ->> 'rejected_count')::int, 0) + $5::int,
+               'last_seen', $6::text
+             )
+           )
+         ),
+         true
+       ),
+       updated_at = now()
+     RETURNING dimensions, updated_at`,
+    [tid, dimension, value, approvedDelta, rejectedDelta, nowIso],
+  );
+  const row = r.rows[0];
+  if (!row) {
+    throw new Error('[taste-profile] tenant upsert returned no row');
+  }
+  return {
+    dimensions: summarizeDimensions(row.dimensions ?? {}, Date.now()),
+    updated_at: row.updated_at.toISOString(),
+  };
+}
+
+/**
+ * Resolve the generation-time/edit-time visual-style lens from a brand kit's
+ * style_vibe. Both the post-synthesis stamp and the post-edit producers call
+ * this so the (dimension, value) they write/stamp is identical. Returns null
+ * for an empty style_vibe (no stamp, no signal — graceful skip).
+ */
+export function visualStyleLens(
+  styleVibe: string | null | undefined,
+): { dimension: string; value: string } | null {
+  const value = (styleVibe ?? '').trim();
+  if (!value) return null;
+  return { dimension: TASTE_DIMENSION_KEYS.VISUAL_STYLE, value };
 }
