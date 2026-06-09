@@ -1834,6 +1834,11 @@ export async function extractEnrichAndSaveTenantBrandKit(input: {
     return { brandKit: withOverrides, filePath: tenantBrandKitPath(input.tenantId), enriched: true };
   }
 
+  // True only when we actually scraped the website this run. Reusing an
+  // existing fresh kit must stay network-free (weekly runs reuse it), so the
+  // logo download below is gated on a genuine extraction; kits built before
+  // this feature are backfilled by scripts/marketing/materialize-tenant-logo.ts.
+  const freshlyExtracted = !(existing && isFreshBrandKit(existing, input.brandUrl));
   const scraped =
     existing && isFreshBrandKit(existing, input.brandUrl)
       ? existing
@@ -1869,8 +1874,9 @@ export async function extractEnrichAndSaveTenantBrandKit(input: {
   }
 
   // Materialize the real logo bytes once so downstream image compositing can
-  // use a local file instead of a remote URL Hermes cannot fetch.
-  if (!merged.logo_file_path && merged.logo_urls.length > 0) {
+  // use a local file instead of a remote URL Hermes cannot fetch. Only on a
+  // genuine extraction — reusing a fresh kit (weekly runs) stays network-free.
+  if (freshlyExtracted && !merged.logo_file_path && merged.logo_urls.length > 0) {
     const logoPath = await downloadAndMaterializeLogo({
       tenantId: input.tenantId,
       logoUrls: merged.logo_urls,
