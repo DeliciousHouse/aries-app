@@ -8,6 +8,7 @@ import {
 } from '@/backend/marketing/runtime-views';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 import { findLatestMarketingApprovalRecord } from '@/backend/marketing/approval-store';
+import { recordPostEditTasteSignal } from '@/backend/marketing/review-edit-taste';
 
 function decodeParam(value: string): string {
   try {
@@ -183,14 +184,16 @@ export async function handleDeleteSocialContentPost(
   const client: DeletePostQueryable = options.queryable ?? wrapPooled;
 
   try {
-    // Check post exists and belongs to tenant.
+    // Check post exists and belongs to tenant. Capture the generation-time style
+    // lens (PR2) BEFORE the row is gone so a delete can teach tenant taste.
     const lookup = await client.query(
-      'SELECT id, tenant_id FROM posts WHERE id = $1 AND tenant_id = $2 LIMIT 1',
+      'SELECT id, tenant_id, style_dimension, style_value FROM posts WHERE id = $1 AND tenant_id = $2 LIMIT 1',
       [postIdInt, tenantId],
     );
     if ((lookup.rowCount ?? lookup.rows.length) === 0 || lookup.rows.length === 0) {
       return NextResponse.json({ error: 'Post not found.', reason: 'post_not_found' }, { status: 404 });
     }
+    const deletedPostRow = lookup.rows[0] as { style_dimension?: string | null; style_value?: string | null };
 
     // Refuse if any scheduled row is in_flight — worker has already started the Meta call.
     const inFlightCheck = await client.query(
@@ -215,6 +218,16 @@ export async function handleDeleteSocialContentPost(
       'DELETE FROM posts WHERE id = $1 AND tenant_id = $2',
       [postIdInt, tenantId],
     );
+
+    // PR2 Phase 3: deleting a post is a structural rejection of its creative —
+    // teach tenant taste on the stamped visual-style lens. Best-effort +
+    // flag-gated (no-op when OFF or unstamped); never blocks the delete.
+    await recordPostEditTasteSignal({
+      tenantId: tenantIdStr,
+      dimension: deletedPostRow.style_dimension ?? null,
+      value: deletedPostRow.style_value ?? null,
+      outcome: 'rejected',
+    });
 
     invalidateMarketingJobStatus(jobId);
 

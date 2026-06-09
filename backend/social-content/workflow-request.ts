@@ -23,6 +23,8 @@ import {
   type SocialContentAspectRatio,
 } from './aspect-matrix';
 import { isFeedLogoCompositeEnabled } from './feed-logo-composite-env';
+import { isTasteBriefInjectionEnabled } from '@/backend/marketing/taste-brief-injection-env';
+import type { TasteDimensions } from '@/backend/marketing/taste-profile-store';
 import {
   SOCIAL_CONTENT_DEFAULT_SCOPE,
   SOCIAL_CONTENT_FORBIDDEN_VISUAL_PATTERNS,
@@ -277,12 +279,52 @@ export type ProductionResumeContext = {
  * Falls back gracefully when research/strategy output is missing — the prompt
  * degrades to static brand profile data from the initial request.
  */
+/**
+ * Append learned style/voice descriptors as a `; `-joined suffix on a brand
+ * field, returning the base unchanged when there is nothing to add — so a
+ * null/empty projection produces byte-identical output.
+ */
+function appendDescriptorSuffix(base: string, extra: string[]): string {
+  const clean = extra.map((s) => s.trim()).filter(Boolean);
+  if (clean.length === 0) return base;
+  const suffix = clean.join('; ');
+  return base ? `${base}; ${suffix}` : suffix;
+}
+
+/**
+ * Merge learned descriptors into a brand string[] (e.g. must-avoid), deduped
+ * case-insensitively against existing entries. Returns the base array reference
+ * unchanged when there is nothing to add — so a null/empty projection produces
+ * byte-identical output.
+ */
+function mergeDedupeDescriptors(base: string[], extra: string[]): string[] {
+  const clean = extra.map((s) => s.trim()).filter(Boolean);
+  if (clean.length === 0) return base;
+  const seen = new Set(base.map((s) => s.trim().toLowerCase()));
+  const merged = [...base];
+  for (const e of clean) {
+    const key = e.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      merged.push(e);
+    }
+  }
+  return merged;
+}
+
 export function buildProductionResumeContext(input: {
   doc: SocialContentJobRuntimeDocument;
   /** raw primary_output from doc.stages.research */
   researchOutput: Record<string, unknown> | null | undefined;
   /** raw primary_output from doc.stages.strategy */
   strategyOutput: Record<string, unknown> | null | undefined;
+  /**
+   * Pre-loaded per-tenant taste projection (loadTasteForBriefByTenant), preloaded
+   * upstream in the async port so this synchronous builder does no DB read. When
+   * null/undefined or every bucket is empty — or the brief-injection flag is OFF —
+   * the produced prompts are byte-identical to today.
+   */
+  tasteProjection?: TasteDimensions | null;
 }): ProductionResumeContext {
   const req = requestRecord(input.doc);
   const brandKit = input.doc.brand_kit ?? null;
@@ -303,6 +345,21 @@ export function buildProductionResumeContext(input: {
   // so the model must NOT draw one (else the final image carries two logos).
   const feedLogoComposite = isFeedLogoCompositeEnabled();
   const mustAvoid = brandKitPayload.brand.must_avoid_aesthetics;
+
+  // PR2: fold learned per-tenant taste descriptors into the brand block when the
+  // brief-injection flag is ON. Every merge is append-only and a no-op on empty,
+  // so a null/empty projection (or flag OFF) leaves the prompt byte-identical.
+  const tasteProjection = isTasteBriefInjectionEnabled() ? (input.tasteProjection ?? null) : null;
+  const effectiveBrandVoice = appendDescriptorSuffix(brandVoice, tasteProjection?.voice_descriptors ?? []);
+  const effectiveStyleVibe = appendDescriptorSuffix(styleVibe, tasteProjection?.style_descriptors ?? []);
+  // Cap the base must-avoid to 6 FIRST (preserving today's exact output), then
+  // append learned avoids uncapped — so a tenant's safety/forbidden defaults are
+  // never dropped to make room, and a learned avoid is never silently truncated.
+  const effectiveMustAvoid = mergeDedupeDescriptors(mustAvoid.slice(0, 6), tasteProjection?.avoid ?? []);
+  const tasteAudience = (tasteProjection?.audience_descriptors ?? []).map((s) => s.trim()).filter(Boolean);
+  const tasteAudienceLine = tasteAudience.length > 0
+    ? `Audience focus (learned): ${tasteAudience.join('; ')}`
+    : '';
   const configuredChannels = stringArray(req.channels);
   const imageTargetChannels = weeklySocialChannels(configuredChannels);
   const primaryChannel = resolveDominantImageChannel(imageTargetChannels);
@@ -397,9 +454,10 @@ export function buildProductionResumeContext(input: {
       `Brand: ${brandName}`,
     ];
     if (offer) lines.push(`Offer: ${offer}`);
-    if (brandVoice) lines.push(`Brand voice: ${brandVoice.slice(0, 200)}`);
-    if (styleVibe) lines.push(`Style and vibe: ${styleVibe}`);
+    if (effectiveBrandVoice) lines.push(`Brand voice: ${effectiveBrandVoice.slice(0, 200)}`);
+    if (effectiveStyleVibe) lines.push(`Style and vibe: ${effectiveStyleVibe}`);
     if (palette.length > 0) lines.push(`Brand palette: ${palette.join(', ')}`);
+    if (tasteAudienceLine) lines.push(tasteAudienceLine);
     if (brandMode === 'dark') {
       const bg = brandBackground || '#050505';
       lines.push(
@@ -421,7 +479,7 @@ export function buildProductionResumeContext(input: {
         `Brand logo: ${brandLogoUrl} — use the actual brand logo when a mark is shown; do NOT invent, redraw, or substitute a different logo.`,
       );
     }
-    if (mustAvoid.length > 0) lines.push(`Must avoid: ${mustAvoid.slice(0, 6).join(', ')}`);
+    if (effectiveMustAvoid.length > 0) lines.push(`Must avoid: ${effectiveMustAvoid.join(', ')}`);
 
     if (researchLines.length > 0) {
       lines.push('');

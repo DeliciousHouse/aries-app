@@ -14,6 +14,7 @@ import { resolveDataPath } from '@/lib/runtime-paths';
 
 import { buildMarketingAssetLinks } from './asset-library';
 import { normalizeBrandKitSignals } from './brand-kit';
+import { creativeReviewTasteOutcome, recordStyleVibeTasteSignal } from './review-edit-taste';
 import { approveSocialContentJob } from './jobs-approve';
 import { denySocialContentJob } from './orchestrator';
 import {
@@ -2335,6 +2336,23 @@ export async function recordMarketingReviewDecision(input: {
   }
 
   const lastDecision = persistReviewDecision(input.tenantId, item, input.reviewId, input.action, input.actedBy, input.note);
+
+  // PR2 Phase 3 (best-effort, flag-gated, non-fatal): a per-creative-ASSET
+  // decision in the review tray teaches tenant taste on the brand's visual-style
+  // lens — approve => approved, reject/changes_requested => rejected. The
+  // creativeReviewTasteOutcome helper encodes the discrimination (creative +
+  // assetId only; the publish-preview launch-gate items also carry reviewType
+  // 'creative' but no assetId, and counting their approval would double-count
+  // the style at the publish gate). recordStyleVibeTasteSignal never throws and
+  // is a no-op when the flag is OFF.
+  const tasteOutcome = creativeReviewTasteOutcome(item, input.action);
+  if (tasteOutcome) {
+    await recordStyleVibeTasteSignal({
+      tenantId: input.tenantId,
+      styleVibe: runtimeDoc.brand_kit?.style_vibe ?? null,
+      outcome: tasteOutcome,
+    });
+  }
 
   // WRITE SITE #1 (operator approve / reject / changes_requested): the decision
   // above mutated stage_reviews / creative_asset_reviews / the persisted review

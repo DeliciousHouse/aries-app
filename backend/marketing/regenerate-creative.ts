@@ -4,6 +4,7 @@ import {
   type MarketingExecutionPortEnv,
   type RegenerateCreativeContext,
 } from './execution-port';
+import { recordStyleVibeTasteSignal } from './review-edit-taste';
 import {
   loadSocialContentJobRuntime,
   type SocialContentJobRuntimeDocument,
@@ -105,6 +106,14 @@ export async function regenerateCreativeAsNewRun(
         message: 'Regenerate produced the same aries_run_id as the source run.',
       };
     }
+    // PR2 Phase 3: regenerating a creative is a structural rejection of the
+    // current one — teach tenant taste on the brand's visual-style lens.
+    // Best-effort + flag-gated (no-op when OFF); never blocks the regenerate.
+    await recordStyleVibeTasteSignal({
+      tenantId: input.tenantId,
+      styleVibe: doc.brand_kit?.style_vibe ?? null,
+      outcome: 'rejected',
+    });
     return {
       kind: 'submitted',
       ariesRunId: result.ariesRunId,
