@@ -1022,6 +1022,15 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_insights_posts_aries_post_id
         ON insights_posts (aries_post_id)
         WHERE aries_post_id IS NOT NULL;
+
+      -- is_replied is also declared inline in the CREATE TABLE insights_comments
+      -- above, but that table predates the column on existing databases and
+      -- CREATE TABLE IF NOT EXISTS never widens them — so the inline declaration is
+      -- a no-op on prod. Add it idempotently here too (matching the
+      -- content_type/aries_post_id pattern) so existing tables backfill on start.
+      -- conversations/narrative/attention/trends builders read c.is_replied and
+      -- would 500 once a tenant has comment rows without this.
+      ALTER TABLE insights_comments ADD COLUMN IF NOT EXISTS is_replied BOOLEAN NOT NULL DEFAULT false;
     `);
     // ─── End insights module ─────────────────────────────────────────────────
 
