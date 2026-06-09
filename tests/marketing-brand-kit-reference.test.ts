@@ -4,13 +4,14 @@ import test from 'node:test';
 import { marketingBrandKitReferenceFromTenantBrandKit } from '../backend/marketing/runtime-state';
 import type { TenantBrandKit } from '../backend/marketing/brand-kit';
 
-test('marketingBrandKitReferenceFromTenantBrandKit copies all 15 fields including 4 enrichment fields with deep-copy semantics', () => {
+test('marketingBrandKitReferenceFromTenantBrandKit copies all 16 fields including logo_file_path + 4 enrichment fields with deep-copy semantics', () => {
   const kit: TenantBrandKit = {
     tenant_id: 'tenant1',
     source_url: 'https://example.com',
     canonical_url: 'https://www.example.com',
     brand_name: 'Example Brand',
     logo_urls: ['https://example.com/logo.png'],
+    logo_file_path: '/data/generated/validated/tenant1/logo.png',
     colors: { primary: '#111111', secondary: '#222222', accent: '#333333', palette: ['#111111', '#222222'], background: '#050505', mode: 'dark' },
     font_families: ['Georgia', 'Helvetica'],
     external_links: [{ platform: 'instagram', url: 'https://instagram.com/example' }],
@@ -31,6 +32,7 @@ test('marketingBrandKitReferenceFromTenantBrandKit copies all 15 fields includin
   assert.equal(ref.canonical_url, kit.canonical_url);
   assert.equal(ref.brand_name, kit.brand_name);
   assert.deepEqual(ref.logo_urls, kit.logo_urls);
+  assert.equal(ref.logo_file_path, kit.logo_file_path);
   assert.equal(ref.colors.primary, kit.colors.primary);
   assert.equal(ref.colors.secondary, kit.colors.secondary);
   assert.equal(ref.colors.accent, kit.colors.accent);
