@@ -56,7 +56,10 @@ function inserts(queries: Array<{ sql: string; params: unknown[] }>) {
   return queries.filter((q) => /^\s*INSERT/i.test(q.sql));
 }
 
-const ENABLED_ENV = { ARIES_SLACK_NOTIFICATIONS_ENABLED: '1', SLACK_NOTIFY_CHANNEL: 'C0TEST' };
+const ENABLED_ENV = { ARIES_SLACK_NOTIFICATIONS_ENABLED: '1' };
+
+/** A resolver returning a fixed per-tenant config — the common "tenant is configured" case. */
+const RESOLVE_OK = async () => ({ botToken: 'xoxb-test', channel: 'C0TEST' });
 
 // ── isSlackNotificationsEnabled ────────────────────────────────────────────────
 
@@ -150,7 +153,7 @@ test('buildApprovalRequiredMessage truncates an oversized prompt below Slack lim
 
 // ── notifyApprovalRequired (dispatcher) ────────────────────────────────────────
 
-test('notifyApprovalRequired is a no-op when the flag is OFF (no DB, no fetch)', async () => {
+test('notifyApprovalRequired is a no-op when the flag is OFF (no DB, no fetch, no resolver)', async () => {
   const { pool, queries } = makePoolStub();
   const { fetchImpl, calls } = makeFetchStub({ ok: true, body: { ok: true } });
   const res = await notifyApprovalRequired({
@@ -160,14 +163,18 @@ test('notifyApprovalRequired is a no-op when the flag is OFF (no DB, no fetch)',
     appBaseUrl: 'https://aries.example.com',
     pool: pool as never,
     clientDeps: { fetchImpl, botToken: 'xoxb-test' },
-    env: { ARIES_SLACK_NOTIFICATIONS_ENABLED: '0', SLACK_NOTIFY_CHANNEL: 'C0TEST' },
+    env: { ARIES_SLACK_NOTIFICATIONS_ENABLED: '0' },
+    // The flag gate is FIRST: the resolver must never run on the OFF path.
+    resolveConfig: async () => {
+      throw new Error('resolver must not run when the flag is OFF');
+    },
   });
   assert.deepEqual(res, { delivered: false, reason: 'disabled' });
   assert.equal(queries.length, 0, 'must not touch the DB when disabled');
   assert.equal(calls.length, 0, 'must not call Slack when disabled');
 });
 
-test('notifyApprovalRequired returns missing_channel when SLACK_NOTIFY_CHANNEL is unset', async () => {
+test('notifyApprovalRequired returns no_tenant_config when no per-tenant Slack config resolves', async () => {
   const { pool, queries } = makePoolStub();
   const { fetchImpl, calls } = makeFetchStub({ ok: true, body: { ok: true } });
   const res = await notifyApprovalRequired({
@@ -176,13 +183,16 @@ test('notifyApprovalRequired returns missing_channel when SLACK_NOTIFY_CHANNEL i
     stage: 'publish',
     appBaseUrl: 'https://aries.example.com',
     pool: pool as never,
-    clientDeps: { fetchImpl, botToken: 'xoxb-test' },
-    env: { ARIES_SLACK_NOTIFICATIONS_ENABLED: '1' },
+    clientDeps: { fetchImpl },
+    env: ENABLED_ENV,
+    resolveConfig: async () => null,
   });
   assert.equal(res.delivered, false);
-  assert.equal(res.reason, 'missing_channel');
-  assert.equal(queries.length, 0);
-  assert.equal(calls.length, 0);
+  assert.equal(res.reason, 'no_tenant_config');
+  // Dedup runs first (cheapest gate), then the resolver returns null → skip.
+  assert.equal(queries.length, 1, 'runs only the dedup check, then skips');
+  assert.equal(inserts(queries).length, 0, 'no record written when there is no config');
+  assert.equal(calls.length, 0, 'must not call Slack with no config');
 });
 
 test('notifyApprovalRequired posts on first delivery then records on success (stable job+stage key)', async () => {
@@ -196,12 +206,14 @@ test('notifyApprovalRequired posts on first delivery then records on success (st
     brandName: 'Sugar & Leather',
     appBaseUrl: 'https://aries.example.com',
     pool: pool as never,
-    clientDeps: { fetchImpl, botToken: 'xoxb-test' },
+    clientDeps: { fetchImpl },
     env: ENABLED_ENV,
+    // Per-tenant config supplies BOTH the channel and the bot token.
+    resolveConfig: async () => ({ botToken: 'xoxb-resolved', channel: 'C0TEST' }),
   });
   assert.deepEqual(res, { delivered: true });
 
-  // Order: SELECT (check) → post → INSERT (record). Posts before recording.
+  // Order: resolve → SELECT (check) → post → INSERT (record). Posts before recording.
   assert.equal(calls.length, 1, 'posted exactly once');
   const recorded = inserts(queries);
   assert.equal(recorded.length, 1, 'recorded delivery exactly once, AFTER a successful post');
@@ -212,6 +224,9 @@ test('notifyApprovalRequired posts on first delivery then records on success (st
   assert.equal(sentBody.channel, 'C0TEST');
   assert.match(sentBody.text, /Sugar &amp; Leather needs your approval: Post copy & creative/);
   assert.ok(Array.isArray(sentBody.blocks) && sentBody.blocks.length > 0);
+  // The per-tenant RESOLVED bot token authenticates the post — never a global env token.
+  const headers = calls[0].init.headers as Record<string, string>;
+  assert.equal(headers.Authorization, 'Bearer xoxb-resolved');
 });
 
 test('notifyApprovalRequired does NOT post when already delivered (re-delivery)', async () => {
@@ -223,8 +238,13 @@ test('notifyApprovalRequired does NOT post when already delivered (re-delivery)'
     stage: 'production',
     appBaseUrl: 'https://aries.example.com',
     pool: pool as never,
-    clientDeps: { fetchImpl, botToken: 'xoxb-test' },
+    clientDeps: { fetchImpl },
     env: ENABLED_ENV,
+    // Dedup runs BEFORE the resolver: a throwing resolver proves it is never
+    // reached when the (job, stage) was already delivered.
+    resolveConfig: async () => {
+      throw new Error('resolver must not run when already delivered');
+    },
   });
   assert.equal(res.delivered, false);
   assert.equal(res.reason, 'duplicate');
@@ -241,13 +261,67 @@ test('notifyApprovalRequired records NOTHING when the post fails, so re-delivery
     stage: 'strategy',
     appBaseUrl: 'https://aries.example.com',
     pool: pool as never,
-    clientDeps: { fetchImpl, botToken: 'xoxb-test' },
+    clientDeps: { fetchImpl },
     env: ENABLED_ENV,
+    resolveConfig: RESOLVE_OK,
   });
   assert.equal(res.delivered, false);
   assert.equal(res.reason, 'channel_not_found');
   assert.equal(calls.length, 1, 'attempted the post');
   assert.equal(inserts(queries).length, 0, 'no dedup row recorded on failure — next delivery retries');
+});
+
+test('notifyApprovalRequired: an explicit channel override bypasses the resolver', async () => {
+  const { pool, queries } = makePoolStub({ alreadySent: false });
+  const { fetchImpl, calls } = makeFetchStub({ ok: true, body: { ok: true, ts: '1.1' } });
+  const res = await notifyApprovalRequired({
+    tenantId: 15,
+    jobId: 'mkt_ovr',
+    stage: 'publish',
+    appBaseUrl: 'https://aries.example.com',
+    channel: 'C0OVERRIDE',
+    pool: pool as never,
+    clientDeps: { fetchImpl, botToken: 'xoxb-override' },
+    env: ENABLED_ENV,
+    resolveConfig: async () => {
+      throw new Error('resolver must not run when input.channel is set');
+    },
+  });
+  assert.deepEqual(res, { delivered: true });
+  assert.equal(inserts(queries).length, 1);
+  const sentBody = JSON.parse(String((calls[0].init as { body: string }).body));
+  assert.equal(sentBody.channel, 'C0OVERRIDE');
+  // On the override path the bot token comes from clientDeps (legacy path), not the resolver.
+  const headers = calls[0].init.headers as Record<string, string>;
+  assert.equal(headers.Authorization, 'Bearer xoxb-override');
+});
+
+test('notifyApprovalRequired: default resolver + env opt-in (no injected resolveConfig) posts to the global channel', async () => {
+  // No resolveConfig injected → the REAL loadSlackConfigForTenant default runs,
+  // honoring this call's env. tenantId null skips the per-tenant read, so the
+  // SLACK_SINGLE_TENANT_CHANNEL + SLACK_BOT_TOKEN opt-in supplies the config.
+  // This is the self-host / single-tenant prod path before a tenant connects OAuth.
+  const { pool, queries } = makePoolStub({ alreadySent: false });
+  const { fetchImpl, calls } = makeFetchStub({ ok: true, body: { ok: true, ts: '1.1' } });
+  const res = await notifyApprovalRequired({
+    tenantId: null,
+    jobId: 'mkt_env',
+    stage: 'publish',
+    appBaseUrl: 'https://aries.example.com',
+    pool: pool as never,
+    clientDeps: { fetchImpl },
+    env: {
+      ARIES_SLACK_NOTIFICATIONS_ENABLED: '1',
+      SLACK_SINGLE_TENANT_CHANNEL: 'C0GLOBAL',
+      SLACK_BOT_TOKEN: 'xoxb-global',
+    },
+  });
+  assert.deepEqual(res, { delivered: true });
+  assert.equal(inserts(queries).length, 1);
+  const sentBody = JSON.parse(String((calls[0].init as { body: string }).body));
+  assert.equal(sentBody.channel, 'C0GLOBAL');
+  const headers = calls[0].init.headers as Record<string, string>;
+  assert.equal(headers.Authorization, 'Bearer xoxb-global');
 });
 
 // ── postSlackMessage (client) ──────────────────────────────────────────────────

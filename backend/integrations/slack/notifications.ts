@@ -27,10 +27,11 @@ import type { MarketingStage } from '@/backend/marketing/runtime-state';
 
 import { isSlackNotificationsEnabled } from './notify-env';
 import { postSlackMessage, type SlackClientDeps } from './client';
+import { loadSlackConfigForTenant, type SlackTenantConfig } from './config-store';
 
 export type SlackNotificationResult = {
   delivered: boolean;
-  /** Why it did not deliver: disabled | missing_channel | duplicate | post_failed | <slack error>. */
+  /** Why it did not deliver: disabled | no_tenant_config | duplicate | post_failed | <slack error>. */
   reason?: string;
 };
 
@@ -178,18 +179,20 @@ export interface NotifyApprovalRequiredInput {
   prompt?: string | null;
   brandName?: string | null;
   appBaseUrl: string;
-  /** Channel override; defaults to SLACK_NOTIFY_CHANNEL. */
+  /** Channel override; when set, skips the per-tenant resolver (test/override seam). */
   channel?: string;
   /** Injectable for tests. */
   pool?: Pool;
   clientDeps?: SlackClientDeps;
   env?: Partial<Record<string, string | undefined>>;
+  /** Per-tenant Slack config resolver. Injectable for tests; defaults to loadSlackConfigForTenant. */
+  resolveConfig?: (tenantId: number | string | null | undefined) => Promise<SlackTenantConfig | null>;
 }
 
 /**
  * Post a "needs approval" message for a marketing job stage. No-op when the flag
- * is off, the channel is unset, or the (job, stage) notification was already
- * sent. Never throws. Call fire-and-forget from the callback path.
+ * is off, no per-tenant Slack config resolves, or the (job, stage) notification
+ * was already sent. Never throws. Call fire-and-forget from the callback path.
  */
 export async function notifyApprovalRequired(
   input: NotifyApprovalRequiredInput,
@@ -199,28 +202,45 @@ export async function notifyApprovalRequired(
     return { delivered: false, reason: 'disabled' };
   }
 
-  const channel = (input.channel ?? env.SLACK_NOTIFY_CHANNEL ?? '').trim();
-  if (!channel) {
-    console.warn('[slack-notify] SLACK_NOTIFY_CHANNEL is not set; skipping approval notification', {
-      jobId: input.jobId,
-      stage: input.stage,
-    });
-    return { delivered: false, reason: 'missing_channel' };
-  }
-
   const pool = input.pool ?? defaultPool;
   const tenantId =
     input.tenantId == null ? null : Number(input.tenantId);
   const tenantIdForDb = Number.isFinite(tenantId as number) ? (tenantId as number) : null;
 
-  // Stable across reconciler re-delivery: one ping per (job, stage) gate. The
-  // row records DELIVERY, not a claim — so a failed post leaves no row and the
-  // next re-delivery retries (the reconciler is the durable backstop). The
-  // tradeoff is a rare double-ping if two deliveries race within the post
-  // latency; the dashboard is the source of truth, so a duplicate is cheap.
+  // Dedup FIRST. The (job, stage) key does not depend on the resolved channel
+  // or token, so check it before resolving config — this short-circuits
+  // reconciler re-deliveries (and any duplicate) WITHOUT decrypting a bot token
+  // or issuing the resolver's reads. The row records DELIVERY, not a claim, so a
+  // failed post leaves no row and the next re-delivery retries (the reconciler
+  // is the durable backstop); the rare race double-ping is cheap (the dashboard
+  // is the source of truth).
   const dedupKey = `approval:${input.jobId}:${input.stage}`;
   if (await alreadyDelivered(pool, dedupKey)) {
     return { delivered: false, reason: 'duplicate' };
+  }
+
+  // Resolve channel + bot token for THIS tenant. An explicit input.channel
+  // override keeps the legacy clientDeps/env-token path (test/override seam);
+  // otherwise the per-tenant resolver supplies both. A null result means "no
+  // Slack config for this tenant" — skip cleanly, with no cross-tenant global
+  // fallback unless the operator explicitly set SLACK_SINGLE_TENANT_CHANNEL.
+  // The default resolver honors this call's env + pool so injection is consistent.
+  let channel = (input.channel ?? '').trim();
+  let resolvedBotToken: string | undefined;
+  if (!channel) {
+    const resolveConfig =
+      input.resolveConfig ?? ((tid) => loadSlackConfigForTenant(tid, { env, pool }));
+    const cfg = await resolveConfig(input.tenantId);
+    if (!cfg) {
+      console.warn('[slack-notify] no per-tenant Slack config; skipping approval notification', {
+        jobId: input.jobId,
+        stage: input.stage,
+        // Never log the resolved config / token.
+      });
+      return { delivered: false, reason: 'no_tenant_config' };
+    }
+    channel = cfg.channel;
+    resolvedBotToken = cfg.botToken;
   }
 
   const { text, blocks } = buildApprovalRequiredMessage({
@@ -230,7 +250,16 @@ export async function notifyApprovalRequired(
     reviewUrl: approvalReviewUrl(input.appBaseUrl, input.jobId),
   });
 
-  const result = await postSlackMessage({ channel, text, blocks }, input.clientDeps);
+  // Per-tenant token (when resolved) wins. On the override path resolvedBotToken
+  // is undefined, so postSlackMessage falls back to clientDeps.botToken ??
+  // process.env.SLACK_BOT_TOKEN as before. On the resolver path the config was
+  // non-null, so resolvedBotToken is always a real token — we never silently
+  // fall back to the global token for a tenant that lacks one.
+  const clientDeps: SlackClientDeps = {
+    ...input.clientDeps,
+    botToken: resolvedBotToken ?? input.clientDeps?.botToken,
+  };
+  const result = await postSlackMessage({ channel, text, blocks }, clientDeps);
   if (!result.ok) {
     // Record NOTHING on failure: the next callback re-delivery retries instead
     // of permanently dropping the ping over a transient Slack outage.

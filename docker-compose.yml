@@ -108,17 +108,26 @@ services:
       # tenant-scoped taste signal). Default OFF. Needs the 20260609 taste-scope
       # migration. Turn this ON first to accumulate signal, then the injection flag.
       ARIES_POST_EDIT_TASTE_LEARNING_ENABLED: ${ARIES_POST_EDIT_TASTE_LEARNING_ENABLED:-0}
-      # Outbound Slack approval notifications (Phase 4 PR2). Default OFF: the
-      # marketing callback path is byte-identical to today. When ON, set
-      # SLACK_BOT_TOKEN (needs the chat:write scope) + SLACK_NOTIFY_CHANNEL in the
-      # host .env — this compose has NO env_file, so they reach the container only
-      # via the ${...} interpolation on the two lines below. Best-effort, deduped
-      # per (job, stage); a Slack failure never breaks the pipeline. The Hermes
-      # reconciler runs INSIDE this container (start-runtime.mjs), so only the
-      # aries-app service needs these — the sidecar workers do not notify.
+      # Outbound Slack approval notifications (Phase 4 PR2 + per-tenant T3).
+      # Default OFF: the marketing callback path is byte-identical to today.
+      # Per-tenant Slack (Option A): each tenant connects their OWN Slack workspace
+      # + channel via OAuth, and the notifier resolves that tenant's token+channel
+      # at send time. SLACK_SINGLE_TENANT_CHANNEL + SLACK_BOT_TOKEN is the EXPLICIT
+      # single-tenant / self-host opt-in used only when a tenant has no Slack
+      # connection — never a silent global default (both must be set on purpose).
+      # This replaces the removed SLACK_NOTIFY_CHANNEL global path. This compose has
+      # NO env_file, so these reach the container only via the ${...} interpolation
+      # below. Best-effort, deduped per (job, stage); a Slack failure never breaks
+      # the pipeline. The Hermes reconciler runs INSIDE this container
+      # (start-runtime.mjs), so only the aries-app service needs these.
       ARIES_SLACK_NOTIFICATIONS_ENABLED: ${ARIES_SLACK_NOTIFICATIONS_ENABLED:-0}
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
-      SLACK_NOTIFY_CHANNEL: ${SLACK_NOTIFY_CHANNEL:-}
+      SLACK_SINGLE_TENANT_CHANNEL: ${SLACK_SINGLE_TENANT_CHANNEL:-}
+      # Per-tenant Slack OAuth app credentials (the connect + token-exchange flow,
+      # backend/integrations/callback.ts + oauth-authorize-urls.ts). One app we own,
+      # distributed unlisted; each tenant installs it. Empty by default.
+      SLACK_CLIENT_ID: ${SLACK_CLIENT_ID:-}
+      SLACK_CLIENT_SECRET: ${SLACK_CLIENT_SECRET:-}
       # 2026-05-23: flipped ON per TODOS rollout. Narrow first-name-denylist
       # heuristic replaces the legacy /[A-Z][a-z]+\s+[A-Z][a-z]+/ regex in
       # backend/memory/write-events.ts::scrubPreferenceLabelForHoncho. Effect:
