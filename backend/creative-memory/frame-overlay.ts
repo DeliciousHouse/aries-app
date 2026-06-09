@@ -51,6 +51,19 @@ export interface ApplyBrandFrameInput {
    * without a logo.
    */
   logoLoader?: LogoLoader;
+  /**
+   * When `false`, skip the inner border stroke and composite the logo only
+   * (the on-brand-dark feed treatment). Default (undefined/true) keeps the
+   * legacy border + logo behavior.
+   */
+  border?: boolean;
+  /**
+   * Direct logo source: an absolute filesystem path or a `data:` URI. When
+   * provided it takes precedence over brandKit.logo_urls. Resolved by the
+   * active logoLoader (defaultLogoLoader handles both). Wire the brand kit's
+   * materialized `logo_file_path` here.
+   */
+  logoSource?: string | null;
 }
 
 // Border stroke: 2px is wide enough to read on a 1080×1080 IG canvas without
@@ -61,6 +74,16 @@ const FRAME_BORDER_PX = 2;
 const LOGO_RELATIVE_WIDTH = 0.12;
 const LOGO_MARGIN_PX = 24;
 const FALLBACK_BORDER_HEX = '#0f172a'; // slate-900: neutral, high-contrast on most static feeds.
+
+// Conditional feathered scrim: the brand mark is light/purple on transparent,
+// so it vanishes over a bright patch of a generated photo. When the mean
+// luminance under the logo box exceeds the threshold, a soft low-opacity dark
+// scrim is composited behind ONLY the logo so it always reads. On a dark patch
+// no chrome is added (subtraction-default).
+const SCRIM_LUMA_THRESHOLD = 150; // 0-255 mean luma; above this the box is "bright".
+const SCRIM_PAD_PX = 12; // expand the scrim a touch past the logo box.
+const SCRIM_BLUR_SIGMA = 12; // feather the scrim edges.
+const SCRIM_OPACITY = 0.45; // dark scrim alpha.
 
 const HEX_PATTERN = /^#[0-9a-f]{6}$/i;
 
@@ -175,6 +198,41 @@ async function prepareLogoOverlay(
   }
 }
 
+// Mean luminance (0-255) of the pixel patch under the logo box, via sharp
+// extract+stats. Returns null on any failure so the caller skips the scrim.
+async function meanLumaUnderBox(
+  assetBuffer: Buffer,
+  box: { left: number; top: number; width: number; height: number },
+  canvasW: number,
+  canvasH: number,
+): Promise<number | null> {
+  const left = Math.max(0, Math.min(box.left, canvasW - 1));
+  const top = Math.max(0, Math.min(box.top, canvasH - 1));
+  const width = Math.max(1, Math.min(box.width, canvasW - left));
+  const height = Math.max(1, Math.min(box.height, canvasH - top));
+  try {
+    const { channels } = await sharp(assetBuffer, { failOn: 'none' })
+      .extract({ left, top, width, height })
+      .stats();
+    // Rec. 601 luma over the first three (RGB) channel means; tolerate
+    // grayscale (1 channel) by falling back to mean[0].
+    const r = channels[0]?.mean ?? 0;
+    const g = channels[1]?.mean ?? r;
+    const b = channels[2]?.mean ?? r;
+    return 0.299 * r + 0.587 * g + 0.114 * b;
+  } catch {
+    return null;
+  }
+}
+
+// A soft rounded dark rectangle, fed through sharp().blur() to feather the
+// edges so it reads as a halo, not a sticker.
+function buildScrimSvg(w: number, h: number): Buffer {
+  const radius = Math.round(Math.min(w, h) * 0.15);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect x="0" y="0" width="${w}" height="${h}" rx="${radius}" fill="black" fill-opacity="${SCRIM_OPACITY}" /></svg>`;
+  return Buffer.from(svg, 'utf8');
+}
+
 export interface ApplyBrandFrameResult {
   buffer: Buffer;
   applied: boolean;
@@ -224,10 +282,13 @@ export async function applyBrandFrameDetailed(
     };
   }
 
+  const drawBorder = input.border !== false;
   const { hex: borderHex, fallbackUsed: fallbackBorderUsed } = resolveBorderColor(brandKit);
-  const borderSvg = buildBorderSvg(width, height, borderHex);
 
-  const logoUrl = pickLogoUrl(brandKit);
+  const logoUrl =
+    input.logoSource && input.logoSource.trim().length > 0
+      ? input.logoSource.trim()
+      : pickLogoUrl(brandKit);
   const loader = input.logoLoader ?? defaultLogoLoader;
   let logoOverlay: Buffer | null = null;
   if (logoUrl) {
@@ -237,15 +298,54 @@ export async function applyBrandFrameDetailed(
     }
   }
 
-  const composites: sharp.OverlayOptions[] = [
-    { input: borderSvg, top: 0, left: 0 },
-  ];
+  // Nothing to draw: logo-only mode (border:false) with no usable logo, or the
+  // logo failed to load. Return the ORIGINAL bytes unchanged — no re-encode, no
+  // checksum churn (the border-on path keeps its legacy border-only behavior).
+  if (!logoOverlay && !drawBorder) {
+    return {
+      buffer: assetBuffer,
+      applied: false,
+      reason: 'framed_without_logo',
+      borderHex,
+      fallbackBorderUsed,
+    };
+  }
+
+  const composites: sharp.OverlayOptions[] = [];
+  if (drawBorder) {
+    composites.push({ input: buildBorderSvg(width, height, borderHex), top: 0, left: 0 });
+  }
   if (logoOverlay) {
     const logoMeta = await sharp(logoOverlay).metadata();
     const logoWidth = logoMeta.width ?? Math.round(width * LOGO_RELATIVE_WIDTH);
     const logoHeight = logoMeta.height ?? logoWidth;
     const left = Math.max(0, width - logoWidth - LOGO_MARGIN_PX);
     const top = Math.max(0, height - logoHeight - LOGO_MARGIN_PX);
+
+    // Feathered scrim only when the patch under the logo is bright enough to
+    // swallow the light mark.
+    const luma = await meanLumaUnderBox(
+      assetBuffer,
+      { left, top, width: logoWidth, height: logoHeight },
+      width,
+      height,
+    );
+    if (luma !== null && luma > SCRIM_LUMA_THRESHOLD) {
+      const scrimW = Math.min(width, logoWidth + SCRIM_PAD_PX * 2);
+      const scrimH = Math.min(height, logoHeight + SCRIM_PAD_PX * 2);
+      const scrimLeft = Math.max(0, left - SCRIM_PAD_PX);
+      const scrimTop = Math.max(0, top - SCRIM_PAD_PX);
+      try {
+        const scrim = await sharp(buildScrimSvg(scrimW, scrimH))
+          .blur(SCRIM_BLUR_SIGMA)
+          .png()
+          .toBuffer();
+        // Push the scrim BEFORE the logo so the logo renders on top of it.
+        composites.push({ input: scrim, top: scrimTop, left: scrimLeft });
+      } catch {
+        // Scrim is a legibility nicety; never fail the frame on its account.
+      }
+    }
     composites.push({ input: logoOverlay, top, left });
   }
 

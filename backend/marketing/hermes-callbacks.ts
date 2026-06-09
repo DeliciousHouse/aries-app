@@ -1659,6 +1659,9 @@ async function ingestProductionCreativeAssetsOnCompletion(
       tenantId: tenantNum,
       doc,
       pool,
+      // Carries logo_urls + colors.primary + logo_file_path; used to composite
+      // the real brand logo onto eligible feed creatives when the flag is on.
+      brandKit: doc.brand_kit,
     });
   } catch (err) {
     console.warn('[hermes-callbacks] ingestProductionCreativeAssetsToDb failed — continuing', {

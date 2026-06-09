@@ -255,3 +255,96 @@ test('defaultLogoLoader returns null for relative or unknown URL forms', async (
   assert.equal(await defaultLogoLoader('   '), null);
   assert.equal(await defaultLogoLoader('relative/path.png'), null);
 });
+
+// --- Phase 1: border-off, logoSource, conditional feathered scrim, no-re-encode ---
+
+async function pixelAt(buf: Buffer, left: number, top: number): Promise<Buffer> {
+  return sharp(buf).extract({ left, top, width: 1, height: 1 }).raw().toBuffer();
+}
+
+test('border:false composites the logo without an inner border (corner unchanged)', async () => {
+  const input = await makeSolidPng(800, 800, { r: 10, g: 10, b: 10 }); // dark bg, no scrim
+  const logo = await makeLogoPng();
+  const result = await applyBrandFrameDetailed({
+    assetBuffer: input,
+    brandKit: PINK_KIT,
+    channel: 'instagram',
+    postType: 'single_image',
+    logoLoader: loaderReturning(logo),
+    border: false,
+  });
+  assert.equal(result.applied, true);
+  assert.equal(result.reason, 'framed_with_logo');
+  // Top-left corner stays the original background — no border stroke drawn.
+  const corner = await pixelAt(result.buffer, 0, 0);
+  assert.equal(corner[0], 10);
+  assert.equal(corner[1], 10);
+  assert.equal(corner[2], 10);
+});
+
+test('border:false with no usable logo returns the ORIGINAL bytes unchanged (no re-encode)', async () => {
+  const input = await makeSolidPng(800, 800);
+  const result = await applyBrandFrameDetailed({
+    assetBuffer: input,
+    brandKit: PINK_KIT,
+    channel: 'instagram',
+    postType: 'single_image',
+    logoLoader: loaderReturning(null),
+    border: false,
+  });
+  assert.equal(result.applied, false);
+  assert.equal(result.reason, 'framed_without_logo');
+  assert.equal(result.buffer, input, 'logo-only with no logo must return the same buffer reference');
+});
+
+test('logoSource takes precedence over brandKit.logo_urls', async () => {
+  const input = await makeSolidPng(800, 800, { r: 10, g: 10, b: 10 });
+  const logo = await makeLogoPng();
+  let requested: string | null = null;
+  const loader: LogoLoader = async (url) => {
+    requested = url;
+    return logo;
+  };
+  await applyBrandFrameDetailed({
+    assetBuffer: input,
+    brandKit: PINK_KIT, // logo_urls: ['/virtual/logo.png']
+    channel: 'instagram',
+    postType: 'single_image',
+    logoLoader: loader,
+    logoSource: '/data/generated/validated/15/logo.png',
+    border: false,
+  });
+  assert.equal(requested, '/data/generated/validated/15/logo.png');
+});
+
+test('conditional scrim darkens the patch behind the logo on a bright background', async () => {
+  const input = await makeSolidPng(800, 800, { r: 255, g: 255, b: 255 }); // luma 255 > threshold
+  const logo = await makeLogoPng();
+  const result = await applyBrandFrameDetailed({
+    assetBuffer: input,
+    brandKit: PINK_KIT,
+    channel: 'instagram',
+    postType: 'single_image',
+    logoLoader: loaderReturning(logo),
+    border: false,
+  });
+  // Sample the scrim ring just left of the logo box (logo at left≈680; ring 668..680).
+  const px = await pixelAt(result.buffer, 674, 728);
+  assert.ok(px[1] < 240, `expected scrim to darken green channel below 240, got ${px[1]}`);
+});
+
+test('no scrim is added when the patch under the logo is below the luma threshold', async () => {
+  const input = await makeSolidPng(800, 800, { r: 100, g: 100, b: 100 }); // luma 100 < threshold
+  const logo = await makeLogoPng();
+  const result = await applyBrandFrameDetailed({
+    assetBuffer: input,
+    brandKit: PINK_KIT,
+    channel: 'instagram',
+    postType: 'single_image',
+    logoLoader: loaderReturning(logo),
+    border: false,
+  });
+  const px = await pixelAt(result.buffer, 674, 728);
+  // A 45% black scrim would push 100 toward ~55; without it the ring stays ~100.
+  assert.ok(px[1] > 80, `expected no scrim (ring channel ~100), got ${px[1]}`);
+});
