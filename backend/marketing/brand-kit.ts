@@ -1429,6 +1429,38 @@ async function writeMaterializedLogo(
   return dest;
 }
 
+// Read a response body into a Buffer with a HARD byte cap, streaming so a host
+// that omits or lies about Content-Length cannot buffer unbounded bytes into
+// memory. Returns null when the stream exceeds maxBytes or the body is missing.
+async function readBodyCapped(response: Response, maxBytes: number): Promise<Buffer | null> {
+  const body = response.body;
+  if (!body) {
+    // No stream (e.g. an injected test fetch): bounded arrayBuffer fallback.
+    const buf = Buffer.from(await response.arrayBuffer());
+    return buf.byteLength > maxBytes ? null : buf;
+  }
+  const reader = body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        total += value.byteLength;
+        if (total > maxBytes) {
+          await reader.cancel().catch(() => {});
+          return null;
+        }
+        chunks.push(Buffer.from(value));
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks);
+}
+
 /**
  * Materialize the first usable logo from the (pre-ranked) logo_urls list.
  * Returns the local file path, or null when none could be fetched/decoded.
@@ -1468,9 +1500,13 @@ export async function downloadAndMaterializeLogo(input: {
         .trim()
         .toLowerCase();
       if (!LOGO_MIME_EXT[contentType]) continue;
+      // Fast-path reject on a declared oversize length, but never trust it — a
+      // host can omit or lie about Content-Length, so the real cap is the
+      // streaming read below.
       const declaredLength = Number(response.headers.get('content-length') || '0');
       if (Number.isFinite(declaredLength) && declaredLength > MAX_LOGO_BYTES) continue;
-      const buf = Buffer.from(await response.arrayBuffer());
+      const buf = await readBodyCapped(response, MAX_LOGO_BYTES);
+      if (!buf) continue;
       const out = await writeMaterializedLogo(tenantId, contentType, buf);
       if (out) return out;
     } catch {

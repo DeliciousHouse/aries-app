@@ -532,3 +532,52 @@ test('ingest: flag OFF leaves an eligible asset unframed (raw passthrough) even 
     }
   });
 });
+
+test('ingest: framing deletes any pre-existing raw twin (OFF->ON flag flip safety)', async () => {
+  const dataRoot = path.join(tmpdir(), `aries-ingest-twin-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  await withCompositeEnv(dataRoot, async () => {
+    await withHermesMediaMount(async (mount, hostImagePath) => {
+      const basename = 'feed.png';
+      await writeFile(path.join(mount, basename), await realPng(800, 800, { r: 255, g: 255, b: 255 }));
+      const doc = makeDoc({ creativeAssets: [{ assetId: 'img_1', type: 'generated_image', path: hostImagePath(basename) }] });
+      const { pool, calls } = makeMockPool(1);
+      await ingestProductionCreativeAssetsToDb({
+        jobId: 'mkt_twin',
+        tenantId: 15,
+        doc,
+        pool,
+        brandKit: FRAME_BRAND_KIT,
+        logoLoader: async () => realPng(64, 64, { r: 255, g: 0, b: 255 }),
+      });
+      const del = calls.find((c) => /DELETE FROM creative_assets/i.test(c.sql));
+      assert.ok(del, 'framing must issue a raw-twin DELETE');
+      assert.ok(/storage_kind = 'runtime_asset'/.test(del!.sql), 'DELETE must target only the raw twin');
+      assert.deepEqual(del!.params, [15, 'mkt_twin', 'img_1'], 'DELETE keyed on (tenant, job, source_asset_id)');
+    });
+  });
+});
+
+test('ingest: no raw-twin DELETE is issued when not framing (flag off)', async () => {
+  await withHermesMediaMount(async (mount, hostImagePath) => {
+    const prevFlag = process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED;
+    delete process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED;
+    try {
+      const basename = 'feed.png';
+      await writeFile(path.join(mount, basename), await realPng(400, 400, { r: 255, g: 255, b: 255 }));
+      const doc = makeDoc({ creativeAssets: [{ assetId: 'img_1', type: 'generated_image', path: hostImagePath(basename) }] });
+      const { pool, calls } = makeMockPool(1);
+      await ingestProductionCreativeAssetsToDb({
+        jobId: 'mkt_off',
+        tenantId: 15,
+        doc,
+        pool,
+        brandKit: FRAME_BRAND_KIT,
+        logoLoader: async () => realPng(64, 64, { r: 255, g: 0, b: 255 }),
+      });
+      assert.ok(!calls.some((c) => /DELETE FROM creative_assets/i.test(c.sql)), 'flag off must not delete anything');
+    } finally {
+      if (prevFlag === undefined) delete process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED;
+      else process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED = prevFlag;
+    }
+  });
+});

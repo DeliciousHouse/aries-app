@@ -144,6 +144,31 @@ test('downloadAndMaterializeLogo: private/metadata host is skipped without throw
   });
 });
 
+test('downloadAndMaterializeLogo: streaming byte cap rejects an oversize body with no content-length', async () => {
+  await withDataRoot(async () => {
+    const { downloadAndMaterializeLogo } = await import('../backend/marketing/brand-kit');
+    const oneMb = new Uint8Array(1024 * 1024);
+    // 6MB streamed across chunks with NO content-length header — the declared
+    // length fast-path can't catch it; the streaming cap must.
+    const streaming = () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            for (let i = 0; i < 6; i += 1) controller.enqueue(oneMb);
+            controller.close();
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'image/png' } },
+      );
+    const out = await downloadAndMaterializeLogo({
+      tenantId: '7',
+      logoUrls: ['https://example.com/huge-stream.png'],
+      fetchImpl: (async () => streaming()) as unknown as typeof fetch,
+    });
+    assert.equal(out, null, 'oversize streamed body (no content-length) must be capped to null');
+  });
+});
+
 test('downloadAndMaterializeLogo: empty list returns null', async () => {
   await withDataRoot(async () => {
     const { downloadAndMaterializeLogo } = await import('../backend/marketing/brand-kit');

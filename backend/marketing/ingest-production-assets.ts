@@ -29,6 +29,7 @@ import {
   type LogoLoader,
 } from '@/backend/creative-memory/frame-overlay';
 import { isFeedLogoCompositeEnabled } from '@/backend/social-content/feed-logo-composite-env';
+import { resolveDataPath } from '@/lib/runtime-paths';
 
 import type { SocialContentJobRuntimeDocument } from './runtime-state';
 
@@ -189,6 +190,20 @@ const INSERT_PRODUCTION_ASSET_SQL = `
   RETURNING id
 `;
 
+// When framing replaces an asset, drop any pre-existing RAW row for the same
+// (tenant, job, source_asset_id). Without this, flipping the composite flag ON
+// for a job already ingested while OFF would leave a raw + framed twin — and
+// synthesize-publish-posts maps rows by index order, so a twin mis-aligns every
+// post. Idempotent: once only the framed row remains, it deletes nothing.
+const DELETE_RAW_TWIN_SQL = `
+  DELETE FROM creative_assets
+   WHERE tenant_id = $1
+     AND source_job_id = $2
+     AND source_asset_id = $3
+     AND source_type = 'generated_by_aries'
+     AND storage_kind = 'runtime_asset'
+`;
+
 export async function ingestProductionCreativeAssetsToDb(
   args: IngestProductionAssetsArgs,
 ): Promise<IngestProductionAssetsResult> {
@@ -273,9 +288,10 @@ export async function ingestProductionCreativeAssetsToDb(
             // under DATA_ROOT and repoint storage so the id media route serves
             // the framed copy (mirrors persistComposedStoryAsset's scheme).
             const sha = crypto.createHash('sha256').update(framed).digest('hex');
-            const dataRoot = process.env.DATA_ROOT ?? '/data';
-            storageKey = path.join(
-              dataRoot,
+            // Resolve through the shared data-root helper so the framed-bytes
+            // writer and the id media route (which reads via the same resolver)
+            // can never diverge, even when DATA_ROOT is unset.
+            storageKey = resolveDataPath(
               'ingested-assets',
               String(tenantId),
               sha.slice(0, 2),
@@ -323,6 +339,13 @@ export async function ingestProductionCreativeAssetsToDb(
         inserted++;
       } else {
         skipped++;
+      }
+
+      // The framed row now exists (just inserted or already present via ON
+      // CONFLICT); remove any stale raw twin so post->image mapping stays
+      // one-row-per-asset across an OFF->ON flag flip.
+      if (storageKind === 'ingested_asset') {
+        await pool.query(DELETE_RAW_TWIN_SQL, [tenantId, jobId, sourceAssetId]);
       }
     } catch (err) {
       console.warn('[ingest-production-assets] row failed — skipping', {
