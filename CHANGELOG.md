@@ -2,6 +2,46 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.20 — feat(marketing): brand taste-learning loop (tenant-scoped, default OFF)
+
+PR2 of the brand-learning track (PR1 was the logo composite, v0.1.15.19). A
+taste-learning loop for the **userless weekly run**: operator edits in the
+review tray (approve / reject / regenerate / delete) teach a **tenant-scoped**
+taste profile on the brand's visual-style lens, which is then folded back into
+the next weekly production brief. Behind **two independent default-OFF flags**,
+so the shipped default is byte-identical to today.
+
+- **Tenant-scoped taste store** (`backend/marketing/taste-profile-store.ts`) —
+  a new `applyTenantTasteSignal` / `getTasteForTenant` / `loadTasteForBriefByTenant`
+  path keyed on the `user_id IS NULL` row (the tenant aggregate the weekly run
+  biases against, no cross-user merge). The existing onboarding per-user
+  `applyTasteSignal` is left byte-identical.
+- **Schema migration** (`migrations/20260609000000_marketing_taste_tenant_scoped.sql`
+  + mirrored idempotent ALTERs in `scripts/init-db.js`) — drops the
+  `(tenant_id,user_id)` PK and re-establishes uniqueness with **two indexes**:
+  `(tenant_id,user_id)` keeps onboarding's `ON CONFLICT` working, and the partial
+  `(tenant_id) WHERE user_id IS NULL` is the inference target for the weekly
+  upsert. Also stamps a generation-time `style_dimension`/`style_value` lens on
+  synthesized `posts`. Additive + idempotent; proven against real Postgres 16.
+- **Brief read path** (`ARIES_TASTE_BRIEF_INJECTION_ENABLED`, default OFF) — the
+  decayed tenant taste is preloaded in the Hermes port and merged into the
+  production brand block (style, voice, must-avoid, audience). Append-only +
+  no-op on empty, so a null/empty projection or flag-OFF leaves the prompt
+  byte-identical (golden-tested).
+- **Edit producers** (`ARIES_POST_EDIT_TASTE_LEARNING_ENABLED`, default OFF) —
+  review-decision, regenerate, and delete hooks write a tenant taste signal on
+  the visual-style lens. Every producer is flag-gated, best-effort, and
+  never throws, so a taste-write failure can never break the operator action.
+- **Review-driven hardening** — the per-creative review-decision call site's
+  double-count guard (creative items WITH an `assetId` teach taste; publish-
+  preview launch-gate items, which also carry `reviewType: 'creative'` but no
+  `assetId`, are skipped) is extracted into a pure, unit-tested
+  `creativeReviewTasteOutcome` helper so that author-flagged correctness branch
+  has explicit coverage.
+
+Ships fully dormant; flip the flags only after the schema migration is applied
+and a freshly generated weekly brief is screenshot-verified on a live tenant.
+
 ## v0.1.15.19 — fix(insights): backfill insights_comments.is_replied so Sections 7/1/3/5 don't 500
 
 PR #561 added the `is_replied` column **inline inside** `CREATE TABLE IF NOT

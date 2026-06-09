@@ -99,6 +99,15 @@ services:
       # First-post onboarding 3-variant board → taste profile rollout switch.
       # Default OFF: onboarding stays byte-identical to today (single weekly job).
       ARIES_ONBOARDING_VARIANT_BOARD_ENABLED: ${ARIES_ONBOARDING_VARIANT_BOARD_ENABLED:-0}
+      # Bias the weekly production image brief toward the learned per-tenant taste
+      # profile (marketing_taste_profile). Default OFF; brief is byte-identical
+      # until flipped + screenshot-verified.
+      ARIES_TASTE_BRIEF_INJECTION_ENABLED: ${ARIES_TASTE_BRIEF_INJECTION_ENABLED:-0}
+      # Learn taste from operator post edits on the userless weekly run (stamp a
+      # visual-style lens at synthesis; review-reject/regenerate/delete write a
+      # tenant-scoped taste signal). Default OFF. Needs the 20260609 taste-scope
+      # migration. Turn this ON first to accumulate signal, then the injection flag.
+      ARIES_POST_EDIT_TASTE_LEARNING_ENABLED: ${ARIES_POST_EDIT_TASTE_LEARNING_ENABLED:-0}
       # 2026-05-23: flipped ON per TODOS rollout. Narrow first-name-denylist
       # heuristic replaces the legacy /[A-Z][a-z]+\s+[A-Z][a-z]+/ regex in
       # backend/memory/write-events.ts::scrubPreferenceLabelForHoncho. Effect:

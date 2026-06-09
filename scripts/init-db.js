@@ -489,6 +489,14 @@ async function initDb() {
       ALTER TABLE posts DROP CONSTRAINT IF EXISTS posts_surface_check;
       ALTER TABLE posts ADD CONSTRAINT posts_surface_check CHECK (surface IN ('feed','story','reel'));
 
+      -- Generation-time visual-style lens stamped on synthesized posts so a later
+      -- operator edit (regenerate/delete/review-reject) has a concrete
+      -- (dimension,value) to mark approved/rejected with no per-edit LLM. Nullable
+      -- + no default: a pre-stamp/legacy post stays NULL and is skipped by the
+      -- taste producers. See migrations/20260609000000_marketing_taste_tenant_scoped.sql.
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS style_dimension TEXT;
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS style_value TEXT;
+
       -- Vision QA runs table for brand compliance checks
       CREATE TABLE IF NOT EXISTS vision_qa_runs (
         id BIGSERIAL PRIMARY KEY,
@@ -592,23 +600,30 @@ async function initDb() {
       -- per-value counters; confidence + 5%/week decay are computed at READ time
       -- in backend/marketing/taste-profile-store.ts. tenant_id/user_id INTEGER
       -- match organizations.id/users.id (int4) -- do not use BIGINT.
+      -- user_id is NULLABLE: a real SQL NULL identifies the tenant-scoped row used
+      -- by the userless weekly run (NOT a sentinel int — still an FK to users).
+      -- Uniqueness comes from the two indexes added below, not a PK, so a
+      -- (tenant, NULL) row and per-user rows can coexist. See
+      -- migrations/20260609000000_marketing_taste_tenant_scoped.sql.
       CREATE TABLE IF NOT EXISTS marketing_taste_profile (
         tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
         dimensions JSONB NOT NULL DEFAULT '{}'::jsonb,
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        PRIMARY KEY (tenant_id, user_id)
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
 
-      -- Append-only event log: one row per pick/rate/edit signal on a variant.
+      -- Append-only event log: one row per pick/rate/edit signal on a variant
+      -- (onboarding) or per-tenant edit signal (weekly run). user_id /
+      -- variant_batch_id / variant_id are NULLABLE so a userless/non-variant
+      -- signal row can be appended.
       CREATE TABLE IF NOT EXISTS marketing_taste_signal (
         id BIGSERIAL PRIMARY KEY,
         tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
         job_id TEXT NOT NULL,
-        variant_batch_id TEXT NOT NULL,
+        variant_batch_id TEXT,
         slot_index INT NOT NULL DEFAULT 0,
-        variant_id TEXT NOT NULL,
+        variant_id TEXT,
         picked BOOLEAN NOT NULL DEFAULT FALSE,
         rating INT,
         edit_ops JSONB,
@@ -618,6 +633,23 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_marketing_taste_signal_tenant_user ON marketing_taste_signal (tenant_id, user_id);
       CREATE INDEX IF NOT EXISTS idx_marketing_taste_signal_batch ON marketing_taste_signal (variant_batch_id);
       CREATE INDEX IF NOT EXISTS idx_marketing_taste_signal_tenant_user_created ON marketing_taste_signal (tenant_id, user_id, created_at DESC);
+
+      -- PR2 tenant-scoped relaxation (reaches an EXISTING prod table, which the
+      -- CREATE TABLE IF NOT EXISTS above does not). Idempotent + re-runnable on
+      -- every container start. Drop the (tenant_id,user_id) PK so a tenant-scoped
+      -- (user_id NULL) row is allowed; re-establish uniqueness via two indexes:
+      --   * (tenant_id, user_id) keeps the onboarding ON CONFLICT (tenant_id,user_id) upsert working;
+      --   * partial (tenant_id) WHERE user_id IS NULL enforces one tenant row and
+      --     is the inference target for the weekly upsert.
+      ALTER TABLE marketing_taste_profile DROP CONSTRAINT IF EXISTS marketing_taste_profile_pkey;
+      ALTER TABLE marketing_taste_profile ALTER COLUMN user_id DROP NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_marketing_taste_profile_tenant_user
+        ON marketing_taste_profile (tenant_id, user_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_marketing_taste_profile_tenant_only
+        ON marketing_taste_profile (tenant_id) WHERE user_id IS NULL;
+      ALTER TABLE marketing_taste_signal ALTER COLUMN user_id DROP NOT NULL;
+      ALTER TABLE marketing_taste_signal ALTER COLUMN variant_batch_id DROP NOT NULL;
+      ALTER TABLE marketing_taste_signal ALTER COLUMN variant_id DROP NOT NULL;
 
       CREATE TABLE IF NOT EXISTS honcho_write_idempotency_keys (
         key TEXT PRIMARY KEY,

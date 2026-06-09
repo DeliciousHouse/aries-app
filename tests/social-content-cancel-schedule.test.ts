@@ -31,7 +31,7 @@ function buildScheduleQueryable(opts: {
   const query = async (sql: string, params: unknown[]): Promise<QueryResult> => {
     const trimmed = sql.trim();
     calls.push({ sql: trimmed, params });
-    if (trimmed.startsWith('SELECT id, tenant_id FROM posts')) {
+    if (trimmed.startsWith('SELECT id, tenant_id')) {
       if (!opts.postExists) return { rows: [], rowCount: 0 };
       const [postId, tenantId] = params as [number, number];
       return { rows: [{ id: postId, tenant_id: tenantId }], rowCount: 1 };
@@ -61,7 +61,7 @@ function buildPostQueryable(opts: {
   const query = async (sql: string, params: unknown[]): Promise<QueryResult> => {
     const trimmed = sql.trim();
     calls.push({ sql: trimmed, params });
-    if (trimmed.startsWith('SELECT id, tenant_id FROM posts')) {
+    if (trimmed.startsWith('SELECT id, tenant_id')) {
       if (!opts.postExists) return { rows: [], rowCount: 0 };
       const [postId, tenantId] = params as [number, number];
       return { rows: [{ id: postId, tenant_id: tenantId }], rowCount: 1 };

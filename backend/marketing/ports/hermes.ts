@@ -28,6 +28,8 @@ import {
   buildSocialContentWeeklyRequest,
   ensureFreshBrandKitForWeeklyRun,
 } from '../../social-content/workflow-request';
+import { isTasteBriefInjectionEnabled } from '../taste-brief-injection-env';
+import { loadTasteForBriefByTenant, type TasteDimensions } from '../taste-profile-store';
 import type {
   HermesWorkflowOutput,
   MarketingExecutionResult,
@@ -710,8 +712,16 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       ? await loadSocialContentJobRuntime(input.jobId).catch(() => null)
       : null;
 
+    // PR2: preload the per-tenant taste projection here (async, tenantId in
+    // scope) so the synchronous submissionPayload/buildProductionResumeContext
+    // does no DB read. Flag-gated + fail-open: a taste read failure must never
+    // block a production submission, so it degrades to null (byte-identical brief).
+    const tasteProjection = isWeeklyResume && input.tenantId && isTasteBriefInjectionEnabled()
+      ? await loadTasteForBriefByTenant(input.tenantId).catch(() => null)
+      : null;
+
     const payload = this.submissionPayload(
-      action, run.aries_run_id, resolvedInput, workflowKey, callbackToken, memoryContextSnapshot, productionDoc,
+      action, run.aries_run_id, resolvedInput, workflowKey, callbackToken, memoryContextSnapshot, productionDoc, tasteProjection,
     );
     const idempotencyKey = typeof payload.idempotency_key === 'string' ? payload.idempotency_key : '';
 
@@ -1144,6 +1154,8 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     memoryContextSnapshot?: ResearchMemoryContextEntry[],
     /** Pre-loaded marketing job doc, used for production-resume rich prompt injection. */
     productionDoc?: SocialContentJobRuntimeDocument | null,
+    /** Pre-loaded per-tenant taste projection (PR2), spliced into the production brief. */
+    tasteProjection?: TasteDimensions | null,
   ): Record<string, unknown> {
     const callbackAuth = {
       type: 'internal_api_secret_bearer',
@@ -1219,6 +1231,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
           doc: productionDoc,
           researchOutput: (productionDoc.stages.research?.primary_output ?? null) as Record<string, unknown> | null,
           strategyOutput: (productionDoc.stages.strategy?.primary_output ?? null) as Record<string, unknown> | null,
+          tasteProjection,
         });
         baseRunLines.push('', ctx.contextBlock);
       }
