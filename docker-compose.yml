@@ -109,10 +109,16 @@ services:
       # migration. Turn this ON first to accumulate signal, then the injection flag.
       ARIES_POST_EDIT_TASTE_LEARNING_ENABLED: ${ARIES_POST_EDIT_TASTE_LEARNING_ENABLED:-0}
       # Outbound Slack approval notifications (Phase 4 PR2). Default OFF: the
-      # marketing callback path is byte-identical to today. When ON, also needs
-      # SLACK_BOT_TOKEN (chat:write) + SLACK_NOTIFY_CHANNEL via env_file. Best-effort,
-      # deduped per (job, stage); a Slack failure never breaks the pipeline.
+      # marketing callback path is byte-identical to today. When ON, set
+      # SLACK_BOT_TOKEN (needs the chat:write scope) + SLACK_NOTIFY_CHANNEL in the
+      # host .env — this compose has NO env_file, so they reach the container only
+      # via the ${...} interpolation on the two lines below. Best-effort, deduped
+      # per (job, stage); a Slack failure never breaks the pipeline. The Hermes
+      # reconciler runs INSIDE this container (start-runtime.mjs), so only the
+      # aries-app service needs these — the sidecar workers do not notify.
       ARIES_SLACK_NOTIFICATIONS_ENABLED: ${ARIES_SLACK_NOTIFICATIONS_ENABLED:-0}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SLACK_NOTIFY_CHANNEL: ${SLACK_NOTIFY_CHANNEL:-}
       # 2026-05-23: flipped ON per TODOS rollout. Narrow first-name-denylist
       # heuristic replaces the legacy /[A-Z][a-z]+\s+[A-Z][a-z]+/ regex in
       # backend/memory/write-events.ts::scrubPreferenceLabelForHoncho. Effect:
