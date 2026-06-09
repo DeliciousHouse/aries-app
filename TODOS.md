@@ -114,7 +114,9 @@ _Effort revised from M after eng review locked in 7 architecture decisions._
 
 **Context:** Surfaced in post-hoc review of PR #293 (2026-05-11). Drawer placeholder is lowercase so happy-path testing missed it. Consider dropping the name-scrub entirely (this field is not user-authored) or replacing with a stricter signal (e.g. only redact when adjacent to other PII markers).
 
-**Status (2026-05-12, rollout pending):** Narrow first-name-denylist heuristic implemented in `backend/memory/write-events.ts` (`scrubPreferenceLabelForHoncho`) and gated behind env flag `ARIES_MEMORY_LABEL_REDACTION_V2=1`. Default remains the legacy broad regex; flip the flag in production once the team has validated. Regression + behavior tests in `tests/memory-label-redaction.test.ts`. Email redaction unchanged.
+**Status (2026-05-12, rollout pending):** Narrow first-name-denylist heuristic implemented in `backend/memory/write-events.ts` (`scrubPreferenceLabelForHoncho`) and gated behind env flag `ARIES_MEMORY_LABEL_REDACTION_V2=1`. Regression + behavior tests in `tests/memory-label-redaction.test.ts`. Email redaction unchanged.
+
+**Update (2026-06-09):** the shipped container now defaults this **ON** — `docker-compose.yml` pins `ARIES_MEMORY_LABEL_REDACTION_V2:-1` (v2 narrow heuristic), so prod runs v2. The *code* default when the env var is entirely unset is still the legacy v1 broad regex. Set `0` to force legacy v1. Remaining rollout work: confirm v2 behavior on the live tenant and decide whether to graduate (make v2 unconditional + delete the v1 branch).
 
 **Effort:** XS
 **Priority:** P3
