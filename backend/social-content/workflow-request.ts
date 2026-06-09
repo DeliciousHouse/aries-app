@@ -22,6 +22,7 @@ import {
   resolveSocialContentAspectRatio,
   type SocialContentAspectRatio,
 } from './aspect-matrix';
+import { isFeedLogoCompositeEnabled } from './feed-logo-composite-env';
 import {
   SOCIAL_CONTENT_DEFAULT_SCOPE,
   SOCIAL_CONTENT_FORBIDDEN_VISUAL_PATTERNS,
@@ -298,6 +299,9 @@ export function buildProductionResumeContext(input: {
   const brandLogoUrl = brandKitPayload.brand.logo_urls.find((url) => !url.startsWith('data:'))
     ?? brandKitPayload.brand.logo_urls[0]
     ?? null;
+  // When ON, Aries composites the real logo onto the rendered image afterward,
+  // so the model must NOT draw one (else the final image carries two logos).
+  const feedLogoComposite = isFeedLogoCompositeEnabled();
   const mustAvoid = brandKitPayload.brand.must_avoid_aesthetics;
   const configuredChannels = stringArray(req.channels);
   const imageTargetChannels = weeklySocialChannels(configuredChannels);
@@ -408,7 +412,11 @@ export function buildProductionResumeContext(input: {
     } else if (brandBackground) {
       lines.push(`Brand background: ${brandBackground} — keep backgrounds consistent with this brand color.`);
     }
-    if (brandLogoUrl) {
+    if (feedLogoComposite) {
+      lines.push(
+        `Do NOT render, draw, or include any logo, wordmark, or brand mark in this image — the brand logo is added separately afterward. Keep the lower-right corner clean and uncluttered so a small logo can be placed there.`,
+      );
+    } else if (brandLogoUrl) {
       lines.push(
         `Brand logo: ${brandLogoUrl} — use the actual brand logo when a mark is shown; do NOT invent, redraw, or substitute a different logo.`,
       );

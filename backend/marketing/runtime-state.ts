@@ -441,6 +441,7 @@ export function marketingBrandKitReferenceFromTenantBrandKit(
     canonical_url: brandKit.canonical_url,
     brand_name: brandKit.brand_name,
     logo_urls: [...brandKit.logo_urls],
+    logo_file_path: brandKit.logo_file_path ?? null,
     colors: {
       primary: brandKit.colors.primary,
       secondary: brandKit.colors.secondary,

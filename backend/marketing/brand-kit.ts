@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { ssrfSafeFetch } from '@/lib/ssrf-safe-fetch';
@@ -33,6 +33,15 @@ export type TenantBrandKit = {
   canonical_url: string | null;
   brand_name: string;
   logo_urls: string[];
+  /**
+   * Server-local filesystem path to the materialized logo bytes (sibling of
+   * brand-kit.json under generated/validated/<tenant>/). Populated by
+   * downloadAndMaterializeLogo during enrichment, or lazily on a cached-kit
+   * reuse. null/absent when no usable logo could be downloaded. Optional so
+   * kits written before this shipped still parse. Absolute path under
+   * DATA_ROOT — must NOT be leaked raw to the browser.
+   */
+  logo_file_path?: string | null;
   colors: TenantBrandColors;
   font_families: string[];
   external_links: TenantBrandLink[];
@@ -1368,6 +1377,146 @@ async function fetchText(
   return response.text();
 }
 
+// --- Logo materialization -------------------------------------------------
+// Download the chosen brand logo bytes ONCE and store them next to
+// brand-kit.json, so the marketing pipeline can composite the real mark onto
+// generated creative (frame-overlay) instead of handing Hermes a remote URL it
+// usually cannot fetch. All network fetches route through ssrfSafeFetch (same
+// guard as fetchText); data: URIs are handled offline before any fetch because
+// ssrfSafeFetch rejects the data: protocol. Best-effort + fail-closed: any
+// failure returns null and never throws out of enrichment.
+
+const MAX_LOGO_BYTES = 5 * 1024 * 1024;
+const LOGO_FETCH_TIMEOUT_MS = 8000;
+const LOGO_MIME_EXT: Record<string, string> = {
+  'image/svg+xml': '.svg',
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/jpg': '.jpg',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+};
+
+function parseDataUriLogo(dataUri: string): { mime: string; buf: Buffer } | null {
+  const comma = dataUri.indexOf(',');
+  if (comma < 0) return null;
+  const meta = dataUri.slice('data:'.length, comma);
+  const payload = dataUri.slice(comma + 1);
+  const semi = meta.indexOf(';');
+  const mime = (semi >= 0 ? meta.slice(0, semi) : meta).trim().toLowerCase();
+  const isBase64 = /;base64/i.test(meta);
+  try {
+    const buf = isBase64
+      ? Buffer.from(payload, 'base64')
+      : Buffer.from(decodeURIComponent(payload), 'utf8');
+    return { mime, buf };
+  } catch {
+    return null;
+  }
+}
+
+async function writeMaterializedLogo(
+  tenantId: string,
+  mime: string,
+  buf: Buffer,
+): Promise<string | null> {
+  const ext = LOGO_MIME_EXT[mime];
+  if (!ext) return null;
+  if (buf.byteLength === 0 || buf.byteLength > MAX_LOGO_BYTES) return null;
+  const dest = resolveDataPath('generated', 'validated', tenantId, `logo${ext}`);
+  await mkdir(path.dirname(dest), { recursive: true });
+  await writeFile(dest, buf);
+  return dest;
+}
+
+// Read a response body into a Buffer with a HARD byte cap, streaming so a host
+// that omits or lies about Content-Length cannot buffer unbounded bytes into
+// memory. Returns null when the stream exceeds maxBytes or the body is missing.
+async function readBodyCapped(response: Response, maxBytes: number): Promise<Buffer | null> {
+  const body = response.body;
+  if (!body) {
+    // No stream (e.g. an injected test fetch): bounded arrayBuffer fallback.
+    const buf = Buffer.from(await response.arrayBuffer());
+    return buf.byteLength > maxBytes ? null : buf;
+  }
+  const reader = body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        total += value.byteLength;
+        if (total > maxBytes) {
+          await reader.cancel().catch(() => {});
+          return null;
+        }
+        chunks.push(Buffer.from(value));
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks);
+}
+
+/**
+ * Materialize the first usable logo from the (pre-ranked) logo_urls list.
+ * Returns the local file path, or null when none could be fetched/decoded.
+ * Never throws.
+ */
+export async function downloadAndMaterializeLogo(input: {
+  tenantId: string;
+  logoUrls: readonly string[];
+  fetchImpl?: typeof fetch;
+}): Promise<string | null> {
+  const { tenantId, logoUrls, fetchImpl } = input;
+  for (const raw of logoUrls) {
+    const url = typeof raw === 'string' ? raw.trim() : '';
+    if (!url) continue;
+    try {
+      if (url.startsWith('data:')) {
+        const parsed = parseDataUriLogo(url);
+        if (!parsed) continue;
+        const out = await writeMaterializedLogo(tenantId, parsed.mime, parsed.buf);
+        if (out) return out;
+        continue;
+      }
+      const response = await ssrfSafeFetch(
+        url,
+        {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; AriesBot/1.0)',
+            Accept: 'image/*',
+          },
+          signal: AbortSignal.timeout(LOGO_FETCH_TIMEOUT_MS),
+        },
+        { fetchImpl },
+      );
+      if (!response.ok) continue;
+      const contentType = (response.headers.get('content-type') || '')
+        .split(';')[0]
+        .trim()
+        .toLowerCase();
+      if (!LOGO_MIME_EXT[contentType]) continue;
+      // Fast-path reject on a declared oversize length, but never trust it — a
+      // host can omit or lie about Content-Length, so the real cap is the
+      // streaming read below.
+      const declaredLength = Number(response.headers.get('content-length') || '0');
+      if (Number.isFinite(declaredLength) && declaredLength > MAX_LOGO_BYTES) continue;
+      const buf = await readBodyCapped(response, MAX_LOGO_BYTES);
+      if (!buf) continue;
+      const out = await writeMaterializedLogo(tenantId, contentType, buf);
+      if (out) return out;
+    } catch {
+      // ssrf_blocked:* / timeout / DNS / decode failure — try the next candidate.
+      continue;
+    }
+  }
+  return null;
+}
+
 function normalizeLogoUrls(urls: string[]): string[] {
   const candidates: LogoCandidate[] = urls.map((url) => {
     const source = inferLogoSourceFromUrl(url);
@@ -1463,6 +1612,9 @@ function normalizePersistedBrandKit(brandKit: TenantBrandKit): TenantBrandKit {
     canonical_url: brandKit.canonical_url ?? null,
     brand_name: sanitizedBrandName,
     logo_urls: normalizedSignals.logo_urls,
+    // Read straight off the incoming kit — normalizeBrandKitSignals' return
+    // shape is shared with external signal callers and must not carry this.
+    logo_file_path: brandKit.logo_file_path ?? null,
     colors: normalizedSignals.colors,
     font_families: normalizedSignals.font_families,
     external_links: Array.isArray(brandKit.external_links) ? brandKit.external_links : [],
@@ -1674,10 +1826,19 @@ export async function extractEnrichAndSaveTenantBrandKit(input: {
           input.operatorOverrides,
         )
       : existing;
+    // NOTE: the cached fast-path stays network-free (it must not pay an LLM or
+    // logo-download round-trip). Logo materialization happens on the enrichment
+    // path below; kits cached before this shipped are backfilled by the
+    // materialize-tenant-logo CLI (or on their next re-enrichment).
     saveTenantBrandKit(input.tenantId, withOverrides);
     return { brandKit: withOverrides, filePath: tenantBrandKitPath(input.tenantId), enriched: true };
   }
 
+  // True only when we actually scraped the website this run. Reusing an
+  // existing fresh kit must stay network-free (weekly runs reuse it), so the
+  // logo download below is gated on a genuine extraction; kits built before
+  // this feature are backfilled by scripts/marketing/materialize-tenant-logo.ts.
+  const freshlyExtracted = !(existing && isFreshBrandKit(existing, input.brandUrl));
   const scraped =
     existing && isFreshBrandKit(existing, input.brandUrl)
       ? existing
@@ -1710,6 +1871,18 @@ export async function extractEnrichAndSaveTenantBrandKit(input: {
       reason: enrichmentResult.reason,
       detail: (enrichmentResult as { detail?: string }).detail,
     });
+  }
+
+  // Materialize the real logo bytes once so downstream image compositing can
+  // use a local file instead of a remote URL Hermes cannot fetch. Only on a
+  // genuine extraction — reusing a fresh kit (weekly runs) stays network-free.
+  if (freshlyExtracted && !merged.logo_file_path && merged.logo_urls.length > 0) {
+    const logoPath = await downloadAndMaterializeLogo({
+      tenantId: input.tenantId,
+      logoUrls: merged.logo_urls,
+      fetchImpl: input.fetchImpl,
+    });
+    if (logoPath) merged.logo_file_path = logoPath;
   }
 
   const filePath = saveTenantBrandKit(input.tenantId, merged);

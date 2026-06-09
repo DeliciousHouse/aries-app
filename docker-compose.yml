@@ -92,6 +92,10 @@ services:
       # Video / Reel / Story-video publishing rollout switch. Default OFF until
       # Hermes emits media_type:"video" + per-asset video metadata (separate repo).
       ARIES_VIDEO_PUBLISH_ENABLED: ${ARIES_VIDEO_PUBLISH_ENABLED:-0}
+      # Composite the real brand logo onto generated single-image feed creatives
+      # (+ drop the "draw a logo" brief instruction). Default OFF; needs the brand
+      # kit's materialized logo_file_path. Screenshot-verify before enabling.
+      ARIES_FEED_LOGO_COMPOSITE_ENABLED: ${ARIES_FEED_LOGO_COMPOSITE_ENABLED:-0}
       # First-post onboarding 3-variant board → taste profile rollout switch.
       # Default OFF: onboarding stays byte-identical to today (single weekly job).
       ARIES_ONBOARDING_VARIANT_BOARD_ENABLED: ${ARIES_ONBOARDING_VARIANT_BOARD_ENABLED:-0}
