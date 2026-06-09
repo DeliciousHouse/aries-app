@@ -27,6 +27,7 @@ const PROVIDER_ENV_CONTRACT: Record<ProviderKey, ProviderEnvContract> = {
   reddit: { authEnv: ['REDDIT_CLIENT_ID', 'REDDIT_CLIENT_SECRET'], connectionMode: 'oauth' },
   tiktok: { authEnv: ['TIKTOK_CLIENT_KEY', 'TIKTOK_CLIENT_SECRET'], connectionMode: 'oauth' },
   openai: { authEnv: ['OPENAI_CLIENT_ID', 'OPENAI_CLIENT_SECRET'], connectionMode: 'oauth' },
+  slack: { authEnv: ['SLACK_CLIENT_ID', 'SLACK_CLIENT_SECRET'], connectionMode: 'oauth' },
 };
 
 function readEnv(name: string): string {
@@ -155,6 +156,23 @@ export function openAiClientId(): string {
 
 export function openAiClientSecret(): string {
   return readEnv('OPENAI_CLIENT_SECRET');
+}
+
+export function slackClientId(): string {
+  return readEnv('SLACK_CLIENT_ID');
+}
+
+export function slackClientSecret(): string {
+  return readEnv('SLACK_CLIENT_SECRET');
+}
+
+export function slackClientCredentials(): { clientId: string; clientSecret: string } | null {
+  const clientId = slackClientId();
+  const clientSecret = slackClientSecret();
+  if (!clientId || !clientSecret) {
+    return null;
+  }
+  return { clientId, clientSecret };
 }
 
 export function googleClientCredentials(): { clientId: string; clientSecret: string } | null {

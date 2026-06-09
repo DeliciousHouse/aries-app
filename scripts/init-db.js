@@ -61,9 +61,14 @@ async function initDb() {
       CREATE TABLE IF NOT EXISTS oauth_connections (
         id BIGSERIAL PRIMARY KEY,
         tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-        provider TEXT NOT NULL CHECK (provider IN ('facebook','instagram','linkedin','x','youtube','tiktok','reddit')),
+        provider TEXT NOT NULL CHECK (provider IN ('facebook','instagram','linkedin','x','youtube','tiktok','reddit','slack')),
         external_account_id TEXT,
         external_account_name TEXT,
+        -- Per-tenant Slack notification target (Phase 4 Option A): the channel the
+        -- bot posts approval notifications to for this tenant. NULL for non-Slack
+        -- providers and for a Slack connection before the operator picks a channel.
+        notify_channel_id TEXT,
+        notify_channel_name TEXT,
         status TEXT NOT NULL CHECK (status IN ('pending','connected','reauthorization_required','disconnected','error')),
         granted_scopes TEXT[] NOT NULL DEFAULT '{}',
         token_expires_at TIMESTAMPTZ,
@@ -108,6 +113,21 @@ async function initDb() {
         ADD COLUMN IF NOT EXISTS code_verifier TEXT;
       ALTER TABLE oauth_pending_states
         ADD COLUMN IF NOT EXISTS picker_payload JSONB;
+
+      -- Per-tenant Slack (Phase 4 Option A), applied to EXISTING databases:
+      -- widen the provider CHECK to allow 'slack' and add the notify-channel
+      -- columns. Idempotent: DROP IF EXISTS + re-ADD the constraint, ADD COLUMN
+      -- IF NOT EXISTS. No 'slack' rows can pre-exist (the old CHECK blocked them),
+      -- so re-adding the constraint never fails on existing data.
+      ALTER TABLE oauth_connections
+        DROP CONSTRAINT IF EXISTS oauth_connections_provider_check;
+      ALTER TABLE oauth_connections
+        ADD CONSTRAINT oauth_connections_provider_check
+        CHECK (provider IN ('facebook','instagram','linkedin','x','youtube','tiktok','reddit','slack'));
+      ALTER TABLE oauth_connections
+        ADD COLUMN IF NOT EXISTS notify_channel_id TEXT;
+      ALTER TABLE oauth_connections
+        ADD COLUMN IF NOT EXISTS notify_channel_name TEXT;
       CREATE TABLE IF NOT EXISTS oauth_audit_events (
         id BIGSERIAL PRIMARY KEY,
         tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,

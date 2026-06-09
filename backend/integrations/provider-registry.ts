@@ -6,11 +6,12 @@ export type ProviderKey =
   | 'youtube'
   | 'tiktok'
   | 'reddit'
-  | 'openai';
+  | 'openai'
+  | 'slack';
 
 export interface ProviderConfig {
   key: ProviderKey;
-  family: 'meta' | 'linkedin' | 'x' | 'youtube' | 'tiktok' | 'reddit' | 'openai';
+  family: 'meta' | 'linkedin' | 'x' | 'youtube' | 'tiktok' | 'reddit' | 'openai' | 'slack';
   display_name: string;
   default_scopes: string[];
   adapter: string;
@@ -68,5 +69,15 @@ export const PROVIDER_REGISTRY: Record<ProviderKey, ProviderConfig> = {
     display_name: 'ChatGPT / OpenAI',
     default_scopes: ['openid', 'profile'],
     adapter: 'openai',
+  },
+  slack: {
+    key: 'slack',
+    family: 'slack',
+    display_name: 'Slack',
+    // chat:write to post; channels:read + groups:read to list channels for the
+    // picker. No chat:write.public — we rely on the picked channel + an invite
+    // hint, so we never post to channels the bot was not added to.
+    default_scopes: ['chat:write', 'channels:read', 'groups:read'],
+    adapter: 'slack',
   },
 };
