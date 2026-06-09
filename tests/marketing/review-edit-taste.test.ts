@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  creativeReviewTasteOutcome,
   recordPostEditTasteSignal,
   recordStyleVibeTasteSignal,
 } from '../../backend/marketing/review-edit-taste';
@@ -118,4 +119,39 @@ test('visualStyleLens is the shared lens helper (stamp + producers agree)', () =
   assert.equal(visualStyleLens(''), null);
   assert.equal(visualStyleLens('   '), null);
   assert.deepEqual(visualStyleLens('  Bold Minimalist  '), { dimension: 'visual_style', value: 'Bold Minimalist' });
+});
+
+// The recordMarketingReviewDecision call-site discrimination (runtime-views.ts):
+// only a creative item WITH an assetId teaches taste; the publish-preview
+// launch-gate items carry reviewType 'creative' but NO assetId and must be
+// skipped, else the style double-counts at the publish gate. Outcome maps
+// approve => approved, everything else (reject / changes_requested) => rejected.
+test('creativeReviewTasteOutcome: creative + assetId maps the action outcome', () => {
+  assert.equal(creativeReviewTasteOutcome({ reviewType: 'creative', assetId: 'img_1' }, 'approve'), 'approved');
+  assert.equal(creativeReviewTasteOutcome({ reviewType: 'creative', assetId: 'img_1' }, 'reject'), 'rejected');
+  assert.equal(
+    creativeReviewTasteOutcome({ reviewType: 'creative', assetId: 'img_1' }, 'changes_requested'),
+    'rejected',
+    'anything that is not approve maps to rejected (mirrors the call site)',
+  );
+});
+
+test('creativeReviewTasteOutcome: creative WITHOUT assetId is skipped (launch-gate double-count guard)', () => {
+  assert.equal(
+    creativeReviewTasteOutcome({ reviewType: 'creative', assetId: null }, 'approve'),
+    null,
+    'a launch-gate creative item (no assetId) must NOT teach taste, even on approve',
+  );
+  assert.equal(creativeReviewTasteOutcome({ reviewType: 'creative', assetId: undefined }, 'approve'), null);
+  assert.equal(creativeReviewTasteOutcome({ reviewType: 'creative', assetId: '' }, 'reject'), null, 'empty assetId is falsy => skip');
+});
+
+test('creativeReviewTasteOutcome: non-creative review types are skipped', () => {
+  for (const reviewType of ['strategy', 'brand', 'workflow_approval', '', null, undefined]) {
+    assert.equal(
+      creativeReviewTasteOutcome({ reviewType, assetId: 'img_1' }, 'approve'),
+      null,
+      `reviewType ${String(reviewType)} must not teach taste`,
+    );
+  }
 });

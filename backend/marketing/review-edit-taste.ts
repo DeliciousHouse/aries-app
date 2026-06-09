@@ -61,6 +61,28 @@ export async function recordPostEditTasteSignal(
 }
 
 /**
+ * Decide the tenant-taste outcome for a per-item review decision at the
+ * recordMarketingReviewDecision call site. Pure + side-effect-free so the
+ * author-flagged double-count guard is unit-testable in isolation.
+ *
+ * Returns 'approved'/'rejected' ONLY for a creative item that carries an
+ * assetId (a real per-asset decision). Returns null for everything else:
+ *  - non-creative review types (strategy / brand / workflow_approval), and
+ *  - publish-preview launch-gate items, which also carry reviewType 'creative'
+ *    but NO assetId — counting their approval would double-count the style at
+ *    the publish gate.
+ * Mapping mirrors the call site exactly: approve => approved, everything else
+ * (reject / changes_requested) => rejected.
+ */
+export function creativeReviewTasteOutcome(
+  item: { reviewType?: string | null | undefined; assetId?: string | null | undefined },
+  action: string,
+): 'approved' | 'rejected' | null {
+  if (item.reviewType !== 'creative' || !item.assetId) return null;
+  return action === 'approve' ? 'approved' : 'rejected';
+}
+
+/**
  * Convenience producer: record a taste signal from a brand kit's style_vibe —
  * the SAME visual-style lens the post-synthesis stamp uses, so the value written
  * here matches what was stamped on the post. No-op when style_vibe is empty.
