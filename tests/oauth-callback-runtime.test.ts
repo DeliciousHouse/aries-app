@@ -22,6 +22,8 @@ const OAUTH_ENV_KEYS = [
   'REDDIT_CLIENT_ID',
   'REDDIT_CLIENT_SECRET',
   'REDDIT_USER_AGENT',
+  'SLACK_CLIENT_ID',
+  'SLACK_CLIENT_SECRET',
   'TIKTOK_CLIENT_KEY',
   'TIKTOK_CLIENT_SECRET',
 ] as const;
@@ -294,6 +296,35 @@ const providerCases: Array<{
     expectedExternalAccountId: 'yt-channel-123',
     expectedExternalAccountName: 'YouTube Test Channel',
   },
+  {
+    provider: 'slack',
+    env: {
+      SLACK_CLIENT_ID: 'slack-client-id',
+      SLACK_CLIENT_SECRET: 'slack-client-secret',
+      OAUTH_TOKEN_ENCRYPTION_KEY: BASE64_KEY,
+    },
+    scopes: ['chat:write', 'channels:read', 'groups:read'],
+    fetchImpl(url) {
+      const parsed = new URL(url);
+      if (parsed.hostname === 'slack.com' && url.includes('/api/oauth.v2.access')) {
+        return Response.json({
+          ok: true,
+          access_token: 'xoxb-slack-bot-token',
+          token_type: 'bot',
+          scope: 'chat:write,channels:read,groups:read',
+          bot_user_id: 'U-bot-1',
+          app_id: 'A-app-1',
+          team: { id: 'T-team-123', name: 'Acme Workspace' },
+          authed_user: { id: 'U-user-1' },
+        });
+      }
+      throw new Error(`Unexpected fetch URL for slack test: ${url}`);
+    },
+    expectedAccessToken: 'xoxb-slack-bot-token',
+    // Slack bot tokens do not expire and carry no refresh token.
+    expectedExternalAccountId: 'T-team-123',
+    expectedExternalAccountName: 'Acme Workspace',
+  },
 ];
 
 for (const providerCase of providerCases) {
@@ -418,6 +449,48 @@ test('facebook callback requires META_APP_ID for OAuth', async (t) => {
       assert.equal(result.broker_status, 'error');
       assert.equal(result.reason, 'provider_unavailable');
       assert.match(result.message || '', /META_APP_ID/);
+      assert.equal(db.connections.size, 0);
+      assert.equal(db.tokens.length, 0);
+    },
+  );
+});
+
+test('slack callback surfaces an exchange error when oauth.v2.access returns ok:false (HTTP 200)', async (t) => {
+  await withEnv(
+    {
+      SLACK_CLIENT_ID: 'slack-client-id',
+      SLACK_CLIENT_SECRET: 'slack-client-secret',
+      OAUTH_TOKEN_ENCRYPTION_KEY: BASE64_KEY,
+    },
+    async () => {
+      const db = createDbHarness();
+      db.pendingStates.set('state_valid_slack0', {
+        state: 'state_valid_slack0',
+        tenant_id: '123',
+        provider: 'slack',
+        redirect_uri: 'https://aries.example.com/api/auth/oauth/slack/callback',
+        scopes: ['chat:write', 'channels:read', 'groups:read'],
+        connection_id: null,
+        code_verifier: null,
+        expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
+        created_at: new Date().toISOString(),
+      });
+
+      t.mock.method(pool, 'query', db.query as typeof pool.query);
+      // Slack signals failure with HTTP 200 + { ok: false, error }, so the
+      // exchange must reject on the `ok` flag, not the HTTP status.
+      t.mock.method(globalThis, 'fetch', async () =>
+        Response.json({ ok: false, error: 'invalid_code' }),
+      );
+
+      const result = await oauthCallback('slack', {
+        code: 'provider-auth-code',
+        state: 'state_valid_slack0',
+      });
+
+      assert.equal(result.broker_status, 'error');
+      assert.equal(result.reason, 'provider_callback_error');
+      assert.match(result.message || '', /invalid_code/);
       assert.equal(db.connections.size, 0);
       assert.equal(db.tokens.length, 0);
     },

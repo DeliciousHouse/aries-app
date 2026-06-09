@@ -18,6 +18,7 @@ import {
   metaFacebookClientCredentials,
   openAiClientCredentials,
   redditClientCredentials,
+  slackClientCredentials,
   tikTokClientCredentials,
   xClientCredentials,
 } from './oauth-provider-runtime';
@@ -171,6 +172,23 @@ type OpenAiTokenResponse = {
   scope?: string;
   error?: string;
   error_description?: string;
+};
+
+type SlackOAuthV2Response = {
+  ok?: boolean;
+  access_token?: string;
+  token_type?: string;
+  scope?: string;
+  bot_user_id?: string;
+  app_id?: string;
+  team?: {
+    id?: string;
+    name?: string;
+  };
+  authed_user?: {
+    id?: string;
+  };
+  error?: string;
 };
 
 type YouTubeChannelsResponse = {
@@ -640,6 +658,47 @@ async function exchangeOpenAiCodeForToken(input: {
   };
 }
 
+async function exchangeSlackCodeForToken(input: {
+  code: string;
+  redirectUri: string;
+}): Promise<ExchangedOAuthToken> {
+  const creds = slackClientCredentials();
+  if (!creds) {
+    throw new Error('slack_oauth_not_configured');
+  }
+
+  const body = new URLSearchParams();
+  body.set('client_id', creds.clientId);
+  body.set('client_secret', creds.clientSecret);
+  body.set('code', input.code);
+  body.set('redirect_uri', input.redirectUri);
+
+  const response = await fetch('https://slack.com/api/oauth.v2.access', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  });
+  const parsed = await parseJson<SlackOAuthV2Response>(response);
+  // Slack returns HTTP 200 with `{ ok: false, error }` on failure, so the `ok`
+  // flag — not just response.ok — is the source of truth for the exchange.
+  if (!response.ok || parsed.ok !== true || !parsed.access_token) {
+    throw new Error(responseErrorMessage(parsed as Record<string, unknown>, 'Slack OAuth token exchange failed.'));
+  }
+
+  const teamId = typeof parsed.team?.id === 'string' && parsed.team.id.trim() ? parsed.team.id : null;
+  const teamName = typeof parsed.team?.name === 'string' && parsed.team.name.trim() ? parsed.team.name : null;
+
+  return {
+    // The bot token (`xoxb-`) is the top-level access_token in OAuth v2; it does
+    // not expire and has no refresh token, so expiresIn / refreshToken stay unset.
+    accessToken: parsed.access_token,
+    scope: typeof parsed.scope === 'string' ? parsed.scope : undefined,
+    tokenType: typeof parsed.token_type === 'string' ? parsed.token_type : undefined,
+    externalAccountId: teamId,
+    externalAccountName: teamName,
+  };
+}
+
 function pickerRedirectUrl(state: string): string {
   const base = process.env.APP_BASE_URL?.trim();
   const path = `/onboarding/connect/meta/select-page?state=${encodeURIComponent(state)}`;
@@ -944,6 +1003,12 @@ export async function oauthCallback(
         break;
       case 'openai':
         exchangedToken = await exchangeOpenAiCodeForToken({
+          code: query.code.trim(),
+          redirectUri: pending.redirect_uri,
+        });
+        break;
+      case 'slack':
+        exchangedToken = await exchangeSlackCodeForToken({
           code: query.code.trim(),
           redirectUri: pending.redirect_uri,
         });
