@@ -39,6 +39,7 @@ import { synthesizePublishPostsFromContentPackage } from './synthesize-publish-p
 import { composeStoryAssetForBaseCreative, resolveStoryCtaText } from './story-composer';
 import { autoSchedulePosts, type AutoScheduleInputRow } from './auto-schedule';
 import { getBusinessProfile } from '@/backend/tenant/business-profile';
+import { notifyApprovalRequired } from '@/backend/integrations/slack/notifications';
 import { pool } from '@/lib/db';
 
 const STAGE_ORDER: MarketingStage[] = ['research', 'strategy', 'production', 'publish'];
@@ -1671,16 +1672,24 @@ async function ingestProductionCreativeAssetsOnCompletion(
   }
 }
 
+/**
+ * Writes the approval checkpoint to the doc and returns the marketing stage the
+ * gate is on (or null when there is no approval to checkpoint). The caller uses
+ * the returned stage to decide whether to fire an outbound Slack "needs
+ * approval" notification — but only after `maybeAutoApproveMarketingCheckpoint`
+ * has had its chance to resume the pipeline, so an auto-approved gate is not
+ * announced as if a human still has to act.
+ */
 function createApprovalCheckpoint(
   doc: SocialContentJobRuntimeDocument,
   run: ExecutionRunRecord,
   payload: HermesRunCallbackPayload,
   socialApprovalStep: SocialContentApprovalStep | null,
   completedSocialStage: SocialContentStage | null,
-): void {
+): MarketingStage | null {
   const approval = payload.approval;
   if (!approval) {
-    return;
+    return null;
   }
 
   const marketingApprovalStage = socialApprovalStep
@@ -1734,6 +1743,8 @@ function createApprovalCheckpoint(
       artifacts: normalizeArtifacts(payload.artifacts),
     });
   }
+
+  return marketingApprovalStage;
 }
 
 export async function applyHermesMarketingCallback(
@@ -2006,9 +2017,35 @@ async function applyHermesMarketingCallbackInner(
       saveSocialContentJobRuntime(doc.job_id, doc);
       return;
     }
-    createApprovalCheckpoint(doc, run, payload, socialApprovalStep, completedSocialStage);
+    const gatedStage = createApprovalCheckpoint(doc, run, payload, socialApprovalStep, completedSocialStage);
     saveSocialContentJobRuntime(doc.job_id, doc);
     await maybeAutoApproveMarketingCheckpoint(doc, undefined, undefined, payload);
+    // PR2: outbound Slack ping ONLY when a human still has to act — i.e. the gate
+    // survived maybeAutoApproveMarketingCheckpoint (auto-approve OFF, or a gate it
+    // declined to resume). Fire-and-forget + non-fatal: a Slack failure must never
+    // break callback idempotency, and notifyApprovalRequired is a no-op unless the
+    // ARIES_SLACK_NOTIFICATIONS_ENABLED flag is on. Dedup is stable across
+    // reconciler re-delivery (keyed on job+stage, not the per-delivery approval id).
+    // Suppress for a variant-board job awaiting its pick: it holds at `publish`
+    // with status `awaiting_approval`, but the board PICK is the approval (its own
+    // UX) — a "needs approval: Publish" ping + review deep link would mislead.
+    // NOTE: if auto-approve is ON but the resume FAILED, the stage is already
+    // `running`/`failed` here (not `awaiting_approval`), so we skip the ping for
+    // that broken run — the stale-run reaper, not Slack, surfaces a wedged gate.
+    if (
+      gatedStage &&
+      doc.stages[gatedStage]?.status === 'awaiting_approval' &&
+      !isVariantBoardJobAwaitingPick(doc)
+    ) {
+      void notifyApprovalRequired({
+        tenantId: doc.tenant_id,
+        jobId: doc.job_id,
+        stage: gatedStage,
+        prompt: payload.approval?.prompt ?? null,
+        brandName: doc.brand_kit?.brand_name ?? null,
+        appBaseUrl: resolveAppBaseUrl(),
+      }).catch(() => {});
+    }
     return;
   }
 

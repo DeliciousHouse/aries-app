@@ -782,6 +782,21 @@ async function initDb() {
       );
       CREATE INDEX IF NOT EXISTS idx_slack_event_ids_received_at
         ON slack_event_ids (received_at);
+
+      -- Phase 4 PR2: OUTBOUND Slack notification dedupe. The marketing callback
+      -- is re-delivered by the reconciler under a different event_id than the
+      -- original poll-bridge delivery, so notifications dedupe on a STABLE
+      -- identity (e.g. approval:<jobId>:<stage>) via INSERT ON CONFLICT DO
+      -- NOTHING — only the first delivery for a given key pings the channel.
+      CREATE TABLE IF NOT EXISTS slack_notifications (
+        dedup_key TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        tenant_id INTEGER,
+        marketing_job_id TEXT,
+        sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_slack_notifications_sent_at
+        ON slack_notifications (sent_at);
     `);
 
     // ─── Weekly trigger schedule ─────────────────────────────────────────────────

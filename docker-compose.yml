@@ -108,6 +108,11 @@ services:
       # tenant-scoped taste signal). Default OFF. Needs the 20260609 taste-scope
       # migration. Turn this ON first to accumulate signal, then the injection flag.
       ARIES_POST_EDIT_TASTE_LEARNING_ENABLED: ${ARIES_POST_EDIT_TASTE_LEARNING_ENABLED:-0}
+      # Outbound Slack approval notifications (Phase 4 PR2). Default OFF: the
+      # marketing callback path is byte-identical to today. When ON, also needs
+      # SLACK_BOT_TOKEN (chat:write) + SLACK_NOTIFY_CHANNEL via env_file. Best-effort,
+      # deduped per (job, stage); a Slack failure never breaks the pipeline.
+      ARIES_SLACK_NOTIFICATIONS_ENABLED: ${ARIES_SLACK_NOTIFICATIONS_ENABLED:-0}
       # 2026-05-23: flipped ON per TODOS rollout. Narrow first-name-denylist
       # heuristic replaces the legacy /[A-Z][a-z]+\s+[A-Z][a-z]+/ regex in
       # backend/memory/write-events.ts::scrubPreferenceLabelForHoncho. Effect:
