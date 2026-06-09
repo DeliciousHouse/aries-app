@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.19 — fix(insights): backfill insights_comments.is_replied so Sections 7/1/3/5 don't 500
+
+PR #561 added the `is_replied` column **inline inside** `CREATE TABLE IF NOT
+EXISTS insights_comments`. But that table predates #561 on every existing
+database, so `CREATE TABLE IF NOT EXISTS` is a no-op there and the column never
+landed — confirmed absent from the live prod DB. Four insights builders read
+`c.is_replied` (conversations Sec 7, narrative Sec 1, attention Sec 3, trends
+Sec 5) and would throw `column "is_replied" does not exist` (HTTP 500) the moment
+any tenant has comment rows. It stayed silent only because `insights_comments` is
+empty in prod today.
+
+- **Idempotent `ALTER TABLE` in `scripts/init-db.js`** — added
+  `ALTER TABLE insights_comments ADD COLUMN IF NOT EXISTS is_replied BOOLEAN NOT
+  NULL DEFAULT false` next to the `content_type`/`aries_post_id` ALTERs that *did*
+  land, so existing tables backfill on container start (an inline
+  CREATE-TABLE-IF-NOT-EXISTS column alone cannot widen an existing table). The
+  inline declaration is kept too, so fresh installs and existing DBs converge.
+- **Migration record** — `migrations/20260609000000_insights_comments_is_replied.sql`.
+- **Applied to the live prod DB** on 2026-06-09 (additive, idempotent, instant on
+  the empty table); the previously-failing conversations meta query now runs.
+
 ## v0.1.15.18 — feat(marketing): draft-expiry sweep for stranded pre-publish posts (default OFF)
 
 A standing sweep that expires STRANDED pre-publish posts so the
