@@ -203,6 +203,23 @@ Synthesized from this review. Run with Claude Code; checkbox as you ship.
   - Verify: E2E connect→pick→save; **screenshot-verify in Brendan's dashboard**
 - [ ] **T5 (P2, human ~30min / CC ~5min)** — docs — CLAUDE.md env section (`SLACK_CLIENT_ID`/`SLACK_CLIENT_SECRET`, `SLACK_SINGLE_TENANT_CHANNEL`), `.env.example`, docker-compose `environment:` wiring (the two-place rule).
 
+## Build progress (handoff for a fresh session)
+
+**DONE — Foundation (commit `c28a90b`, typecheck-clean):** Slack registered into the generic provider OAuth framework. Reuses `oauth_connections`/`oauth_tokens`/`oauth_pending_states` unchanged.
+- `backend/integrations/provider-registry.ts` — `slack` in `ProviderKey` + `family` + `PROVIDER_REGISTRY` (scopes `chat:write`,`channels:read`,`groups:read`; adapter `slack`).
+- `backend/integrations/oauth-db.ts` — `slack` in `DbProvider`.
+- `backend/integrations/oauth-provider-runtime.ts` — `PROVIDER_ENV_CONTRACT.slack` (`SLACK_CLIENT_ID`/`SLACK_CLIENT_SECRET`) + `slackClientId()`/`slackClientSecret()`/`slackClientCredentials()`.
+- `backend/integrations/oauth-authorize-urls.ts` — `case 'slack'` → `https://slack.com/oauth/v2/authorize` (comma-sep `scope`, no PKCE).
+- `scripts/init-db.js` + `migrations/20260609020000_slack_oauth_provider.sql` — provider CHECK widened to include `slack`; `notify_channel_id`/`notify_channel_name` columns on `oauth_connections`.
+
+**REFINEMENT vs the plan:** the composite `(tenant_id, dedup_key)` change is **dropped** — `jobId` is a globally-unique UUID so `approval:<jobId>:<stage>` is already tenant-isolated; the composite adds a heavier migration (tenant_id NOT NULL) for no real safety. Keep `slack_notifications` PK = `dedup_key`.
+
+**REMAINING — turn-key against these verified contracts:**
+- **T1b (token exchange):** find the per-provider exchange dispatch (start at the generic callback `app/api/auth/oauth/[provider]/callback/route.ts` and `backend/integrations/connect.ts` / `backend/integrations/meta/callback.ts` for the pattern) and add a `slack` branch: POST `https://slack.com/api/oauth.v2.access` (form-encoded `client_id`/`client_secret`/`code`/`redirect_uri`), read `access_token` (bot `xoxb-`) + `team.id`/`team.name`; persist via the token store (`backend/integrations/oauth-tokens-db.ts` + `oauth-token-crypto.ts`) + `dbUpsertConnection(status:'connected', external_account_id:team.id, external_account_name:team.name)`. No refresh/PKCE.
+- **T3 (resolver):** `backend/integrations/slack/config-store.ts` `loadSlackConfigForTenant(tenantId)` → read `oauth_connections` (provider `slack`, status `connected`) for `notify_channel_id` + decrypt the bot token via the read path (`getDecryptedAccessTokenContextForTenantProvider`, `backend/integrations/oauth-credentials.ts`); return `{botToken, channel}` | null. If null + `SLACK_SINGLE_TENANT_CHANNEL`+`SLACK_BOT_TOKEN` set → opt-in global. Swap `notifyApprovalRequired` (`backend/integrations/slack/notifications.ts`) from the env reads to this resolver (injected for tests); null → skip (`no_tenant_config`).
+- **T4 (picker + card):** `conversations.list` (bot token) → channel options persisted to `notify_channel_id`/`notify_channel_name`; add a Slack card to `frontend/aries-v1/channel-integrations-screen.tsx` (registry already has `slack`). Screenshot-verify in Brendan's dashboard.
+- **T5 (docs/env):** per the two-place env rule.
+
 ## GSTACK REVIEW REPORT
 
 | Review | Trigger | Why | Runs | Status | Findings |
