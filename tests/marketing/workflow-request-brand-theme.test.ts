@@ -136,3 +136,37 @@ test('end-to-end: a dark TenantBrandKit → marketing reference → brief keeps 
   assert.ok(contextBlock.includes('#7c3aed'), 'brief must carry the purple brand palette through the copy layer');
   assert.ok(contextBlock.includes(LOGO_URL), 'brief must reference the real logo through the copy layer');
 });
+
+test('feed-logo-composite ON → brief drops the "Brand logo:" line and tells the model NOT to draw a logo', () => {
+  const prev = process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED;
+  process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED = '1';
+  try {
+    const doc = makeDoc(
+      { primary: '#ffffff', secondary: null, accent: '#ec4899', palette: ['#ec4899', '#ffffff'], background: '#000000', mode: 'dark' },
+      [LOGO_URL],
+    );
+    const { contextBlock } = buildProductionResumeContext({ doc, researchOutput: null, strategyOutput: null });
+    assert.doesNotMatch(contextBlock, /Brand logo:/, 'composite ON must drop the model-draws-logo instruction');
+    assert.match(contextBlock, /Do NOT render, draw, or include any logo/i, 'composite ON must instruct the model not to draw a logo');
+  } finally {
+    if (prev === undefined) delete process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED;
+    else process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED = prev;
+  }
+});
+
+test('feed-logo-composite OFF (default) → brief keeps the "Brand logo:" line (byte-identical to today)', () => {
+  const prev = process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED;
+  delete process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED;
+  try {
+    const doc = makeDoc(
+      { primary: '#ffffff', secondary: null, accent: '#ec4899', palette: ['#ec4899', '#ffffff'], background: '#000000', mode: 'dark' },
+      [LOGO_URL],
+    );
+    const { contextBlock } = buildProductionResumeContext({ doc, researchOutput: null, strategyOutput: null });
+    assert.match(contextBlock, /Brand logo:/, 'default OFF must keep the model-draws-logo instruction');
+    assert.doesNotMatch(contextBlock, /Do NOT render, draw, or include any logo/i, 'default OFF must not add the negative instruction');
+  } finally {
+    if (prev === undefined) delete process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED;
+    else process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED = prev;
+  }
+});

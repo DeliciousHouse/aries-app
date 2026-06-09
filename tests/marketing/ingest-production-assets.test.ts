@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import crypto from 'node:crypto';
+import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+
+import sharp from 'sharp';
 
 import { ingestProductionCreativeAssetsToDb } from '../../backend/marketing/ingest-production-assets';
 import type { SocialContentJobRuntimeDocument } from '../../backend/marketing/runtime-state';
@@ -303,17 +306,20 @@ test('ingestProductionCreativeAssetsToDb — inserts row with correct SQL shape'
       'must NOT use the data-modifying CTE form that leaves served_asset_ref NULL',
     );
     assert.ok(sql.includes("'generated_by_aries'"), 'source_type must be generated_by_aries');
-    assert.ok(sql.includes("'runtime_asset'"), 'storage_kind must be runtime_asset');
+    // storage_kind is now bound as $8 (so the logo-composite path can swap it to
+    // 'ingested_asset'); the no-framing default is 'runtime_asset'.
+    assert.ok(sql.includes('$8, $4, '), 'storage_kind must be bound as $8 and storage_key as $4');
     assert.ok(sql.includes("'generated'"), 'permission_scope must be generated');
     assert.ok(sql.includes("'image'"), 'media_type must be image');
     assert.ok(sql.includes("'4:5'"), 'aspect_ratio must be 4:5');
 
-    // params: [tenantId, jobId, sourceAssetId, storagePath, checksum]
+    // params: [tenantId, jobId, sourceAssetId, storageKey, checksum, batch, index, storageKind]
     assert.equal(params[0], 99, 'param $1 must be tenantId');
     assert.equal(params[1], 'mkt_insert_test', 'param $2 must be jobId');
     assert.equal(params[2], 'asset-001', 'param $3 must be sourceAssetId');
     assert.equal(params[3], path.join(mount, basename), 'param $4 must be the readable mount storagePath');
     assert.ok(typeof params[4] === 'string' && (params[4] as string).length === 64, 'param $5 must be a sha256 hex string');
+    assert.equal(params[7], 'runtime_asset', 'param $8 must default to runtime_asset (no framing)');
   });
 });
 
@@ -395,5 +401,134 @@ test('ingestProductionCreativeAssetsToDb — per-row error does not fail the bat
     assert.equal(result.skipped, 1, 'bad row must be skipped');
     assert.equal(result.inserted, 1, 'good row must be inserted');
     assert.equal(calls.length, 1, 'Only the good row should reach the DB');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Logo composite at ingest (ARIES_FEED_LOGO_COMPOSITE_ENABLED)
+// ---------------------------------------------------------------------------
+
+async function realPng(
+  width: number,
+  height: number,
+  rgb: { r: number; g: number; b: number },
+): Promise<Buffer> {
+  return sharp({ create: { width, height, channels: 4, background: { ...rgb, alpha: 1 } } })
+    .png()
+    .toBuffer();
+}
+
+const FRAME_BRAND_KIT = {
+  logo_urls: ['/virtual/logo.png'],
+  colors: { primary: '#ff00aa' },
+  logo_file_path: '/virtual/logo.png',
+};
+
+async function withCompositeEnv<T>(dataRoot: string, run: () => Promise<T>): Promise<T> {
+  const prevFlag = process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED;
+  const prevData = process.env.DATA_ROOT;
+  process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED = '1';
+  process.env.DATA_ROOT = dataRoot;
+  try {
+    return await run();
+  } finally {
+    if (prevFlag === undefined) delete process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED;
+    else process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED = prevFlag;
+    if (prevData === undefined) delete process.env.DATA_ROOT;
+    else process.env.DATA_ROOT = prevData;
+    await rm(dataRoot, { recursive: true, force: true });
+  }
+}
+
+test('ingest: frames an eligible feed asset when the flag is on (ingested_asset + framed checksum)', async () => {
+  const dataRoot = path.join(tmpdir(), `aries-ingest-frame-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  await withCompositeEnv(dataRoot, async () => {
+    await withHermesMediaMount(async (mount, hostImagePath) => {
+      const basename = 'feed.png';
+      const raw = await realPng(800, 800, { r: 255, g: 255, b: 255 });
+      await writeFile(path.join(mount, basename), raw);
+      const rawChecksum = crypto.createHash('sha256').update(raw).digest('hex');
+      const logo = await realPng(64, 64, { r: 255, g: 0, b: 255 });
+
+      const doc = makeDoc({ creativeAssets: [{ assetId: 'img_1', type: 'generated_image', path: hostImagePath(basename) }] });
+      const { pool, calls } = makeMockPool(1);
+      const result = await ingestProductionCreativeAssetsToDb({
+        jobId: 'mkt_frame',
+        tenantId: 15,
+        doc,
+        pool,
+        brandKit: FRAME_BRAND_KIT,
+        logoLoader: async () => logo,
+      });
+
+      assert.equal(result.inserted, 1);
+      const { sql, params } = calls[0];
+      assert.equal(params[7], 'ingested_asset', 'storage_kind must become ingested_asset when framed');
+      assert.ok(
+        String(params[3]).includes(path.join('ingested-assets', '15')),
+        'storage_key must point under DATA_ROOT/ingested-assets/<tenant>',
+      );
+      assert.notEqual(params[4], rawChecksum, 'checksum must be of the framed bytes, not the raw bytes');
+      assert.equal(params[2], 'img_1', 'source_asset_id stays Hermes-keyed even when framed');
+      assert.ok(sql.includes("'generated_by_aries'"), 'framed row must stay source_type generated_by_aries');
+      assert.ok(
+        sql.includes("'/api/internal/hermes/media/' || g.id::text"),
+        'served_asset_ref must stay the self-referential CTE form',
+      );
+      const framedExists = await stat(String(params[3])).then(() => true).catch(() => false);
+      assert.ok(framedExists, 'framed bytes must be persisted to disk');
+    });
+  });
+});
+
+test('ingest: ineligible placement (story) is NOT framed even with the flag on', async () => {
+  const dataRoot = path.join(tmpdir(), `aries-ingest-story-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  await withCompositeEnv(dataRoot, async () => {
+    await withHermesMediaMount(async (mount, hostImagePath) => {
+      const basename = 'story.png';
+      const raw = await realPng(400, 400, { r: 255, g: 255, b: 255 });
+      await writeFile(path.join(mount, basename), raw);
+      const doc = makeDoc({ creativeAssets: [{ assetId: 'img_1', type: 'generated_image', placement: 'story', path: hostImagePath(basename) }] });
+      const { pool, calls } = makeMockPool(1);
+      await ingestProductionCreativeAssetsToDb({
+        jobId: 'mkt_story',
+        tenantId: 15,
+        doc,
+        pool,
+        brandKit: FRAME_BRAND_KIT,
+        logoLoader: async () => realPng(64, 64, { r: 255, g: 0, b: 255 }),
+      });
+      const { params } = calls[0];
+      assert.equal(params[7], 'runtime_asset', 'story placement must stay runtime_asset (no framing)');
+      assert.equal(params[3], path.join(mount, basename), 'storage_key must stay the raw mount path');
+    });
+  });
+});
+
+test('ingest: flag OFF leaves an eligible asset unframed (raw passthrough) even with a brandKit', async () => {
+  await withHermesMediaMount(async (mount, hostImagePath) => {
+    const prevFlag = process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED;
+    delete process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED;
+    try {
+      const basename = 'feed-off.png';
+      const raw = await realPng(800, 800, { r: 255, g: 255, b: 255 });
+      await writeFile(path.join(mount, basename), raw);
+      const doc = makeDoc({ creativeAssets: [{ assetId: 'img_1', type: 'generated_image', path: hostImagePath(basename) }] });
+      const { pool, calls } = makeMockPool(1);
+      await ingestProductionCreativeAssetsToDb({
+        jobId: 'mkt_off',
+        tenantId: 15,
+        doc,
+        pool,
+        brandKit: FRAME_BRAND_KIT,
+        logoLoader: async () => realPng(64, 64, { r: 255, g: 0, b: 255 }),
+      });
+      const { params } = calls[0];
+      assert.equal(params[7], 'runtime_asset', 'flag off must keep runtime_asset');
+      assert.equal(params[3], path.join(mount, basename), 'flag off must keep the raw mount path');
+    } finally {
+      if (prevFlag === undefined) delete process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED;
+      else process.env.ARIES_FEED_LOGO_COMPOSITE_ENABLED = prevFlag;
+    }
   });
 });
