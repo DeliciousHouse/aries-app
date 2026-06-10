@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach } from 'node:test';
+import { describe, it, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildPool as buildDraftExpiryPool } from '../scripts/automations/draft-expiry-sweep-worker';
@@ -25,9 +25,13 @@ describe('sidecar worker pool sizing', () => {
 
   beforeEach(() => {
     delete process.env.DB_POOL_MAX;
+    // The parse-mirror test feeds intentionally invalid values ('0', '1e2')
+    // that trigger console.warn; stub it so CI output stays clean.
+    mock.method(console, 'warn', () => {});
   });
 
   afterEach(() => {
+    mock.restoreAll();
     if (savedPoolMax === undefined) {
       delete process.env.DB_POOL_MAX;
     } else {

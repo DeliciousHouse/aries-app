@@ -92,7 +92,7 @@ The production container starts with `node scripts/start-runtime.mjs`. By defaul
 | `ARIES_PROCESS_MANAGER` | `cluster` | Set `node` for single-process rollback |
 | `ARIES_WEB_CONCURRENCY` | `2` | Worker count; accepts a positive integer or `max` |
 | `ARIES_WORKER_MAX_RESTARTS` | `5` | Per-worker crash restart cap before container exit |
-| `DB_POOL_MAX` | `20` (app workers), `3` (sidecar workers) | PostgreSQL connections per process; strictly-parsed integer honored from 1–200 |
+| `DB_POOL_MAX` | `20` (app workers); compose sets `3` per sidecar | PostgreSQL connections per process; strictly-parsed integer honored from 1–200. Sidecars' dedicated pools fall back to `3` when unset; the insights-sync sidecar uses the shared `lib/db` pool (fallback `20`), so the compose-set `3` is what governs |
 | `PORT` | `3000` | Listening port |
 
 Total possible PostgreSQL connections ≈ `ARIES_WEB_CONCURRENCY × DB_POOL_MAX + 5` (the Hermes reconciler child pinned at 5 in `scripts/start-runtime.mjs`) plus the sum of each sidecar worker's own `DB_POOL_MAX` (compose sets 3 per sidecar; the honcho worker may additionally open the shared `lib/db` pool, so budget 2× its value). Lower `DB_POOL_MAX` before raising worker count on databases with tight `max_connections`.

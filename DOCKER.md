@@ -44,10 +44,14 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml build
 - `ARIES_KANBAN_GC_RETENTION_DAYS` (optional; default `7` — archive completed kanban tasks older than this many days before running `hermes kanban gc`)
 - `ARIES_RECONCILER_ENABLED` (optional; default `1` — enables the durable Hermes run reconciler side-process that ingests finished marketing runs; replaces the unreliable in-process poll-bridge)
 - `ARIES_RECONCILER_INTERVAL_MS` (optional; default `60000` — reconciler sweep interval in milliseconds; beats the reaper's tightest stage threshold)
-- `DB_POOL_MAX` (optional; default `20` per app worker process, `3` for sidecar
-  worker pools. Strictly parsed: an explicit integer is honored as written from
-  `1` up to a cap of `200`; anything else — `0`, `1e2`, `3garbage` — falls back
-  to the caller's default with a warning. See `parsePoolMax` in
+- `DB_POOL_MAX` (optional; default `20` per app worker process. The sidecars'
+  dedicated worker pools fall back to `3` when unset (`lib/db-pool-config.ts`),
+  except the insights-sync sidecar, which uses the shared `lib/db` pool
+  (fallback `20`) — docker-compose explicitly sets `DB_POOL_MAX: 3` on every
+  sidecar service, and that compose value is what governs in practice.
+  Strictly parsed: an explicit integer is honored as written from `1` up to a
+  cap of `200`; anything else — `0`, `1e2`, `3garbage` — falls back to the
+  caller's default with a warning. See `parsePoolMax` in
   `lib/db-pool-config.ts`.)
 - `ARIES_EXECUTION_PROVIDER` (optional; default `hermes`)
 - `ARIES_MARKETING_EXECUTION_PROVIDER` (optional; default `hermes`)

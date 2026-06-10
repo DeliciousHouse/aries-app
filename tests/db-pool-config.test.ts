@@ -1,9 +1,22 @@
-import { describe, it } from 'node:test';
+import { describe, it, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
 import pool, { getPoolStats, parsePoolMax } from '../lib/db';
 
 describe('parsePoolMax', () => {
+  // The invalid-input cases below intentionally trigger the parser's
+  // console.warn; stub it so CI output stays clean, and assert on it where the
+  // warning is the behavior under test.
+  let warnMock: ReturnType<typeof mock.method>;
+
+  beforeEach(() => {
+    warnMock = mock.method(console, 'warn', () => {});
+  });
+
+  afterEach(() => {
+    mock.restoreAll();
+  });
+
   it('parses a valid integer', () => {
     assert.equal(parsePoolMax('25'), 25);
     assert.equal(parsePoolMax(' 25 '), 25);
@@ -36,6 +49,7 @@ describe('parsePoolMax', () => {
     assert.equal(parsePoolMax('1e2'), 20);
     assert.equal(parsePoolMax('3garbage'), 20);
     assert.equal(parsePoolMax('3.9'), 20);
+    assert.equal(warnMock.mock.callCount(), 3);
   });
 
   it('defaults when the value is not a valid integer', () => {
