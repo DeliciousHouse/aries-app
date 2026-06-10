@@ -44,9 +44,11 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml build
 - `ARIES_KANBAN_GC_RETENTION_DAYS` (optional; default `7` — archive completed kanban tasks older than this many days before running `hermes kanban gc`)
 - `ARIES_RECONCILER_ENABLED` (optional; default `1` — enables the durable Hermes run reconciler side-process that ingests finished marketing runs; replaces the unreliable in-process poll-bridge)
 - `ARIES_RECONCILER_INTERVAL_MS` (optional; default `60000` — reconciler sweep interval in milliseconds; beats the reaper's tightest stage threshold)
-- `DB_POOL_MAX` (optional; default `20` per worker process. Honored exactly as
-  written from `1` up to a cap of `200`; invalid or non-positive values fall
-  back to the default with a warning — see `parsePoolMax` in `lib/db.ts`.)
+- `DB_POOL_MAX` (optional; default `20` per app worker process, `3` for sidecar
+  worker pools. Strictly parsed: an explicit integer is honored as written from
+  `1` up to a cap of `200`; anything else — `0`, `1e2`, `3garbage` — falls back
+  to the caller's default with a warning. See `parsePoolMax` in
+  `lib/db-pool-config.ts`.)
 - `ARIES_EXECUTION_PROVIDER` (optional; default `hermes`)
 - `ARIES_MARKETING_EXECUTION_PROVIDER` (optional; default `hermes`)
 - `HERMES_GATEWAY_URL`
@@ -126,11 +128,14 @@ Tuning knobs:
   also recognized by the launcher when `ARIES_WEB_CONCURRENCY` is unset outside
   Compose; Compose users should set `ARIES_WEB_CONCURRENCY` directly.
 - `DB_POOL_MAX=20` is per worker. Total possible Postgres clients are roughly
-  `ARIES_WEB_CONCURRENCY * DB_POOL_MAX`, so lower `DB_POOL_MAX` before raising
-  worker count aggressively on a database with tight `max_connections`. The
-  value is honored exactly as written (floor `1`, cap `200`); the sidecar
-  worker services in `docker-compose.yml` set `DB_POOL_MAX: 3` each and really
-  get 3.
+  `ARIES_WEB_CONCURRENCY * DB_POOL_MAX` plus 5 for the Hermes reconciler child
+  (pinned via `DB_POOL_MAX: '5'` in `scripts/start-runtime.mjs`), so lower
+  `DB_POOL_MAX` before raising worker count aggressively on a database with
+  tight `max_connections`. The value is honored exactly as written (floor `1`,
+  cap `200`); the sidecar worker services in `docker-compose.yml` set
+  `DB_POOL_MAX: 3` each and really get 3. Do not set the app container's value
+  to a tiny number like `1` — one slow query would monopolize a web worker's
+  only connection and stall its requests.
 - `ARIES_PROCESS_MANAGER=node` is the emergency rollback path. It keeps the same
   image and runs a single `next start` process on `${PORT:-3000}`.
 - `ARIES_WORKER_MAX_RESTARTS=5` caps per-worker crash restarts. If every worker
@@ -157,8 +162,11 @@ For multiple app containers, reserve room for migrations, admin sessions, and
 Postgres maintenance when doing the math. A safe first-pass budget is:
 
 ```text
-total_app_connections = containers * ARIES_WEB_CONCURRENCY * DB_POOL_MAX
-                        + sum(sidecar workers' DB_POOL_MAX)  # compose sets 3 each
+total_app_connections = containers * (ARIES_WEB_CONCURRENCY * DB_POOL_MAX + 5)
+                        + sum(sidecar workers' DB_POOL_MAX)
+# +5 per app container = the Hermes reconciler child (scripts/start-runtime.mjs)
+# sidecars: compose sets DB_POOL_MAX: 3 each; the honcho worker can additionally
+# instantiate the shared lib/db pool via its backend imports (budget 2x for it)
 ```
 
 Do not raise `ARIES_WEB_CONCURRENCY` without lowering `DB_POOL_MAX` or confirming
