@@ -41,17 +41,22 @@ let ticking = false;
 // ── Core tick ─────────────────────────────────────────────────────────────────
 
 /**
- * Minimal pool surface the tick needs. Lets the regression test
- * (tests/insights-sync-worker-tick-reset.test.ts) drive tickSafe against an
+ * Minimal pool surface the tick needs. Lets the regression tests
+ * (tests/insights-sync-worker-tick-reset.test.ts,
+ * tests/insights-sync-worker-stranded-runs.test.ts) drive tickSafe against an
  * in-memory fake; the real `pg` Pool satisfies it structurally.
  *
- * Note: this only covers the tenant-list query. The default syncFn
- * (syncAllAccountsForTenant) uses the global `@/lib/db` pool internally, so a
- * test injecting a fake pool must inject a fake syncFn too.
+ * Note: this only covers the tenant-list query and the stranded-run sweep.
+ * The default syncFn (syncAllAccountsForTenant) uses the global `@/lib/db`
+ * pool internally, so a test injecting a fake pool must inject a fake syncFn
+ * too.
  */
 export type TickPool = {
   connect(): Promise<{
-    query(sql: string): Promise<{ rows: Array<{ tenant_id: number }> }>;
+    query(sql: string): Promise<{
+      rows: Array<{ tenant_id: number }>;
+      rowCount?: number | null;
+    }>;
     release(): void;
   }>;
 };
@@ -59,7 +64,51 @@ export type TickPool = {
 /** Injectable per-tenant sync, so tests can exercise the fan-out loop. */
 export type SyncAllAccountsFn = typeof syncAllAccountsForTenant;
 
+/**
+ * Marks insights_sync_runs rows stranded in status='running' as failed.
+ *
+ * The dispatcher opens each run as 'running' and only flips it to ok/failed
+ * at the end of a long multi-fetch sequence (syncAccountForTenant). A SIGTERM
+ * mid-tick — docker compose stop's 10s grace then SIGKILL, routine once every
+ * deploy force-recreates the sidecars — kills the process before the flip and
+ * strands the row in 'running' forever; no reaper covers this table.
+ *
+ * Runs at the top of every tick (the first tick fires at startup), so a
+ * stranded row is cleaned within one interval of aging past the grace window.
+ * The 1-hour window keeps the sweep away from syncs genuinely in flight in
+ * another process (handler-triggered syncs in the app container finish in
+ * seconds; no legitimate run approaches an hour). Even if a long backfill row
+ * were swept mid-run, the dispatcher's terminal UPDATE keys on id alone, so
+ * the true outcome still wins. Deliberately reuses status='failed' with a
+ * distinctive error_message instead of widening the SyncStatus union.
+ */
+export async function sweepAbandonedSyncRuns(dbPool: TickPool): Promise<number> {
+  const client = await dbPool.connect();
+  try {
+    const res = await client.query(
+      `UPDATE insights_sync_runs
+       SET status        = 'failed',
+           finished_at   = now(),
+           error_message = 'aborted by worker restart'
+       WHERE status = 'running'
+         AND started_at < now() - INTERVAL '1 hour'`,
+    );
+    return res.rowCount ?? 0;
+  } finally {
+    client.release();
+  }
+}
+
 async function tick(dbPool: TickPool, syncFn: SyncAllAccountsFn): Promise<void> {
+  // Sweep stranded runs before syncing; a sweep failure must not cost the
+  // tenants their 30-minute sync window.
+  try {
+    const swept = await sweepAbandonedSyncRuns(dbPool);
+    if (swept > 0) log({ event: 'insights_sync_stranded_runs_swept', count: swept });
+  } catch (err) {
+    log({ event: 'insights_sync_sweep_failed', error: describeError(err) });
+  }
+
   // Load all tenants that have at least one connected insights account
   const client = await dbPool.connect();
   let tenantIds: number[] = [];
