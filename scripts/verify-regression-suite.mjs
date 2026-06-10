@@ -92,6 +92,13 @@ const steps = [
     args: ['--test', 'tests/repo-boundary-guard.test.ts'],
   },
   {
+    // Compose-service vs deploy-workflow recreate parity. In verify (not just
+    // the CI full-suite) because the agent-automerge deploy path gates on
+    // verify alone — a compose/deploy drift must fail before that dispatch.
+    name: 'deploy manifest parity',
+    args: ['--test', 'tests/deploy-manifest-parity.test.ts'],
+  },
+  {
     name: 'execution provider and Hermes callback smoke tests',
     args: [
       '--test',
