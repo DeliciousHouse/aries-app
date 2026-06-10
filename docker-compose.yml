@@ -361,6 +361,10 @@ services:
       DB_NAME: ${DB_NAME}
       HONCHO_WRITE_PUBLISH_ENABLED: ${HONCHO_WRITE_PUBLISH_ENABLED:-false}
       ARIES_TENANT_PSEUDONYM_SALT: ${ARIES_TENANT_PSEUDONYM_SALT:-}
+      # Grace window (minutes) before the stranded-run sweep fails out a
+      # 'running' insights_sync_runs row. Widen before any long-running
+      # sync path (e.g. a backfill script) ships.
+      ARIES_INSIGHTS_SWEEP_GRACE_MINUTES: ${ARIES_INSIGHTS_SWEEP_GRACE_MINUTES:-60}
     restart: unless-stopped
     networks:
       - docker_stack

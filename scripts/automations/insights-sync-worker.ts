@@ -28,6 +28,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import pool from '@/lib/db';
 import { syncAllAccountsForTenant } from '@/backend/insights/sync/dispatcher';
+import { sweepAbandonedSyncRuns } from '@/backend/insights/sync/sweep-stranded-runs';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -41,17 +42,22 @@ let ticking = false;
 // ── Core tick ─────────────────────────────────────────────────────────────────
 
 /**
- * Minimal pool surface the tick needs. Lets the regression test
- * (tests/insights-sync-worker-tick-reset.test.ts) drive tickSafe against an
+ * Minimal pool surface the tick needs. Lets the regression tests
+ * (tests/insights-sync-worker-tick-reset.test.ts,
+ * tests/insights-sync-worker-stranded-runs.test.ts) drive tickSafe against an
  * in-memory fake; the real `pg` Pool satisfies it structurally.
  *
- * Note: this only covers the tenant-list query. The default syncFn
- * (syncAllAccountsForTenant) uses the global `@/lib/db` pool internally, so a
- * test injecting a fake pool must inject a fake syncFn too.
+ * Note: this only covers the tenant-list query and the stranded-run sweep.
+ * The default syncFn (syncAllAccountsForTenant) uses the global `@/lib/db`
+ * pool internally, so a test injecting a fake pool must inject a fake syncFn
+ * too.
  */
 export type TickPool = {
   connect(): Promise<{
-    query(sql: string): Promise<{ rows: Array<{ tenant_id: number }> }>;
+    query(sql: string): Promise<{
+      rows: Array<{ tenant_id: number }>;
+      rowCount?: number | null;
+    }>;
     release(): void;
   }>;
 };
@@ -60,6 +66,15 @@ export type TickPool = {
 export type SyncAllAccountsFn = typeof syncAllAccountsForTenant;
 
 async function tick(dbPool: TickPool, syncFn: SyncAllAccountsFn): Promise<void> {
+  // Sweep stranded runs before syncing; a sweep failure must not cost the
+  // tenants their 30-minute sync window.
+  try {
+    const swept = await sweepAbandonedSyncRuns(dbPool);
+    if (swept > 0) log({ event: 'insights_sync_stranded_runs_swept', count: swept });
+  } catch (err) {
+    log({ event: 'insights_sync_sweep_failed', error: describeError(err) });
+  }
+
   // Load all tenants that have at least one connected insights account
   const client = await dbPool.connect();
   let tenantIds: number[] = [];

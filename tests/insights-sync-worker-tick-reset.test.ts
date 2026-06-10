@@ -17,6 +17,10 @@ import {
 
 const noopSync: SyncAllAccountsFn = async () => [];
 
+// Each tick acquires two pooled clients: one for the stranded-run sweep
+// (which runs first and swallows its own failures) and one for the
+// tenant-list query. The connect/release counts below reflect that.
+
 test('a tick that fails on pool.connect() releases the overlap guard so later ticks run', async () => {
   let connectCalls = 0;
   const failingPool: TickPool = {
@@ -31,25 +35,25 @@ test('a tick that fails on pool.connect() releases the overlap guard so later ti
   // First tick: Postgres is not up yet. Must not throw (tickSafe swallows and
   // logs insights_sync_fatal) and must not leave the guard stuck.
   await tickSafe(failingPool, noopSync);
-  assert.equal(connectCalls, 1, 'first tick attempts a connection');
+  assert.equal(connectCalls, 2, 'first tick attempts sweep + tenant connections');
 
   // Second tick: with the wedge, this skipped without touching the pool.
   await tickSafe(failingPool, noopSync);
-  assert.equal(connectCalls, 2, 'second tick must retry the connection, not skip');
+  assert.equal(connectCalls, 4, 'second tick must retry the connections, not skip');
 
   // Postgres comes up: the next tick proceeds all the way to the tenant query.
-  let queries = 0;
+  let tenantQueries = 0;
   const healthyPool: TickPool = {
     connect: async () => ({
-      query: async () => {
-        queries++;
+      query: async (sql: string) => {
+        if (/SELECT DISTINCT tenant_id/.test(sql)) tenantQueries++;
         return { rows: [] };
       },
       release: () => {},
     }),
   };
   await tickSafe(healthyPool, noopSync);
-  assert.equal(queries, 1, 'a recovered tick reaches the tenant query');
+  assert.equal(tenantQueries, 1, 'a recovered tick reaches the tenant query');
 });
 
 test('a tick that fails on the tenant query releases the client and the overlap guard', async () => {
@@ -70,11 +74,11 @@ test('a tick that fails on the tenant query releases the client and the overlap 
   };
 
   await tickSafe(queryFailPool, noopSync);
-  assert.equal(releaseCalls, 1, 'the pooled client is released even when the query throws');
+  assert.equal(releaseCalls, 2, 'both pooled clients are released even when their queries throw');
 
   await tickSafe(queryFailPool, noopSync);
-  assert.equal(connectCalls, 2, 'a query failure must not wedge the guard either');
-  assert.equal(releaseCalls, 2, 'every failed tick releases its client');
+  assert.equal(connectCalls, 4, 'a query failure must not wedge the guard either');
+  assert.equal(releaseCalls, 4, 'every failed tick releases its clients');
 });
 
 test('a tenant sync failure is isolated: later tenants still sync and the guard releases', async () => {
@@ -140,7 +144,8 @@ test('the overlap guard still skips ticks while one is genuinely in flight', asy
 
   const firstTick = tickSafe(slowPool, noopSync);
   try {
-    // Overlapping tick while the first is still connecting: must skip.
+    // Overlapping tick while the first is still on its initial (sweep)
+    // connection: must skip.
     await tickSafe(slowPool, noopSync);
     assert.equal(connectCalls, 1, 'an overlapping tick is skipped, not run concurrently');
   } finally {
@@ -150,7 +155,8 @@ test('the overlap guard still skips ticks while one is genuinely in flight', asy
     await firstTick;
   }
 
-  // After the in-flight tick completes, the guard is released again.
+  // After the in-flight tick completes (sweep + tenant connects), the guard
+  // is released again and the next tick connects twice more.
   await tickSafe(slowPool, noopSync);
-  assert.equal(connectCalls, 2, 'the guard is released once the in-flight tick finishes');
+  assert.equal(connectCalls, 4, 'the guard is released once the in-flight tick finishes');
 });
