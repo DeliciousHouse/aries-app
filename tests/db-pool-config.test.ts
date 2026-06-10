@@ -10,10 +10,20 @@ describe('parsePoolMax', () => {
 
   it('clamps above the maximum', () => {
     assert.equal(parsePoolMax('999'), 200);
+    assert.equal(parsePoolMax('200'), 200);
   });
 
-  it('clamps below the minimum', () => {
-    assert.equal(parsePoolMax('1'), 5);
+  it('honors small explicit values down to 1 (sidecar workers set 3)', () => {
+    // docker-compose.yml sets DB_POOL_MAX: 3 on every sidecar worker; the old
+    // MIN_POOL_MAX=5 floor silently inflated each of those pools to 5 and broke
+    // the connection-budget math in DOCKER.md / guardrail #1.
+    assert.equal(parsePoolMax('3'), 3);
+    assert.equal(parsePoolMax('1'), 1);
+  });
+
+  it('falls back to the default for non-positive values', () => {
+    assert.equal(parsePoolMax('0'), 20);
+    assert.equal(parsePoolMax('-4'), 20);
   });
 
   it('defaults when the value is not a valid integer', () => {

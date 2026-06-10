@@ -2,7 +2,11 @@ import { Pool, PoolClient } from 'pg';
 
 const DEFAULT_DB_PORT = 5432;
 const DEFAULT_POOL_MAX = 20;
-const MIN_POOL_MAX = 5;
+// Explicit DB_POOL_MAX values are honored as written down to 1 — sidecar
+// workers run single-tick loops and genuinely need tiny pools (compose sets 3).
+// A floor above 1 silently inflates every sidecar's pool and breaks the
+// connection-budget math in DOCKER.md (guardrail #1).
+const MIN_POOL_MAX = 1;
 const MAX_POOL_MAX = 200;
 const IDLE_TIMEOUT_MS = 30_000;
 const CONNECTION_TIMEOUT_MS = 5_000;
@@ -28,11 +32,14 @@ export function parsePoolMax(raw: string | undefined): number {
   }
 
   const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed)) {
+  if (!Number.isFinite(parsed) || parsed < MIN_POOL_MAX) {
+    console.warn(
+      `[db-pool] invalid DB_POOL_MAX ${JSON.stringify(raw)}; using default ${DEFAULT_POOL_MAX}`
+    );
     return DEFAULT_POOL_MAX;
   }
 
-  return Math.min(MAX_POOL_MAX, Math.max(MIN_POOL_MAX, parsed));
+  return Math.min(MAX_POOL_MAX, parsed);
 }
 
 function createPool(): Pool {
