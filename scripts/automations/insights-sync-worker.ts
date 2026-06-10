@@ -28,6 +28,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import pool from '@/lib/db';
 import { syncAllAccountsForTenant } from '@/backend/insights/sync/dispatcher';
+import { sweepAbandonedSyncRuns } from '@/backend/insights/sync/sweep-stranded-runs';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -63,41 +64,6 @@ export type TickPool = {
 
 /** Injectable per-tenant sync, so tests can exercise the fan-out loop. */
 export type SyncAllAccountsFn = typeof syncAllAccountsForTenant;
-
-/**
- * Marks insights_sync_runs rows stranded in status='running' as failed.
- *
- * The dispatcher opens each run as 'running' and only flips it to ok/failed
- * at the end of a long multi-fetch sequence (syncAccountForTenant). A SIGTERM
- * mid-tick — docker compose stop's 10s grace then SIGKILL, routine once every
- * deploy force-recreates the sidecars — kills the process before the flip and
- * strands the row in 'running' forever; no reaper covers this table.
- *
- * Runs at the top of every tick (the first tick fires at startup), so a
- * stranded row is cleaned within one interval of aging past the grace window.
- * The 1-hour window keeps the sweep away from syncs genuinely in flight in
- * another process (handler-triggered syncs in the app container finish in
- * seconds; no legitimate run approaches an hour). Even if a long backfill row
- * were swept mid-run, the dispatcher's terminal UPDATE keys on id alone, so
- * the true outcome still wins. Deliberately reuses status='failed' with a
- * distinctive error_message instead of widening the SyncStatus union.
- */
-export async function sweepAbandonedSyncRuns(dbPool: TickPool): Promise<number> {
-  const client = await dbPool.connect();
-  try {
-    const res = await client.query(
-      `UPDATE insights_sync_runs
-       SET status        = 'failed',
-           finished_at   = now(),
-           error_message = 'aborted by worker restart'
-       WHERE status = 'running'
-         AND started_at < now() - INTERVAL '1 hour'`,
-    );
-    return res.rowCount ?? 0;
-  } finally {
-    client.release();
-  }
-}
 
 async function tick(dbPool: TickPool, syncFn: SyncAllAccountsFn): Promise<void> {
   // Sweep stranded runs before syncing; a sweep failure must not cost the

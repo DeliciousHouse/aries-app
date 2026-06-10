@@ -4,11 +4,17 @@ import test, { type TestContext } from 'node:test';
 // Importing the worker is side-effect free: the isDirectRun guard means main()
 // (and its setInterval / signal handlers) only runs under direct invocation.
 import {
-  sweepAbandonedSyncRuns,
   tickSafe,
   type TickPool,
   type SyncAllAccountsFn,
 } from '../scripts/automations/insights-sync-worker';
+import {
+  sweepAbandonedSyncRuns,
+  strandedRunGraceMinutes,
+  DEFAULT_STRANDED_RUN_GRACE_MINUTES,
+  SWEEP_STRANDED_SYNC_RUNS_SQL,
+} from '../backend/insights/sync/sweep-stranded-runs';
+import { SYNC_RUN_TERMINAL_OK_SQL } from '../backend/insights/sync/dispatcher';
 
 // Regression for the stranded-'running' sync runs found in the PR #581
 // adversarial review: the dispatcher INSERTs each insights_sync_runs row with
@@ -17,9 +23,20 @@ import {
 // in-flight tick. A SIGTERM mid-tick (docker compose stop → 10s grace →
 // SIGKILL) therefore stranded rows in status='running' forever — no reaper
 // covers this table. The fix is a sweep at the top of every tick that fails
-// out rows stuck in 'running' past a 1-hour grace window.
+// out rows stuck in 'running' past a grace window.
+//
+// These tests are fully in-memory: they assert the SQL's shape and the tick
+// wiring. The predicate's real behavior against the live schema is proven by
+// tests/insights-sync-runs-sweep.requires-infra.test.ts.
 
 const noopSync: SyncAllAccountsFn = async () => [];
+
+/** Collapses whitespace so the SQL oracle tracks semantics, not indentation. */
+function normalizeSql(sql: string): string {
+  return sql.replace(/\s+/g, ' ').trim();
+}
+
+type RecordedQuery = { sql: string; params?: unknown[] };
 
 /** Fake pool that records every SQL statement and routes canned responses. */
 function makeRecordingPool(opts?: {
@@ -27,12 +44,12 @@ function makeRecordingPool(opts?: {
   tenantRows?: Array<{ tenant_id: number }>;
   failSweep?: boolean;
 }) {
-  const queries: string[] = [];
+  const queries: RecordedQuery[] = [];
   let releaseCalls = 0;
   const pool: TickPool = {
     connect: async () => ({
-      query: async (sql: string) => {
-        queries.push(sql);
+      query: async (sql: string, params?: unknown[]) => {
+        queries.push({ sql, params });
         if (/UPDATE insights_sync_runs/.test(sql)) {
           if (opts?.failSweep) {
             throw new Error('relation "insights_sync_runs" does not exist');
@@ -61,7 +78,18 @@ test('the sweep fails out only stranded running rows, behind a grace window', as
   assert.equal(queries.length, 1, 'the sweep is a single statement');
   assert.equal(releaseCalls(), 1, 'the pooled client is released');
 
-  const sql = queries[0];
+  assert.equal(
+    queries[0].sql,
+    SWEEP_STRANDED_SYNC_RUNS_SQL,
+    'the sweep executes the exported statement — the same one the requires-infra test proves',
+  );
+  assert.deepEqual(
+    queries[0].params,
+    [DEFAULT_STRANDED_RUN_GRACE_MINUTES],
+    'the grace window is passed as a parameter, not interpolated',
+  );
+
+  const sql = normalizeSql(SWEEP_STRANDED_SYNC_RUNS_SQL);
   assert.match(sql, /UPDATE insights_sync_runs/, 'targets the sync-runs table');
   assert.match(
     sql,
@@ -70,16 +98,55 @@ test('the sweep fails out only stranded running rows, behind a grace window', as
   );
   assert.match(
     sql,
-    /started_at < now\(\) - INTERVAL '1 hour'/,
+    /started_at < now\(\) - make_interval\(mins => \$1\)/,
     'a grace window protects syncs genuinely in flight in another process',
   );
-  assert.match(sql, /status\s+= 'failed'/, 'stranded rows land in the existing failed status');
+  assert.match(sql, /status = 'failed'/, 'stranded rows land in the existing failed status');
   assert.match(
     sql,
     /error_message = 'aborted by worker restart'/,
     'the error message identifies restart-abort so it is distinguishable from adapter failures',
   );
-  assert.match(sql, /finished_at\s+= now\(\)/, 'the run is closed out, not left open-ended');
+  assert.match(sql, /finished_at = now\(\)/, 'the run is closed out, not left open-ended');
+});
+
+test("the dispatcher's terminal ok UPDATE clears the sweep's abort message", () => {
+  // A run swept mid-flight that then completes must end clean: status='ok'
+  // with error_message='aborted by worker restart' left behind would be a
+  // self-contradictory audit row. Behavior is proven against real Postgres in
+  // the requires-infra test; this keeps the shape in the fast verify gate.
+  const sql = normalizeSql(SYNC_RUN_TERMINAL_OK_SQL);
+  assert.match(sql, /status = 'ok'/, 'the ok path marks the run ok');
+  assert.match(
+    sql,
+    /error_message = NULL/,
+    'the ok path clears any abort message a mid-flight sweep wrote',
+  );
+  assert.match(sql, /WHERE id = \$4/, 'keyed on id alone so the true outcome always wins');
+});
+
+test('the grace window defaults to 60 minutes and is env-overridable', () => {
+  assert.equal(DEFAULT_STRANDED_RUN_GRACE_MINUTES, 60);
+  assert.equal(strandedRunGraceMinutes({}), 60, 'unset → default');
+  assert.equal(
+    strandedRunGraceMinutes({ ARIES_INSIGHTS_SWEEP_GRACE_MINUTES: '  ' }),
+    60,
+    'blank → default',
+  );
+  assert.equal(
+    strandedRunGraceMinutes({ ARIES_INSIGHTS_SWEEP_GRACE_MINUTES: '240' }),
+    240,
+    'a valid override widens the window (e.g. before a long backfill ships)',
+  );
+  // Invalid values fall back rather than producing a zero/negative window
+  // that would sweep genuinely in-flight runs.
+  for (const bad of ['0', '-5', 'abc', '1.5', 'Infinity']) {
+    assert.equal(
+      strandedRunGraceMinutes({ ARIES_INSIGHTS_SWEEP_GRACE_MINUTES: bad }),
+      60,
+      `'${bad}' falls back to the default`,
+    );
+  }
 });
 
 test('a null rowCount (driver quirk) is reported as zero swept', async () => {
@@ -107,8 +174,8 @@ test('every tick runs the sweep before fanning out tenant syncs', async () => {
   await tickSafe(pool, recordingSync);
 
   assert.equal(queries.length, 2, 'one sweep statement plus one tenant-list query');
-  assert.match(queries[0], /UPDATE insights_sync_runs/, 'the sweep runs first');
-  assert.match(queries[1], /SELECT DISTINCT tenant_id/, 'then the tenant list loads');
+  assert.match(queries[0].sql, /UPDATE insights_sync_runs/, 'the sweep runs first');
+  assert.match(queries[1].sql, /SELECT DISTINCT tenant_id/, 'then the tenant list loads');
   assert.deepEqual(syncedTenants, [7], 'the tick still syncs after sweeping');
 });
 
@@ -134,7 +201,7 @@ test('a sweep failure must not cost tenants their sync window', async () => {
   await tickSafe(pool, recordingSync);
   assert.deepEqual(syncedTenants, [4, 4], 'a failed sweep never wedges the tick guard');
   assert.equal(
-    queries.filter((q) => /UPDATE insights_sync_runs/.test(q)).length,
+    queries.filter((q) => /UPDATE insights_sync_runs/.test(q.sql)).length,
     2,
     'each tick retries the sweep',
   );
