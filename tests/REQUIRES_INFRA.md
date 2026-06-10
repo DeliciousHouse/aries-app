@@ -35,6 +35,7 @@ All files below gate on the **superset** `DB_HOST` + `DB_PORT` + `DB_USER` + `DB
 
 | File | What it proves against real Postgres | Extra env |
 |---|---|---|
+| `tests/insights-sync-runs-sweep.requires-infra.test.ts` | the stranded-run sweep predicate flips only stale `'running'` rows, and the dispatcher's terminal-ok UPDATE overrides a mid-flight sweep + clears the abort message (rolled back) | — |
 | `tests/publish-creative-asset-ids.test.ts` | `creative_asset_ids` round-trips through the real `posts` schema + `resolveMediaUrls` SQL (rolled back) | — |
 | `tests/scheduled-posts-worker-end-date.test.ts` | the `campaign_end_date` column exists and the claim filter plans correctly | — |
 | `tests/scheduled-posts-worker-live-db.test.ts` | the scheduled-posts worker drains/claims rows through the live schema (rolled back) | — |

@@ -59,6 +59,20 @@ const steps = [
     args: ['--test', 'tests/verify-honcho-writes.test.ts'],
   },
   {
+    // Regression for the 2026-06-09 prod wedge: a failed tick must release the
+    // insights-sync worker's overlap guard. Fast and fully in-memory.
+    name: 'insights-sync worker tick guard',
+    args: ['--test', 'tests/insights-sync-worker-tick-reset.test.ts'],
+  },
+  {
+    // Regression for the PR #581 review finding: a SIGTERM mid-tick strands
+    // insights_sync_runs rows in status='running' forever. Every tick must
+    // sweep stranded rows (behind a grace window) without costing tenants
+    // their sync. Fast and fully in-memory.
+    name: 'insights-sync stranded-run sweep',
+    args: ['--test', 'tests/insights-sync-worker-stranded-runs.test.ts'],
+  },
+  {
     // PRD §20 canonical behavioral invariants — codified as runtime checks so
     // future PRs get a green/red CI signal on spec conformance.  See
     // tests/prd-invariants/README.md and docs/product/aries-ai-prd.md §20.

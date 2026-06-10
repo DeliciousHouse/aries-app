@@ -990,6 +990,12 @@ async function initDb() {
       );
       CREATE INDEX IF NOT EXISTS idx_insights_sync_runs_tenant_platform_started
         ON insights_sync_runs (tenant_id, platform, started_at DESC);
+      -- Partial index serving the stranded-run sweep
+      -- (backend/insights/sync/sweep-stranded-runs.ts: WHERE status='running'
+      -- AND started_at < cutoff). Near-empty — 'running' rows are transient —
+      -- so the half-hourly sweep never seq-scans this append-only audit table.
+      CREATE INDEX IF NOT EXISTS idx_insights_sync_runs_running_started
+        ON insights_sync_runs (started_at) WHERE status = 'running';
 
       -- Audit log: every LLM call with cost, tokens, and outcome.
       CREATE TABLE IF NOT EXISTS insights_llm_calls (
