@@ -40,6 +40,7 @@ import {
 } from '@/backend/memory/write-events';
 import { loadSocialContentJobRuntime } from '@/backend/marketing/runtime-state';
 import { isHonchoEnabled, isHonchoWritePublishEnabled } from '@/backend/memory/honcho-env';
+import { parsePoolMax, WORKER_POOL_MAX } from '@/lib/db-pool-config';
 import type { TenantRole } from '@/lib/tenant-context';
 
 const INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
@@ -47,7 +48,7 @@ const INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 let running = false;
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
 
-function buildPool(): Pool {
+export function buildPool(): Pool {
   return new Pool({
     host: process.env.DB_HOST || 'localhost',
     port: Number(process.env.DB_PORT) || 5432,
@@ -56,7 +57,7 @@ function buildPool(): Pool {
     database: process.env.DB_NAME || 'aries_dev',
     // Dedicated small pool, NOT the app pool (guardrail #1 — keep worker DB
     // pressure off the request path).
-    max: 3,
+    max: parsePoolMax(process.env.DB_POOL_MAX, WORKER_POOL_MAX),
   });
 }
 
