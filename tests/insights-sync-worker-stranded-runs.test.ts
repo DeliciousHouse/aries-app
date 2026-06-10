@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { type TestContext } from 'node:test';
 
 // Importing the worker is side-effect free: the isDirectRun guard means main()
 // (and its setInterval / signal handlers) only runs under direct invocation.
@@ -167,4 +167,63 @@ test('a sweep whose connect() fails is isolated from the tenant fan-out', async 
   await tickSafe(pool, recordingSync);
   assert.equal(connects, 2, 'the tick still acquires a client for the tenant list');
   assert.deepEqual(syncedTenants, [9], 'tenants sync despite the sweep connect failure');
+});
+
+// ── Log-event contract ────────────────────────────────────────────────────────
+// The worker's only observable surface in prod is its newline-delimited JSON
+// log stream; aggregators key on the `event` field. Capture console.log and
+// assert the sweep branches emit (or stay silent on) the right events.
+
+/** Runs fn with console.log captured; returns the parsed JSON log events. */
+async function captureLogEvents(
+  t: TestContext,
+  fn: () => Promise<void>,
+): Promise<Array<Record<string, unknown>>> {
+  const lines: string[] = [];
+  t.mock.method(console, 'log', (line?: unknown) => {
+    lines.push(String(line));
+  });
+  await fn();
+  return lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+test('a positive sweep logs insights_sync_stranded_runs_swept with the count', async (t) => {
+  const { pool } = makeRecordingPool({ sweptCount: 2 });
+
+  const events = await captureLogEvents(t, () => tickSafe(pool, noopSync));
+
+  const swept = events.filter((e) => e['event'] === 'insights_sync_stranded_runs_swept');
+  assert.equal(swept.length, 1, 'exactly one swept event per tick');
+  assert.equal(swept[0]?.['count'], 2, 'the event carries the number of rows failed out');
+});
+
+test('a clean sweep (zero rows) emits no stranded-runs event', async (t) => {
+  const { pool } = makeRecordingPool({ sweptCount: 0 });
+
+  const events = await captureLogEvents(t, () => tickSafe(pool, noopSync));
+
+  assert.equal(
+    events.filter((e) => e['event'] === 'insights_sync_stranded_runs_swept').length,
+    0,
+    'the steady state stays silent — no log noise every 30 minutes',
+  );
+});
+
+test('a failed sweep logs insights_sync_sweep_failed, never insights_sync_fatal', async (t) => {
+  const { pool } = makeRecordingPool({ failSweep: true, tenantRows: [{ tenant_id: 4 }] });
+
+  const events = await captureLogEvents(t, () => tickSafe(pool, noopSync));
+
+  const failed = events.filter((e) => e['event'] === 'insights_sync_sweep_failed');
+  assert.equal(failed.length, 1, 'the sweep failure is reported');
+  assert.match(
+    String(failed[0]?.['error']),
+    /insights_sync_runs/,
+    'the event carries the underlying error for debugging',
+  );
+  assert.equal(
+    events.filter((e) => e['event'] === 'insights_sync_fatal').length,
+    0,
+    'a sweep failure is contained — it must not surface as a fatal tick',
+  );
 });
