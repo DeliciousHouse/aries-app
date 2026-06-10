@@ -35,6 +35,7 @@ import {
   resolveDraftExpiryAgeDays,
   type DraftExpirySweepReport,
 } from '@/backend/marketing/draft-expiry-sweep';
+import { parsePoolMax, WORKER_POOL_MAX } from '@/lib/db-pool-config';
 
 // ---------------------------------------------------------------------------
 // DB
@@ -47,7 +48,7 @@ export function buildPool(): pg.Pool {
     user: process.env.DB_USER || 'aries_user',
     password: process.env.DB_PASSWORD || 'aries_pass',
     database: process.env.DB_NAME || 'aries_dev',
-    max: 3,
+    max: parsePoolMax(process.env.DB_POOL_MAX, WORKER_POOL_MAX),
   });
 }
 

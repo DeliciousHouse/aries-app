@@ -1,9 +1,8 @@
 import { Pool, PoolClient } from 'pg';
 
+import { parsePoolMax } from './db-pool-config';
+
 const DEFAULT_DB_PORT = 5432;
-const DEFAULT_POOL_MAX = 20;
-const MIN_POOL_MAX = 5;
-const MAX_POOL_MAX = 200;
 const IDLE_TIMEOUT_MS = 30_000;
 const CONNECTION_TIMEOUT_MS = 5_000;
 
@@ -22,18 +21,7 @@ function parseDbPort(raw: string | undefined): number {
   return Number.isFinite(parsed) ? parsed : DEFAULT_DB_PORT;
 }
 
-export function parsePoolMax(raw: string | undefined): number {
-  if (!raw) {
-    return DEFAULT_POOL_MAX;
-  }
-
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed)) {
-    return DEFAULT_POOL_MAX;
-  }
-
-  return Math.min(MAX_POOL_MAX, Math.max(MIN_POOL_MAX, parsed));
-}
+export { parsePoolMax } from './db-pool-config';
 
 function createPool(): Pool {
   const instance = new Pool({

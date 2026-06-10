@@ -4,8 +4,6 @@ All notable changes to this project will be documented in this file.
 
 ## v0.1.15.25 — fix(insights): sweep sync runs stranded in 'running' by worker restarts
 
-(v0.1.15.24 is claimed by in-flight PR #582.)
-
 ### Fixed
 - **Sync-run history can no longer show a sync as running forever.** The
   dispatcher opens every `insights_sync_runs` row as `status='running'` and
@@ -45,6 +43,33 @@ All notable changes to this project will be documented in this file.
 - Sweep logic lives in `backend/insights/sync/sweep-stranded-runs.ts` per the
   repo's worker/backend split (the worker script stays loop + config +
   logging); the grace window is a query parameter, not an embedded literal.
+## v0.1.15.24 — fix(db): DB_POOL_MAX is honored as written everywhere — 2026-06-10
+
+### Fixed
+- **`DB_POOL_MAX` now means what it says, on every process.** Two gaps made the
+  connection-budget math unreadable from `docker-compose.yml`: (1) the shared
+  pool's parser clamped every explicit value to a floor of 5, so the
+  insights-sync sidecar's configured `3` silently ran a pool of 5; and (2) the
+  other four sidecar workers hardcoded `max: 3` and ignored the env var
+  entirely. All five sidecar pools now parse `DB_POOL_MAX` through one shared
+  helper (`lib/db-pool-config.ts`) with a worker default of 3, and explicit
+  values are honored from 1 up to the 200 cap.
+- **Malformed pool sizes can no longer under-provision production.** The parser
+  is now strict-integer: values like `1e2` (previously parsed as `1` — a
+  one-connection web pool) or `3garbage` fall back to the caller's default with
+  a loud warning instead of being silently truncated (cross-model adversarial
+  finding, Claude + Codex).
+
+### Changed
+- Connection-budget docs (`DOCKER.md`, `CLAUDE.md` guardrail #1) now state the
+  full per-container math, including the Hermes reconciler child's pinned pool
+  of 5 (`scripts/start-runtime.mjs`) and the honcho worker's potential second
+  (shared) pool, and warn against tiny `DB_POOL_MAX` values on the web app.
+
+### Added
+- Bounds tests for `parsePoolMax` (floor/cap/strict-parse/fallback) and a new
+  `tests/worker-pool-config.test.ts` asserting every sidecar worker's pool
+  honors `DB_POOL_MAX` and defaults to 3.
 
 ## v0.1.15.23 — fix(insights): un-wedge the insights-sync worker after a failed tick
 
