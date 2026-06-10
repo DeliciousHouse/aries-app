@@ -54,7 +54,12 @@ function makeRecordingPool(opts?: {
           if (opts?.failSweep) {
             throw new Error('relation "insights_sync_runs" does not exist');
           }
-          return { rows: [], rowCount: opts?.sweptCount ?? 0 };
+          // Preserve an explicit null — the null-rowCount test exercises the
+          // sweep's own `rowCount ?? 0` coalesce, so the fake must not pre-coalesce.
+          return {
+            rows: [],
+            rowCount: opts?.sweptCount === undefined ? 0 : opts.sweptCount,
+          };
         }
         return { rows: opts?.tenantRows ?? [] };
       },
@@ -85,7 +90,11 @@ test('the sweep fails out only stranded running rows, behind a grace window', as
   );
   assert.deepEqual(
     queries[0].params,
-    [DEFAULT_STRANDED_RUN_GRACE_MINUTES],
+    // Compare against the parser, not a literal 60: the sweep reads
+    // ARIES_INSIGHTS_SWEEP_GRACE_MINUTES from process.env at call time, and
+    // this assertion is about the wiring (window passed as a parameter) —
+    // the parser's values have their own test below.
+    [strandedRunGraceMinutes()],
     'the grace window is passed as a parameter, not interpolated',
   );
 
