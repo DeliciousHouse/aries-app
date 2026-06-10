@@ -2,6 +2,45 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.23 — fix(insights): un-wedge the insights-sync worker after a failed tick
+
+(v0.1.15.21 and v0.1.15.22 are claimed by in-flight PRs #579 and #580.)
+
+### Fixed
+- **Insights syncing recovers on its own after a startup race.** The
+  `aries-insights-sync-worker` sidecar set its overlap guard (`ticking = true`)
+  before an unprotected `await pool.connect()`. If the first tick fired while
+  Postgres was still starting (`ECONNREFUSED`), the error escaped to a log-only
+  `.catch`, the guard was never reset, and every subsequent tick for the life of
+  the container logged `insights_sync_skip: previous_tick_still_running` —
+  analytics silently stopped syncing (prod was wedged this way from
+  2026-06-09T20:14Z). The tick body now runs in `try/catch/finally` (the same
+  shape the other sidecar workers use), so any tick failure logs
+  `insights_sync_fatal` and releases the guard for the next interval.
+- **One bad tenant no longer starves the rest.** A tenant whose sync throws
+  (its own DB connect, the account-list query, an adapter bug) is logged as
+  `insights_sync_tenant_failed` and skipped; the remaining tenants still sync
+  in the same tick instead of waiting 30 minutes.
+- **Worker error logs now carry stack traces** instead of `String(err)`
+  one-liners.
+
+### Added
+- Regression tests (`tests/insights-sync-worker-tick-reset.test.ts`) covering
+  guard release on connect failure, query failure, and per-tenant sync failure,
+  plus the legitimate-overlap skip. Oracle-checked: the suite fails against the
+  pre-fix code. Registered in `npm run verify` so the canonical pre-push gate
+  exercises it.
+
+### Changed
+- `insights-sync-worker.ts` is now importable without auto-starting (direct-run
+  guard, matching the sibling workers), with the pool and per-tenant sync
+  injectable for tests. Log event names and payloads are unchanged, except
+  `insights_sync_done` gains a `tenantsFailed` count.
+
+Deploy note: until PR #580 (deploy recreates all sidecars) lands, the
+`aries-insights-sync-worker` container must be force-recreated manually once
+after this deploy to pick up the fix.
+
 ## v0.1.15.20 — feat(marketing): brand taste-learning loop (tenant-scoped, default OFF)
 
 PR2 of the brand-learning track (PR1 was the logo composite, v0.1.15.19). A

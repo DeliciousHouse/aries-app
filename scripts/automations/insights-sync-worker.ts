@@ -24,6 +24,8 @@
  */
 
 import 'dotenv/config';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import pool from '@/lib/db';
 import { syncAllAccountsForTenant } from '@/backend/insights/sync/dispatcher';
 
@@ -38,18 +40,31 @@ let ticking = false;
 
 // ── Core tick ─────────────────────────────────────────────────────────────────
 
-async function tick(): Promise<void> {
-  if (ticking) {
-    log({ event: 'insights_sync_skip', reason: 'previous_tick_still_running' });
-    return;
-  }
-  ticking = true;
+/**
+ * Minimal pool surface the tick needs. Lets the regression test
+ * (tests/insights-sync-worker-tick-reset.test.ts) drive tickSafe against an
+ * in-memory fake; the real `pg` Pool satisfies it structurally.
+ *
+ * Note: this only covers the tenant-list query. The default syncFn
+ * (syncAllAccountsForTenant) uses the global `@/lib/db` pool internally, so a
+ * test injecting a fake pool must inject a fake syncFn too.
+ */
+export type TickPool = {
+  connect(): Promise<{
+    query(sql: string): Promise<{ rows: Array<{ tenant_id: number }> }>;
+    release(): void;
+  }>;
+};
 
+/** Injectable per-tenant sync, so tests can exercise the fan-out loop. */
+export type SyncAllAccountsFn = typeof syncAllAccountsForTenant;
+
+async function tick(dbPool: TickPool, syncFn: SyncAllAccountsFn): Promise<void> {
   // Load all tenants that have at least one connected insights account
-  const client = await pool.connect();
+  const client = await dbPool.connect();
   let tenantIds: number[] = [];
   try {
-    const res = await client.query<{ tenant_id: number }>(
+    const res = await client.query(
       `SELECT DISTINCT tenant_id FROM insights_accounts ORDER BY tenant_id`,
     );
     tenantIds = res.rows.map((r) => r.tenant_id);
@@ -59,7 +74,6 @@ async function tick(): Promise<void> {
 
   if (tenantIds.length === 0) {
     log({ event: 'insights_sync_noop', reason: 'no_connected_accounts' });
-    ticking = false;
     return;
   }
 
@@ -67,9 +81,20 @@ async function tick(): Promise<void> {
 
   let totalOk = 0;
   let totalFailed = 0;
+  let tenantsFailed = 0;
 
   for (const tenantId of tenantIds) {
-    const results = await syncAllAccountsForTenant(tenantId, 'interval');
+    // Per-tenant isolation: one tenant's sync blowing up (its own pool.connect,
+    // the account-list query, an adapter bug) must not starve the remaining
+    // tenants until the next 30-minute interval.
+    let results: Awaited<ReturnType<SyncAllAccountsFn>>;
+    try {
+      results = await syncFn(tenantId, 'interval');
+    } catch (err) {
+      tenantsFailed++;
+      log({ event: 'insights_sync_tenant_failed', tenantId, error: describeError(err) });
+      continue;
+    }
 
     for (const r of results) {
       const entry: Record<string, unknown> = {
@@ -94,11 +119,39 @@ async function tick(): Promise<void> {
   log({
     event:       'insights_sync_done',
     tenants:     tenantIds.length,
+    tenantsFailed,
     accountsOk:  totalOk,
     accountsFailed: totalFailed,
   });
+}
 
-  ticking = false;
+/**
+ * Overlap-guarded tick, same shape as the other sidecar workers. `ticking` is
+ * reset in `finally` — a tick that throws (e.g. ECONNREFUSED on the first tick
+ * while Postgres is still starting) must never wedge the guard, or every later
+ * tick skips with `previous_tick_still_running` until the container restarts.
+ */
+export async function tickSafe(
+  dbPool: TickPool,
+  syncFn: SyncAllAccountsFn = syncAllAccountsForTenant,
+): Promise<void> {
+  if (ticking) {
+    log({ event: 'insights_sync_skip', reason: 'previous_tick_still_running' });
+    return;
+  }
+  ticking = true;
+  try {
+    await tick(dbPool, syncFn);
+  } catch (err) {
+    log({ event: 'insights_sync_fatal', error: describeError(err) });
+  } finally {
+    ticking = false;
+  }
+}
+
+/** Keep the stack when there is one — `String(err)` drops it. */
+function describeError(err: unknown): string {
+  return err instanceof Error ? (err.stack ?? err.message) : String(err);
 }
 
 // ── Logging ───────────────────────────────────────────────────────────────────
@@ -109,26 +162,32 @@ function log(obj: Record<string, unknown>): void {
 
 // ── Startup ───────────────────────────────────────────────────────────────────
 
-log({ event: 'insights_sync_worker_start', intervalMs: INTERVAL_MS });
+function main(): void {
+  log({ event: 'insights_sync_worker_start', intervalMs: INTERVAL_MS });
 
-// Run the first tick immediately on startup, then every INTERVAL_MS
-tick().catch((err) => {
-  log({ event: 'insights_sync_fatal', error: String(err) });
-});
+  // Run the first tick immediately on startup, then every INTERVAL_MS.
+  // tickSafe never rejects: failures are logged as insights_sync_fatal and the
+  // overlap guard is released so the next interval retries.
+  void tickSafe(pool);
 
-const intervalHandle = setInterval(() => {
-  tick().catch((err) => {
-    log({ event: 'insights_sync_fatal', error: String(err) });
-  });
-}, INTERVAL_MS);
+  const intervalHandle = setInterval(() => void tickSafe(pool), INTERVAL_MS);
 
-// ── Graceful shutdown ─────────────────────────────────────────────────────────
+  // ── Graceful shutdown ───────────────────────────────────────────────────────
 
-function shutdown(signal: string): void {
-  log({ event: 'insights_sync_worker_shutdown', signal });
-  clearInterval(intervalHandle);
-  pool.end().then(() => process.exit(0)).catch(() => process.exit(1));
+  function shutdown(signal: string): void {
+    log({ event: 'insights_sync_worker_shutdown', signal });
+    clearInterval(intervalHandle);
+    pool.end().then(() => process.exit(0)).catch(() => process.exit(1));
+  }
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT',  () => shutdown('SIGINT'));
 }
 
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT',  () => shutdown('SIGINT'));
+// Only auto-start when run directly as a script; importing this module (e.g.
+// from the tick-reset regression test) must not spin up the worker loop.
+const isDirectRun =
+  process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
+if (isDirectRun) {
+  main();
+}
