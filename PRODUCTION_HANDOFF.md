@@ -6,7 +6,7 @@ This document is the concise production runbook for `aries-app`.
 
 1. Merge or push the target commit to `master`, or manually dispatch Deploy with `image_tag` and `git_ref` set to the full commit SHA.
 2. Let the GitHub Actions Deploy workflow build/publish `ghcr.io/delicioushouse/aries-app:<sha>` for that exact commit.
-3. Let the self-hosted deploy host pull the pinned image and force-recreate the `aries-app` service.
+3. Let the self-hosted deploy host pull the pinned image, force-recreate the `aries-app` service, and — after the app health check passes — force-recreate every worker sidecar in `docker-compose.yml` onto the same image. The workflow then verifies each sidecar is running on the target image ID (non-fatal, but loud: `::warning::` annotations plus step-summary lines).
 
 ## Deployment checklist
 

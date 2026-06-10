@@ -73,7 +73,11 @@ Production deploys are triggered automatically on `master` pushes via `.github/w
 1. Validates the deploy target branch.
 2. Builds and publishes `ghcr.io/delicioushouse/aries-app:<sha>` to GHCR.
 3. Pulls the pinned image on the deploy host.
-4. Force-recreates the `aries-app` service.
+4. Force-recreates the `aries-app` service and waits for it to pass a health check (failure here fails the deploy).
+5. Force-recreates every worker sidecar in `docker-compose.yml` (`aries-scheduled-posts-worker`, `aries-weekly-trigger-worker`, `aries-draft-expiry-sweep-worker`, `aries-insights-sync-worker`, `aries-honcho-performance-worker`) onto the same pinned image. Sidecar recreate failures are non-fatal relative to the app deploy.
+6. Verifies each sidecar has a running container on the target image ID, iterating `docker compose config --services` so the list can never drift from `docker-compose.yml`. Mismatches stay non-fatal but surface as GitHub `::warning::` annotations and step-summary lines.
+
+Every service in `docker-compose.yml` must have a matching force-recreate block in the workflow: `tests/deploy-manifest-parity.test.ts` (run in `npm run verify` and CI) fails when a compose service is added, renamed, or removed without the workflow being updated. This closes the gap where a worker added to compose but omitted from the workflow would keep running a stale image across every deploy (its `restart: unless-stopped` container is never re-pulled).
 
 Manual dispatch with an explicit image tag:
 
