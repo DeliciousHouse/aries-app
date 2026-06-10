@@ -2,6 +2,47 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.25 — fix(insights): sweep sync runs stranded in 'running' by worker restarts
+
+### Fixed
+- **Sync-run history can no longer show a sync as running forever.** The
+  dispatcher opens every `insights_sync_runs` row as `status='running'` and
+  only flips it to ok/failed at the end of a long multi-fetch sequence, while
+  the worker's shutdown ends the pool without awaiting an in-flight tick — so
+  a SIGTERM mid-tick (docker compose stop → 10s grace → SIGKILL) stranded the
+  row in `'running'` permanently; no reaper covers this table, and deploys
+  that force-recreate the sidecars would have made it routine. The worker now
+  sweeps stranded rows at the top of every tick (the first tick fires at
+  startup): rows stuck in `'running'` past a grace window are closed out as
+  `status='failed'` with `error_message='aborted by worker restart'`. Sweep
+  failures are isolated — they log `insights_sync_sweep_failed` and never
+  cost tenants their sync window.
+- **A sync swept mid-flight that then completes ends clean.** The
+  dispatcher's terminal ok UPDATE now clears `error_message`, so a swept-then-
+  completed run can't end as `status='ok'` still carrying the abort message
+  (review finding; would have corrupted any future sync-health view).
+
+### Added
+- `ARIES_INSIGHTS_SWEEP_GRACE_MINUTES` (default 60) — the grace window before
+  a `'running'` row counts as stranded; widen it before shipping any sync path
+  that can legitimately run long (e.g. a backfill). Fail-safe parsing; wired
+  through docker-compose and `.env.example`.
+- Partial index `idx_insights_sync_runs_running_started` (init-db +
+  `migrations/20260610000000`) so the half-hourly sweep never seq-scans the
+  append-only audit table; near-empty since `'running'` rows are transient.
+- Tests on three layers: in-memory contract tests
+  (`tests/insights-sync-worker-stranded-runs.test.ts`, in `npm run verify`)
+  covering the SQL shape, sweep-before-fan-out ordering, failure isolation,
+  guard release, and the NDJSON log-event contract; a live-schema
+  requires-infra test (`tests/insights-sync-runs-sweep.requires-infra.test.ts`,
+  rolled back) proving the predicate flips only stale `'running'` rows and the
+  terminal-ok override wins; and the sweep SQL validated against the prod
+  schema in a rolled-back transaction before shipping.
+
+### Changed
+- Sweep logic lives in `backend/insights/sync/sweep-stranded-runs.ts` per the
+  repo's worker/backend split (the worker script stays loop + config +
+  logging); the grace window is a query parameter, not an embedded literal.
 ## v0.1.15.24 — fix(db): DB_POOL_MAX is honored as written everywhere — 2026-06-10
 
 ### Fixed
