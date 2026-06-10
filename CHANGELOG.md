@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.26 — fix(ci): deploy now rolls ALL worker sidecars onto the new image
+
+Closes the deploy gap behind the 2026-06-09 incident where
+`aries-insights-sync-worker` silently ran a 6-day-stale image: the Deploy
+workflow force-recreated only 4 of the 6 docker-compose services, so the two
+omitted workers kept running the previous image across every deploy (their
+`restart: unless-stopped` containers are never re-pulled). The manual fix from
+that incident would have regressed on the very next deploy.
+
+### Fixed
+- **Deploy recreates every sidecar** — `.github/workflows/deploy.yml` now
+  force-recreates `aries-insights-sync-worker` and
+  `aries-honcho-performance-worker` after the app health check, with the same
+  pinned `ARIES_APP_IMAGE="${TARGET_IMAGE}"` + non-fatal pattern as the other
+  three workers.
+
+### Added
+- **Post-deploy worker verification** — after the recreate sequence, the deploy
+  iterates `docker compose config --services` (so the list can never drift from
+  docker-compose.yml) and checks each sidecar has a running container on the
+  target image ID. Mismatches stay non-fatal (workers are best-effort relative
+  to the app) but are now loud: GitHub `::warning::` annotations + step-summary
+  lines instead of a single unread stderr echo. A swallowed
+  `stop → rm → create` failure previously could leave a worker stale or absent
+  with a green deploy.
+- **Compose/deploy parity guard** — new test in
+  `tests/deploy-manifest-parity.test.ts` asserting every docker-compose.yml
+  service has an uncommented, image-pinned force-recreate line in deploy.yml
+  (and no recreate line targets a removed/renamed service), so the next new
+  worker can't be forgotten. Hardened against false-passes: commented-out
+  lines, `echo`-quoted command text, missing image pin, comment dividers and
+  trailing comments in compose, and dotted service names are all covered;
+  verified against the pre-fix workflow (fails naming both missing workers).
+  Runs in `npm run verify` too, since the agent-automerge deploy path gates on
+  verify alone.
 ## v0.1.15.25 — fix(insights): sweep sync runs stranded in 'running' by worker restarts
 
 ### Fixed

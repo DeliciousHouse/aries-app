@@ -357,6 +357,58 @@ jobs:
             echo "WARNING: failed to recreate aries-draft-expiry-sweep-worker; app deploy is healthy, continuing." >&2
           fi
 
+          # Roll the insights-sync-worker sidecar too. It imports backend code
+          # (the insights sync module) and must stay in lockstep with the app.
+          # Omitting it here caused the 2026-06-09 incident where it kept
+          # running a 6-day-stale image across deploys. Non-fatal, like above.
+          if ! ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always aries-insights-sync-worker; then
+            echo "WARNING: failed to recreate aries-insights-sync-worker; app deploy is healthy, continuing." >&2
+          fi
+
+          # Roll the honcho-performance-worker sidecar too, for the same
+          # lockstep reason (it imports backend code; recordPerformanceEvent
+          # self-gates on HONCHO_WRITE_PUBLISH_ENABLED, so recreating it every
+          # deploy is safe whether or not the flag is set). Non-fatal, like above.
+          #
+          # NOTE: every worker service in docker-compose.yml must have a
+          # recreate block in this list — tests/deploy-manifest-parity.test.ts
+          # enforces parity, so adding a new compose worker without updating
+          # this workflow fails CI.
+          if ! ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always aries-honcho-performance-worker; then
+            echo "WARNING: failed to recreate aries-honcho-performance-worker; app deploy is healthy, continuing." >&2
+          fi
+
+          # Verify every sidecar actually rolled. The recreate failures above
+          # are deliberately non-fatal (workers are best-effort relative to the
+          # user-facing app), but a swallowed failure — or a stop->rm->create
+          # that died between rm and create — would otherwise leave a worker
+          # stale or absent while the deploy reports green: the 2026-06-09
+          # stale-image incident class. The service list comes from compose
+          # itself so this check can never drift from docker-compose.yml.
+          worker_mismatches=0
+          while IFS= read -r worker_service; do
+            [[ -z "${worker_service}" || "${worker_service}" == "${SERVICE_NAME}" ]] && continue
+            worker_container_id="$(ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose ps -q "${worker_service}" 2>/dev/null || true)"
+            if [[ -z "${worker_container_id}" ]]; then
+              echo "::warning::Post-deploy check: no running container for ${worker_service} after force-recreate."
+              echo "- WARNING ${worker_service}: no running container after force-recreate" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              worker_mismatches=$((worker_mismatches + 1))
+              continue
+            fi
+            worker_image_id="$(docker inspect -f '{{.Image}}' "${worker_container_id}" 2>/dev/null || true)"
+            worker_running="$(docker inspect -f '{{.State.Running}}' "${worker_container_id}" 2>/dev/null || echo false)"
+            if [[ "${worker_image_id}" != "${target_image_id}" || "${worker_running}" != "true" ]]; then
+              echo "::warning::Post-deploy check: ${worker_service} running=${worker_running} image=${worker_image_id} does not match target ${target_image_id}."
+              echo "- WARNING ${worker_service}: running=${worker_running}, image does not match the deployed target" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              worker_mismatches=$((worker_mismatches + 1))
+            fi
+          done < <(ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose config --services)
+          if [[ "${worker_mismatches}" -eq 0 ]]; then
+            echo "Post-deploy check: all sidecar workers are running on the target image."
+          else
+            echo "WARNING: ${worker_mismatches} sidecar worker(s) did not roll cleanly; see warnings above." >&2
+          fi
+
           echo "Post-deploy cleanup: pruning Docker buildx cache to keep approximately 2GB."
           if ! docker buildx prune --keep-storage=2GB --force; then
             echo "WARNING: docker buildx prune failed; deploy is healthy, continuing." >&2
