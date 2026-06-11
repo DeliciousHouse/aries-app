@@ -50,14 +50,19 @@ test('wallTimeToUtc rejects non-YYYY-MM-DDTHH:mm[:ss] shapes', () => {
 
 test('validateAndConvertOneOffBrief produces NY end-of-day UTC for fallback tenant', () => {
   // No business_profiles row for tenant '999999' → falls back to America/New_York
-  // (DEFAULT_TENANT_TIMEZONE). EDT = UTC-4 in June.
+  // (DEFAULT_TENANT_TIMEZONE). EDT = UTC-4 in June of any year, so the expected
+  // instant is deterministic. Next year keeps the fixture future-proof: the
+  // validator rejects past campaignEndDate, so a hardcoded year rots the suite
+  // the day after the date passes (this bit on 2026-06-11). The wallTimeToUtc
+  // tests above keep fixed dates on purpose — pure conversion, no now() check.
+  const futureYear = new Date().getFullYear() + 1;
   const result = validateAndConvertOneOffBrief({
     name: 'Aries AI Hackathon',
-    campaignEndDate: '2026-06-10',
+    campaignEndDate: `${futureYear}-06-10`,
     cta: 'Register',
   }, '999999');
   assert.ok('oneOff' in result);
   if ('oneOff' in result) {
-    assert.equal(result.oneOff.campaignEndDate, '2026-06-11T03:59:59.000Z');
+    assert.equal(result.oneOff.campaignEndDate, `${futureYear}-06-11T03:59:59.000Z`);
   }
 });

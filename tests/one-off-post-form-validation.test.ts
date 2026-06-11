@@ -17,6 +17,14 @@ import { loadTenantTimezoneOrFallback } from '@/backend/tenant/business-profile'
 
 const FAKE_TENANT_ID = '999999';
 
+const CURRENT_YEAR = new Date().getFullYear();
+// The validator rejects past campaignEndDate (measured in tenant-local time),
+// so fixture dates must stay in the future forever — a hardcoded calendar year
+// rots the suite the day after the date passes (this bit on 2026-06-11). June
+// of next year is always EDT (UTC-4) in America/New_York under post-2007 DST
+// rules, so the expected end-of-day UTC instants stay deterministic.
+const FUTURE_YEAR = CURRENT_YEAR + 1;
+
 test('missing required fields produce a 422-shaped fieldErrors object', () => {
   const result = validateAndConvertOneOffBrief({}, FAKE_TENANT_ID);
   assert.ok('fieldErrors' in result);
@@ -47,9 +55,9 @@ test('non-YYYY-MM-DD date format rejected with structured error', () => {
 test('milestone date without label is rejected (orphan field)', () => {
   const result = validateAndConvertOneOffBrief({
     name: 'Product launch',
-    campaignEndDate: '2026-06-14',
+    campaignEndDate: `${FUTURE_YEAR}-06-14`,
     cta: 'Pre-order now',
-    milestoneDate: '2026-06-10',
+    milestoneDate: `${FUTURE_YEAR}-06-10`,
     // milestoneLabel missing
   }, FAKE_TENANT_ID);
   assert.ok('fieldErrors' in result);
@@ -61,7 +69,7 @@ test('milestone date without label is rejected (orphan field)', () => {
 test('milestone label without date is rejected (orphan field)', () => {
   const result = validateAndConvertOneOffBrief({
     name: 'Product launch',
-    campaignEndDate: '2026-06-14',
+    campaignEndDate: `${FUTURE_YEAR}-06-14`,
     cta: 'Pre-order now',
     milestoneLabel: 'Launch day',
     // milestoneDate missing
@@ -75,9 +83,9 @@ test('milestone label without date is rejected (orphan field)', () => {
 test('milestone date AFTER campaign end is rejected (incoherent ordering)', () => {
   const result = validateAndConvertOneOffBrief({
     name: 'Webinar',
-    campaignEndDate: '2026-06-10',
+    campaignEndDate: `${FUTURE_YEAR}-06-10`,
     cta: 'Save your seat',
-    milestoneDate: '2026-06-15',
+    milestoneDate: `${FUTURE_YEAR}-06-15`,
     milestoneLabel: 'Doors open',
   }, FAKE_TENANT_ID);
   assert.ok('fieldErrors' in result);
@@ -87,17 +95,17 @@ test('milestone date AFTER campaign end is rejected (incoherent ordering)', () =
 });
 
 test('valid minimal payload converts campaignEndDate to NY end-of-day UTC', () => {
-  // June 10 2026 in EDT (UTC-4). End-of-day NY = 23:59:59 EDT = 03:59:59 UTC on June 11.
+  // June 10 of FUTURE_YEAR in EDT (UTC-4). End-of-day NY = 23:59:59 EDT = 03:59:59 UTC on June 11.
   const result = validateAndConvertOneOffBrief({
     name: 'Summer Flash Sale',
-    campaignEndDate: '2026-06-10',
+    campaignEndDate: `${FUTURE_YEAR}-06-10`,
     cta: 'Shop the sale',
   }, FAKE_TENANT_ID);
   assert.ok('oneOff' in result);
   if ('oneOff' in result) {
     assert.equal(result.oneOff.name, 'Summer Flash Sale');
     assert.equal(result.oneOff.cta, 'Shop the sale');
-    assert.equal(result.oneOff.campaignEndDate, '2026-06-11T03:59:59.000Z');
+    assert.equal(result.oneOff.campaignEndDate, `${FUTURE_YEAR}-06-11T03:59:59.000Z`);
     assert.equal(result.oneOff.milestoneDate, undefined);
     assert.equal(result.oneOff.milestoneLabel, undefined);
   }
@@ -106,15 +114,15 @@ test('valid minimal payload converts campaignEndDate to NY end-of-day UTC', () =
 test('valid payload with milestone produces both UTC instants and label', () => {
   const result = validateAndConvertOneOffBrief({
     name: 'Aries AI Hackathon',
-    campaignEndDate: '2026-06-14',
+    campaignEndDate: `${FUTURE_YEAR}-06-14`,
     cta: 'Register at example.com/hackathon',
-    milestoneDate: '2026-06-10',
+    milestoneDate: `${FUTURE_YEAR}-06-10`,
     milestoneLabel: 'Registration deadline',
   }, FAKE_TENANT_ID);
   assert.ok('oneOff' in result);
   if ('oneOff' in result) {
-    assert.equal(result.oneOff.campaignEndDate, '2026-06-15T03:59:59.000Z');
-    assert.equal(result.oneOff.milestoneDate, '2026-06-11T03:59:59.000Z');
+    assert.equal(result.oneOff.campaignEndDate, `${FUTURE_YEAR}-06-15T03:59:59.000Z`);
+    assert.equal(result.oneOff.milestoneDate, `${FUTURE_YEAR}-06-11T03:59:59.000Z`);
     assert.equal(result.oneOff.milestoneLabel, 'Registration deadline');
   }
 });
@@ -122,7 +130,7 @@ test('valid payload with milestone produces both UTC instants and label', () => 
 test('whitespace-only fields treated as missing', () => {
   const result = validateAndConvertOneOffBrief({
     name: '   ',
-    campaignEndDate: '2026-06-10',
+    campaignEndDate: `${FUTURE_YEAR}-06-10`,
     cta: '   ',
   }, FAKE_TENANT_ID);
   assert.ok('fieldErrors' in result);
@@ -136,9 +144,8 @@ test('whitespace-only fields treated as missing', () => {
 // Year range and past-date guards added after Brendan's QA found that browser
 // automation input corruption ("0004-02-06") slipped past the YYYY-MM-DD regex.
 
-const CURRENT_YEAR = new Date().getFullYear();
 // A date far enough in the future to always be valid (next year).
-const VALID_NEAR_FUTURE = `${CURRENT_YEAR + 1}-06-15`;
+const VALID_NEAR_FUTURE = `${FUTURE_YEAR}-06-15`;
 
 test('past date (yesterday) is rejected with campaignEndDate field error', () => {
   // Derive "yesterday" in the SAME timezone the validator measures "today" in
