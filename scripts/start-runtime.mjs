@@ -69,14 +69,18 @@ if (skipInit !== '1' && skipInit !== 'true') {
   }
 }
 
+// These flag-value sets must be initialized before the start call below:
+// startClusterRuntime()/startSingleNodeRuntime() synchronously reach the
+// worker-spawn gates, and a top-level `const` after the call site is still in
+// its temporal dead zone when the gates read it (boot-time ReferenceError).
+const TRUTHY_FLAG_VALUES = new Set(['1', 'true', 'yes', 'on']);
+const FALSY_FLAG_VALUES = new Set(['0', 'false', 'no', 'off']);
+
 if (processManager === 'cluster') {
   startClusterRuntime();
 } else {
   startSingleNodeRuntime();
 }
-
-const TRUTHY_FLAG_VALUES = new Set(['1', 'true', 'yes', 'on']);
-const FALSY_FLAG_VALUES = new Set(['0', 'false', 'no', 'off']);
 
 /**
  * Shared truthiness for the in-process worker-spawn gates. Each gate previously
@@ -112,8 +116,8 @@ function partnerAttributionWorkerEnabled() {
 }
 
 function reaperWorkerEnabled() {
-  // Opt-in: stale-run reaper writes prod job state, so it stays off unless
-  // explicitly enabled (compose default `:-1`).
+  // Opt-in when unset: the stale-run reaper writes prod job state, so a bare
+  // environment must not spawn it. Compose explicitly ships it ON (`:-1`).
   return workerGateEnabled(process.env.ARIES_REAPER_ENABLED, { defaultWhenUnset: false });
 }
 
