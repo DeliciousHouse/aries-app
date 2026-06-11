@@ -9,10 +9,14 @@ Slack channel when a job pauses at a gate that a human must act on, so operators
 polling the dashboard for what's waiting on them. Builds on PR1's inbound webhook
 plumbing; the inbound approve-from-Slack flow stays deferred to a later PR.
 
-- **New outbound surface** behind `ARIES_SLACK_NOTIFICATIONS_ENABLED` (default OFF). When on
-  (plus `SLACK_BOT_TOKEN` with `chat:write` and `SLACK_NOTIFY_CHANNEL`), a Block Kit message
-  with a "Review in Aries" deep link (`/social-content/review?jobId=…`) is posted at the
-  single `requires_approval` checkpoint in `backend/marketing/hermes-callbacks.ts`.
+- **New outbound surface** behind `ARIES_SLACK_NOTIFICATIONS_ENABLED` (default OFF). When on,
+  a Block Kit message with a "Review in Aries" deep link (`/social-content/review?jobId=…`)
+  is posted at the single `requires_approval` checkpoint in
+  `backend/marketing/hermes-callbacks.ts`. The destination channel resolves **per tenant**
+  (tenant-scoped Slack OAuth connection + stored channel config); `SLACK_BOT_TOKEN` (needs
+  `chat:write`) + `SLACK_SINGLE_TENANT_CHANNEL` is the explicit single-tenant opt-in
+  fallback — there is no shared global channel across tenants (the earlier
+  `SLACK_NOTIFY_CHANNEL` global path was removed before merge and is never read).
 - **Fires only for a real human gate** — after `maybeAutoApproveMarketingCheckpoint` has its
   turn (gate: stage status `awaiting_approval`), and suppressed for a variant-board job
   awaiting its pick. Auto-approved gates are never announced.
