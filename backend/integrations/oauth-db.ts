@@ -1,6 +1,6 @@
 import pool from '@/lib/db';
 
-export type DbProvider = 'facebook' | 'instagram' | 'linkedin' | 'x' | 'youtube' | 'reddit' | 'tiktok' | 'openai';
+export type DbProvider = 'facebook' | 'instagram' | 'linkedin' | 'x' | 'youtube' | 'reddit' | 'tiktok' | 'openai' | 'slack';
 export type DbConnectionStatus = 'pending' | 'connected' | 'reauthorization_required' | 'disconnected' | 'error';
 
 export type DbConnectionRow = {

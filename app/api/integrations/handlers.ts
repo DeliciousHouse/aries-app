@@ -12,8 +12,11 @@ import { syncAllAccountsForTenant } from '@/backend/insights/sync/dispatcher';
 import { isSupportedPlatform } from '@/backend/insights/platforms/registry';
 import { hasAdapter } from '@/backend/insights/sync/adapter-factory';
 
+// openai is a model provider, not a publishing channel; slack is a notification
+// target connected on its own settings card (with a channel picker), not a
+// publishing platform. Both are excluded from the publishing integrations cards.
 const platforms = (Object.keys(PROVIDER_REGISTRY) as Array<keyof typeof PROVIDER_REGISTRY>).filter(
-  (platform) => platform !== 'openai',
+  (platform) => platform !== 'openai' && platform !== 'slack',
 );
 
 const META_REQUIRED_SCOPES = ['pages_show_list'];

@@ -7,6 +7,7 @@ import {
   metaAppId,
   openAiClientId,
   redditClientId,
+  slackClientId,
   tikTokClientKey,
   xClientId,
 } from './oauth-provider-runtime';
@@ -165,6 +166,23 @@ export function buildProviderAuthorizationUrl(input: BuildAuthorizeUrlInput): UR
       url.searchParams.set('state', state);
       if (scopes.length > 0) {
         url.searchParams.set('scope', scopes.join(' '));
+      }
+      return url;
+    }
+
+    case 'slack': {
+      const clientId = slackClientId();
+      if (!clientId) {
+        throw new Error('slack_oauth_not_configured');
+      }
+      // Slack OAuth v2: bot scopes go in `scope` (comma-separated); there is no
+      // PKCE. The bot token comes back from oauth.v2.access in the callback.
+      const url = new URL('https://slack.com/oauth/v2/authorize');
+      url.searchParams.set('client_id', clientId);
+      url.searchParams.set('redirect_uri', redirectUri);
+      url.searchParams.set('state', state);
+      if (scopes.length > 0) {
+        url.searchParams.set('scope', scopes.join(','));
       }
       return url;
     }

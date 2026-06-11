@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.27 — feat(slack): outbound approval notifications (Phase 4 PR2, default OFF)
+
+Slack Phase 4 PR2: the marketing pipeline now posts a "needs approval" message to a
+Slack channel when a job pauses at a gate that a human must act on, so operators stop
+polling the dashboard for what's waiting on them. Builds on PR1's inbound webhook
+plumbing; the inbound approve-from-Slack flow stays deferred to a later PR.
+
+- **New outbound surface** behind `ARIES_SLACK_NOTIFICATIONS_ENABLED` (default OFF). When on,
+  a Block Kit message with a "Review in Aries" deep link (`/social-content/review?jobId=…`)
+  is posted at the single `requires_approval` checkpoint in
+  `backend/marketing/hermes-callbacks.ts`. The destination channel resolves **per tenant**
+  (tenant-scoped Slack OAuth connection + stored channel config); `SLACK_BOT_TOKEN` (needs
+  `chat:write`) + `SLACK_SINGLE_TENANT_CHANNEL` is the explicit single-tenant opt-in
+  fallback — there is no shared global channel across tenants (the earlier
+  `SLACK_NOTIFY_CHANNEL` global path was removed before merge and is never read).
+- **Fires only for a real human gate** — after `maybeAutoApproveMarketingCheckpoint` has its
+  turn (gate: stage status `awaiting_approval`), and suppressed for a variant-board job
+  awaiting its pick. Auto-approved gates are never announced.
+- **Best-effort + non-fatal**: the client never throws and the call is fire-and-forget, so a
+  Slack outage can't break callback idempotency. The untrusted Hermes prompt is escaped for
+  Slack mrkdwn and length-capped.
+- **Deduped on delivery** via the `slack_notifications` table keyed on the stable
+  `approval:<jobId>:<stage>` (NOT the per-delivery approval id), recorded only after a
+  successful post so a failed/crashed send is retried by the reconciler instead of dropped.
+- When OFF (default), the callback path is byte-identical to today: no DB write, no Slack call.
+- Tests: 16 covering the message builder (escaping/truncation), the client (success/HTTP
+  error/`ok:false`/timeout), and the dispatcher (flag/channel/dedup/post-failure).
+
 ## v0.1.15.26 — fix(ci): deploy now rolls ALL worker sidecars onto the new image
 
 Closes the deploy gap behind the 2026-06-09 incident where

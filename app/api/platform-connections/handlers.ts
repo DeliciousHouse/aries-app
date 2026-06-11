@@ -12,7 +12,7 @@ type BrowserSafeConnectionStatus = {
   lastCheckedAt: string | null;
 };
 type PlatformConnectionStatus = {
-  provider: Exclude<ProviderKey, 'openai'>;
+  provider: Exclude<ProviderKey, 'openai' | 'slack'>;
   tenant_id: string;
   connection_id?: string;
   connection_status: string;
@@ -25,7 +25,11 @@ type PlatformConnectionsPayload = {
   connections: Array<PlatformConnectionStatus | BrowserSafeConnectionStatus>;
 };
 
-const PLATFORM_CONNECTION_PROVIDERS = Object.keys(PROVIDER_REGISTRY) as ProviderKey[];
+// slack is a notification target (connected via its own settings card), not a
+// publishing platform, so it never appears in the platform-connections status.
+const PLATFORM_CONNECTION_PROVIDERS = (Object.keys(PROVIDER_REGISTRY) as ProviderKey[]).filter(
+  (provider): provider is Exclude<ProviderKey, 'slack'> => provider !== 'slack',
+);
 
 function mapTokenHealth(input: {
   connection_status: string;
