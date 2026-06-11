@@ -69,38 +69,67 @@ if (skipInit !== '1' && skipInit !== 'true') {
   }
 }
 
+// These flag-value sets must be initialized before the start call below:
+// startClusterRuntime()/startSingleNodeRuntime() synchronously reach the
+// worker-spawn gates, and a top-level `const` after the call site is still in
+// its temporal dead zone when the gates read it (boot-time ReferenceError).
+const TRUTHY_FLAG_VALUES = new Set(['1', 'true', 'yes', 'on']);
+const FALSY_FLAG_VALUES = new Set(['0', 'false', 'no', 'off']);
+
 if (processManager === 'cluster') {
   startClusterRuntime();
 } else {
   startSingleNodeRuntime();
 }
 
+/**
+ * Shared truthiness for the in-process worker-spawn gates. Each gate previously
+ * rolled its own check, with inconsistent parsing — reaper accepted only
+ * `1`/`true` while the opt-out gates (kanban-gc, reconciler) also took
+ * `yes`/`on` and treated unset as ON. This centralizes the parse while letting
+ * each gate keep its own shipped default via `defaultWhenUnset`:
+ *   - recognized truthy value (1/true/yes/on) -> true
+ *   - recognized falsy value (0/false/no/off)  -> false
+ *   - unset / empty / unrecognized             -> defaultWhenUnset
+ * Opt-in gates pass `false` (must be explicitly enabled); opt-out kill-switches
+ * pass `true` (on unless explicitly disabled). Compose pins every gate to an
+ * explicit value, so this changes no shipped default — it only makes the parse
+ * uniform (e.g. reaper now also honors `yes`/`on`).
+ */
+function workerGateEnabled(rawValue, { defaultWhenUnset }) {
+  const v = rawValue?.trim().toLowerCase();
+  if (!v) {
+    return defaultWhenUnset;
+  }
+  if (TRUTHY_FLAG_VALUES.has(v)) {
+    return true;
+  }
+  if (FALSY_FLAG_VALUES.has(v)) {
+    return false;
+  }
+  return defaultWhenUnset;
+}
+
 function partnerAttributionWorkerEnabled() {
-  const v = process.env.PARTNER_ATTRIBUTION_ENABLED?.trim().toLowerCase();
-  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+  // Opt-in: dormant unless explicitly enabled (compose default `:-false`).
+  return workerGateEnabled(process.env.PARTNER_ATTRIBUTION_ENABLED, { defaultWhenUnset: false });
 }
 
 function reaperWorkerEnabled() {
-  const v = process.env.ARIES_REAPER_ENABLED?.trim().toLowerCase();
-  return v === '1' || v === 'true';
+  // Opt-in when unset: the stale-run reaper writes prod job state, so a bare
+  // environment must not spawn it. Compose explicitly ships it ON (`:-1`).
+  return workerGateEnabled(process.env.ARIES_REAPER_ENABLED, { defaultWhenUnset: false });
 }
 
 function hermesKanbanGcWorkerEnabled() {
-  const v = process.env.ARIES_KANBAN_GC_ENABLED?.trim().toLowerCase();
-  if (!v) {
-    return true;
-  }
-  return v !== '0' && v !== 'false' && v !== 'no' && v !== 'off';
+  // Opt-out kill-switch: on unless explicitly disabled (compose default `:-1`).
+  return workerGateEnabled(process.env.ARIES_KANBAN_GC_ENABLED, { defaultWhenUnset: true });
 }
 
 function hermesReconcilerWorkerEnabled() {
-  // Default ON: durable replacement for the in-process Hermes poll-bridge.
-  // Disable only with an explicit 0/false/no/off.
-  const v = process.env.ARIES_RECONCILER_ENABLED?.trim().toLowerCase();
-  if (!v) {
-    return true;
-  }
-  return v !== '0' && v !== 'false' && v !== 'no' && v !== 'off';
+  // Opt-out kill-switch: durable replacement for the in-process Hermes
+  // poll-bridge; on unless explicitly disabled (compose default `:-1`).
+  return workerGateEnabled(process.env.ARIES_RECONCILER_ENABLED, { defaultWhenUnset: true });
 }
 
 function spawnPartnerOutboxWorker() {

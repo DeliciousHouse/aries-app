@@ -43,8 +43,11 @@ async function tick(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const enabled = process.env.ARIES_REAPER_ENABLED?.trim();
-  if (enabled !== '1' && enabled !== 'true') {
+  // Keep this self-gate's vocabulary in sync with the supervisor gate in
+  // start-runtime.mjs (workerGateEnabled): otherwise ARIES_REAPER_ENABLED=yes
+  // spawns the worker only for it to exit here immediately.
+  const enabled = process.env.ARIES_REAPER_ENABLED?.trim().toLowerCase();
+  if (enabled !== '1' && enabled !== 'true' && enabled !== 'yes' && enabled !== 'on') {
     console.log('[stale-run-reaper] ARIES_REAPER_ENABLED is off; exiting.');
     process.exit(0);
   }
