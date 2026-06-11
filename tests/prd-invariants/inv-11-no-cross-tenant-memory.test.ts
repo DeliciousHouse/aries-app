@@ -22,10 +22,12 @@ test('multiple emails in a single label are all redacted', () => {
   assert.equal(out, '[redacted_email] and [redacted_email]');
 });
 
-test('FirstName LastName patterns are redacted (legacy v1 mode is the default)', () => {
-  // Default mode (v2 flag unset) is the legacy broad redaction.  We assert on
-  // the legacy behavior here because it is the documented current default
-  // until ARIES_MEMORY_LABEL_REDACTION_V2 rollout completes.
+test('FirstName LastName patterns are redacted in the unset/legacy-v1 fallback', () => {
+  // With ARIES_MEMORY_LABEL_REDACTION_V2 unset, the scrubber falls back to the
+  // legacy v1 broad redaction. NOTE: the shipped container pins the flag ON
+  // (docker-compose.yml `:-1`, i.e. v2) — so v2 is the live prod mode, not v1.
+  // We assert the unset fallback here so the flag-absent code path (tests, any
+  // env that omits the var) stays a safe PII redactor.
   delete process.env.ARIES_MEMORY_LABEL_REDACTION_V2;
   const out = scrubPreferenceLabelForHoncho('Project lead: Casey Tanaka shipped it');
   assert.match(out, /\[redacted_name\]/);
