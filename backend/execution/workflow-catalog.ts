@@ -25,7 +25,7 @@ export type AriesWorkflowDef = {
  * Client-facing `/api/marketing/jobs*` stays on the monolithic marketing
  * orchestrator path.
  */
-export const ARIES_ATOMIC_MARKETING_WORKFLOW_KEYS: AriesWorkflowKey[] = [
+export const ATOMIC_MARKETING_WORKFLOW_KEYS: AriesWorkflowKey[] = [
   'marketing_stage1_research',
   'marketing_stage2_strategy_review',
   'marketing_stage2_strategy_finalize',
