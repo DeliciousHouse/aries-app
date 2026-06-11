@@ -20,11 +20,6 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       ARIES_EXECUTION_PROVIDER: ${ARIES_EXECUTION_PROVIDER:-hermes}
       ARIES_MARKETING_EXECUTION_PROVIDER: ${ARIES_MARKETING_EXECUTION_PROVIDER:-hermes}
-      # Migration gate for PR #302 stage-cache tenant-prefix work. Enables
-      # READS from the legacy <cacheRoot>/<runId>/... layout during the
-      # one-pipeline-cycle soak period. New writes always go to the
-      # tenant-scoped path regardless. Remove after migration completes.
-      ARIES_STAGE_CACHE_LEGACY_READ_FALLBACK: ${ARIES_STAGE_CACHE_LEGACY_READ_FALLBACK:-}
       HERMES_GATEWAY_URL: ${HERMES_GATEWAY_URL:-}
       HERMES_API_SERVER_KEY: ${HERMES_API_SERVER_KEY:-}
       HERMES_SESSION_KEY: ${HERMES_SESSION_KEY:-main}

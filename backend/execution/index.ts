@@ -13,7 +13,7 @@ export {
 } from './errors';
 
 export {
-  ARIES_ATOMIC_MARKETING_WORKFLOW_KEYS,
+  ATOMIC_MARKETING_WORKFLOW_KEYS,
   ARIES_WORKFLOWS,
   getAriesWorkflow,
   type AriesWorkflowDef,
