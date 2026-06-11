@@ -11,7 +11,7 @@
  *     — loads all accounts for a tenant and calls syncAccountForTenant for each.
  *
  * Called by:
- *   - The interval worker (backend/insights/worker.ts, Phase 4) — trigger 'interval'
+ *   - The interval worker (scripts/automations/insights-sync-worker.ts) — trigger 'interval'
  *   - The API handler (app/api/integrations/handlers.ts, Phase 5) — trigger 'handler'
  *   - A one-off backfill script — trigger 'backfill'
  *
@@ -46,6 +46,25 @@ function lastNDaysRange(days: number): DateRange {
 }
 
 // ── Public types ──────────────────────────────────────────────────────────────
+
+/**
+ * Terminal ok-path UPDATE for a sync run. Exported so the requires-infra
+ * sweep test (tests/insights-sync-runs-sweep.requires-infra.test.ts) executes
+ * this exact statement. `error_message = NULL` is load-bearing: a run swept by
+ * sweepAbandonedSyncRuns mid-flight that then completes must not keep the
+ * sweep's 'aborted by worker restart' message on a status='ok' row.
+ * $1 posts_seen, $2 comments_seen, $3 api_units_used, $4 id.
+ */
+export const SYNC_RUN_TERMINAL_OK_SQL = `
+  UPDATE insights_sync_runs
+  SET status        = 'ok',
+      finished_at   = now(),
+      posts_seen    = $1,
+      comments_seen = $2,
+      api_units_used = $3,
+      error_message = NULL
+  WHERE id = $4
+`;
 
 export interface SyncResult {
   syncRunId: number;
@@ -271,16 +290,12 @@ export async function syncAccountForTenant(
     }
 
     // ── 7. Finish sync_run record + update account ─────────────────────────
-    await client.query(
-      `UPDATE insights_sync_runs
-       SET status        = 'ok',
-           finished_at   = now(),
-           posts_seen    = $1,
-           comments_seen = $2,
-           api_units_used = $3
-       WHERE id = $4`,
-      [postsSeen, commentsSeen, apiUnitsUsed, syncRunId],
-    );
+    await client.query(SYNC_RUN_TERMINAL_OK_SQL, [
+      postsSeen,
+      commentsSeen,
+      apiUnitsUsed,
+      syncRunId,
+    ]);
 
     await client.query(
       `UPDATE insights_accounts SET last_sync_at = now() WHERE id = $1`,

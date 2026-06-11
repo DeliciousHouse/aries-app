@@ -14,7 +14,7 @@
 
 ## Production release
 
-For `aries-app`, deploy by merging or pushing to `master`. The GitHub Actions Deploy workflow builds and publishes `ghcr.io/delicioushouse/aries-app:<sha>` for the exact target commit, then the self-hosted deploy host pulls that pinned image and force-recreates the `aries-app` service.
+For `aries-app`, deploy by merging or pushing to `master`. The GitHub Actions Deploy workflow builds and publishes `ghcr.io/delicioushouse/aries-app:<sha>` for the exact target commit, then the self-hosted deploy host pulls that pinned image, force-recreates the `aries-app` service, and — once the app passes its health check — force-recreates every worker sidecar in `docker-compose.yml` onto the same pinned image. A post-deploy check then verifies each sidecar has a running container on the target image ID; sidecar failures are non-fatal to the deploy but surface as GitHub `::warning::` annotations and step-summary lines. `tests/deploy-manifest-parity.test.ts` (in `npm run verify` and CI) fails when a compose service is added without a matching recreate block in the workflow.
 
 Manual deploys still use workflow dispatch with an explicit image tag. Use the full commit SHA for normal production recovery so the workflow can build and verify the exact image before restart:
 
@@ -44,7 +44,15 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml build
 - `ARIES_KANBAN_GC_RETENTION_DAYS` (optional; default `7` — archive completed kanban tasks older than this many days before running `hermes kanban gc`)
 - `ARIES_RECONCILER_ENABLED` (optional; default `1` — enables the durable Hermes run reconciler side-process that ingests finished marketing runs; replaces the unreliable in-process poll-bridge)
 - `ARIES_RECONCILER_INTERVAL_MS` (optional; default `60000` — reconciler sweep interval in milliseconds; beats the reaper's tightest stage threshold)
-- `DB_POOL_MAX` (optional; default `20` per worker)
+- `DB_POOL_MAX` (optional; default `20` per app worker process. The sidecars'
+  dedicated worker pools fall back to `3` when unset (`lib/db-pool-config.ts`),
+  except the insights-sync sidecar, which uses the shared `lib/db` pool
+  (fallback `20`) — docker-compose explicitly sets `DB_POOL_MAX: 3` on every
+  sidecar service, and that compose value is what governs in practice.
+  Strictly parsed: an explicit integer is honored as written from `1` up to a
+  cap of `200`; anything else — `0`, `1e2`, `3garbage` — falls back to the
+  caller's default with a warning. See `parsePoolMax` in
+  `lib/db-pool-config.ts`.)
 - `ARIES_EXECUTION_PROVIDER` (optional; default `hermes`)
 - `ARIES_MARKETING_EXECUTION_PROVIDER` (optional; default `hermes`)
 - `HERMES_GATEWAY_URL`
@@ -124,8 +132,14 @@ Tuning knobs:
   also recognized by the launcher when `ARIES_WEB_CONCURRENCY` is unset outside
   Compose; Compose users should set `ARIES_WEB_CONCURRENCY` directly.
 - `DB_POOL_MAX=20` is per worker. Total possible Postgres clients are roughly
-  `ARIES_WEB_CONCURRENCY * DB_POOL_MAX`, so lower `DB_POOL_MAX` before raising
-  worker count aggressively on a database with tight `max_connections`.
+  `ARIES_WEB_CONCURRENCY * DB_POOL_MAX` plus 5 for the Hermes reconciler child
+  (pinned via `DB_POOL_MAX: '5'` in `scripts/start-runtime.mjs`), so lower
+  `DB_POOL_MAX` before raising worker count aggressively on a database with
+  tight `max_connections`. The value is honored exactly as written (floor `1`,
+  cap `200`); the sidecar worker services in `docker-compose.yml` set
+  `DB_POOL_MAX: 3` each and really get 3. Do not set the app container's value
+  to a tiny number like `1` — one slow query would monopolize a web worker's
+  only connection and stall its requests.
 - `ARIES_PROCESS_MANAGER=node` is the emergency rollback path. It keeps the same
   image and runs a single `next start` process on `${PORT:-3000}`.
 - `ARIES_WORKER_MAX_RESTARTS=5` caps per-worker crash restarts. If every worker
@@ -152,7 +166,11 @@ For multiple app containers, reserve room for migrations, admin sessions, and
 Postgres maintenance when doing the math. A safe first-pass budget is:
 
 ```text
-total_app_connections = containers * ARIES_WEB_CONCURRENCY * DB_POOL_MAX
+total_app_connections = containers * (ARIES_WEB_CONCURRENCY * DB_POOL_MAX + 5)
+                        + sum(sidecar workers' DB_POOL_MAX)
+# +5 per app container = the Hermes reconciler child (scripts/start-runtime.mjs)
+# sidecars: compose sets DB_POOL_MAX: 3 each; the honcho worker can additionally
+# instantiate the shared lib/db pool via its backend imports (budget 2x for it)
 ```
 
 Do not raise `ARIES_WEB_CONCURRENCY` without lowering `DB_POOL_MAX` or confirming

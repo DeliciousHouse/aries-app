@@ -73,7 +73,11 @@ Production deploys are triggered automatically on `master` pushes via `.github/w
 1. Validates the deploy target branch.
 2. Builds and publishes `ghcr.io/delicioushouse/aries-app:<sha>` to GHCR.
 3. Pulls the pinned image on the deploy host.
-4. Force-recreates the `aries-app` service.
+4. Force-recreates the `aries-app` service and waits for it to pass a health check (failure here fails the deploy).
+5. Force-recreates every worker sidecar in `docker-compose.yml` (`aries-scheduled-posts-worker`, `aries-weekly-trigger-worker`, `aries-draft-expiry-sweep-worker`, `aries-insights-sync-worker`, `aries-honcho-performance-worker`) onto the same pinned image. Sidecar recreate failures are non-fatal relative to the app deploy.
+6. Verifies each sidecar has a running container on the target image ID, iterating `docker compose config --services` so the list can never drift from `docker-compose.yml`. Mismatches stay non-fatal but surface as GitHub `::warning::` annotations and step-summary lines.
+
+Every service in `docker-compose.yml` must have a matching force-recreate block in the workflow: `tests/deploy-manifest-parity.test.ts` (run in `npm run verify` and CI) fails when a compose service is added, renamed, or removed without the workflow being updated. This closes the gap where a worker added to compose but omitted from the workflow would keep running a stale image across every deploy (its `restart: unless-stopped` container is never re-pulled).
 
 Manual dispatch with an explicit image tag:
 
@@ -92,10 +96,10 @@ The production container starts with `node scripts/start-runtime.mjs`. By defaul
 | `ARIES_PROCESS_MANAGER` | `cluster` | Set `node` for single-process rollback |
 | `ARIES_WEB_CONCURRENCY` | `2` | Worker count; accepts a positive integer or `max` |
 | `ARIES_WORKER_MAX_RESTARTS` | `5` | Per-worker crash restart cap before container exit |
-| `DB_POOL_MAX` | `20` | PostgreSQL connections per worker |
+| `DB_POOL_MAX` | `20` (app workers); compose sets `3` per sidecar | PostgreSQL connections per process; strictly-parsed integer honored from 1–200. Sidecars' dedicated pools fall back to `3` when unset; the insights-sync sidecar uses the shared `lib/db` pool (fallback `20`), so the compose-set `3` is what governs |
 | `PORT` | `3000` | Listening port |
 
-Total possible PostgreSQL connections ≈ `ARIES_WEB_CONCURRENCY × DB_POOL_MAX`. Lower `DB_POOL_MAX` before raising worker count on databases with tight `max_connections`.
+Total possible PostgreSQL connections ≈ `ARIES_WEB_CONCURRENCY × DB_POOL_MAX + 5` (the Hermes reconciler child pinned at 5 in `scripts/start-runtime.mjs`) plus the sum of each sidecar worker's own `DB_POOL_MAX` (compose sets 3 per sidecar; the honcho worker may additionally open the shared `lib/db` pool, so budget 2× its value). Lower `DB_POOL_MAX` before raising worker count on databases with tight `max_connections`.
 
 Example for a 4-worker deploy with smaller connection pools (suitable for ~50 users if the database can spare ~40 app connections):
 
