@@ -62,18 +62,6 @@ export function stageCacheRootForTenant(
   return path.join(stageCacheRoot(stage), normalized);
 }
 
-/**
- * Legacy fallback read gate. When set to "1", reads will fall back to the
- * pre-tenant-segment layout `<cacheRoot>/<runId>/<step>.json` if the tenant-
- * scoped path misses. Writes are NEVER routed to the legacy layout.
- *
- * TODO(stage-cache-tenant-prefix): remove this gate after the next full
- * pipeline cycle for all tenants has populated tenant-scoped caches.
- */
-export function legacyStageCacheReadFallbackEnabled(): boolean {
-  return stringValue(process.env.ARIES_STAGE_CACHE_LEGACY_READ_FALLBACK) === '1';
-}
-
 export function hostOutputMount(): string {
   return path.normalize(stringValue(process.env.ARIES_HOST_ARTIFACT_OUTPUT_MOUNT) || DEFAULT_HOST_OUTPUT_MOUNT);
 }

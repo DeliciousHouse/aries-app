@@ -20,11 +20,6 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       ARIES_EXECUTION_PROVIDER: ${ARIES_EXECUTION_PROVIDER:-hermes}
       ARIES_MARKETING_EXECUTION_PROVIDER: ${ARIES_MARKETING_EXECUTION_PROVIDER:-hermes}
-      # Migration gate for PR #302 stage-cache tenant-prefix work. Enables
-      # READS from the legacy <cacheRoot>/<runId>/... layout during the
-      # one-pipeline-cycle soak period. New writes always go to the
-      # tenant-scoped path regardless. Remove after migration completes.
-      ARIES_STAGE_CACHE_LEGACY_READ_FALLBACK: ${ARIES_STAGE_CACHE_LEGACY_READ_FALLBACK:-}
       HERMES_GATEWAY_URL: ${HERMES_GATEWAY_URL:-}
       HERMES_API_SERVER_KEY: ${HERMES_API_SERVER_KEY:-}
       HERMES_SESSION_KEY: ${HERMES_SESSION_KEY:-main}
@@ -361,6 +356,10 @@ services:
       DB_NAME: ${DB_NAME}
       HONCHO_WRITE_PUBLISH_ENABLED: ${HONCHO_WRITE_PUBLISH_ENABLED:-false}
       ARIES_TENANT_PSEUDONYM_SALT: ${ARIES_TENANT_PSEUDONYM_SALT:-}
+      # Grace window (minutes) before the stranded-run sweep fails out a
+      # 'running' insights_sync_runs row. Widen before any long-running
+      # sync path (e.g. a backfill script) ships.
+      ARIES_INSIGHTS_SWEEP_GRACE_MINUTES: ${ARIES_INSIGHTS_SWEEP_GRACE_MINUTES:-60}
     restart: unless-stopped
     networks:
       - docker_stack

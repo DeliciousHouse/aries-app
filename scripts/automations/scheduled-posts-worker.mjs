@@ -28,6 +28,19 @@ let intervalHandle = null;
 // DB helpers
 // ---------------------------------------------------------------------------
 
+// Mirrors lib/db-pool-config.ts parsePoolMax (this worker runs under plain
+// node, so it cannot import the TS helper): honor an explicit integer
+// DB_POOL_MAX in [1, 200]; anything else falls back to the worker default 3.
+export function parseWorkerPoolMax(raw) {
+  if (!raw) return 3;
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed) || Number.parseInt(trimmed, 10) < 1) {
+    console.warn(`[db-pool] invalid DB_POOL_MAX ${JSON.stringify(raw)}; using default 3`);
+    return 3;
+  }
+  return Math.min(200, Number.parseInt(trimmed, 10));
+}
+
 function buildPool() {
   return new pg.Pool({
     host: process.env.DB_HOST || 'localhost',
@@ -35,7 +48,7 @@ function buildPool() {
     user: process.env.DB_USER || 'aries_user',
     password: process.env.DB_PASSWORD || 'aries_pass',
     database: process.env.DB_NAME || 'aries_dev',
-    max: 3,
+    max: parseWorkerPoolMax(process.env.DB_POOL_MAX),
   });
 }
 

@@ -3,7 +3,6 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
-  legacyStageCacheReadFallbackEnabled,
   artifactOutputRoots,
   stageCacheRoot,
   stageCacheRootForTenant,
@@ -235,22 +234,6 @@ export async function readMarketingStageStepPayload(
         payload: cached,
         source: 'cache',
       };
-    }
-
-    // Legacy on-disk caches at `<cacheRoot>/<runId>/<step>.json` (no tenant
-    // segment) remain readable as a last resort while operators migrate. New
-    // writes always go to the tenant-scoped path; this branch only reads.
-    if (legacyStageCacheReadFallbackEnabled()) {
-      const legacyCachePath = path.join(stageCacheRoot(stage), runId, `${stepName}.json`);
-      const legacyCached = await readJsonIfExists(legacyCachePath);
-      if (legacyCached) {
-        return {
-          runId,
-          path: legacyCachePath,
-          payload: legacyCached,
-          source: 'cache',
-        };
-      }
     }
 
     for (const outputRoot of artifactOutputRoots()) {

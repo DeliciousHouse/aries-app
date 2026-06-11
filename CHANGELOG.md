@@ -2,6 +2,149 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.15.26 — fix(ci): deploy now rolls ALL worker sidecars onto the new image
+
+Closes the deploy gap behind the 2026-06-09 incident where
+`aries-insights-sync-worker` silently ran a 6-day-stale image: the Deploy
+workflow force-recreated only 4 of the 6 docker-compose services, so the two
+omitted workers kept running the previous image across every deploy (their
+`restart: unless-stopped` containers are never re-pulled). The manual fix from
+that incident would have regressed on the very next deploy.
+
+### Fixed
+- **Deploy recreates every sidecar** — `.github/workflows/deploy.yml` now
+  force-recreates `aries-insights-sync-worker` and
+  `aries-honcho-performance-worker` after the app health check, with the same
+  pinned `ARIES_APP_IMAGE="${TARGET_IMAGE}"` + non-fatal pattern as the other
+  three workers.
+
+### Added
+- **Post-deploy worker verification** — after the recreate sequence, the deploy
+  iterates `docker compose config --services` (so the list can never drift from
+  docker-compose.yml) and checks each sidecar has a running container on the
+  target image ID. Mismatches stay non-fatal (workers are best-effort relative
+  to the app) but are now loud: GitHub `::warning::` annotations + step-summary
+  lines instead of a single unread stderr echo. A swallowed
+  `stop → rm → create` failure previously could leave a worker stale or absent
+  with a green deploy.
+- **Compose/deploy parity guard** — new test in
+  `tests/deploy-manifest-parity.test.ts` asserting every docker-compose.yml
+  service has an uncommented, image-pinned force-recreate line in deploy.yml
+  (and no recreate line targets a removed/renamed service), so the next new
+  worker can't be forgotten. Hardened against false-passes: commented-out
+  lines, `echo`-quoted command text, missing image pin, comment dividers and
+  trailing comments in compose, and dotted service names are all covered;
+  verified against the pre-fix workflow (fails naming both missing workers).
+  Runs in `npm run verify` too, since the agent-automerge deploy path gates on
+  verify alone.
+## v0.1.15.25 — fix(insights): sweep sync runs stranded in 'running' by worker restarts
+
+### Fixed
+- **Sync-run history can no longer show a sync as running forever.** The
+  dispatcher opens every `insights_sync_runs` row as `status='running'` and
+  only flips it to ok/failed at the end of a long multi-fetch sequence, while
+  the worker's shutdown ends the pool without awaiting an in-flight tick — so
+  a SIGTERM mid-tick (docker compose stop → 10s grace → SIGKILL) stranded the
+  row in `'running'` permanently; no reaper covers this table, and deploys
+  that force-recreate the sidecars would have made it routine. The worker now
+  sweeps stranded rows at the top of every tick (the first tick fires at
+  startup): rows stuck in `'running'` past a grace window are closed out as
+  `status='failed'` with `error_message='aborted by worker restart'`. Sweep
+  failures are isolated — they log `insights_sync_sweep_failed` and never
+  cost tenants their sync window.
+- **A sync swept mid-flight that then completes ends clean.** The
+  dispatcher's terminal ok UPDATE now clears `error_message`, so a swept-then-
+  completed run can't end as `status='ok'` still carrying the abort message
+  (review finding; would have corrupted any future sync-health view).
+
+### Added
+- `ARIES_INSIGHTS_SWEEP_GRACE_MINUTES` (default 60) — the grace window before
+  a `'running'` row counts as stranded; widen it before shipping any sync path
+  that can legitimately run long (e.g. a backfill). Fail-safe parsing; wired
+  through docker-compose and `.env.example`.
+- Partial index `idx_insights_sync_runs_running_started` (init-db +
+  `migrations/20260610000000`) so the half-hourly sweep never seq-scans the
+  append-only audit table; near-empty since `'running'` rows are transient.
+- Tests on three layers: in-memory contract tests
+  (`tests/insights-sync-worker-stranded-runs.test.ts`, in `npm run verify`)
+  covering the SQL shape, sweep-before-fan-out ordering, failure isolation,
+  guard release, and the NDJSON log-event contract; a live-schema
+  requires-infra test (`tests/insights-sync-runs-sweep.requires-infra.test.ts`,
+  rolled back) proving the predicate flips only stale `'running'` rows and the
+  terminal-ok override wins; and the sweep SQL validated against the prod
+  schema in a rolled-back transaction before shipping.
+
+### Changed
+- Sweep logic lives in `backend/insights/sync/sweep-stranded-runs.ts` per the
+  repo's worker/backend split (the worker script stays loop + config +
+  logging); the grace window is a query parameter, not an embedded literal.
+## v0.1.15.24 — fix(db): DB_POOL_MAX is honored as written everywhere — 2026-06-10
+
+### Fixed
+- **`DB_POOL_MAX` now means what it says, on every process.** Two gaps made the
+  connection-budget math unreadable from `docker-compose.yml`: (1) the shared
+  pool's parser clamped every explicit value to a floor of 5, so the
+  insights-sync sidecar's configured `3` silently ran a pool of 5; and (2) the
+  other four sidecar workers hardcoded `max: 3` and ignored the env var
+  entirely. All five sidecar pools now parse `DB_POOL_MAX` through one shared
+  helper (`lib/db-pool-config.ts`) with a worker default of 3, and explicit
+  values are honored from 1 up to the 200 cap.
+- **Malformed pool sizes can no longer under-provision production.** The parser
+  is now strict-integer: values like `1e2` (previously parsed as `1` — a
+  one-connection web pool) or `3garbage` fall back to the caller's default with
+  a loud warning instead of being silently truncated (cross-model adversarial
+  finding, Claude + Codex).
+
+### Changed
+- Connection-budget docs (`DOCKER.md`, `CLAUDE.md` guardrail #1) now state the
+  full per-container math, including the Hermes reconciler child's pinned pool
+  of 5 (`scripts/start-runtime.mjs`) and the honcho worker's potential second
+  (shared) pool, and warn against tiny `DB_POOL_MAX` values on the web app.
+
+### Added
+- Bounds tests for `parsePoolMax` (floor/cap/strict-parse/fallback) and a new
+  `tests/worker-pool-config.test.ts` asserting every sidecar worker's pool
+  honors `DB_POOL_MAX` and defaults to 3.
+
+## v0.1.15.23 — fix(insights): un-wedge the insights-sync worker after a failed tick
+
+(v0.1.15.21 and v0.1.15.22 are claimed by in-flight PRs #579 and #580.)
+
+### Fixed
+- **Insights syncing recovers on its own after a startup race.** The
+  `aries-insights-sync-worker` sidecar set its overlap guard (`ticking = true`)
+  before an unprotected `await pool.connect()`. If the first tick fired while
+  Postgres was still starting (`ECONNREFUSED`), the error escaped to a log-only
+  `.catch`, the guard was never reset, and every subsequent tick for the life of
+  the container logged `insights_sync_skip: previous_tick_still_running` —
+  analytics silently stopped syncing (prod was wedged this way from
+  2026-06-09T20:14Z). The tick body now runs in `try/catch/finally` (the same
+  shape the other sidecar workers use), so any tick failure logs
+  `insights_sync_fatal` and releases the guard for the next interval.
+- **One bad tenant no longer starves the rest.** A tenant whose sync throws
+  (its own DB connect, the account-list query, an adapter bug) is logged as
+  `insights_sync_tenant_failed` and skipped; the remaining tenants still sync
+  in the same tick instead of waiting 30 minutes.
+- **Worker error logs now carry stack traces** instead of `String(err)`
+  one-liners.
+
+### Added
+- Regression tests (`tests/insights-sync-worker-tick-reset.test.ts`) covering
+  guard release on connect failure, query failure, and per-tenant sync failure,
+  plus the legitimate-overlap skip. Oracle-checked: the suite fails against the
+  pre-fix code. Registered in `npm run verify` so the canonical pre-push gate
+  exercises it.
+
+### Changed
+- `insights-sync-worker.ts` is now importable without auto-starting (direct-run
+  guard, matching the sibling workers), with the pool and per-tenant sync
+  injectable for tests. Log event names and payloads are unchanged, except
+  `insights_sync_done` gains a `tenantsFailed` count.
+
+Deploy note: until PR #580 (deploy recreates all sidecars) lands, the
+`aries-insights-sync-worker` container must be force-recreated manually once
+after this deploy to pick up the fix.
+
 ## v0.1.15.20 — feat(marketing): brand taste-learning loop (tenant-scoped, default OFF)
 
 PR2 of the brand-learning track (PR1 was the logo composite, v0.1.15.19). A

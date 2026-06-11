@@ -29,6 +29,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { wallTimeToUtc, DEFAULT_TENANT_TIMEZONE } from '@/lib/format-timestamp';
 import { loadTenantTimezoneOrFallback } from '@/backend/tenant/business-profile';
+import { parsePoolMax, WORKER_POOL_MAX } from '@/lib/db-pool-config';
 
 const DEFAULT_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -144,7 +145,7 @@ export function buildPool(): pg.Pool {
     user: process.env.DB_USER || 'aries_user',
     password: process.env.DB_PASSWORD || 'aries_pass',
     database: process.env.DB_NAME || 'aries_dev',
-    max: 3,
+    max: parsePoolMax(process.env.DB_POOL_MAX, WORKER_POOL_MAX),
   });
 }
 

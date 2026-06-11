@@ -6,7 +6,6 @@ import path from 'node:path';
 import type { MarketingJobFacts } from './job-facts';
 import { resolveStageOutput, type SocialContentJobRuntimeDocument, type MarketingVideoStageArtifact } from './runtime-state';
 import { readMarketingStageStepPayload } from './stage-artifact-resolution';
-import { legacyStageCacheReadFallbackEnabled } from './artifact-store';
 import {
   ARTIFACT_INCOMPLETE_TEXT,
   ARTIFACT_UNAVAILABLE_TEXT,
@@ -138,9 +137,6 @@ async function readExactPublishStepPayload(runtimeDoc: SocialContentJobRuntimeDo
   const tenantScopedCandidates = [
     path.join(stage4CacheRoot, tenantId, runId, `${stepName}.json`),
   ];
-  if (legacyStageCacheReadFallbackEnabled()) {
-    tenantScopedCandidates.push(path.join(stage4CacheRoot, runId, `${stepName}.json`));
-  }
 
   for (const cachePath of tenantScopedCandidates) {
     const cached = await readJsonIfExists(cachePath);
