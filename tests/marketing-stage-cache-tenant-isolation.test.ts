@@ -6,9 +6,10 @@
 //      tenant-scoped scan.
 //   3. readMarketingAssetWithinAllowedRoots denies cross-tenant stage cache
 //      reads when called with the wrong tenantId.
-//   4. The legacy fallback gate (ARIES_STAGE_CACHE_LEGACY_READ_FALLBACK=1)
-//      allows reads of pre-migration on-disk caches.
-//   5. Writes are NEVER routed to the legacy layout — only reads tolerated.
+//   4. Pre-migration flat caches (`<cacheRoot>/<runId>/<step>.json`, no tenant
+//      segment) are NEVER read — tenant-scoped reads are unconditional (the
+//      legacy read fallback has been removed).
+//   5. Writes are NEVER routed to the legacy layout.
 //
 // All paths run through tsx --test; this file matches the style of
 // tests/marketing-stage-* peers.
@@ -21,7 +22,6 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
-  legacyStageCacheReadFallbackEnabled,
   stageCacheRoot,
   stageCacheRootForTenant,
 } from '../backend/marketing/artifact-store';
@@ -101,7 +101,7 @@ test('stageCacheRootForTenant fails closed when tenantId is empty', () => {
 
 test('readMarketingStageStepPayload writes go to tenant-scoped path only', async () => {
   await withScratch(async ({ stage1 }) => {
-    await withEnv({ ARTIFACT_STAGE1_CACHE_DIR: stage1, ARIES_STAGE_CACHE_LEGACY_READ_FALLBACK: undefined }, async () => {
+    await withEnv({ ARTIFACT_STAGE1_CACHE_DIR: stage1 }, async () => {
       const doc = makeRuntimeDoc('tenant-a', 'job-a', 'https://nike.com');
       doc.stages.research.run_id = 'nike-com-abc12345';
 
@@ -123,7 +123,7 @@ test('readMarketingStageStepPayload writes go to tenant-scoped path only', async
 
 test('inferMarketingStageRunId rejects sibling-tenant runId by tenant-scoped scan', async () => {
   await withScratch(async ({ stage1 }) => {
-    await withEnv({ ARTIFACT_STAGE1_CACHE_DIR: stage1, ARIES_STAGE_CACHE_LEGACY_READ_FALLBACK: undefined }, async () => {
+    await withEnv({ ARTIFACT_STAGE1_CACHE_DIR: stage1 }, async () => {
       // Tenant A and B both target nike.com. Tenant B has a cache run on disk.
       const tenantBRun = path.join(stage1, 'tenant-b', 'nike-com-bbbbbbbb');
       await mkdir(tenantBRun, { recursive: true });
@@ -175,10 +175,11 @@ test('cross-tenant readMarketingAssetWithinAllowedRoots is denied for stage cach
   });
 });
 
-test('legacy fallback gate enables reading pre-migration caches', async () => {
+test('pre-migration flat caches are never read (tenant-scoped reads are unconditional)', async () => {
   await withScratch(async ({ stage1 }) => {
-    // Off by default: legacy cache invisible.
-    await withEnv({ ARTIFACT_STAGE1_CACHE_DIR: stage1, ARIES_STAGE_CACHE_LEGACY_READ_FALLBACK: undefined }, async () => {
+    await withEnv({ ARTIFACT_STAGE1_CACHE_DIR: stage1 }, async () => {
+      // A pre-migration flat cache at <cacheRoot>/<runId>/<step>.json (no tenant
+      // segment). With the legacy read fallback removed, this is never surfaced.
       const legacyDir = path.join(stage1, 'nike-com-cccccccc');
       await mkdir(legacyDir, { recursive: true });
       await writeFile(path.join(legacyDir, 'step.json'), JSON.stringify({ legacy: true }));
@@ -186,34 +187,22 @@ test('legacy fallback gate enables reading pre-migration caches', async () => {
       const doc = makeRuntimeDoc('tenant-a', 'job-a', 'https://nike.com');
       doc.stages.research.run_id = 'nike-com-cccccccc';
 
-      const off = await readMarketingStageStepPayload(doc, 1, 'step');
-      assert.equal(off.source, 'none', 'legacy read must be off by default');
-      assert.equal(legacyStageCacheReadFallbackEnabled(), false);
-    });
-
-    // Gate on: legacy cache visible.
-    await withEnv({ ARTIFACT_STAGE1_CACHE_DIR: stage1, ARIES_STAGE_CACHE_LEGACY_READ_FALLBACK: '1' }, async () => {
-      const doc = makeRuntimeDoc('tenant-a', 'job-a', 'https://nike.com');
-      doc.stages.research.run_id = 'nike-com-cccccccc';
-
-      const on = await readMarketingStageStepPayload(doc, 1, 'step');
-      assert.equal(on.source, 'cache', 'legacy fallback should surface the legacy cache');
-      assert.deepEqual(on.payload, { legacy: true });
-      assert.equal(legacyStageCacheReadFallbackEnabled(), true);
+      const resolution = await readMarketingStageStepPayload(doc, 1, 'step');
+      assert.equal(resolution.source, 'none', 'a flat (non-tenant-scoped) cache must never be read');
     });
   });
 });
 
-test('legacy fallback never writes to the shared root', async () => {
-  // The codebase has no writer for these caches in TypeScript (Lobster
-  // populates them out-of-band), so this is a structural assertion: the
-  // tenant-scoped path is the only write target we ever construct.
+test('a stage-cache read never creates directories at the shared root', async () => {
+  // The codebase has no writer for these caches in TypeScript (they are
+  // populated out-of-band), so this is a structural assertion: a read must not
+  // implicitly create the shared cache root.
   await withScratch(async ({ stage1 }) => {
-    await withEnv({ ARTIFACT_STAGE1_CACHE_DIR: stage1, ARIES_STAGE_CACHE_LEGACY_READ_FALLBACK: '1' }, async () => {
+    await withEnv({ ARTIFACT_STAGE1_CACHE_DIR: stage1 }, async () => {
       const doc = makeRuntimeDoc('tenant-a', 'job-a', 'https://nike.com');
       doc.stages.research.run_id = 'nike-com-cccccccc';
 
-      // Read a non-existent path with the fallback gate on. No side-effects expected.
+      // Read a non-existent path. No side-effects expected.
       await readMarketingStageStepPayload(doc, 1, 'absent-step');
 
       const entries = existsSync(stage1) ? await readdir(stage1) : [];
