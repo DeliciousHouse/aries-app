@@ -4,7 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
-  ARIES_ATOMIC_MARKETING_WORKFLOW_KEYS,
+  ATOMIC_MARKETING_WORKFLOW_KEYS,
   ARIES_WORKFLOWS,
   getAriesWorkflow,
 } from '../backend/execution/workflow-catalog';
@@ -27,7 +27,7 @@ test('workflow catalog exposes a definition for every key with a stable shape', 
 });
 
 test('atomic marketing workflow keys are a subset of the catalog', () => {
-  for (const key of ARIES_ATOMIC_MARKETING_WORKFLOW_KEYS) {
+  for (const key of ATOMIC_MARKETING_WORKFLOW_KEYS) {
     assert.ok(Object.prototype.hasOwnProperty.call(ARIES_WORKFLOWS, key));
   }
 });
