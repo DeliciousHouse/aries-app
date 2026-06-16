@@ -72,15 +72,27 @@ curl -fsS "$ARIES_QA_CDP_URL/json/version" || echo "CDP_UNREACHABLE"
 ```
 
 WSL note: from WSL2, `localhost` often does **not** reach Chrome running on the Windows
-host. If `CDP_UNREACHABLE`, resolve the Windows host IP and retry:
+host. **Do not** expose CDP on the network (`--remote-debugging-address=0.0.0.0` lets any
+host on the LAN drive the browser session — a real risk on an authenticated production
+account). Instead, launch Chrome bound to **localhost** only:
+`chrome.exe --remote-debugging-port=9222` (DevTools binds to `127.0.0.1` by default), and
+bridge it into WSL with a loopback port-proxy on the Windows host so WSL reaches it via
+`localhost:9222` without ever opening the port to the network:
 
-```bash
-# Windows host IP as seen from WSL2
-ip route | awk '/^default/{print $3}'        # or: grep nameserver /etc/resolv.conf
+```powershell
+# Windows host (PowerShell, admin): forward WSL-side 9222 -> Windows loopback 9222
+netsh interface portproxy add v4tov4 listenaddress=127.0.0.1 listenport=9222 \
+  connectaddress=127.0.0.1 connectport=9222
 ```
 
-…and remind the human that Chrome must be launched with remote debugging exposed:
-`chrome.exe --remote-debugging-port=9222 --remote-debugging-address=0.0.0.0`.
+If you must reach Chrome by host IP instead of a port-proxy, resolve the Windows host IP
+from WSL and point `ARIES_QA_CDP_URL` at it — but keep Chrome's bind on localhost and use
+the proxy above rather than `0.0.0.0`:
+
+```bash
+# Windows host IP as seen from WSL2 (last resort, prefer the loopback port-proxy)
+ip route | awk '/^default/{print $3}'        # or: grep nameserver /etc/resolv.conf
+```
 
 Attach with Playwright's CDP connector (dependency-light; no repo install needed):
 
@@ -127,11 +139,16 @@ For each pass:
    new ones; they may have changed prod behavior and they become `related_merged_prs`
    context on defects found this pass. Update `last_merged_pr` / `last_merged_at`.
 
-2. **Wait for deploy to settle.** If new merges landed, prod may be mid-deploy. Poll the
-   health check until 200 before QA:
+2. **Wait for deploy to settle.** If new merges landed, prod may be mid-deploy. The base
+   URL can return 200 while dependencies (DB, Hermes) are still down, so poll the
+   **dependency-aware** health routes until they're green, not just the homepage:
    ```bash
-   curl -sf "$ARIES_QA_BASE_URL" -o /dev/null -w "%{http_code}"
+   curl -sf "$ARIES_QA_BASE_URL/api/health/db" -o /dev/null -w "db=%{http_code}\n"
+   curl -sf "$ARIES_QA_BASE_URL/api/health/hermes" -o /dev/null -w "hermes=%{http_code}\n"
    ```
+   Only proceed once `/api/health/db` reports ready (and `/api/health/hermes`, since the
+   publish/analytics gates depend on it). Fall back to the base URL only if a health route
+   is absent in the deployed build.
 
 3. **Preflight CDP** (section 2). If unreachable, surface the fix and wait, don't fail the loop.
 
@@ -238,8 +255,11 @@ if [ -n "$ARIES_QA_ORCHESTRATOR_URL" ]; then
     --data-binary @"$TASK_JSON" \
     && echo "dispatched"
 else
-  # Fallback until wired: append to the local queue and warn loudly.
-  cat "$TASK_JSON" >> ./.qa-loop/dispatch-queue.jsonl
+  # Fallback until wired: append one newline-terminated JSON object per line.
+  # Use jq -c so the envelope is compacted AND newline-terminated — a bare
+  # `cat >>` can concatenate entries into invalid JSONL when the source file
+  # has no trailing newline.
+  jq -c . "$TASK_JSON" >> ./.qa-loop/dispatch-queue.jsonl
   echo "WARN: ARIES_QA_ORCHESTRATOR_URL unset — queued to .qa-loop/dispatch-queue.jsonl"
 fi
 ```
