@@ -46,7 +46,7 @@ Resolve config in this order: command argument → environment variable → defa
 | Purpose | Env var | Default | Notes |
 |---|---|---|---|
 | Production base URL | `ARIES_QA_BASE_URL` | `https://aries.sugarandleather.com` | `$1` overrides |
-| Chrome CDP endpoint | `ARIES_QA_CDP_URL` | `http://localhost:9222` | `$2` overrides. Your real, logged-in Chrome (reached over Tailscale — see §2). |
+| Chrome CDP endpoint | `ARIES_QA_CDP_URL` | `http://100.96.83.96:9223` | `$2` overrides. Real, logged-in Chrome on the personal machine, reached over Tailscale — see §2. |
 | GitHub repo (the kanban) | `ARIES_QA_REPO` | `delicioushouse/aries-app` | merged-PR watch + defect issues |
 | Defect issue label | `ARIES_QA_DEFECT_LABEL` | `qa-defect` | label the dev-team orchestrator pulls from — see §6 |
 | Pass interval | `ARIES_QA_INTERVAL_MS` | `600000` (10 min) | wait between passes |
@@ -73,29 +73,26 @@ Preflight the CDP endpoint before every pass:
 curl -fsS "$ARIES_QA_CDP_URL/json/version" || echo "CDP_UNREACHABLE"
 ```
 
-**Tailscale gotcha — Chrome rejects non-loopback `Host:` headers.** Chrome's DevTools
-endpoint refuses requests whose `Host` header isn't `localhost`/`127.0.0.1` (DNS-rebind
-protection), and `connectOverCDP` follows the `webSocketDebuggerUrl` Chrome returns. So
-hitting `http://<tailscale-ip>:9222` directly often fails even when the port is reachable.
-Two reliable setups (recommended order):
+**Setup (this deployment uses the direct Tailscale-IP path):** the personal machine's
+Chrome is reachable at **`http://100.96.83.96:9223`** over Tailscale, which is the default
+`ARIES_QA_CDP_URL`. Chrome's DevTools endpoint refuses requests whose `Host` header is a DNS
+name (DNS-rebind protection) but **accepts IP literals**, so a Tailscale IP works directly —
+no tunnel needed. Requirements:
 
-1. **Tunnel so the QA side sees `localhost` (recommended).** Keep Chrome bound to localhost
-   on the personal machine (`chrome --remote-debugging-port=9222`, binds `127.0.0.1` by
-   default — nothing exposed) and forward it to this VM over Tailscale SSH:
+1. **Direct Tailscale IP (primary).** Launch Chrome on the personal machine bound to its
+   Tailscale interface IP, on port 9223:
+   `chrome --remote-debugging-address=100.96.83.96 --remote-debugging-port=9223`. Keep it
+   locked to the tailnet with Tailscale ACLs so only the aries-app VM can reach it; never
+   bind CDP to `0.0.0.0` on a machine holding an authenticated production session.
+2. **SSH-tunnel fallback (only if `connectOverCDP` ever trips the Host check).** Keep Chrome
+   localhost-bound (`chrome --remote-debugging-port=9223`) and forward it to this VM:
    ```bash
-   # on the aries-app VM: localhost:9222 here -> 127.0.0.1:9222 on the personal machine
-   ssh -N -L 9222:127.0.0.1:9222 <you>@<personal-machine-tailscale-name> &
-   # then point the loop at the tunnel:
-   export ARIES_QA_CDP_URL="http://localhost:9222"
+   ssh -N -L 9223:127.0.0.1:9223 <you>@100.96.83.96 &
+   export ARIES_QA_CDP_URL="http://localhost:9223"
    ```
-2. **Bind Chrome to the Tailscale interface IP** (not `0.0.0.0`) and lock it down with
-   Tailscale ACLs so only this VM can reach it: launch with
-   `--remote-debugging-address=<tailscale-ip> --remote-debugging-port=9222`, set
-   `ARIES_QA_CDP_URL="http://<tailscale-ip>:9222"`. If `connectOverCDP` then trips the Host
-   check, fall back to setup 1. Never bind CDP to `0.0.0.0` on a machine with an
-   authenticated production session.
 
-Resolve the personal machine's Tailscale name/IP with `tailscale status` if needed.
+Confirm reachability with the preflight `curl` above; resolve tailnet names/IPs with
+`tailscale status` if needed.
 
 Attach with Playwright's CDP connector (dependency-light; no repo install needed):
 
