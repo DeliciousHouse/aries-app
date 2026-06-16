@@ -353,6 +353,41 @@ services:
     networks:
       - docker_stack
 
+  # Long-lived sidecar that marks creative_assets rows orphaned once their Hermes
+  # image-cache file has been evicted, so the dashboard stops emitting dead
+  # /api/internal/hermes/media/<id> URLs that 404 (the "Posts page preview 404s"
+  # symptom — qa-defect #599). DB-only mark via runGcMissingHermesAssets; the
+  # dashboard query already filters orphaned_at IS NULL. Needs the read-only
+  # Hermes image-cache mount to tell "evicted" from "unreadable". Single replica;
+  # gated by ARIES_HERMES_GC_ENABLED (default OFF) — when off it idles cleanly.
+  aries-hermes-gc-worker:
+    image: ${ARIES_APP_IMAGE:-aries-app:local}
+    command: ["node_modules/.bin/tsx", "scripts/automations/gc-missing-hermes-assets-worker.ts"]
+    depends_on:
+      aries-app:
+        condition: service_healthy
+    environment:
+      HOME: /home/node
+      NODE_ENV: production
+      CODE_ROOT: /app
+      DATA_ROOT: /data
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_POOL_MAX: 3
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      HERMES_IMAGE_CACHE_MOUNT: ${HERMES_IMAGE_CACHE_MOUNT:-/hermes-media}
+      ARIES_HERMES_GC_ENABLED: ${ARIES_HERMES_GC_ENABLED:-0}
+      ARIES_HERMES_GC_DRY_RUN: ${ARIES_HERMES_GC_DRY_RUN:-0}
+      ARIES_HERMES_GC_INTERVAL_MS: ${ARIES_HERMES_GC_INTERVAL_MS:-21600000}
+      ARIES_HERMES_GC_MAX_AGE_DAYS: ${ARIES_HERMES_GC_MAX_AGE_DAYS:-7}
+    volumes:
+      - ${HERMES_IMAGE_CACHE_DIR:-/home/node/.hermes/profiles/aries-content-generator/cache/images}:/hermes-media:ro
+    restart: unless-stopped
+    networks:
+      - docker_stack
+
   # Long-lived sidecar that syncs platform analytics (YouTube, Instagram, etc.)
   # for every tenant with a connected insights_account. Runs every 30 minutes.
   # Single replica avoids duplicate API calls and redundant DB writes that would
