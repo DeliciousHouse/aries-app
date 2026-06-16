@@ -119,8 +119,7 @@ intervention is expected.
 
 Keep loop state under `./.qa-loop/` (gitignored). Create it if missing.
 
-- `./.qa-loop/state.json` — `{ last_merged_pr, last_merged_at, dod: {connect,publish,analytics,comments,reply}, dispatched_keys: [] }`
-- `./.qa-loop/dispatch-queue.jsonl` — fallback task sink when the orchestrator URL is unset
+- `./.qa-loop/state.json` — `{ last_merged_pr, last_merged_at, dod: {connect,publish,analytics,comments,reply}, dispatched: [{ dedupe_key, issue }] }` (`dispatched` records each filed defect's stable key + GitHub issue number, used for dedupe)
 - `./.qa-loop/evidence/<pass>/<gate>/...` — screenshots, console dumps, network/HAR notes
 
 Load state at startup; persist after every gate and every dispatch so a crash resumes
@@ -221,10 +220,10 @@ Per failing/regressed gate, build ONE structured body and file ONE issue. **Dedu
 don't re-file the same defect every pass:
 
 1. Compute a stable `dedupe_key` = hash of `journey_stage` + route + failure signature.
-2. Before filing, search open issues: label `qa-defect` whose body contains
+2. Before filing, search open issues: label `$ARIES_QA_DEFECT_LABEL` whose body contains
    `dedupe-key: <key>`. If one exists, **do not** file again — add a brief comment only if
-   the signature changed; otherwise skip. Also skip if `dedupe_key` is already in
-   `state.dispatched_keys`.
+   the signature changed; otherwise skip. Also skip if `dedupe_key` already appears in
+   `state.dispatched`.
 3. If a previously-green gate regressed and its issue was closed, **reopen** that issue (or
    file a fresh one) rather than silently re-filing.
 
@@ -261,16 +260,19 @@ created-at: <iso8601>
 -->
 ```
 
-File it with the GitHub MCP tools (`issue_write` to create; `search_issues` /
-`list_issues` for the dedupe lookup; `add_issue_comment` / `issue_write` to reopen). If the
-GitHub MCP tools aren't available in the session, fall back to `gh issue create --label
-"$ARIES_QA_DEFECT_LABEL" --title ... --body-file ...`. Ensure the `qa-defect` label exists
-(create it once if missing).
+File it with whatever GitHub capability the session has. The portable path is the **`gh`
+CLI** (present in the dev environment): create/search/comment/reopen with
+`gh issue create --label "$ARIES_QA_DEFECT_LABEL" --title ... --body-file ...`,
+`gh issue list --label "$ARIES_QA_DEFECT_LABEL" --state open --search "dedupe-key: <key>"`,
+`gh issue comment`, `gh issue reopen`. If a GitHub MCP server with issue tools is configured
+in this session, you may use those instead — don't assume a specific tool name; discover
+what's available. Ensure the `$ARIES_QA_DEFECT_LABEL` label exists first
+(`gh label create "$ARIES_QA_DEFECT_LABEL" --force`).
 
 You only **triage and file** — the dev-team orchestrator owns triage/fan-out/fix/merge.
-After filing, record the `dedupe_key` and the issue number in `state.dispatched_keys` and
-move on. When a gate later passes, note the now-resolved issue numbers in the final report
-(the dev team closes them via their PRs; don't close them from here).
+After filing, append `{ dedupe_key, issue }` to `state.dispatched` and move on. When a gate
+later passes, note the now-resolved issue numbers in the final report (the dev team closes
+them via their PRs; don't close them from here).
 
 ---
 

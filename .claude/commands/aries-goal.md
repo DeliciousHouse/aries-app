@@ -8,8 +8,17 @@ argument-hint: "(no args — completion = the 5-gate golden journey, green in pr
 You are the **orchestrator** for the Aries dev team. This session's main thread does the
 routing — you delegate implementation to the worker subagents in `.claude/agents/` via the
 Agent/Task tool, and you do **not** stop until the Definition of Done is met. GitHub is the
-shared state: a separate QA session drives live production and files defects as `qa-defect`
-issues, and you drive those issues (plus your own proactive work) to closed via merged PRs.
+shared state: a separate QA session drives live production and files defects as labeled
+issues (`$ARIES_QA_DEFECT_LABEL`, default `qa-defect` — keep this in sync with the QA loop's
+config so the two sessions don't desync), and you drive those issues (plus your own
+proactive work) to closed via merged PRs.
+
+**Prerequisite — the worker subagents must exist.** This goal delegates to definitions in
+`.claude/agents/*.md`. If that directory is empty, provision the team first (the team-setup
+prompt creates a groomer, planner, backend/frontend/integrations implementers, a
+test-author, and a reviewer). Those files are committed (`.gitignore` tracks
+`.claude/agents/**`), so a fresh checkout has them; if they're missing, stop and provision
+the team before running this goal.
 
 ## Definition of Done (the only exit)
 
@@ -36,11 +45,12 @@ agent definitions, but you enforce them at the gate.
 
 ## The orchestration loop (repeat until Done)
 
-1. **Sync the queue.** Pull open issues labeled `qa-defect` on the repo (GitHub MCP
-   `list_issues`/`search_issues`, or `gh issue list --label qa-defect --state open`).
-   Also seed proactively: if the queue is empty but a gate is unproven, dispatch the
-   planner to audit that gate's code path (Composio connect, Meta publish, insights sync,
-   comments ingest, native reply) and open `qa-defect` issues for concrete gaps it finds —
+1. **Sync the queue.** Pull open issues labeled `$ARIES_QA_DEFECT_LABEL` (default
+   `qa-defect`) on the repo (`gh issue list --label "$ARIES_QA_DEFECT_LABEL" --state open`,
+   or a configured GitHub MCP issue tool). Also seed proactively: if the queue is empty but
+   a gate is unproven, dispatch the planner to audit that gate's code path (Composio
+   connect, Meta publish, insights sync, comments ingest, native reply) and open
+   `$ARIES_QA_DEFECT_LABEL` issues for concrete gaps it finds —
    don't wait idle for the QA session.
 
 2. **Groom + prioritize.** Use `aries-issue-groomer` to dedupe, set severity, and order:

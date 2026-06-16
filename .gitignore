@@ -170,6 +170,8 @@ output/
 !.claude/settings.json
 !.claude/commands/
 !.claude/commands/**
+!.claude/agents/
+!.claude/agents/**
 .agent/
 skills-lock.json
 
