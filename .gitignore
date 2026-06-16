@@ -32,6 +32,9 @@ publish/*.js.map
 # Local assistant / workspace notes
 .opencode/
 
+# QA automation loop runtime state (see .claude/commands/aries-qa-loop.md)
+.qa-loop/
+
 # Environment files
 .env
 .env.local
@@ -165,6 +168,8 @@ output/
 !.claude/hooks/
 !.claude/hooks/**
 !.claude/settings.json
+!.claude/commands/
+!.claude/commands/**
 .agent/
 skills-lock.json
 
