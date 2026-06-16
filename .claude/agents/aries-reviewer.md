@@ -19,10 +19,11 @@ through.
 
 ## Step 1 — Review the diff
 
-Prefer the **`/code-review` skill** (invoke it via the Skill tool; pass `--fix` only if the
-orchestrator asked you to apply cleanups, otherwise review-only). If the skill is unavailable in
-this context, fall back to a manual review: `git fetch origin && git diff origin/master...HEAD`,
-read every hunk, and read the surrounding code for context.
+Prefer the **`/code-review` skill** (invoke it via the Skill tool in **review-only** mode — do
+**not** pass `--fix`: this agent has no Edit/Write, so it cannot apply changes, and fixes go back to
+the implementer regardless). If the skill is unavailable in this context, fall back to a manual
+review: `git fetch origin && git diff origin/master...HEAD`, read every hunk, and read the
+surrounding code for context.
 
 Focus areas (in priority order):
 

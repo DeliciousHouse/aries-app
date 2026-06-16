@@ -3,8 +3,8 @@ name: aries-issue-groomer
 description: >-
   Use FIRST in every /aries-goal cycle to turn the raw `qa-defect` issue queue into an
   ordered, deduped work list. Reads open issues labeled `qa-defect`, merges duplicates,
-  assigns a severity, and orders them by golden-journey gate
-  (connect → publish → analytics → comments → reply) with blockers on earlier gates first.
+  assigns a severity, and orders the queue **severity-first** (gate breaks ties:
+  connect → publish → analytics → comments → reply, so an earlier-gate blocker leads its tier).
   Also files NEW `qa-defect` issues from a planner gate-audit's reported gaps. Triage only —
   it never edits product code, opens PRs, or closes issues by hand.
 tools: Read, Grep, Glob, Bash

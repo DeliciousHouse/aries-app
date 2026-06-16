@@ -19,7 +19,7 @@ shared state, so the loop resumes cleanly after any interruption.
 
 | Agent | Role | Tools | Model |
 |---|---|---|---|
-| `aries-issue-groomer` | Dedupe the `qa-defect` queue, set severity, order by gate (connect→publish→analytics→comments→reply); file audit-derived gaps as issues | read + `gh` (Bash) | sonnet |
+| `aries-issue-groomer` | Dedupe the `qa-defect` queue, set severity, order it (severity-first; gate breaks ties: connect→publish→analytics→comments→reply); file audit-derived gaps as issues | read + `gh` (Bash) | sonnet |
 | `aries-planner` | One issue → scoped plan (root cause, files, test strategy, routing, risk); gate-audit mode returns gaps. No refactors. | read-only | opus |
 | `aries-backend` | Implement `backend/` · `lib/` · `app/api/` fixes | edit + bash | sonnet |
 | `aries-frontend` | Implement `frontend/` · `components/` (rendered dashboard) fixes | edit + bash | sonnet |
