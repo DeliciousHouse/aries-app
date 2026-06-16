@@ -1,5 +1,5 @@
 ---
-description: Autonomous production QA loop — watches merged PRs and verifies the live first-time-user golden journey (Composio connect → publish → analytics/comments → reply natively) against prod via your real Chrome over CDP, dispatching every defect to an external orchestrator. Loops until the full journey passes in production.
+description: Autonomous production QA loop — watches merged PRs and verifies the live first-time-user golden journey (Composio connect → publish → analytics/comments → reply natively) against prod via your real Chrome over CDP (Tailscale), filing each defect as a labeled GitHub issue for the dev-team orchestrator. Loops until the full journey passes in production.
 argument-hint: "[base-url] [cdp-url]   (optional overrides; defaults from env)"
 ---
 
@@ -7,8 +7,9 @@ argument-hint: "[base-url] [cdp-url]   (optional overrides; defaults from env)"
 
 You are an autonomous QA agent for **Aries AI**. Your job is to keep driving the **live
 production** app from the point of view of a brand-new real user, find anything that is
-broken on the golden journey, hand each defect to the external orchestrator, and **keep
-looping until the entire journey is verified working in production**.
+broken on the golden journey, file each defect as a labeled GitHub issue (the shared kanban
+the dev-team orchestrator pulls from — see §6), and **keep looping until the entire journey
+is verified working in production**.
 
 This command IS the loop. Run it to completion — do not stop after one pass. The only
 successful exit is "Definition of Done" all-green (see below). If you get genuinely stuck
@@ -45,9 +46,9 @@ Resolve config in this order: command argument → environment variable → defa
 | Purpose | Env var | Default | Notes |
 |---|---|---|---|
 | Production base URL | `ARIES_QA_BASE_URL` | `https://aries.sugarandleather.com` | `$1` overrides |
-| Chrome CDP endpoint | `ARIES_QA_CDP_URL` | `http://localhost:9222` | `$2` overrides. Your real, logged-in Chrome on the WSL host. |
-| Orchestrator dispatch URL | `ARIES_QA_ORCHESTRATOR_URL` | _(unset)_ | **WIRE THIS** — see section 6. |
-| GitHub repo to watch | `ARIES_QA_REPO` | `delicioushouse/aries-app` | merged-PR watch |
+| Chrome CDP endpoint | `ARIES_QA_CDP_URL` | `http://100.96.83.96:9223` | `$2` overrides. Real, logged-in Chrome on the personal machine, reached over Tailscale — see §2. |
+| GitHub repo (the kanban) | `ARIES_QA_REPO` | `delicioushouse/aries-app` | merged-PR watch + defect issues |
+| Defect issue label | `ARIES_QA_DEFECT_LABEL` | `qa-defect` | label the dev-team orchestrator pulls from — see §6 |
 | Pass interval | `ARIES_QA_INTERVAL_MS` | `600000` (10 min) | wait between passes |
 | Allow real publishing | `ARIES_QA_DESTRUCTIVE_OK` | `0` | must be truthy to actually publish — see Safety |
 
@@ -58,12 +59,13 @@ Echo the resolved config at startup so the run is auditable.
 
 ---
 
-## 2. Browser access — your real Chrome over CDP (no stored credentials)
+## 2. Browser access — your real Chrome over CDP via Tailscale (no stored credentials)
 
-You drive the user's **already-open, already-logged-in** Chrome by attaching over the
-Chrome DevTools Protocol. This is what makes it "their real browser / real account": you
-reuse the live session and its cookies. **Do not** create a fresh browser, and **do not**
-ask for or store passwords unless a session has genuinely expired.
+You drive the user's **already-open, already-logged-in** Chrome (on their personal
+computer) by attaching over the Chrome DevTools Protocol across their **Tailscale** network.
+This is what makes it "their real browser / real account": you reuse the live session and
+its cookies. **Do not** create a fresh browser, and **do not** ask for or store passwords
+unless a session has genuinely expired.
 
 Preflight the CDP endpoint before every pass:
 
@@ -71,28 +73,26 @@ Preflight the CDP endpoint before every pass:
 curl -fsS "$ARIES_QA_CDP_URL/json/version" || echo "CDP_UNREACHABLE"
 ```
 
-WSL note: from WSL2, `localhost` often does **not** reach Chrome running on the Windows
-host. **Do not** expose CDP on the network (`--remote-debugging-address=0.0.0.0` lets any
-host on the LAN drive the browser session — a real risk on an authenticated production
-account). Instead, launch Chrome bound to **localhost** only:
-`chrome.exe --remote-debugging-port=9222` (DevTools binds to `127.0.0.1` by default), and
-bridge it into WSL with a loopback port-proxy on the Windows host so WSL reaches it via
-`localhost:9222` without ever opening the port to the network:
+**Setup (this deployment uses the direct Tailscale-IP path):** the personal machine's
+Chrome is reachable at **`http://100.96.83.96:9223`** over Tailscale, which is the default
+`ARIES_QA_CDP_URL`. Chrome's DevTools endpoint refuses requests whose `Host` header is a DNS
+name (DNS-rebind protection) but **accepts IP literals**, so a Tailscale IP works directly —
+no tunnel needed. Requirements:
 
-```powershell
-# Windows host (PowerShell, admin): forward WSL-side 9222 -> Windows loopback 9222
-netsh interface portproxy add v4tov4 listenaddress=127.0.0.1 listenport=9222 \
-  connectaddress=127.0.0.1 connectport=9222
-```
+1. **Direct Tailscale IP (primary).** Launch Chrome on the personal machine bound to its
+   Tailscale interface IP, on port 9223:
+   `chrome --remote-debugging-address=100.96.83.96 --remote-debugging-port=9223`. Keep it
+   locked to the tailnet with Tailscale ACLs so only the aries-app VM can reach it; never
+   bind CDP to `0.0.0.0` on a machine holding an authenticated production session.
+2. **SSH-tunnel fallback (only if `connectOverCDP` ever trips the Host check).** Keep Chrome
+   localhost-bound (`chrome --remote-debugging-port=9223`) and forward it to this VM:
+   ```bash
+   ssh -N -L 9223:127.0.0.1:9223 <you>@100.96.83.96 &
+   export ARIES_QA_CDP_URL="http://localhost:9223"
+   ```
 
-If you must reach Chrome by host IP instead of a port-proxy, resolve the Windows host IP
-from WSL and point `ARIES_QA_CDP_URL` at it — but keep Chrome's bind on localhost and use
-the proxy above rather than `0.0.0.0`:
-
-```bash
-# Windows host IP as seen from WSL2 (last resort, prefer the loopback port-proxy)
-ip route | awk '/^default/{print $3}'        # or: grep nameserver /etc/resolv.conf
-```
+Confirm reachability with the preflight `curl` above; resolve tailnet names/IPs with
+`tailscale status` if needed.
 
 Attach with Playwright's CDP connector (dependency-light; no repo install needed):
 
@@ -119,8 +119,7 @@ intervention is expected.
 
 Keep loop state under `./.qa-loop/` (gitignored). Create it if missing.
 
-- `./.qa-loop/state.json` — `{ last_merged_pr, last_merged_at, dod: {connect,publish,analytics,comments,reply}, dispatched_keys: [] }`
-- `./.qa-loop/dispatch-queue.jsonl` — fallback task sink when the orchestrator URL is unset
+- `./.qa-loop/state.json` — `{ last_merged_pr, last_merged_at, dod: {connect,publish,analytics,comments,reply}, dispatched: [{ dedupe_key, issue }] }` (`dispatched` records each filed defect's stable key + GitHub issue number, used for dedupe)
 - `./.qa-loop/evidence/<pass>/<gate>/...` — screenshots, console dumps, network/HAR notes
 
 Load state at startup; persist after every gate and every dispatch so a crash resumes
@@ -209,67 +208,71 @@ network errors.
 
 ---
 
-## 6. Defect → external orchestrator dispatch
+## 6. Defect → GitHub issue (the shared kanban)
 
-Per failing/regressed gate, build ONE task envelope (JSON) and dispatch it. **Dedupe** on
-`dedupe_key` against `state.dispatched_keys` so you don't re-file the same defect every
-pass; only re-dispatch if the defect changed or a previously-green gate regressed.
+The orchestrator is **not** an HTTP endpoint — it's the dev-team orchestrator agent running
+in a separate Claude Code session, and the queue between you is **GitHub issues** on
+`ARIES_QA_REPO`, labeled `ARIES_QA_DEFECT_LABEL` (default `qa-defect`). You file a defect
+as a labeled issue; the dev team pulls open `qa-defect` issues, fixes, and closes them via
+the merged PR. This is the only handoff — you never touch code or open PRs yourself.
 
-Task envelope:
+Per failing/regressed gate, build ONE structured body and file ONE issue. **Dedupe** so you
+don't re-file the same defect every pass:
 
-```json
-{
-  "id": "<uuid>",
-  "created_at": "<iso8601>",
-  "source": "aries-qa-loop",
-  "journey_stage": "connect|publish|analytics|comments|reply",
-  "severity": "blocker|high|medium|low",
-  "title": "<short imperative summary>",
-  "summary": "<what a user experiences and why it's wrong>",
-  "steps_to_reproduce": ["...", "..."],
-  "expected": "<user-visible expected outcome>",
-  "actual": "<user-visible actual outcome>",
-  "evidence": {
-    "screenshots": [".qa-loop/evidence/.../*.png"],
-    "console_errors": ["..."],
-    "network_failures": ["<method> <url> -> <status>"],
-    "prod_url": "<exact route>"
-  },
-  "related_merged_prs": [{ "number": 0, "title": "", "merged_at": "" }],
-  "suggested_area": "<best guess: backend/marketing, integrations/meta, app/api/..., composio, insights, ...>",
-  "dedupe_key": "<stable hash of journey_stage + route + failure signature>"
-}
+1. Compute a stable `dedupe_key` = hash of `journey_stage` + route + failure signature.
+2. Before filing, search open issues: label `$ARIES_QA_DEFECT_LABEL` whose body contains
+   `dedupe-key: <key>`. If one exists, **do not** file again — add a brief comment only if
+   the signature changed; otherwise skip. Also skip if `dedupe_key` already appears in
+   `state.dispatched`.
+3. If a previously-green gate regressed and its issue was closed, **reopen** that issue (or
+   file a fresh one) rather than silently re-filing.
+
+Issue title: `[qa:<journey_stage>] <short imperative summary>`
+
+Issue body (Markdown — keep the machine-readable trailer intact for the orchestrator):
+
+```markdown
+**Journey stage:** connect | publish | analytics | comments | reply
+**Severity:** blocker | high | medium | low
+**Prod URL:** <exact route>
+
+**Summary:** <what a user experiences and why it's wrong>
+
+**Steps to reproduce:**
+1. ...
+2. ...
+
+**Expected:** <user-visible expected outcome>
+**Actual:** <user-visible actual outcome>
+
+**Evidence:**
+- screenshots: .qa-loop/evidence/<pass>/<gate>/*.png
+- console errors: ...
+- network failures: <method> <url> -> <status>
+
+**Related merged PRs:** #<n> (<title>), ...
+**Suggested area:** backend/marketing | integrations/meta | app/api/... | composio | insights | ...
+
+<!-- aries-qa-loop
+source: aries-qa-loop
+dedupe-key: <stable hash>
+created-at: <iso8601>
+-->
 ```
 
-Dispatch:
+File it with whatever GitHub capability the session has. The portable path is the **`gh`
+CLI** (present in the dev environment): create/search/comment/reopen with
+`gh issue create --label "$ARIES_QA_DEFECT_LABEL" --title ... --body-file ...`,
+`gh issue list --label "$ARIES_QA_DEFECT_LABEL" --state open --search "dedupe-key: <key>"`,
+`gh issue comment`, `gh issue reopen`. If a GitHub MCP server with issue tools is configured
+in this session, you may use those instead — don't assume a specific tool name; discover
+what's available. Ensure the `$ARIES_QA_DEFECT_LABEL` label exists first
+(`gh label create "$ARIES_QA_DEFECT_LABEL" --force`).
 
-```bash
-# ─────────────────────────────────────────────────────────────
-#  WIRE EXTERNAL ORCHESTRATOR HERE
-#  Set ARIES_QA_ORCHESTRATOR_URL to your orchestrator's intake
-#  endpoint. It receives the task envelope as a JSON POST body.
-# ─────────────────────────────────────────────────────────────
-if [ -n "$ARIES_QA_ORCHESTRATOR_URL" ]; then
-  curl -fsS -X POST "$ARIES_QA_ORCHESTRATOR_URL" \
-    -H 'Content-Type: application/json' \
-    --data-binary @"$TASK_JSON" \
-    && echo "dispatched"
-else
-  # Fallback until wired: append one newline-terminated JSON object per line.
-  # Use jq -c so the envelope is compacted AND newline-terminated — a bare
-  # `cat >>` can concatenate entries into invalid JSONL when the source file
-  # has no trailing newline.
-  jq -c . "$TASK_JSON" >> ./.qa-loop/dispatch-queue.jsonl
-  echo "WARN: ARIES_QA_ORCHESTRATOR_URL unset — queued to .qa-loop/dispatch-queue.jsonl"
-fi
-```
-
-You only **triage and dispatch** — you do not fix code or open PRs yourself. The external
-orchestrator owns triage/fan-out/fix. After dispatch, record the `dedupe_key` in
-`state.dispatched_keys` and move on.
-
-If the orchestrator URL is unset, still run the full loop and queue tasks locally so the
-backlog is ready the moment it's wired.
+You only **triage and file** — the dev-team orchestrator owns triage/fan-out/fix/merge.
+After filing, append `{ dedupe_key, issue }` to `state.dispatched` and move on. When a gate
+later passes, note the now-resolved issue numbers in the final report (the dev team closes
+them via their PRs; don't close them from here).
 
 ---
 
