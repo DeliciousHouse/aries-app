@@ -357,6 +357,15 @@ jobs:
             echo "WARNING: failed to recreate aries-draft-expiry-sweep-worker; app deploy is healthy, continuing." >&2
           fi
 
+          # Roll the hermes-gc-worker sidecar to the same image too. It imports
+          # backend code (the gc sweep) and must stay in lockstep with the app.
+          # Gated by ARIES_HERMES_GC_ENABLED (default OFF) — when off it idles
+          # cleanly (no restart loop), so recreating it every deploy is safe
+          # whether or not the flag is set. Non-fatal, like above.
+          if ! ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always aries-hermes-gc-worker; then
+            echo "WARNING: failed to recreate aries-hermes-gc-worker; app deploy is healthy, continuing." >&2
+          fi
+
           # Roll the insights-sync-worker sidecar too. It imports backend code
           # (the insights sync module) and must stay in lockstep with the app.
           # Omitting it here caused the 2026-06-09 incident where it kept
