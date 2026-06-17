@@ -22,20 +22,26 @@ or hit an auth/consent wall only the human can clear, pause and ask, then resume
 
 ## 0. Definition of Done — the loop's only exit condition
 
-The loop terminates **only** when all five gates pass against live production, observed
-end-to-end through the real browser as an actual user (not via internal APIs, not via test
-fixtures):
+The journey is the same five gates for **each platform** in `ARIES_QA_PLATFORMS`. The loop
+terminates **only** when all five gates pass for **every** configured platform against live
+production, observed end-to-end through the real browser as an actual user (not via internal
+APIs, not via test fixtures). For each platform:
 
-1. **Connect** — a first-time user can connect their social accounts **via Composio** to
-   **both Facebook and Instagram**, and Aries shows them as connected.
-2. **Publish** — that user can publish a post, and it actually goes live on FB and IG.
-3. **Analytics** — Aries ingests and displays analytics/insights for the published post.
-4. **Comments** — Aries surfaces real comments received on the published post.
+1. **Connect** — a first-time user can connect that platform **via Composio**, and Aries
+   shows it connected.
+2. **Publish** — that user can publish content, and it actually goes live on the platform.
+3. **Analytics** — Aries ingests and displays analytics/insights for the published item.
+4. **Comments** — Aries surfaces real comments/replies received on the published item.
 5. **Reply** — the user can reply to those comments **natively inside Aries**, and the
    reply lands on the platform.
 
-Every gate must be confirmed from the **user's POV in the real UI**. When all five are
-green in the same pass, write the final verification report (section 8) and stop.
+`ARIES_QA_PLATFORMS` defaults to `facebook,instagram,x,youtube,reddit,linkedin` (Facebook +
+Instagram are already built; X/YouTube/Reddit/LinkedIn are the new Composio integrations
+being driven to the same bar). Gates map per platform with real differences — see §5 for the
+per-platform notes (e.g. YouTube "publish" is a video upload; X analytics may need an
+elevated API tier). Every gate must be confirmed from the **user's POV in the real UI**.
+When all gates are green for all platforms in the same pass, write the final verification
+report (section 8) and stop.
 
 ---
 
@@ -49,6 +55,7 @@ Resolve config in this order: command argument → environment variable → defa
 | Chrome CDP endpoint | `ARIES_QA_CDP_URL` | `http://100.96.83.96:9223` | `$2` overrides. Real, logged-in Chrome on the personal machine, reached over Tailscale — see §2. |
 | GitHub repo (the kanban) | `ARIES_QA_REPO` | `delicioushouse/aries-app` | merged-PR watch + defect issues |
 | Defect issue label | `ARIES_QA_DEFECT_LABEL` | `qa-defect` | label the dev-team orchestrator pulls from — see §6 |
+| Platforms to verify | `ARIES_QA_PLATFORMS` | `facebook,instagram,x,youtube,reddit,linkedin` | comma-separated; the journey (§0/§5) runs per platform. Scope it down during rollout (e.g. `x,youtube,reddit,linkedin`). |
 | Pass interval | `ARIES_QA_INTERVAL_MS` | `600000` (10 min) | wait between passes |
 | Allow real publishing | `ARIES_QA_DESTRUCTIVE_OK` | `0` | must be truthy to actually publish — see Safety |
 
@@ -119,12 +126,13 @@ intervention is expected.
 
 Keep loop state under `./.qa-loop/` (gitignored). Create it if missing.
 
-- `./.qa-loop/state.json` — `{ last_merged_pr, last_merged_at, dod: {connect,publish,analytics,comments,reply}, dispatched: [{ dedupe_key, issue }] }` (`dispatched` records each filed defect's stable key + GitHub issue number, used for dedupe)
-- `./.qa-loop/evidence/<pass>/<gate>/...` — screenshots, console dumps, network/HAR notes
+- `./.qa-loop/state.json` — `{ last_merged_pr, last_merged_at, dod: { <platform>: {connect,publish,analytics,comments,reply} }, dispatched: [{ dedupe_key, issue }] }` (`dod` is keyed per platform from `ARIES_QA_PLATFORMS`; `dispatched` records each filed defect's stable key + GitHub issue number, used for dedupe)
+- `./.qa-loop/evidence/<pass>/<platform>/<gate>/...` — screenshots, console dumps, network/HAR notes
 
 Load state at startup; persist after every gate and every dispatch so a crash resumes
-cleanly. The `dod` map carries gate status across passes — a gate that passed stays green
-unless a later pass observes a regression (then flip it back to failing and re-dispatch).
+cleanly. The `dod` map carries per-platform gate status across passes — a gate that passed
+stays green unless a later pass observes a regression (then flip it back to failing and
+re-dispatch).
 
 ---
 
@@ -151,60 +159,82 @@ For each pass:
 
 3. **Preflight CDP** (section 2). If unreachable, surface the fix and wait, don't fail the loop.
 
-4. **Run the golden-journey checklist** (section 5), gate by gate, as a first-time user.
-   Capture evidence at every step (screenshot + any console errors + failed network
-   requests + HTTP statuses). Treat a gate as **failing** if the user-visible outcome is
-   wrong, even if the API "succeeded".
+4. **Run the golden-journey checklist** (section 5) for each platform in
+   `ARIES_QA_PLATFORMS`, gate by gate, as a first-time user. Capture evidence at every step
+   (screenshot + any console errors + failed network requests + HTTP statuses). Treat a gate
+   as **failing** if the user-visible outcome is wrong, even if the API "succeeded".
 
 5. **Dispatch defects** (section 6) for every failing/regressed gate, deduped.
 
-6. **Update `dod` + persist state.** If all five gates are green this pass → go to
-   section 8 (final report) and **stop**. Otherwise sleep `ARIES_QA_INTERVAL_MS` and start
-   the next pass. Do not block with `sleep` waiting for external events you can't observe —
-   between passes, a plain interval wait is correct.
+6. **Update `dod` + persist state.** If all five gates are green for **every** platform in
+   `ARIES_QA_PLATFORMS` this pass → go to section 8 (final report) and **stop**. Otherwise
+   sleep `ARIES_QA_INTERVAL_MS` and start the next pass. Do not block with `sleep` waiting
+   for external events you can't observe — between passes, a plain interval wait is correct.
 
-Keep a short running status checklist in your replies (one line per gate: ✅/❌ + the
-defect ids dispatched) so the human can see live progress. Don't narrate every click.
+Keep a short running status checklist in your replies (one line per platform × gate: ✅/❌ +
+the defect ids dispatched) so the human can see live progress. Don't narrate every click.
 
 ---
 
 ## 5. Golden-journey checklist (first-time-user POV, against prod)
 
-Run these in order. Earlier failures can block later gates — record the block and still
-dispatch the blocker. Use a dedicated QA tenant/account if one exists (see Safety).
+Run the full five-gate sequence **once per platform** in `ARIES_QA_PLATFORMS`. Within a
+platform, run gates in order — earlier failures can block later gates, so record the block
+and still file the blocker. Use a dedicated QA tenant/account if one exists (see Safety).
 
-**Gate 1 — Connect (Composio → Facebook + Instagram)**
+**Gate 1 — Connect (Composio → `<platform>`)**
 - From a fresh user surface, navigate to integrations/connect-accounts.
-- Start the Composio connection flow for Facebook; complete consent; confirm Aries shows
-  Facebook **connected** (account name/handle visible, no error toast).
-- Repeat for Instagram; confirm **connected**.
+- Start the Composio connection flow for `<platform>`; complete consent; confirm Aries
+  shows it **connected** (account name/handle visible, no error toast).
 - Verify the connected state survives a reload (persisted, not just optimistic UI).
 
 **Gate 2 — Publish**
-- Create/select a post and publish to FB + IG (or trigger the publish path the product
-  exposes to a real user).
-- Confirm Aries reports success **and** independently confirm the post is live on the
-  platform (open the FB/IG post, or the platform permalink Aries surfaces).
-- Capture the resulting post URL / platform_post_id.
+- Create/select content and publish to `<platform>` (or trigger the publish path the
+  product exposes to a real user).
+- Confirm Aries reports success **and** independently confirm the item is live on the
+  platform (open the platform permalink Aries surfaces).
+- Capture the resulting post URL / platform item id.
 
 **Gate 3 — Analytics**
-- After publish, confirm Aries ingests and **displays** insights/analytics for that post
-  (impressions/reach/engagement, whatever the UI shows). Allow for the documented sync
-  cadence — if analytics are merely "not yet synced", note timing rather than filing a bug,
-  but if they never appear or error, that's a defect.
+- After publish, confirm Aries ingests and **displays** analytics for that item (whatever
+  the UI shows). Allow for the documented sync cadence — "not yet synced" is a timing note,
+  but never appearing / erroring is a defect.
 
 **Gate 4 — Comments**
-- Ensure at least one real comment exists on the published post (the human may add one on
-  the platform; ask if needed).
-- Confirm Aries surfaces that comment to the user in-app.
+- Ensure at least one real comment/reply exists on the published item (the human may add
+  one on the platform; ask if needed).
+- Confirm Aries surfaces it to the user in-app.
 
 **Gate 5 — Reply natively in Aries**
 - From inside Aries, reply to the surfaced comment.
 - Confirm the reply posts successfully **and** appears on the platform under the original
   comment.
 
-For each gate record: what you did, expected vs actual, screenshots, and any console/
-network errors.
+For each gate record: platform, what you did, expected vs actual, screenshots, and any
+console/network errors.
+
+### Per-platform notes (the gates map, but the specifics differ)
+
+- **facebook / instagram** — already built (the reference implementation). Publish = feed
+  post (+ Reels/Story when enabled); comments + reply via the Meta Graph paths.
+- **x** (Twitter/X) — Publish = a tweet (text/image/video). Comments = replies/mentions on
+  the tweet. Analytics (impressions/engagement) may require an **elevated API access tier**;
+  if the tier genuinely doesn't expose metrics, that's a *known platform limitation* to note,
+  not a code defect — flag it for the human rather than looping on it.
+- **youtube** — Publish = a **video upload** (YouTube has no text post); a QA upload needs a
+  short test video asset. Comments = comments on the video; Reply = comment reply. Analytics
+  via the YouTube Analytics API.
+- **reddit** — Publish = submit a post to a chosen **subreddit** (text/link/image); pick a
+  test/sandbox subreddit you control. Comments = comments on the submission; Reply = comment
+  reply. "Analytics" is limited (score/upvote ratio/comment count) — verify whatever Aries
+  surfaces.
+- **linkedin** — Publish = a UGC post (text/image). Comments = comments on the post; Reply =
+  comment reply. Analytics differs between personal vs organization pages — verify against
+  whichever Aries connected.
+
+When a gate fails for genuine **platform-capability** reasons (not an Aries bug), file the
+issue at `severity: low` with `Suggested area: platform-limitation` and note it in the
+report instead of blocking Done — confirm with the human before treating it as out of scope.
 
 ---
 
@@ -219,7 +249,8 @@ the merged PR. This is the only handoff — you never touch code or open PRs you
 Per failing/regressed gate, build ONE structured body and file ONE issue. **Dedupe** so you
 don't re-file the same defect every pass:
 
-1. Compute a stable `dedupe_key` = hash of `journey_stage` + route + failure signature.
+1. Compute a stable `dedupe_key` = hash of `platform` + `journey_stage` + route + failure
+   signature (include `platform` so the same gate failing on two platforms files two issues).
 2. Before filing, search open issues: label `$ARIES_QA_DEFECT_LABEL` whose body contains
    `dedupe-key: <key>`. If one exists, **do not** file again — add a brief comment only if
    the signature changed; otherwise skip. Also skip if `dedupe_key` already appears in
@@ -227,11 +258,12 @@ don't re-file the same defect every pass:
 3. If a previously-green gate regressed and its issue was closed, **reopen** that issue (or
    file a fresh one) rather than silently re-filing.
 
-Issue title: `[qa:<journey_stage>] <short imperative summary>`
+Issue title: `[qa:<platform>:<journey_stage>] <short imperative summary>`
 
 Issue body (Markdown — keep the machine-readable trailer intact for the orchestrator):
 
 ```markdown
+**Platform:** facebook | instagram | x | youtube | reddit | linkedin
 **Journey stage:** connect | publish | analytics | comments | reply
 **Severity:** blocker | high | medium | low
 **Prod URL:** <exact route>
@@ -251,10 +283,11 @@ Issue body (Markdown — keep the machine-readable trailer intact for the orches
 - network failures: <method> <url> -> <status>
 
 **Related merged PRs:** #<n> (<title>), ...
-**Suggested area:** backend/marketing | integrations/meta | app/api/... | composio | insights | ...
+**Suggested area:** backend/marketing | integrations/meta | integrations/composio | app/api/... | insights | platform-limitation | ...
 
 <!-- aries-qa-loop
 source: aries-qa-loop
+platform: <platform>
 dedupe-key: <stable hash>
 created-at: <iso8601>
 -->
@@ -278,12 +311,14 @@ them via their PRs; don't close them from here).
 
 ## 7. Safety — this touches REAL production with a REAL account
 
-- You will **publish real posts** and **post real replies** on connected FB/IG accounts.
-  Only perform the publish/reply gates when `ARIES_QA_DESTRUCTIVE_OK` is truthy. If it's
-  not set, run gates 1, 3, and 4 read-only, and for gates 2 & 5 ask the human to confirm
-  before the first destructive action of the run.
-- Strongly prefer a **dedicated QA brand/tenant + test FB/IG accounts**. If the only
-  account available is a production customer's, ask the human before publishing.
+- You will **publish real content** and **post real replies** on connected accounts across
+  every platform (a real tweet, a real YouTube upload, a real subreddit submission, a real
+  LinkedIn post, etc.). Only perform the publish/reply gates when `ARIES_QA_DESTRUCTIVE_OK`
+  is truthy. If it's not set, run gates 1, 3, and 4 read-only, and for gates 2 & 5 ask the
+  human to confirm before the first destructive action of the run.
+- Strongly prefer a **dedicated QA brand/tenant + test accounts on each platform** (and a
+  sandbox subreddit you control for Reddit). If the only account available is a production
+  customer's, ask the human before publishing.
 - Label QA content clearly and clean up test posts/replies when a gate is satisfied, unless
   the human wants them kept as evidence.
 - Never store credentials. Reuse the CDP session; on expiry, hand off to the human (§2).
@@ -294,14 +329,16 @@ them via their PRs; don't close them from here).
 
 ## 8. Final verification report (only when Definition of Done is all-green)
 
-When all five gates pass in a single pass, write `./.qa-loop/VERIFIED.md` and summarize in
-chat:
+When all five gates pass for **every** platform in a single pass, write
+`./.qa-loop/VERIFIED.md` and summarize in chat:
 
 - Timestamp, prod base URL, commit/PRs live at verification time.
-- Per gate: ✅ + the concrete evidence (post URL, screenshot, analytics figures, the
-  comment + the reply permalink).
+- A per-platform × per-gate matrix: ✅ + the concrete evidence (post URL, screenshot,
+  analytics figures, the comment + the reply permalink) for each platform.
+- Any platform-capability limitations noted (e.g. X analytics tier) and the human's sign-off
+  on treating them as out of scope.
 - The merged-PR range covered since the loop started.
-- Confirmation that the full first-time-user journey — connect FB+IG via Composio →
-  publish → analytics → comments → native reply — works in production.
+- Confirmation that the full first-time-user journey — connect via Composio → publish →
+  analytics → comments → native reply — works in production for every configured platform.
 
 Then stop the loop. That report is the deliverable.
