@@ -81,12 +81,25 @@ export async function countConnectedMetaPlatforms(
     return 0;
   }
 
+  // Count a Meta connection in EITHER store: oauth_connections (direct-Meta
+  // OAuth) OR connected_accounts (Composio). Composio brokers its own OAuth and
+  // persists to connected_accounts, so a Composio-connected tenant was invisible
+  // to the onboarding gate / publish precheck and short-circuited to
+  // "requires_channel_connection" (#600/#605). The oauth_connections branch is
+  // unchanged, so direct-Meta recognition is fully preserved; connected_accounts
+  // requires status='connected' (a pending Composio link does not count).
   const result = await client.query(
-    `SELECT COUNT(*)::int AS connected_count
-     FROM oauth_connections
-     WHERE tenant_id = $1
-       AND status = 'connected'
-       AND provider IN ('facebook', 'instagram')`,
+    `SELECT (
+       (SELECT COUNT(*) FROM oauth_connections
+          WHERE tenant_id = $1
+            AND status = 'connected'
+            AND provider IN ('facebook', 'instagram'))
+       +
+       (SELECT COUNT(*) FROM connected_accounts
+          WHERE tenant_id = $1
+            AND status = 'connected'
+            AND platform IN ('facebook', 'instagram'))
+     )::int AS connected_count`,
     [numericTenantId],
   );
 
