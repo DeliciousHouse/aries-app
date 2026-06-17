@@ -98,7 +98,11 @@ export async function handleComposioConnect(
 
   try {
     const base = process.env.APP_BASE_URL?.replace(/\/+$/, '') ?? '';
-    const callbackUrl = base ? `${base}/connections?connected=${platform}` : undefined;
+    // Return the operator to the in-dashboard connections surface (the
+    // "Channel Integrations" nav entry) after the Composio OAuth completes.
+    const callbackUrl = base
+      ? `${base}/dashboard/settings/channel-integrations?connected=${platform}`
+      : undefined;
     const result = await provider.createConnectLink(externalUserIdFor(tenantId), platform, requestedCapability, {
       tenantId,
       callbackUrl,
