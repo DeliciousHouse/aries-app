@@ -31,31 +31,50 @@ import type { ExecutionRunRecord } from '../../backend/execution/run-store';
 
 type QueryCall = { sql: string; params: unknown[] };
 
+// lib/db.ts captures `pool = globalThis.__ariesPgPool` ONCE at import, so a
+// second installMockPool() that swapped the global object would be ignored — the
+// captured pool stays the first test's mock. Route every query through one
+// stable delegator object (captured by lib/db) whose behavior each test swaps via
+// `currentQuery`, so multiple tests in this file each record into their own
+// `calls` array.
+let currentQuery: ((sql: string, params: unknown[]) => Promise<unknown>) | null = null;
+const stablePool = {
+  query(sql: string, params: unknown[] = []) {
+    if (!currentQuery) throw new Error('no mock pool installed');
+    return currentQuery(sql, params);
+  },
+} as unknown as Pool;
+
+function mockQuery(calls: QueryCall[]) {
+  return (sql: string, params: unknown[] = []) => {
+    calls.push({ sql, params });
+    // creative_assets SELECT (synthesizer asset lookup) → return the rows the
+    // ingest would have written, so the synthesizer can link them.
+    if (/SELECT[\s\S]*FROM creative_assets/i.test(sql)) {
+      return Promise.resolve({
+        rows: [
+          { id: 'uuid-1', source_asset_id: 'img_1' },
+          { id: 'uuid-2', source_asset_id: 'img_2' },
+        ],
+        rowCount: 2,
+      });
+    }
+    // INSERT statements → report one row affected.
+    return Promise.resolve({ rows: [{ id: 'row-1' }], rowCount: 1 });
+  };
+}
+
 function installMockPool(): { calls: QueryCall[]; restore: () => void } {
   const calls: QueryCall[] = [];
   const g = globalThis as typeof globalThis & { __ariesPgPool?: Pool };
   const prev = g.__ariesPgPool;
-  g.__ariesPgPool = {
-    query(sql: string, params: unknown[] = []) {
-      calls.push({ sql, params });
-      // creative_assets SELECT (synthesizer asset lookup) → return the rows the
-      // ingest would have written, so the synthesizer can link them.
-      if (/SELECT[\s\S]*FROM creative_assets/i.test(sql)) {
-        return Promise.resolve({
-          rows: [
-            { id: 'uuid-1', source_asset_id: 'img_1' },
-            { id: 'uuid-2', source_asset_id: 'img_2' },
-          ],
-          rowCount: 2,
-        });
-      }
-      // INSERT statements → report one row affected.
-      return Promise.resolve({ rows: [{ id: 'row-1' }], rowCount: 1 });
-    },
-  } as unknown as Pool;
+  const prevQuery = currentQuery;
+  g.__ariesPgPool = stablePool;
+  currentQuery = mockQuery(calls);
   return {
     calls,
     restore: () => {
+      currentQuery = prevQuery;
       if (prev === undefined) delete g.__ariesPgPool;
       else g.__ariesPgPool = prev;
     },
@@ -251,6 +270,121 @@ test('publish-completion callback ingests creative_assets AFTER the stage output
       assert.ok(
         Array.isArray(creativeAssetIds) && creativeAssetIds.length === 1,
         'synthesized post links exactly one creative asset',
+      );
+    }
+  } finally {
+    mock.restore();
+    if (prevDataRoot === undefined) delete process.env.DATA_ROOT;
+    else process.env.DATA_ROOT = prevDataRoot;
+    if (prevMount === undefined) delete process.env.HERMES_IMAGE_CACHE_MOUNT;
+    else process.env.HERMES_IMAGE_CACHE_MOUNT = prevMount;
+    await rm(dataRoot, { recursive: true, force: true });
+  }
+});
+
+// qa-defect #606 regression — the SINGLE-STAGE publish-completion path.
+//
+// In autonomous mode the production stage terminates at the approve_publish gate
+// and never emits its own `completed` callback, so the only `completed` callback
+// is publish-only. The pre-fix code ingested creative_assets ONLY when
+// isProductionCompletion was true, so the publish-only callback SKIPPED ingest →
+// the creative_assets table was empty at synthesis time → every synthesized post
+// got creative_asset_ids=[] → IG failed `instagram_media_required` and FB posted
+// text-only (live post 216). The multi-stage test above did not cover this branch.
+//
+// Here production is ALREADY completed (primary_output carrying the creative
+// assets, as it is on disk by the time publish completes) and the payload is
+// publish-only. The fix ingests on `targetStage === 'publish'` too, so the
+// creative_assets INSERTs must reach the pool and synthesis binds them.
+
+// Production stage already completed, with primary_output carrying the creatives —
+// exactly the on-disk state when a publish-only completion callback arrives.
+function makeProductionCompletedDoc(jobId: string): SocialContentJobRuntimeDocument {
+  const doc = makePreCallbackDoc(jobId);
+  doc.current_stage = 'publish';
+  doc.stages.production = makeStage('production', 'completed', {
+    stage: 'production',
+    content_package: [
+      { post_number: 1, hook: 'Hook one.', body: 'Body one.', cta: 'CTA one.', hashtags: ['#one'], platforms: ['instagram'] },
+      { post_number: 2, hook: 'Hook two.', body: 'Body two.', cta: 'CTA two.', hashtags: ['#two'], platforms: ['instagram'] },
+    ],
+    artifacts: {
+      creative_assets: [
+        { assetId: 'img_1', type: 'generated_image', path: '/home/node/.hermes/profiles/aries-content-generator/cache/images/openai_codex_a.png' },
+        { assetId: 'img_2', type: 'generated_image', path: '/home/node/.hermes/profiles/aries-content-generator/cache/images/openai_codex_b.png' },
+      ],
+      errors: [],
+    },
+  }) as unknown as (typeof doc.stages.production);
+  return doc;
+}
+
+// A publish-ONLY completed payload — no production stage in the output.
+function makeSingleStagePublishPayload() {
+  return {
+    status: 'completed',
+    stage: 'publish',
+    hermes_run_id: 'hermes_run_single',
+    output: [
+      {
+        stage: 'publish',
+        publish_package: {
+          approval_gate: 'approved',
+          cadence: 'one post per day',
+          schedule: [{ day: 'Monday', post_number: 1 }],
+        },
+      },
+    ],
+  };
+}
+
+function makeSingleStageRunRecord(jobId: string): ExecutionRunRecord {
+  return { ...makeRunRecord(jobId), external_run_id: 'hermes_run_single' } as ExecutionRunRecord;
+}
+
+test('publish-ONLY completion callback ingests creative_assets before synthesis (qa-defect #606)', async () => {
+  const prevDataRoot = process.env.DATA_ROOT;
+  const prevMount = process.env.HERMES_IMAGE_CACHE_MOUNT;
+  const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-606-'));
+  process.env.DATA_ROOT = dataRoot;
+  process.env.HERMES_IMAGE_CACHE_MOUNT = dataRoot;
+
+  const mock = installMockPool();
+  try {
+    const { writeFile } = await import('node:fs/promises');
+    await writeFile(path.join(dataRoot, 'openai_codex_a.png'), Buffer.from('a'));
+    await writeFile(path.join(dataRoot, 'openai_codex_b.png'), Buffer.from('b'));
+
+    const { saveSocialContentJobRuntime } = await import('../../backend/marketing/runtime-state');
+    const { applyHermesMarketingCallback } = await import('../../backend/marketing/hermes-callbacks');
+
+    const jobId = 'mkt_606_single_stage';
+    saveSocialContentJobRuntime(jobId, makeProductionCompletedDoc(jobId));
+
+    await applyHermesMarketingCallback(
+      makeSingleStageRunRecord(jobId),
+      makeSingleStagePublishPayload() as never,
+    );
+
+    // The #606 regression assertion: even on a publish-ONLY callback the
+    // production creative_assets must be ingested. Pre-fix this was 0 (ingest
+    // gated on isProductionCompletion, which is false here) → empty table →
+    // creative_asset_ids=[] → IG/FB publish dropped the creative.
+    const creativeInserts = mock.calls.filter((c) => /INSERT INTO creative_assets/i.test(c.sql));
+    assert.equal(
+      creativeInserts.length,
+      2,
+      'publish-only completion must still ingest the production creative_assets before synthesis',
+    );
+
+    // And synthesis binds them — no empty creative_asset_ids.
+    const postInserts = mock.calls.filter((c) => /INSERT INTO posts/i.test(c.sql));
+    assert.equal(postInserts.length, 2, 'two content_package entries → two synthesized posts');
+    for (const insert of postInserts) {
+      const creativeAssetIds = insert.params.find((p) => Array.isArray(p));
+      assert.ok(
+        Array.isArray(creativeAssetIds) && creativeAssetIds.length === 1,
+        'synthesized post on the publish-only path links exactly one creative asset (not [])',
       );
     }
   } finally {
