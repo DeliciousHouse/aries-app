@@ -29,6 +29,7 @@ import { effectivePublishProvider } from '../providers/provider-factory';
 import { resolveComposioConfig, type ComposioConfig } from './composio-config';
 import { createComposioGateway, type ComposioGateway } from './composio-client';
 import { getConnectionRow, type Queryable } from './connection-store';
+import { resolveFacebookManagedPage } from './facebook-page-resolver';
 import pool from '@/lib/db';
 
 type Env = Partial<Record<string, string | undefined>>;
@@ -113,7 +114,37 @@ export async function replyToCommentViaComposio(
     );
   }
 
+  // Build the gateway early — needed for both optional page-resolution and the
+  // actual reply tool call below.
   const gateway = deps.gateway ?? createComposioGateway(config);
+
+  // FACEBOOK_CREATE_COMMENT requires an explicit `page_id` so Composio knows
+  // which Page identity is posting the reply. Without it Composio tries to
+  // derive the page id from `object_id`, which it misparses against the
+  // comment-id digits and produces the wrong (hyphenated comment-id-as-page-id)
+  // value — root cause of #621 502s. Use the tenant's stored connected-account
+  // page id; fall back to a live FACEBOOK_LIST_MANAGED_PAGES call when the row
+  // was created before connect-time page-resolution was added.
+  let fbPageId: string | null = null;
+  if (provider === 'facebook') {
+    fbPageId = conn.externalAccountId ?? null;
+    if (!fbPageId) {
+      // externalAccountId not populated at connect time — resolve it now.
+      try {
+        const page = await resolveFacebookManagedPage(gateway, config, conn.connectedAccountId!);
+        fbPageId = page?.pageId ?? null;
+      } catch {
+        // fall through to the guard below
+      }
+    }
+    if (!fbPageId) {
+      throw new MetaPublishError(
+        'fb_page_id_missing',
+        'Could not resolve the connected Facebook Page id. Reconnect the Facebook account to refresh the page.',
+        { status: 409 },
+      );
+    }
+  }
 
   let result;
   try {
@@ -121,7 +152,14 @@ export async function replyToCommentViaComposio(
       connectedAccountId: conn.connectedAccountId,
       // object_id = the stored comment's full graph id (pageId_postId_commentId);
       // FACEBOOK_CREATE_COMMENT replies to a comment when given a comment id.
-      arguments: { object_id: req.externalCommentId, message },
+      // page_id = the tenant's connected FB Page — required so Composio posts
+      // the reply as the Page, not a personal profile, and does not misparse
+      // the comment id as a page id (see #621).
+      arguments: {
+        object_id: req.externalCommentId,
+        message,
+        ...(fbPageId ? { page_id: fbPageId } : {}),
+      },
     });
   } catch (err) {
     // Transport/unknown: the reply MAY have reached Meta — treat as outcome
