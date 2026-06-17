@@ -278,7 +278,7 @@ Issue body (Markdown — keep the machine-readable trailer intact for the orches
 **Actual:** <user-visible actual outcome>
 
 **Evidence:**
-- screenshots: .qa-loop/evidence/<pass>/<gate>/*.png
+- screenshots: .qa-loop/evidence/<pass>/<platform>/<gate>/*.png
 - console errors: ...
 - network failures: <method> <url> -> <status>
 
