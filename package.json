@@ -89,7 +89,7 @@
     "jsdom": "^29.1.1",
     "postcss": "^8.5.15",
     "react-test-renderer": "^19.2.7",
-    "tailwindcss": "^4.3.0",
+    "tailwindcss": "^4.3.1",
     "typescript": "^6.0.3"
   },
   "overrides": {
