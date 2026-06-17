@@ -26,10 +26,31 @@
  */
 
 import pool from '@/lib/db';
-import { isSupportedPlatform } from '../platforms/registry';
+import { isSupportedPlatform, type Platform } from '../platforms/registry';
 import { getAdapter } from './adapter-factory';
-import type { DateRange } from '../adapters/_adapter.types';
+import type { DateRange, InsightsAdapter, InsightsAdapterContext } from '../adapters/_adapter.types';
 import type { SyncTrigger, SyncStatus } from '../types';
+import { getConnectionRow } from '@/backend/integrations/composio/connection-store';
+import { isIntegrationPlatform } from '@/backend/integrations/providers/types';
+
+// ── Injection seam (production defaults to the global pool + real factory) ──────
+// Lets the leg-isolation regression test drive syncAccountForTenant against an
+// in-memory fake pool + adapter, with no live database. Production callers never
+// pass deps.
+interface SyncClient {
+  query<T = Record<string, unknown>>(
+    text: string,
+    params?: unknown[],
+  ): Promise<{ rows: T[]; rowCount: number | null }>;
+  release(): void;
+}
+interface SyncPool {
+  connect(): Promise<SyncClient>;
+}
+export interface SyncDeps {
+  pool?: SyncPool;
+  resolveAdapter?: (platform: Platform, ctx: InsightsAdapterContext) => InsightsAdapter;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -97,8 +118,11 @@ export async function syncAccountForTenant(
   tenantId: number,
   accountId: number,
   trigger: SyncTrigger = 'handler',
+  deps: SyncDeps = {},
 ): Promise<SyncResult> {
-  const client = await pool.connect();
+  const db: SyncPool = deps.pool ?? (pool as unknown as SyncPool);
+  const resolveAdapter = deps.resolveAdapter ?? getAdapter;
+  const client = await db.connect();
   let syncRunId = -1;
   let platform = 'unknown';
 
@@ -141,16 +165,36 @@ export async function syncAccountForTenant(
     syncRunId = runRes.rows[0].id;
 
     // ── 3–6. Call adapter ──────────────────────────────────────────────────
-    const adapter = getAdapter(platform);
+    // Composio-backed adapters (Facebook) need the per-tenant Composio
+    // connectedAccountId; resolve it from the connection store (reusing this
+    // pooled client). YouTube ignores the context. A missing/failed lookup
+    // leaves the context empty so the adapter surfaces a clear error.
+    let connectedAccountId: string | null = null;
+    if (isIntegrationPlatform(platform)) {
+      const conn = await getConnectionRow(String(tenantId), platform, client).catch(() => null);
+      connectedAccountId = conn?.connectedAccountId ?? null;
+    }
+    const adapter = resolveAdapter(platform, { connectedAccountId, pageId: externalAccountId });
     const range30 = lastNDaysRange(30);
 
     let postsSeen = 0;
     let commentsSeen = 0;
     let apiUnitsUsed = 0;
+    // Each adapter leg below is isolated: one platform call failing (e.g. a
+    // POST_INSIGHTS error for one post) is recorded here and the remaining legs
+    // still run + persist. A non-empty list downgrades the run to 'partial'
+    // instead of failing the whole sync — so #597 comments can never be zeroed
+    // by a #596 metrics error, and vice-versa.
+    const legErrors: string[] = [];
 
     // 3. Post list
-    const rawPosts = await adapter.fetchPostList(externalAccountId);
-    apiUnitsUsed++;
+    let rawPosts: Awaited<ReturnType<typeof adapter.fetchPostList>> = [];
+    try {
+      rawPosts = await adapter.fetchPostList(externalAccountId);
+      apiUnitsUsed++;
+    } catch (err) {
+      legErrors.push(`fetchPostList: ${err instanceof Error ? err.message : String(err)}`);
+    }
 
     for (const rp of rawPosts) {
       await client.query(
@@ -177,28 +221,32 @@ export async function syncAccountForTenant(
     }
 
     // 4. Account-level daily metrics (last 30 days)
-    const accountMetrics = await adapter.fetchAccountMetrics(externalAccountId, range30);
-    apiUnitsUsed++;
+    try {
+      const accountMetrics = await adapter.fetchAccountMetrics(externalAccountId, range30);
+      apiUnitsUsed++;
 
-    for (const m of accountMetrics) {
-      await client.query(
-        `INSERT INTO insights_account_metrics_daily
-           (tenant_id, account_id, platform, date,
-            views, watch_time_minutes, followers, followers_delta,
-            likes, comments_count, shares,
-            platform_data, raw_source)
-         VALUES ($1, $2, $3, $4,
-                 $5, $6, $7, $8,
-                 $9, $10, $11,
-                 '{}', $12)
-         ON CONFLICT (tenant_id, account_id, date) DO NOTHING`,
-        [
-          tenantId, accountId, platform, m.date,
-          m.views, m.watchTimeMinutes, m.followers, m.followersDelta,
-          m.likes, m.commentsCount, m.shares,
-          JSON.stringify(m.rawSource),
-        ],
-      );
+      for (const m of accountMetrics) {
+        await client.query(
+          `INSERT INTO insights_account_metrics_daily
+             (tenant_id, account_id, platform, date,
+              views, watch_time_minutes, followers, followers_delta,
+              likes, comments_count, shares, engagement,
+              platform_data, raw_source)
+           VALUES ($1, $2, $3, $4,
+                   $5, $6, $7, $8,
+                   $9, $10, $11, $12,
+                   '{}', $13)
+           ON CONFLICT (tenant_id, account_id, date) DO NOTHING`,
+          [
+            tenantId, accountId, platform, m.date,
+            m.views, m.watchTimeMinutes, m.followers, m.followersDelta,
+            m.likes, m.commentsCount, m.shares, m.engagement ?? null,
+            JSON.stringify(m.rawSource),
+          ],
+        );
+      }
+    } catch (err) {
+      legErrors.push(`fetchAccountMetrics: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     // 5. Per-post daily metrics
@@ -222,36 +270,44 @@ export async function syncAccountForTenant(
     );
 
     for (const post of postsToSync.rows) {
-      const postMetrics = await adapter.fetchPostMetrics(post.external_post_id, range30);
-      apiUnitsUsed++;
+      try {
+        const postMetrics = await adapter.fetchPostMetrics(post.external_post_id, range30);
+        apiUnitsUsed++;
 
-      for (const pm of postMetrics) {
+        for (const pm of postMetrics) {
+          await client.query(
+            `INSERT INTO insights_post_metrics_daily
+               (tenant_id, post_id, platform, date,
+                views, watch_time_minutes,
+                avg_view_duration_sec, avg_view_percentage,
+                likes, comments_count, shares,
+                platform_data, raw_source)
+             VALUES ($1, $2, $3, $4,
+                     $5, $6, $7, $8,
+                     $9, $10, $11,
+                     '{}', $12)
+             ON CONFLICT (tenant_id, post_id, date) DO NOTHING`,
+            [
+              tenantId, post.id, platform, pm.date,
+              pm.views, pm.watchTimeMinutes,
+              pm.avgViewDurationSec, pm.avgViewPercentage,
+              pm.likes, pm.commentsCount, pm.shares,
+              JSON.stringify(pm.rawSource),
+            ],
+          );
+        }
+
         await client.query(
-          `INSERT INTO insights_post_metrics_daily
-             (tenant_id, post_id, platform, date,
-              views, watch_time_minutes,
-              avg_view_duration_sec, avg_view_percentage,
-              likes, comments_count, shares,
-              platform_data, raw_source)
-           VALUES ($1, $2, $3, $4,
-                   $5, $6, $7, $8,
-                   $9, $10, $11,
-                   '{}', $12)
-           ON CONFLICT (tenant_id, post_id, date) DO NOTHING`,
-          [
-            tenantId, post.id, platform, pm.date,
-            pm.views, pm.watchTimeMinutes,
-            pm.avgViewDurationSec, pm.avgViewPercentage,
-            pm.likes, pm.commentsCount, pm.shares,
-            JSON.stringify(pm.rawSource),
-          ],
+          `UPDATE insights_posts SET last_metrics_fetched_at = now() WHERE id = $1`,
+          [post.id],
+        );
+      } catch (err) {
+        // One post's metrics failing must not skip the rest of the loop OR the
+        // comments leg below.
+        legErrors.push(
+          `fetchPostMetrics(${post.external_post_id}): ${err instanceof Error ? err.message : String(err)}`,
         );
       }
-
-      await client.query(
-        `UPDATE insights_posts SET last_metrics_fetched_at = now() WHERE id = $1`,
-        [post.id],
-      );
     }
 
     // 6. Comments — last 30 days of posts, up to 100 comments per post
@@ -270,32 +326,54 @@ export async function syncAccountForTenant(
     );
 
     for (const post of recentPosts.rows) {
-      const comments = await adapter.fetchComments(post.external_post_id, 100);
-      apiUnitsUsed++;
+      try {
+        const comments = await adapter.fetchComments(post.external_post_id, 100);
+        apiUnitsUsed++;
 
-      for (const c of comments) {
-        await client.query(
-          `INSERT INTO insights_comments
-             (tenant_id, post_id, platform, external_comment_id,
-              received_at, author_handle, body_text, platform_data)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, '{}')
-           ON CONFLICT (tenant_id, platform, external_comment_id) DO NOTHING`,
-          [
-            tenantId, post.id, platform, c.externalCommentId,
-            c.receivedAt, c.authorHandle, c.bodyText,
-          ],
+        for (const c of comments) {
+          await client.query(
+            `INSERT INTO insights_comments
+               (tenant_id, post_id, platform, external_comment_id,
+                received_at, author_handle, body_text, platform_data)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, '{}')
+             ON CONFLICT (tenant_id, platform, external_comment_id) DO NOTHING`,
+            [
+              tenantId, post.id, platform, c.externalCommentId,
+              c.receivedAt, c.authorHandle, c.bodyText,
+            ],
+          );
+          commentsSeen++;
+        }
+      } catch (err) {
+        legErrors.push(
+          `fetchComments(${post.external_post_id}): ${err instanceof Error ? err.message : String(err)}`,
         );
-        commentsSeen++;
       }
     }
 
     // ── 7. Finish sync_run record + update account ─────────────────────────
-    await client.query(SYNC_RUN_TERMINAL_OK_SQL, [
-      postsSeen,
-      commentsSeen,
-      apiUnitsUsed,
-      syncRunId,
-    ]);
+    // A leg that threw is isolated (captured in legErrors) and downgrades the
+    // run to 'partial' — the legs that succeeded still persisted. Only a clean
+    // run takes the 'ok' fast path (which also clears any mid-flight sweep abort
+    // message via SYNC_RUN_TERMINAL_OK_SQL).
+    const status: SyncStatus = legErrors.length > 0 ? 'partial' : 'ok';
+    if (status === 'ok') {
+      await client.query(SYNC_RUN_TERMINAL_OK_SQL, [
+        postsSeen,
+        commentsSeen,
+        apiUnitsUsed,
+        syncRunId,
+      ]);
+    } else {
+      await client.query(
+        `UPDATE insights_sync_runs
+         SET status = 'partial', finished_at = now(),
+             posts_seen = $1, comments_seen = $2, api_units_used = $3,
+             error_message = $4
+         WHERE id = $5`,
+        [postsSeen, commentsSeen, apiUnitsUsed, legErrors.join(' | ').slice(0, 2000), syncRunId],
+      );
+    }
 
     await client.query(
       `UPDATE insights_accounts SET last_sync_at = now() WHERE id = $1`,
@@ -304,8 +382,9 @@ export async function syncAccountForTenant(
 
     return {
       syncRunId, accountId, platform,
-      status: 'ok',
+      status,
       postsSeen, commentsSeen, apiUnitsUsed,
+      ...(legErrors.length > 0 ? { errorMessage: legErrors.join(' | ') } : {}),
     };
 
   } catch (err) {
