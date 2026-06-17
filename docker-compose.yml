@@ -123,6 +123,13 @@ services:
       # distributed unlisted; each tenant installs it. Empty by default.
       SLACK_CLIENT_ID: ${SLACK_CLIENT_ID:-}
       SLACK_CLIENT_SECRET: ${SLACK_CLIENT_SECRET:-}
+      # qa-defect #598 — native comment reply backend (POST
+      # /api/insights/comments/[commentId]/reply → Meta Graph reply). Default OFF;
+      # the route 404s while dark. Flip to 1 only after the Meta
+      # instagram_manage_comments / pages_manage_engagement scopes are granted (App
+      # Review). The Hermes reconciler + all route handlers run in this container,
+      # so only aries-app needs it.
+      ARIES_NATIVE_REPLY_ENABLED: ${ARIES_NATIVE_REPLY_ENABLED:-0}
       # 2026-05-23: flipped ON per TODOS rollout. Narrow first-name-denylist
       # heuristic replaces the legacy /[A-Z][a-z]+\s+[A-Z][a-z]+/ regex in
       # backend/memory/write-events.ts::scrubPreferenceLabelForHoncho. Effect:
