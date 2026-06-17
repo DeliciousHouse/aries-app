@@ -242,20 +242,23 @@ export class FacebookInsightsAdapter implements InsightsAdapter {
       followersCount = null;
     }
 
-    // Pivot the per-metric time series into one record per day.
+    // Pivot the per-metric time series into one record per day. Each field
+    // tracks its OWN source metric so cumulative and daily signals are never
+    // conflated (see the follower math below). null = the metric had no value
+    // that day (never coerced to a fabricated 0).
     type Day = {
-      views: number;
-      followers: number;
-      follows: number;
-      unfollows: number;
-      engagements: number;
-      videoViews: number;
+      mediaView: number | null;      // page_media_view (content views)
+      videoViews: number | null;     // page_video_views
+      engagements: number | null;    // page_post_engagements (DAILY engagement count)
+      pageFollows: number | null;    // page_follows (ABSOLUTE cumulative follower total)
+      dailyFollows: number | null;   // page_daily_follows_unique (DAILY new follows)
+      dailyUnfollows: number | null; // page_daily_unfollows_unique (DAILY unfollows)
     };
     const byDay = new Map<string, Day>();
     const ensure = (date: string): Day => {
       let d = byDay.get(date);
       if (!d) {
-        d = { views: 0, followers: 0, follows: 0, unfollows: 0, engagements: 0, videoViews: 0 };
+        d = { mediaView: null, videoViews: null, engagements: null, pageFollows: null, dailyFollows: null, dailyUnfollows: null };
         byDay.set(date, d);
       }
       return d;
@@ -268,45 +271,60 @@ export class FacebookInsightsAdapter implements InsightsAdapter {
       for (const v of values) {
         const value = num(v.value);
         if (value === null) continue;
-        const date = dateStr(v.end_time);
-        const day = ensure(date);
+        const day = ensure(dateStr(v.end_time));
         switch (name) {
-          case 'page_media_view': day.views = value; break;
+          case 'page_media_view': day.mediaView = value; break;
           case 'page_video_views': day.videoViews = value; break;
-          case 'page_follows': day.follows = value; break;
-          case 'page_daily_follows_unique': day.follows = day.follows || value; day.followers = value; break;
-          case 'page_daily_unfollows_unique': day.unfollows = value; break;
           case 'page_post_engagements': day.engagements = value; break;
+          case 'page_follows': day.pageFollows = value; break;
+          case 'page_daily_follows_unique': day.dailyFollows = value; break;
+          case 'page_daily_unfollows_unique': day.dailyUnfollows = value; break;
           default: break;
         }
       }
     }
 
-    // Stamp the current follower count on the most recent day (range.to) so the
-    // dashboard has a real "current followers" reading even when the daily
-    // page_follows series is sparse.
-    if (followersCount !== null) {
-      ensure(range.to).followers = followersCount;
-    }
+    // Ensure the most recent day exists so the authoritative PAGE_DETAILS
+    // follower count below has a row to land on.
+    const latestDate = range.to;
+    if (followersCount !== null) ensure(latestDate);
 
     const out: RawAccountMetricsDay[] = [];
     for (const [date, d] of byDay) {
+      // Absolute follower count: the cumulative page_follows for that day; on the
+      // latest day prefer the authoritative PAGE_DETAILS followers_count. NEVER
+      // derived from a daily follows/unfollows value.
+      const absoluteFollowers =
+        (date === latestDate && followersCount !== null ? followersCount : null) ?? d.pageFollows;
+      // Daily net change: new follows − unfollows, BOTH daily metrics. Computed
+      // only when at least one daily signal exists, so a day with no signal is 0
+      // (no change) rather than a bogus cumulative-minus-daily subtraction.
+      const followersDelta =
+        d.dailyFollows !== null || d.dailyUnfollows !== null
+          ? (d.dailyFollows ?? 0) - (d.dailyUnfollows ?? 0)
+          : 0;
+
       out.push({
         date,
-        views: d.views,
+        views: d.mediaView ?? 0,
         watchTimeMinutes: 0,
-        followers: d.follows || d.followers || 0,
-        followersDelta: d.follows && d.unfollows ? d.follows - d.unfollows : 0,
+        followers: absoluteFollowers ?? 0,
+        followersDelta,
+        // FB exposes no like/comment/share breakdown at the page level — only the
+        // aggregate page_post_engagements, surfaced via the dedicated `engagement`
+        // field (read-api uses it for the headline engagement, not these zeros).
         likes: 0,
         commentsCount: 0,
         shares: 0,
+        engagement: d.engagements,
         rawSource: {
           source: 'FACEBOOK_GET_PAGE_INSIGHTS',
-          page_media_view: d.views,
+          page_media_view: d.mediaView,
           page_video_views: d.videoViews,
           page_post_engagements: d.engagements,
-          page_follows: d.follows,
-          page_daily_unfollows_unique: d.unfollows,
+          page_follows: d.pageFollows,
+          page_daily_follows_unique: d.dailyFollows,
+          page_daily_unfollows_unique: d.dailyUnfollows,
           followers_count: followersCount,
         },
       });

@@ -18,24 +18,49 @@ import type { Platform } from '../platforms/registry';
 import type { InsightsAdapter, InsightsAdapterContext } from '../adapters/_adapter.types';
 import { youTubeInsightsAdapter } from '../adapters/youtube/index';
 import { createFacebookInsightsAdapter } from '../adapters/facebook/index';
+import { analyticsProviderSelector } from '@/backend/integrations/providers/integration-config';
 
 type AdapterBuilder = (ctx: InsightsAdapterContext) => InsightsAdapter;
 
+/**
+ * Real off-switch for the Composio-backed Facebook insights path: only active
+ * when ANALYTICS_PROVIDER=composio. When it is anything else (the default
+ * direct_meta), the FB adapter never activates and no Composio analytics tool
+ * is ever executed.
+ */
+export function isFacebookInsightsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return analyticsProviderSelector(env) === 'composio';
+}
+
 const REGISTRY: Partial<Record<Platform, AdapterBuilder>> = {
   youtube: () => youTubeInsightsAdapter,
-  facebook: (ctx) => createFacebookInsightsAdapter(ctx),
+  facebook: (ctx) => {
+    if (!isFacebookInsightsEnabled()) {
+      throw new Error(
+        'Facebook insights adapter is disabled: set ANALYTICS_PROVIDER=composio ' +
+        'to enable Composio-backed Facebook analytics.',
+      );
+    }
+    return createFacebookInsightsAdapter(ctx);
+  },
   // instagram: (ctx) => createInstagramInsightsAdapter(ctx),  ← out of scope (#596/#597 = FB only)
 };
 
-/** Returns true only if a builder is registered for the platform. */
-export function hasAdapter(platform: Platform): boolean {
+/**
+ * Returns true only if a live adapter is available for the platform. For
+ * Facebook this also honors the ANALYTICS_PROVIDER=composio off-switch, so
+ * callers (e.g. the integrations-sync handler) never route to a disabled path.
+ */
+export function hasAdapter(platform: Platform, env: NodeJS.ProcessEnv = process.env): boolean {
+  if (platform === 'facebook') return isFacebookInsightsEnabled(env);
   return platform in REGISTRY && REGISTRY[platform] != null;
 }
 
 /**
  * Returns the adapter for a given platform, bound to the supplied connection
  * context (Composio-backed adapters need it; others ignore it).
- * Throws if no adapter has been registered for the platform.
+ * Throws if no adapter is registered, or if the platform's adapter is disabled
+ * by its off-switch (e.g. Facebook without ANALYTICS_PROVIDER=composio).
  */
 export function getAdapter(
   platform: Platform,

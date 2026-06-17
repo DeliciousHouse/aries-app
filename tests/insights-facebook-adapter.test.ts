@@ -165,6 +165,82 @@ test('fetchAccountMetrics: pivots PAGE_INSIGHTS per day + folds in PAGE_DETAILS 
   assert.equal(d10?.followers, 1234); // PAGE_DETAILS stamped on the most recent day
 });
 
+test('M2: follower total stays the cumulative page_follows; delta = daily follows − daily unfollows', async () => {
+  const gateway = routingGateway({
+    FACEBOOK_GET_PAGE_INSIGHTS: {
+      successful: true,
+      error: null,
+      data: {
+        data: [
+          { name: 'page_follows', values: [{ value: 900, end_time: '2026-06-10T07:00:00+0000' }] },
+          { name: 'page_daily_follows_unique', values: [{ value: 12, end_time: '2026-06-10T07:00:00+0000' }] },
+          { name: 'page_daily_unfollows_unique', values: [{ value: 5, end_time: '2026-06-10T07:00:00+0000' }] },
+        ],
+      },
+    },
+    // PAGE_DETAILS unavailable, so the page_follows path is exercised purely
+    // (not the PAGE_DETAILS override).
+    FACEBOOK_GET_PAGE_DETAILS: { successful: true, error: null, data: { data: {} } },
+  });
+  const adapter = new FacebookInsightsAdapter(gateway, fakeConfig({ actions: {} }), ctx);
+
+  const days = await adapter.fetchAccountMetrics('PAGE123', { from: '2026-06-10', to: '2026-06-10' });
+  const d = days.find((x) => x.date === '2026-06-10');
+  assert.ok(d);
+  // followers is the CUMULATIVE page_follows (900) — NEVER the daily new-follows
+  // value (12) and NEVER cumulative-minus-daily (900 − 5 = 895).
+  assert.equal(d?.followers, 900);
+  assert.notEqual(d?.followers, 12);
+  assert.notEqual(d?.followers, 895);
+  // delta is daily follows − daily unfollows = 12 − 5 = 7.
+  assert.equal(d?.followersDelta, 7);
+});
+
+test('M2: a day with only daily-unfollows yields a negative delta, follower total untouched', async () => {
+  const gateway = routingGateway({
+    FACEBOOK_GET_PAGE_INSIGHTS: {
+      successful: true,
+      error: null,
+      data: {
+        data: [
+          { name: 'page_follows', values: [{ value: 900, end_time: '2026-06-10T07:00:00+0000' }] },
+          { name: 'page_daily_unfollows_unique', values: [{ value: 5, end_time: '2026-06-10T07:00:00+0000' }] },
+        ],
+      },
+    },
+    FACEBOOK_GET_PAGE_DETAILS: { successful: true, error: null, data: { data: {} } },
+  });
+  const adapter = new FacebookInsightsAdapter(gateway, fakeConfig({ actions: {} }), ctx);
+
+  const days = await adapter.fetchAccountMetrics('PAGE123', { from: '2026-06-10', to: '2026-06-10' });
+  const d = days.find((x) => x.date === '2026-06-10');
+  // 0 daily follows − 5 daily unfollows = -5 (delta uses daily metrics only).
+  assert.equal(d?.followersDelta, -5);
+  // The follower TOTAL is the cumulative page_follows, NOT reduced by the daily unfollow.
+  assert.equal(d?.followers, 900);
+});
+
+test('M1: account engagement comes from page_post_engagements (engagement field), not a fabricated 0', async () => {
+  const gateway = routingGateway({
+    FACEBOOK_GET_PAGE_INSIGHTS: {
+      successful: true,
+      error: null,
+      data: {
+        data: [{ name: 'page_post_engagements', values: [{ value: 256, end_time: '2026-06-10T07:00:00+0000' }] }],
+      },
+    },
+    FACEBOOK_GET_PAGE_DETAILS: { successful: true, error: null, data: { data: {} } },
+  });
+  const adapter = new FacebookInsightsAdapter(gateway, fakeConfig({ actions: {} }), ctx);
+
+  const days = await adapter.fetchAccountMetrics('PAGE123', { from: '2026-06-10', to: '2026-06-10' });
+  const d = days.find((x) => x.date === '2026-06-10');
+  assert.equal(d?.engagement, 256); // real aggregate, surfaced via the dedicated column
+  assert.equal(d?.likes, 0); // FB exposes no like/comment/share breakdown at page level
+  assert.equal(d?.commentsCount, 0);
+  assert.equal(d?.shares, 0);
+});
+
 test('fetchComments: maps GET_COMMENTS rows, stores full graph comment id for the reply endpoint', async () => {
   const gateway = routingGateway({
     FACEBOOK_GET_COMMENTS: {

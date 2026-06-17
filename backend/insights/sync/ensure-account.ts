@@ -18,6 +18,7 @@
 
 import pool from '@/lib/db';
 import type { Queryable } from '@/backend/integrations/composio/connection-store';
+import { analyticsProviderSelector } from '@/backend/integrations/providers/integration-config';
 
 /** Platforms whose Composio connections should be projected into insights_accounts. */
 export const BRIDGED_PLATFORMS = ['facebook'] as const;
@@ -34,21 +35,33 @@ export interface EnsureAccountsResult {
   considered: number;
   /** Number of insights_accounts rows upserted (inserted or refreshed). */
   upserted: number;
+  /** Set when the bridge no-opped because the off-switch is off. */
+  skippedReason?: string;
 }
 
 /**
  * Idempotently upsert insights_accounts rows from connected Composio
  * connections. Safe to call every tick: the UNIQUE (tenant_id, platform,
  * external_account_id) constraint collapses re-runs onto the existing row.
+ *
+ * Gated by the same off-switch as the adapter (ANALYTICS_PROVIDER=composio):
+ * when analytics is not on Composio this is a no-op, so nothing is populated and
+ * the worker stays a clean no-op (no failed sync runs for a disabled path).
  */
 export async function ensureInsightsAccountsForConnectedPlatforms(
   db: Queryable = pool,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<EnsureAccountsResult> {
+  if (analyticsProviderSelector(env) !== 'composio') {
+    return { considered: 0, upserted: 0, skippedReason: 'analytics_provider_not_composio' };
+  }
+
   const placeholders = BRIDGED_PLATFORMS.map((_, i) => `$${i + 1}`).join(', ');
   const sources = await db.query<BridgeRow>(
     `SELECT tenant_id, platform, external_account_id, external_account_name
        FROM connected_accounts
       WHERE status = 'connected'
+        AND provider = 'composio'
         AND connected_account_id IS NOT NULL
         AND external_account_id IS NOT NULL
         AND platform IN (${placeholders})`,
