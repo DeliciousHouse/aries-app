@@ -180,8 +180,14 @@ export async function bridgeAndTick(
     // Pass the SAME pool the tick uses — so a test injecting a fake pool never
     // silently reaches the real database through the bridge.
     const res = await ensureInsightsAccountsForConnectedPlatforms(dbPool);
-    if (res.upserted > 0) {
-      log({ event: 'insights_sync_accounts_bridged', upserted: res.upserted, considered: res.considered });
+    if (res.upserted > 0 || res.resolved > 0 || res.skippedNoPage > 0) {
+      log({
+        event: 'insights_sync_accounts_bridged',
+        upserted: res.upserted,
+        considered: res.considered,
+        resolved: res.resolved,
+        skippedNoPage: res.skippedNoPage,
+      });
     }
   } catch (err) {
     log({ event: 'insights_sync_bridge_failed', error: describeError(err) });
