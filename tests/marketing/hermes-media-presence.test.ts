@@ -9,6 +9,7 @@ import {
   availableHermesMediaUrl,
   hermesMediaBasenameFromUrl,
   isMissingHermesMedia,
+  sanitizeAssetPreviewsForMissingMedia,
 } from '../../backend/marketing/hermes-media-presence';
 
 const APP = 'https://aries.sugarandleather.com';
@@ -140,6 +141,62 @@ test('the mount listing cache honours its TTL on the same root (stale within win
     else process.env.HERMES_IMAGE_CACHE_MOUNT = prev;
     __resetHermesMediaPresenceCacheForTests();
     await rm(mount, { recursive: true, force: true });
+  }
+});
+
+test('sanitizeAssetPreviewsForMissingMedia nulls dead previews, preserves live + non-hermes, byte-identical when nothing missing', async () => {
+  await withMount(async () => {
+    const idUrl = `${HERMES}/123e4567-e89b-42d3-a456-426614174000`;
+    const jobAsset = `${APP}/api/marketing/jobs/j/assets/a`;
+    const dataUri = 'data:image/svg+xml;base64,AAAA';
+    const assets = [
+      { id: 'dead', previewUrl: `${HERMES}/${MISSING}`, thumbnailUrl: `${HERMES}/${MISSING}` },
+      { id: 'live', previewUrl: `${HERMES}/${PRESENT}`, thumbnailUrl: `${HERMES}/${PRESENT}` },
+      { id: 'id-addressed', previewUrl: idUrl, thumbnailUrl: idUrl },
+      { id: 'job-asset', previewUrl: jobAsset, thumbnailUrl: jobAsset },
+      { id: 'placeholder', previewUrl: dataUri, thumbnailUrl: dataUri },
+    ];
+
+    const out = sanitizeAssetPreviewsForMissingMedia(assets);
+
+    // Dead hermes-media basename → both fields nulled so the UI placeholder fires.
+    assert.deepEqual(
+      out.find((a) => a.id === 'dead'),
+      { id: 'dead', previewUrl: null, thumbnailUrl: null },
+    );
+    // Live + non-hermes + id-addressed + placeholder are returned byte-identical
+    // (same object reference, since nothing was missing).
+    for (const id of ['live', 'id-addressed', 'job-asset', 'placeholder']) {
+      const before = assets.find((a) => a.id === id);
+      const after = out.find((a) => a.id === id);
+      assert.equal(after, before, `${id} must be the unchanged object reference`);
+    }
+  });
+});
+
+test('sanitizeAssetPreviewsForMissingMedia nulls only the missing side when preview/thumbnail differ', async () => {
+  await withMount(async () => {
+    const [out] = sanitizeAssetPreviewsForMissingMedia([
+      { id: 'mixed', previewUrl: `${HERMES}/${PRESENT}`, thumbnailUrl: `${HERMES}/${MISSING}` },
+    ]);
+    assert.equal(out.previewUrl, `${HERMES}/${PRESENT}`);
+    assert.equal(out.thumbnailUrl, null);
+  });
+});
+
+test('sanitizeAssetPreviewsForMissingMedia fails open (assets untouched) when the mount is unconfigured', () => {
+  const prev = process.env.HERMES_IMAGE_CACHE_MOUNT;
+  delete process.env.HERMES_IMAGE_CACHE_MOUNT;
+  __resetHermesMediaPresenceCacheForTests();
+  try {
+    const assets = [{ id: 'dead', previewUrl: `${HERMES}/${MISSING}`, thumbnailUrl: `${HERMES}/${MISSING}` }];
+    const out = sanitizeAssetPreviewsForMissingMedia(assets);
+    assert.equal(out[0], assets[0]);
+    assert.equal(out[0].previewUrl, `${HERMES}/${MISSING}`);
+  } finally {
+    if (prev === undefined) delete process.env.HERMES_IMAGE_CACHE_MOUNT;
+    else process.env.HERMES_IMAGE_CACHE_MOUNT = prev;
+    __resetHermesMediaPresenceCacheForTests();
   }
 });
 
