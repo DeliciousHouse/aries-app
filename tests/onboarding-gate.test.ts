@@ -90,6 +90,27 @@ test('countConnectedMetaPlatforms returns count from query result', async () => 
   assert.equal(await countConnectedMetaPlatforms(queryable, '42'), 2);
 });
 
+test('countConnectedMetaPlatforms counts Composio connected_accounts as well as direct-Meta (#600/#605)', async () => {
+  let capturedSql = '';
+  const queryable = makeQueryable((sql, params) => {
+    capturedSql = sql;
+    assert.equal(params[0], 42, 'tenant id passed as numeric param');
+    return { rows: [{ connected_count: 1 }], rowCount: 1 };
+  });
+  const count = await countConnectedMetaPlatforms(queryable, '42');
+  assert.equal(count, 1);
+  // Recognition must read BOTH stores so a Composio-connected tenant isn't
+  // treated as unconnected — while direct-Meta (oauth_connections) is preserved.
+  assert.ok(capturedSql.includes('FROM oauth_connections'), 'still counts direct-Meta oauth_connections');
+  assert.ok(capturedSql.includes('FROM connected_accounts'), 'also counts Composio connected_accounts');
+  assert.ok(
+    capturedSql.includes("platform IN ('facebook', 'instagram')"),
+    'connected_accounts scoped to FB/IG platforms',
+  );
+  // Both branches require a fully-connected status (a pending link never counts).
+  assert.ok((capturedSql.match(/status = 'connected'/g) ?? []).length >= 2, "both stores require status='connected'");
+});
+
 test('countConnectedMetaPlatforms returns 0 when query returns empty rows', async () => {
   const queryable = makeQueryable(() => ({ rows: [], rowCount: 0 }));
   assert.equal(await countConnectedMetaPlatforms(queryable, '42'), 0);
