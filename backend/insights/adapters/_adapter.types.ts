@@ -75,6 +75,21 @@ export interface RawComment {
   bodyText: string;
 }
 
+// ── Adapter construction context ──────────────────────────────────────────────
+
+/**
+ * Per-tenant connection context handed to an adapter at construction time.
+ *
+ * Most adapters (e.g. YouTube, which uses its own OAuth tokens) ignore this.
+ * Composio-backed adapters (Facebook) need the per-tenant Composio
+ * `connectedAccountId` to authenticate every tool call; `pageId` is the
+ * platform-side account id (mirrors `insights_accounts.external_account_id`).
+ */
+export interface InsightsAdapterContext {
+  connectedAccountId?: string | null;
+  pageId?: string | null;
+}
+
 // ── The adapter interface ─────────────────────────────────────────────────────
 
 export interface InsightsAdapter {

@@ -30,6 +30,8 @@ import { isSupportedPlatform } from '../platforms/registry';
 import { getAdapter } from './adapter-factory';
 import type { DateRange } from '../adapters/_adapter.types';
 import type { SyncTrigger, SyncStatus } from '../types';
+import { getConnectionRow } from '@/backend/integrations/composio/connection-store';
+import { isIntegrationPlatform } from '@/backend/integrations/providers/types';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -141,7 +143,16 @@ export async function syncAccountForTenant(
     syncRunId = runRes.rows[0].id;
 
     // ── 3–6. Call adapter ──────────────────────────────────────────────────
-    const adapter = getAdapter(platform);
+    // Composio-backed adapters (Facebook) need the per-tenant Composio
+    // connectedAccountId; resolve it from the connection store (reusing this
+    // pooled client). YouTube ignores the context. A missing/failed lookup
+    // leaves the context empty so the adapter surfaces a clear error.
+    let connectedAccountId: string | null = null;
+    if (isIntegrationPlatform(platform)) {
+      const conn = await getConnectionRow(String(tenantId), platform, client).catch(() => null);
+      connectedAccountId = conn?.connectedAccountId ?? null;
+    }
+    const adapter = getAdapter(platform, { connectedAccountId, pageId: externalAccountId });
     const range30 = lastNDaysRange(30);
 
     let postsSeen = 0;

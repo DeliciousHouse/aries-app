@@ -1,41 +1,52 @@
 /**
  * backend/insights/sync/adapter-factory.ts
  *
- * Maps a platform string to its singleton InsightsAdapter instance.
+ * Maps a platform string to its InsightsAdapter instance.
+ *
+ * Adapters are produced by per-platform builder functions so a platform that
+ * needs per-tenant connection context (e.g. Facebook via Composio, which needs
+ * the Composio `connectedAccountId`) can be constructed bound to that context,
+ * while context-free adapters (YouTube) return a shared singleton.
  *
  * To add a new platform:
  *   1. Create backend/insights/adapters/<platform>/index.ts
- *   2. Register it in REGISTRY below.
+ *   2. Register a builder in REGISTRY below.
  *   3. TypeScript will flag anything that needs updating.
  */
 
 import type { Platform } from '../platforms/registry';
-import type { InsightsAdapter } from '../adapters/_adapter.types';
+import type { InsightsAdapter, InsightsAdapterContext } from '../adapters/_adapter.types';
 import { youTubeInsightsAdapter } from '../adapters/youtube/index';
+import { createFacebookInsightsAdapter } from '../adapters/facebook/index';
 
-const REGISTRY: Partial<Record<Platform, InsightsAdapter>> = {
-  youtube: youTubeInsightsAdapter,
-  // instagram: instagramInsightsAdapter,  ← Phase 4+
-  // facebook:  facebookInsightsAdapter,   ← Phase 4+
+type AdapterBuilder = (ctx: InsightsAdapterContext) => InsightsAdapter;
+
+const REGISTRY: Partial<Record<Platform, AdapterBuilder>> = {
+  youtube: () => youTubeInsightsAdapter,
+  facebook: (ctx) => createFacebookInsightsAdapter(ctx),
+  // instagram: (ctx) => createInstagramInsightsAdapter(ctx),  ← out of scope (#596/#597 = FB only)
 };
 
-/** Returns true only if a live adapter is registered for the platform. */
+/** Returns true only if a builder is registered for the platform. */
 export function hasAdapter(platform: Platform): boolean {
   return platform in REGISTRY && REGISTRY[platform] != null;
 }
 
 /**
- * Returns the adapter for a given platform.
- * Throws if no adapter has been registered (e.g. a platform in the DB
- * that doesn't have an adapter yet).
+ * Returns the adapter for a given platform, bound to the supplied connection
+ * context (Composio-backed adapters need it; others ignore it).
+ * Throws if no adapter has been registered for the platform.
  */
-export function getAdapter(platform: Platform): InsightsAdapter {
-  const adapter = REGISTRY[platform];
-  if (!adapter) {
+export function getAdapter(
+  platform: Platform,
+  ctx: InsightsAdapterContext = {},
+): InsightsAdapter {
+  const builder = REGISTRY[platform];
+  if (!builder) {
     throw new Error(
       `No insights adapter registered for platform "${platform}". ` +
       `Add one to backend/insights/sync/adapter-factory.ts.`,
     );
   }
-  return adapter;
+  return builder(ctx);
 }

@@ -292,11 +292,17 @@ test('integrations sync uses authenticated tenant context and rejects missing te
     });
 
     try {
+      // Use a non-insights provider (tiktok) so this asserts the Hermes
+      // integrations_sync path's tenant-context security. Insights platforms
+      // (facebook/instagram/youtube) now route to the insights sync dispatcher
+      // — a direct DB write loop with no Hermes submission (#596/#597) — which
+      // takes the authenticated Number(tenantId) directly, so the forged
+      // tenant_id can never reach it either.
       const accepted = await handleIntegrationsSync(
         new Request('http://localhost/api/integrations/sync', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ platform: 'facebook', tenant_id: 'forged_tenant' }),
+          body: JSON.stringify({ platform: 'tiktok', tenant_id: 'forged_tenant' }),
         }),
         async () => ({
           userId: 'user_123',
