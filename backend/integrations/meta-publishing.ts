@@ -216,7 +216,7 @@ function requireContentOrMedia(content: string, mediaUrls: string[]): void {
   }
 }
 
-function requireStringField(
+export function requireStringField(
   record: Record<string, unknown>,
   key: string,
   code: string,
@@ -284,7 +284,7 @@ async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function requestGraphJson(args: {
+export async function requestGraphJson(args: {
   pathname: string;
   params?: Record<string, string>;
   accessToken: string;
