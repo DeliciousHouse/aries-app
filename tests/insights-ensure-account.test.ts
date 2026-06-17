@@ -8,6 +8,8 @@ import {
 import type { Queryable } from '@/backend/integrations/composio/connection-store';
 import { getAdapter, hasAdapter, isFacebookInsightsEnabled } from '@/backend/insights/sync/adapter-factory';
 import { FacebookInsightsAdapter } from '@/backend/insights/adapters/facebook/index';
+import { DEFAULT_LIST_MANAGED_PAGES_SLUG } from '@/backend/integrations/composio/facebook-page-resolver';
+import { fakeConfig, fakeGateway } from './composio/helpers';
 
 interface RecordedQuery {
   text: string;
@@ -32,27 +34,38 @@ function recordingDb(connectedRows: Array<Record<string, unknown>>): Queryable &
   };
 }
 
-test('the bridge upserts an insights_accounts row from a connected Composio FB connection', async () => {
+test('the bridge upserts an insights_accounts row from a connected Composio FB connection (id present, no resolution)', async () => {
   const db = recordingDb([
     {
+      id: 5,
       tenant_id: 15,
       platform: 'facebook',
       external_account_id: 'PAGE123',
       external_account_name: 'Sugar & Leather',
+      connected_account_id: 'ca_1',
     },
   ]);
+  // A gateway that would throw if called — proves no resolution happens when the
+  // page id is already present.
+  const gateway = fakeGateway();
 
-  const result = await ensureInsightsAccountsForConnectedPlatforms(db, COMPOSIO_ENV);
+  const result = await ensureInsightsAccountsForConnectedPlatforms(db, COMPOSIO_ENV, {
+    gateway,
+    config: fakeConfig({ actions: {} }),
+  });
 
   assert.equal(result.considered, 1);
   assert.equal(result.upserted, 1);
+  assert.equal(result.resolved, 0);
+  assert.equal(gateway.calls.length, 0, 'no Composio call when external_account_id is present');
 
   const select = db.queries[0];
   assert.match(select.text, /FROM connected_accounts/);
   assert.match(select.text, /status = 'connected'/);
   assert.match(select.text, /provider = 'composio'/); // L1: only Composio-backed connections
   assert.match(select.text, /connected_account_id IS NOT NULL/);
-  assert.match(select.text, /external_account_id IS NOT NULL/);
+  // The external_account_id filter is intentionally GONE so null rows are back-healed.
+  assert.doesNotMatch(select.text, /external_account_id IS NOT NULL/);
   assert.deepEqual(select.params, [...BRIDGED_PLATFORMS]);
 
   const insert = db.queries[1];
@@ -60,6 +73,103 @@ test('the bridge upserts an insights_accounts row from a connected Composio FB c
   assert.match(insert.text, /ON CONFLICT \(tenant_id, platform, external_account_id\) DO UPDATE/);
   // page id (external_account_id) is mapped through unchanged.
   assert.deepEqual(insert.params, [15, 'facebook', 'PAGE123', 'Sugar & Leather']);
+});
+
+test('the bridge resolves + persists the Page id from Composio when external_account_id is null', async () => {
+  const db = recordingDb([
+    {
+      id: 9,
+      tenant_id: 15,
+      platform: 'facebook',
+      external_account_id: null,
+      external_account_name: null,
+      connected_account_id: 'ca_live',
+    },
+  ]);
+  const gateway = fakeGateway({
+    executeResult: {
+      successful: true,
+      error: null,
+      data: { data: [{ id: 'PAGE777', name: 'Aries Page' }] },
+    },
+  });
+
+  const result = await ensureInsightsAccountsForConnectedPlatforms(db, COMPOSIO_ENV, {
+    gateway,
+    config: fakeConfig({ actions: {} }),
+  });
+
+  assert.equal(result.resolved, 1);
+  assert.equal(result.upserted, 1);
+  assert.equal(result.skippedNoPage, 0);
+
+  // It called FACEBOOK_LIST_MANAGED_PAGES with the connection's connectedAccountId.
+  assert.equal(gateway.calls[0].slug, DEFAULT_LIST_MANAGED_PAGES_SLUG);
+  assert.equal(gateway.calls[0].options.connectedAccountId, 'ca_live');
+
+  // It persisted the resolved Page id back to connected_accounts.
+  const update = db.queries.find((q) => /UPDATE connected_accounts/i.test(q.text));
+  assert.ok(update, 'persists the resolved page id back to connected_accounts');
+  assert.equal(update!.params[0], 'PAGE777');
+  assert.equal(update!.params[2], 9); // keyed on the connection row id
+
+  // And upserted insights_accounts with the resolved Page id + name.
+  const insert = db.queries.find((q) => /INSERT INTO insights_accounts/i.test(q.text));
+  assert.deepEqual(insert!.params, [15, 'facebook', 'PAGE777', 'Aries Page']);
+});
+
+test('the bridge skips safely (no upsert, no throw) when Composio returns no managed page', async () => {
+  const db = recordingDb([
+    {
+      id: 9,
+      tenant_id: 15,
+      platform: 'facebook',
+      external_account_id: null,
+      external_account_name: null,
+      connected_account_id: 'ca_live',
+    },
+  ]);
+  const gateway = fakeGateway({
+    executeResult: { successful: true, error: null, data: { data: [] } },
+  });
+
+  const result = await ensureInsightsAccountsForConnectedPlatforms(db, COMPOSIO_ENV, {
+    gateway,
+    config: fakeConfig({ actions: {} }),
+  });
+
+  assert.equal(result.resolved, 0);
+  assert.equal(result.upserted, 0);
+  assert.equal(result.skippedNoPage, 1);
+  assert.equal(db.queries.find((q) => /INSERT INTO insights_accounts/i.test(q.text)), undefined);
+  assert.equal(db.queries.find((q) => /UPDATE connected_accounts/i.test(q.text)), undefined);
+});
+
+test('the bridge does not throw when Composio resolution errors — it skips the tenant', async () => {
+  const db = recordingDb([
+    {
+      id: 9,
+      tenant_id: 15,
+      platform: 'facebook',
+      external_account_id: null,
+      external_account_name: null,
+      connected_account_id: 'ca_live',
+    },
+  ]);
+  const throwingGateway = {
+    ...fakeGateway(),
+    async executeTool() {
+      throw new Error('Composio 500');
+    },
+  };
+
+  const result = await ensureInsightsAccountsForConnectedPlatforms(db, COMPOSIO_ENV, {
+    gateway: throwingGateway,
+    config: fakeConfig({ actions: {} }),
+  });
+
+  assert.equal(result.skippedNoPage, 1);
+  assert.equal(result.upserted, 0);
 });
 
 test('Instagram is out of scope: the bridge only queries the bridged (FB) platforms', async () => {

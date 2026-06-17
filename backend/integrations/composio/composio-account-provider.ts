@@ -30,6 +30,7 @@ import {
 } from './connection-store';
 import { ComposioConfigError } from './errors';
 import { isActiveStatus, mapComposioStatus } from './status-map';
+import { resolveFacebookManagedPage } from './facebook-page-resolver';
 import pool from '@/lib/db';
 
 export class ComposioAccountProvider implements AccountConnectionProvider {
@@ -155,6 +156,25 @@ export class ComposioAccountProvider implements AccountConnectionProvider {
       return getConnectionRow(tenantId, platform, this.db) ?? notConnectedAccount(tenantId, externalUserId, platform, 'composio');
     }
 
+    // The Facebook Page id is not part of the connection metadata, so
+    // active.externalAccountId is usually null for FB. Resolve + capture it here
+    // so future connections store the Page id at connect time (the bridge's
+    // back-heal then only covers legacy rows). Best-effort: a failure leaves it
+    // null and the bridge resolves it later.
+    let externalAccountId = active.externalAccountId;
+    let externalAccountName = active.externalAccountName;
+    if (!externalAccountId && platform === 'facebook' && active.id && isActiveStatus(active.status)) {
+      try {
+        const page = await resolveFacebookManagedPage(this.gateway, this.config, active.id);
+        if (page) {
+          externalAccountId = page.pageId;
+          externalAccountName = externalAccountName ?? page.pageName;
+        }
+      } catch {
+        // best-effort — leave null, the sync bridge will back-heal it
+      }
+    }
+
     return upsertConnection(
       {
         tenantId,
@@ -163,8 +183,8 @@ export class ComposioAccountProvider implements AccountConnectionProvider {
         provider: 'composio',
         connectedAccountId: active.id,
         authConfigId: active.authConfigId ?? authConfigId ?? null,
-        externalAccountId: active.externalAccountId,
-        externalAccountName: active.externalAccountName,
+        externalAccountId,
+        externalAccountName,
         status: mapComposioStatus(active.status),
       },
       this.db,
