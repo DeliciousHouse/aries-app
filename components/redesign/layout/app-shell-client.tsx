@@ -15,12 +15,14 @@ import {
   Layers3,
   LayoutDashboard,
   Menu,
+  MessageCircle,
   LogOut,
   PenSquare,
   Send,
   Rocket,
   Settings,
   Sparkles,
+  TrendingUp,
 } from 'lucide-react';
 
 import { AriesMark } from '@/frontend/donor/ui';
@@ -40,6 +42,8 @@ const ICONS: Record<AppRouteId, typeof LayoutDashboard> = {
   posts: FileStack,
   calendar: Calendar,
   results: BarChart3,
+  analytics: TrendingUp,
+  comments: MessageCircle,
   review: CheckCheck,
   businessProfile: Settings,
   channelIntegrations: Rocket,
@@ -102,6 +106,8 @@ export default function AppShellClient({
       { type: 'link', routeId: 'posts' },
       { type: 'link', routeId: 'calendar' },
       { type: 'link', routeId: 'results' },
+      { type: 'link', routeId: 'analytics' },
+      { type: 'link', routeId: 'comments' },
     ],
     [],
   );

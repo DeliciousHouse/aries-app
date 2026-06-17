@@ -319,6 +319,8 @@ export async function handleGetInsightsComments(
       author_handle:    string | null;
       body_text:        string;
       received_at:      Date;
+      is_replied:       boolean | null;
+      replied_at:       Date | null;
       post_title:       string | null;
       post_permalink:   string | null;
     }>(
@@ -329,6 +331,8 @@ export async function handleGetInsightsComments(
          c.author_handle,
          c.body_text,
          c.received_at,
+         c.is_replied,
+         c.replied_at,
          p.title      AS post_title,
          p.permalink  AS post_permalink
        FROM insights_comments c
@@ -348,6 +352,8 @@ export async function handleGetInsightsComments(
       authorHandle:  row.author_handle,
       bodyText:      row.body_text,
       receivedAt:    row.received_at,
+      isReplied:     Boolean(row.is_replied),
+      repliedAt:     row.replied_at,
       postTitle:     row.post_title,
       postPermalink: row.post_permalink,
     }));
