@@ -39,7 +39,8 @@ export type ComposioOperation =
   | 'list_pages'
   | 'account_info'
   | 'list_posts'
-  | 'list_comments';
+  | 'list_comments'
+  | 'reply_comment';
 
 /**
  * Env override key for a given platform+operation action slug, e.g.

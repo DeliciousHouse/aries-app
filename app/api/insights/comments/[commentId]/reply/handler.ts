@@ -3,7 +3,8 @@ import type { Pool } from 'pg';
 import pool from '@/lib/db';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 import { isNativeReplyEnabled } from '@/backend/integrations/meta-reply-env';
-import { replyToComment } from '@/backend/integrations/meta-reply';
+import { replyToComment, type MetaReplyRequest, type MetaReplySuccess } from '@/backend/integrations/meta-reply';
+import { replyToCommentViaComposio, shouldUseComposioReply } from '@/backend/integrations/composio/composio-reply';
 import {
   classifyMetaPublishFailure,
   classifyMetaPublishFailureKind,
@@ -34,6 +35,8 @@ type ReplyDeps = {
   db?: Pool;
   fetchImpl?: typeof fetch;
   env?: Partial<Record<string, string | undefined>>;
+  /** Test seam for the Composio reply path (default: replyToCommentViaComposio). */
+  composioReply?: (req: MetaReplyRequest) => Promise<MetaReplySuccess>;
 };
 
 // Generous ceiling — IG/FB comment bodies are far shorter, but reject obviously
@@ -158,15 +161,26 @@ export async function handleReplyToComment(
   // (mirrors publish-instagram's `publishSucceeded`). Once true, the claim must
   // NEVER be rolled back: the pre-claim already set is_replied=true, so undoing
   // it would falsely un-reply a live reply and a retry would double-post.
+  // Provider routing: post via Composio when the active publish provider is
+  // Composio (FB only — the verified Composio reply action), which needs no Meta
+  // App Review; otherwise the existing direct-Graph path. Both surface the same
+  // MetaReplySuccess / MetaPublishError contract so the claim/rollback/
+  // outcome-unknown handling below is identical.
+  const replyRequest: MetaReplyRequest = {
+    tenantId: String(tenantId),
+    provider: comment.platform,
+    externalCommentId: comment.external_comment_id,
+    message,
+  };
+  const useComposioReply = shouldUseComposioReply(comment.platform, deps.env);
+
   let replySucceeded = false;
   try {
-    const published = await replyToComment({
-      tenantId: String(tenantId),
-      provider: comment.platform,
-      externalCommentId: comment.external_comment_id,
-      message,
-      fetchImpl: deps.fetchImpl,
-    });
+    const published = useComposioReply
+      ? await (deps.composioReply
+          ? deps.composioReply(replyRequest)
+          : replyToCommentViaComposio(replyRequest, deps.env, { db: deps.db }))
+      : await replyToComment({ ...replyRequest, fetchImpl: deps.fetchImpl });
     replySucceeded = true;
 
     // (h) Confirmed success — record the platform reply id + delivery stamp.
