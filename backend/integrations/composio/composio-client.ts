@@ -62,6 +62,37 @@ export interface ComposioGateway {
   ): Promise<GatewayToolResult>;
 }
 
+export interface ToolExecuteInput {
+  userId?: string;
+  connectedAccountId?: string;
+  arguments?: Record<string, unknown>;
+}
+
+/**
+ * Build the params object handed to `composio.tools.execute`. The @composio/core
+ * SDK requires a toolkit version for manual (by-slug) execution: an unset or
+ * "latest" version throws ComposioToolVersionRequiredError unless the version
+ * check is skipped. We therefore always pass an explicit `version` and, when it
+ * is "latest" (the default), `dangerouslySkipVersionCheck: true`. A concrete
+ * pinned version (e.g. "20250909_00") is passed as-is with NO skip flag.
+ *
+ * Exported so the gateway test asserts the exact arg the real client receives.
+ */
+export function buildToolExecuteOptions(
+  options: ToolExecuteInput,
+  toolkitVersion?: string,
+): ToolExecuteInput & { version: string; dangerouslySkipVersionCheck?: boolean } {
+  const version = (toolkitVersion?.trim() || 'latest');
+  const params: ToolExecuteInput & { version: string; dangerouslySkipVersionCheck?: boolean } = {
+    ...options,
+    version,
+  };
+  if (version.toLowerCase() === 'latest') {
+    params.dangerouslySkipVersionCheck = true;
+  }
+  return params;
+}
+
 // --- helpers to normalize the loosely-typed SDK model -----------------------
 
 function pickExternalAccountId(data: Record<string, unknown> | null | undefined): string | null {
@@ -108,22 +139,31 @@ function toGatewayConnection(model: {
  * The real gateway backed by @composio/core, loaded lazily so the package is
  * only required when Composio is enabled AND selected.
  */
-class LiveComposioGateway implements ComposioGateway {
+export class LiveComposioGateway implements ComposioGateway {
   private clientPromise: Promise<import('@composio/core').Composio> | null = null;
 
-  constructor(private readonly config: ComposioConfig) {}
+  /**
+   * @param clientFactory test-only seam to inject a fake @composio/core client.
+   *   Production leaves it undefined and the real SDK is lazy-imported.
+   */
+  constructor(
+    private readonly config: ComposioConfig,
+    private readonly clientFactory?: () => Promise<import('@composio/core').Composio>,
+  ) {}
 
   private async client(): Promise<import('@composio/core').Composio> {
     if (!this.clientPromise) {
-      this.clientPromise = (async () => {
-        let mod: typeof import('@composio/core');
-        try {
-          mod = await import('@composio/core');
-        } catch {
-          throw new ComposioSdkMissingError();
-        }
-        return new mod.Composio({ apiKey: this.config.apiKey });
-      })();
+      this.clientPromise = this.clientFactory
+        ? this.clientFactory()
+        : (async () => {
+            let mod: typeof import('@composio/core');
+            try {
+              mod = await import('@composio/core');
+            } catch {
+              throw new ComposioSdkMissingError();
+            }
+            return new mod.Composio({ apiKey: this.config.apiKey });
+          })();
     }
     return this.clientPromise;
   }
@@ -197,7 +237,10 @@ class LiveComposioGateway implements ComposioGateway {
     options: { userId?: string; connectedAccountId?: string; arguments?: Record<string, unknown> },
   ): Promise<GatewayToolResult> {
     const composio = await this.client();
-    const result = await composio.tools.execute(slug, options);
+    // Always pass the toolkit version — the SDK rejects manual execution without
+    // one ("Toolkit version not specified ..."). buildToolExecuteOptions defaults
+    // to 'latest' + dangerouslySkipVersionCheck.
+    const result = await composio.tools.execute(slug, buildToolExecuteOptions(options, this.config.toolkitVersion));
     return {
       data: result.data ?? null,
       successful: result.successful !== false,
@@ -206,11 +249,14 @@ class LiveComposioGateway implements ComposioGateway {
   }
 }
 
-export function createComposioGateway(config: ComposioConfig | null): ComposioGateway {
+export function createComposioGateway(
+  config: ComposioConfig | null,
+  clientFactory?: () => Promise<import('@composio/core').Composio>,
+): ComposioGateway {
   if (!config) {
     throw new ComposioConfigError('Composio is enabled but COMPOSIO_API_KEY is not set.');
   }
-  return new LiveComposioGateway(config);
+  return new LiveComposioGateway(config, clientFactory);
 }
 
 export { toGatewayConnection };

@@ -65,6 +65,19 @@ export function composioApiKey(env: NodeJS.ProcessEnv = process.env): string | n
 }
 
 /**
+ * Toolkit version used for manual (by-slug) Composio tool execution. The
+ * @composio/core SDK requires a toolkit version for `tools.execute`; an
+ * unspecified/"latest" version throws ComposioToolVersionRequiredError unless
+ * the version check is skipped. Default 'latest' (the gateway pairs it with
+ * dangerouslySkipVersionCheck). Pin a concrete version (e.g. '20250909_00') via
+ * COMPOSIO_TOOLKIT_VERSION to opt out of "latest" drift in production.
+ */
+export function composioToolkitVersion(env: NodeJS.ProcessEnv = process.env): string {
+  const v = env.COMPOSIO_TOOLKIT_VERSION?.trim();
+  return v || 'latest';
+}
+
+/**
  * Full snapshot of the resolved config — handy for the capability/status UI and
  * for tests that want to assert flag behavior without poking process.env keys
  * one at a time.

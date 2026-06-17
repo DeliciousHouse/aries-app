@@ -195,6 +195,10 @@ services:
       # restart. See docs/integrations/composio.md.
       COMPOSIO_ENABLED: ${COMPOSIO_ENABLED:-false}
       COMPOSIO_API_KEY: ${COMPOSIO_API_KEY:-}
+      # Toolkit version for manual Composio tool execution (publish/analytics/
+      # comments). The SDK rejects by-slug execution without one; default 'latest'
+      # (gateway pairs it with a skip-check). Pin a concrete version to avoid drift.
+      COMPOSIO_TOOLKIT_VERSION: ${COMPOSIO_TOOLKIT_VERSION:-latest}
       COMPOSIO_DEFAULT_AUTH_CONFIG_ID: ${COMPOSIO_DEFAULT_AUTH_CONFIG_ID:-}
       COMPOSIO_METAADS_AUTH_CONFIG_ID: ${COMPOSIO_METAADS_AUTH_CONFIG_ID:-}
       COMPOSIO_FACEBOOK_AUTH_CONFIG_ID: ${COMPOSIO_FACEBOOK_AUTH_CONFIG_ID:-}
@@ -445,6 +449,8 @@ services:
       ANALYTICS_PROVIDER: ${ANALYTICS_PROVIDER:-direct_meta}
       COMPOSIO_ENABLED: ${COMPOSIO_ENABLED:-false}
       COMPOSIO_API_KEY: ${COMPOSIO_API_KEY:-}
+      # Toolkit version for manual Composio tool execution (see aries-app above).
+      COMPOSIO_TOOLKIT_VERSION: ${COMPOSIO_TOOLKIT_VERSION:-latest}
       COMPOSIO_FACEBOOK_AUTH_CONFIG_ID: ${COMPOSIO_FACEBOOK_AUTH_CONFIG_ID:-}
       COMPOSIO_DEFAULT_AUTH_CONFIG_ID: ${COMPOSIO_DEFAULT_AUTH_CONFIG_ID:-}
       COMPOSIO_FACEBOOK_LIST_POSTS_ACTION: ${COMPOSIO_FACEBOOK_LIST_POSTS_ACTION:-}

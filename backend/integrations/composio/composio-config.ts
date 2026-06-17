@@ -15,7 +15,7 @@
  */
 
 import type { IntegrationPlatform } from '../providers/types';
-import { composioApiKey, composioAuthConfigId } from '../providers/integration-config';
+import { composioApiKey, composioAuthConfigId, composioToolkitVersion } from '../providers/integration-config';
 
 /** Stable Composio toolkit slug per platform. */
 export const TOOLKIT_SLUG: Record<IntegrationPlatform, string> = {
@@ -60,6 +60,11 @@ export function actionSlug(
 
 export interface ComposioConfig {
   apiKey: string;
+  /**
+   * Toolkit version for manual tool execution (gateway.executeTool). Optional so
+   * test doubles can omit it — the gateway defaults to 'latest' + skip-check.
+   */
+  toolkitVersion?: string;
   authConfigIdFor(platform: IntegrationPlatform): string | null;
   toolkitSlugFor(platform: IntegrationPlatform): string;
   actionSlugFor(platform: IntegrationPlatform, op: ComposioOperation): string | null;
@@ -75,6 +80,7 @@ export function resolveComposioConfig(env: NodeJS.ProcessEnv = process.env): Com
   if (!apiKey) return null;
   return {
     apiKey,
+    toolkitVersion: composioToolkitVersion(env),
     authConfigIdFor: (platform) => composioAuthConfigId(platform, env),
     toolkitSlugFor: (platform) => TOOLKIT_SLUG[platform],
     actionSlugFor: (platform, op) => actionSlug(platform, op, env),
