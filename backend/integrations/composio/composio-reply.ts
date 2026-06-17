@@ -29,7 +29,6 @@ import { effectivePublishProvider } from '../providers/provider-factory';
 import { resolveComposioConfig, type ComposioConfig } from './composio-config';
 import { createComposioGateway, type ComposioGateway } from './composio-client';
 import { getConnectionRow, type Queryable } from './connection-store';
-import { resolveFacebookManagedPage } from './facebook-page-resolver';
 import pool from '@/lib/db';
 
 type Env = Partial<Record<string, string | undefined>>;
@@ -66,6 +65,21 @@ function extractCreatedCommentId(data: unknown): string | null {
     if (typeof id === 'string' && id.trim()) return id.trim();
   }
   return null;
+}
+
+/**
+ * Facebook comment ids stored by the sync adapter are in the compound format
+ * "{post_story_fbid}_{comment_id}" returned by FACEBOOK_GET_COMMENTS. Composio's
+ * FACEBOOK_CREATE_COMMENT derives the acting Page from the FIRST "_"-delimited
+ * segment of object_id and ignores any explicit page_id argument. Passing the
+ * compound id therefore causes it to misparse the post_story_fbid as the page id
+ * (root cause of #621 502s). The correct object_id for a reply is just the
+ * trailing comment-own id — the segment after the last "_". A single-segment
+ * (non-compound) id is returned as-is.
+ */
+function replyTargetCommentId(externalCommentId: string): string {
+  const lastUnderscore = externalCommentId.lastIndexOf('_');
+  return lastUnderscore >= 0 ? externalCommentId.slice(lastUnderscore + 1) : externalCommentId;
 }
 
 /**
@@ -114,52 +128,20 @@ export async function replyToCommentViaComposio(
     );
   }
 
-  // Build the gateway early — needed for both optional page-resolution and the
-  // actual reply tool call below.
   const gateway = deps.gateway ?? createComposioGateway(config);
-
-  // FACEBOOK_CREATE_COMMENT requires an explicit `page_id` so Composio knows
-  // which Page identity is posting the reply. Without it Composio tries to
-  // derive the page id from `object_id`, which it misparses against the
-  // comment-id digits and produces the wrong (hyphenated comment-id-as-page-id)
-  // value — root cause of #621 502s. Use the tenant's stored connected-account
-  // page id; fall back to a live FACEBOOK_LIST_MANAGED_PAGES call when the row
-  // was created before connect-time page-resolution was added.
-  let fbPageId: string | null = null;
-  if (provider === 'facebook') {
-    fbPageId = conn.externalAccountId ?? null;
-    if (!fbPageId) {
-      // externalAccountId not populated at connect time — resolve it now.
-      try {
-        const page = await resolveFacebookManagedPage(gateway, config, conn.connectedAccountId!);
-        fbPageId = page?.pageId ?? null;
-      } catch {
-        // fall through to the guard below
-      }
-    }
-    if (!fbPageId) {
-      throw new MetaPublishError(
-        'fb_page_id_missing',
-        'Could not resolve the connected Facebook Page id. Reconnect the Facebook account to refresh the page.',
-        { status: 409 },
-      );
-    }
-  }
 
   let result;
   try {
     result = await gateway.executeTool(slug, {
       connectedAccountId: conn.connectedAccountId,
-      // object_id = the stored comment's full graph id (pageId_postId_commentId);
-      // FACEBOOK_CREATE_COMMENT replies to a comment when given a comment id.
-      // page_id = the tenant's connected FB Page — required so Composio posts
-      // the reply as the Page, not a personal profile, and does not misparse
-      // the comment id as a page id (see #621).
-      arguments: {
-        object_id: req.externalCommentId,
-        message,
-        ...(fbPageId ? { page_id: fbPageId } : {}),
-      },
+      // object_id = the trailing comment-own id — NOT the compound form stored
+      // in external_comment_id ("{post_story_fbid}_{comment_id}"). Composio
+      // derives the acting Page from the first "_"-delimited segment of
+      // object_id and ignores any explicit page_id argument, so passing the
+      // compound id causes it to misparse the post_story_fbid as the page id
+      // (root cause of #621). Stripping to the trailing segment is the correct
+      // reply-target id for FACEBOOK_CREATE_COMMENT. See live probe notes in PR.
+      arguments: { object_id: replyTargetCommentId(req.externalCommentId), message },
     });
   } catch (err) {
     // Transport/unknown: the reply MAY have reached Meta — treat as outcome

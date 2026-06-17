@@ -12,7 +12,8 @@ import { fakeConfig, fakeGateway, fakeDb } from './composio/helpers';
 const baseReq = {
   tenantId: '42',
   provider: 'facebook',
-  externalCommentId: 'PAGE123_777_888', // full graph comment id
+  // Compound "{post_story_fbid}_{comment_id}" format as stored by the sync adapter.
+  externalCommentId: 'PAGE123_777_888',
   message: 'Thanks for the kind words!',
 };
 
@@ -41,7 +42,7 @@ test('shouldUseComposioReply: instagram is never routed via Composio (no verifie
 
 // ── replyToCommentViaComposio ───────────────────────────────────────────────────
 
-test('success: builds FACEBOOK_CREATE_COMMENT with object_id+message+page_id and returns the created id', async () => {
+test('success: strips compound external_comment_id to trailing comment id and calls FACEBOOK_CREATE_COMMENT', async () => {
   const gateway = fakeGateway({
     executeResult: { successful: true, error: null, data: { id: 'fb_reply_1' } },
   });
@@ -55,166 +56,66 @@ test('success: builds FACEBOOK_CREATE_COMMENT with object_id+message+page_id and
   assert.equal(out.provider, 'facebook');
   assert.equal(gateway.calls[0].slug, DEFAULT_FB_CREATE_COMMENT_SLUG);
   assert.equal(gateway.calls[0].options.connectedAccountId, 'ca_123'); // from the connected row
-  // page_id must be the stored externalAccountId ('ext_1' in fakeDb default),
-  // NOT anything derived from the comment / object_id.
+  // object_id must be the TRAILING segment ("888"), not the full compound id.
+  // Composio misparses compound ids as {pageId}_{...} and ignores any page_id arg.
   assert.deepEqual(gateway.calls[0].options.arguments, {
-    object_id: 'PAGE123_777_888',
+    object_id: '888',
     message: 'Thanks for the kind words!',
-    page_id: 'ext_1',
   });
 });
 
 // ── Regression test for #621 ───────────────────────────────────────────────────
 
-test('regression #621: page_id in FACEBOOK_CREATE_COMMENT is the connected page id, not a comment-id-derived value', async () => {
-  // Realistic prod values from the bug report: comment id has 18 digits which
-  // Composio was misreading as a page id (formatted with hyphens as the error
-  // showed "page_id:12212-79138-87202-465"). The real page is 1002997576221948.
-  const realisticReq = {
+test('regression #621: object_id passed to Composio is the trailing comment id, not the compound post_story_fbid prefix', async () => {
+  // Exact prod values: external_comment_id = "{post_story_fbid}_{comment_id}".
+  // The wrong shape (compound) caused Composio to extract the post_story_fbid
+  // (122127913887202465) as the page id and fail with a 502 "page not found".
+  const prodReq = {
     tenantId: '15',
     provider: 'facebook',
-    externalCommentId: '122127913887202465', // 18-digit comment id from prod
-    message: 'Hi, thanks!',
+    externalCommentId: '122127913887202465_1712931046569911',
+    message: 'Thanks!',
   };
   const gateway = fakeGateway({
-    executeResult: { successful: true, error: null, data: { id: 'fb_reply_prod_1' } },
-  });
-  const connectedPageId = '1002997576221948';
-  const db = fakeDb({
-    connectionRow: {
-      id: 1,
-      tenant_id: 15,
-      external_user_id: 'aries-tenant-15',
-      platform: 'facebook',
-      provider: 'composio',
-      connected_account_id: 'ca_ZbclZgZy4_q2',
-      auth_config_id: 'auth_cfg_test',
-      external_account_id: connectedPageId,
-      external_account_name: 'Test FB Page',
-      status: 'connected',
-      capabilities_json: null,
-      last_capability_check_at: null,
-      created_at: new Date(0),
-      updated_at: new Date(0),
-    },
+    executeResult: { successful: true, error: null, data: { id: 'fb_reply_prod' } },
   });
 
-  await replyToCommentViaComposio(realisticReq, {}, {
+  await replyToCommentViaComposio(prodReq, {}, {
     gateway,
     config: fakeConfig({ actions: {} }),
-    db,
+    db: fakeDb(),
   });
 
   const args = gateway.calls[0].options.arguments as Record<string, string>;
 
-  // page_id must be the connected page — 1002997576221948.
-  assert.equal(args.page_id, connectedPageId, 'page_id must equal the connected page id');
-  // page_id must NOT be any segment or permutation of the comment id.
-  assert.ok(
-    !args.page_id.includes(realisticReq.externalCommentId.slice(0, 5)),
-    'page_id must not start with comment id digits',
+  // Must be the trailing comment id, NOT the compound id or the post_story_fbid.
+  assert.equal(args.object_id, '1712931046569911',
+    'object_id must be the trailing comment-own id');
+  assert.notEqual(args.object_id, '122127913887202465_1712931046569911',
+    'object_id must NOT be the compound id');
+  assert.notEqual(args.object_id, '122127913887202465',
+    'object_id must NOT be the post_story_fbid prefix');
+});
+
+test('single-segment comment id passes through unchanged', async () => {
+  // When external_comment_id is already a plain id (no compound format),
+  // it must be passed as-is — never truncated.
+  const gateway = fakeGateway({
+    executeResult: { successful: true, error: null, data: { id: 'fb_reply_plain' } },
+  });
+  await replyToCommentViaComposio(
+    { ...baseReq, externalCommentId: '9876543210' },
+    {},
+    { gateway, config: fakeConfig({ actions: {} }), db: fakeDb() },
   );
-  // object_id must still be the full comment id.
-  assert.equal(args.object_id, realisticReq.externalCommentId);
-});
-
-// ── Page-id resolution fallback path ───────────────────────────────────────────
-
-test('FB reply resolves page id via FACEBOOK_LIST_MANAGED_PAGES when externalAccountId is null', async () => {
-  const resolvedPageId = '9001002003004';
-  // Gateway returns list-pages response on first call, reply success on second.
-  const slugCalls: string[] = [];
-  const customGateway = {
-    ...fakeGateway(),
-    async executeTool(slug: string, _opts: unknown) {
-      slugCalls.push(slug);
-      if (slug === 'FACEBOOK_LIST_MANAGED_PAGES') {
-        // Composio response shape: { data: { data: [{ id, name }] } }
-        return { successful: true, error: null, data: { data: { data: [{ id: resolvedPageId, name: 'Resolved Page' }] } } };
-      }
-      // FACEBOOK_CREATE_COMMENT
-      return { successful: true, error: null, data: { id: 'fb_reply_resolved' } };
-    },
-  };
-  const db = fakeDb({
-    connectionRow: {
-      id: 1,
-      tenant_id: 42,
-      external_user_id: 'aries-tenant-42',
-      platform: 'facebook',
-      provider: 'composio',
-      connected_account_id: 'ca_123',
-      auth_config_id: 'auth_cfg_test',
-      external_account_id: null, // not stored — must be resolved dynamically
-      external_account_name: null,
-      status: 'connected',
-      capabilities_json: null,
-      last_capability_check_at: null,
-      created_at: new Date(0),
-      updated_at: new Date(0),
-    },
-  });
-
-  const out = await replyToCommentViaComposio(baseReq, {}, {
-    gateway: customGateway as ReturnType<typeof fakeGateway>,
-    config: fakeConfig({ actions: {} }),
-    db,
-  });
-
-  assert.equal(out.platformReplyId, 'fb_reply_resolved');
-  assert.equal(slugCalls[0], 'FACEBOOK_LIST_MANAGED_PAGES', 'first call must be page resolution');
-  assert.equal(slugCalls[1], DEFAULT_FB_CREATE_COMMENT_SLUG, 'second call must be the reply');
-  // Verify the resolved page id was passed
-  const replyCall = (customGateway as { calls?: Array<{ options: { arguments?: Record<string, unknown> } }> }).calls;
-  if (replyCall && replyCall.length > 0) {
-    const lastCall = replyCall[replyCall.length - 1];
-    assert.equal(lastCall.options.arguments?.page_id, resolvedPageId);
-  }
-});
-
-test('FB reply throws fb_page_id_missing when neither stored nor resolved page id is available', async () => {
-  // Gateway returns an empty pages list for FACEBOOK_LIST_MANAGED_PAGES.
-  const customGateway = {
-    ...fakeGateway(),
-    async executeTool(_slug: string, _opts: unknown) {
-      return { successful: true, error: null, data: { data: { data: [] } } };
-    },
-  };
-  const db = fakeDb({
-    connectionRow: {
-      id: 1,
-      tenant_id: 42,
-      external_user_id: 'aries-tenant-42',
-      platform: 'facebook',
-      provider: 'composio',
-      connected_account_id: 'ca_123',
-      auth_config_id: 'auth_cfg_test',
-      external_account_id: null,
-      external_account_name: null,
-      status: 'connected',
-      capabilities_json: null,
-      last_capability_check_at: null,
-      created_at: new Date(0),
-      updated_at: new Date(0),
-    },
-  });
-
-  await assert.rejects(
-    () => replyToCommentViaComposio(baseReq, {}, {
-      gateway: customGateway as ReturnType<typeof fakeGateway>,
-      config: fakeConfig({ actions: {} }),
-      db,
-    }),
-    (err: unknown) => {
-      assert.ok(err instanceof MetaPublishError);
-      assert.equal(err.code, 'fb_page_id_missing');
-      assert.equal(err.status, 409);
-      return true;
-    },
+  assert.equal(
+    (gateway.calls[0].options.arguments as Record<string, string>).object_id,
+    '9876543210',
+    'plain id must not be modified',
   );
 });
 
-// ── Remaining existing tests (unchanged) ───────────────────────────────────────
+// ── Remaining existing tests (unchanged behaviour) ─────────────────────────────
 
 test('success: reads a nested data.data.id wrapper too', async () => {
   const gateway = fakeGateway({
