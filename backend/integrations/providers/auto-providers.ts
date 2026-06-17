@@ -8,6 +8,7 @@
  * Ads) a Composio failure surfaces as-is — there is nothing to fall back to.
  */
 
+import { publishNeverReachedPlatform } from '../publish-outcome';
 import type { AnalyticsProvider, PublisherProvider } from './interfaces';
 import type {
   AdInsightsInput,
@@ -47,7 +48,11 @@ export class AutoPublisherProvider implements PublisherProvider {
       try {
         return await this.composio.publishPost(input);
       } catch (error) {
-        if (!this.direct.supports(input.platform)) throw error;
+        // Only fall back to direct Meta when the post DEFINITELY never reached
+        // the platform. An outcome-unknown Composio failure (e.g. a transport
+        // drop after the broker may already have posted) must NOT be re-published
+        // via direct Meta — that is a duplicate post (CLAUDE.md double-post rule).
+        if (!this.direct.supports(input.platform) || !publishNeverReachedPlatform(error)) throw error;
         logFallback('publishPost', input.platform, error);
       }
     }

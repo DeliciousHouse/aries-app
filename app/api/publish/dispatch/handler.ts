@@ -12,10 +12,10 @@ import {
   MetaPublishError,
   normalizeMetaPlacement,
   persistScheduledPublishRecord,
-  publishToMetaGraph,
   type MetaPlacement,
   type MetaPublishSuccess,
 } from '../../../../backend/integrations/meta-publishing';
+import { dispatchPublish } from '../../../../backend/integrations/publish-dispatch';
 import {
   findLatestMarketingApprovalRecord,
   loadMarketingApprovalRecord,
@@ -315,7 +315,7 @@ export async function handlePublishDispatch(
         signedMediaUrls.push(toSignedPublicUrl(url, tenantId, basename));
       }
 
-      const publishExecutor = options.publishExecutor ?? ((request) => publishToMetaGraph(request));
+      const publishExecutor = options.publishExecutor ?? ((request) => dispatchPublish(request));
       const published = await publishExecutor({
         tenantId,
         provider,
