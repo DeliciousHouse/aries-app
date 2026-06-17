@@ -11,6 +11,7 @@ import type {
   MarketingDashboardItemStatus,
   MarketingDashboardPublishItem,
 } from '@/backend/marketing/dashboard-content';
+import { availableHermesMediaUrl } from '@/backend/marketing/hermes-media-presence';
 import type { SocialContentJobRuntimeDocument } from '@/backend/marketing/runtime-state';
 import { redactTokenLikeString } from '@/backend/social-content/payload';
 import { sanitizeServedAssetRef } from '@/validators/creative-memory';
@@ -738,7 +739,10 @@ function createAssets(input: {
   const imageAssets = input.projection.weekly_content_plan.image_creatives.map((creative, index) => {
     const id = imageAssetId(input.doc, creative, index);
     const title = tenantSafeString(input.doc, creative.title) || `Weekly image creative ${index + 1}`;
-    const previewUrl = safeImagePreviewUrl(input.doc, creative.artifact_url) || socialPreviewDataUri({
+    // availableHermesMediaUrl nulls an `artifact_url` whose Hermes-cache file has
+    // been evicted (qa-defect #599) so the placeholder data-URI fallback fires
+    // instead of a dead `<img src>` → 404. Pure pass-through for live media.
+    const previewUrl = availableHermesMediaUrl(safeImagePreviewUrl(input.doc, creative.artifact_url)) || socialPreviewDataUri({
       doc: input.doc,
       creative,
       index,
