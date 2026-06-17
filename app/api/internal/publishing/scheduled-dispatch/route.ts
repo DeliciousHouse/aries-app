@@ -1,11 +1,11 @@
 import { verifyInternalCallbackRequest } from '@/lib/internal-callback-auth';
 import {
-  publishToMetaGraph,
   isMetaProvider,
   MetaPublishError,
   classifyMetaPublishFailureKind,
   type MetaPublishFailureKind,
 } from '@/backend/integrations/meta-publishing';
+import { dispatchPublish } from '@/backend/integrations/publish-dispatch';
 import { toSignedPublicUrl } from '@/app/api/publish/dispatch/handler';
 import { resolveSignableBasename } from '@/backend/marketing/signable-basename';
 import { recomputeAndPersistPendingApprovalCount } from '@/backend/marketing/runtime-views';
@@ -265,7 +265,7 @@ export async function POST(req: Request): Promise<Response> {
       continue;
     }
     try {
-      const published = await publishToMetaGraph({
+      const published = await dispatchPublish({
         tenantId,
         provider: platform,
         content,

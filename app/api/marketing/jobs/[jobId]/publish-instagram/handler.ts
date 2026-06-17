@@ -18,8 +18,8 @@ import {
   isMetaProvider,
   MetaPublishError,
   normalizeMetaPlacement,
-  publishToMetaGraph,
 } from '@/backend/integrations/meta-publishing';
+import { dispatchPublish } from '@/backend/integrations/publish-dispatch';
 import { runPublishVerification } from '@/backend/integrations/publish-verification';
 import { toSignedPublicUrl } from '@/app/api/publish/dispatch/handler';
 import { resolveSignableBasename } from '@/backend/marketing/signable-basename';
@@ -249,7 +249,7 @@ export async function handleInstagramPublish(req: Request, jobId: string) {
 
   let publishSucceeded = false;
   try {
-    const published = await publishToMetaGraph({
+    const published = await dispatchPublish({
       tenantId,
       provider: 'instagram',
       content: caption,
