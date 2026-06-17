@@ -30,6 +30,7 @@ import {
   ComposioConnectionMissingError,
   ComposioToolError,
 } from './errors';
+import { resolveFacebookManagedPage } from './facebook-page-resolver';
 import pool from '@/lib/db';
 
 function pickId(data: unknown, keys: string[]): string | null {
@@ -104,18 +105,82 @@ export class ComposioPublisherProvider implements PublisherProvider {
     if (!input.approved) throw new PublishGuardError();
 
     const conn = await this.requireActiveConnection({ tenantId: input.tenantId, platform: input.platform });
-    const slug = this.requireSlug(input.platform, 'publish_post', 'publish posts');
 
-    const result = await this.gateway.executeTool(slug, {
-      connectedAccountId: conn.connectedAccountId!,
-      arguments: {
-        text: input.content,
+    // ── Action slug + argument selection (#627) ────────────────────────────
+    //
+    // Facebook has two distinct action slugs with incompatible parameter schemas:
+    //
+    //   FACEBOOK_CREATE_PHOTO_POST (`upload_media` op slot)
+    //     Required: url (signed public image URL), message, page_id
+    //     Used for: image posts (mediaUrls.length > 0)
+    //     FACEBOOK_CREATE_POST ignores media_urls entirely, so image posts MUST
+    //     route here — confirmed live via FACEBOOK_GET_POST (full_picture present).
+    //
+    //   FACEBOOK_CREATE_POST (`publish_post` op slot)
+    //     Required: message, page_id
+    //     Used for: text/link-only posts (no media)
+    //
+    // Instagram: single `publish_post` slug via caption + media_urls + placement.
+    //
+    // The page_id for Facebook is stored at connect-time in
+    // connected_accounts.external_account_id. When null (OAuth callback race),
+    // resolveFacebookManagedPage is called as a fallback.
+    let slug: string;
+    let toolArgs: Record<string, unknown>;
+
+    if (input.platform === 'facebook') {
+      let pageId = conn.externalAccountId ?? null;
+      if (!pageId) {
+        const page = await resolveFacebookManagedPage(
+          this.gateway,
+          this.config,
+          conn.connectedAccountId!,
+        );
+        pageId = page?.pageId ?? null;
+      }
+      if (!pageId) {
+        throw new ComposioCapabilityMissingError(
+          'facebook',
+          'identify the posting Page — reconnect your Facebook account to resolve this',
+        );
+      }
+
+      const hasImage = input.mediaUrls.length > 0;
+      if (hasImage) {
+        // Photo post: FACEBOOK_CREATE_PHOTO_POST via the `upload_media` op slot
+        // (COMPOSIO_FACEBOOK_UPLOAD_MEDIA_ACTION=FACEBOOK_CREATE_PHOTO_POST).
+        // Only the first image is posted; multi-image carousel is a future feature.
+        slug = this.requireSlug(input.platform, 'upload_media', 'publish photo posts');
+        toolArgs = {
+          url: input.mediaUrls[0],
+          message: input.content,
+          page_id: pageId,
+          ...(input.scheduledFor ? { scheduled_publish_time: input.scheduledFor } : {}),
+        };
+      } else {
+        // Text-only post: FACEBOOK_CREATE_POST via the `publish_post` op slot.
+        slug = this.requireSlug(input.platform, 'publish_post', 'publish posts');
+        toolArgs = {
+          message: input.content,
+          page_id: pageId,
+          ...(input.scheduledFor ? { scheduled_publish_time: input.scheduledFor } : {}),
+        };
+      }
+    } else {
+      // Instagram: caption + media_urls + placement + media_type (unchanged).
+      slug = this.requireSlug(input.platform, 'publish_post', 'publish posts');
+      toolArgs = {
         caption: input.content,
         media_urls: input.mediaUrls,
         placement: input.placement ?? 'feed',
         media_type: input.mediaType ?? 'image',
         ...(input.scheduledFor ? { scheduled_publish_time: input.scheduledFor } : {}),
-      },
+      };
+    }
+
+    const result = await this.gateway.executeTool(slug, {
+      connectedAccountId: conn.connectedAccountId!,
+      arguments: toolArgs,
     });
 
     if (!result.successful) {

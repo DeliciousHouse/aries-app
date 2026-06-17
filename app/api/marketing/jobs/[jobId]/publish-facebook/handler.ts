@@ -18,8 +18,8 @@ import {
   isMetaProvider,
   MetaPublishError,
   normalizeMetaPlacement,
-  publishToMetaGraph,
 } from '@/backend/integrations/meta-publishing';
+import { dispatchPublish } from '@/backend/integrations/publish-dispatch';
 import { runPublishVerification } from '@/backend/integrations/publish-verification';
 import { toSignedPublicUrl } from '@/app/api/publish/dispatch/handler';
 import { resolveSignableBasename } from '@/backend/marketing/signable-basename';
@@ -244,7 +244,7 @@ export async function handleFacebookPublish(req: Request, jobId: string) {
 
   let publishSucceeded = false;
   try {
-    const published = await publishToMetaGraph({
+    const published = await dispatchPublish({
       tenantId,
       provider: 'facebook',
       content: caption,
@@ -368,6 +368,16 @@ export async function handleFacebookPublish(req: Request, jobId: string) {
         { status: error.status, headers: { 'content-type': 'application/json' } },
       );
     }
+    // Log before the generic 500: non-MetaPublishError exceptions from the Composio
+    // publisher path (e.g. ComposioToolError, ComposioCapabilityMissingError) are not
+    // MetaPublishError instances and would otherwise be swallowed here with no trace.
+    console.error('[publish-facebook] unexpected publish error (non-MetaPublishError)', {
+      jobId,
+      tenantId,
+      errorName: (error as Error)?.constructor?.name,
+      message: String((error as Error)?.message ?? error),
+      stack: (error as Error)?.stack,
+    });
     return new Response(
       JSON.stringify({ status: 'error', reason: 'publish_failed', message: 'An unexpected error occurred' }),
       { status: 500, headers: { 'content-type': 'application/json' } },

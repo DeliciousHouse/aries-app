@@ -29,6 +29,8 @@ import { pathToFileURL } from 'node:url';
 import pool from '@/lib/db';
 import { syncAllAccountsForTenant } from '@/backend/insights/sync/dispatcher';
 import { sweepAbandonedSyncRuns } from '@/backend/insights/sync/sweep-stranded-runs';
+import { ensureInsightsAccountsForConnectedPlatforms } from '@/backend/insights/sync/ensure-account';
+import type { Queryable } from '@/backend/integrations/composio/connection-store';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -164,6 +166,35 @@ export async function tickSafe(
   }
 }
 
+/**
+ * Project connected Composio accounts into insights_accounts, then run a sync
+ * tick. The bridge is best-effort and isolated: nothing populates
+ * insights_accounts otherwise (so the sync would no-op), but a bridge failure
+ * must never cost the existing accounts their sync window.
+ */
+export async function bridgeAndTick(
+  dbPool: TickPool & Queryable = pool,
+  syncFn: SyncAllAccountsFn = syncAllAccountsForTenant,
+): Promise<void> {
+  try {
+    // Pass the SAME pool the tick uses — so a test injecting a fake pool never
+    // silently reaches the real database through the bridge.
+    const res = await ensureInsightsAccountsForConnectedPlatforms(dbPool);
+    if (res.upserted > 0 || res.resolved > 0 || res.skippedNoPage > 0) {
+      log({
+        event: 'insights_sync_accounts_bridged',
+        upserted: res.upserted,
+        considered: res.considered,
+        resolved: res.resolved,
+        skippedNoPage: res.skippedNoPage,
+      });
+    }
+  } catch (err) {
+    log({ event: 'insights_sync_bridge_failed', error: describeError(err) });
+  }
+  await tickSafe(dbPool, syncFn);
+}
+
 /** Keep the stack when there is one — `String(err)` drops it. */
 function describeError(err: unknown): string {
   return err instanceof Error ? (err.stack ?? err.message) : String(err);
@@ -181,11 +212,13 @@ function main(): void {
   log({ event: 'insights_sync_worker_start', intervalMs: INTERVAL_MS });
 
   // Run the first tick immediately on startup, then every INTERVAL_MS.
-  // tickSafe never rejects: failures are logged as insights_sync_fatal and the
-  // overlap guard is released so the next interval retries.
-  void tickSafe(pool);
+  // bridgeAndTick first projects connected Composio accounts into
+  // insights_accounts (otherwise the sync no-ops), then runs tickSafe — which
+  // never rejects: failures are logged as insights_sync_fatal and the overlap
+  // guard is released so the next interval retries.
+  void bridgeAndTick(pool);
 
-  const intervalHandle = setInterval(() => void tickSafe(pool), INTERVAL_MS);
+  const intervalHandle = setInterval(() => void bridgeAndTick(pool), INTERVAL_MS);
 
   // ── Graceful shutdown ───────────────────────────────────────────────────────
 

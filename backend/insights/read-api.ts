@@ -65,6 +65,7 @@ export async function handleGetInsightsSummary(
       total_comments:           string;
       total_shares:             string;
       total_watch_time_minutes: string;
+      total_engagement:         string;
     }>(
       `SELECT
          COALESCE(SUM(views), 0)              AS total_views,
@@ -73,7 +74,15 @@ export async function handleGetInsightsSummary(
          COALESCE(SUM(likes), 0)              AS total_likes,
          COALESCE(SUM(comments_count), 0)     AS total_comments,
          COALESCE(SUM(shares), 0)             AS total_shares,
-         COALESCE(SUM(watch_time_minutes), 0) AS total_watch_time_minutes
+         COALESCE(SUM(watch_time_minutes), 0) AS total_watch_time_minutes,
+         -- Prefer the authoritative aggregate engagement column (Facebook's
+         -- page_post_engagements) when present; fall back to the like/comment/
+         -- share breakdown for platforms that report one. Never a fake 0 when a
+         -- real aggregate exists.
+         COALESCE(SUM(
+           COALESCE(engagement,
+                    COALESCE(likes, 0) + COALESCE(comments_count, 0) + COALESCE(shares, 0))
+         ), 0)                                AS total_engagement
        FROM insights_account_metrics_daily
        WHERE tenant_id = $1
          AND date >= $2
@@ -92,7 +101,7 @@ export async function handleGetInsightsSummary(
       totalComments:         Number(row.total_comments),
       totalShares:           Number(row.total_shares),
       totalWatchTimeMinutes: Number(row.total_watch_time_minutes),
-      totalEngagement:       Number(row.total_likes) + Number(row.total_comments) + Number(row.total_shares),
+      totalEngagement:       Number(row.total_engagement),
     });
   } finally {
     client.release();
@@ -310,6 +319,8 @@ export async function handleGetInsightsComments(
       author_handle:    string | null;
       body_text:        string;
       received_at:      Date;
+      is_replied:       boolean | null;
+      replied_at:       Date | null;
       post_title:       string | null;
       post_permalink:   string | null;
     }>(
@@ -320,6 +331,8 @@ export async function handleGetInsightsComments(
          c.author_handle,
          c.body_text,
          c.received_at,
+         c.is_replied,
+         c.replied_at,
          p.title      AS post_title,
          p.permalink  AS post_permalink
        FROM insights_comments c
@@ -339,6 +352,8 @@ export async function handleGetInsightsComments(
       authorHandle:  row.author_handle,
       bodyText:      row.body_text,
       receivedAt:    row.received_at,
+      isReplied:     Boolean(row.is_replied),
+      repliedAt:     row.replied_at,
       postTitle:     row.post_title,
       postPermalink: row.post_permalink,
     }));

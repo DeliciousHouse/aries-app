@@ -123,6 +123,13 @@ services:
       # distributed unlisted; each tenant installs it. Empty by default.
       SLACK_CLIENT_ID: ${SLACK_CLIENT_ID:-}
       SLACK_CLIENT_SECRET: ${SLACK_CLIENT_SECRET:-}
+      # qa-defect #598 — native comment reply backend (POST
+      # /api/insights/comments/[commentId]/reply → Meta Graph reply). Default OFF;
+      # the route 404s while dark. Flip to 1 only after the Meta
+      # instagram_manage_comments / pages_manage_engagement scopes are granted (App
+      # Review). The Hermes reconciler + all route handlers run in this container,
+      # so only aries-app needs it.
+      ARIES_NATIVE_REPLY_ENABLED: ${ARIES_NATIVE_REPLY_ENABLED:-0}
       # 2026-05-23: flipped ON per TODOS rollout. Narrow first-name-denylist
       # heuristic replaces the legacy /[A-Z][a-z]+\s+[A-Z][a-z]+/ regex in
       # backend/memory/write-events.ts::scrubPreferenceLabelForHoncho. Effect:
@@ -188,6 +195,10 @@ services:
       # restart. See docs/integrations/composio.md.
       COMPOSIO_ENABLED: ${COMPOSIO_ENABLED:-false}
       COMPOSIO_API_KEY: ${COMPOSIO_API_KEY:-}
+      # Toolkit version for manual Composio tool execution (publish/analytics/
+      # comments). The SDK rejects by-slug execution without one; default 'latest'
+      # (gateway pairs it with a skip-check). Pin a concrete version to avoid drift.
+      COMPOSIO_TOOLKIT_VERSION: ${COMPOSIO_TOOLKIT_VERSION:-latest}
       COMPOSIO_DEFAULT_AUTH_CONFIG_ID: ${COMPOSIO_DEFAULT_AUTH_CONFIG_ID:-}
       COMPOSIO_METAADS_AUTH_CONFIG_ID: ${COMPOSIO_METAADS_AUTH_CONFIG_ID:-}
       COMPOSIO_FACEBOOK_AUTH_CONFIG_ID: ${COMPOSIO_FACEBOOK_AUTH_CONFIG_ID:-}
@@ -196,6 +207,23 @@ services:
       COMPOSIO_YOUTUBE_AUTH_CONFIG_ID: ${COMPOSIO_YOUTUBE_AUTH_CONFIG_ID:-}
       COMPOSIO_LINKEDIN_AUTH_CONFIG_ID: ${COMPOSIO_LINKEDIN_AUTH_CONFIG_ID:-}
       COMPOSIO_REDDIT_AUTH_CONFIG_ID: ${COMPOSIO_REDDIT_AUTH_CONFIG_ID:-}
+      # Composio action slugs (COMPOSIO_<PLATFORM>_<OPERATION>_ACTION). Required
+      # for Composio-routed publishing — a missing slug is refused with a clear
+      # capability error, never executed against a guessed action.
+      COMPOSIO_FACEBOOK_PUBLISH_POST_ACTION: ${COMPOSIO_FACEBOOK_PUBLISH_POST_ACTION:-}
+      COMPOSIO_INSTAGRAM_PUBLISH_POST_ACTION: ${COMPOSIO_INSTAGRAM_PUBLISH_POST_ACTION:-}
+      COMPOSIO_FACEBOOK_UPLOAD_MEDIA_ACTION: ${COMPOSIO_FACEBOOK_UPLOAD_MEDIA_ACTION:-}
+      COMPOSIO_INSTAGRAM_UPLOAD_MEDIA_ACTION: ${COMPOSIO_INSTAGRAM_UPLOAD_MEDIA_ACTION:-}
+      # Facebook analytics + comments sync slugs (#596/#597). Optional — the
+      # adapter falls back to the verified code defaults when unset.
+      COMPOSIO_FACEBOOK_LIST_POSTS_ACTION: ${COMPOSIO_FACEBOOK_LIST_POSTS_ACTION:-}
+      COMPOSIO_FACEBOOK_POST_INSIGHTS_ACTION: ${COMPOSIO_FACEBOOK_POST_INSIGHTS_ACTION:-}
+      COMPOSIO_FACEBOOK_ACCOUNT_INSIGHTS_ACTION: ${COMPOSIO_FACEBOOK_ACCOUNT_INSIGHTS_ACTION:-}
+      COMPOSIO_FACEBOOK_LIST_COMMENTS_ACTION: ${COMPOSIO_FACEBOOK_LIST_COMMENTS_ACTION:-}
+      # Native comment reply via Composio (#598/gate-5) — avoids Meta App Review.
+      # Optional; defaults to the verified FACEBOOK_CREATE_COMMENT slug. Consumed
+      # only by the app (the reply endpoint), routed when PUBLISH_PROVIDER=composio.
+      COMPOSIO_FACEBOOK_REPLY_COMMENT_ACTION: ${COMPOSIO_FACEBOOK_REPLY_COMMENT_ACTION:-}
       PUBLISH_PROVIDER: ${PUBLISH_PROVIDER:-direct_meta}
       ANALYTICS_PROVIDER: ${ANALYTICS_PROVIDER:-direct_meta}
       AUTH_URL: ${AUTH_URL}
@@ -353,6 +381,41 @@ services:
     networks:
       - docker_stack
 
+  # Long-lived sidecar that marks creative_assets rows orphaned once their Hermes
+  # image-cache file has been evicted, so the dashboard stops emitting dead
+  # /api/internal/hermes/media/<id> URLs that 404 (the "Posts page preview 404s"
+  # symptom — qa-defect #599). DB-only mark via runGcMissingHermesAssets; the
+  # dashboard query already filters orphaned_at IS NULL. Needs the read-only
+  # Hermes image-cache mount to tell "evicted" from "unreadable". Single replica;
+  # gated by ARIES_HERMES_GC_ENABLED (default OFF) — when off it idles cleanly.
+  aries-hermes-gc-worker:
+    image: ${ARIES_APP_IMAGE:-aries-app:local}
+    command: ["node_modules/.bin/tsx", "scripts/automations/gc-missing-hermes-assets-worker.ts"]
+    depends_on:
+      aries-app:
+        condition: service_healthy
+    environment:
+      HOME: /home/node
+      NODE_ENV: production
+      CODE_ROOT: /app
+      DATA_ROOT: /data
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_POOL_MAX: 3
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      HERMES_IMAGE_CACHE_MOUNT: ${HERMES_IMAGE_CACHE_MOUNT:-/hermes-media}
+      ARIES_HERMES_GC_ENABLED: ${ARIES_HERMES_GC_ENABLED:-0}
+      ARIES_HERMES_GC_DRY_RUN: ${ARIES_HERMES_GC_DRY_RUN:-0}
+      ARIES_HERMES_GC_INTERVAL_MS: ${ARIES_HERMES_GC_INTERVAL_MS:-21600000}
+      ARIES_HERMES_GC_MAX_AGE_DAYS: ${ARIES_HERMES_GC_MAX_AGE_DAYS:-7}
+    volumes:
+      - ${HERMES_IMAGE_CACHE_DIR:-/home/node/.hermes/profiles/aries-content-generator/cache/images}:/hermes-media:ro
+    restart: unless-stopped
+    networks:
+      - docker_stack
+
   # Long-lived sidecar that syncs platform analytics (YouTube, Instagram, etc.)
   # for every tenant with a connected insights_account. Runs every 30 minutes.
   # Single replica avoids duplicate API calls and redundant DB writes that would
@@ -380,6 +443,24 @@ services:
       # 'running' insights_sync_runs row. Widen before any long-running
       # sync path (e.g. a backfill script) ships.
       ARIES_INSIGHTS_SWEEP_GRACE_MINUTES: ${ARIES_INSIGHTS_SWEEP_GRACE_MINUTES:-60}
+      # Composio analytics (#596/#597). ACTIVATION: the Facebook insights path
+      # (account bridge + adapter) turns on ONLY when ANALYTICS_PROVIDER=composio.
+      # With the default (direct_meta) the bridge no-ops, the adapter never
+      # activates, and no Composio analytics tool runs. When enabled, the adapter
+      # executes Composio tools, so this sidecar needs the same Composio
+      # credentials as the app (COMPOSIO_API_KEY etc.); the *_ACTION slugs are
+      # optional (verified code defaults).
+      ANALYTICS_PROVIDER: ${ANALYTICS_PROVIDER:-direct_meta}
+      COMPOSIO_ENABLED: ${COMPOSIO_ENABLED:-false}
+      COMPOSIO_API_KEY: ${COMPOSIO_API_KEY:-}
+      # Toolkit version for manual Composio tool execution (see aries-app above).
+      COMPOSIO_TOOLKIT_VERSION: ${COMPOSIO_TOOLKIT_VERSION:-latest}
+      COMPOSIO_FACEBOOK_AUTH_CONFIG_ID: ${COMPOSIO_FACEBOOK_AUTH_CONFIG_ID:-}
+      COMPOSIO_DEFAULT_AUTH_CONFIG_ID: ${COMPOSIO_DEFAULT_AUTH_CONFIG_ID:-}
+      COMPOSIO_FACEBOOK_LIST_POSTS_ACTION: ${COMPOSIO_FACEBOOK_LIST_POSTS_ACTION:-}
+      COMPOSIO_FACEBOOK_POST_INSIGHTS_ACTION: ${COMPOSIO_FACEBOOK_POST_INSIGHTS_ACTION:-}
+      COMPOSIO_FACEBOOK_ACCOUNT_INSIGHTS_ACTION: ${COMPOSIO_FACEBOOK_ACCOUNT_INSIGHTS_ACTION:-}
+      COMPOSIO_FACEBOOK_LIST_COMMENTS_ACTION: ${COMPOSIO_FACEBOOK_LIST_COMMENTS_ACTION:-}
     restart: unless-stopped
     networks:
       - docker_stack

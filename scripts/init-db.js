@@ -918,12 +918,20 @@ async function initDb() {
         comments_count         INT,
         shares                 INT,
         saves                  INT,
+        -- Authoritative aggregate account engagement for the day (e.g. Facebook
+        -- page_post_engagements) for platforms that report a single engagement
+        -- figure instead of a like/comment/share breakdown. NULL = not exposed;
+        -- read-api prefers this for the headline, falling back to
+        -- likes+comments_count+shares.
+        engagement             BIGINT,
         platform_data          JSONB NOT NULL DEFAULT '{}',
         raw_source             JSONB NOT NULL,
         PRIMARY KEY (tenant_id, account_id, date)
       );
       CREATE INDEX IF NOT EXISTS idx_insights_account_metrics_daily_tenant_platform_date
         ON insights_account_metrics_daily (tenant_id, platform, date DESC);
+      -- Backfill for tables created before the engagement column existed.
+      ALTER TABLE insights_account_metrics_daily ADD COLUMN IF NOT EXISTS engagement BIGINT;
 
       -- Daily time-series for post-level metrics.
       CREATE TABLE IF NOT EXISTS insights_post_metrics_daily (
@@ -958,6 +966,8 @@ async function initDb() {
         author_handle       TEXT,
         body_text           TEXT NOT NULL,
         is_replied          BOOLEAN NOT NULL DEFAULT false,
+        platform_reply_id   TEXT,
+        replied_at          TIMESTAMPTZ,
         platform_data       JSONB NOT NULL DEFAULT '{}',
         UNIQUE (tenant_id, platform, external_comment_id)
       );
@@ -1072,6 +1082,14 @@ async function initDb() {
       -- conversations/narrative/attention/trends builders read c.is_replied and
       -- would 500 once a tenant has comment rows without this.
       ALTER TABLE insights_comments ADD COLUMN IF NOT EXISTS is_replied BOOLEAN NOT NULL DEFAULT false;
+
+      -- Native comment reply (qa-defect #598). platform_reply_id holds the Meta
+      -- Graph reply object id; replied_at stamps confirmed delivery. Both are
+      -- declared inline in the CREATE TABLE insights_comments above, but — like
+      -- is_replied — CREATE TABLE IF NOT EXISTS never widens an existing prod
+      -- table, so add them idempotently here too so they backfill on start.
+      ALTER TABLE insights_comments ADD COLUMN IF NOT EXISTS platform_reply_id TEXT;
+      ALTER TABLE insights_comments ADD COLUMN IF NOT EXISTS replied_at TIMESTAMPTZ;
     `);
     // ─── End insights module ─────────────────────────────────────────────────
 

@@ -27,6 +27,8 @@ export const PROVIDER_REGISTRY: Record<ProviderKey, ProviderConfig> = {
       'pages_manage_posts',
       'pages_read_engagement',
       'pages_manage_metadata',
+      // Posting a public comment reply (qa-defect #598). Inert until App Review.
+      'pages_manage_engagement',
       'business_management',
       'instagram_basic',
       'instagram_content_publish',
@@ -40,6 +42,8 @@ export const PROVIDER_REGISTRY: Record<ProviderKey, ProviderConfig> = {
     default_scopes: [
       'instagram_basic',
       'instagram_content_publish',
+      // Posting a public comment reply (qa-defect #598). Inert until App Review.
+      'instagram_manage_comments',
       'pages_show_list',
       'pages_read_engagement',
       'business_management',

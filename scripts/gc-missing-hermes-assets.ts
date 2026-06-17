@@ -32,6 +32,42 @@ import path from 'node:path';
 
 const DEFAULT_GRACE_DAYS = 7;
 
+// ---------------------------------------------------------------------------
+// Worker config parsers (consumed by scripts/automations/gc-missing-hermes-assets-worker.ts).
+// Kept here so the sweep module owns both its runner and its config, mirroring
+// backend/marketing/draft-expiry-sweep.ts. All accept an explicit env for tests.
+// ---------------------------------------------------------------------------
+
+export const DEFAULT_GC_INTERVAL_MS = 21_600_000; // 6h — same cadence as the draft-expiry sweep
+export const DEFAULT_GC_MAX_AGE_DAYS = DEFAULT_GRACE_DAYS; // 7
+
+function isTruthyFlag(value: string | undefined): boolean {
+  if (!value) return false;
+  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+}
+
+/** ARIES_HERMES_GC_ENABLED — default OFF; the worker idles dormant when false. */
+export function gcEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return isTruthyFlag(env.ARIES_HERMES_GC_ENABLED);
+}
+
+/** ARIES_HERMES_GC_DRY_RUN — when true every tick counts + logs but mutates nothing. */
+export function gcDryRun(env: NodeJS.ProcessEnv = process.env): boolean {
+  return isTruthyFlag(env.ARIES_HERMES_GC_DRY_RUN);
+}
+
+/** ARIES_HERMES_GC_INTERVAL_MS — tick interval; non-positive/garbage falls back. */
+export function resolveGcIntervalMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number(env.ARIES_HERMES_GC_INTERVAL_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_GC_INTERVAL_MS;
+}
+
+/** ARIES_HERMES_GC_MAX_AGE_DAYS — grace window; non-positive/garbage falls back. */
+export function resolveGcMaxAgeDays(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number(env.ARIES_HERMES_GC_MAX_AGE_DAYS);
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_GC_MAX_AGE_DAYS;
+}
+
 export type GcDb = {
   query(sql: string, params?: unknown[]): Promise<{ rows: unknown[]; rowCount?: number | null }>;
 };
@@ -61,7 +97,7 @@ export type GcMissingStats = {
   candidates: GcMissingCandidate[];
 };
 
-const SELECT_RUNTIME_ASSETS_SQL = `
+export const SELECT_RUNTIME_ASSETS_SQL = `
   SELECT id, tenant_id, storage_key, created_at
     FROM creative_assets
    WHERE storage_kind = 'runtime_asset'
@@ -72,7 +108,7 @@ const SELECT_RUNTIME_ASSETS_SQL = `
 
 // Belt-and-suspenders: the WHERE re-asserts runtime_asset + not-already-orphaned
 // so a concurrent writer can never let us mark an ingested_asset.
-const MARK_ORPHAN_SQL = `
+export const MARK_ORPHAN_SQL = `
   UPDATE creative_assets
      SET orphaned_at = $2
    WHERE id = $1

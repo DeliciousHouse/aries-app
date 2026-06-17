@@ -26,6 +26,7 @@ import { createSocialContentJobFacts, type MarketingJobFacts } from './job-facts
 import { recordMatchesCurrentSource, sourceFingerprintFromRecord } from './brand-identity';
 import { sanitizeBrandKitSummaryText } from './brand-kit';
 import { buildSocialContentDashboardProjection } from '@/backend/social-content/dashboard-projection';
+import { sanitizeAssetPreviewsForMissingMedia } from './hermes-media-presence';
 import { getMarketingDashboardSocialContentJobContent } from './dashboard-content';
 import { countPublishedPostsForJob } from './published-posts-count';
 import { loadSocialContentJobRuntime, listSocialContentJobIdsForTenant, resolveStageOutput, type SocialContentJobRuntimeDocument } from './runtime-state';
@@ -1757,5 +1758,16 @@ export async function getWorkflowAwareDashboardContentForTenant(tenantId: string
     items.push(item);
   }
 
-  return mergeDashboardContent(items);
+  const merged = mergeDashboardContent(items);
+  // qa-defect #599 re-fix: this endpoint serves the PERSISTED
+  // dashboard_list_projection assets O(1) (fast path above) — blobs baked weeks
+  // ago when the Hermes-cache files still existed. The build-time wrap in
+  // `createAssets` can never reach those stale rows, so basename-addressed
+  // previews whose files the cache has since evicted are emitted here as dead
+  // `<img>` URLs that 404. Null them at read time so the UI placeholder fires;
+  // live/non-hermes/id-addressed previews pass through byte-identical.
+  return {
+    ...merged,
+    assets: sanitizeAssetPreviewsForMissingMedia(merged.assets),
+  };
 }
