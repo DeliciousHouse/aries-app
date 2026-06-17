@@ -43,7 +43,12 @@ export interface PlatformAnalyticsMapper {
 
 // --- response helpers -------------------------------------------------------
 
-function num(v: unknown): number | null {
+/**
+ * Coerce a loose value (number or numeric string) to a finite number, else null.
+ * Exported so the insights Facebook adapter parses the same Graph payloads with
+ * the identical numeric semantics (no fabricated zeros).
+ */
+export function num(v: unknown): number | null {
   if (typeof v === 'number' && Number.isFinite(v)) return v;
   if (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))) return Number(v);
   return null;
@@ -62,7 +67,7 @@ function payload(raw: unknown): Record<string, unknown> {
  * `[{ name, total_value: { value } }]`) into name -> number. Handles the
  * extra `.data` wrap FB/IG tools add (payload().data is the array).
  */
-function graphInsights(raw: unknown): Record<string, number> {
+export function graphInsights(raw: unknown): Record<string, number> {
   const r = (raw ?? {}) as Record<string, unknown>;
   // The InsightMetric array lands at raw.data (Composio tool payload) or
   // raw.data.data (extra wrap on some tools).

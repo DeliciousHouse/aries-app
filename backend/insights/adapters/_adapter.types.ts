@@ -37,6 +37,14 @@ export interface RawAccountMetricsDay {
   likes: number;
   commentsCount: number;
   shares: number;
+  /**
+   * Authoritative aggregate account engagement for the day, when the platform
+   * reports a single engagement figure rather than a like/comment/share
+   * breakdown (Facebook's `page_post_engagements`). Persisted to the dedicated
+   * `engagement` column; read-api prefers it for the headline engagement and
+   * falls back to likes+comments+shares when null. Omit/null when not exposed.
+   */
+  engagement?: number | null;
   /** Original platform API response fields — stored in raw_source JSONB. */
   rawSource: Record<string, unknown>;
 }
@@ -73,6 +81,21 @@ export interface RawComment {
   receivedAt: Date;
   authorHandle: string | null;
   bodyText: string;
+}
+
+// ── Adapter construction context ──────────────────────────────────────────────
+
+/**
+ * Per-tenant connection context handed to an adapter at construction time.
+ *
+ * Most adapters (e.g. YouTube, which uses its own OAuth tokens) ignore this.
+ * Composio-backed adapters (Facebook) need the per-tenant Composio
+ * `connectedAccountId` to authenticate every tool call; `pageId` is the
+ * platform-side account id (mirrors `insights_accounts.external_account_id`).
+ */
+export interface InsightsAdapterContext {
+  connectedAccountId?: string | null;
+  pageId?: string | null;
 }
 
 // ── The adapter interface ─────────────────────────────────────────────────────

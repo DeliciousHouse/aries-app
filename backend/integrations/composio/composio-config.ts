@@ -37,7 +37,9 @@ export type ComposioOperation =
   | 'create_ad'
   | 'list_ad_accounts'
   | 'list_pages'
-  | 'account_info';
+  | 'account_info'
+  | 'list_posts'
+  | 'list_comments';
 
 /**
  * Env override key for a given platform+operation action slug, e.g.

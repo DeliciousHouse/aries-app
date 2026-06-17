@@ -918,12 +918,20 @@ async function initDb() {
         comments_count         INT,
         shares                 INT,
         saves                  INT,
+        -- Authoritative aggregate account engagement for the day (e.g. Facebook
+        -- page_post_engagements) for platforms that report a single engagement
+        -- figure instead of a like/comment/share breakdown. NULL = not exposed;
+        -- read-api prefers this for the headline, falling back to
+        -- likes+comments_count+shares.
+        engagement             BIGINT,
         platform_data          JSONB NOT NULL DEFAULT '{}',
         raw_source             JSONB NOT NULL,
         PRIMARY KEY (tenant_id, account_id, date)
       );
       CREATE INDEX IF NOT EXISTS idx_insights_account_metrics_daily_tenant_platform_date
         ON insights_account_metrics_daily (tenant_id, platform, date DESC);
+      -- Backfill for tables created before the engagement column existed.
+      ALTER TABLE insights_account_metrics_daily ADD COLUMN IF NOT EXISTS engagement BIGINT;
 
       -- Daily time-series for post-level metrics.
       CREATE TABLE IF NOT EXISTS insights_post_metrics_daily (
