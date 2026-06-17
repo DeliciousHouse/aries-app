@@ -1,24 +1,13 @@
 import { redirect } from 'next/navigation';
 
-import { auth } from '@/auth';
-import ComposioConnectionsScreen from '@/frontend/integrations/composio-connections-screen';
-
 export const metadata = {
   title: 'Connections — Aries AI',
 };
 
-export default async function ConnectionsPage() {
-  // Server-side auth guard: send logged-out visitors to login rather than
-  // rendering page chrome. The connection APIs are independently tenant-gated;
-  // this keeps the page consistent with the rest of the authenticated app.
-  const session = await auth();
-  if (!session?.user) {
-    redirect('/login');
-  }
-
-  return (
-    <main className="min-h-screen bg-slate-950">
-      <ComposioConnectionsScreen />
-    </main>
-  );
+// The account-connections UI now lives inside the dashboard shell under the
+// "Channel Integrations" nav entry. This standalone route is kept as a stable
+// redirect so old links / bookmarks / OAuth callbacks land on the canonical
+// in-dashboard surface. The destination is auth-gated by the dashboard shell.
+export default function ConnectionsPage() {
+  redirect('/dashboard/settings/channel-integrations');
 }
