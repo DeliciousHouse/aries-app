@@ -151,6 +151,44 @@ export function availableHermesMediaUrl(
   return isMissingHermesMedia(url, now) ? null : url;
 }
 
+/**
+ * READ-TIME sanitizer for dashboard asset previews (qa-defect #599 re-fix).
+ *
+ * The build-time `availableHermesMediaUrl` wrap in `createAssets` only fires
+ * when the social-content dashboard projection is (re)built. But the Posts page
+ * (`/api/marketing/posts` → `getWorkflowAwareDashboardContentForTenant`) serves
+ * the *persisted* `dashboard_list_projection.listRow.dashboard.assets` O(1)
+ * whenever its baked `sourceUpdatedAt` still matches the runtime doc — which is
+ * the steady state for old jobs whose runtime docs never change again. Those
+ * blobs were baked weeks ago, when the Hermes-cache files still existed, so the
+ * basename-addressed `artifact_url` previews they carry now 404 in the browser
+ * after the cache evicted the files. The build-time wrap can never reach them.
+ *
+ * This nulls `previewUrl`/`thumbnailUrl` on each asset whose basename is
+ * confirmed missing from the readable mount, at the moment the assets are
+ * served — so the UI placeholder fallback fires instead of a dead `<img>`.
+ * Fail-open and pure pass-through for live media (one cached `readdir` amortised
+ * across the whole render, O(1) per URL — CLAUDE.md guardrail #1): an asset
+ * whose preview is present, non-hermes, id/UUID-addressed, or unverifiable is
+ * returned byte-identical.
+ */
+export function sanitizeAssetPreviewsForMissingMedia<
+  T extends { previewUrl?: string | null; thumbnailUrl?: string | null },
+>(assets: readonly T[], now: number = Date.now()): T[] {
+  return assets.map((asset) => {
+    const previewMissing = isMissingHermesMedia(asset.previewUrl, now);
+    const thumbnailMissing = isMissingHermesMedia(asset.thumbnailUrl, now);
+    if (!previewMissing && !thumbnailMissing) {
+      return asset;
+    }
+    return {
+      ...asset,
+      previewUrl: previewMissing ? null : asset.previewUrl,
+      thumbnailUrl: thumbnailMissing ? null : asset.thumbnailUrl,
+    };
+  });
+}
+
 /** Test-only: clear the mount listing cache so a test can swap the mount dir. */
 export function __resetHermesMediaPresenceCacheForTests(): void {
   cachedListing = null;
