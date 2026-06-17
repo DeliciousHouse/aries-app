@@ -30,6 +30,7 @@ import {
   ComposioConnectionMissingError,
   ComposioToolError,
 } from './errors';
+import { resolveFacebookManagedPage } from './facebook-page-resolver';
 import pool from '@/lib/db';
 
 function pickId(data: unknown, keys: string[]): string | null {
@@ -106,11 +107,44 @@ export class ComposioPublisherProvider implements PublisherProvider {
     const conn = await this.requireActiveConnection({ tenantId: input.tenantId, platform: input.platform });
     const slug = this.requireSlug(input.platform, 'publish_post', 'publish posts');
 
+    // Build platform-correct content arguments.
+    //
+    // Facebook (FACEBOOK_CREATE_POST) requires:
+    //   - `message` for the post text (NOT `text`/`caption` — those are ignored)
+    //   - `page_id` for the target Page (NOT optional; the action 400s without it)
+    //
+    // Instagram uses `caption` (unchanged from before).
+    //
+    // The page_id is stored at connect-time in connected_accounts.external_account_id.
+    // If that column is null (OAuth callback / account-info race), we fall back to a
+    // live FACEBOOK_LIST_MANAGED_PAGES call via resolveFacebookManagedPage and throw
+    // a clear capability error when still unable to identify the Page.
+    let platformArgs: Record<string, unknown>;
+    if (input.platform === 'facebook') {
+      let pageId = conn.externalAccountId ?? null;
+      if (!pageId) {
+        const page = await resolveFacebookManagedPage(
+          this.gateway,
+          this.config,
+          conn.connectedAccountId!,
+        );
+        pageId = page?.pageId ?? null;
+      }
+      if (!pageId) {
+        throw new ComposioCapabilityMissingError(
+          'facebook',
+          'identify the posting Page — reconnect your Facebook account to resolve this',
+        );
+      }
+      platformArgs = { message: input.content, page_id: pageId };
+    } else {
+      platformArgs = { caption: input.content };
+    }
+
     const result = await this.gateway.executeTool(slug, {
       connectedAccountId: conn.connectedAccountId!,
       arguments: {
-        text: input.content,
-        caption: input.content,
+        ...platformArgs,
         media_urls: input.mediaUrls,
         placement: input.placement ?? 'feed',
         media_type: input.mediaType ?? 'image',

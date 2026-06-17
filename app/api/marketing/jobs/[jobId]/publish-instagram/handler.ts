@@ -383,6 +383,16 @@ export async function handleInstagramPublish(req: Request, jobId: string) {
         { status: error.status, headers: { 'content-type': 'application/json' } },
       );
     }
+    // Log before the generic 500: non-MetaPublishError exceptions (e.g. Composio
+    // provider errors) are not MetaPublishError instances and would otherwise be
+    // swallowed here with no trace.
+    console.error('[publish-instagram] unexpected publish error (non-MetaPublishError)', {
+      jobId,
+      tenantId,
+      errorName: (error as Error)?.constructor?.name,
+      message: String((error as Error)?.message ?? error),
+      stack: (error as Error)?.stack,
+    });
     return new Response(
       JSON.stringify({
         status: 'error',
