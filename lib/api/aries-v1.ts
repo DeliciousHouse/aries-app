@@ -351,6 +351,92 @@ export type OnboardingDraftPatch = {
   materializedJobId?: string | null;
 };
 
+// ── Insights / analytics (#596, #597) ─────────────────────────────────────────
+// Shapes mirror backend/insights/read-api.ts exactly. Facebook-only in the UI
+// (Instagram is deferred); the screens pass platform=facebook.
+export type InsightsSummaryResponse = {
+  period: { days: number; from: string };
+  platform: string | null;
+  totalViews: number;
+  currentFollowers: number;
+  followersGained: number;
+  totalLikes: number;
+  totalComments: number;
+  totalShares: number;
+  totalWatchTimeMinutes: number;
+  totalEngagement: number;
+};
+
+export type InsightsAccountMetricPoint = {
+  date: string;
+  platform: string;
+  views: number;
+  watchTimeMinutes: number;
+  followers: number;
+  followersDelta: number;
+  likes: number;
+  commentsCount: number;
+  shares: number;
+};
+export type InsightsAccountMetricsResponse = {
+  period: { days: number; from: string };
+  platform: string | null;
+  series: InsightsAccountMetricPoint[];
+};
+
+export type InsightsPostMetrics = {
+  totalViews: number;
+  totalLikes: number;
+  totalComments: number;
+  totalShares: number;
+  avgViewPercentage: number | null;
+};
+export type InsightsPostItem = {
+  id: number;
+  platform: string;
+  externalPostId: string;
+  title: string | null;
+  mediaType: string;
+  publishedAt: string;
+  permalink: string | null;
+  durationSeconds: number | null;
+  thumbnailUrl: string | null;
+  metrics: InsightsPostMetrics;
+};
+export type InsightsPostsResponse = {
+  posts: InsightsPostItem[];
+  limit: number;
+  offset: number;
+  count: number;
+};
+
+export type InsightsCommentItem = {
+  id: number;
+  postId: number;
+  platform: string;
+  authorHandle: string | null;
+  bodyText: string;
+  receivedAt: string;
+  isReplied: boolean;
+  repliedAt: string | null;
+  postTitle: string | null;
+  postPermalink: string | null;
+};
+export type InsightsCommentsResponse = {
+  comments: InsightsCommentItem[];
+  limit: number;
+  count: number;
+};
+
+/**
+ * Success shape of POST /api/insights/comments/:id/reply. Non-2xx responses
+ * (flag-off 404, needs_manual_reconciliation 502, validation 4xx) surface as a
+ * thrown ApiRequestError carrying `.status`/`.code`, handled by the caller.
+ */
+export type InsightsCommentReplyResponse =
+  | { status: 'replied'; comment_id: number; platform_reply_id: string; replied_at: string }
+  | { status: 'already_replied'; comment_id: number };
+
 export type AriesAssetVersion = RuntimeReviewItem['currentVersion'];
 export type AriesRecommendation = {
   id: string;
@@ -429,6 +515,49 @@ export function createAriesV1Api(options: ApiClientOptions = {}) {
     },
     getReviews() {
       return requestJson<ReviewQueueResponse>('/api/marketing/reviews', { method: 'GET', timeoutMs: 30000 }, options);
+    },
+    getInsightsSummary(params: { platform?: string; days?: number } = {}) {
+      return requestJson<InsightsSummaryResponse>(
+        '/api/insights/summary',
+        { method: 'GET', query: { platform: params.platform, days: params.days }, timeoutMs: 30000 },
+        options,
+      );
+    },
+    getInsightsAccountMetrics(params: { platform?: string; days?: number } = {}) {
+      return requestJson<InsightsAccountMetricsResponse>(
+        '/api/insights/account-metrics',
+        { method: 'GET', query: { platform: params.platform, days: params.days }, timeoutMs: 30000 },
+        options,
+      );
+    },
+    getInsightsPosts(params: { platform?: string; limit?: number; offset?: number } = {}) {
+      return requestJson<InsightsPostsResponse>(
+        '/api/insights/posts',
+        {
+          method: 'GET',
+          query: { platform: params.platform, limit: params.limit, offset: params.offset },
+          timeoutMs: 30000,
+        },
+        options,
+      );
+    },
+    getInsightsComments(params: { platform?: string; postId?: number; limit?: number } = {}) {
+      return requestJson<InsightsCommentsResponse>(
+        '/api/insights/comments',
+        {
+          method: 'GET',
+          query: { platform: params.platform, postId: params.postId, limit: params.limit },
+          timeoutMs: 30000,
+        },
+        options,
+      );
+    },
+    replyToInsightComment(commentId: number, replyText: string) {
+      return requestJson<InsightsCommentReplyResponse>(
+        `/api/insights/comments/${encodeURIComponent(String(commentId))}/reply`,
+        { method: 'POST', body: JSON.stringify({ reply_text: replyText }) },
+        options,
+      );
     },
     getPosts() {
       return requestJson<PostsInventoryResponse>('/api/marketing/posts', { method: 'GET', timeoutMs: 30000 }, options);

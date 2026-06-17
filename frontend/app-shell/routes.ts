@@ -9,6 +9,8 @@ export type AppRouteId =
   | 'posts'
   | 'calendar'
   | 'results'
+  | 'analytics'
+  | 'comments'
   | 'review'
   | 'businessProfile'
   | 'channelIntegrations'
@@ -92,6 +94,20 @@ export const APP_ROUTES: readonly AppRoute[] = [
     href: '/dashboard/results',
     section: 'utility',
     description: 'Business-readable reporting and recommended next actions.'
+  },
+  {
+    id: 'analytics',
+    title: 'Analytics',
+    href: '/dashboard/analytics',
+    section: 'utility',
+    description: 'Facebook performance: views, followers, engagement, and per-post metrics.'
+  },
+  {
+    id: 'comments',
+    title: 'Comments',
+    href: '/dashboard/comments',
+    section: 'utility',
+    description: 'Facebook comment inbox grouped by post, with native reply when enabled.'
   },
   {
     id: 'review',
