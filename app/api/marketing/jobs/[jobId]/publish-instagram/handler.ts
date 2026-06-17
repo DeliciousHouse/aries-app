@@ -383,6 +383,13 @@ export async function handleInstagramPublish(req: Request, jobId: string) {
         { status: error.status, headers: { 'content-type': 'application/json' } },
       );
     }
+    // Non-Meta throw (e.g. a Composio ComposioToolError) — log the real error +
+    // stack before the frontend-safe generic 500 so publish failures aren't blind.
+    console.error('[publish-instagram] unexpected publish failure', {
+      jobId,
+      platform: PLATFORM_KEY,
+      error: error instanceof Error ? (error.stack ?? error.message) : String(error),
+    });
     return new Response(
       JSON.stringify({
         status: 'error',
