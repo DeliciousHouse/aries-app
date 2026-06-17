@@ -54,9 +54,11 @@ test('publishPost approved + active connection but no action slug throws capabil
 });
 
 test('publishPost approved + slug executes and normalizes the post id', async () => {
+  // Text-only (no media) so the publish_post slug is used — the image-post path is
+  // covered by the #627 regression tests below.
   const gateway = fakeGateway({ executeResult: { data: { id: 'post_999', permalink: 'https://fb/p/999' }, successful: true, error: null } });
   const provider = new ComposioPublisherProvider(gateway, fakeConfig({ actions: { publish_post: 'FB_POST' } }), fakeDb());
-  const result = await provider.publishPost({ tenantId, platform: 'facebook', content: 'hi', mediaUrls: ['u'], approved: true });
+  const result = await provider.publishPost({ tenantId, platform: 'facebook', content: 'hi', mediaUrls: [], approved: true });
   assert.equal(result.status, 'published');
   assert.equal(result.externalPostId, 'post_999');
   assert.equal(result.url, 'https://fb/p/999');
@@ -208,4 +210,83 @@ test('#624 IG publishPost sends `caption` (not `message`) and no `page_id`', asy
   assert.equal(args.caption, 'Hello IG', 'Instagram must still use `caption`');
   assert.equal(args.message,  undefined, '`message` must not be set for Instagram');
   assert.equal(args.page_id,  undefined, '`page_id` must not be set for Instagram');
+});
+
+// ── Regression tests for #627: FB image posts use FACEBOOK_CREATE_PHOTO_POST ─
+
+test('#627 FB image post routes to upload_media slug (FACEBOOK_CREATE_PHOTO_POST) with url+message+page_id', async () => {
+  // When mediaUrls is non-empty, publishPost must use the `upload_media` slug
+  // (FACEBOOK_CREATE_PHOTO_POST) with `url` (not `media_urls`) + `message` + `page_id`.
+  // Using FACEBOOK_CREATE_POST (the publish_post slug) ignores the image entirely.
+  const gateway = fakeGateway({ executeResult: { data: { id: '123', post_id: '1002997576221948_456' }, successful: true, error: null } });
+  const provider = new ComposioPublisherProvider(
+    gateway,
+    fakeConfig({ actions: { publish_post: 'FB_POST', upload_media: 'FB_PHOTO_POST' } }),
+    fakeDb(),
+  );
+  await provider.publishPost({
+    tenantId,
+    platform: 'facebook',
+    content: 'Look at this image!',
+    mediaUrls: ['https://aries.example.com/api/public/media/token123/image.png'],
+    approved: true,
+  });
+
+  assert.equal(gateway.calls.length, 1, 'exactly one executeTool call');
+  const call = gateway.calls[0];
+
+  // Must route to the photo slug, NOT the text slug
+  assert.equal(call.slug, 'FB_PHOTO_POST', 'image post must use upload_media slug (FACEBOOK_CREATE_PHOTO_POST)');
+  assert.notEqual(call.slug, 'FB_POST', 'image post must NOT use publish_post slug (FACEBOOK_CREATE_POST)');
+
+  const args = call.options.arguments as Record<string, unknown>;
+  // url must be the first (and only) mediaUrl
+  assert.equal(args.url, 'https://aries.example.com/api/public/media/token123/image.png', 'url must be the signed image URL');
+  // message (not caption or text) carries the post text
+  assert.equal(args.message, 'Look at this image!', 'message must carry the post text');
+  // page_id must be injected from the stored external_account_id
+  assert.equal(args.page_id, 'ext_1', 'page_id must equal the stored external_account_id');
+  // must NOT use media_urls (which FACEBOOK_CREATE_POST / FACEBOOK_CREATE_PHOTO_POST ignores / mishandles)
+  assert.equal(args.media_urls, undefined, 'media_urls must NOT be passed to FACEBOOK_CREATE_PHOTO_POST');
+  assert.equal(args.caption,    undefined, 'caption must NOT be set for Facebook photo posts');
+  assert.equal(args.text,       undefined, 'text must NOT be set (old wrong field)');
+});
+
+test('#627 FB text-only post still uses publish_post slug (FACEBOOK_CREATE_POST) with message+page_id', async () => {
+  const gateway = fakeGateway({ executeResult: { data: { id: 'post_text_1' }, successful: true, error: null } });
+  const provider = new ComposioPublisherProvider(
+    gateway,
+    fakeConfig({ actions: { publish_post: 'FB_POST', upload_media: 'FB_PHOTO_POST' } }),
+    fakeDb(),
+  );
+  await provider.publishPost({
+    tenantId,
+    platform: 'facebook',
+    content: 'Text only, no image.',
+    mediaUrls: [],
+    approved: true,
+  });
+
+  assert.equal(gateway.calls.length, 1, 'exactly one executeTool call');
+  const call = gateway.calls[0];
+  assert.equal(call.slug, 'FB_POST', 'text-only post must still use publish_post slug');
+  const args = call.options.arguments as Record<string, unknown>;
+  assert.equal(args.message, 'Text only, no image.', 'text-only post must carry message');
+  assert.equal(args.page_id, 'ext_1', 'text-only post must carry page_id');
+  assert.equal(args.url,        undefined, 'url must NOT be set for text-only post');
+  assert.equal(args.media_urls, undefined, 'media_urls must NOT be set for text-only post');
+});
+
+test('#627 FB image post with no upload_media slug throws capability-missing', async () => {
+  // No upload_media slug configured → should throw ComposioCapabilityMissingError
+  const provider = new ComposioPublisherProvider(
+    fakeGateway(),
+    fakeConfig({ actions: { publish_post: 'FB_POST' /* no upload_media */ } }),
+    fakeDb(),
+  );
+  await assert.rejects(
+    () => provider.publishPost({ tenantId, platform: 'facebook', content: 'hi', mediaUrls: ['img.png'], approved: true }),
+    ComposioCapabilityMissingError,
+    'missing upload_media slug must throw capability-missing',
+  );
 });
