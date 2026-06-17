@@ -2111,7 +2111,14 @@ async function applyHermesMarketingCallbackInner(
     // Ingest production creative_assets now that markJobCompleted has written
     // doc.stages.production.primary_output (see ingestProductionCreativeAssets-
     // OnCompletion — it reads from the doc, which was null until this point).
-    if (isProductionCompletion) {
+    // Also ingest on a publish-only completion: in autonomous mode the production
+    // stage terminates at the approve_publish gate and never emits its own
+    // `completed` callback, so without this the creative_assets table is empty at
+    // synthesis time and every synthesized post gets creative_asset_ids=[] — IG
+    // then fails `instagram_media_required` and FB posts text-only (qa-defect
+    // #606). production.primary_output is already on the doc here; ingest is
+    // idempotent (ON CONFLICT (tenant_id, checksum) DO NOTHING).
+    if (isProductionCompletion || targetStage === 'publish') {
       await ingestProductionCreativeAssetsOnCompletion(doc);
     }
     if (targetStage === 'publish') {
