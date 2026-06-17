@@ -958,6 +958,8 @@ async function initDb() {
         author_handle       TEXT,
         body_text           TEXT NOT NULL,
         is_replied          BOOLEAN NOT NULL DEFAULT false,
+        platform_reply_id   TEXT,
+        replied_at          TIMESTAMPTZ,
         platform_data       JSONB NOT NULL DEFAULT '{}',
         UNIQUE (tenant_id, platform, external_comment_id)
       );
@@ -1072,6 +1074,14 @@ async function initDb() {
       -- conversations/narrative/attention/trends builders read c.is_replied and
       -- would 500 once a tenant has comment rows without this.
       ALTER TABLE insights_comments ADD COLUMN IF NOT EXISTS is_replied BOOLEAN NOT NULL DEFAULT false;
+
+      -- Native comment reply (qa-defect #598). platform_reply_id holds the Meta
+      -- Graph reply object id; replied_at stamps confirmed delivery. Both are
+      -- declared inline in the CREATE TABLE insights_comments above, but — like
+      -- is_replied — CREATE TABLE IF NOT EXISTS never widens an existing prod
+      -- table, so add them idempotently here too so they backfill on start.
+      ALTER TABLE insights_comments ADD COLUMN IF NOT EXISTS platform_reply_id TEXT;
+      ALTER TABLE insights_comments ADD COLUMN IF NOT EXISTS replied_at TIMESTAMPTZ;
     `);
     // ─── End insights module ─────────────────────────────────────────────────
 

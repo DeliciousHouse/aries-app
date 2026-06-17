@@ -47,6 +47,7 @@
     "test:requires-infra-report": "node scripts/list-requires-infra.mjs",
     "test:requires-infra": "node scripts/list-requires-infra.mjs --run",
     "test:insights": "APP_BASE_URL=https://aries.example.com tsx --test tests/insights-endpoints.test.ts",
+    "test:reply": "APP_BASE_URL=https://aries.example.com tsx --test tests/meta-reply.test.ts tests/insights-comment-reply-route.test.ts",
     "eval:creative-memory-learning": "tsx scripts/eval-creative-memory-learning.ts"
   },
   "dependencies": {
