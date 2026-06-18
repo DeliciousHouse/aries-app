@@ -34,6 +34,7 @@ import type {
 } from '@/frontend/aries-v1/view-models/calendar';
 import { RedditIcon, XIcon } from '@/frontend/components/Icons';
 import RescheduleDrawer from '@/frontend/aries-v1/reschedule-drawer';
+import type { AllowedTargetPlatform } from '@/backend/social-content/scheduled-posts';
 import {
   formatTimeInTenantZone,
   tenantZoneDateKey,
@@ -96,6 +97,13 @@ export interface CalendarPresenterProps {
   campaignsLoading?: boolean;
   /** Called after the RescheduleDrawer saves — lets the screen refetch the queue. */
   onRescheduled?: () => void;
+  /**
+   * Platforms the operator is allowed to schedule to right now. Computed
+   * server-side from rollout flags and passed down. Defaults to
+   * `['facebook','instagram']` when absent (byte-identical to previous behaviour
+   * when all flags are OFF).
+   */
+  allowedPublishPlatforms?: AllowedTargetPlatform[];
 }
 
 export default function CalendarPresenter({
@@ -105,6 +113,7 @@ export default function CalendarPresenter({
   schedulingError,
   campaignsLoading,
   onRescheduled,
+  allowedPublishPlatforms,
 }: CalendarPresenterProps) {
   const timeZone = model.timeZone;
   const [view, setView] = useState<CalendarMode>('month');
@@ -482,9 +491,12 @@ export default function CalendarPresenter({
             postId={rescheduleTarget.postId}
             defaultScheduledAt={rescheduleTarget.scheduledForIso}
             defaultPlatforms={rescheduleTarget.targetPlatforms.filter(
-              (platform): platform is 'facebook' | 'instagram' =>
-                platform === 'facebook' || platform === 'instagram',
+              (platform): platform is AllowedTargetPlatform =>
+                (allowedPublishPlatforms ?? (['facebook', 'instagram'] as AllowedTargetPlatform[])).includes(
+                  platform as AllowedTargetPlatform,
+                ),
             )}
+            allowedPlatforms={allowedPublishPlatforms}
             timeZone={timeZone}
             onClose={() => setRescheduleEventId(null)}
             onSaved={() => {
@@ -500,10 +512,14 @@ export default function CalendarPresenter({
             jobId={scheduleTrayPost.jobId}
             postId={scheduleTrayPost.postId}
             defaultPlatforms={
-              scheduleTrayPost.platform === 'facebook' || scheduleTrayPost.platform === 'instagram'
-                ? [scheduleTrayPost.platform]
+              scheduleTrayPost.platform !== null &&
+              (allowedPublishPlatforms ?? (['facebook', 'instagram'] as AllowedTargetPlatform[])).includes(
+                scheduleTrayPost.platform as AllowedTargetPlatform,
+              )
+                ? [scheduleTrayPost.platform as AllowedTargetPlatform]
                 : undefined
             }
+            allowedPlatforms={allowedPublishPlatforms}
             timeZone={timeZone}
             onClose={() => setScheduleTrayPost(null)}
             onSaved={() => {
