@@ -45,13 +45,16 @@ export function isComposioOnlyAnalyticsPlatform(platform: string): boolean {
 }
 
 /**
- * Real off-switch for the Composio-backed Facebook insights path: only active
- * when ANALYTICS_PROVIDER=composio. When it is anything else (the default
- * direct_meta), the FB adapter never activates and no Composio analytics tool
- * is ever executed.
+ * Real off-switch for the Composio-backed Facebook insights path: active only
+ * when Composio is enabled (COMPOSIO_ENABLED=true) AND ANALYTICS_PROVIDER
+ * resolves to composio (the default since #681). When COMPOSIO_ENABLED is false
+ * (CI/local default) or ANALYTICS_PROVIDER=direct_meta, the FB adapter never
+ * activates and no Composio analytics tool is ever executed. Consistent with the
+ * COMPOSIO_ENABLED gate on all other Composio-backed insights predicates (x,
+ * youtube, reddit, linkedin — #679).
  */
 export function isFacebookInsightsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return analyticsProviderSelector(env) === 'composio';
+  return isComposioEnabled(env) && analyticsProviderSelector(env) === 'composio';
 }
 
 /**
