@@ -25,7 +25,8 @@ export type IntegrationPlatform =
   | 'tiktok'
   | 'youtube'
   | 'linkedin'
-  | 'reddit';
+  | 'reddit'
+  | 'x';
 
 export const INTEGRATION_PLATFORMS: readonly IntegrationPlatform[] = [
   'facebook',
@@ -35,6 +36,7 @@ export const INTEGRATION_PLATFORMS: readonly IntegrationPlatform[] = [
   'youtube',
   'linkedin',
   'reddit',
+  'x',
 ] as const;
 
 export function isIntegrationPlatform(value: string): value is IntegrationPlatform {

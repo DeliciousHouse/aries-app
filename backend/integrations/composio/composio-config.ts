@@ -26,6 +26,9 @@ export const TOOLKIT_SLUG: Record<IntegrationPlatform, string> = {
   youtube: 'youtube',
   linkedin: 'linkedin',
   reddit: 'reddit',
+  // Composio's toolkit for X is 'twitter'; Aries' platform key stays 'x'
+  // (so its action/auth env keys are COMPOSIO_X_*).
+  x: 'twitter',
 };
 
 export type ComposioOperation =
