@@ -16,6 +16,7 @@ export type PlatformCapability =
   | 'account_daily_metrics'   // channel-level daily views, followers, watch time
   | 'post_list'               // list of published posts / videos
   | 'post_daily_metrics'      // per-post daily breakdowns
+  | 'post_view_count'         // per-post view/impression count (youtube, instagram, facebook only)
   | 'comments'                // per-post comment fetch
   | 'audience_demographics'   // age/gender/country breakdown
   | 'watch_time'              // cumulative watch-time minutes
@@ -32,12 +33,14 @@ export const PLATFORM_CAPABILITIES: Record<Platform, ReadonlySet<PlatformCapabil
   youtube: new Set<PlatformCapability>([
     'post_list',
     'post_daily_metrics',
+    'post_view_count',
     'comments',
   ]),
   instagram: new Set<PlatformCapability>([
     'account_daily_metrics',
     'post_list',
     'post_daily_metrics',
+    'post_view_count',
     'comments',
     'audience_demographics',
     'reach_impressions',
@@ -47,6 +50,7 @@ export const PLATFORM_CAPABILITIES: Record<Platform, ReadonlySet<PlatformCapabil
     'account_daily_metrics',
     'post_list',
     'post_daily_metrics',
+    'post_view_count',
     'comments',
     'reach_impressions',
   ]),

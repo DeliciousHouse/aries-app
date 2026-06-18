@@ -15,6 +15,7 @@ import type { InsightsAccountMetricPoint, InsightsPostItem } from '@/lib/api/ari
 import { useInsightsAnalytics } from '@/hooks/use-insights-analytics';
 import type { Platform } from '@/backend/insights/platforms/registry';
 import { PLATFORM_LABELS } from '@/backend/insights/platforms/registry';
+import { platformSupports } from '@/backend/insights/platforms/capabilities';
 
 import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { EmptyStatePanel, LoadingStateGrid, MetricCard, ShellPanel } from './components';
@@ -32,6 +33,14 @@ function formatDay(value: string): string {
   return value.slice(0, 10) || '—';
 }
 
+// Per-platform reasons why account-level metrics are unavailable.
+// Must be honest and specific — never a fabricated zero or generic stub.
+const ACCOUNT_METRICS_UNAVAILABLE_REASON: Partial<Record<Platform, string>> = {
+  x: 'Impressions require a paid X API tier.',
+  reddit: "Reddit doesn't expose reach/impression metrics.",
+  linkedin: 'Account-level analytics need LinkedIn organization access.',
+};
+
 export default function AriesAnalyticsScreen({
   enabledPlatforms = ['facebook'],
 }: {
@@ -46,6 +55,8 @@ export default function AriesAnalyticsScreen({
   const series: InsightsAccountMetricPoint[] = data?.accountMetrics.series ?? [];
   const posts: InsightsPostItem[] = data?.posts.posts ?? [];
 
+  // hasData is only consulted in the accountMetricsSupported path (facebook/instagram).
+  // For unsupported-account-metrics platforms the sections are independently gated.
   const hasData = Boolean(
     summary &&
       (summary.totalViews > 0 ||
@@ -59,7 +70,53 @@ export default function AriesAnalyticsScreen({
         posts.length > 0),
   );
 
+  const accountMetricsSupported = platformSupports(platform, 'account_daily_metrics');
+  const postViewsSupported = platformSupports(platform, 'post_view_count');
+
   const label = PLATFORM_LABELS[platform];
+
+  // Shared posts table — rendered in both the supported and unsupported account-metrics
+  // paths. Views column is omitted for platforms that don't surface per-post view counts
+  // (x, reddit, linkedin). For youtube/instagram/facebook postViewsSupported=true so the
+  // column renders as it does today.
+  const postsTable = (
+    <ShellPanel eyebrow="Posts" title="Per-post performance">
+      {posts.length > 0 ? (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+            <thead>
+              <tr className="border-b border-white/10 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/55">
+                <th className="py-3 pr-4 font-semibold">Post</th>
+                <th className="py-3 pr-4 font-semibold">Published</th>
+                {postViewsSupported && <th className="py-3 pr-4 text-right font-semibold">Views</th>}
+                <th className="py-3 pr-4 text-right font-semibold">Likes</th>
+                <th className="py-3 pr-4 text-right font-semibold">Comments</th>
+                <th className="py-3 text-right font-semibold">Shares</th>
+              </tr>
+            </thead>
+            <tbody>
+              {posts.map((post) => (
+                <tr key={post.id} className="border-b border-white/[0.06] text-white/75">
+                  <td className="max-w-[18rem] truncate py-3 pr-4 text-white/90">
+                    {post.title?.trim() || post.externalPostId}
+                  </td>
+                  <td className="py-3 pr-4 text-white/55">{formatDay(post.publishedAt)}</td>
+                  {postViewsSupported && (
+                    <td className="py-3 pr-4 text-right">{formatNumber(post.metrics.totalViews)}</td>
+                  )}
+                  <td className="py-3 pr-4 text-right">{formatNumber(post.metrics.totalLikes)}</td>
+                  <td className="py-3 pr-4 text-right">{formatNumber(post.metrics.totalComments)}</td>
+                  <td className="py-3 text-right">{formatNumber(post.metrics.totalShares)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="text-sm text-white/55">No post-level metrics yet.</p>
+      )}
+    </ShellPanel>
+  );
 
   return (
     <div className="space-y-5">
@@ -102,6 +159,20 @@ export default function AriesAnalyticsScreen({
             Try again
           </button>
         </div>
+      ) : !accountMetricsSupported ? (
+        // Platform doesn't expose account-level metrics (x, reddit, linkedin, youtube).
+        // Show an honest panel instead of fabricated zeros, then render post-level data
+        // if any exists. The per-post Views column is also gated by postViewsSupported.
+        <>
+          <EmptyStatePanel
+            title={`Account analytics aren't available for ${label}`}
+            description={
+              ACCOUNT_METRICS_UNAVAILABLE_REASON[platform] ??
+              'Account-level metrics are not available for this platform.'
+            }
+          />
+          {postsTable}
+        </>
       ) : !hasData || !summary ? (
         <EmptyStatePanel
           title="No analytics yet"
@@ -154,40 +225,7 @@ export default function AriesAnalyticsScreen({
             )}
           </ShellPanel>
 
-          <ShellPanel eyebrow="Posts" title="Per-post performance">
-            {posts.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[640px] border-collapse text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-white/10 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/55">
-                      <th className="py-3 pr-4 font-semibold">Post</th>
-                      <th className="py-3 pr-4 font-semibold">Published</th>
-                      <th className="py-3 pr-4 text-right font-semibold">Views</th>
-                      <th className="py-3 pr-4 text-right font-semibold">Likes</th>
-                      <th className="py-3 pr-4 text-right font-semibold">Comments</th>
-                      <th className="py-3 text-right font-semibold">Shares</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {posts.map((post) => (
-                      <tr key={post.id} className="border-b border-white/[0.06] text-white/75">
-                        <td className="max-w-[18rem] truncate py-3 pr-4 text-white/90">
-                          {post.title?.trim() || post.externalPostId}
-                        </td>
-                        <td className="py-3 pr-4 text-white/55">{formatDay(post.publishedAt)}</td>
-                        <td className="py-3 pr-4 text-right">{formatNumber(post.metrics.totalViews)}</td>
-                        <td className="py-3 pr-4 text-right">{formatNumber(post.metrics.totalLikes)}</td>
-                        <td className="py-3 pr-4 text-right">{formatNumber(post.metrics.totalComments)}</td>
-                        <td className="py-3 text-right">{formatNumber(post.metrics.totalShares)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="text-sm text-white/55">No post-level metrics yet.</p>
-            )}
-          </ShellPanel>
+          {postsTable}
         </>
       )}
     </div>
