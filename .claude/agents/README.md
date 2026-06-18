@@ -72,9 +72,11 @@ groomer (queue → ordered)
   label is needed. The team does **not** add **`agent:auto-merge`** — that label triggers the cloud
   `pr-agent-autofix-automerge.yml`, which spawns an autonomous cloud Claude agent that
   commits/pushes/merges the branch, racing this local team (the same reason it avoids `agent:fix`).
-- **Branch-protection heads-up:** `master` also requires **1 approving review** (no bypass), so
-  `--auto` waits for an approval *and* CI; until that requirement is lowered, a green PR queues
-  awaiting a human/second-identity approval (see the setup PR description for the toggle).
+- **Branch-protection reality:** `master` requires **only the `full-suite` CI check** — there is
+  **no required approving review** (`enforce_admins` is off). So `gh pr merge --squash --auto` merges
+  every green PR automatically with zero human approval; there is no "awaiting approval" state. A
+  green PR that doesn't merge is a CI/branch issue (red or pending `full-suite`, behind `master`, or a
+  conflict), never an approval one.
 - Fixes auto-close their issue via `Closes #<n>`; **no agent closes a `qa-defect` issue by hand** —
   the QA session verifies in prod.
 
