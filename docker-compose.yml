@@ -247,6 +247,12 @@ services:
       # LINKEDIN_GET_MY_INFO slug. Resolves the member's urn:li:person:<id> at
       # connect so LinkedIn publish (#646) has an author. App-process only.
       COMPOSIO_LINKEDIN_ACCOUNT_INFO_ACTION: ${COMPOSIO_LINKEDIN_ACCOUNT_INFO_ACTION:-}
+      # LinkedIn publish slug (#646) — only consulted when ARIES_LINKEDIN_ENABLED=true
+      # and PUBLISH_PROVIDER=composio/auto. ONE action (no separate media-upload —
+      # the image is staged via gateway.uploadFile and passed in images:[...]).
+      # Publish runs in the app process, so this lives here only.
+      #   COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION=LINKEDIN_CREATE_LINKED_IN_POST
+      COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: ${COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION:-}
       # Facebook analytics + comments sync slugs (#596/#597). Optional — the
       # adapter falls back to the verified code defaults when unset.
       COMPOSIO_FACEBOOK_LIST_POSTS_ACTION: ${COMPOSIO_FACEBOOK_LIST_POSTS_ACTION:-}
