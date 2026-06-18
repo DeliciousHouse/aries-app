@@ -543,6 +543,16 @@ services:
       COMPOSIO_REDDIT_AUTH_CONFIG_ID: ${COMPOSIO_REDDIT_AUTH_CONFIG_ID:-}
       COMPOSIO_REDDIT_POST_INSIGHTS_ACTION: ${COMPOSIO_REDDIT_POST_INSIGHTS_ACTION:-}
       COMPOSIO_REDDIT_LIST_COMMENTS_ACTION: ${COMPOSIO_REDDIT_LIST_COMMENTS_ACTION:-}
+      # LinkedIn analytics (#647), read by the insights-sync worker's LinkedIn
+      # adapter (backend/insights/adapters/linkedin). The LinkedIn insights path
+      # (account bridge + adapter) turns on ONLY when ARIES_LINKEDIN_ENABLED=true
+      # AND ANALYTICS_PROVIDER=composio; otherwise dormant. AUTH_CONFIG_ID is the
+      # tenant's Composio auth config; POST_INSIGHTS_ACTION is optional (verified
+      # code default: LINKEDIN_LIST_REACTIONS). Personal-reactions-only — there is
+      # no list-comments slug (LinkedIn has no Composio list-comments action, #648).
+      ARIES_LINKEDIN_ENABLED: ${ARIES_LINKEDIN_ENABLED:-false}
+      COMPOSIO_LINKEDIN_AUTH_CONFIG_ID: ${COMPOSIO_LINKEDIN_AUTH_CONFIG_ID:-}
+      COMPOSIO_LINKEDIN_POST_INSIGHTS_ACTION: ${COMPOSIO_LINKEDIN_POST_INSIGHTS_ACTION:-}
     restart: unless-stopped
     networks:
       - docker_stack

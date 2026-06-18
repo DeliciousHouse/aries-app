@@ -26,7 +26,7 @@
 
 import pool from '@/lib/db';
 import type { Queryable } from '@/backend/integrations/composio/connection-store';
-import { analyticsProviderSelector, isXEnabled, isYouTubeEnabled, isRedditEnabled } from '@/backend/integrations/providers/integration-config';
+import { analyticsProviderSelector, isXEnabled, isYouTubeEnabled, isRedditEnabled, isLinkedInEnabled } from '@/backend/integrations/providers/integration-config';
 import { resolveComposioConfig, type ComposioConfig } from '@/backend/integrations/composio/composio-config';
 import { createComposioGateway, type ComposioGateway } from '@/backend/integrations/composio/composio-client';
 import { resolveFacebookManagedPage } from '@/backend/integrations/composio/facebook-page-resolver';
@@ -34,22 +34,24 @@ import { resolveYouTubeChannel } from '@/backend/integrations/composio/youtube-c
 
 /**
  * Platforms whose Composio connections should be projected into insights_accounts.
- * X (Twitter) and YouTube are only bridged when their rollout flag is ON
- * (ARIES_X_ENABLED / ARIES_YOUTUBE_ENABLED), computed dynamically by
- * `bridgedPlatforms` below — the const itself is never mutated, so a flag-OFF
- * environment is byte-identical to the FB-only bridge.
+ * X (Twitter), YouTube, and LinkedIn are only bridged when their rollout flag is
+ * ON (ARIES_X_ENABLED / ARIES_YOUTUBE_ENABLED / ARIES_LINKEDIN_ENABLED), computed
+ * dynamically by `bridgedPlatforms` below — the const itself is never mutated, so
+ * a flag-OFF environment is byte-identical to the FB-only bridge.
  */
 export const BRIDGED_PLATFORMS = ['facebook'] as const;
 
 /**
  * The bridged-platform list for this env: FB always; X only when ARIES_X_ENABLED;
- * YouTube only when ARIES_YOUTUBE_ENABLED; Reddit only when ARIES_REDDIT_ENABLED.
+ * YouTube only when ARIES_YOUTUBE_ENABLED; Reddit only when ARIES_REDDIT_ENABLED;
+ * LinkedIn only when ARIES_LINKEDIN_ENABLED.
  */
 function bridgedPlatforms(env: NodeJS.ProcessEnv): string[] {
   const list: string[] = [...BRIDGED_PLATFORMS];
   if (isXEnabled(env)) list.push('x');
   if (isYouTubeEnabled(env)) list.push('youtube');
   if (isRedditEnabled(env)) list.push('reddit');
+  if (isLinkedInEnabled(env)) list.push('linkedin');
   return list;
 }
 

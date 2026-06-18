@@ -69,6 +69,18 @@ export const PLATFORM_CAPABILITIES: Record<Platform, ReadonlySet<PlatformCapabil
     'post_daily_metrics',
     'comments',
   ]),
+  // LinkedIn via Composio (#647 analytics): per-post PERSONAL reaction counts
+  // (LINKEDIN_LIST_REACTIONS → likes). Deliberately OMITS 'comments' (#648):
+  // LinkedIn exposes NO Composio list-comments action, so the adapter ingests no
+  // comments and the UI advertises no LinkedIn comment feature — a genuine
+  // platform limitation, not a stub. Also OMITS 'account_daily_metrics'
+  // (LINKEDIN_GET_SHARE_STATS is organization-admin only; #645 captured the
+  // person URN, not an org URN — an org-stats follow-up) and 'reach_impressions'
+  // (personal reactions expose no impressions/reach metric).
+  linkedin: new Set<PlatformCapability>([
+    'post_list',
+    'post_daily_metrics',
+  ]),
 };
 
 /** Returns true if the given platform supports a specific capability. */

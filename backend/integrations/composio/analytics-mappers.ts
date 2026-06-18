@@ -119,6 +119,28 @@ function parseLinkedinShareStats(raw: unknown): Partial<NormalizedMetrics> {
   };
 }
 
+/**
+ * Parse a LINKEDIN_LIST_REACTIONS collection (`{ elements, paging:{ total } }`)
+ * into the PERSONAL reaction count, mapped HONESTLY onto `likes`. Precedence:
+ * authoritative `paging.total` first; else the length of `elements`; else absent
+ * (`likes` stays null — never a fabricated zero). This is the only verified
+ * engagement signal for a personal LinkedIn account (org share stats need
+ * organization-admin scope — see parseLinkedinShareStats / linkedin:account_insights).
+ */
+function parseLinkedinReactions(raw: unknown): Partial<NormalizedMetrics> {
+  const p = payload(raw);
+  // The collection may sit at the unwrapped layer or one `.data` deeper.
+  const collection = ('elements' in p || 'paging' in p) ? p : payload(p);
+  const paging = collection.paging && typeof collection.paging === 'object'
+    ? (collection.paging as Record<string, unknown>)
+    : null;
+  const total = paging ? num(paging.total) : null;
+  if (total !== null) return { likes: total };
+  const elements = collection.elements;
+  if (Array.isArray(elements)) return { likes: elements.length };
+  return {};
+}
+
 function parseYoutubeStatistics(raw: unknown): Partial<NormalizedMetrics> {
   const p = payload(raw);
   const items = Array.isArray(p.items) ? (p.items as Array<Record<string, unknown>>) : [];
@@ -256,6 +278,16 @@ const MAPPERS: Partial<Record<string, PlatformAnalyticsMapper>> = {
         shares: num(pm.retweet_count),
       };
     },
+  },
+  // LinkedIn (personal per-post reactions → likes). entity is the post URN
+  // (share/ugcPost/activity) passed VERBATIM — never guess/prepend a urn:li:
+  // prefix. Personal reactions expose no impressions/reach/comment/share, so
+  // those stay null (never a fabricated zero); the org-level metrics need
+  // organization-admin scope (linkedin:account_insights, below).
+  'linkedin:post_insights': {
+    slug: 'LINKEDIN_LIST_REACTIONS',
+    buildArgs: (ctx) => ({ entity: ctx.externalPostId, count: 100 }),
+    parse: parseLinkedinReactions,
   },
   // LinkedIn (organization-level share stats)
   'linkedin:account_insights': {

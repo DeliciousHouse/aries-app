@@ -8,9 +8,9 @@
  *   2. TypeScript will highlight every spot that needs updating (capabilities.ts, adapter factory, etc.).
  */
 
-export const SUPPORTED_PLATFORMS = ['youtube', 'instagram', 'facebook', 'x', 'reddit'] as const;
+export const SUPPORTED_PLATFORMS = ['youtube', 'instagram', 'facebook', 'x', 'reddit', 'linkedin'] as const;
 
-/** Union type — 'youtube' | 'instagram' | 'facebook' | 'x' | 'reddit' */
+/** Union type — 'youtube' | 'instagram' | 'facebook' | 'x' | 'reddit' | 'linkedin' */
 export type Platform = (typeof SUPPORTED_PLATFORMS)[number];
 
 /** Runtime guard: narrows an unknown string to Platform. */
@@ -25,6 +25,7 @@ export const PLATFORM_LABELS: Record<Platform, string> = {
   facebook: 'Facebook',
   x: 'X',
   reddit: 'Reddit',
+  linkedin: 'LinkedIn',
 };
 
 /** Icon identifiers used by the frontend icon registry (Phase 10). */
@@ -34,4 +35,5 @@ export const PLATFORM_ICON_IDS: Record<Platform, string> = {
   facebook: 'facebook',
   x: 'x',
   reddit: 'reddit',
+  linkedin: 'linkedin',
 };
