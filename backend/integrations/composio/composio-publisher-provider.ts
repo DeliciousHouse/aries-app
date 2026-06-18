@@ -22,6 +22,7 @@ import {
   type UploadMediaResult,
 } from '../providers/types';
 import { PublishGuardError } from '../providers/errors';
+import { redditTargetSubreddit } from '../providers/integration-config';
 import type { ComposioConfig, ComposioOperation } from './composio-config';
 import type { ComposioFileDescriptor, ComposioGateway } from './composio-client';
 import { getConnectionRow, type Queryable } from './connection-store';
@@ -41,8 +42,9 @@ function pickId(data: unknown, keys: string[]): string | null {
     if (typeof v === 'string' && v.trim()) return v.trim();
     if (typeof v === 'number') return String(v);
   }
-  // Some tools nest the payload under data/response.
-  for (const nestKey of ['data', 'response', 'result']) {
+  // Some tools nest the payload under data/response/result, and Reddit nests the
+  // created object under `json` (data.json.data.name → the t3_ fullname).
+  for (const nestKey of ['data', 'response', 'result', 'json']) {
     const nested = obj[nestKey];
     if (nested && typeof nested === 'object') {
       const found = pickId(nested, keys);
@@ -54,6 +56,29 @@ function pickId(data: unknown, keys: string[]): string | null {
 
 function pickUrl(data: unknown): string | null {
   return pickId(data, ['permalink', 'permalink_url', 'url', 'link']);
+}
+
+/** The id keys used for the shared post-id extraction unless a branch overrides. */
+const DEFAULT_POST_ID_KEYS = ['post_id', 'id', 'media_id'];
+
+const REDDIT_TITLE_MAX = 300;
+const REDDIT_FALLBACK_TITLE = 'New post';
+
+/**
+ * Reddit requires a non-empty `title` (it rejects an empty one) ≤ 300 chars. Take
+ * the first non-empty line of the post content, collapse internal whitespace, and
+ * truncate with an ellipsis. Falls back to a stable label when content is empty.
+ * Pure — no I/O — so it is trivially unit-testable.
+ */
+function redditTitleFromContent(content: string): string {
+  const firstLine = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  const collapsed = (firstLine ?? '').replace(/\s+/g, ' ').trim();
+  if (!collapsed) return REDDIT_FALLBACK_TITLE;
+  if (collapsed.length <= REDDIT_TITLE_MAX) return collapsed;
+  return `${collapsed.slice(0, REDDIT_TITLE_MAX - 1)}…`;
 }
 
 export class ComposioPublisherProvider implements PublisherProvider {
@@ -127,6 +152,9 @@ export class ComposioPublisherProvider implements PublisherProvider {
     // resolveFacebookManagedPage is called as a fallback.
     let slug: string;
     let toolArgs: Record<string, unknown>;
+    // The created post id lives at different keys per platform; a branch may
+    // override before the shared extraction at the end of publishPost.
+    let idKeys = DEFAULT_POST_ID_KEYS;
 
     if (input.platform === 'facebook') {
       let pageId = conn.externalAccountId ?? null;
@@ -221,6 +249,60 @@ export class ComposioPublisherProvider implements PublisherProvider {
         text: input.content,
         ...(mediaId ? { media_media_ids: [mediaId] } : {}),
       };
+    } else if (input.platform === 'reddit') {
+      // Reddit: a SINGLE REDDIT_CREATE_REDDIT_POST call. There is NO media-upload
+      // action — an image is posted as a `kind='link'` whose url IS the image
+      // (Reddit fetches it), never a pre-staged upload. So unlike X, there is no
+      // pre-publish step: this is exactly the FB-style single-call,
+      // outcome-unknown boundary (a transport drop after dispatch may have
+      // posted). Every PRE-call failure here (no subreddit, no slug, no
+      // connection) throws BEFORE the shared executeTool below → classified
+      // definitely-never-posted → safe rollback + worker re-claim. Reddit is
+      // rate-limited and posts can be silently automod-removed; we deliberately
+      // do NOT retry-loop a create — a rate-limited create surfaces as
+      // never-posted and the standing worker re-claims the row.
+      //
+      // Subreddit target (never guessed): an explicit
+      // COMPOSIO_REDDIT_TARGET_SUBREDDIT, else the connected user's own profile
+      // (`u_<username>` self-post), else refuse with a capability error.
+      let subreddit = redditTargetSubreddit();
+      if (!subreddit && conn.externalAccountName) {
+        subreddit = `u_${conn.externalAccountName}`;
+      }
+      if (!subreddit) {
+        throw new ComposioCapabilityMissingError(
+          'reddit',
+          'configure a target subreddit (COMPOSIO_REDDIT_TARGET_SUBREDDIT) or reconnect Reddit',
+        );
+      }
+
+      slug = this.requireSlug(input.platform, 'publish_post', 'publish posts');
+      // Reddit returns a fullname id (`t3_<base36>`) at data.json.data.name — NOT
+      // in the shared default keys (and under a `json` nest), so override here.
+      idKeys = ['name', 'id', 'post_id'];
+
+      const title = redditTitleFromContent(input.content);
+      const flairId = process.env.COMPOSIO_REDDIT_FLAIR_ID?.trim();
+      if (input.mediaUrls.length > 0) {
+        // Image post: the image IS the link target (kind='link'); not dropped,
+        // not pre-uploaded.
+        toolArgs = {
+          subreddit,
+          title,
+          kind: 'link',
+          url: input.mediaUrls[0],
+          ...(flairId ? { flair_id: flairId } : {}),
+        };
+      } else {
+        // Text post: kind='self' with the body as `text`.
+        toolArgs = {
+          subreddit,
+          title,
+          kind: 'self',
+          text: input.content,
+          ...(flairId ? { flair_id: flairId } : {}),
+        };
+      }
     } else {
       // Instagram: caption + media_urls + placement + media_type (unchanged).
       slug = this.requireSlug(input.platform, 'publish_post', 'publish posts');
@@ -245,7 +327,7 @@ export class ComposioPublisherProvider implements PublisherProvider {
     return {
       provider: 'composio',
       platform: input.platform,
-      externalPostId: pickId(result.data, ['post_id', 'id', 'media_id']),
+      externalPostId: pickId(result.data, idKeys),
       externalCampaignId: null,
       externalAdId: null,
       status: input.scheduledFor ? 'scheduled' : 'published',

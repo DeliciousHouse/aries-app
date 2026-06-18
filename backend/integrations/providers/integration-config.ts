@@ -37,6 +37,25 @@ export function isXEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
 }
 
 /**
+ * Reddit publish rollout flag. Default OFF — ships the publish path dormant
+ * (Reddit already *connects* via Composio; this flag gates publish only, so it
+ * is deliberately NOT wired into `connectablePlatforms`).
+ */
+export function isRedditEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return parseFlag(env.ARIES_REDDIT_ENABLED);
+}
+
+/**
+ * Explicit target subreddit for Reddit publish (COMPOSIO_REDDIT_TARGET_SUBREDDIT).
+ * Returns null when unset/empty so the publisher falls back to the connected
+ * user's own profile (`u_<username>`) and never guesses a community.
+ */
+export function redditTargetSubreddit(env: NodeJS.ProcessEnv = process.env): string | null {
+  const v = env.COMPOSIO_REDDIT_TARGET_SUBREDDIT?.trim();
+  return v || null;
+}
+
+/**
  * Platforms an operator can actually connect right now. The single dormancy
  * chokepoint for flag-gated platforms: when `ARIES_X_ENABLED` is OFF, `'x'` is
  * filtered out everywhere (connect/capabilities/disconnect gate + the UI list),
