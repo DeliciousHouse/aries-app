@@ -17,6 +17,7 @@ export type PlatformCapability =
   | 'post_list'               // list of published posts / videos
   | 'post_daily_metrics'      // per-post daily breakdowns
   | 'post_view_count'         // per-post view/impression count (youtube, instagram, facebook only)
+  | 'post_share_count'        // per-post share count (facebook shares, instagram shares, x retweet_count only)
   | 'comments'                // per-post comment fetch
   | 'audience_demographics'   // age/gender/country breakdown
   | 'watch_time'              // cumulative watch-time minutes
@@ -41,6 +42,7 @@ export const PLATFORM_CAPABILITIES: Record<Platform, ReadonlySet<PlatformCapabil
     'post_list',
     'post_daily_metrics',
     'post_view_count',
+    'post_share_count',
     'comments',
     'audience_demographics',
     'reach_impressions',
@@ -51,6 +53,7 @@ export const PLATFORM_CAPABILITIES: Record<Platform, ReadonlySet<PlatformCapabil
     'post_list',
     'post_daily_metrics',
     'post_view_count',
+    'post_share_count',
     'comments',
     'reach_impressions',
   ]),
@@ -61,6 +64,7 @@ export const PLATFORM_CAPABILITIES: Record<Platform, ReadonlySet<PlatformCapabil
   x: new Set<PlatformCapability>([
     'post_list',
     'post_daily_metrics',
+    'post_share_count',
     'comments',
   ]),
   // Reddit: per-post engagement (score/num_comments/upvote_ratio via
