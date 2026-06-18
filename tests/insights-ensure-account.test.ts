@@ -175,8 +175,8 @@ test('the bridge does not throw when Composio resolution errors — it skips the
   assert.equal(result.upserted, 0);
 });
 
-test('Instagram is out of scope: the bridge only queries the bridged (FB) platforms', async () => {
-  assert.deepEqual([...BRIDGED_PLATFORMS], ['facebook']);
+test('The bridge queries both facebook and instagram when ANALYTICS_PROVIDER=composio (no connected rows → just the SELECT)', async () => {
+  assert.deepEqual([...BRIDGED_PLATFORMS], ['facebook', 'instagram']);
   const db = recordingDb([]);
   const result = await ensureInsightsAccountsForConnectedPlatforms(db, COMPOSIO_ENV);
   assert.equal(result.considered, 0);
@@ -286,14 +286,14 @@ test('X bridge: when ARIES_X_ENABLED=1 the DB query includes "x" alongside "face
   );
 });
 
-test('X bridge: when ARIES_X_ENABLED is off, the DB query only includes "facebook"', async () => {
+test('X bridge: when ARIES_X_ENABLED is off, the DB query includes facebook and instagram but not x', async () => {
   const db = recordingDb([]);
-  // FB requires COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER=composio since #681 product fix.
+  // FB and IG both require COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER=composio (#681/#692).
   const fbOnlyEnv = { ANALYTICS_PROVIDER: 'composio', COMPOSIO_ENABLED: '1' } as unknown as NodeJS.ProcessEnv;
   await ensureInsightsAccountsForConnectedPlatforms(db, fbOnlyEnv);
   const select = db.queries[0];
   assert.ok(select, 'issued a SELECT query');
-  assert.deepEqual(select.params, ['facebook'], 'only facebook when ARIES_X_ENABLED is off');
+  assert.deepEqual(select.params, ['facebook', 'instagram'], 'facebook and instagram bridged; x absent when ARIES_X_ENABLED is off');
 });
 
 test('YouTube bridge: when ARIES_YOUTUBE_ENABLED=1 the DB query includes "youtube" alongside "facebook"', async () => {
@@ -592,9 +592,10 @@ test('facebook is registered in the adapter factory and getAdapter binds the con
 
 // ── Adversarial tests: #679 composio-only analytics seam ──────────────────────
 
-test('#679 (a) golden — FB path: COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER=composio + no rollout flags → SELECT params exactly ["facebook"]', async () => {
-  // FB now requires both COMPOSIO_ENABLED and ANALYTICS_PROVIDER=composio (#681 product fix).
-  // With both set and no platform rollout flags, exactly facebook (and only facebook) must be bridged.
+test('#679 (a) golden — Meta-family path: COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER=composio + no rollout flags → SELECT params exactly ["facebook","instagram"]', async () => {
+  // FB and IG both require COMPOSIO_ENABLED + ANALYTICS_PROVIDER=composio (#681/#692).
+  // With both set and no platform rollout flags, exactly facebook + instagram must be bridged —
+  // no composio-only platforms (x, youtube, reddit, linkedin) leak in without their own flags.
   const db = recordingDb([]);
   const composioFbOnlyEnv = { ANALYTICS_PROVIDER: 'composio', COMPOSIO_ENABLED: '1' } as unknown as NodeJS.ProcessEnv;
   await ensureInsightsAccountsForConnectedPlatforms(db, composioFbOnlyEnv);
@@ -602,8 +603,8 @@ test('#679 (a) golden — FB path: COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER=compo
   assert.ok(select, 'a SELECT was issued');
   assert.deepEqual(
     select.params,
-    ['facebook'],
-    'FB path: params must be exactly ["facebook"] — no composio-only platforms leak in without their own flags',
+    ['facebook', 'instagram'],
+    'Meta-family path: params must be exactly ["facebook","instagram"] — no composio-only platforms leak in without their own flags',
   );
 });
 
@@ -728,8 +729,9 @@ test('#679 seam parity — isPlatformInsightsEnabled dispatches correctly for al
   assert.equal(isPlatformInsightsEnabled('reddit', fullEnv), true);
   assert.equal(isPlatformInsightsEnabled('linkedin', fullEnv), true);
 
+  // Instagram uses the same ANALYTICS_PROVIDER gate as facebook (no separate flag) → true in fullEnv.
+  assert.equal(isPlatformInsightsEnabled('instagram', fullEnv), true, 'instagram uses ANALYTICS_PROVIDER gate like facebook');
   // Unknown platform → always false
-  assert.equal(isPlatformInsightsEnabled('instagram', fullEnv), false, 'instagram is not in the seam');
   assert.equal(isPlatformInsightsEnabled('unknown', fullEnv), false);
 });
 
@@ -742,5 +744,5 @@ test('#679 isComposioOnlyAnalyticsPlatform: set is {x, reddit, linkedin, youtube
   assert.equal(isComposioOnlyAnalyticsPlatform('linkedin'), true);
   assert.equal(isComposioOnlyAnalyticsPlatform('youtube'), true);
   assert.equal(isComposioOnlyAnalyticsPlatform('facebook'), false, 'facebook uses ANALYTICS_PROVIDER gate, not the composio-only set');
-  assert.equal(isComposioOnlyAnalyticsPlatform('instagram'), false, 'instagram is out of scope');
+  assert.equal(isComposioOnlyAnalyticsPlatform('instagram'), false, 'instagram uses ANALYTICS_PROVIDER gate like facebook, not the composio-only set');
 });
