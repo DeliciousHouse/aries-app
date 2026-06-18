@@ -645,10 +645,13 @@ test('#679 seam parity — isPlatformInsightsEnabled dispatches correctly for al
   const redditOnlyEnv = { ARIES_REDDIT_ENABLED: '1', COMPOSIO_ENABLED: '1' } as unknown as NodeJS.ProcessEnv;
   const fullEnv = { ANALYTICS_PROVIDER: 'composio', COMPOSIO_ENABLED: '1', ARIES_X_ENABLED: '1', ARIES_REDDIT_ENABLED: '1', ARIES_YOUTUBE_ENABLED: '1', ARIES_LINKEDIN_ENABLED: '1' } as unknown as NodeJS.ProcessEnv;
 
-  // facebook → ANALYTICS_PROVIDER gate (not affected by COMPOSIO_ENABLED)
+  // facebook → isFacebookInsightsEnabled gate (analyticsProviderSelector === 'composio').
+  // Since #681 the raw analyticsProviderSelector defaults to 'composio' when ANALYTICS_PROVIDER
+  // is unset, so allOffEnv ({}) and redditOnlyEnv (no ANALYTICS_PROVIDER key) now enable FB.
+  // To DISABLE FB insights explicitly set ANALYTICS_PROVIDER=direct_meta.
   assert.equal(isPlatformInsightsEnabled('facebook', fbOnlyEnv), true);
-  assert.equal(isPlatformInsightsEnabled('facebook', allOffEnv), false);
-  assert.equal(isPlatformInsightsEnabled('facebook', redditOnlyEnv), false, 'ANALYTICS_PROVIDER alone gates FB — COMPOSIO_ENABLED does not enable FB');
+  assert.equal(isPlatformInsightsEnabled('facebook', allOffEnv), true, '#681: raw selector default composio => FB enabled when ANALYTICS_PROVIDER unset');
+  assert.equal(isPlatformInsightsEnabled('facebook', redditOnlyEnv), true, '#681: COMPOSIO_ENABLED=1 + unset ANALYTICS_PROVIDER => FB enabled (default composio)');
 
   // composio-only platforms → rollout flag + COMPOSIO_ENABLED
   assert.equal(isPlatformInsightsEnabled('reddit', redditOnlyEnv), true);
