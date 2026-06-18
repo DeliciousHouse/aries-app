@@ -30,7 +30,10 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
+import { resolveProjectRoot } from './helpers/project-root';
 import { ComposioPublisherProvider } from '@/backend/integrations/composio/composio-publisher-provider';
 import { PublishGuardError } from '@/backend/integrations/providers/errors';
 import {
@@ -462,6 +465,17 @@ test('#636 dispatch guard: youtube rejected when flag off, admitted when on', as
     const isYouTubePublish = 'youtube' === 'youtube' && isYouTubeEnabled();
     assert.equal(!isMetaProvider('youtube') && !isYouTubePublish, false, 'youtube admitted when flag on');
   });
+});
+
+test('#636 the scheduled-dispatch route actually wires the flag-gated youtube admit clause', () => {
+  // Guards the REAL gate (the predicate test above only checks the logic in
+  // isolation): if someone drops the youtube clause from the route, this fails.
+  const routeSrc = readFileSync(
+    path.join(resolveProjectRoot(import.meta.url), 'app', 'api', 'internal', 'publishing', 'scheduled-dispatch', 'route.ts'),
+    'utf8',
+  );
+  assert.match(routeSrc, /isYouTubePublish\s*=\s*platform[^\n]*===\s*'youtube'\s*&&\s*isYouTubeEnabled\(\)/, 'route must derive isYouTubePublish behind isYouTubeEnabled()');
+  assert.match(routeSrc, /!isYouTubePublish/, 'route admit gate must include the youtube clause');
 });
 
 // ════════════════════════════════════════════════════════════════════════════

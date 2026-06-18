@@ -102,6 +102,23 @@ test('CalendarPresenter forwards allowedPlatforms prop to RescheduleDrawer insta
   assert.ok(matches && matches.length >= 2, 'allowedPlatforms must be threaded into BOTH RescheduleDrawer usages');
 });
 
+test('handlePublishNow no longer coerces non-fb/ig targets to facebook (#636 mis-publish guard)', () => {
+  // A youtube/x/reddit/linkedin post clicked "Publish now" must pass its real
+  // target through (the server-side normalizeTargetPlatforms is the flag gate),
+  // NOT be silently rerouted to Facebook. Guards against reintroducing the narrow
+  // `p === 'facebook' || p === 'instagram'` filter in handlePublishNow.
+  assert.match(calendarPresenter, /ALLOWED_TARGET_PLATFORMS/);
+  const publishNowBody = calendarPresenter.slice(
+    calendarPresenter.indexOf('async function handlePublishNow'),
+    calendarPresenter.indexOf('async function handlePublishNow') + 1200,
+  );
+  assert.doesNotMatch(
+    publishNowBody,
+    /p === 'facebook' \|\| p === 'instagram'/,
+    'handlePublishNow must not narrow targets to fb/ig (that silently rerouted youtube to facebook)',
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Source-text: RescheduleDrawer structural assertions
 // ---------------------------------------------------------------------------

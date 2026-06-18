@@ -103,24 +103,35 @@ const YOUTUBE_FALLBACK_TITLE = 'New post';
 const YOUTUBE_DEFAULT_CATEGORY_ID = '22'; // People & Blogs — a safe general default.
 
 /**
+ * The YouTube Data API rejects `<`/`>` anywhere in snippet.title/description
+ * (HTTP 400 invalidVideoMetadata). Strip them so a caption like "buy 1 get 1 <3"
+ * cannot turn into a deterministically-failing payload (which would re-fail on
+ * every worker re-claim → a poison-retry loop, since the failure is classified
+ * never-posted). Removed, not escaped — YouTube has no entity decoding here.
+ */
+function stripYouTubeAngleBrackets(text: string): string {
+  return text.replace(/[<>]/g, '');
+}
+
+/**
  * YouTube `title` is REQUIRED and ≤ 100 chars. Take the first non-empty line of
- * the content, collapse internal whitespace, truncate with the shared `…` idiom.
- * Pure — no I/O — so it is trivially unit-testable.
+ * the content, collapse internal whitespace, strip forbidden angle brackets, and
+ * truncate with the shared `…` idiom. Pure — no I/O — so it is unit-testable.
  */
 function youtubeTitleFromContent(content: string): string {
   const firstLine = content
     .split(/\r?\n/)
     .map((line) => line.trim())
     .find((line) => line.length > 0);
-  const collapsed = (firstLine ?? '').replace(/\s+/g, ' ').trim();
+  const collapsed = stripYouTubeAngleBrackets((firstLine ?? '').replace(/\s+/g, ' ')).trim();
   if (!collapsed) return YOUTUBE_FALLBACK_TITLE;
   if (collapsed.length <= YOUTUBE_TITLE_MAX) return collapsed;
   return `${collapsed.slice(0, YOUTUBE_TITLE_MAX - 1)}…`;
 }
 
-/** YouTube `description` is REQUIRED and capped at 5000 chars (full body kept). */
+/** YouTube `description` is REQUIRED, ≤5000 chars, no angle brackets (full body kept). */
 function youtubeDescription(content: string): string {
-  const text = content ?? '';
+  const text = stripYouTubeAngleBrackets(content ?? '');
   if (text.length <= YOUTUBE_DESCRIPTION_MAX) return text;
   return `${text.slice(0, YOUTUBE_DESCRIPTION_MAX - 1)}…`;
 }

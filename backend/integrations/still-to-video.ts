@@ -29,6 +29,16 @@ const FFMPEG_BIN = process.env.FFMPEG_PATH?.trim() || 'ffmpeg';
 /** Default clip length. Short enough to keep encode + upload cheap. */
 export const DEFAULT_VIDEO_DURATION_SEC = 7;
 
+/**
+ * Cap the source-image fetch. Without it a media host that accepts the
+ * connection but stalls the body would block the publish-dispatch request far
+ * longer than the ffmpeg budget below (the worker gives up at 30s, but its abort
+ * does not cancel this server-side call). On timeout the fetch throws → the
+ * function's catch cleans up + rethrows → the publisher classifies it as
+ * definitely-never-posted (safe rollback + re-claim).
+ */
+const FETCH_TIMEOUT_MS = 30_000;
+
 const OUTPUT_FPS = 30;
 const ZOOM_STEP = 0.0008; // per-frame zoom increment
 const ZOOM_MAX = 1.15; // cap so the pan stays subtle, not jarring
@@ -113,7 +123,7 @@ export async function synthesizeStillToVideo(input: {
   try {
     let imagePath: string;
     if (/^https?:\/\//i.test(input.image)) {
-      const res = await fetch(input.image);
+      const res = await fetch(input.image, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
       if (!res.ok) {
         throw new Error(`failed to fetch source image (HTTP ${res.status})`);
       }

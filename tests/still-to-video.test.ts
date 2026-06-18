@@ -9,7 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildFfmpegArgs, DEFAULT_VIDEO_DURATION_SEC } from '@/backend/integrations/still-to-video';
+import { buildFfmpegArgs, DEFAULT_VIDEO_DURATION_SEC, synthesizeStillToVideo } from '@/backend/integrations/still-to-video';
 
 test('buildFfmpegArgs: loops the still, adds silent stereo audio, scales/crops/zoompans, h264+yuv420p, capped duration', () => {
   const args = buildFfmpegArgs({ inputPath: '/in/frame.png', outputPath: '/out/video.mp4', durationSec: 7 });
@@ -37,6 +37,19 @@ test('buildFfmpegArgs: loops the still, adds silent stereo audio, scales/crops/z
   assert.match(filter, /crop=1920:1080/);
   assert.match(filter, /zoompan=/);
 
+  // The filter output is labeled and BOTH streams are mapped to the output:
+  // the processed video [v] and the silent audio (input 1). Asserting the maps
+  // (not just that anullsrc/aac appear somewhere) proves the audio is actually
+  // wired into the muxed output, not a dangling unused input.
+  assert.match(filter, /\[0:v\].*\[v\]/, 'video filter chain must be labeled [0:v]...[v]');
+  const mapIdxs = args.reduce<number[]>((acc, a, i) => (a === '-map' ? [...acc, i] : acc), []);
+  assert.equal(mapIdxs.length, 2, 'exactly two -map args (video + audio)');
+  assert.deepEqual(
+    mapIdxs.map((i) => args[i + 1]).sort(),
+    ['1:a', '[v]'],
+    'must map the filtered video [v] and the silent audio stream 1:a to the output',
+  );
+
   // Codecs + universal pixel format
   assert.equal(args[args.indexOf('-c:v') + 1], 'libx264');
   assert.equal(args[args.indexOf('-pix_fmt') + 1], 'yuv420p');
@@ -45,6 +58,39 @@ test('buildFfmpegArgs: loops the still, adds silent stereo audio, scales/crops/z
 
   // Output path is the last arg
   assert.equal(args[args.length - 1], '/out/video.mp4');
+});
+
+// ── synthesizeStillToVideo error-classification (fetch leg; no ffmpeg needed) ──
+// These exercise the real I/O wrapper's failure paths, which run BEFORE ffmpeg,
+// so they need no binary. A throw here is what the publisher converts into a
+// ComposioToolError (definitely-never-posted → safe rollback + re-claim).
+
+test('synthesizeStillToVideo: a non-ok image fetch throws (never reaches ffmpeg)', async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(null, { status: 404 })) as typeof fetch;
+  try {
+    await assert.rejects(
+      () => synthesizeStillToVideo({ image: 'https://media.example/missing.png' }),
+      /HTTP 404/,
+      'a non-ok fetch must throw before the encode',
+    );
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('synthesizeStillToVideo: an empty-body image fetch throws (never reaches ffmpeg)', async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(new Uint8Array(0), { status: 200 })) as typeof fetch;
+  try {
+    await assert.rejects(
+      () => synthesizeStillToVideo({ image: 'https://media.example/empty.png' }),
+      /no bytes/,
+      'an empty image body must throw before the encode',
+    );
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
 
 test('buildFfmpegArgs: a non-positive/omitted duration falls back to the default', () => {
