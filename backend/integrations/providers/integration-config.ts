@@ -56,6 +56,17 @@ export function redditTargetSubreddit(env: NodeJS.ProcessEnv = process.env): str
 }
 
 /**
+ * LinkedIn rollout flag. Default OFF. Gates the connect-time person-URN
+ * resolution (and, later, LinkedIn publish #646); LinkedIn is already a
+ * connectable platform, so this flag does NOT gate connectability — only the
+ * extra `LINKEDIN_GET_MY_INFO` author-URN lookup. When OFF the connect path is
+ * byte-identical to today (no executeTool call).
+ */
+export function isLinkedInEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return parseFlag(env.ARIES_LINKEDIN_ENABLED);
+}
+
+/**
  * Platforms an operator can actually connect right now. The single dormancy
  * chokepoint for flag-gated platforms: when `ARIES_X_ENABLED` is OFF, `'x'` is
  * filtered out everywhere (connect/capabilities/disconnect gate + the UI list),
