@@ -173,7 +173,7 @@ export default function AriesCommentsScreen({
                       {isReplied ? null : outcome?.kind === 'not_enabled' ? (
                         <p className="mt-3 text-xs text-white/45">
                           {platform === 'facebook' ? (
-                            <>Native reply isn&apos;t enabled for your account yet. You can still reply from
+                            <>Native reply isn’t enabled for your account yet. You can still reply from
                             Facebook directly.</>
                           ) : (
                             <>Native reply isn&apos;t enabled for your account yet. You can still reply from{' '}
