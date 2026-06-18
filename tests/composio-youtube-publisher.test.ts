@@ -515,6 +515,11 @@ test('#636 metaPlatform routing: provider=youtube reaches the seam with platform
     { tenantId: '42', provider: 'youtube', content: 'hello youtube', mediaUrls: [], scheduledFor: null },
     {
       selector: () => 'composio',
+      // youtube is now composio-only (#677): composioEnabled must be injected as
+      // true here, otherwise the real isComposioEnabled() reads the unset
+      // COMPOSIO_ENABLED env var, returns false, and the new composio-only guard
+      // throws provider_not_configured before reaching the seam.
+      composioEnabled: () => true,
       directPublish: async () => {
         throw new Error('youtube must never reach the direct-Meta path');
       },
