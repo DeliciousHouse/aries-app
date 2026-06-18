@@ -33,7 +33,7 @@
 
 import pool from '@/lib/db';
 import type { Queryable } from '@/backend/integrations/composio/connection-store';
-import { analyticsProviderSelector, isXEnabled, isYouTubeEnabled, isRedditEnabled, isLinkedInEnabled } from '@/backend/integrations/providers/integration-config';
+import { isPlatformInsightsEnabled } from '@/backend/insights/sync/adapter-factory';
 import { resolveComposioConfig, type ComposioConfig } from '@/backend/integrations/composio/composio-config';
 import { createComposioGateway, type ComposioGateway } from '@/backend/integrations/composio/composio-client';
 import { resolveFacebookManagedPage } from '@/backend/integrations/composio/facebook-page-resolver';
@@ -42,26 +42,29 @@ import { resolveXUser } from '@/backend/integrations/composio/x-user-resolver';
 import { resolveRedditUser } from '@/backend/integrations/composio/reddit-user-resolver';
 
 /**
- * Platforms whose Composio connections should be projected into insights_accounts.
- * X (Twitter), YouTube, and LinkedIn are only bridged when their rollout flag is
- * ON (ARIES_X_ENABLED / ARIES_YOUTUBE_ENABLED / ARIES_LINKEDIN_ENABLED), computed
- * dynamically by `bridgedPlatforms` below — the const itself is never mutated, so
- * a flag-OFF environment is byte-identical to the FB-only bridge.
+ * Unconditionally-bridged platforms when ANALYTICS_PROVIDER=composio. Exported
+ * for test introspection. Composio-only platforms (x, youtube, reddit, linkedin)
+ * are NOT listed here because they are conditional on both their rollout flag AND
+ * COMPOSIO_ENABLED — they are included in the dynamic bridgedPlatforms() result
+ * only when both conditions are met. See bridgedPlatforms() below.
  */
 export const BRIDGED_PLATFORMS = ['facebook'] as const;
 
 /**
- * The bridged-platform list for this env: FB always; X only when ARIES_X_ENABLED;
- * YouTube only when ARIES_YOUTUBE_ENABLED; Reddit only when ARIES_REDDIT_ENABLED;
- * LinkedIn only when ARIES_LINKEDIN_ENABLED.
+ * Full bridged-platform list for this env, computed per-platform using the same
+ * `is<P>InsightsEnabled` predicates as the adapter factory (via
+ * isPlatformInsightsEnabled). The two can therefore never drift.
+ *
+ *   facebook → bridged iff ANALYTICS_PROVIDER=composio
+ *   x        → bridged iff ARIES_X_ENABLED + COMPOSIO_ENABLED
+ *   youtube  → bridged iff ARIES_YOUTUBE_ENABLED + COMPOSIO_ENABLED
+ *   reddit   → bridged iff ARIES_REDDIT_ENABLED + COMPOSIO_ENABLED
+ *   linkedin → bridged iff ARIES_LINKEDIN_ENABLED + COMPOSIO_ENABLED
  */
 function bridgedPlatforms(env: NodeJS.ProcessEnv): string[] {
-  const list: string[] = [...BRIDGED_PLATFORMS];
-  if (isXEnabled(env)) list.push('x');
-  if (isYouTubeEnabled(env)) list.push('youtube');
-  if (isRedditEnabled(env)) list.push('reddit');
-  if (isLinkedInEnabled(env)) list.push('linkedin');
-  return list;
+  return ['facebook', 'x', 'youtube', 'reddit', 'linkedin'].filter(
+    (p) => isPlatformInsightsEnabled(p, env),
+  );
 }
 
 interface BridgeRow {
@@ -102,20 +105,24 @@ function log(obj: Record<string, unknown>): void {
  * connections. Safe to call every tick: the UNIQUE (tenant_id, platform,
  * external_account_id) constraint collapses re-runs onto the existing row.
  *
- * Gated by the same off-switch as the adapter (ANALYTICS_PROVIDER=composio):
- * when analytics is not on Composio this is a no-op, so nothing is populated and
- * the worker stays a clean no-op (no failed sync runs for a disabled path).
+ * Gated per-platform by the same predicates the adapter factory uses (via
+ * isPlatformInsightsEnabled), so the bridge and adapter selections can never
+ * drift:
+ *   - Facebook is bridged only when ANALYTICS_PROVIDER=composio.
+ *   - Composio-only platforms (x, youtube, reddit, linkedin) are bridged only
+ *     when their rollout flag AND COMPOSIO_ENABLED are both on — independent of
+ *     ANALYTICS_PROVIDER, which governs facebook/instagram only.
+ * When no platform is enabled the function is a clean no-op (no DB query issued).
  */
 export async function ensureInsightsAccountsForConnectedPlatforms(
   db: Queryable = pool,
   env: NodeJS.ProcessEnv = process.env,
   deps: EnsureAccountsDeps = {},
 ): Promise<EnsureAccountsResult> {
-  if (analyticsProviderSelector(env) !== 'composio') {
-    return { considered: 0, upserted: 0, resolved: 0, skippedNoPage: 0, skippedReason: 'analytics_provider_not_composio' };
-  }
-
   const platforms = bridgedPlatforms(env);
+  if (platforms.length === 0) {
+    return { considered: 0, upserted: 0, resolved: 0, skippedNoPage: 0, skippedReason: 'no_enabled_analytics_platforms' };
+  }
   const placeholders = platforms.map((_, i) => `$${i + 1}`).join(', ');
   // NOTE: external_account_id is intentionally NOT filtered here — a null Page id
   // is back-healed below rather than skipped (the prod connection data gap).

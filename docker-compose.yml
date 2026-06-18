@@ -525,7 +525,7 @@ services:
       # X (Twitter) analytics + comment replies (#632/#633), read by the
       # insights-sync worker's X adapter (backend/insights/adapters/x). The X
       # insights path (account bridge + adapter) turns on ONLY when
-      # ARIES_X_ENABLED=true AND ANALYTICS_PROVIDER=composio; otherwise dormant.
+      # ARIES_X_ENABLED=true AND COMPOSIO_ENABLED=true; otherwise dormant.
       # AUTH_CONFIG_ID is the tenant's Composio auth config; the *_ACTION slugs
       # are optional (verified code defaults: TWITTER_POST_LOOKUP_BY_POST_ID(S),
       # TWITTER_RECENT_SEARCH).
@@ -537,7 +537,7 @@ services:
       # YouTube analytics + comments (#637/#638), read by the insights-sync
       # worker's YouTube adapter (backend/insights/adapters/youtube). The YouTube
       # insights path (account bridge + adapter) turns on ONLY when
-      # ARIES_YOUTUBE_ENABLED=true AND ANALYTICS_PROVIDER=composio; otherwise
+      # ARIES_YOUTUBE_ENABLED=true AND COMPOSIO_ENABLED=true; otherwise
       # dormant. AUTH_CONFIG_ID is the tenant's Composio auth config; the *_ACTION
       # slugs are optional (verified code defaults: YOUTUBE_LIST_CHANNEL_VIDEOS,
       # YOUTUBE_GET_VIDEO_DETAILS_BATCH, YOUTUBE_LIST_COMMENT_THREADS2).
@@ -549,7 +549,7 @@ services:
       # Reddit analytics + comments (#642/#643), read by the insights-sync worker's
       # Reddit adapter (backend/insights/adapters/reddit). The Reddit insights path
       # (account bridge + adapter) turns on ONLY when ARIES_REDDIT_ENABLED=true AND
-      # ANALYTICS_PROVIDER=composio; otherwise dormant. REUSES ARIES_REDDIT_ENABLED
+      # COMPOSIO_ENABLED=true; otherwise dormant. REUSES ARIES_REDDIT_ENABLED
       # from the #641 publish path (no new flag). This flag MUST be set on the
       # worker (not just aries-app): the worker process runs the insights sync, so
       # without it here the sidecar reads it false and Reddit insights stay dormant
@@ -564,7 +564,7 @@ services:
       # LinkedIn analytics (#647), read by the insights-sync worker's LinkedIn
       # adapter (backend/insights/adapters/linkedin). The LinkedIn insights path
       # (account bridge + adapter) turns on ONLY when ARIES_LINKEDIN_ENABLED=true
-      # AND ANALYTICS_PROVIDER=composio; otherwise dormant. AUTH_CONFIG_ID is the
+      # AND COMPOSIO_ENABLED=true; otherwise dormant. AUTH_CONFIG_ID is the
       # tenant's Composio auth config; POST_INSIGHTS_ACTION is optional (verified
       # code default: LINKEDIN_LIST_REACTIONS). Personal-reactions-only — there is
       # no list-comments slug (LinkedIn has no Composio list-comments action, #648).
