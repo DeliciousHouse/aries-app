@@ -342,8 +342,10 @@ export class XInsightsAdapter implements InsightsAdapter {
     if (!conversationId) conversationId = externalPostId;
 
     // Exclude our own tweets (the root + any self-replies) from "comments".
-    const ownUserId = this.ctx.pageId?.trim() || null;
-    const query = `conversation_id:${conversationId}` + (ownUserId ? ` -from:${ownUserId}` : '');
+    // pageId stores the X username/handle (e.g. "sugarleather"); the X recent
+    // search `-from:<handle>` operator requires the handle, not the numeric id.
+    const ownUsername = this.ctx.pageId?.trim() || null;
+    const query = `conversation_id:${conversationId}` + (ownUsername ? ` -from:${ownUsername}` : '');
 
     const data = await this.exec('list_comments', {
       query,
