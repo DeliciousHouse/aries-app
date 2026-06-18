@@ -26,6 +26,7 @@ import {
 } from '@/backend/integrations/providers';
 import { IntegrationError } from '@/backend/integrations/providers/errors';
 import { notConnectedAccount } from '@/backend/integrations/composio/connection-store';
+import { platformPrerequisites } from '@/backend/integrations/composio/capability-preflight';
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -154,9 +155,10 @@ export async function handleComposioList(loader?: TenantContextLoader): Promise<
   // Merge stored rows with not-connected placeholders so the UI can render
   // every supported platform regardless of whether a row exists yet.
   const byPlatform = new Map(stored.map((c) => [c.platform, c]));
-  const connections = connectablePlatforms().map(
-    (platform) => byPlatform.get(platform) ?? notConnectedAccount(tenantId, externalUserId, platform, 'composio'),
-  );
+  const connections = connectablePlatforms().map((platform) => {
+    const account = byPlatform.get(platform) ?? notConnectedAccount(tenantId, externalUserId, platform, 'composio');
+    return { ...account, prerequisites: platformPrerequisites(platform) };
+  });
 
   return json({
     status: 'ok',
