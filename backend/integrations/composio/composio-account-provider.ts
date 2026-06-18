@@ -35,6 +35,10 @@ import { resolveLinkedInAuthorUrn } from './linkedin-author-resolver';
 import { isLinkedInEnabled } from '../providers/integration-config';
 import pool from '@/lib/db';
 
+// Genuinely no Composio-managed shared credentials → operator must register a
+// custom OAuth app. Today only X/twitter. (Reddit HAS managed auth.)
+const CUSTOM_OAUTH_PLATFORMS: ReadonlySet<IntegrationPlatform> = new Set(['x']);
+
 export class ComposioAccountProvider implements AccountConnectionProvider {
   readonly kind = 'composio' as const;
 
@@ -66,13 +70,22 @@ export class ComposioAccountProvider implements AccountConnectionProvider {
       try {
         authConfigId = await this.gateway.findOrCreateManagedAuthConfig(this.config.toolkitSlugFor(platform));
       } catch {
-        // Custom-OAuth toolkits (e.g. twitter/X, reddit) have no Composio-managed
-        // shared credentials. Throw a frontend-safe, actionable error that names
-        // the env var the operator must set — never leak the raw SDK error text.
+        // Throw a frontend-safe, actionable error — never leak the raw SDK error text.
         const envKey = `COMPOSIO_${platform.toUpperCase()}_AUTH_CONFIG_ID`;
+        if (CUSTOM_OAUTH_PLATFORMS.has(platform)) {
+          // X/twitter has no Composio-managed shared credentials; operator must
+          // register a custom OAuth app and supply the auth-config id.
+          throw new ComposioConfigError(
+            `${platform} requires a custom OAuth app and is not configured for Composio-managed credentials. ` +
+              `Set ${envKey} to the Composio auth-config id for this platform.`,
+          );
+        }
+        // Reddit and other platforms with Composio-managed auth: provisioning
+        // failed transiently. Signal a retryable error; name the env var only as
+        // an explicit override, not as a required step.
         throw new ComposioConfigError(
-          `${platform} requires a custom OAuth app and is not configured for Composio-managed credentials. ` +
-            `Set ${envKey} to the Composio auth-config id for this platform.`,
+          `Could not provision Composio-managed auth for ${platform}. ` +
+            `Please retry; if this persists, set ${envKey} to an explicit Composio auth-config id.`,
         );
       }
     }
