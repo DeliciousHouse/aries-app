@@ -32,6 +32,7 @@ import {
   ComposioToolError,
 } from './errors';
 import { resolveFacebookManagedPage } from './facebook-page-resolver';
+import { synthesizeStillToVideo, type StillToVideoResult } from '../still-to-video';
 import pool from '@/lib/db';
 
 function pickId(data: unknown, keys: string[]): string | null {
@@ -44,7 +45,8 @@ function pickId(data: unknown, keys: string[]): string | null {
   }
   // Some tools nest the payload under data/response/result, and Reddit nests the
   // created object under `json` (data.json.data.name → the t3_ fullname).
-  for (const nestKey of ['data', 'response', 'result', 'json']) {
+  // YouTube nests the created object under `video` (data.video.id → the videoId).
+  for (const nestKey of ['data', 'response', 'result', 'json', 'video']) {
     const nested = obj[nestKey];
     if (nested && typeof nested === 'object') {
       const found = pickId(nested, keys);
@@ -95,6 +97,62 @@ function linkedinCommentary(content: string): string {
   return `${text.slice(0, LINKEDIN_COMMENTARY_MAX - 1)}…`;
 }
 
+const YOUTUBE_TITLE_MAX = 100; // YouTube hard-limits a video title to 100 chars.
+const YOUTUBE_DESCRIPTION_MAX = 5000;
+const YOUTUBE_FALLBACK_TITLE = 'New post';
+const YOUTUBE_DEFAULT_CATEGORY_ID = '22'; // People & Blogs — a safe general default.
+
+/**
+ * The YouTube Data API rejects `<`/`>` anywhere in snippet.title/description
+ * (HTTP 400 invalidVideoMetadata). Strip them so a caption like "buy 1 get 1 <3"
+ * cannot turn into a deterministically-failing payload (which would re-fail on
+ * every worker re-claim → a poison-retry loop, since the failure is classified
+ * never-posted). Removed, not escaped — YouTube has no entity decoding here.
+ */
+function stripYouTubeAngleBrackets(text: string): string {
+  return text.replace(/[<>]/g, '');
+}
+
+/**
+ * YouTube `title` is REQUIRED and ≤ 100 chars. Take the first non-empty line of
+ * the content, collapse internal whitespace, strip forbidden angle brackets, and
+ * truncate with the shared `…` idiom. Pure — no I/O — so it is unit-testable.
+ */
+function youtubeTitleFromContent(content: string): string {
+  const firstLine = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  const collapsed = stripYouTubeAngleBrackets((firstLine ?? '').replace(/\s+/g, ' ')).trim();
+  if (!collapsed) return YOUTUBE_FALLBACK_TITLE;
+  if (collapsed.length <= YOUTUBE_TITLE_MAX) return collapsed;
+  return `${collapsed.slice(0, YOUTUBE_TITLE_MAX - 1)}…`;
+}
+
+/** YouTube `description` is REQUIRED, ≤5000 chars, no angle brackets (full body kept). */
+function youtubeDescription(content: string): string {
+  const text = stripYouTubeAngleBrackets(content ?? '');
+  if (text.length <= YOUTUBE_DESCRIPTION_MAX) return text;
+  return `${text.slice(0, YOUTUBE_DESCRIPTION_MAX - 1)}…`;
+}
+
+/** YouTube `categoryId` is REQUIRED — operator-overridable, defaults to '22'. */
+function youtubeCategoryId(env: NodeJS.ProcessEnv = process.env): string {
+  return env.COMPOSIO_YOUTUBE_CATEGORY_ID?.trim() || YOUTUBE_DEFAULT_CATEGORY_ID;
+}
+
+/**
+ * YouTube `privacyStatus` is REQUIRED. Defaults to `public` (parity with how the
+ * other platforms publish live); an operator can set `unlisted`/`private` via
+ * COMPOSIO_YOUTUBE_PRIVACY_STATUS (recommended for first live verification).
+ * Any unrecognized value falls back to `public`.
+ */
+function youtubePrivacyStatus(env: NodeJS.ProcessEnv = process.env): string {
+  const raw = env.COMPOSIO_YOUTUBE_PRIVACY_STATUS?.trim().toLowerCase();
+  if (raw === 'public' || raw === 'private' || raw === 'unlisted') return raw;
+  return 'public';
+}
+
 export class ComposioPublisherProvider implements PublisherProvider {
   readonly kind = 'composio' as const;
 
@@ -102,6 +160,9 @@ export class ComposioPublisherProvider implements PublisherProvider {
     private readonly gateway: ComposioGateway,
     private readonly config: ComposioConfig,
     private readonly db: Queryable = pool,
+    // Still→video synthesis for YouTube publish. Injected (defaults to the real
+    // ffmpeg-backed helper) so unit tests can fake it without a binary on CI.
+    private readonly synthesizeVideo: typeof synthesizeStillToVideo = synthesizeStillToVideo,
   ) {}
 
   supports(platform: IntegrationPlatform): boolean {
@@ -373,6 +434,78 @@ export class ComposioPublisherProvider implements PublisherProvider {
         author,
         commentary: linkedinCommentary(input.content),
         ...(descriptor ? { images: [descriptor] } : {}),
+      };
+    } else if (input.platform === 'youtube') {
+      // YouTube: the native post is a VIDEO upload, but the Aries pipeline emits
+      // a single still image. We synthesize a short Ken-Burns MP4 from the still
+      // (backend/integrations/still-to-video.ts), stage it to Composio's S3 (the
+      // `videoFile`/`videoFilePath` input is a file_uploadable, so a bare path is
+      // rejected unless pre-staged — same as X media / LinkedIn images), then
+      // upload via YOUTUBE_UPLOAD_VIDEO / YOUTUBE_MULTIPART_UPLOAD_VIDEO.
+      //
+      // Synthesis + staging both run BEFORE any video exists on the channel, so
+      // every failure here is a ComposioToolError → definitely-never-posted
+      // (safe rollback + worker re-claim). ONLY the final executeTool below is
+      // the outcome-unknown boundary. YouTube has no native scheduling here, so
+      // `scheduledFor` is ignored and the status resolves to `published`.
+      if (input.mediaUrls.length === 0) {
+        // Nothing to make a video from — refuse rather than upload an empty clip.
+        throw new ComposioCapabilityMissingError(
+          'youtube',
+          'a creative image is required to synthesize the YouTube video',
+        );
+      }
+      slug = this.requireSlug(input.platform, 'publish_post', 'publish videos');
+
+      let synthesized: StillToVideoResult;
+      try {
+        synthesized = await this.synthesizeVideo({ image: input.mediaUrls[0] });
+      } catch (error) {
+        // Synthesis never created a video — definitely-never-posted.
+        throw new ComposioToolError(
+          slug,
+          error instanceof Error ? error.message : 'failed to synthesize video from image',
+        );
+      }
+
+      let descriptor: ComposioFileDescriptor;
+      try {
+        descriptor = await this.gateway.uploadFile({
+          file: synthesized.path,
+          toolSlug: slug,
+          toolkitSlug: this.config.toolkitSlugFor(input.platform),
+        });
+      } catch (error) {
+        // Staging to S3 never created a video — definitely-never-posted.
+        await synthesized.cleanup();
+        throw new ComposioToolError(
+          slug,
+          error instanceof Error ? error.message : 'failed to stage video for upload',
+        );
+      }
+      // Composio holds the bytes in its S3 once staged; drop the local temp file
+      // before the (slower) upload call so a failure there never leaks it.
+      await synthesized.cleanup();
+
+      // The two YouTube upload actions name the file arg differently but take the
+      // same {name,mimetype,s3key} descriptor:
+      //   YOUTUBE_UPLOAD_VIDEO           → videoFilePath
+      //   YOUTUBE_MULTIPART_UPLOAD_VIDEO → videoFile
+      // Key off the configured slug so either works via
+      // COMPOSIO_YOUTUBE_PUBLISH_POST_ACTION.
+      const videoArgKey = slug.toUpperCase().includes('MULTIPART') ? 'videoFile' : 'videoFilePath';
+      // The created videoId comes back nested (commonly data.video.id) — covered
+      // by the `video` nest key added to pickId above.
+      idKeys = ['videoId', 'video_id', 'id'];
+      toolArgs = {
+        [videoArgKey]: descriptor,
+        title: youtubeTitleFromContent(input.content),
+        description: youtubeDescription(input.content),
+        // `tags` is required by YOUTUBE_UPLOAD_VIDEO (optional for multipart); an
+        // empty array satisfies the schema without inventing keywords.
+        tags: [],
+        categoryId: youtubeCategoryId(),
+        privacyStatus: youtubePrivacyStatus(),
       };
     } else if (input.platform === 'instagram') {
       // Instagram: caption + media_urls + placement + media_type (unchanged).

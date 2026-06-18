@@ -34,7 +34,7 @@ import type {
 } from '@/frontend/aries-v1/view-models/calendar';
 import { RedditIcon, XIcon } from '@/frontend/components/Icons';
 import RescheduleDrawer from '@/frontend/aries-v1/reschedule-drawer';
-import type { AllowedTargetPlatform } from '@/backend/social-content/scheduled-posts';
+import { ALLOWED_TARGET_PLATFORMS, type AllowedTargetPlatform } from '@/backend/social-content/scheduled-posts';
 import {
   formatTimeInTenantZone,
   tenantZoneDateKey,
@@ -567,11 +567,19 @@ function PublishNowButton({
     setErrorMessage(null);
     try {
       const url = `/api/social-content/jobs/${encodeURIComponent(jobId)}/posts/${encodeURIComponent(postId)}/schedule`;
+      // Pass the post's real targets through (filtered to the known set). The
+      // server-side normalizeTargetPlatforms is the flag-aware gate, so a target
+      // whose rollout flag is off (e.g. youtube when ARIES_YOUTUBE_ENABLED is
+      // off) is rejected with invalid_platforms rather than silently rerouted —
+      // previously anything outside fb/ig was coerced to facebook (a wrong-network
+      // mis-publish once x/reddit/linkedin/youtube became selectable targets).
+      const known = new Set<string>(ALLOWED_TARGET_PLATFORMS);
       const filtered = targetPlatforms.filter(
-        (p): p is 'facebook' | 'instagram' => p === 'facebook' || p === 'instagram',
+        (p): p is AllowedTargetPlatform => known.has(p),
       );
-      const fallback: 'facebook' | 'instagram' =
-        platform === 'facebook' || platform === 'instagram' ? platform : 'facebook';
+      const fallback: AllowedTargetPlatform = known.has(platform)
+        ? (platform as AllowedTargetPlatform)
+        : 'facebook';
       const platforms = filtered.length > 0 ? filtered : [fallback];
       const response = await fetch(url, {
         method: 'PATCH',

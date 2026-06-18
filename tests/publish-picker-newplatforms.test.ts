@@ -10,8 +10,9 @@
  *   3. RescheduleDrawer with allowedPlatforms=[fb,ig] explicit renders EXACTLY 2 options.
  *   4. CalendarPresenter prop threading: allowedPublishPlatforms flows through to
  *      RescheduleDrawer's allowedPlatforms (source-text assertion).
- *   5. calendar/page.tsx: ARIES_X_ENABLED=1 includes 'x' in allowedPublishPlatforms;
- *      unset flag excludes it; 'youtube' is never a publish target.
+ *   5. calendar/page.tsx: each ARIES_<P>_ENABLED flag includes its platform in
+ *      allowedPublishPlatforms; an unset flag excludes it. 'youtube' is a publish
+ *      target only when ARIES_YOUTUBE_ENABLED is on (#636 still→video publish).
  *
  * Test strategy:
  *   - Source-text assertions for structural/structural-prop-threading tests (3,4,5).
@@ -55,10 +56,11 @@ const rescheduleDrawer = read('frontend', 'aries-v1', 'reschedule-drawer.tsx');
 // Source-text: calendar page flag wiring (test 5)
 // ---------------------------------------------------------------------------
 
-test('calendar page imports the three new platform flag functions', () => {
+test('calendar page imports the four new platform flag functions', () => {
   assert.match(calendarPage, /isXEnabled/);
   assert.match(calendarPage, /isRedditEnabled/);
   assert.match(calendarPage, /isLinkedInEnabled/);
+  assert.match(calendarPage, /isYouTubeEnabled/);
 });
 
 test('calendar page builds allowedPublishPlatforms spreading each flag conditionally', () => {
@@ -67,15 +69,17 @@ test('calendar page builds allowedPublishPlatforms spreading each flag condition
   assert.match(calendarPage, /isXEnabled\(\)/);
   assert.match(calendarPage, /isRedditEnabled\(\)/);
   assert.match(calendarPage, /isLinkedInEnabled\(\)/);
+  assert.match(calendarPage, /isYouTubeEnabled\(\)/);
 });
 
 test('calendar page passes allowedPublishPlatforms down to AriesCalendarScreen', () => {
   assert.match(calendarPage, /allowedPublishPlatforms={allowedPublishPlatforms}/);
 });
 
-test('calendar page never includes youtube as a publish target', () => {
-  // YouTube is insights-only; it must not appear in the allowedPublishPlatforms array
-  assert.doesNotMatch(calendarPage, /['"]youtube['"]/);
+test('calendar page includes youtube as a publish target only behind isYouTubeEnabled() (#636)', () => {
+  // YouTube publish (#636) is flag-gated, mirroring x/reddit/linkedin: its spread
+  // is guarded by isYouTubeEnabled() so it is dormant (absent) when the flag is off.
+  assert.match(calendarPage, /isYouTubeEnabled\(\)\s*\?\s*\(\['youtube'\]\s+as\s+const\)\s*:\s*\[\]/);
 });
 
 // ---------------------------------------------------------------------------
@@ -98,6 +102,23 @@ test('CalendarPresenter forwards allowedPlatforms prop to RescheduleDrawer insta
   assert.ok(matches && matches.length >= 2, 'allowedPlatforms must be threaded into BOTH RescheduleDrawer usages');
 });
 
+test('handlePublishNow no longer coerces non-fb/ig targets to facebook (#636 mis-publish guard)', () => {
+  // A youtube/x/reddit/linkedin post clicked "Publish now" must pass its real
+  // target through (the server-side normalizeTargetPlatforms is the flag gate),
+  // NOT be silently rerouted to Facebook. Guards against reintroducing the narrow
+  // `p === 'facebook' || p === 'instagram'` filter in handlePublishNow.
+  assert.match(calendarPresenter, /ALLOWED_TARGET_PLATFORMS/);
+  const publishNowBody = calendarPresenter.slice(
+    calendarPresenter.indexOf('async function handlePublishNow'),
+    calendarPresenter.indexOf('async function handlePublishNow') + 1200,
+  );
+  assert.doesNotMatch(
+    publishNowBody,
+    /p === 'facebook' \|\| p === 'instagram'/,
+    'handlePublishNow must not narrow targets to fb/ig (that silently rerouted youtube to facebook)',
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Source-text: RescheduleDrawer structural assertions
 // ---------------------------------------------------------------------------
@@ -110,13 +131,15 @@ test('RescheduleDrawer defaults allowedPlatforms to facebook+instagram when abse
   assert.match(rescheduleDrawer, /props\.allowedPlatforms\s*\?\?\s*\['facebook',\s*'instagram'\]/);
 });
 
-test('RescheduleDrawer PLATFORM_OPTIONS includes all five platforms (fb/ig/x/reddit/linkedin)', () => {
-  // All five must be entries in the options table
+test('RescheduleDrawer PLATFORM_OPTIONS includes all six platforms (fb/ig/x/reddit/linkedin/youtube)', () => {
+  // All six must be entries in the options table (visibility is still filtered to
+  // the allowed set, so youtube only renders when ARIES_YOUTUBE_ENABLED is on).
   assert.match(rescheduleDrawer, /id:\s*'instagram'/);
   assert.match(rescheduleDrawer, /id:\s*'facebook'/);
   assert.match(rescheduleDrawer, /id:\s*'x'/);
   assert.match(rescheduleDrawer, /id:\s*'reddit'/);
   assert.match(rescheduleDrawer, /id:\s*'linkedin'/);
+  assert.match(rescheduleDrawer, /id:\s*'youtube'/);
 });
 
 test('RescheduleDrawer renders visibleOptions filtered to the allowed set', () => {
@@ -148,8 +171,8 @@ test('isLinkedInEnabled returns false when ARIES_LINKEDIN_ENABLED is unset', asy
   assert.equal(isLinkedInEnabled(mkEnv({})), false);
 });
 
-test('calendar page allowedPublishPlatforms logic: ARIES_X_ENABLED=1 includes x but never youtube', async () => {
-  const { isXEnabled, isRedditEnabled, isLinkedInEnabled } = await import(
+test('calendar page allowedPublishPlatforms logic: ARIES_X_ENABLED=1 includes x; youtube only with ARIES_YOUTUBE_ENABLED', async () => {
+  const { isXEnabled, isRedditEnabled, isLinkedInEnabled, isYouTubeEnabled } = await import(
     '@/backend/integrations/providers/integration-config'
   );
   const env = mkEnv({ ARIES_X_ENABLED: '1' });
@@ -159,15 +182,33 @@ test('calendar page allowedPublishPlatforms logic: ARIES_X_ENABLED=1 includes x 
     ...(isXEnabled(env) ? ['x'] : []),
     ...(isRedditEnabled(env) ? ['reddit'] : []),
     ...(isLinkedInEnabled(env) ? ['linkedin'] : []),
+    ...(isYouTubeEnabled(env) ? ['youtube'] : []),
   ];
   assert.ok(allowedPublishPlatforms.includes('x'), "x must be included when ARIES_X_ENABLED='1'");
   assert.ok(!allowedPublishPlatforms.includes('reddit'), 'reddit must not be included when flag off');
   assert.ok(!allowedPublishPlatforms.includes('linkedin'), 'linkedin must not be included when flag off');
-  assert.ok(!allowedPublishPlatforms.includes('youtube'), 'youtube must never be a publish target');
+  assert.ok(!allowedPublishPlatforms.includes('youtube'), 'youtube must be absent when ARIES_YOUTUBE_ENABLED is off');
+});
+
+test('calendar page allowedPublishPlatforms logic: ARIES_YOUTUBE_ENABLED=1 includes youtube (#636)', async () => {
+  const { isXEnabled, isRedditEnabled, isLinkedInEnabled, isYouTubeEnabled } = await import(
+    '@/backend/integrations/providers/integration-config'
+  );
+  const env = mkEnv({ ARIES_YOUTUBE_ENABLED: '1' });
+  const allowedPublishPlatforms: string[] = [
+    'facebook',
+    'instagram',
+    ...(isXEnabled(env) ? ['x'] : []),
+    ...(isRedditEnabled(env) ? ['reddit'] : []),
+    ...(isLinkedInEnabled(env) ? ['linkedin'] : []),
+    ...(isYouTubeEnabled(env) ? ['youtube'] : []),
+  ];
+  assert.ok(allowedPublishPlatforms.includes('youtube'), "youtube must be included when ARIES_YOUTUBE_ENABLED='1'");
+  assert.ok(!allowedPublishPlatforms.includes('x'), 'x must not be included when its flag is off');
 });
 
 test('calendar page allowedPublishPlatforms logic: all flags OFF yields facebook+instagram only', async () => {
-  const { isXEnabled, isRedditEnabled, isLinkedInEnabled } = await import(
+  const { isXEnabled, isRedditEnabled, isLinkedInEnabled, isYouTubeEnabled } = await import(
     '@/backend/integrations/providers/integration-config'
   );
   const env = mkEnv({});
@@ -177,6 +218,7 @@ test('calendar page allowedPublishPlatforms logic: all flags OFF yields facebook
     ...(isXEnabled(env) ? ['x'] : []),
     ...(isRedditEnabled(env) ? ['reddit'] : []),
     ...(isLinkedInEnabled(env) ? ['linkedin'] : []),
+    ...(isYouTubeEnabled(env) ? ['youtube'] : []),
   ];
   assert.deepEqual(
     allowedPublishPlatforms,

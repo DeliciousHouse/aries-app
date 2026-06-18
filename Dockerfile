@@ -34,6 +34,7 @@ RUN set -eux; \
     ca-certificates \
     chromium \
     curl \
+    ffmpeg \
     ripgrep \
     wget \
   && rm -rf /var/lib/apt/lists/*; \
