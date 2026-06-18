@@ -291,6 +291,7 @@ test('#631 metaPlatform routing: provider=x reaches the seam with platform=x, NO
     { tenantId: '42', provider: 'x', content: 'hello x', mediaUrls: [], scheduledFor: null },
     {
       selector: () => 'composio',
+      composioEnabled: () => true,
       directPublish: async () => {
         throw new Error('x must never reach the direct-Meta path');
       },
@@ -342,6 +343,7 @@ test('#646 metaPlatform routing: provider=linkedin reaches the seam with platfor
     { tenantId: '42', provider: 'linkedin', content: 'hello linkedin', mediaUrls: [], scheduledFor: null },
     {
       selector: () => 'composio',
+      composioEnabled: () => true,
       directPublish: async () => {
         throw new Error('linkedin must never reach the direct-Meta path');
       },
@@ -387,4 +389,165 @@ test('auto selector also routes through the seam (not the direct path)', async (
   // The auto provider can resolve to direct_meta internally; the mapped marker reflects that.
   assert.equal(out.connectionId, 'direct_meta:facebook');
   assert.equal(out.platformPostId, 'fb_auto');
+});
+
+// ── Regression tests for #671: per-platform publish routing decoupled ────────
+//
+// Before the fix, `dispatchPublish` applied the `direct_meta` fast path
+// unconditionally for all platforms.  An X/Reddit/LinkedIn request with
+// selector='direct_meta' (the shipped prod default) would call directPublish,
+// which reaches normalizeMetaProvider and throws 'unsupported_provider' (400) —
+// so those platforms could never publish regardless of COMPOSIO_ENABLED.
+//
+// The fix gates the direct_meta fast path on `!composioOnly`, and for
+// composio-only platforms (x, reddit, linkedin) routes to the Composio
+// publisher REGARDLESS of the global selector when Composio is enabled.
+
+test('#671 PROVING: x/reddit/linkedin bypass direct_meta fast path when composio is enabled', async () => {
+  // PROVING TEST — fails against pre-fix code.
+  //
+  // Before the fix:
+  //   if (selector() === 'direct_meta') return directPublish(request);  // ran for ALL platforms
+  //
+  // After the fix:
+  //   if (!composioOnly && selector() === 'direct_meta') ...             // composio-only platforms skip it
+  //
+  // With the pre-fix code, directCalled would be true and calls.length would be 0
+  // for each composio-only platform, causing both assertions to fail.
+
+  for (const p of ['x', 'reddit', 'linkedin'] as const) {
+    let directCalled = false;
+    const calls: PublishPostInput[] = [];
+
+    const recordingProvider = {
+      kind: 'composio',
+      supports: () => true,
+      publishPost: async (input: PublishPostInput) => {
+        calls.push(input);
+        return {
+          provider: 'composio' as const,
+          platform: p,
+          externalPostId: `${p}_post_671`,
+          externalCampaignId: null,
+          externalAdId: null,
+          status: 'published' as const,
+          url: null,
+          rawResponse: {},
+        };
+      },
+    } as unknown as PublisherProvider;
+
+    const out = await dispatchPublish(
+      { tenantId: '15', provider: p, content: `hello ${p}`, mediaUrls: [], scheduledFor: null },
+      {
+        selector: () => 'direct_meta',   // the prod default selector
+        composioEnabled: () => true,
+        directPublish: async () => {
+          directCalled = true;
+          // Return a plausible result so the pre-fix path can be inspected via
+          // assertion — we do NOT throw here so the test fails on the assertion,
+          // not on an unexpected exception from directPublish.
+          // provider must be a SupportedMetaProvider (facebook|instagram); p is
+          // always a composio-only platform here so this return is never reached
+          // after the fix (asserted below as directCalled===false).
+          return {
+            provider: 'facebook' as const,
+            mode: 'live' as const,
+            platformPostId: 'WRONG_direct_path',
+            scheduledFor: null,
+            connectionId: 'conn_wrong',
+          };
+        },
+        publisherProvider: () => recordingProvider,
+      },
+    );
+
+    assert.equal(
+      directCalled,
+      false,
+      `${p}: directPublish must NOT be called — composio-only platforms bypass the direct_meta fast path`,
+    );
+    assert.equal(calls.length, 1, `${p}: publisherProvider.publishPost must be called exactly once`);
+    assert.equal(calls[0].platform, p, `${p}: publishPost must receive platform=${p}`);
+    assert.equal(out.platformPostId, `${p}_post_671`, `${p}: result must map through from the composio provider`);
+    assert.ok(
+      out.connectionId.includes(`:${p}`),
+      `${p}: connectionId must reference ${p}, got: ${out.connectionId}`,
+    );
+  }
+});
+
+test('#671 facebook and instagram stay on the direct_meta path (not composio-only)', async () => {
+  // FB and IG are NOT composio-only platforms. Under `direct_meta` they must
+  // still take the direct path — no change from the pre-fix behavior for them.
+  for (const p of ['facebook', 'instagram'] as const) {
+    let directCalled = false;
+    let providerBuilt = false;
+    const directResult: MetaPublishSuccess = {
+      provider: p,
+      mode: 'live',
+      platformPostId: `${p}_direct_671`,
+      scheduledFor: null,
+      connectionId: `conn_oauth_${p}`,
+    };
+
+    const out = await dispatchPublish(
+      { tenantId: '15', provider: p, content: `hello ${p}`, mediaUrls: [], scheduledFor: null },
+      {
+        selector: () => 'direct_meta',
+        composioEnabled: () => true,
+        directPublish: async (_r) => {
+          directCalled = true;
+          return directResult;
+        },
+        publisherProvider: () => {
+          providerBuilt = true;
+          return stubProvider({} as PublishResult).provider;
+        },
+      },
+    );
+
+    assert.equal(directCalled, true, `${p}: directPublish must be called on the direct_meta path`);
+    assert.equal(providerBuilt, false, `${p}: composio seam must NOT be built under direct_meta`);
+    assert.deepEqual(out, directResult, `${p}: result must be byte-identical to the direct path`);
+  }
+});
+
+test('#671 composio-only platform with composio disabled throws terminal provider_not_configured', async () => {
+  // When Composio is disabled (COMPOSIO_ENABLED=false / composioEnabled()===false),
+  // dispatching to a composio-only platform (x, reddit, linkedin) must throw a
+  // terminal MetaPublishError before contacting any provider.  This signals to
+  // handlers that the post was NEVER sent (safe to surface; never auto-retry).
+  for (const p of ['x', 'reddit', 'linkedin'] as const) {
+    let directCalled = false;
+    let providerBuilt = false;
+
+    await assert.rejects(
+      () =>
+        dispatchPublish(
+          { tenantId: '15', provider: p, content: `hello ${p}`, mediaUrls: [], scheduledFor: null },
+          {
+            selector: () => 'direct_meta',
+            composioEnabled: () => false,
+            directPublish: async () => {
+              directCalled = true;
+              throw new Error('directPublish must not be called for composio-only platform');
+            },
+            publisherProvider: () => {
+              providerBuilt = true;
+              return stubProvider({} as PublishResult).provider;
+            },
+          },
+        ),
+      (err: unknown) => {
+        assert.ok(err instanceof MetaPublishError, `${p}: must throw MetaPublishError`);
+        assert.equal(err.retryable, false, `${p}: error must be non-retryable (terminal)`);
+        assert.equal(err.code, 'provider_not_configured', `${p}: error code must be provider_not_configured`);
+        return true;
+      },
+    );
+
+    assert.equal(directCalled, false, `${p}: directPublish must not be called`);
+    assert.equal(providerBuilt, false, `${p}: publisherProvider must not be constructed`);
+  }
 });

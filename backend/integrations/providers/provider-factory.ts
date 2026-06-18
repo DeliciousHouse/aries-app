@@ -45,6 +45,7 @@ import {
   createComposioAnalyticsProvider,
   createComposioCapabilityProvider,
 } from '../composio';
+import type { IntegrationPlatform } from './types';
 
 /**
  * The effective publish selector after applying the master switch. Exposed so
@@ -98,4 +99,37 @@ export function getCapabilityProvider(
 ): CapabilityProvider {
   if (!isComposioEnabled(env)) return new DirectMetaProvider();
   return createComposioCapabilityProvider(env);
+}
+
+/**
+ * Platforms that must ALWAYS route through Composio for publishing, regardless
+ * of the global PUBLISH_PROVIDER selector. Facebook and Instagram keep the
+ * selector-driven path (direct_meta by default) — no change to their behavior.
+ *
+ * YouTube and TikTok are intentionally excluded here: their publisher branches
+ * do not exist yet (tracked in #636 / #647). They join this set only when a
+ * Composio publisher branch is implemented and tested for them.
+ */
+const COMPOSIO_ONLY_PUBLISH_PLATFORMS = new Set<IntegrationPlatform>(['x', 'reddit', 'linkedin']);
+
+/** True when the platform can only publish through Composio (not direct Meta). */
+export function isComposioOnlyPublishPlatform(platform: IntegrationPlatform): boolean {
+  return COMPOSIO_ONLY_PUBLISH_PLATFORMS.has(platform);
+}
+
+/**
+ * Platform-aware publisher factory. Composio-only platforms (x, reddit,
+ * linkedin) always return the Composio publisher, regardless of the global
+ * PUBLISH_PROVIDER selector. All other platforms (facebook, instagram, …)
+ * delegate to the existing selector-driven getPublisherProvider so their
+ * behavior is byte-identical to before this change.
+ */
+export function getPublisherProviderForPlatform(
+  platform: IntegrationPlatform,
+  env: NodeJS.ProcessEnv = process.env,
+): PublisherProvider {
+  if (isComposioOnlyPublishPlatform(platform)) {
+    return createComposioPublisherProvider(env);
+  }
+  return getPublisherProvider(env);
 }
