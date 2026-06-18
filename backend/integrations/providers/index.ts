@@ -14,6 +14,8 @@ export * from './errors';
 export {
   parseFlag,
   isComposioEnabled,
+  isXEnabled,
+  connectablePlatforms,
   publishProviderSelector,
   analyticsProviderSelector,
   composioAuthConfigId,

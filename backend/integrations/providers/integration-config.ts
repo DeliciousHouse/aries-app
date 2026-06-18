@@ -10,7 +10,7 @@
  * (`1` | `true` | `yes` | `on`); see CLAUDE.md "Optional safety flags".
  */
 
-import type { IntegrationPlatform } from './types';
+import { INTEGRATION_PLATFORMS, type IntegrationPlatform } from './types';
 
 export type ProviderSelector = 'direct_meta' | 'composio' | 'auto';
 
@@ -29,6 +29,23 @@ function parseSelector(raw: string | undefined | null, fallback: ProviderSelecto
 /** Composio is only ever active when explicitly enabled. Default OFF. */
 export function isComposioEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return parseFlag(env.COMPOSIO_ENABLED);
+}
+
+/** X (Twitter) connect rollout flag. Default OFF — ships the platform dormant. */
+export function isXEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return parseFlag(env.ARIES_X_ENABLED);
+}
+
+/**
+ * Platforms an operator can actually connect right now. The single dormancy
+ * chokepoint for flag-gated platforms: when `ARIES_X_ENABLED` is OFF, `'x'` is
+ * filtered out everywhere (connect/capabilities/disconnect gate + the UI list),
+ * so the platform is byte-for-byte invisible until the flag flips on.
+ */
+export function connectablePlatforms(
+  env: NodeJS.ProcessEnv = process.env,
+): readonly IntegrationPlatform[] {
+  return isXEnabled(env) ? INTEGRATION_PLATFORMS : INTEGRATION_PLATFORMS.filter((p) => p !== 'x');
 }
 
 export function publishProviderSelector(env: NodeJS.ProcessEnv = process.env): ProviderSelector {
@@ -52,6 +69,7 @@ export function composioAuthConfigId(
     youtube: env.COMPOSIO_YOUTUBE_AUTH_CONFIG_ID,
     linkedin: env.COMPOSIO_LINKEDIN_AUTH_CONFIG_ID,
     reddit: env.COMPOSIO_REDDIT_AUTH_CONFIG_ID,
+    x: env.COMPOSIO_X_AUTH_CONFIG_ID,
   };
   const specific = perPlatform[platform]?.trim();
   if (specific) return specific;
