@@ -28,6 +28,7 @@ type Connection = {
   status: 'not_connected' | 'pending' | 'connected' | 'reauthorization_required' | 'error';
   externalAccountName: string | null;
   capabilities: Capabilities | null;
+  prerequisites?: string[];
 };
 
 type ListResponse = {
@@ -222,6 +223,13 @@ export default function ComposioConnectionsScreen() {
                     </ul>
                   )}
                 </>
+              )}
+              {!isConnected && conn.prerequisites && conn.prerequisites.length > 0 && (
+                <ul className="mt-4 space-y-1 text-xs text-slate-400">
+                  {conn.prerequisites.map((p, i) => (
+                    <li key={i}>• {p}</li>
+                  ))}
+                </ul>
               )}
             </div>
           );

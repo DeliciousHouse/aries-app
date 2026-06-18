@@ -47,6 +47,13 @@ const PLATFORM_WARNINGS: Partial<Record<IntegrationPlatform, string[]>> = {
   ],
 };
 
+
+/** The static per-platform connection prerequisites/advisories, available
+ *  regardless of connection state so the UI can show them BEFORE connect. */
+export function platformPrerequisites(platform: IntegrationPlatform): string[] {
+  return PLATFORM_WARNINGS[platform] ?? [];
+}
+
 export interface PreflightContext {
   config: ComposioConfig;
   platform: IntegrationPlatform;
