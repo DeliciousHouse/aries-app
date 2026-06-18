@@ -9,6 +9,8 @@ import type { Queryable } from '@/backend/integrations/composio/connection-store
 import { getAdapter, hasAdapter, isFacebookInsightsEnabled } from '@/backend/insights/sync/adapter-factory';
 import { FacebookInsightsAdapter } from '@/backend/insights/adapters/facebook/index';
 import { DEFAULT_LIST_MANAGED_PAGES_SLUG } from '@/backend/integrations/composio/facebook-page-resolver';
+import { DEFAULT_X_GET_ME_SLUG } from '@/backend/integrations/composio/x-user-resolver';
+import { DEFAULT_REDDIT_GET_ME_SLUG } from '@/backend/integrations/composio/reddit-user-resolver';
 import { fakeConfig, fakeGateway } from './composio/helpers';
 
 interface RecordedQuery {
@@ -331,6 +333,173 @@ test('LinkedIn bridge: when ARIES_LINKEDIN_ENABLED is off, the DB query does NOT
     !(select.params as unknown[]).includes('linkedin'),
     'linkedin is NOT in bridged-platform params when ARIES_LINKEDIN_ENABLED is off',
   );
+});
+
+// ── X back-heal (#670) ────────────────────────────────────────────────────────
+
+test('X bridge back-heals the username and upserts an insights_accounts row', async () => {
+  const db = recordingDb([
+    {
+      id: 20,
+      tenant_id: 15,
+      platform: 'x',
+      external_account_id: null,
+      external_account_name: null,
+      connected_account_id: 'ca_x',
+    },
+  ]);
+  const gateway = fakeGateway({
+    executeResult: {
+      successful: true,
+      error: null,
+      data: { data: { id: '123', username: 'sugarleather', name: 'Sugar & Leather' } },
+    },
+  });
+
+  const result = await ensureInsightsAccountsForConnectedPlatforms(
+    db,
+    { ANALYTICS_PROVIDER: 'composio', ARIES_X_ENABLED: '1' } as unknown as NodeJS.ProcessEnv,
+    { gateway, config: fakeConfig({ actions: {} }) },
+  );
+
+  assert.equal(result.resolved, 1);
+  assert.equal(result.upserted, 1);
+  assert.equal(result.skippedNoPage, 0);
+
+  // It called TWITTER_USER_LOOKUP_ME with the connection's connectedAccountId.
+  assert.equal(gateway.calls.length, 1);
+  assert.equal(gateway.calls[0].slug, DEFAULT_X_GET_ME_SLUG);
+  assert.equal(gateway.calls[0].options.connectedAccountId, 'ca_x');
+
+  // It persisted the resolved username back to connected_accounts.
+  const update = db.queries.find((q) => /UPDATE connected_accounts/i.test(q.text));
+  assert.ok(update, 'persists the resolved username back to connected_accounts');
+  assert.equal(update!.params[0], 'sugarleather');
+  assert.equal(update!.params[2], 20); // keyed on the connection row id
+
+  // And upserted insights_accounts with the resolved username + display name.
+  const insert = db.queries.find((q) => /INSERT INTO insights_accounts/i.test(q.text));
+  assert.deepEqual(insert!.params, [15, 'x', 'sugarleather', 'Sugar & Leather']);
+});
+
+test('Reddit bridge back-heals the username and upserts an insights_accounts row', async () => {
+  const db = recordingDb([
+    {
+      id: 21,
+      tenant_id: 15,
+      platform: 'reddit',
+      external_account_id: null,
+      external_account_name: null,
+      connected_account_id: 'ca_reddit',
+    },
+  ]);
+  const gateway = fakeGateway({
+    executeResult: {
+      successful: true,
+      error: null,
+      data: { data: { name: 'sugarleather' } },
+    },
+  });
+
+  const result = await ensureInsightsAccountsForConnectedPlatforms(
+    db,
+    { ANALYTICS_PROVIDER: 'composio', ARIES_REDDIT_ENABLED: '1' } as unknown as NodeJS.ProcessEnv,
+    { gateway, config: fakeConfig({ actions: {} }) },
+  );
+
+  assert.equal(result.resolved, 1);
+  assert.equal(result.upserted, 1);
+  assert.equal(result.skippedNoPage, 0);
+
+  // It called REDDIT_GET_REDDIT_USER_ABOUT with the right connectedAccountId and
+  // the Reddit-required arguments:{username:'me'}.
+  assert.equal(gateway.calls.length, 1);
+  assert.equal(gateway.calls[0].slug, DEFAULT_REDDIT_GET_ME_SLUG);
+  assert.equal(gateway.calls[0].options.connectedAccountId, 'ca_reddit');
+  assert.deepEqual(gateway.calls[0].options.arguments, { username: 'me' });
+
+  // It persisted the resolved username back to connected_accounts.
+  const update = db.queries.find((q) => /UPDATE connected_accounts/i.test(q.text));
+  assert.ok(update, 'persists the resolved username back to connected_accounts');
+  assert.equal(update!.params[0], 'sugarleather');
+  assert.equal(update!.params[2], 21);
+
+  // And upserted insights_accounts with the resolved username.
+  // For Reddit, username === name (the t2 `name` field is the Redditor handle).
+  const insert = db.queries.find((q) => /INSERT INTO insights_accounts/i.test(q.text));
+  assert.deepEqual(insert!.params, [15, 'reddit', 'sugarleather', 'sugarleather']);
+});
+
+// ── Regression guards: existing resolvers unaffected by new dispatch branches ──
+
+test('regression: FB row with external_account_id set still upserts directly when X is also enabled', async () => {
+  const db = recordingDb([
+    {
+      id: 5,
+      tenant_id: 15,
+      platform: 'facebook',
+      external_account_id: 'PAGE456',
+      external_account_name: 'Leather FB Page',
+      connected_account_id: 'ca_fb',
+    },
+  ]);
+  // Proves no resolution happens for FB when external_account_id is already present.
+  const gateway = fakeGateway();
+
+  const result = await ensureInsightsAccountsForConnectedPlatforms(
+    db,
+    { ANALYTICS_PROVIDER: 'composio', ARIES_X_ENABLED: '1' } as unknown as NodeJS.ProcessEnv,
+    { gateway, config: fakeConfig({ actions: {} }) },
+  );
+
+  assert.equal(result.considered, 1);
+  assert.equal(result.upserted, 1);
+  assert.equal(result.resolved, 0);
+  assert.equal(gateway.calls.length, 0, 'no Composio call for FB row with existing external_account_id');
+
+  const insert = db.queries.find((q) => /INSERT INTO insights_accounts/i.test(q.text));
+  assert.deepEqual(insert!.params, [15, 'facebook', 'PAGE456', 'Leather FB Page']);
+});
+
+test('regression: YouTube back-heal still routes to channel resolver when X and Reddit are also enabled', async () => {
+  const db = recordingDb([
+    {
+      id: 30,
+      tenant_id: 15,
+      platform: 'youtube',
+      external_account_id: null,
+      external_account_name: null,
+      connected_account_id: 'ca_yt',
+    },
+  ]);
+  const gateway = fakeGateway({
+    executeResult: {
+      successful: true,
+      error: null,
+      data: { items: [{ id: 'UCchannel123', snippet: { title: 'Aries YT' } }] },
+    },
+  });
+
+  const result = await ensureInsightsAccountsForConnectedPlatforms(
+    db,
+    {
+      ANALYTICS_PROVIDER: 'composio',
+      ARIES_YOUTUBE_ENABLED: '1',
+      ARIES_X_ENABLED: '1',
+      ARIES_REDDIT_ENABLED: '1',
+    } as unknown as NodeJS.ProcessEnv,
+    { gateway, config: fakeConfig({ actions: {} }) },
+  );
+
+  assert.equal(result.resolved, 1);
+  assert.equal(result.upserted, 1);
+  assert.equal(result.skippedNoPage, 0);
+
+  // Verify the YouTube channel resolver was used (not the X or Reddit resolver).
+  const insert = db.queries.find((q) => /INSERT INTO insights_accounts/i.test(q.text));
+  assert.equal(insert!.params[1], 'youtube', 'platform column is youtube');
+  assert.equal(insert!.params[2], 'UCchannel123', 'YouTube channel id resolved correctly');
+  assert.equal(insert!.params[3], 'Aries YT', 'YouTube channel name resolved correctly');
 });
 
 test('facebook is registered in the adapter factory and getAdapter binds the connection context', () => {
