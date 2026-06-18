@@ -50,14 +50,22 @@ test('analytics page renders the analytics screen inside the app shell', () => {
   assert.match(analyticsPage, /import AppShellLayout from '@\/frontend\/app-shell\/layout'/);
   assert.match(analyticsPage, /import AriesAnalyticsScreen from '@\/frontend\/aries-v1\/analytics-screen'/);
   assert.match(analyticsPage, /currentRouteId="analytics"/);
-  assert.match(analyticsPage, /<AriesAnalyticsScreen \/>/);
+  // enabledPlatforms is passed as a prop (not hard-pinned).
+  assert.match(analyticsPage, /<AriesAnalyticsScreen enabledPlatforms=\{enabledPlatforms\} \/>/);
+  // Facebook is always the first entry — dormancy default preserved.
+  assert.match(analyticsPage, /const enabledPlatforms/);
+  assert.match(analyticsPage, /'facebook'/);
 });
 
 test('comments page renders the comments screen inside the app shell', () => {
   assert.match(commentsPage, /import AppShellLayout from '@\/frontend\/app-shell\/layout'/);
   assert.match(commentsPage, /import AriesCommentsScreen from '@\/frontend\/aries-v1\/comments-screen'/);
   assert.match(commentsPage, /currentRouteId="comments"/);
-  assert.match(commentsPage, /<AriesCommentsScreen \/>/);
+  // enabledPlatforms is passed as a prop (not hard-pinned).
+  assert.match(commentsPage, /<AriesCommentsScreen enabledPlatforms=\{enabledPlatforms\} \/>/);
+  // Facebook is always the first entry — dormancy default preserved.
+  assert.match(commentsPage, /const enabledPlatforms/);
+  assert.match(commentsPage, /'facebook'/);
 });
 
 test('api client targets the real /api/insights/* endpoints (Facebook scoped by the screens)', () => {
@@ -70,7 +78,14 @@ test('api client targets the real /api/insights/* endpoints (Facebook scoped by 
 
 test('analytics screen consumes the analytics hook, charts the series, and keeps the empty state', () => {
   assert.match(analyticsScreen, /useInsightsAnalytics/);
-  assert.match(analyticsScreen, /platform:\s*'facebook'/);
+  // Platform state defaults to 'facebook' — dormancy: flags-off renders FB-only, no selector.
+  assert.match(analyticsScreen, /useState<Platform>\('facebook'\)/);
+  // The hook receives the platform STATE variable, not a hard-coded literal.
+  assert.match(analyticsScreen, /useInsightsAnalytics\(\{ autoLoad: true, platform \}\)/);
+  // Prop default of ['facebook'] preserves the single-platform dormant state.
+  assert.match(analyticsScreen, /enabledPlatforms\s*=\s*\['facebook'\]/);
+  // Selector is only rendered when more than one platform is enabled.
+  assert.match(analyticsScreen, /enabledPlatforms\.length > 1/);
   // Headline tiles for the real summary fields.
   assert.match(analyticsScreen, /summary\.totalViews/);
   assert.match(analyticsScreen, /summary\.currentFollowers/);
@@ -95,7 +110,18 @@ test('analytics hook reads summary, account-metrics, and posts and defaults to F
 
 test('comments screen groups by post, shows replied state, and surfaces a reply box', () => {
   assert.match(commentsScreen, /useInsightsComments/);
-  assert.match(commentsScreen, /platform:\s*'facebook'/);
+  // Platform state defaults to 'facebook' — dormancy: flags-off renders FB-only, no selector.
+  assert.match(commentsScreen, /useState<Platform>\('facebook'\)/);
+  // The hook receives the platform STATE variable, not a hard-coded literal.
+  assert.match(commentsScreen, /platform,/);
+  // Prop default of ['facebook'] preserves the single-platform dormant state.
+  assert.match(commentsScreen, /enabledPlatforms\s*=\s*\['facebook'\]/);
+  // Selector is only rendered when more than one platform is enabled.
+  assert.match(commentsScreen, /enabledPlatforms\.length > 1/);
+  // LinkedIn short-circuit: no autoLoad for LinkedIn (no Composio list-comments action).
+  assert.match(commentsScreen, /autoLoad: platform !== 'linkedin'/);
+  // LinkedIn renders an honest unavailable EmptyStatePanel rather than an error.
+  assert.match(commentsScreen, /platform === 'linkedin'[\s\S]*?EmptyStatePanel/);
   assert.match(commentsScreen, /groupByPost/);
   assert.match(commentsScreen, /comment\.authorHandle/);
   assert.match(commentsScreen, /comment\.bodyText/);
