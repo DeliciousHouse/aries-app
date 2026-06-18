@@ -4,9 +4,12 @@ import { useMemo, useState } from 'react';
 
 import type { InsightsCommentItem } from '@/lib/api/aries-v1';
 import { useInsightsComments, type CommentReplyOutcome } from '@/hooks/use-insights-comments';
+import type { Platform } from '@/backend/insights/platforms/registry';
+import { PLATFORM_LABELS } from '@/backend/insights/platforms/registry';
 
 import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { EmptyStatePanel, LoadingStateGrid, ShellPanel } from './components';
+import { PlatformSelector } from './platform-selector';
 
 function formatDay(value: string): string {
   if (typeof value !== 'string') return '';
@@ -40,8 +43,19 @@ function groupByPost(comments: InsightsCommentItem[]): PostGroup[] {
   return order.map((id) => groups.get(id)!);
 }
 
-export default function AriesCommentsScreen() {
-  const inbox = useInsightsComments({ autoLoad: true, platform: 'facebook' });
+export default function AriesCommentsScreen({
+  enabledPlatforms = ['facebook'],
+}: {
+  enabledPlatforms?: Platform[];
+}) {
+  const [platform, setPlatform] = useState<Platform>('facebook');
+
+  // LinkedIn has no Composio list-comments action (#648); skip the fetch and
+  // show an honest unavailable panel instead of an error or empty-state.
+  const inbox = useInsightsComments({
+    autoLoad: platform !== 'linkedin',
+    platform,
+  });
   const comments = inbox.data?.comments ?? [];
   const groups = useMemo(() => groupByPost(comments), [comments]);
 
@@ -64,16 +78,43 @@ export default function AriesCommentsScreen() {
     setSubmittingId(null);
   }
 
+  const label = PLATFORM_LABELS[platform];
+
   return (
     <div className="space-y-5">
-      <ShellPanel eyebrow="Comments" title="Facebook comment inbox">
-        <p className="max-w-3xl text-sm leading-7 text-white/65">
-          Comments on your Facebook posts, grouped by the post they belong to. Reply directly from
-          Aries when native reply is enabled for your account.
-        </p>
+      <ShellPanel
+        eyebrow="Comments"
+        title={`${label} comment inbox`}
+        action={
+          enabledPlatforms.length > 1 ? (
+            <PlatformSelector
+              platforms={enabledPlatforms}
+              value={platform}
+              onChange={setPlatform}
+            />
+          ) : null
+        }
+      >
+        {platform === 'facebook' ? (
+          <p className="max-w-3xl text-sm leading-7 text-white/65">
+            Comments on your Facebook posts, grouped by the post they belong to. Reply directly from
+            Aries when native reply is enabled for your account.
+          </p>
+        ) : (
+          <p className="max-w-3xl text-sm leading-7 text-white/65">
+            Comments on your {label} posts, grouped by the post they belong to. Reply directly from
+            Aries when native reply is enabled for your account.
+          </p>
+        )}
       </ShellPanel>
 
-      {inbox.isLoading ? (
+      {/* LinkedIn short-circuit: no Composio list-comments action for LinkedIn. */}
+      {platform === 'linkedin' ? (
+        <EmptyStatePanel
+          title="Comments aren't available for LinkedIn."
+          description="LinkedIn doesn't support listing post comments via the integration used here. Visit LinkedIn directly to read and respond to comments."
+        />
+      ) : inbox.isLoading ? (
         <LoadingStateGrid />
       ) : inbox.error ? (
         <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
@@ -89,7 +130,11 @@ export default function AriesCommentsScreen() {
       ) : groups.length === 0 ? (
         <EmptyStatePanel
           title="No comments yet"
-          description="When people comment on your live Facebook posts, their messages will appear here so you can read and reply."
+          description={
+            platform === 'facebook'
+              ? 'When people comment on your live Facebook posts, their messages will appear here so you can read and reply.'
+              : `When people comment on your live ${label} posts, their messages will appear here so you can read and reply.`
+          }
         />
       ) : (
         <div className="space-y-5">
@@ -111,7 +156,8 @@ export default function AriesCommentsScreen() {
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <p className="text-sm font-medium text-white">
-                          {comment.authorHandle?.trim() || 'Facebook user'}
+                          {comment.authorHandle?.trim() ||
+                            (platform === 'facebook' ? 'Facebook user' : `${label} user`)}
                         </p>
                         <div className="flex items-center gap-3">
                           <span className="text-xs text-white/45">{formatDay(comment.receivedAt)}</span>
@@ -126,8 +172,13 @@ export default function AriesCommentsScreen() {
 
                       {isReplied ? null : outcome?.kind === 'not_enabled' ? (
                         <p className="mt-3 text-xs text-white/45">
-                          Native reply isn’t enabled for your account yet. You can still reply from
-                          Facebook directly.
+                          {platform === 'facebook' ? (
+                            <>Native reply isn’t enabled for your account yet. You can still reply from
+                            Facebook directly.</>
+                          ) : (
+                            <>Native reply isn&apos;t enabled for your account yet. You can still reply from{' '}
+                            {label} directly.</>
+                          )}
                         </p>
                       ) : (
                         <div className="mt-3 space-y-2">

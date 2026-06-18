@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import {
   CartesianGrid,
   Line,
@@ -12,9 +13,12 @@ import {
 
 import type { InsightsAccountMetricPoint, InsightsPostItem } from '@/lib/api/aries-v1';
 import { useInsightsAnalytics } from '@/hooks/use-insights-analytics';
+import type { Platform } from '@/backend/insights/platforms/registry';
+import { PLATFORM_LABELS } from '@/backend/insights/platforms/registry';
 
 import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { EmptyStatePanel, LoadingStateGrid, MetricCard, ShellPanel } from './components';
+import { PlatformSelector } from './platform-selector';
 
 function formatNumber(value: number): string {
   if (!Number.isFinite(value)) return '0';
@@ -28,8 +32,14 @@ function formatDay(value: string): string {
   return value.slice(0, 10) || '—';
 }
 
-export default function AriesAnalyticsScreen() {
-  const analytics = useInsightsAnalytics({ autoLoad: true, platform: 'facebook' });
+export default function AriesAnalyticsScreen({
+  enabledPlatforms = ['facebook'],
+}: {
+  enabledPlatforms?: Platform[];
+}) {
+  const [platform, setPlatform] = useState<Platform>('facebook');
+
+  const analytics = useInsightsAnalytics({ autoLoad: true, platform });
   const data = analytics.data;
 
   const summary = data?.summary;
@@ -49,13 +59,34 @@ export default function AriesAnalyticsScreen() {
         posts.length > 0),
   );
 
+  const label = PLATFORM_LABELS[platform];
+
   return (
     <div className="space-y-5">
-      <ShellPanel eyebrow="Analytics" title="Facebook performance">
-        <p className="max-w-3xl text-sm leading-7 text-white/65">
-          Views, followers, and engagement from your connected Facebook Page, plus per-post results.
-          Numbers populate here after Aries syncs analytics from Meta.
-        </p>
+      <ShellPanel
+        eyebrow="Analytics"
+        title={`${label} performance`}
+        action={
+          enabledPlatforms.length > 1 ? (
+            <PlatformSelector
+              platforms={enabledPlatforms}
+              value={platform}
+              onChange={setPlatform}
+            />
+          ) : null
+        }
+      >
+        {platform === 'facebook' ? (
+          <p className="max-w-3xl text-sm leading-7 text-white/65">
+            Views, followers, and engagement from your connected Facebook Page, plus per-post results.
+            Numbers populate here after Aries syncs analytics from Meta.
+          </p>
+        ) : (
+          <p className="max-w-3xl text-sm leading-7 text-white/65">
+            Views, followers, and engagement from your connected {label} account, plus per-post results.
+            Numbers populate here after Aries syncs analytics.
+          </p>
+        )}
       </ShellPanel>
 
       {analytics.isLoading ? (
@@ -74,7 +105,11 @@ export default function AriesAnalyticsScreen() {
       ) : !hasData || !summary ? (
         <EmptyStatePanel
           title="No analytics yet"
-          description="Once your Facebook posts are live and Aries has synced performance data from Meta, your views, followers, and per-post results will appear here."
+          description={
+            platform === 'facebook'
+              ? 'Once your Facebook posts are live and Aries has synced performance data from Meta, your views, followers, and per-post results will appear here.'
+              : `Once your ${label} posts are live and Aries has synced performance data, your views, followers, and per-post results will appear here.`
+          }
         />
       ) : (
         <>
