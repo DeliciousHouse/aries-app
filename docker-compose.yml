@@ -257,6 +257,16 @@ services:
       # Publish runs in the app process, so this lives here only.
       #   COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION=LINKEDIN_CREATE_LINKED_IN_POST
       COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: ${COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION:-}
+      # YouTube publish (#636) — only consulted when ARIES_YOUTUBE_ENABLED=true and
+      # PUBLISH_PROVIDER=composio/auto. Aries synthesizes a short MP4 from the still
+      # (ffmpeg), stages it via gateway.uploadFile, and uploads it. The action is a
+      # VIDEO upload; the file arg key (videoFilePath vs videoFile) is derived from
+      # the configured slug. CATEGORY_ID defaults to '22'; PRIVACY_STATUS defaults to
+      # 'public' (set 'unlisted' for first live verification). App-process only.
+      #   COMPOSIO_YOUTUBE_PUBLISH_POST_ACTION=YOUTUBE_UPLOAD_VIDEO
+      COMPOSIO_YOUTUBE_PUBLISH_POST_ACTION: ${COMPOSIO_YOUTUBE_PUBLISH_POST_ACTION:-}
+      COMPOSIO_YOUTUBE_CATEGORY_ID: ${COMPOSIO_YOUTUBE_CATEGORY_ID:-}
+      COMPOSIO_YOUTUBE_PRIVACY_STATUS: ${COMPOSIO_YOUTUBE_PRIVACY_STATUS:-}
       # Facebook analytics + comments sync slugs (#596/#597). Optional — the
       # adapter falls back to the verified code defaults when unset.
       COMPOSIO_FACEBOOK_LIST_POSTS_ACTION: ${COMPOSIO_FACEBOOK_LIST_POSTS_ACTION:-}

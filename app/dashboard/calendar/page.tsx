@@ -4,6 +4,7 @@ import {
   isLinkedInEnabled,
   isRedditEnabled,
   isXEnabled,
+  isYouTubeEnabled,
 } from '@/backend/integrations/providers/integration-config';
 import type { AllowedTargetPlatform } from '@/backend/social-content/scheduled-posts';
 
@@ -18,6 +19,7 @@ export default function DashboardCalendarPage() {
     ...(isXEnabled() ? (['x'] as const) : []),
     ...(isRedditEnabled() ? (['reddit'] as const) : []),
     ...(isLinkedInEnabled() ? (['linkedin'] as const) : []),
+    ...(isYouTubeEnabled() ? (['youtube'] as const) : []),
   ];
 
   return (
