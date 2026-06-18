@@ -72,6 +72,8 @@ export default function AriesAnalyticsScreen({
 
   const accountMetricsSupported = platformSupports(platform, 'account_daily_metrics');
   const postViewsSupported = platformSupports(platform, 'post_view_count');
+  const commentsSupported = platformSupports(platform, 'comments');
+  const postSharesSupported = platformSupports(platform, 'post_share_count');
 
   const label = PLATFORM_LABELS[platform];
 
@@ -90,8 +92,8 @@ export default function AriesAnalyticsScreen({
                 <th className="py-3 pr-4 font-semibold">Published</th>
                 {postViewsSupported && <th className="py-3 pr-4 text-right font-semibold">Views</th>}
                 <th className="py-3 pr-4 text-right font-semibold">Likes</th>
-                <th className="py-3 pr-4 text-right font-semibold">Comments</th>
-                <th className="py-3 text-right font-semibold">Shares</th>
+                {commentsSupported && <th className="py-3 pr-4 text-right font-semibold">Comments</th>}
+                {postSharesSupported && <th className="py-3 text-right font-semibold">Shares</th>}
               </tr>
             </thead>
             <tbody>
@@ -105,8 +107,8 @@ export default function AriesAnalyticsScreen({
                     <td className="py-3 pr-4 text-right">{formatNumber(post.metrics.totalViews)}</td>
                   )}
                   <td className="py-3 pr-4 text-right">{formatNumber(post.metrics.totalLikes)}</td>
-                  <td className="py-3 pr-4 text-right">{formatNumber(post.metrics.totalComments)}</td>
-                  <td className="py-3 text-right">{formatNumber(post.metrics.totalShares)}</td>
+                  {commentsSupported && <td className="py-3 pr-4 text-right">{formatNumber(post.metrics.totalComments)}</td>}
+                  {postSharesSupported && <td className="py-3 text-right">{formatNumber(post.metrics.totalShares)}</td>}
                 </tr>
               ))}
             </tbody>

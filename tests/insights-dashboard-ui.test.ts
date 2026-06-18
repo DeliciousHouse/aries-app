@@ -209,6 +209,72 @@ test('comments screen has honest LinkedIn subtitle that does not promise Aries r
   assert.match(commentsScreen, /Comments on your Facebook posts[\s\S]{0,200}Reply directly from\s+Aries/);
 });
 
+// ─── #687 honest per-post Comments/Shares column gating ─────────────────────
+
+test('analytics screen derives commentsSupported and postSharesSupported from capabilities (#687)', () => {
+  // Both capability checks must appear in the source — they drive the column gates below.
+  assert.match(analyticsScreen, /platformSupports\(platform,\s*'comments'\)/);
+  assert.match(analyticsScreen, /platformSupports\(platform,\s*'post_share_count'\)/);
+  // Both derived booleans must be referenced in the template (not dead code).
+  assert.match(analyticsScreen, /commentsSupported/);
+  assert.match(analyticsScreen, /postSharesSupported/);
+});
+
+test('analytics screen gates Comments <th>/<td> on commentsSupported and Shares <th>/<td> on postSharesSupported (#687)', () => {
+  // Comments header cell is wrapped in a commentsSupported conditional — mirroring #684 Views gate.
+  assert.match(analyticsScreen, /commentsSupported && <th[^>]*>Comments<\/th>/);
+  // Shares header cell is wrapped in a postSharesSupported conditional.
+  assert.match(analyticsScreen, /postSharesSupported && <th[^>]*>Shares<\/th>/);
+  // Comments data cell is also gated (commentsSupported precedes totalComments in the template).
+  assert.match(analyticsScreen, /commentsSupported[\s\S]{0,300}totalComments/);
+  // Shares data cell is also gated (postSharesSupported precedes totalShares in the template).
+  assert.match(analyticsScreen, /postSharesSupported[\s\S]{0,300}totalShares/);
+});
+
+test('analytics screen Likes column is unconditional — not gated on any capability (#687)', () => {
+  // The Likes <th> is present and unconditional.
+  assert.match(analyticsScreen, /<th[^>]*>Likes<\/th>/);
+  // It must NOT be preceded by any Supported guard on the same JSX expression.
+  assert.doesNotMatch(analyticsScreen, /\w+Supported\s*&&\s*<th[^>]*>Likes<\/th>/);
+  // totalLikes is referenced (the <td> always renders).
+  assert.match(analyticsScreen, /totalLikes/);
+  // The Likes <td> is not gated — no Supported gate immediately before the td bearing totalLikes.
+  assert.doesNotMatch(analyticsScreen, /\w+Supported\s*&&\s*<td[\s\S]{0,80}totalLikes/);
+});
+
+test('capabilities.ts: post_share_count TRUE for facebook/instagram/x, FALSE for reddit/youtube/linkedin; comments FALSE for linkedin only (#687)', () => {
+  // Platforms that expose a real per-post share count.
+  assert.equal(platformSupports('facebook', 'post_share_count'), true, 'facebook should support post_share_count');
+  assert.equal(platformSupports('instagram', 'post_share_count'), true, 'instagram should support post_share_count');
+  assert.equal(platformSupports('x', 'post_share_count'), true, 'x should support post_share_count');
+  // Platforms that do NOT expose a per-post share count (no fabricated zeros).
+  assert.equal(platformSupports('reddit', 'post_share_count'), false, 'reddit must NOT support post_share_count');
+  assert.equal(platformSupports('youtube', 'post_share_count'), false, 'youtube must NOT support post_share_count');
+  assert.equal(platformSupports('linkedin', 'post_share_count'), false, 'linkedin must NOT support post_share_count');
+  // Existing #648 invariant: comments present for all except linkedin.
+  assert.equal(platformSupports('facebook', 'comments'), true, 'facebook should support comments');
+  assert.equal(platformSupports('instagram', 'comments'), true, 'instagram should support comments');
+  assert.equal(platformSupports('x', 'comments'), true, 'x should support comments');
+  assert.equal(platformSupports('reddit', 'comments'), true, 'reddit should support comments');
+  assert.equal(platformSupports('youtube', 'comments'), true, 'youtube should support comments');
+  assert.equal(platformSupports('linkedin', 'comments'), false, 'linkedin must NOT support comments');
+});
+
+test('golden: facebook and instagram still render both Comments and Shares columns after #687 (byte-identical)', () => {
+  // FB and IG both have 'comments' AND 'post_share_count' — so commentsSupported and
+  // postSharesSupported are true for those platforms and neither column is hidden.
+  assert.equal(platformSupports('facebook', 'comments'), true, 'facebook: comments must still be supported');
+  assert.equal(platformSupports('facebook', 'post_share_count'), true, 'facebook: post_share_count must still be supported');
+  assert.equal(platformSupports('instagram', 'comments'), true, 'instagram: comments must still be supported');
+  assert.equal(platformSupports('instagram', 'post_share_count'), true, 'instagram: post_share_count must still be supported');
+  // The conditional expressions that produce the th and td cells are present in the template —
+  // when both booleans are true (FB/IG) those cells are rendered, so the live render is unchanged.
+  assert.match(analyticsScreen, /commentsSupported && <th[^>]*>Comments<\/th>/);
+  assert.match(analyticsScreen, /postSharesSupported && <th[^>]*>Shares<\/th>/);
+  assert.match(analyticsScreen, /commentsSupported[\s\S]{0,300}totalComments/);
+  assert.match(analyticsScreen, /postSharesSupported[\s\S]{0,300}totalShares/);
+});
+
 test('capabilities.ts: post_view_count present for youtube/instagram/facebook, absent for x/reddit/linkedin (#684)', () => {
   // Platforms that expose per-post view/impression counts.
   assert.equal(platformSupports('youtube', 'post_view_count'), true, 'youtube should support post_view_count');
