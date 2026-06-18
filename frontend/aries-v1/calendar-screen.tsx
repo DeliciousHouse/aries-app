@@ -12,6 +12,7 @@ import {
   type UnscheduledPost,
 } from '@/frontend/aries-v1/view-models/calendar';
 import { useCalendarScheduling } from '@/frontend/aries-v1/hooks/useCalendarScheduling';
+import type { AllowedTargetPlatform } from '@/backend/social-content/scheduled-posts';
 
 import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { LoadingStateGrid } from './components';
@@ -29,7 +30,16 @@ function defaultRange(): { from: string; to: string } {
   return { from: from.toISOString(), to: to.toISOString() };
 }
 
-export default function AriesCalendarScreen() {
+export interface AriesCalendarScreenProps {
+  /**
+   * Server-computed list of platforms the operator can schedule to right now.
+   * Omit (or leave undefined) to get the default facebook+instagram picker —
+   * byte-identical to the old behaviour when all rollout flags are OFF.
+   */
+  allowedPublishPlatforms?: AllowedTargetPlatform[];
+}
+
+export default function AriesCalendarScreen({ allowedPublishPlatforms }: AriesCalendarScreenProps = {}) {
   const api = useMemo(() => createAriesV1Api({}), []);
   const range = useMemo(() => defaultRange(), []);
 
@@ -151,6 +161,7 @@ export default function AriesCalendarScreen() {
       onRescheduled={() => {
         void loadSchedule();
       }}
+      allowedPublishPlatforms={allowedPublishPlatforms}
     />
   );
 }
