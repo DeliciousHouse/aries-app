@@ -1,3 +1,5 @@
+import { isXEnabled } from '@/backend/integrations/providers/integration-config';
+
 export type ScheduledPostQueryable = {
   query: (
     sql: string,
@@ -105,14 +107,26 @@ export class ScheduledPostTenantMismatchError extends Error {
   }
 }
 
-export const ALLOWED_TARGET_PLATFORMS = ['facebook', 'instagram'] as const;
+export const ALLOWED_TARGET_PLATFORMS = ['facebook', 'instagram', 'x'] as const;
 export type AllowedTargetPlatform = (typeof ALLOWED_TARGET_PLATFORMS)[number];
+
+/**
+ * The platforms an operator can schedule a post to RIGHT NOW. `'x'` (Twitter) is
+ * a valid target only while the `ARIES_X_ENABLED` rollout flag is on; when OFF
+ * (the default) the allowed set is byte-identical to facebook+instagram, so an
+ * `x` schedule request still fails `invalid_platforms` exactly as before.
+ */
+function allowedTargetPlatforms(): ReadonlySet<AllowedTargetPlatform> {
+  return isXEnabled()
+    ? new Set<AllowedTargetPlatform>(ALLOWED_TARGET_PLATFORMS)
+    : new Set<AllowedTargetPlatform>(['facebook', 'instagram']);
+}
 
 export function normalizeTargetPlatforms(value: unknown): AllowedTargetPlatform[] | null {
   if (!Array.isArray(value)) {
     return null;
   }
-  const allowed = new Set<AllowedTargetPlatform>(ALLOWED_TARGET_PLATFORMS);
+  const allowed = allowedTargetPlatforms();
   const seen = new Set<AllowedTargetPlatform>();
   const result: AllowedTargetPlatform[] = [];
   for (const entry of value) {

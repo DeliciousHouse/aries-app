@@ -30,6 +30,9 @@ function routingGateway(
       calls.push({ slug, connectedAccountId: options.connectedAccountId, arguments: options.arguments });
       return results[slug] ?? { data: { data: [] }, successful: true, error: null };
     },
+    async uploadFile(input) {
+      return { name: 'staged', mimetype: 'application/octet-stream', s3key: `s3/${input.toolSlug}` };
+    },
   };
 }
 
