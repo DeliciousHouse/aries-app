@@ -775,6 +775,7 @@ test('#641 metaPlatform routing: provider=reddit reaches the seam with platform=
     { tenantId: '42', provider: 'reddit', content: 'hello reddit', mediaUrls: [], scheduledFor: null },
     {
       selector: () => 'composio',
+      composioEnabled: () => true,
       directPublish: async () => {
         throw new Error('reddit must never reach the direct-Meta path');
       },

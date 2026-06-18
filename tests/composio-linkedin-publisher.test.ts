@@ -704,6 +704,7 @@ test('#646 metaPlatform routing: provider=linkedin reaches the seam with platfor
     { tenantId: '42', provider: 'linkedin', content: 'hello linkedin', mediaUrls: [], scheduledFor: null },
     {
       selector: () => 'composio',
+      composioEnabled: () => true,
       directPublish: async () => {
         throw new Error('linkedin must never reach the direct-Meta path');
       },
