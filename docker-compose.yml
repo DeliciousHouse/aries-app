@@ -285,8 +285,8 @@ services:
       COMPOSIO_YOUTUBE_REPLY_COMMENT_ACTION: ${COMPOSIO_YOUTUBE_REPLY_COMMENT_ACTION:-}
       COMPOSIO_REDDIT_REPLY_COMMENT_ACTION: ${COMPOSIO_REDDIT_REPLY_COMMENT_ACTION:-}
       COMPOSIO_LINKEDIN_REPLY_COMMENT_ACTION: ${COMPOSIO_LINKEDIN_REPLY_COMMENT_ACTION:-}
-      PUBLISH_PROVIDER: ${PUBLISH_PROVIDER:-direct_meta}
-      ANALYTICS_PROVIDER: ${ANALYTICS_PROVIDER:-direct_meta}
+      PUBLISH_PROVIDER: ${PUBLISH_PROVIDER:-composio}
+      ANALYTICS_PROVIDER: ${ANALYTICS_PROVIDER:-composio}
       AUTH_URL: ${AUTH_URL}
       AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
       MARKETING_STATUS_PUBLIC: ${MARKETING_STATUS_PUBLIC:-}
@@ -511,7 +511,7 @@ services:
       # executes Composio tools, so this sidecar needs the same Composio
       # credentials as the app (COMPOSIO_API_KEY etc.); the *_ACTION slugs are
       # optional (verified code defaults).
-      ANALYTICS_PROVIDER: ${ANALYTICS_PROVIDER:-direct_meta}
+      ANALYTICS_PROVIDER: ${ANALYTICS_PROVIDER:-composio}
       COMPOSIO_ENABLED: ${COMPOSIO_ENABLED:-false}
       COMPOSIO_API_KEY: ${COMPOSIO_API_KEY:-}
       # Toolkit version for manual Composio tool execution (see aries-app above).
