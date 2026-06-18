@@ -18,7 +18,8 @@ interface RecordedQuery {
   params: unknown[];
 }
 
-const COMPOSIO_ENV = { ANALYTICS_PROVIDER: 'composio' } as unknown as NodeJS.ProcessEnv;
+// FB insights now requires BOTH COMPOSIO_ENABLED and ANALYTICS_PROVIDER=composio (#681 product fix).
+const COMPOSIO_ENV = { ANALYTICS_PROVIDER: 'composio', COMPOSIO_ENABLED: '1' } as unknown as NodeJS.ProcessEnv;
 const DIRECT_ENV = { ANALYTICS_PROVIDER: 'direct_meta' } as unknown as NodeJS.ProcessEnv;
 
 function recordingDb(connectedRows: Array<Record<string, unknown>>): Queryable & { queries: RecordedQuery[] } {
@@ -210,6 +211,60 @@ test('M4 off-switch: hasAdapter(facebook) honors ANALYTICS_PROVIDER, getAdapter 
   }
 });
 
+// ── Adversarial isFacebookInsightsEnabled gate cases (#681 product fix) ───────
+//
+// The FB gate is now:
+//   isComposioEnabled(env) && analyticsProviderSelector(env) === 'composio'
+//
+// This means:
+//   - COMPOSIO_ENABLED absent/false → FB ALWAYS disabled (CI/local byte-identical to pre-#681)
+//   - COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER unset → enabled (raw selector defaults to 'composio')
+//   - COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER=direct_meta → disabled (explicit opt-out)
+//   - COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER=composio → enabled (canonical prod config)
+
+test('#681 isFacebookInsightsEnabled: COMPOSIO_ENABLED absent → false (byte-identical to pre-#681 CI)', () => {
+  // No COMPOSIO_ENABLED in env — the new mandatory gate short-circuits to false
+  // regardless of ANALYTICS_PROVIDER. This keeps CI and local envs unaffected.
+  assert.equal(
+    isFacebookInsightsEnabled({} as unknown as NodeJS.ProcessEnv),
+    false,
+    'COMPOSIO_ENABLED unset → false',
+  );
+  assert.equal(
+    isFacebookInsightsEnabled({ ANALYTICS_PROVIDER: 'composio' } as unknown as NodeJS.ProcessEnv),
+    false,
+    'ANALYTICS_PROVIDER=composio alone (no COMPOSIO_ENABLED) → false (pre-#681 tests depended on this incidentally)',
+  );
+});
+
+test('#681 isFacebookInsightsEnabled: COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER unset → true (composio default)', () => {
+  // New behavior: with COMPOSIO_ENABLED=1 and no ANALYTICS_PROVIDER, the raw selector
+  // defaults to 'composio' (#681 change), so FB insights activates automatically.
+  assert.equal(
+    isFacebookInsightsEnabled({ COMPOSIO_ENABLED: '1' } as unknown as NodeJS.ProcessEnv),
+    true,
+    'COMPOSIO_ENABLED=1 + unset ANALYTICS_PROVIDER → raw selector defaults to composio → true',
+  );
+});
+
+test('#681 isFacebookInsightsEnabled: COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER=direct_meta → false (explicit opt-out)', () => {
+  // Explicit direct_meta override always disables the FB Composio path.
+  assert.equal(
+    isFacebookInsightsEnabled({ COMPOSIO_ENABLED: '1', ANALYTICS_PROVIDER: 'direct_meta' } as unknown as NodeJS.ProcessEnv),
+    false,
+    'COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER=direct_meta → false (explicit opt-out wins)',
+  );
+});
+
+test('#681 isFacebookInsightsEnabled: COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER=composio → true (prod canonical)', () => {
+  // Both gates satisfied — canonical prod Composio config.
+  assert.equal(
+    isFacebookInsightsEnabled({ COMPOSIO_ENABLED: '1', ANALYTICS_PROVIDER: 'composio' } as unknown as NodeJS.ProcessEnv),
+    true,
+    'COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER=composio → true (prod)',
+  );
+});
+
 test('X bridge: when ARIES_X_ENABLED=1 the DB query includes "x" alongside "facebook"', async () => {
   const db = recordingDb([]);
   const xEnv = {
@@ -233,7 +288,8 @@ test('X bridge: when ARIES_X_ENABLED=1 the DB query includes "x" alongside "face
 
 test('X bridge: when ARIES_X_ENABLED is off, the DB query only includes "facebook"', async () => {
   const db = recordingDb([]);
-  const fbOnlyEnv = { ANALYTICS_PROVIDER: 'composio' } as unknown as NodeJS.ProcessEnv;
+  // FB requires COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER=composio since #681 product fix.
+  const fbOnlyEnv = { ANALYTICS_PROVIDER: 'composio', COMPOSIO_ENABLED: '1' } as unknown as NodeJS.ProcessEnv;
   await ensureInsightsAccountsForConnectedPlatforms(db, fbOnlyEnv);
   const select = db.queries[0];
   assert.ok(select, 'issued a SELECT query');
@@ -263,7 +319,8 @@ test('YouTube bridge: when ARIES_YOUTUBE_ENABLED=1 the DB query includes "youtub
 
 test('YouTube bridge: when ARIES_YOUTUBE_ENABLED is off, the DB query does NOT include "youtube"', async () => {
   const db = recordingDb([]);
-  const fbOnlyEnv = { ANALYTICS_PROVIDER: 'composio' } as unknown as NodeJS.ProcessEnv;
+  // FB requires COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER=composio since #681 product fix.
+  const fbOnlyEnv = { ANALYTICS_PROVIDER: 'composio', COMPOSIO_ENABLED: '1' } as unknown as NodeJS.ProcessEnv;
   await ensureInsightsAccountsForConnectedPlatforms(db, fbOnlyEnv);
   const select = db.queries[0];
   assert.ok(select, 'issued a SELECT query');
@@ -317,7 +374,8 @@ test('LinkedIn bridge: when ARIES_LINKEDIN_ENABLED=1 the DB query includes "link
 
 test('Reddit bridge: when ARIES_REDDIT_ENABLED is off, the DB query does NOT include "reddit"', async () => {
   const db = recordingDb([]);
-  const fbOnlyEnv = { ANALYTICS_PROVIDER: 'composio' } as unknown as NodeJS.ProcessEnv;
+  // FB requires COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER=composio since #681 product fix.
+  const fbOnlyEnv = { ANALYTICS_PROVIDER: 'composio', COMPOSIO_ENABLED: '1' } as unknown as NodeJS.ProcessEnv;
   await ensureInsightsAccountsForConnectedPlatforms(db, fbOnlyEnv);
   const select = db.queries[0];
   assert.ok(select, 'issued a SELECT query');
@@ -329,7 +387,8 @@ test('Reddit bridge: when ARIES_REDDIT_ENABLED is off, the DB query does NOT inc
 
 test('LinkedIn bridge: when ARIES_LINKEDIN_ENABLED is off, the DB query does NOT include "linkedin"', async () => {
   const db = recordingDb([]);
-  const fbOnlyEnv = { ANALYTICS_PROVIDER: 'composio' } as unknown as NodeJS.ProcessEnv;
+  // FB requires COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER=composio since #681 product fix.
+  const fbOnlyEnv = { ANALYTICS_PROVIDER: 'composio', COMPOSIO_ENABLED: '1' } as unknown as NodeJS.ProcessEnv;
   await ensureInsightsAccountsForConnectedPlatforms(db, fbOnlyEnv);
   const select = db.queries[0];
   assert.ok(select, 'issued a SELECT query');
@@ -509,11 +568,13 @@ test('regression: YouTube back-heal still routes to channel resolver when X and 
 
 test('facebook is registered in the adapter factory and getAdapter binds the connection context', () => {
   // getAdapter builds a real Composio gateway (needs an API key) AND requires
-  // the ANALYTICS_PROVIDER=composio off-switch to be on.
+  // the ANALYTICS_PROVIDER=composio off-switch AND COMPOSIO_ENABLED=true to be on (#681).
   const prevKey = process.env.COMPOSIO_API_KEY;
   const prevProvider = process.env.ANALYTICS_PROVIDER;
+  const prevComposio = process.env.COMPOSIO_ENABLED;
   process.env.COMPOSIO_API_KEY = 'test-key';
   process.env.ANALYTICS_PROVIDER = 'composio';
+  process.env.COMPOSIO_ENABLED = '1';
   try {
     assert.equal(hasAdapter('facebook'), true);
     const adapter = getAdapter('facebook', { connectedAccountId: 'ca_x', pageId: 'PAGE123' });
@@ -524,16 +585,18 @@ test('facebook is registered in the adapter factory and getAdapter binds the con
     else process.env.COMPOSIO_API_KEY = prevKey;
     if (prevProvider === undefined) delete process.env.ANALYTICS_PROVIDER;
     else process.env.ANALYTICS_PROVIDER = prevProvider;
+    if (prevComposio === undefined) delete process.env.COMPOSIO_ENABLED;
+    else process.env.COMPOSIO_ENABLED = prevComposio;
   }
 });
 
 // ── Adversarial tests: #679 composio-only analytics seam ──────────────────────
 
-test('#679 (a) golden — FB path byte-identical to pre-fix: ANALYTICS_PROVIDER=composio + no rollout flags → SELECT params exactly ["facebook"]', async () => {
-  // This behavior must be byte-identical to pre-fix: a plain ANALYTICS_PROVIDER=composio
-  // env with no rollout flags must still only bridge facebook and nothing else.
+test('#679 (a) golden — FB path: COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER=composio + no rollout flags → SELECT params exactly ["facebook"]', async () => {
+  // FB now requires both COMPOSIO_ENABLED and ANALYTICS_PROVIDER=composio (#681 product fix).
+  // With both set and no platform rollout flags, exactly facebook (and only facebook) must be bridged.
   const db = recordingDb([]);
-  const composioFbOnlyEnv = { ANALYTICS_PROVIDER: 'composio' } as unknown as NodeJS.ProcessEnv;
+  const composioFbOnlyEnv = { ANALYTICS_PROVIDER: 'composio', COMPOSIO_ENABLED: '1' } as unknown as NodeJS.ProcessEnv;
   await ensureInsightsAccountsForConnectedPlatforms(db, composioFbOnlyEnv);
   const select = db.queries[0];
   assert.ok(select, 'a SELECT was issued');
@@ -573,7 +636,7 @@ test('#679 (b) dormancy — ARIES_REDDIT_ENABLED OFF + COMPOSIO_ENABLED=1 + ANAL
   );
   assert.ok(
     (select.params as unknown[]).includes('facebook'),
-    'facebook must still be bridged via ANALYTICS_PROVIDER=composio (independent of COMPOSIO_ENABLED)',
+    'facebook must still be bridged: COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER=composio both present in env',
   );
   // No INSERT should have fired for reddit.
   const redditInsert = db.queries.find(
@@ -641,17 +704,17 @@ test('#679 (c) NEW behavior — ARIES_REDDIT_ENABLED=1 + COMPOSIO_ENABLED=1 + AN
 
 test('#679 seam parity — isPlatformInsightsEnabled dispatches correctly for all five platforms', () => {
   const allOffEnv = {} as unknown as NodeJS.ProcessEnv;
-  const fbOnlyEnv = { ANALYTICS_PROVIDER: 'composio' } as unknown as NodeJS.ProcessEnv;
+  // FB requires COMPOSIO_ENABLED + ANALYTICS_PROVIDER=composio since #681 product fix.
+  const fbOnlyEnv = { ANALYTICS_PROVIDER: 'composio', COMPOSIO_ENABLED: '1' } as unknown as NodeJS.ProcessEnv;
   const redditOnlyEnv = { ARIES_REDDIT_ENABLED: '1', COMPOSIO_ENABLED: '1' } as unknown as NodeJS.ProcessEnv;
   const fullEnv = { ANALYTICS_PROVIDER: 'composio', COMPOSIO_ENABLED: '1', ARIES_X_ENABLED: '1', ARIES_REDDIT_ENABLED: '1', ARIES_YOUTUBE_ENABLED: '1', ARIES_LINKEDIN_ENABLED: '1' } as unknown as NodeJS.ProcessEnv;
 
-  // facebook → isFacebookInsightsEnabled gate (analyticsProviderSelector === 'composio').
-  // Since #681 the raw analyticsProviderSelector defaults to 'composio' when ANALYTICS_PROVIDER
-  // is unset, so allOffEnv ({}) and redditOnlyEnv (no ANALYTICS_PROVIDER key) now enable FB.
-  // To DISABLE FB insights explicitly set ANALYTICS_PROVIDER=direct_meta.
+  // facebook → isFacebookInsightsEnabled gate: COMPOSIO_ENABLED + ANALYTICS_PROVIDER=composio.
+  // allOffEnv ({}) has neither → FB disabled (byte-identical to pre-#681 CI behavior).
+  // redditOnlyEnv has COMPOSIO_ENABLED=1 but ANALYTICS_PROVIDER unset → composio default → FB enabled.
   assert.equal(isPlatformInsightsEnabled('facebook', fbOnlyEnv), true);
-  assert.equal(isPlatformInsightsEnabled('facebook', allOffEnv), true, '#681: raw selector default composio => FB enabled when ANALYTICS_PROVIDER unset');
-  assert.equal(isPlatformInsightsEnabled('facebook', redditOnlyEnv), true, '#681: COMPOSIO_ENABLED=1 + unset ANALYTICS_PROVIDER => FB enabled (default composio)');
+  assert.equal(isPlatformInsightsEnabled('facebook', allOffEnv), false, 'COMPOSIO_ENABLED unset → FB disabled (both gates required)');
+  assert.equal(isPlatformInsightsEnabled('facebook', redditOnlyEnv), true, 'COMPOSIO_ENABLED=1 + unset ANALYTICS_PROVIDER => FB enabled (default composio)');
 
   // composio-only platforms → rollout flag + COMPOSIO_ENABLED
   assert.equal(isPlatformInsightsEnabled('reddit', redditOnlyEnv), true);
