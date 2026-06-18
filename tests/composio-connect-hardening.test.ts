@@ -158,11 +158,39 @@ test('#640 Reddit connect: findOrCreateManagedAuthConfig failure raises Composio
         !err.message.includes(RAW_SDK_ERROR),
         `message must NOT include raw SDK error text; got: ${err.message}`,
       );
+      assert.ok(
+        !err.message.toLowerCase().includes('custom oauth app'),
+        `message must NOT include 'custom oauth app' for reddit (reddit has Composio-managed auth, #668); got: ${err.message}`,
+      );
       assert.equal(err.code, 'composio_not_configured');
       assert.equal(err.status, 503);
       return true;
     },
   );
+});
+
+// ── b2. Reddit managed connect: resolving gateway → succeeds (#668) ───────────
+
+test('#668 reddit managed connect: findOrCreateManagedAuthConfig resolves → connect succeeds, initiateConnection called', async () => {
+  // Proves that when Composio-managed auth provisioning succeeds for reddit
+  // (the happy path), createConnectLink completes normally — no ComposioConfigError,
+  // no "custom OAuth app" message. Reddit HAS managed credentials.
+  const { gw, state } = resolvingGateway();
+  const provider = new ComposioAccountProvider(
+    gw,
+    fakeConfig({ authConfigId: null }), // no explicit id → falls through to findOrCreate
+    fakeDb(),
+  );
+
+  const result = await provider.createConnectLink(userId, 'reddit', 'full', { tenantId });
+
+  assert.equal(result.connectUrl, 'https://composio.dev/connect/abc');
+  assert.ok(
+    state.initiateConnectionCalled,
+    'initiateConnection must be called when findOrCreateManagedAuthConfig resolves for reddit',
+  );
+  assert.equal(result.platform, 'reddit');
+  assert.equal(result.provider, 'composio');
 });
 
 // ── c. Regression guard: managed toolkit (facebook) is byte-identical ─────────
