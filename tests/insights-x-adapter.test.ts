@@ -16,6 +16,7 @@ import {
   hasAdapter,
   getAdapter,
   isXInsightsEnabled,
+  isComposioOnlyAnalyticsPlatform,
 } from '@/backend/insights/sync/adapter-factory';
 import type {
   ComposioGateway,
@@ -339,43 +340,58 @@ test('fetchAccountMetrics: always returns [] — no verified X account-insights 
 
 // ── Dormancy / off-switch ─────────────────────────────────────────────────────
 
-const X_COMPOSIO_ENV = {
+// #679: X gates on ARIES_X_ENABLED + COMPOSIO_ENABLED (not ANALYTICS_PROVIDER).
+const X_ENABLED_ENV = {
   ARIES_X_ENABLED: '1',
-  ANALYTICS_PROVIDER: 'composio',
+  COMPOSIO_ENABLED: '1',
 } as unknown as NodeJS.ProcessEnv;
 
+// ARIES_X_ENABLED absent — flag off.
 const FLAG_OFF_ENV = {
-  ANALYTICS_PROVIDER: 'composio',
+  COMPOSIO_ENABLED: '1',
 } as unknown as NodeJS.ProcessEnv;
 
-const PROVIDER_OFF_ENV = {
+// ARIES_X_ENABLED on but COMPOSIO_ENABLED absent — composio infrastructure off.
+const COMPOSIO_OFF_ENV = {
   ARIES_X_ENABLED: '1',
 } as unknown as NodeJS.ProcessEnv;
 
-test('dormancy: isXInsightsEnabled requires BOTH ARIES_X_ENABLED=1 AND ANALYTICS_PROVIDER=composio', () => {
-  assert.equal(isXInsightsEnabled(X_COMPOSIO_ENV), true, 'both flags on → enabled');
+test('dormancy: isXInsightsEnabled requires BOTH ARIES_X_ENABLED=1 AND COMPOSIO_ENABLED=1 (ANALYTICS_PROVIDER is irrelevant for X)', () => {
+  assert.equal(isXInsightsEnabled(X_ENABLED_ENV), true, 'both flags on → enabled');
   assert.equal(isXInsightsEnabled(FLAG_OFF_ENV), false, 'ARIES_X_ENABLED absent → disabled');
-  assert.equal(isXInsightsEnabled(PROVIDER_OFF_ENV), false, 'ANALYTICS_PROVIDER!=composio → disabled');
+  assert.equal(isXInsightsEnabled(COMPOSIO_OFF_ENV), false, 'COMPOSIO_ENABLED absent → disabled');
   assert.equal(
     isXInsightsEnabled({} as unknown as NodeJS.ProcessEnv),
     false,
     'no flags → disabled (default OFF)',
   );
+  // #679 (c) proof at adapter level: ANALYTICS_PROVIDER=direct_meta does NOT block X.
+  assert.equal(
+    isXInsightsEnabled({ ARIES_X_ENABLED: '1', COMPOSIO_ENABLED: '1', ANALYTICS_PROVIDER: 'direct_meta' } as unknown as NodeJS.ProcessEnv),
+    true,
+    '#679 (c): X enabled even when ANALYTICS_PROVIDER=direct_meta',
+  );
 });
 
 test('dormancy: hasAdapter("x") mirrors isXInsightsEnabled for all flag combinations', () => {
-  assert.equal(hasAdapter('x', X_COMPOSIO_ENV), true);
+  assert.equal(hasAdapter('x', X_ENABLED_ENV), true);
   assert.equal(hasAdapter('x', FLAG_OFF_ENV), false);
-  assert.equal(hasAdapter('x', PROVIDER_OFF_ENV), false);
+  assert.equal(hasAdapter('x', COMPOSIO_OFF_ENV), false);
   assert.equal(hasAdapter('x', {} as unknown as NodeJS.ProcessEnv), false);
+  // #679 (c): hasAdapter mirrors the same new-behavior case.
+  assert.equal(
+    hasAdapter('x', { ARIES_X_ENABLED: '1', COMPOSIO_ENABLED: '1', ANALYTICS_PROVIDER: 'direct_meta' } as unknown as NodeJS.ProcessEnv),
+    true,
+    '#679 (c): hasAdapter("x") true when ARIES_X_ENABLED+COMPOSIO_ENABLED regardless of ANALYTICS_PROVIDER',
+  );
 });
 
 test('dormancy: getAdapter("x") throws a diagnostic error when ARIES_X_ENABLED is off', () => {
   const prevX = process.env.ARIES_X_ENABLED;
-  const prevProvider = process.env.ANALYTICS_PROVIDER;
+  const prevComposio = process.env.COMPOSIO_ENABLED;
   // Ensure both axes are off so the REGISTRY guard fires.
   delete process.env.ARIES_X_ENABLED;
-  process.env.ANALYTICS_PROVIDER = 'direct_meta';
+  delete process.env.COMPOSIO_ENABLED;
   try {
     assert.throws(
       () => getAdapter('x', { connectedAccountId: 'ca_x', tenantId: 1 }),
@@ -384,7 +400,12 @@ test('dormancy: getAdapter("x") throws a diagnostic error when ARIES_X_ENABLED i
   } finally {
     if (prevX === undefined) delete process.env.ARIES_X_ENABLED;
     else process.env.ARIES_X_ENABLED = prevX;
-    if (prevProvider === undefined) delete process.env.ANALYTICS_PROVIDER;
-    else process.env.ANALYTICS_PROVIDER = prevProvider;
+    if (prevComposio === undefined) delete process.env.COMPOSIO_ENABLED;
+    else process.env.COMPOSIO_ENABLED = prevComposio;
   }
+});
+
+test('#679 isComposioOnlyAnalyticsPlatform: x is in the composio-only set', () => {
+  assert.equal(isComposioOnlyAnalyticsPlatform('x'), true);
+  assert.equal(isComposioOnlyAnalyticsPlatform('facebook'), false, 'facebook uses ANALYTICS_PROVIDER gate');
 });
