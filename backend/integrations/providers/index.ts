@@ -16,6 +16,7 @@ export {
   isComposioEnabled,
   isXEnabled,
   isRedditEnabled,
+  isLinkedInEnabled,
   connectablePlatforms,
   publishProviderSelector,
   analyticsProviderSelector,
