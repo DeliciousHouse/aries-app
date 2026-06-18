@@ -2,7 +2,7 @@
 
 import { type ComponentType, useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarClock, Check, LoaderCircle, X } from 'lucide-react';
-import { FacebookIcon, InstagramIcon, LinkedinIcon } from './brand-icons';
+import { FacebookIcon, InstagramIcon, LinkedinIcon, YoutubeIcon } from './brand-icons';
 import { XIcon, RedditIcon } from '@/frontend/components/Icons';
 import type { AllowedTargetPlatform } from '@/backend/social-content/scheduled-posts';
 
@@ -20,6 +20,7 @@ const PLATFORM_OPTIONS: Array<{ id: AllowedTargetPlatform; label: string; Icon: 
   { id: 'x', label: 'X', Icon: XIcon as PlatformIcon },
   { id: 'reddit', label: 'Reddit', Icon: RedditIcon as PlatformIcon },
   { id: 'linkedin', label: 'LinkedIn', Icon: LinkedinIcon as PlatformIcon },
+  { id: 'youtube', label: 'YouTube', Icon: YoutubeIcon as PlatformIcon },
 ];
 
 export interface ScheduleSavedDetail {
