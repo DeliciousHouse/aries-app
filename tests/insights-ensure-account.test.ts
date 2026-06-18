@@ -6,11 +6,13 @@ import {
   BRIDGED_PLATFORMS,
 } from '@/backend/insights/sync/ensure-account';
 import type { Queryable } from '@/backend/integrations/composio/connection-store';
-import { getAdapter, hasAdapter, isFacebookInsightsEnabled, isComposioOnlyAnalyticsPlatform, isPlatformInsightsEnabled } from '@/backend/insights/sync/adapter-factory';
+import { getAdapter, hasAdapter, isFacebookInsightsEnabled, isInstagramInsightsEnabled, isComposioOnlyAnalyticsPlatform, isPlatformInsightsEnabled } from '@/backend/insights/sync/adapter-factory';
 import { FacebookInsightsAdapter } from '@/backend/insights/adapters/facebook/index';
+import { InstagramInsightsAdapter } from '@/backend/insights/adapters/instagram/index';
 import { DEFAULT_LIST_MANAGED_PAGES_SLUG } from '@/backend/integrations/composio/facebook-page-resolver';
 import { DEFAULT_X_GET_ME_SLUG } from '@/backend/integrations/composio/x-user-resolver';
 import { DEFAULT_REDDIT_GET_ME_SLUG } from '@/backend/integrations/composio/reddit-user-resolver';
+import { DEFAULT_INSTAGRAM_GET_ME_SLUG } from '@/backend/integrations/composio/instagram-account-resolver';
 import { fakeConfig, fakeGateway } from './composio/helpers';
 
 interface RecordedQuery {
@@ -175,8 +177,8 @@ test('the bridge does not throw when Composio resolution errors — it skips the
   assert.equal(result.upserted, 0);
 });
 
-test('Instagram is out of scope: the bridge only queries the bridged (FB) platforms', async () => {
-  assert.deepEqual([...BRIDGED_PLATFORMS], ['facebook']);
+test('The bridge queries both facebook and instagram when ANALYTICS_PROVIDER=composio (no connected rows → just the SELECT)', async () => {
+  assert.deepEqual([...BRIDGED_PLATFORMS], ['facebook', 'instagram']);
   const db = recordingDb([]);
   const result = await ensureInsightsAccountsForConnectedPlatforms(db, COMPOSIO_ENV);
   assert.equal(result.considered, 0);
@@ -286,14 +288,14 @@ test('X bridge: when ARIES_X_ENABLED=1 the DB query includes "x" alongside "face
   );
 });
 
-test('X bridge: when ARIES_X_ENABLED is off, the DB query only includes "facebook"', async () => {
+test('X bridge: when ARIES_X_ENABLED is off, the DB query includes facebook and instagram but not x', async () => {
   const db = recordingDb([]);
-  // FB requires COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER=composio since #681 product fix.
+  // FB and IG both require COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER=composio (#681/#692).
   const fbOnlyEnv = { ANALYTICS_PROVIDER: 'composio', COMPOSIO_ENABLED: '1' } as unknown as NodeJS.ProcessEnv;
   await ensureInsightsAccountsForConnectedPlatforms(db, fbOnlyEnv);
   const select = db.queries[0];
   assert.ok(select, 'issued a SELECT query');
-  assert.deepEqual(select.params, ['facebook'], 'only facebook when ARIES_X_ENABLED is off');
+  assert.deepEqual(select.params, ['facebook', 'instagram'], 'facebook and instagram bridged; x absent when ARIES_X_ENABLED is off');
 });
 
 test('YouTube bridge: when ARIES_YOUTUBE_ENABLED=1 the DB query includes "youtube" alongside "facebook"', async () => {
@@ -592,9 +594,10 @@ test('facebook is registered in the adapter factory and getAdapter binds the con
 
 // ── Adversarial tests: #679 composio-only analytics seam ──────────────────────
 
-test('#679 (a) golden — FB path: COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER=composio + no rollout flags → SELECT params exactly ["facebook"]', async () => {
-  // FB now requires both COMPOSIO_ENABLED and ANALYTICS_PROVIDER=composio (#681 product fix).
-  // With both set and no platform rollout flags, exactly facebook (and only facebook) must be bridged.
+test('#679 (a) golden — Meta-family path: COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER=composio + no rollout flags → SELECT params exactly ["facebook","instagram"]', async () => {
+  // FB and IG both require COMPOSIO_ENABLED + ANALYTICS_PROVIDER=composio (#681/#692).
+  // With both set and no platform rollout flags, exactly facebook + instagram must be bridged —
+  // no composio-only platforms (x, youtube, reddit, linkedin) leak in without their own flags.
   const db = recordingDb([]);
   const composioFbOnlyEnv = { ANALYTICS_PROVIDER: 'composio', COMPOSIO_ENABLED: '1' } as unknown as NodeJS.ProcessEnv;
   await ensureInsightsAccountsForConnectedPlatforms(db, composioFbOnlyEnv);
@@ -602,8 +605,8 @@ test('#679 (a) golden — FB path: COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER=compo
   assert.ok(select, 'a SELECT was issued');
   assert.deepEqual(
     select.params,
-    ['facebook'],
-    'FB path: params must be exactly ["facebook"] — no composio-only platforms leak in without their own flags',
+    ['facebook', 'instagram'],
+    'Meta-family path: params must be exactly ["facebook","instagram"] — no composio-only platforms leak in without their own flags',
   );
 });
 
@@ -728,8 +731,9 @@ test('#679 seam parity — isPlatformInsightsEnabled dispatches correctly for al
   assert.equal(isPlatformInsightsEnabled('reddit', fullEnv), true);
   assert.equal(isPlatformInsightsEnabled('linkedin', fullEnv), true);
 
+  // Instagram uses the same ANALYTICS_PROVIDER gate as facebook (no separate flag) → true in fullEnv.
+  assert.equal(isPlatformInsightsEnabled('instagram', fullEnv), true, 'instagram uses ANALYTICS_PROVIDER gate like facebook');
   // Unknown platform → always false
-  assert.equal(isPlatformInsightsEnabled('instagram', fullEnv), false, 'instagram is not in the seam');
   assert.equal(isPlatformInsightsEnabled('unknown', fullEnv), false);
 });
 
@@ -742,5 +746,169 @@ test('#679 isComposioOnlyAnalyticsPlatform: set is {x, reddit, linkedin, youtube
   assert.equal(isComposioOnlyAnalyticsPlatform('linkedin'), true);
   assert.equal(isComposioOnlyAnalyticsPlatform('youtube'), true);
   assert.equal(isComposioOnlyAnalyticsPlatform('facebook'), false, 'facebook uses ANALYTICS_PROVIDER gate, not the composio-only set');
-  assert.equal(isComposioOnlyAnalyticsPlatform('instagram'), false, 'instagram is out of scope');
+  assert.equal(isComposioOnlyAnalyticsPlatform('instagram'), false, 'instagram uses ANALYTICS_PROVIDER gate like facebook, not the composio-only set');
+});
+
+// ── Instagram adapter registration + adversarial bridge tests (#692/#693) ────
+//
+// Adversarial bar (team-lead review):
+//   FB byte-identical → existing tests above guard this (SELECT params + INSERT params unchanged)
+//   X unchanged       → existing X bridge tests above guard this
+//   IG dormant (c)    → test below: SELECT includes 'instagram', but no IG row returned → no upsert
+//   IG live-on-connect (d) → tests below: id present → direct upsert; id null → back-heal
+
+test('instagram is registered in the adapter factory: getAdapter + hasAdapter honor the ANALYTICS_PROVIDER gate', () => {
+  const prevKey = process.env.COMPOSIO_API_KEY;
+  const prevProvider = process.env.ANALYTICS_PROVIDER;
+  const prevComposio = process.env.COMPOSIO_ENABLED;
+  process.env.COMPOSIO_API_KEY = 'test-key';
+  process.env.ANALYTICS_PROVIDER = 'composio';
+  process.env.COMPOSIO_ENABLED = '1';
+  try {
+    assert.equal(isInstagramInsightsEnabled(COMPOSIO_ENV), true, 'IG enabled when COMPOSIO_ENABLED + ANALYTICS_PROVIDER=composio');
+    assert.equal(isInstagramInsightsEnabled(DIRECT_ENV), false, 'IG disabled when ANALYTICS_PROVIDER=direct_meta');
+    assert.equal(hasAdapter('instagram'), true, 'hasAdapter(instagram) true in composio env');
+    const adapter = getAdapter('instagram', { connectedAccountId: 'ca_ig_test' });
+    assert.ok(adapter instanceof InstagramInsightsAdapter, 'getAdapter returns InstagramInsightsAdapter');
+    assert.equal(adapter.platform, 'instagram');
+  } finally {
+    if (prevKey === undefined) delete process.env.COMPOSIO_API_KEY;
+    else process.env.COMPOSIO_API_KEY = prevKey;
+    if (prevProvider === undefined) delete process.env.ANALYTICS_PROVIDER;
+    else process.env.ANALYTICS_PROVIDER = prevProvider;
+    if (prevComposio === undefined) delete process.env.COMPOSIO_ENABLED;
+    else process.env.COMPOSIO_ENABLED = prevComposio;
+  }
+});
+
+test('(c) IG DORMANT: SELECT includes "instagram" (bridge widened) but no connected IG row returned → no IG upsert, no resolver call', async () => {
+  // Simulates an IG connection that is absent or in a non-connected status
+  // (the real SQL has WHERE status='connected' which filters it out; the fake DB
+  // simply returns no IG row). The bridge SELECT params must still include
+  // 'instagram' (proving the widening landed) but without a matching row there
+  // must be zero insights_accounts upserts for IG and zero resolver calls.
+  const db = recordingDb([
+    // Only a FB row present; no IG connected row (absent or reauthorization_required).
+    {
+      id: 5,
+      tenant_id: 15,
+      platform: 'facebook',
+      external_account_id: 'PAGE123',
+      external_account_name: 'Sugar Page',
+      connected_account_id: 'ca_fb',
+    },
+  ]);
+  const gateway = fakeGateway();
+
+  const result = await ensureInsightsAccountsForConnectedPlatforms(db, COMPOSIO_ENV, {
+    gateway,
+    config: fakeConfig({ actions: {} }),
+  });
+
+  // The SELECT must include 'instagram' — the bridge is active.
+  const select = db.queries[0];
+  assert.ok(select, 'a SELECT was issued');
+  assert.ok(
+    (select.params as unknown[]).includes('instagram'),
+    'SELECT params include "instagram" even when no IG row is present',
+  );
+
+  // No IG insights_accounts row upserted.
+  const igInsert = db.queries.find(
+    (q) => /INSERT INTO insights_accounts/i.test(q.text) && q.params[1] === 'instagram',
+  );
+  assert.equal(igInsert, undefined, 'no insights_accounts row upserted for instagram (no connected IG row)');
+
+  // No resolver call was made for IG (no row to back-heal).
+  assert.equal(gateway.calls.length, 0, 'no Composio call when no IG row returned');
+
+  // The FB row IS still processed normally (byte-identical behavior).
+  assert.equal(result.upserted, 1, 'the FB row is still upserted');
+  assert.equal(result.resolved, 0, 'no resolution — FB row had external_account_id present');
+});
+
+test('(d) IG LIVE-ON-CONNECT (external_account_id present): direct upsert, no resolver call', async () => {
+  // A tenant successfully connected their IG account and external_account_id is
+  // already populated (e.g. from the connect flow). The bridge must upsert directly —
+  // no INSTAGRAM_GET_USER_INFO call needed.
+  const db = recordingDb([
+    {
+      id: 22,
+      tenant_id: 15,
+      platform: 'instagram',
+      external_account_id: '12345678901',
+      external_account_name: 'sugarleather',
+      connected_account_id: 'ca_ig',
+    },
+  ]);
+  const gateway = fakeGateway();
+
+  const result = await ensureInsightsAccountsForConnectedPlatforms(db, COMPOSIO_ENV, {
+    gateway,
+    config: fakeConfig({ actions: {} }),
+  });
+
+  assert.equal(result.considered, 1);
+  assert.equal(result.upserted, 1);
+  assert.equal(result.resolved, 0, 'no resolution — external_account_id already present');
+  assert.equal(gateway.calls.length, 0, 'no Composio call when external_account_id is present');
+
+  const insert = db.queries.find((q) => /INSERT INTO insights_accounts/i.test(q.text));
+  assert.ok(insert, 'an INSERT INTO insights_accounts was issued');
+  // IG user id (numeric) stored verbatim as external_account_id.
+  assert.deepEqual(insert!.params, [15, 'instagram', '12345678901', 'sugarleather']);
+});
+
+test('(d) IG LIVE-ON-CONNECT (external_account_id null): back-heals via resolveInstagramAccount ({ig_user_id:"me"}), upserts', async () => {
+  // The connect flow did not populate external_account_id (common for legacy or
+  // first-time IG connections). The bridge must call INSTAGRAM_GET_USER_INFO with
+  // {ig_user_id:'me'} to resolve the IG user id, persist it back to
+  // connected_accounts, then upsert insights_accounts.
+  const db = recordingDb([
+    {
+      id: 23,
+      tenant_id: 15,
+      platform: 'instagram',
+      external_account_id: null,
+      external_account_name: null,
+      connected_account_id: 'ca_ig_heal',
+    },
+  ]);
+  const gateway = fakeGateway({
+    executeResult: {
+      successful: true,
+      error: null,
+      data: { data: { id: '98765432101', username: 'sugarleather_ig' } },
+    },
+  });
+
+  const result = await ensureInsightsAccountsForConnectedPlatforms(db, COMPOSIO_ENV, {
+    gateway,
+    config: fakeConfig({ actions: {} }),
+  });
+
+  assert.equal(result.resolved, 1, 'IG user id was resolved via back-heal');
+  assert.equal(result.upserted, 1);
+  assert.equal(result.skippedNoPage, 0);
+
+  // It called INSTAGRAM_GET_USER_INFO with {ig_user_id:'me'} and the right connectedAccountId.
+  assert.equal(gateway.calls.length, 1);
+  assert.equal(gateway.calls[0].slug, DEFAULT_INSTAGRAM_GET_ME_SLUG);
+  assert.equal(gateway.calls[0].options.connectedAccountId, 'ca_ig_heal');
+  assert.deepEqual(
+    gateway.calls[0].options.arguments,
+    { ig_user_id: 'me', fields: 'id,username,followers_count' },
+    'resolver sends {ig_user_id:"me"} to get the authenticated account',
+  );
+
+  // It persisted the resolved IG user id back to connected_accounts.
+  const update = db.queries.find((q) => /UPDATE connected_accounts/i.test(q.text));
+  assert.ok(update, 'persists the resolved IG user id back to connected_accounts');
+  assert.equal(update!.params[0], '98765432101', 'ig user id is persisted');
+  assert.equal(update!.params[2], 23, 'keyed on the connection row id');
+
+  // And upserted insights_accounts with the resolved IG user id + username.
+  const insert = db.queries.find((q) => /INSERT INTO insights_accounts/i.test(q.text));
+  assert.ok(insert, 'an INSERT INTO insights_accounts was issued');
+  assert.deepEqual(insert!.params, [15, 'instagram', '98765432101', 'sugarleather_ig']);
 });
