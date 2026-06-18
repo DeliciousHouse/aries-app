@@ -208,6 +208,35 @@ test('M4 off-switch: hasAdapter(facebook) honors ANALYTICS_PROVIDER, getAdapter 
   }
 });
 
+test('X bridge: when ARIES_X_ENABLED=1 the DB query includes "x" alongside "facebook"', async () => {
+  const db = recordingDb([]);
+  const xEnv = {
+    ANALYTICS_PROVIDER: 'composio',
+    ARIES_X_ENABLED: '1',
+  } as unknown as NodeJS.ProcessEnv;
+  await ensureInsightsAccountsForConnectedPlatforms(db, xEnv);
+  const select = db.queries[0];
+  assert.ok(select, 'issued a SELECT query');
+  // The bridged-platform list must include 'x' when the rollout flag is on.
+  assert.ok(
+    Array.isArray(select.params) && (select.params as unknown[]).includes('x'),
+    'x is in bridged-platform params when ARIES_X_ENABLED=1',
+  );
+  assert.ok(
+    Array.isArray(select.params) && (select.params as unknown[]).includes('facebook'),
+    'facebook is always included',
+  );
+});
+
+test('X bridge: when ARIES_X_ENABLED is off, the DB query only includes "facebook"', async () => {
+  const db = recordingDb([]);
+  const fbOnlyEnv = { ANALYTICS_PROVIDER: 'composio' } as unknown as NodeJS.ProcessEnv;
+  await ensureInsightsAccountsForConnectedPlatforms(db, fbOnlyEnv);
+  const select = db.queries[0];
+  assert.ok(select, 'issued a SELECT query');
+  assert.deepEqual(select.params, ['facebook'], 'only facebook when ARIES_X_ENABLED is off');
+});
+
 test('facebook is registered in the adapter factory and getAdapter binds the connection context', () => {
   // getAdapter builds a real Composio gateway (needs an API key) AND requires
   // the ANALYTICS_PROVIDER=composio off-switch to be on.

@@ -234,6 +234,29 @@ const MAPPERS: Partial<Record<string, PlatformAnalyticsMapper>> = {
       return { views: num(stats.viewCount) };
     },
   },
+  // X (Twitter) — single-tweet lookup; public_metrics carries the engagement.
+  // impression_count is paid-tier-gated, so impressions is null when absent
+  // (never a fabricated zero). Nesting: raw.data (Composio) .data (X v2 single
+  // lookup) .public_metrics.
+  'x:post_insights': {
+    slug: 'TWITTER_POST_LOOKUP_BY_POST_ID',
+    buildArgs: (ctx) => ({ id: ctx.externalPostId, tweet_fields: 'public_metrics' }),
+    parse: (raw) => {
+      const p = payload(raw);
+      const tweet = (p.data && typeof p.data === 'object' && !Array.isArray(p.data)
+        ? (p.data as Record<string, unknown>)
+        : p);
+      const pm = (tweet.public_metrics && typeof tweet.public_metrics === 'object'
+        ? (tweet.public_metrics as Record<string, unknown>)
+        : {});
+      return {
+        impressions: num(pm.impression_count),
+        likes: num(pm.like_count),
+        comments: num(pm.reply_count),
+        shares: num(pm.retweet_count),
+      };
+    },
+  },
   // LinkedIn (organization-level share stats)
   'linkedin:account_insights': {
     slug: 'LINKEDIN_GET_SHARE_STATS',

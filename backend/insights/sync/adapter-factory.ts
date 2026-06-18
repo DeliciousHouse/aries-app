@@ -18,7 +18,8 @@ import type { Platform } from '../platforms/registry';
 import type { InsightsAdapter, InsightsAdapterContext } from '../adapters/_adapter.types';
 import { youTubeInsightsAdapter } from '../adapters/youtube/index';
 import { createFacebookInsightsAdapter } from '../adapters/facebook/index';
-import { analyticsProviderSelector } from '@/backend/integrations/providers/integration-config';
+import { createXInsightsAdapter } from '../adapters/x/index';
+import { analyticsProviderSelector, isXEnabled } from '@/backend/integrations/providers/integration-config';
 
 type AdapterBuilder = (ctx: InsightsAdapterContext) => InsightsAdapter;
 
@@ -32,6 +33,17 @@ export function isFacebookInsightsEnabled(env: NodeJS.ProcessEnv = process.env):
   return analyticsProviderSelector(env) === 'composio';
 }
 
+/**
+ * Real off-switch for the Composio-backed X (Twitter) insights path: active only
+ * when the X rollout flag is ON (ARIES_X_ENABLED) AND analytics is on Composio
+ * (ANALYTICS_PROVIDER=composio). Reuses the existing isXEnabled flag — X insights
+ * does not add a new flag. Default OFF on both axes → the X adapter never
+ * activates and no Composio tool is ever executed.
+ */
+export function isXInsightsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return isXEnabled(env) && analyticsProviderSelector(env) === 'composio';
+}
+
 const REGISTRY: Partial<Record<Platform, AdapterBuilder>> = {
   youtube: () => youTubeInsightsAdapter,
   facebook: (ctx) => {
@@ -43,6 +55,15 @@ const REGISTRY: Partial<Record<Platform, AdapterBuilder>> = {
     }
     return createFacebookInsightsAdapter(ctx);
   },
+  x: (ctx) => {
+    if (!isXInsightsEnabled()) {
+      throw new Error(
+        'X insights adapter is disabled: set ARIES_X_ENABLED=1 and ' +
+        'ANALYTICS_PROVIDER=composio to enable Composio-backed X analytics.',
+      );
+    }
+    return createXInsightsAdapter(ctx);
+  },
   // instagram: (ctx) => createInstagramInsightsAdapter(ctx),  ← out of scope (#596/#597 = FB only)
 };
 
@@ -53,6 +74,7 @@ const REGISTRY: Partial<Record<Platform, AdapterBuilder>> = {
  */
 export function hasAdapter(platform: Platform, env: NodeJS.ProcessEnv = process.env): boolean {
   if (platform === 'facebook') return isFacebookInsightsEnabled(env);
+  if (platform === 'x') return isXInsightsEnabled(env);
   return platform in REGISTRY && REGISTRY[platform] != null;
 }
 

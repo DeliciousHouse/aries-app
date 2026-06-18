@@ -500,6 +500,18 @@ services:
       COMPOSIO_FACEBOOK_POST_INSIGHTS_ACTION: ${COMPOSIO_FACEBOOK_POST_INSIGHTS_ACTION:-}
       COMPOSIO_FACEBOOK_ACCOUNT_INSIGHTS_ACTION: ${COMPOSIO_FACEBOOK_ACCOUNT_INSIGHTS_ACTION:-}
       COMPOSIO_FACEBOOK_LIST_COMMENTS_ACTION: ${COMPOSIO_FACEBOOK_LIST_COMMENTS_ACTION:-}
+      # X (Twitter) analytics + comment replies (#632/#633), read by the
+      # insights-sync worker's X adapter (backend/insights/adapters/x). The X
+      # insights path (account bridge + adapter) turns on ONLY when
+      # ARIES_X_ENABLED=true AND ANALYTICS_PROVIDER=composio; otherwise dormant.
+      # AUTH_CONFIG_ID is the tenant's Composio auth config; the *_ACTION slugs
+      # are optional (verified code defaults: TWITTER_POST_LOOKUP_BY_POST_ID(S),
+      # TWITTER_RECENT_SEARCH).
+      ARIES_X_ENABLED: ${ARIES_X_ENABLED:-false}
+      COMPOSIO_X_AUTH_CONFIG_ID: ${COMPOSIO_X_AUTH_CONFIG_ID:-}
+      COMPOSIO_X_POST_INSIGHTS_ACTION: ${COMPOSIO_X_POST_INSIGHTS_ACTION:-}
+      COMPOSIO_X_LIST_COMMENTS_ACTION: ${COMPOSIO_X_LIST_COMMENTS_ACTION:-}
+      COMPOSIO_X_LIST_POSTS_ACTION: ${COMPOSIO_X_LIST_POSTS_ACTION:-}
     restart: unless-stopped
     networks:
       - docker_stack
