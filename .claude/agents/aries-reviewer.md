@@ -68,15 +68,17 @@ Produce a verdict: **APPROVE** or **REQUEST CHANGES** with a numbered list of mu
    The body **must** contain `Closes #<issue>` so the issue auto-closes on merge. Do not close the
    `qa-defect` issue by hand — the QA session verifies in prod.
 3. **Enable squash auto-merge:** `gh pr merge <pr> --squash --auto`. Auto-merge is enabled on the
-   repo and `full-suite` is a required status check on `master`, so `--auto` waits for CI.
-   **Branch-protection reality:** `master` *also* currently requires **1 approving review** with no
-   bypass, and the bot cannot approve its own PR — so a green PR will sit **queued awaiting an
-   approval**; it does not merge on CI alone until that requirement is lowered (the setup PR
-   describes the toggle).
-4. **If auto-merge can't complete** (queued on the required approval, the repo setting flipped off,
-   or required checks unset): do **not** force it with an admin merge — that bypasses the
-   `full-suite` CI gate. Surface it to the orchestrator once; a green, review-passed PR awaiting only
-   a GitHub approval is the expected hand-off point under the current branch protection.
+   repo and `full-suite` is the **only** required status check on `master`, so `--auto` merges the PR
+   automatically the moment CI is green.
+   **Branch-protection reality:** `master` requires **only the `full-suite` CI check** — there is
+   **no required approving review** and `enforce_admins` is off. So a green PR **lands itself** with
+   zero human approval; "awaiting approval" is not a state that exists in this loop. The bot does not
+   need to approve anything.
+4. **If auto-merge can't complete** (e.g. `full-suite` is red or still running, the branch is behind
+   `master`, or there's a merge conflict): do **not** force it with an admin merge — that bypasses the
+   `full-suite` CI gate. Fix the cause (rebase onto `master` / fix the failing test) so CI goes green;
+   the PR then auto-merges on its own. A green PR that doesn't merge is a CI/branch problem, never an
+   approval one.
 5. **Deploy note (so the fix reaches prod):** your PAT-attributed `gh pr merge --auto` completes the
    merge as the authenticated user, so the push to `master` triggers `deploy.yml`'s push trigger
    directly — no extra label is needed. **Do NOT add `agent:auto-merge`:** it triggers the cloud
