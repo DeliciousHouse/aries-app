@@ -23,7 +23,7 @@ import {
 } from '../providers/types';
 import { PublishGuardError } from '../providers/errors';
 import type { ComposioConfig, ComposioOperation } from './composio-config';
-import type { ComposioGateway } from './composio-client';
+import type { ComposioFileDescriptor, ComposioGateway } from './composio-client';
 import { getConnectionRow, type Queryable } from './connection-store';
 import {
   ComposioCapabilityMissingError,
@@ -166,6 +166,61 @@ export class ComposioPublisherProvider implements PublisherProvider {
           ...(input.scheduledFor ? { scheduled_publish_time: input.scheduledFor } : {}),
         };
       }
+    } else if (input.platform === 'x') {
+      // X (Twitter): a text post, optionally with a single image. Unlike
+      // Facebook's photo post (which accepts an image URL), TWITTER_UPLOAD_MEDIA's
+      // `media` is a `file_uploadable` field that needs a staged S3 descriptor —
+      // the gateway constructs the SDK WITHOUT auto-upload, so a raw URL would be
+      // rejected ("Following fields are missing: {'media'}"). An image post is
+      // therefore a pre-publish UPLOAD (stage bytes → register the Twitter media)
+      // followed by the create-post call.
+      //
+      // The whole upload runs BEFORE any tweet exists, so every failure here is
+      // surfaced as a ComposioToolError → the dispatcher classifies it
+      // definitely-never-posted (safe to roll back the claim + retry). ONLY the
+      // final TWITTER_CREATION_OF_A_POST executed via the shared call below is the
+      // outcome-unknown boundary (a transport drop after that may have posted).
+      //
+      // X has no Page-id (resolves through the default connectedAccountId path)
+      // and no native scheduling here, so `scheduledFor` is ignored and the
+      // status resolves to `published`.
+      let mediaId: string | null = null;
+      if (input.mediaUrls.length > 0) {
+        const uploadSlug = this.requireSlug(input.platform, 'upload_media', 'upload media for X posts');
+        const toolkitSlug = this.config.toolkitSlugFor(input.platform);
+        let descriptor: ComposioFileDescriptor;
+        try {
+          descriptor = await this.gateway.uploadFile({
+            file: input.mediaUrls[0],
+            toolSlug: uploadSlug,
+            toolkitSlug,
+          });
+        } catch (error) {
+          // Staging to S3 never created a tweet — definitely-never-posted.
+          throw new ComposioToolError(
+            uploadSlug,
+            error instanceof Error ? error.message : 'failed to stage media for upload',
+          );
+        }
+        const uploaded = await this.gateway.executeTool(uploadSlug, {
+          connectedAccountId: conn.connectedAccountId!,
+          arguments: { media: descriptor, media_category: 'tweet_image' },
+        });
+        if (!uploaded.successful) {
+          throw new ComposioToolError(uploadSlug, uploaded.error ?? 'media upload reported unsuccessful');
+        }
+        // The Twitter media id comes back nested (commonly data.data.id) and must
+        // be a numeric-string for media_media_ids; never use media_key.
+        mediaId = pickId(uploaded.data, ['media_id_string', 'media_id', 'id']);
+        if (!mediaId) {
+          throw new ComposioToolError(uploadSlug, 'media upload returned no media id');
+        }
+      }
+      slug = this.requireSlug(input.platform, 'publish_post', 'publish posts');
+      toolArgs = {
+        text: input.content,
+        ...(mediaId ? { media_media_ids: [mediaId] } : {}),
+      };
     } else {
       // Instagram: caption + media_urls + placement + media_type (unchanged).
       slug = this.requireSlug(input.platform, 'publish_post', 'publish posts');

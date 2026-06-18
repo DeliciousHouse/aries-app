@@ -38,6 +38,23 @@ export interface GatewayToolResult {
   error: string | null;
 }
 
+/** A file to stage to Composio's S3 before it is referenced by a tool input. */
+export interface ComposioFileUploadInput {
+  /** A public https URL, a local file path, or a File object. */
+  file: string;
+  /** The action slug consuming the file (used for S3 keying / telemetry). */
+  toolSlug: string;
+  /** The toolkit slug (e.g. 'twitter'). */
+  toolkitSlug: string;
+}
+
+/** The broker's staged-file descriptor — the value a `file_uploadable` input expects. */
+export interface ComposioFileDescriptor {
+  name: string;
+  mimetype: string;
+  s3key: string;
+}
+
 export interface ComposioGateway {
   /**
    * Find an existing Composio-managed auth config for a toolkit, or create one.
@@ -60,6 +77,16 @@ export interface ComposioGateway {
     slug: string,
     options: { userId?: string; connectedAccountId?: string; arguments?: Record<string, unknown> },
   ): Promise<GatewayToolResult>;
+  /**
+   * Stage a file (a public URL, local path, or File) to Composio's S3 and return
+   * the broker's `{ name, mimetype, s3key }` descriptor. Required to satisfy a
+   * tool's `file_uploadable` input (e.g. TWITTER_UPLOAD_MEDIA.media): the SDK is
+   * constructed WITHOUT `dangerouslyAllowAutoUploadDownloadFiles`, so a raw
+   * URL/path passed as a file argument is forwarded as-is and the broker rejects
+   * it ("Following fields are missing"). Callers pre-stage here and pass the
+   * returned descriptor as the file argument.
+   */
+  uploadFile(input: ComposioFileUploadInput): Promise<ComposioFileDescriptor>;
 }
 
 export interface ToolExecuteInput {
@@ -246,6 +273,20 @@ export class LiveComposioGateway implements ComposioGateway {
       successful: result.successful !== false,
       error: result.error ?? null,
     };
+  }
+
+  async uploadFile(input: ComposioFileUploadInput): Promise<ComposioFileDescriptor> {
+    const composio = await this.client();
+    // composio.files.upload fetches the URL bytes (deriving the real mimetype
+    // from the response content-type), uploads them to Composio's S3, and returns
+    // the `{ name, mimetype, s3key }` descriptor the broker's file_uploadable
+    // inputs expect. A public https URL skips the local-path allowlist/denylist.
+    const data = await composio.files.upload({
+      file: input.file,
+      toolSlug: input.toolSlug,
+      toolkitSlug: input.toolkitSlug,
+    });
+    return { name: data.name, mimetype: data.mimetype, s3key: data.s3key };
   }
 }
 

@@ -6,6 +6,7 @@ import {
   type MetaPublishFailureKind,
 } from '@/backend/integrations/meta-publishing';
 import { dispatchPublish } from '@/backend/integrations/publish-dispatch';
+import { isXEnabled } from '@/backend/integrations/providers/integration-config';
 import { toSignedPublicUrl } from '@/app/api/publish/dispatch/handler';
 import { resolveSignableBasename } from '@/backend/marketing/signable-basename';
 import { recomputeAndPersistPendingApprovalCount } from '@/backend/marketing/runtime-views';
@@ -259,7 +260,11 @@ export async function POST(req: Request): Promise<Response> {
   let firstPublishedPostId: string | null = null;
 
   for (const platform of platforms) {
-    if (!isMetaProvider(platform)) {
+    // X (Twitter) is a Composio-only publish target (no direct-Meta path), so it
+    // is not an `isMetaProvider`; accept it only when the rollout flag is on. OFF
+    // (default) keeps the exact `unsupported_provider` terminal result as before.
+    const isXPublish = platform.trim().toLowerCase() === 'x' && isXEnabled();
+    if (!isMetaProvider(platform) && !isXPublish) {
       // Unsupported provider can never succeed — terminal, not retryable.
       results.push({ provider: platform, ok: false, error: 'unsupported_provider', retryable: false, kind: 'permanent' });
       continue;
