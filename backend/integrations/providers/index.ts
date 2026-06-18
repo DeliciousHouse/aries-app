@@ -15,6 +15,7 @@ export {
   parseFlag,
   isComposioEnabled,
   isXEnabled,
+  isRedditEnabled,
   connectablePlatforms,
   publishProviderSelector,
   analyticsProviderSelector,
