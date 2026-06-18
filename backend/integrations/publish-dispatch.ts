@@ -78,7 +78,7 @@ export async function dispatchPublish(
   const platform = metaPlatform(request.provider);
   const composioOnly = isComposioOnlyPublishPlatform(platform);
 
-  // Composio-only platforms (x, reddit, linkedin) require Composio to be enabled.
+  // Composio-only platforms (x, reddit, linkedin, youtube) require Composio to be enabled.
   // Reject with a terminal 400 before any provider is contacted so the handlers
   // classify this as definitely-never-posted (safe to surface, never auto-retry,
   // and the direct-Meta path is NEVER a fallback for these platforms).
@@ -92,8 +92,8 @@ export async function dispatchPublish(
 
   // Fast path for non-composio-only platforms: the shipped default (direct_meta).
   // FB/IG publishing is byte-identical to the pre-seam call under direct_meta.
-  // Composio-only platforms skip this branch entirely — they never take the
-  // direct-Meta path regardless of the global selector.
+  // Composio-only platforms (x, reddit, linkedin, youtube) skip this branch
+  // entirely — they never take the direct-Meta path regardless of the global selector.
   if (!composioOnly && selector() === 'direct_meta') {
     return directPublish(request);
   }
