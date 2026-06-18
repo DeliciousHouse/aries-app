@@ -26,23 +26,29 @@
 
 import pool from '@/lib/db';
 import type { Queryable } from '@/backend/integrations/composio/connection-store';
-import { analyticsProviderSelector, isXEnabled } from '@/backend/integrations/providers/integration-config';
+import { analyticsProviderSelector, isXEnabled, isYouTubeEnabled } from '@/backend/integrations/providers/integration-config';
 import { resolveComposioConfig, type ComposioConfig } from '@/backend/integrations/composio/composio-config';
 import { createComposioGateway, type ComposioGateway } from '@/backend/integrations/composio/composio-client';
 import { resolveFacebookManagedPage } from '@/backend/integrations/composio/facebook-page-resolver';
+import { resolveYouTubeChannel } from '@/backend/integrations/composio/youtube-channel-resolver';
 
 /**
  * Platforms whose Composio connections should be projected into insights_accounts.
- * X (Twitter) is only bridged when ARIES_X_ENABLED is ON (computed dynamically by
+ * X (Twitter) and YouTube are only bridged when their rollout flag is ON
+ * (ARIES_X_ENABLED / ARIES_YOUTUBE_ENABLED), computed dynamically by
  * `bridgedPlatforms` below — the const itself is never mutated, so a flag-OFF
- * environment is byte-identical to the FB-only bridge).
+ * environment is byte-identical to the FB-only bridge.
  */
 export const BRIDGED_PLATFORMS = ['facebook'] as const;
 
-/** The bridged-platform list for this env: FB always; X only when ARIES_X_ENABLED. */
+/**
+ * The bridged-platform list for this env: FB always; X only when ARIES_X_ENABLED;
+ * YouTube only when ARIES_YOUTUBE_ENABLED.
+ */
 function bridgedPlatforms(env: NodeJS.ProcessEnv): string[] {
   const list: string[] = [...BRIDGED_PLATFORMS];
   if (isXEnabled(env)) list.push('x');
+  if (isYouTubeEnabled(env)) list.push('youtube');
   return list;
 }
 
@@ -140,47 +146,66 @@ export async function ensureInsightsAccountsForConnectedPlatforms(
     let pageName = row.external_account_name;
 
     if (!pageId) {
-      // Only Facebook has a Page-id resolver (FACEBOOK_LIST_MANAGED_PAGES). X's
-      // external account id is captured at connect by pickExternalAccountId, so a
-      // null id is not back-heal-able here — skip this tick (a later connect/
-      // re-auth populates it). Never invent an X account id.
-      if (row.platform !== 'facebook') {
+      // Facebook (FACEBOOK_LIST_MANAGED_PAGES) and YouTube (YOUTUBE_LIST_CHANNELS,
+      // mine:true) have an external-id resolver. X's external account id is
+      // captured at connect by pickExternalAccountId, so a null id is not
+      // back-heal-able here — skip this tick (a later connect/re-auth populates
+      // it). Never invent an external account id.
+      if (row.platform !== 'facebook' && row.platform !== 'youtube') {
         skippedNoPage++;
         log({ event: 'insights_bridge_page_unresolved', tenantId: row.tenant_id, platform: row.platform, reason: 'no_external_account_id' });
         continue;
       }
-      // Back-heal: resolve the Page id from Composio and persist it once.
+      // Back-heal: resolve the external id from Composio and persist it once.
       const r = getResolver();
       if (!r || !row.connected_account_id) {
         skippedNoPage++;
-        log({ event: 'insights_bridge_page_unresolved', tenantId: row.tenant_id, reason: r ? 'no_connected_account' : 'composio_unavailable' });
+        log({ event: 'insights_bridge_page_unresolved', tenantId: row.tenant_id, platform: row.platform, reason: r ? 'no_connected_account' : 'composio_unavailable' });
         continue;
       }
-      let page: Awaited<ReturnType<typeof resolveFacebookManagedPage>> = null;
+      // Each resolver is fail-safe (returns null, never throws); the catch is a
+      // belt-and-braces guard so a single tenant can never wedge the worker tick.
+      let resolvedId: string | null = null;
+      let resolvedName: string | null = null;
+      let resolvedManagedCount = 0;
       try {
-        page = await resolveFacebookManagedPage(r.gateway, r.config, row.connected_account_id);
+        if (row.platform === 'youtube') {
+          const channel = await resolveYouTubeChannel(r.gateway, r.config, row.connected_account_id);
+          if (channel) {
+            resolvedId = channel.channelId;
+            resolvedName = channel.channelName;
+            resolvedManagedCount = channel.managedCount;
+          }
+        } else {
+          const page = await resolveFacebookManagedPage(r.gateway, r.config, row.connected_account_id);
+          if (page) {
+            resolvedId = page.pageId;
+            resolvedName = page.pageName;
+            resolvedManagedCount = page.managedCount;
+          }
+        }
       } catch (err) {
-        page = null;
-        log({ event: 'insights_bridge_page_resolve_error', tenantId: row.tenant_id, error: err instanceof Error ? err.message : String(err) });
+        resolvedId = null;
+        log({ event: 'insights_bridge_page_resolve_error', tenantId: row.tenant_id, platform: row.platform, error: err instanceof Error ? err.message : String(err) });
       }
-      if (!page) {
+      if (!resolvedId) {
         skippedNoPage++;
-        log({ event: 'insights_bridge_page_unresolved', tenantId: row.tenant_id, reason: 'no_managed_page' });
+        log({ event: 'insights_bridge_page_unresolved', tenantId: row.tenant_id, platform: row.platform, reason: 'no_managed_account' });
         continue;
       }
-      pageId = page.pageId;
-      pageName = pageName ?? page.pageName;
-      // Persist back so the Page id is captured once (future ticks skip resolution).
+      pageId = resolvedId;
+      pageName = pageName ?? resolvedName;
+      // Persist back so the external id is captured once (future ticks skip resolution).
       await db.query(
         `UPDATE connected_accounts
            SET external_account_id = $1,
                external_account_name = COALESCE($2, external_account_name),
                updated_at = now()
          WHERE id = $3`,
-        [pageId, page.pageName, row.id],
+        [pageId, resolvedName, row.id],
       );
       resolved++;
-      log({ event: 'insights_bridge_page_resolved', tenantId: row.tenant_id, pageId, managedCount: page.managedCount });
+      log({ event: 'insights_bridge_page_resolved', tenantId: row.tenant_id, platform: row.platform, pageId, managedCount: resolvedManagedCount });
     }
 
     const res = await db.query(
