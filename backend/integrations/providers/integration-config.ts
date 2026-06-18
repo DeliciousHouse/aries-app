@@ -93,11 +93,11 @@ export function connectablePlatforms(
 }
 
 export function publishProviderSelector(env: NodeJS.ProcessEnv = process.env): ProviderSelector {
-  return parseSelector(env.PUBLISH_PROVIDER, 'direct_meta');
+  return parseSelector(env.PUBLISH_PROVIDER, 'composio');
 }
 
 export function analyticsProviderSelector(env: NodeJS.ProcessEnv = process.env): ProviderSelector {
-  return parseSelector(env.ANALYTICS_PROVIDER, 'direct_meta');
+  return parseSelector(env.ANALYTICS_PROVIDER, 'composio');
 }
 
 /** Per-platform Composio auth-config ID, falling back to the default config. */
