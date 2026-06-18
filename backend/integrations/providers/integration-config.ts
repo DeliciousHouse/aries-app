@@ -117,6 +117,11 @@ export function composioAuthConfigId(
   };
   const specific = perPlatform[platform]?.trim();
   if (specific) return specific;
+  // reddit + x are toolkit-specific (reddit provisions Composio-managed auth;
+  // x needs its own custom OAuth app). Neither may inherit
+  // COMPOSIO_DEFAULT_AUTH_CONFIG_ID (typically a Meta-family config) or connect
+  // would target the wrong toolkit (#669).
+  if (platform === 'reddit' || platform === 'x') return null;
   const fallback = env.COMPOSIO_DEFAULT_AUTH_CONFIG_ID?.trim();
   return fallback || null;
 }
