@@ -267,6 +267,14 @@ services:
       # Optional; defaults to the verified FACEBOOK_CREATE_COMMENT slug. Consumed
       # only by the app (the reply endpoint), routed when PUBLISH_PROVIDER=composio.
       COMPOSIO_FACEBOOK_REPLY_COMMENT_ACTION: ${COMPOSIO_FACEBOOK_REPLY_COMMENT_ACTION:-}
+      # New-platform native reply via Composio (#634/gate-5) — X/YouTube/Reddit/
+      # LinkedIn. Optional slug overrides; default to the verified catalog slugs.
+      # Consumed only by the app (the reply endpoint runs in aries-app), each
+      # admitted behind its own ARIES_<P>_ENABLED + master ARIES_NATIVE_REPLY_ENABLED.
+      COMPOSIO_X_REPLY_COMMENT_ACTION: ${COMPOSIO_X_REPLY_COMMENT_ACTION:-}
+      COMPOSIO_YOUTUBE_REPLY_COMMENT_ACTION: ${COMPOSIO_YOUTUBE_REPLY_COMMENT_ACTION:-}
+      COMPOSIO_REDDIT_REPLY_COMMENT_ACTION: ${COMPOSIO_REDDIT_REPLY_COMMENT_ACTION:-}
+      COMPOSIO_LINKEDIN_REPLY_COMMENT_ACTION: ${COMPOSIO_LINKEDIN_REPLY_COMMENT_ACTION:-}
       PUBLISH_PROVIDER: ${PUBLISH_PROVIDER:-direct_meta}
       ANALYTICS_PROVIDER: ${ANALYTICS_PROVIDER:-direct_meta}
       AUTH_URL: ${AUTH_URL}
