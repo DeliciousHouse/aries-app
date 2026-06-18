@@ -33,11 +33,17 @@ import type { IntegrationPlatform, PublishResult } from './providers/types';
 import { publishNeverReachedPlatform } from './publish-outcome';
 
 function metaPlatform(provider: string): IntegrationPlatform {
-  // Mirrors DirectMetaProvider: only organic FB/IG are serviced; anything that
-  // is not instagram is treated as facebook (publishToMetaGraph has the same
-  // two-way split), so the Composio route targets the same platform the direct
-  // route would have.
-  return provider.trim().toLowerCase() === 'instagram' ? 'instagram' : 'facebook';
+  // Map the dispatch request's provider string to the integration platform the
+  // provider seam services. X (Twitter) is its own Composio-only platform;
+  // Instagram maps to instagram; everything else maps to facebook (the direct
+  // route's two-way split). Without the explicit X case, 'x' would fall through
+  // to 'facebook' and an X post would be sent to a Facebook Page. X never reaches
+  // the direct_meta fast path (normalizeMetaProvider('x') throws a terminal 400),
+  // and DirectMetaProvider.supports('x') is false, so it can never post to FB.
+  const normalized = provider.trim().toLowerCase();
+  if (normalized === 'x') return 'x';
+  if (normalized === 'instagram') return 'instagram';
+  return 'facebook';
 }
 
 export interface DispatchPublishDeps {

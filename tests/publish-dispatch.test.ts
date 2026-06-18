@@ -261,6 +261,58 @@ test('the real default (no deps): unset COMPOSIO_ENABLED takes the direct path a
   }
 });
 
+// ── Regression test for #631: metaPlatform() routing for 'x' ────────────────
+
+test('#631 metaPlatform routing: provider=x reaches the seam with platform=x, NOT coerced to facebook', async () => {
+  // Before the fix, metaPlatform('x') fell through to 'facebook' (the else branch).
+  // An X post would silently dispatch to a Facebook Page via the Composio seam
+  // with the wrong platform key — the FB branch checks page_id resolution and
+  // would throw or post to the wrong account.
+  const calls: PublishPostInput[] = [];
+  const provider = {
+    kind: 'composio',
+    supports: () => true,
+    publishPost: async (input: PublishPostInput) => {
+      calls.push(input);
+      return {
+        provider: 'composio',
+        platform: 'x' as const,
+        externalPostId: 'tweet_x_123',
+        externalCampaignId: null,
+        externalAdId: null,
+        status: 'published' as const,
+        url: 'https://twitter.com/status/tweet_x_123',
+        rawResponse: {},
+      };
+    },
+  } as unknown as PublisherProvider;
+
+  const out = await dispatchPublish(
+    { tenantId: '42', provider: 'x', content: 'hello x', mediaUrls: [], scheduledFor: null },
+    {
+      selector: () => 'composio',
+      directPublish: async () => {
+        throw new Error('x must never reach the direct-Meta path');
+      },
+      publisherProvider: () => provider,
+    },
+  );
+
+  assert.equal(calls.length, 1, 'exactly one publishPost call');
+  assert.equal(
+    calls[0].platform,
+    'x',
+    'x provider must reach the seam with platform=x (NOT coerced to facebook)',
+  );
+  assert.notEqual(calls[0].platform, 'facebook', 'x must NOT be coerced to facebook — that is the pre-fix bug');
+  assert.equal(out.platformPostId, 'tweet_x_123');
+  // connectionId is composio:<platform>; must contain 'x' not 'facebook'
+  assert.ok(
+    out.connectionId.includes(':x'),
+    `connectionId must reference 'x', got: ${out.connectionId}`,
+  );
+});
+
 test('auto selector also routes through the seam (not the direct path)', async () => {
   const { provider, calls } = stubProvider({
     provider: 'direct_meta',

@@ -219,6 +219,13 @@ services:
       COMPOSIO_INSTAGRAM_PUBLISH_POST_ACTION: ${COMPOSIO_INSTAGRAM_PUBLISH_POST_ACTION:-}
       COMPOSIO_FACEBOOK_UPLOAD_MEDIA_ACTION: ${COMPOSIO_FACEBOOK_UPLOAD_MEDIA_ACTION:-}
       COMPOSIO_INSTAGRAM_UPLOAD_MEDIA_ACTION: ${COMPOSIO_INSTAGRAM_UPLOAD_MEDIA_ACTION:-}
+      # X (Twitter) publish slugs — only consulted when ARIES_X_ENABLED=true and
+      # PUBLISH_PROVIDER=composio/auto. Publish executes in the app process (the
+      # scheduled-posts-worker only POSTs to the route), so these live here only.
+      #   COMPOSIO_X_PUBLISH_POST_ACTION=TWITTER_CREATION_OF_A_POST
+      #   COMPOSIO_X_UPLOAD_MEDIA_ACTION=TWITTER_UPLOAD_MEDIA
+      COMPOSIO_X_PUBLISH_POST_ACTION: ${COMPOSIO_X_PUBLISH_POST_ACTION:-}
+      COMPOSIO_X_UPLOAD_MEDIA_ACTION: ${COMPOSIO_X_UPLOAD_MEDIA_ACTION:-}
       # Facebook analytics + comments sync slugs (#596/#597). Optional — the
       # adapter falls back to the verified code defaults when unset.
       COMPOSIO_FACEBOOK_LIST_POSTS_ACTION: ${COMPOSIO_FACEBOOK_LIST_POSTS_ACTION:-}

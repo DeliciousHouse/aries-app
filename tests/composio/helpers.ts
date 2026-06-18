@@ -55,6 +55,9 @@ export function fakeGateway(opts?: {
       opts?.onExecute?.(rec);
       return opts?.executeResult ?? { data: {}, successful: true, error: null };
     },
+    async uploadFile(input) {
+      return { name: 'staged.jpg', mimetype: 'image/jpeg', s3key: `s3/${input.toolSlug}/staged.jpg` };
+    },
   };
 }
 
