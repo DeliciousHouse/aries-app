@@ -63,7 +63,18 @@ export class ComposioAccountProvider implements AccountConnectionProvider {
     // dashboard setup (just the API key).
     let authConfigId = this.config.authConfigIdFor(platform);
     if (!authConfigId) {
-      authConfigId = await this.gateway.findOrCreateManagedAuthConfig(this.config.toolkitSlugFor(platform));
+      try {
+        authConfigId = await this.gateway.findOrCreateManagedAuthConfig(this.config.toolkitSlugFor(platform));
+      } catch {
+        // Custom-OAuth toolkits (e.g. twitter/X, reddit) have no Composio-managed
+        // shared credentials. Throw a frontend-safe, actionable error that names
+        // the env var the operator must set — never leak the raw SDK error text.
+        const envKey = `COMPOSIO_${platform.toUpperCase()}_AUTH_CONFIG_ID`;
+        throw new ComposioConfigError(
+          `${platform} requires a custom OAuth app and is not configured for Composio-managed credentials. ` +
+            `Set ${envKey} to the Composio auth-config id for this platform.`,
+        );
+      }
     }
 
     const initiated = await this.gateway.initiateConnection(externalUserId, authConfigId, options?.callbackUrl);
