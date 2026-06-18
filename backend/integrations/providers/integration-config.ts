@@ -37,6 +37,17 @@ export function isXEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
 }
 
 /**
+ * TikTok connect rollout flag. Default OFF — ships TikTok dormant because it
+ * cannot reach the 5-gate golden journey today: Composio has no TikTok
+ * comments/reply actions, public publish is audit-gated, and analytics is
+ * account-level only. Gate it out until Composio adds the missing actions and
+ * the publish app is audited. NEW flag — never reuse ARIES_X_ENABLED.
+ */
+export function isTikTokEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return parseFlag(env.ARIES_TIKTOK_ENABLED);
+}
+
+/**
  * YouTube rollout flag (#637 analytics, #638 comments, #636 publish). Default
  * OFF — ships the Composio-backed YouTube insights adapter AND the still→video
  * publish path dormant. YouTube already *connects* via Composio, so this flag
@@ -85,11 +96,16 @@ export function isLinkedInEnabled(env: NodeJS.ProcessEnv = process.env): boolean
  * chokepoint for flag-gated platforms: when `ARIES_X_ENABLED` is OFF, `'x'` is
  * filtered out everywhere (connect/capabilities/disconnect gate + the UI list),
  * so the platform is byte-for-byte invisible until the flag flips on.
+ * `ARIES_TIKTOK_ENABLED` gates `'tiktok'` the same way — dormant by default
+ * until Composio adds the missing comments/reply actions and publish is audited.
  */
 export function connectablePlatforms(
   env: NodeJS.ProcessEnv = process.env,
 ): readonly IntegrationPlatform[] {
-  return isXEnabled(env) ? INTEGRATION_PLATFORMS : INTEGRATION_PLATFORMS.filter((p) => p !== 'x');
+  const excluded = new Set<IntegrationPlatform>();
+  if (!isXEnabled(env)) excluded.add('x');
+  if (!isTikTokEnabled(env)) excluded.add('tiktok');
+  return INTEGRATION_PLATFORMS.filter((p) => !excluded.has(p));
 }
 
 export function publishProviderSelector(env: NodeJS.ProcessEnv = process.env): ProviderSelector {
@@ -118,10 +134,10 @@ export function composioAuthConfigId(
   const specific = perPlatform[platform]?.trim();
   if (specific) return specific;
   // reddit + x are toolkit-specific (reddit provisions Composio-managed auth;
-  // x needs its own custom OAuth app). Neither may inherit
-  // COMPOSIO_DEFAULT_AUTH_CONFIG_ID (typically a Meta-family config) or connect
-  // would target the wrong toolkit (#669).
-  if (platform === 'reddit' || platform === 'x') return null;
+  // x needs its own custom OAuth app). tiktok is gated-out/dormant and must
+  // never inherit COMPOSIO_DEFAULT_AUTH_CONFIG_ID (typically a Meta-family config)
+  // or a future accidental connect attempt would target the wrong toolkit (#690).
+  if (platform === 'reddit' || platform === 'x' || platform === 'tiktok') return null;
   const fallback = env.COMPOSIO_DEFAULT_AUTH_CONFIG_ID?.trim();
   return fallback || null;
 }
