@@ -19,7 +19,8 @@ import type { InsightsAdapter, InsightsAdapterContext } from '../adapters/_adapt
 import { createYouTubeInsightsAdapter } from '../adapters/youtube/index';
 import { createFacebookInsightsAdapter } from '../adapters/facebook/index';
 import { createXInsightsAdapter } from '../adapters/x/index';
-import { analyticsProviderSelector, isXEnabled, isYouTubeEnabled } from '@/backend/integrations/providers/integration-config';
+import { createRedditInsightsAdapter } from '../adapters/reddit/index';
+import { analyticsProviderSelector, isXEnabled, isYouTubeEnabled, isRedditEnabled } from '@/backend/integrations/providers/integration-config';
 
 type AdapterBuilder = (ctx: InsightsAdapterContext) => InsightsAdapter;
 
@@ -55,6 +56,18 @@ export function isYouTubeInsightsEnabled(env: NodeJS.ProcessEnv = process.env): 
   return isYouTubeEnabled(env) && analyticsProviderSelector(env) === 'composio';
 }
 
+/**
+ * Real off-switch for the Composio-backed Reddit insights path: active only when
+ * the Reddit rollout flag is ON (ARIES_REDDIT_ENABLED) AND analytics is on
+ * Composio (ANALYTICS_PROVIDER=composio). REUSES the existing isRedditEnabled
+ * flag from the Reddit publish path (#641) — Reddit insights does NOT add a new
+ * flag. Default OFF on both axes → the Reddit adapter never activates and no
+ * Composio tool is ever executed.
+ */
+export function isRedditInsightsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return isRedditEnabled(env) && analyticsProviderSelector(env) === 'composio';
+}
+
 const REGISTRY: Partial<Record<Platform, AdapterBuilder>> = {
   youtube: (ctx) => {
     if (!isYouTubeInsightsEnabled()) {
@@ -83,6 +96,15 @@ const REGISTRY: Partial<Record<Platform, AdapterBuilder>> = {
     }
     return createXInsightsAdapter(ctx);
   },
+  reddit: (ctx) => {
+    if (!isRedditInsightsEnabled()) {
+      throw new Error(
+        'Reddit insights adapter is disabled: set ARIES_REDDIT_ENABLED=1 and ' +
+        'ANALYTICS_PROVIDER=composio to enable Composio-backed Reddit analytics.',
+      );
+    }
+    return createRedditInsightsAdapter(ctx);
+  },
   // instagram: (ctx) => createInstagramInsightsAdapter(ctx),  ← out of scope (#596/#597 = FB only)
 };
 
@@ -95,6 +117,7 @@ export function hasAdapter(platform: Platform, env: NodeJS.ProcessEnv = process.
   if (platform === 'facebook') return isFacebookInsightsEnabled(env);
   if (platform === 'x') return isXInsightsEnabled(env);
   if (platform === 'youtube') return isYouTubeInsightsEnabled(env);
+  if (platform === 'reddit') return isRedditInsightsEnabled(env);
   return platform in REGISTRY && REGISTRY[platform] != null;
 }
 

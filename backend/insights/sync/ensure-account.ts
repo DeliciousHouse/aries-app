@@ -26,7 +26,7 @@
 
 import pool from '@/lib/db';
 import type { Queryable } from '@/backend/integrations/composio/connection-store';
-import { analyticsProviderSelector, isXEnabled, isYouTubeEnabled } from '@/backend/integrations/providers/integration-config';
+import { analyticsProviderSelector, isXEnabled, isYouTubeEnabled, isRedditEnabled } from '@/backend/integrations/providers/integration-config';
 import { resolveComposioConfig, type ComposioConfig } from '@/backend/integrations/composio/composio-config';
 import { createComposioGateway, type ComposioGateway } from '@/backend/integrations/composio/composio-client';
 import { resolveFacebookManagedPage } from '@/backend/integrations/composio/facebook-page-resolver';
@@ -43,12 +43,13 @@ export const BRIDGED_PLATFORMS = ['facebook'] as const;
 
 /**
  * The bridged-platform list for this env: FB always; X only when ARIES_X_ENABLED;
- * YouTube only when ARIES_YOUTUBE_ENABLED.
+ * YouTube only when ARIES_YOUTUBE_ENABLED; Reddit only when ARIES_REDDIT_ENABLED.
  */
 function bridgedPlatforms(env: NodeJS.ProcessEnv): string[] {
   const list: string[] = [...BRIDGED_PLATFORMS];
   if (isXEnabled(env)) list.push('x');
   if (isYouTubeEnabled(env)) list.push('youtube');
+  if (isRedditEnabled(env)) list.push('reddit');
   return list;
 }
 
@@ -147,10 +148,10 @@ export async function ensureInsightsAccountsForConnectedPlatforms(
 
     if (!pageId) {
       // Facebook (FACEBOOK_LIST_MANAGED_PAGES) and YouTube (YOUTUBE_LIST_CHANNELS,
-      // mine:true) have an external-id resolver. X's external account id is
-      // captured at connect by pickExternalAccountId, so a null id is not
-      // back-heal-able here — skip this tick (a later connect/re-auth populates
-      // it). Never invent an external account id.
+      // mine:true) have an external-id resolver. X's and Reddit's external
+      // account id (username/id) is captured at connect by pickExternalAccountId,
+      // so a null id is not back-heal-able here — skip this tick (a later
+      // connect/re-auth populates it). Never invent an external account id.
       if (row.platform !== 'facebook' && row.platform !== 'youtube') {
         skippedNoPage++;
         log({ event: 'insights_bridge_page_unresolved', tenantId: row.tenant_id, platform: row.platform, reason: 'no_external_account_id' });
