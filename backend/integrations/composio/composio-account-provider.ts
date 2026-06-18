@@ -31,6 +31,8 @@ import {
 import { ComposioConfigError } from './errors';
 import { isActiveStatus, mapComposioStatus } from './status-map';
 import { resolveFacebookManagedPage } from './facebook-page-resolver';
+import { resolveLinkedInAuthorUrn } from './linkedin-author-resolver';
+import { isLinkedInEnabled } from '../providers/integration-config';
 import pool from '@/lib/db';
 
 export class ComposioAccountProvider implements AccountConnectionProvider {
@@ -172,6 +174,28 @@ export class ComposioAccountProvider implements AccountConnectionProvider {
         }
       } catch {
         // best-effort — leave null, the sync bridge will back-heal it
+      }
+    } else if (
+      // LinkedIn's member person URN is likewise absent from the connection
+      // metadata. Resolve it via LINKEDIN_GET_MY_INFO and store the FULL
+      // `urn:li:person:<id>` so the publisher (#646) reads it straight into
+      // `author`. Gated by ARIES_LINKEDIN_ENABLED (default OFF → no executeTool
+      // call, connect byte-identical). Best-effort: a 429 throttle / empty
+      // payload leaves it null and never breaks connect.
+      !externalAccountId &&
+      platform === 'linkedin' &&
+      isLinkedInEnabled() &&
+      active.id &&
+      isActiveStatus(active.status)
+    ) {
+      try {
+        const author = await resolveLinkedInAuthorUrn(this.gateway, this.config, active.id);
+        if (author) {
+          externalAccountId = author.urn;
+          externalAccountName = externalAccountName ?? author.name;
+        }
+      } catch {
+        // best-effort — leave null, never break connect
       }
     }
 

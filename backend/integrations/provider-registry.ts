@@ -50,7 +50,17 @@ export const PROVIDER_REGISTRY: Record<ProviderKey, ProviderConfig> = {
     ],
     adapter: 'meta',
   },
-  linkedin: { key: 'linkedin', family: 'linkedin', display_name: 'LinkedIn', default_scopes: ['w_member_social'], adapter: 'linkedin' },
+  linkedin: {
+    key: 'linkedin',
+    family: 'linkedin',
+    display_name: 'LinkedIn',
+    // openid/profile are required for LINKEDIN_GET_MY_INFO to return the member
+    // id we derive the person URN from (#645); email rounds out the basic
+    // profile; w_member_social authorizes the member post (#646). Org analytics'
+    // rw_organization_admin is intentionally NOT added here (separate org track).
+    default_scopes: ['openid', 'profile', 'email', 'w_member_social'],
+    adapter: 'linkedin',
+  },
   x: {
     key: 'x',
     family: 'x',
