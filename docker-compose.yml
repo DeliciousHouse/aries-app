@@ -195,6 +195,9 @@ services:
       # restart. See docs/integrations/composio.md.
       COMPOSIO_ENABLED: ${COMPOSIO_ENABLED:-false}
       COMPOSIO_API_KEY: ${COMPOSIO_API_KEY:-}
+      # X (Twitter) connect rollout flag — default OFF ships the platform dormant
+      # (card hidden; connect/capabilities 400 unsupported_platform as today).
+      ARIES_X_ENABLED: ${ARIES_X_ENABLED:-false}
       # Toolkit version for manual Composio tool execution (publish/analytics/
       # comments). The SDK rejects by-slug execution without one; default 'latest'
       # (gateway pairs it with a skip-check). Pin a concrete version to avoid drift.
@@ -207,6 +210,8 @@ services:
       COMPOSIO_YOUTUBE_AUTH_CONFIG_ID: ${COMPOSIO_YOUTUBE_AUTH_CONFIG_ID:-}
       COMPOSIO_LINKEDIN_AUTH_CONFIG_ID: ${COMPOSIO_LINKEDIN_AUTH_CONFIG_ID:-}
       COMPOSIO_REDDIT_AUTH_CONFIG_ID: ${COMPOSIO_REDDIT_AUTH_CONFIG_ID:-}
+      # X (Twitter) auth config — only consulted when ARIES_X_ENABLED=true.
+      COMPOSIO_X_AUTH_CONFIG_ID: ${COMPOSIO_X_AUTH_CONFIG_ID:-}
       # Composio action slugs (COMPOSIO_<PLATFORM>_<OPERATION>_ACTION). Required
       # for Composio-routed publishing — a missing slug is refused with a clear
       # capability error, never executed against a guessed action.

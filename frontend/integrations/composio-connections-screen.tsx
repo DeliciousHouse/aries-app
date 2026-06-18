@@ -46,6 +46,7 @@ const PLATFORM_LABEL: Record<string, string> = {
   youtube: 'YouTube',
   linkedin: 'LinkedIn',
   reddit: 'Reddit',
+  x: 'X',
 };
 
 function statusText(status: Connection['status'], caps: Capabilities | null): { label: string; tone: string } {

@@ -13,13 +13,13 @@
 
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 import {
-  INTEGRATION_PLATFORMS,
   isIntegrationPlatform,
   isRequestedCapability,
   type IntegrationPlatform,
   type RequestedCapability,
 } from '@/backend/integrations/providers/types';
 import {
+  connectablePlatforms,
   getAccountConnectionProvider,
   getCapabilityProvider,
   resolveIntegrationConfig,
@@ -43,7 +43,10 @@ function errorResponse(error: unknown): Response {
 }
 
 function platformOr400(raw: string): IntegrationPlatform | Response {
-  if (!isIntegrationPlatform(raw)) {
+  // isIntegrationPlatform narrows the type; connectablePlatforms() is the flag
+  // gate. A recognized-but-not-enabled platform (e.g. 'x' while ARIES_X_ENABLED
+  // is OFF) yields the IDENTICAL unsupported_platform 400 as an unknown one.
+  if (!isIntegrationPlatform(raw) || !connectablePlatforms().includes(raw)) {
     return json({ status: 'error', reason: 'unsupported_platform', message: `Unsupported platform: ${raw}` }, 400);
   }
   return raw;
@@ -151,7 +154,7 @@ export async function handleComposioList(loader?: TenantContextLoader): Promise<
   // Merge stored rows with not-connected placeholders so the UI can render
   // every supported platform regardless of whether a row exists yet.
   const byPlatform = new Map(stored.map((c) => [c.platform, c]));
-  const connections = INTEGRATION_PLATFORMS.map(
+  const connections = connectablePlatforms().map(
     (platform) => byPlatform.get(platform) ?? notConnectedAccount(tenantId, externalUserId, platform, 'composio'),
   );
 
