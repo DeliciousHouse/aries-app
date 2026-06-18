@@ -100,6 +100,11 @@ export default function AriesCommentsScreen({
             Comments on your Facebook posts, grouped by the post they belong to. Reply directly from
             Aries when native reply is enabled for your account.
           </p>
+        ) : platform === 'linkedin' ? (
+          <p className="max-w-3xl text-sm leading-7 text-white/65">
+            LinkedIn comment retrieval isn&apos;t supported by the integration used here. Visit
+            LinkedIn directly to read and respond to comments.
+          </p>
         ) : (
           <p className="max-w-3xl text-sm leading-7 text-white/65">
             Comments on your {label} posts, grouped by the post they belong to. Reply directly from

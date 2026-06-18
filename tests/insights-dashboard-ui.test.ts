@@ -185,6 +185,30 @@ test('analytics screen gates the Views <th> and <td> on post_view_count capabili
   assert.match(analyticsScreen, /postViewsSupported[\s\S]{0,300}totalViews/);
 });
 
+// ─── #688 honest LinkedIn comments subtitle (no reply contradiction) ─────────
+
+test('comments screen has honest LinkedIn subtitle that does not promise Aries reply (#688)', () => {
+  // POSITIVE: The LinkedIn-specific subtitle text must exist in the source.
+  assert.match(commentsScreen, /LinkedIn comment retrieval isn/);
+  assert.match(commentsScreen, /LinkedIn directly to read and respond to comments/);
+  // STRUCTURAL: The linkedin subtitle branch is interposed between the facebook branch and the
+  // generic else subtitle — verifying the 3-way conditional (facebook → linkedin → generic).
+  assert.match(
+    commentsScreen,
+    /platform === 'facebook'[\s\S]{0,1000}platform === 'linkedin'[\s\S]{0,500}LinkedIn comment retrieval isn/,
+  );
+  // NEGATIVE: The LinkedIn subtitle must NOT promise "Reply directly from Aries" within
+  // its own branch (the pre-fix contradiction with the EmptyStatePanel below).
+  // From "LinkedIn comment retrieval" to the generic-else "Reply directly from Aries" is
+  // ~320 chars; the 100-char window stays inside the LinkedIn subtitle itself.
+  assert.doesNotMatch(commentsScreen, /LinkedIn comment retrieval[\s\S]{0,100}Reply directly from Aries/);
+  // GOLDEN (#648): The honest EmptyStatePanel for LinkedIn is still rendered beneath.
+  assert.match(commentsScreen, /platform === 'linkedin'[\s\S]*?EmptyStatePanel/);
+  assert.match(commentsScreen, /Comments aren.*t available for LinkedIn/);
+  // GOLDEN: The Facebook subtitle (which does promise Aries reply) is unchanged.
+  assert.match(commentsScreen, /Comments on your Facebook posts[\s\S]{0,200}Reply directly from\s+Aries/);
+});
+
 test('capabilities.ts: post_view_count present for youtube/instagram/facebook, absent for x/reddit/linkedin (#684)', () => {
   // Platforms that expose per-post view/impression counts.
   assert.equal(platformSupports('youtube', 'post_view_count'), true, 'youtube should support post_view_count');
