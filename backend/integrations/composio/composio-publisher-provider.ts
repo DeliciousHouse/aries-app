@@ -374,7 +374,7 @@ export class ComposioPublisherProvider implements PublisherProvider {
         commentary: linkedinCommentary(input.content),
         ...(descriptor ? { images: [descriptor] } : {}),
       };
-    } else {
+    } else if (input.platform === 'instagram') {
       // Instagram: caption + media_urls + placement + media_type (unchanged).
       slug = this.requireSlug(input.platform, 'publish_post', 'publish posts');
       toolArgs = {
@@ -384,6 +384,13 @@ export class ComposioPublisherProvider implements PublisherProvider {
         media_type: input.mediaType ?? 'image',
         ...(input.scheduledFor ? { scheduled_publish_time: input.scheduledFor } : {}),
       };
+    } else {
+      // Unknown / unhandled platform — refuse explicitly rather than silently
+      // falling through to an Instagram payload on the wrong network.
+      throw new ComposioToolError(
+        'publish_post',
+        `${input.platform} is not a supported publish target`,
+      );
     }
 
     const result = await this.gateway.executeTool(slug, {

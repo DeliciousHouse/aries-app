@@ -6,6 +6,7 @@ import { PublishGuardError } from '@/backend/integrations/providers/errors';
 import {
   ComposioCapabilityMissingError,
   ComposioConnectionMissingError,
+  ComposioToolError,
 } from '@/backend/integrations/composio/errors';
 import { fakeConfig, fakeGateway, fakeDb } from './composio/helpers';
 
@@ -289,4 +290,75 @@ test('#627 FB image post with no upload_media slug throws capability-missing', a
     ComposioCapabilityMissingError,
     'missing upload_media slug must throw capability-missing',
   );
+});
+
+// ── Regression tests for #667: unhandled-platform refusal ─────────────────
+//
+// Before the fix, the publishPost dispatch had a bare `else` that silently
+// built an Instagram `caption`/`media_urls` payload for any platform that
+// wasn't facebook, x, reddit, or linkedin — including tiktok, youtube, and
+// meta_ads. The fix made Instagram an explicit `else if` branch and added a
+// final `else` that throws ComposioToolError immediately.
+//
+// The explicit Instagram branch is already exercised by the '#624 IG
+// publishPost sends `caption`...' test above. These two tests guard the new
+// refusal path.
+
+test('#667 publishPost with an unhandled IntegrationPlatform throws ComposioToolError naming the platform', async () => {
+  // 'tiktok' is a valid IntegrationPlatform but has no dispatch branch in
+  // publishPost. Before the fix it silently built an Instagram payload for the
+  // wrong account; after the fix the final else throws before any gateway call.
+  const provider = new ComposioPublisherProvider(
+    fakeGateway(),
+    fakeConfig({ actions: { publish_post: 'TIKTOK_POST' } }),
+    fakeDb(),
+  );
+  await assert.rejects(
+    () =>
+      provider.publishPost({
+        tenantId,
+        platform: 'tiktok',
+        content: 'hello tiktok',
+        mediaUrls: [],
+        approved: true,
+      }),
+    (err: unknown) => {
+      assert.ok(err instanceof ComposioToolError, `expected ComposioToolError, got ${(err as Error)?.name}`);
+      assert.match(
+        (err as Error).message,
+        /tiktok/,
+        'error message must name the unhandled platform',
+      );
+      assert.match(
+        (err as Error).message,
+        /not a supported publish target/,
+        'error message must include "not a supported publish target"',
+      );
+      return true;
+    },
+  );
+});
+
+test('#667 unhandled-platform publishPost makes zero gateway calls (no silent publish to wrong network)', async () => {
+  // Safety property: the refusal must happen BEFORE any executeTool call.
+  // On the pre-fix code this assertion would also fail because the Instagram
+  // payload would be constructed and the gateway called.
+  const gateway = fakeGateway();
+  const provider = new ComposioPublisherProvider(
+    gateway,
+    fakeConfig({ actions: { publish_post: 'YOUTUBE_POST' } }),
+    fakeDb(),
+  );
+  await assert.rejects(
+    () =>
+      provider.publishPost({
+        tenantId,
+        platform: 'youtube',
+        content: 'hello youtube',
+        mediaUrls: ['https://aries.example.com/api/public/media/tok/img.png'],
+        approved: true,
+      }),
+    ComposioToolError,
+  );
+  assert.equal(gateway.calls.length, 0, 'no gateway call must be made for an unhandled platform');
 });
