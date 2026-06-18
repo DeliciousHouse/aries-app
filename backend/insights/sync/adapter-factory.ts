@@ -18,6 +18,7 @@ import type { Platform } from '../platforms/registry';
 import type { InsightsAdapter, InsightsAdapterContext } from '../adapters/_adapter.types';
 import { createYouTubeInsightsAdapter } from '../adapters/youtube/index';
 import { createFacebookInsightsAdapter } from '../adapters/facebook/index';
+import { createInstagramInsightsAdapter } from '../adapters/instagram/index';
 import { createXInsightsAdapter } from '../adapters/x/index';
 import { createRedditInsightsAdapter } from '../adapters/reddit/index';
 import { createLinkedInInsightsAdapter } from '../adapters/linkedin/index';
@@ -54,6 +55,20 @@ export function isComposioOnlyAnalyticsPlatform(platform: string): boolean {
  * youtube, reddit, linkedin — #679).
  */
 export function isFacebookInsightsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return isComposioEnabled(env) && analyticsProviderSelector(env) === 'composio';
+}
+
+/**
+ * Real off-switch for the Composio-backed Instagram insights path (#692/#693):
+ * active only when Composio is enabled (COMPOSIO_ENABLED=true) AND
+ * ANALYTICS_PROVIDER resolves to composio. Instagram is Meta-family — it uses
+ * the SAME gate as Facebook (no separate ARIES_INSTAGRAM_ENABLED flag). When
+ * COMPOSIO_ENABLED is false or ANALYTICS_PROVIDER=direct_meta, the IG adapter
+ * never activates. Dormant-safe: even though isInstagramInsightsEnabled is true
+ * in prod (ANALYTICS_PROVIDER=composio), no active IG connected_accounts row
+ * exists until IG connect ships, so the sync worker fan-out is idle.
+ */
+export function isInstagramInsightsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return isComposioEnabled(env) && analyticsProviderSelector(env) === 'composio';
 }
 
@@ -127,6 +142,15 @@ const REGISTRY: Partial<Record<Platform, AdapterBuilder>> = {
     }
     return createFacebookInsightsAdapter(ctx);
   },
+  instagram: (ctx) => {
+    if (!isInstagramInsightsEnabled()) {
+      throw new Error(
+        'Instagram insights adapter is disabled: set ANALYTICS_PROVIDER=composio ' +
+        'and COMPOSIO_ENABLED=true to enable Composio-backed Instagram analytics.',
+      );
+    }
+    return createInstagramInsightsAdapter(ctx);
+  },
   x: (ctx) => {
     if (!isXInsightsEnabled()) {
       throw new Error(
@@ -154,7 +178,6 @@ const REGISTRY: Partial<Record<Platform, AdapterBuilder>> = {
     }
     return createLinkedInInsightsAdapter(ctx);
   },
-  // instagram: (ctx) => createInstagramInsightsAdapter(ctx),  ← out of scope (#596/#597 = FB only)
 };
 
 /**
@@ -167,6 +190,7 @@ const REGISTRY: Partial<Record<Platform, AdapterBuilder>> = {
  * silently drift from the adapter's own enablement conditions.
  *
  *   facebook  → ANALYTICS_PROVIDER=composio
+ *   instagram → ANALYTICS_PROVIDER=composio  (same gate as facebook, no separate flag)
  *   x         → ARIES_X_ENABLED + COMPOSIO_ENABLED
  *   youtube   → ARIES_YOUTUBE_ENABLED + COMPOSIO_ENABLED
  *   reddit    → ARIES_REDDIT_ENABLED + COMPOSIO_ENABLED
@@ -175,6 +199,7 @@ const REGISTRY: Partial<Record<Platform, AdapterBuilder>> = {
  */
 export function isPlatformInsightsEnabled(platform: string, env: NodeJS.ProcessEnv = process.env): boolean {
   if (platform === 'facebook') return isFacebookInsightsEnabled(env);
+  if (platform === 'instagram') return isInstagramInsightsEnabled(env);
   if (platform === 'x') return isXInsightsEnabled(env);
   if (platform === 'youtube') return isYouTubeInsightsEnabled(env);
   if (platform === 'reddit') return isRedditInsightsEnabled(env);
@@ -189,6 +214,7 @@ export function isPlatformInsightsEnabled(platform: string, env: NodeJS.ProcessE
  */
 export function hasAdapter(platform: Platform, env: NodeJS.ProcessEnv = process.env): boolean {
   if (platform === 'facebook') return isFacebookInsightsEnabled(env);
+  if (platform === 'instagram') return isInstagramInsightsEnabled(env);
   if (platform === 'x') return isXInsightsEnabled(env);
   if (platform === 'youtube') return isYouTubeInsightsEnabled(env);
   if (platform === 'reddit') return isRedditInsightsEnabled(env);

@@ -21,14 +21,16 @@
  * never throws (the worker tick must not wedge).
  *
  * Resolver per platform:
- *   facebook  → FACEBOOK_LIST_MANAGED_PAGES → page id
- *   youtube   → YOUTUBE_LIST_CHANNELS       → channel id
- *   x         → TWITTER_USER_LOOKUP_ME      → username/handle (#670)
- *   reddit    → REDDIT_GET_REDDIT_USER_ABOUT → username (#670)
+ *   facebook  → FACEBOOK_LIST_MANAGED_PAGES       → page id
+ *   instagram → INSTAGRAM_GET_USER_INFO ('me')     → ig user id + username (#692/#693)
+ *   youtube   → YOUTUBE_LIST_CHANNELS             → channel id
+ *   x         → TWITTER_USER_LOOKUP_ME            → username/handle (#670)
+ *   reddit    → REDDIT_GET_REDDIT_USER_ABOUT      → username (#670)
  *   linkedin  → no back-heal (URN resolved at connect via ensure-linkedin-urn.ts)
  *
- * Instagram is intentionally out of scope (#596/#597 are Facebook-only); add
- * platforms to BRIDGED_PLATFORMS when their adapter lands.
+ * Instagram is now bridged (#692/#693): both facebook and instagram are governed
+ * by the ANALYTICS_PROVIDER=composio gate (no separate ARIES_INSTAGRAM_ENABLED
+ * flag). Add platforms to BRIDGED_PLATFORMS when their adapter lands.
  */
 
 import pool from '@/lib/db';
@@ -37,32 +39,36 @@ import { isPlatformInsightsEnabled } from '@/backend/insights/sync/adapter-facto
 import { resolveComposioConfig, type ComposioConfig } from '@/backend/integrations/composio/composio-config';
 import { createComposioGateway, type ComposioGateway } from '@/backend/integrations/composio/composio-client';
 import { resolveFacebookManagedPage } from '@/backend/integrations/composio/facebook-page-resolver';
+import { resolveInstagramAccount } from '@/backend/integrations/composio/instagram-account-resolver';
 import { resolveYouTubeChannel } from '@/backend/integrations/composio/youtube-channel-resolver';
 import { resolveXUser } from '@/backend/integrations/composio/x-user-resolver';
 import { resolveRedditUser } from '@/backend/integrations/composio/reddit-user-resolver';
 
 /**
- * Unconditionally-bridged platforms when ANALYTICS_PROVIDER=composio. Exported
- * for test introspection. Composio-only platforms (x, youtube, reddit, linkedin)
- * are NOT listed here because they are conditional on both their rollout flag AND
- * COMPOSIO_ENABLED — they are included in the dynamic bridgedPlatforms() result
- * only when both conditions are met. See bridgedPlatforms() below.
+ * Platforms bridged unconditionally when ANALYTICS_PROVIDER=composio. Both
+ * facebook and instagram use the same ANALYTICS_PROVIDER gate (no separate
+ * ARIES_INSTAGRAM_ENABLED flag). Exported for test introspection.
+ * Composio-only platforms (x, youtube, reddit, linkedin) are NOT listed here
+ * because they are conditional on both their rollout flag AND COMPOSIO_ENABLED —
+ * they are included in the dynamic bridgedPlatforms() result only when both
+ * conditions are met. See bridgedPlatforms() below.
  */
-export const BRIDGED_PLATFORMS = ['facebook'] as const;
+export const BRIDGED_PLATFORMS = ['facebook', 'instagram'] as const;
 
 /**
  * Full bridged-platform list for this env, computed per-platform using the same
  * `is<P>InsightsEnabled` predicates as the adapter factory (via
  * isPlatformInsightsEnabled). The two can therefore never drift.
  *
- *   facebook → bridged iff ANALYTICS_PROVIDER=composio
- *   x        → bridged iff ARIES_X_ENABLED + COMPOSIO_ENABLED
- *   youtube  → bridged iff ARIES_YOUTUBE_ENABLED + COMPOSIO_ENABLED
- *   reddit   → bridged iff ARIES_REDDIT_ENABLED + COMPOSIO_ENABLED
- *   linkedin → bridged iff ARIES_LINKEDIN_ENABLED + COMPOSIO_ENABLED
+ *   facebook  → bridged iff ANALYTICS_PROVIDER=composio
+ *   instagram → bridged iff ANALYTICS_PROVIDER=composio (same gate as facebook)
+ *   x         → bridged iff ARIES_X_ENABLED + COMPOSIO_ENABLED
+ *   youtube   → bridged iff ARIES_YOUTUBE_ENABLED + COMPOSIO_ENABLED
+ *   reddit    → bridged iff ARIES_REDDIT_ENABLED + COMPOSIO_ENABLED
+ *   linkedin  → bridged iff ARIES_LINKEDIN_ENABLED + COMPOSIO_ENABLED
  */
 function bridgedPlatforms(env: NodeJS.ProcessEnv): string[] {
-  return ['facebook', 'x', 'youtube', 'reddit', 'linkedin'].filter(
+  return ['facebook', 'instagram', 'x', 'youtube', 'reddit', 'linkedin'].filter(
     (p) => isPlatformInsightsEnabled(p, env),
   );
 }
@@ -108,7 +114,7 @@ function log(obj: Record<string, unknown>): void {
  * Gated per-platform by the same predicates the adapter factory uses (via
  * isPlatformInsightsEnabled), so the bridge and adapter selections can never
  * drift:
- *   - Facebook is bridged only when ANALYTICS_PROVIDER=composio.
+ *   - Facebook and Instagram are bridged only when ANALYTICS_PROVIDER=composio.
  *   - Composio-only platforms (x, youtube, reddit, linkedin) are bridged only
  *     when their rollout flag AND COMPOSIO_ENABLED are both on — independent of
  *     ANALYTICS_PROVIDER, which governs facebook/instagram only.
@@ -165,11 +171,11 @@ export async function ensureInsightsAccountsForConnectedPlatforms(
     let pageName = row.external_account_name;
 
     if (!pageId) {
-      // Back-heal is available for facebook, youtube, x, and reddit. LinkedIn's
-      // URN is resolved at connect time via ensure-linkedin-urn.ts, so a null id
-      // there is not back-heal-able here — skip and let a later connect/re-auth
-      // populate it. Never invent an external account id.
-      if (!['facebook', 'youtube', 'x', 'reddit'].includes(row.platform)) {
+      // Back-heal is available for facebook, instagram, youtube, x, and reddit.
+      // LinkedIn's URN is resolved at connect time via ensure-linkedin-urn.ts, so
+      // a null id there is not back-heal-able here — skip and let a later
+      // connect/re-auth populate it. Never invent an external account id.
+      if (!['facebook', 'instagram', 'youtube', 'x', 'reddit'].includes(row.platform)) {
         skippedNoPage++;
         log({ event: 'insights_bridge_page_unresolved', tenantId: row.tenant_id, platform: row.platform, reason: 'no_external_account_id' });
         continue;
@@ -211,6 +217,17 @@ export async function ensureInsightsAccountsForConnectedPlatforms(
           if (user) {
             resolvedId = user.username;
             resolvedName = user.name;
+            resolvedManagedCount = 1;
+          }
+        } else if (row.platform === 'instagram') {
+          // Resolve the IG user id (numeric) via INSTAGRAM_GET_USER_INFO('me').
+          // The 'me' resolution is UNVERIFIED live (IG is not connected yet as of
+          // #692/#693); if it fails on first live connect, the fail-safe null just
+          // skips this tenant — it never wedges the FB/X sync.
+          const account = await resolveInstagramAccount(r.gateway, r.config, row.connected_account_id);
+          if (account) {
+            resolvedId = account.igUserId;
+            resolvedName = account.username;
             resolvedManagedCount = 1;
           }
         } else {
