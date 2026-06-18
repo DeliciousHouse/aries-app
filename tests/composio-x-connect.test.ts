@@ -217,11 +217,47 @@ test('composioAuthConfigId x: returns null when neither x-specific nor default k
   assert.equal(composioAuthConfigId('facebook', mkEnv({})), null);
 });
 
-test('composioAuthConfigId x: falls back to COMPOSIO_DEFAULT_AUTH_CONFIG_ID when x-specific key absent', () => {
+test('composioAuthConfigId x: returns null when only COMPOSIO_DEFAULT_AUTH_CONFIG_ID is set (no default fallback for x, #669)', () => {
+  // x must NOT inherit COMPOSIO_DEFAULT_AUTH_CONFIG_ID — that is typically a
+  // Meta-family config and would route the X connection through the wrong toolkit
+  // (#669). Only the platform-specific COMPOSIO_X_AUTH_CONFIG_ID is accepted.
   assert.equal(
     composioAuthConfigId('x', mkEnv({ COMPOSIO_DEFAULT_AUTH_CONFIG_ID: 'ac_default' })),
-    'ac_default',
+    null,
   );
+});
+
+test('composioAuthConfigId reddit: returns null when only COMPOSIO_DEFAULT_AUTH_CONFIG_ID is set (no default fallback for reddit, #669)', () => {
+  // reddit provisions Composio-managed auth but must NOT inherit
+  // COMPOSIO_DEFAULT_AUTH_CONFIG_ID either — that config targets a different
+  // toolkit and would break the connection. Set COMPOSIO_REDDIT_AUTH_CONFIG_ID
+  // to pin an explicit one when Composio-managed provisioning fails.
+  assert.equal(
+    composioAuthConfigId('reddit', mkEnv({ COMPOSIO_DEFAULT_AUTH_CONFIG_ID: 'ac_default' })),
+    null,
+  );
+});
+
+test('composioAuthConfigId regression: managed platforms still fall back to COMPOSIO_DEFAULT_AUTH_CONFIG_ID (#669)', () => {
+  // The exclusion is narrow — only reddit + x are excluded from the DEFAULT
+  // fallback. All other platforms (facebook, instagram, meta_ads, youtube,
+  // linkedin, tiktok) must still inherit COMPOSIO_DEFAULT_AUTH_CONFIG_ID.
+  const env = mkEnv({ COMPOSIO_DEFAULT_AUTH_CONFIG_ID: 'ac_default' });
+  const managed = [
+    'facebook',
+    'instagram',
+    'meta_ads',
+    'youtube',
+    'linkedin',
+    'tiktok',
+  ] as const;
+  for (const platform of managed) {
+    assert.equal(
+      composioAuthConfigId(platform, env),
+      'ac_default',
+      `${platform} must still fall back to COMPOSIO_DEFAULT_AUTH_CONFIG_ID`,
+    );
+  }
 });
 
 // ── 4. Regression guard: the other 7 platforms remain byte-identical ─────────
