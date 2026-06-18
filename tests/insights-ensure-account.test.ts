@@ -289,6 +289,26 @@ test('Reddit bridge: when ARIES_REDDIT_ENABLED=1 the DB query includes "reddit" 
   );
 });
 
+test('LinkedIn bridge: when ARIES_LINKEDIN_ENABLED=1 the DB query includes "linkedin" alongside "facebook"', async () => {
+  const db = recordingDb([]);
+  const liEnv = {
+    ANALYTICS_PROVIDER: 'composio',
+    ARIES_LINKEDIN_ENABLED: '1',
+  } as unknown as NodeJS.ProcessEnv;
+  await ensureInsightsAccountsForConnectedPlatforms(db, liEnv);
+  const select = db.queries[0];
+  assert.ok(select, 'issued a SELECT query');
+  // The bridged-platform list must include 'linkedin' when the rollout flag is on.
+  assert.ok(
+    Array.isArray(select.params) && (select.params as unknown[]).includes('linkedin'),
+    'linkedin is in bridged-platform params when ARIES_LINKEDIN_ENABLED=1',
+  );
+  assert.ok(
+    Array.isArray(select.params) && (select.params as unknown[]).includes('facebook'),
+    'facebook is always included',
+  );
+});
+
 test('Reddit bridge: when ARIES_REDDIT_ENABLED is off, the DB query does NOT include "reddit"', async () => {
   const db = recordingDb([]);
   const fbOnlyEnv = { ANALYTICS_PROVIDER: 'composio' } as unknown as NodeJS.ProcessEnv;
@@ -298,6 +318,18 @@ test('Reddit bridge: when ARIES_REDDIT_ENABLED is off, the DB query does NOT inc
   assert.ok(
     !(select.params as unknown[]).includes('reddit'),
     'reddit is NOT in bridged-platform params when ARIES_REDDIT_ENABLED is off',
+  );
+});
+
+test('LinkedIn bridge: when ARIES_LINKEDIN_ENABLED is off, the DB query does NOT include "linkedin"', async () => {
+  const db = recordingDb([]);
+  const fbOnlyEnv = { ANALYTICS_PROVIDER: 'composio' } as unknown as NodeJS.ProcessEnv;
+  await ensureInsightsAccountsForConnectedPlatforms(db, fbOnlyEnv);
+  const select = db.queries[0];
+  assert.ok(select, 'issued a SELECT query');
+  assert.ok(
+    !(select.params as unknown[]).includes('linkedin'),
+    'linkedin is NOT in bridged-platform params when ARIES_LINKEDIN_ENABLED is off',
   );
 });
 
