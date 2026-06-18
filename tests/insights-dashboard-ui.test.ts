@@ -5,6 +5,7 @@ import test from 'node:test';
 
 import { resolveProjectRoot } from './helpers/project-root';
 import { APP_ROUTES, getRouteById } from '../frontend/app-shell/routes';
+import { platformSupports } from '../backend/insights/platforms/capabilities';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
@@ -148,4 +149,54 @@ test('comments read-api exposes replied state so the inbox can render it', () =>
   assert.match(readApi, /c\.replied_at/);
   assert.match(readApi, /isReplied:/);
   assert.match(readApi, /repliedAt:/);
+});
+
+// ─── #684 honest analytics "metric unavailable" states ───────────────────────
+
+test('analytics screen imports platformSupports and derives accountMetricsSupported + postViewsSupported (#684)', () => {
+  // Import of platformSupports from the capabilities module must be present.
+  assert.match(analyticsScreen, /import.*platformSupports.*from.*capabilities/);
+  // accountMetricsSupported is derived by calling platformSupports for 'account_daily_metrics'.
+  assert.match(analyticsScreen, /platformSupports\(platform,\s*'account_daily_metrics'\)/);
+  // postViewsSupported is derived by calling platformSupports for 'post_view_count'.
+  assert.match(analyticsScreen, /platformSupports\(platform,\s*'post_view_count'\)/);
+  // Both derived booleans are referenced in the template (not dead code).
+  assert.match(analyticsScreen, /accountMetricsSupported/);
+  assert.match(analyticsScreen, /postViewsSupported/);
+});
+
+test('analytics screen renders honest EmptyStatePanel with per-platform reasons when account metrics unsupported (#684)', () => {
+  // The !accountMetricsSupported branch must drive an EmptyStatePanel — not fabricated zeros.
+  assert.match(analyticsScreen, /!accountMetricsSupported[\s\S]*?EmptyStatePanel/);
+  // The per-platform reason lookup map must be declared.
+  assert.match(analyticsScreen, /ACCOUNT_METRICS_UNAVAILABLE_REASON/);
+  // X: honest "paid tier" reason.
+  assert.match(analyticsScreen, /paid X API tier/);
+  // Reddit: honest "doesn't expose" reason.
+  assert.match(analyticsScreen, /Reddit.*expose/);
+  // LinkedIn: honest "organization" scope reason.
+  assert.match(analyticsScreen, /LinkedIn organization/);
+});
+
+test('analytics screen gates the Views <th> and <td> on post_view_count capability (#684)', () => {
+  // Header cell for Views is wrapped in a postViewsSupported conditional.
+  assert.match(analyticsScreen, /postViewsSupported && <th[^>]*>Views<\/th>/);
+  // Data cell rendering totalViews is also wrapped in a postViewsSupported conditional.
+  assert.match(analyticsScreen, /postViewsSupported[\s\S]{0,300}totalViews/);
+});
+
+test('capabilities.ts: post_view_count present for youtube/instagram/facebook, absent for x/reddit/linkedin (#684)', () => {
+  // Platforms that expose per-post view/impression counts.
+  assert.equal(platformSupports('youtube', 'post_view_count'), true, 'youtube should support post_view_count');
+  assert.equal(platformSupports('instagram', 'post_view_count'), true, 'instagram should support post_view_count');
+  assert.equal(platformSupports('facebook', 'post_view_count'), true, 'facebook should support post_view_count');
+  // Platforms that do NOT expose per-post view counts (no fabricated zeros).
+  assert.equal(platformSupports('x', 'post_view_count'), false, 'x must NOT support post_view_count');
+  assert.equal(platformSupports('reddit', 'post_view_count'), false, 'reddit must NOT support post_view_count');
+  assert.equal(platformSupports('linkedin', 'post_view_count'), false, 'linkedin must NOT support post_view_count');
+  // Existing invariant: account_daily_metrics absent for x/reddit/linkedin/youtube.
+  assert.equal(platformSupports('x', 'account_daily_metrics'), false, 'x must NOT support account_daily_metrics');
+  assert.equal(platformSupports('reddit', 'account_daily_metrics'), false, 'reddit must NOT support account_daily_metrics');
+  assert.equal(platformSupports('linkedin', 'account_daily_metrics'), false, 'linkedin must NOT support account_daily_metrics');
+  assert.equal(platformSupports('youtube', 'account_daily_metrics'), false, 'youtube must NOT support account_daily_metrics');
 });
