@@ -34,14 +34,16 @@ import { publishNeverReachedPlatform } from './publish-outcome';
 
 function metaPlatform(provider: string): IntegrationPlatform {
   // Map the dispatch request's provider string to the integration platform the
-  // provider seam services. X (Twitter) is its own Composio-only platform;
-  // Instagram maps to instagram; everything else maps to facebook (the direct
-  // route's two-way split). Without the explicit X case, 'x' would fall through
-  // to 'facebook' and an X post would be sent to a Facebook Page. X never reaches
-  // the direct_meta fast path (normalizeMetaProvider('x') throws a terminal 400),
-  // and DirectMetaProvider.supports('x') is false, so it can never post to FB.
+  // provider seam services. X (Twitter) and Reddit are each their own
+  // Composio-only platform; Instagram maps to instagram; everything else maps to
+  // facebook (the direct route's two-way split). Without the explicit cases, 'x'
+  // or 'reddit' would fall through to 'facebook' and be sent to a Facebook Page.
+  // Neither reaches the direct_meta fast path (normalizeMetaProvider throws a
+  // terminal 400), and DirectMetaProvider.supports('x'|'reddit') is false, so
+  // they can never post to FB.
   const normalized = provider.trim().toLowerCase();
   if (normalized === 'x') return 'x';
+  if (normalized === 'reddit') return 'reddit';
   if (normalized === 'instagram') return 'instagram';
   return 'facebook';
 }

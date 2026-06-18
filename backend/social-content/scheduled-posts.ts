@@ -1,4 +1,4 @@
-import { isXEnabled } from '@/backend/integrations/providers/integration-config';
+import { isRedditEnabled, isXEnabled } from '@/backend/integrations/providers/integration-config';
 
 export type ScheduledPostQueryable = {
   query: (
@@ -107,19 +107,22 @@ export class ScheduledPostTenantMismatchError extends Error {
   }
 }
 
-export const ALLOWED_TARGET_PLATFORMS = ['facebook', 'instagram', 'x'] as const;
+export const ALLOWED_TARGET_PLATFORMS = ['facebook', 'instagram', 'x', 'reddit'] as const;
 export type AllowedTargetPlatform = (typeof ALLOWED_TARGET_PLATFORMS)[number];
 
 /**
- * The platforms an operator can schedule a post to RIGHT NOW. `'x'` (Twitter) is
- * a valid target only while the `ARIES_X_ENABLED` rollout flag is on; when OFF
- * (the default) the allowed set is byte-identical to facebook+instagram, so an
- * `x` schedule request still fails `invalid_platforms` exactly as before.
+ * The platforms an operator can schedule a post to RIGHT NOW. `'x'` (Twitter)
+ * and `'reddit'` are each valid targets only while their rollout flag
+ * (`ARIES_X_ENABLED` / `ARIES_REDDIT_ENABLED`) is on; computed at call time so a
+ * flag flip takes effect without a restart. When both are OFF (the default) the
+ * allowed set is byte-identical to facebook+instagram, so an `x`/`reddit`
+ * schedule request still fails `invalid_platforms` exactly as before.
  */
 function allowedTargetPlatforms(): ReadonlySet<AllowedTargetPlatform> {
-  return isXEnabled()
-    ? new Set<AllowedTargetPlatform>(ALLOWED_TARGET_PLATFORMS)
-    : new Set<AllowedTargetPlatform>(['facebook', 'instagram']);
+  const allowed = new Set<AllowedTargetPlatform>(['facebook', 'instagram']);
+  if (isXEnabled()) allowed.add('x');
+  if (isRedditEnabled()) allowed.add('reddit');
+  return allowed;
 }
 
 export function normalizeTargetPlatforms(value: unknown): AllowedTargetPlatform[] | null {

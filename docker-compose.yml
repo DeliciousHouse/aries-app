@@ -198,6 +198,10 @@ services:
       # X (Twitter) connect rollout flag — default OFF ships the platform dormant
       # (card hidden; connect/capabilities 400 unsupported_platform as today).
       ARIES_X_ENABLED: ${ARIES_X_ENABLED:-false}
+      # Reddit publish rollout flag — default OFF ships the publish path dormant
+      # (Reddit already connects; this gates publish only). When OFF a reddit
+      # schedule/dispatch is rejected exactly as today.
+      ARIES_REDDIT_ENABLED: ${ARIES_REDDIT_ENABLED:-false}
       # Toolkit version for manual Composio tool execution (publish/analytics/
       # comments). The SDK rejects by-slug execution without one; default 'latest'
       # (gateway pairs it with a skip-check). Pin a concrete version to avoid drift.
@@ -226,6 +230,15 @@ services:
       #   COMPOSIO_X_UPLOAD_MEDIA_ACTION=TWITTER_UPLOAD_MEDIA
       COMPOSIO_X_PUBLISH_POST_ACTION: ${COMPOSIO_X_PUBLISH_POST_ACTION:-}
       COMPOSIO_X_UPLOAD_MEDIA_ACTION: ${COMPOSIO_X_UPLOAD_MEDIA_ACTION:-}
+      # Reddit publish (#641) — only consulted when ARIES_REDDIT_ENABLED=true and
+      # PUBLISH_PROVIDER=composio/auto. Publish runs in the app process (the
+      # scheduled-posts-worker only POSTs to the route), so these live here only.
+      # No media-upload action (image is the kind=link url). TARGET_SUBREDDIT
+      # unset → the connected user's own profile (u_<username>); FLAIR_ID optional.
+      #   COMPOSIO_REDDIT_PUBLISH_POST_ACTION=REDDIT_CREATE_REDDIT_POST
+      COMPOSIO_REDDIT_PUBLISH_POST_ACTION: ${COMPOSIO_REDDIT_PUBLISH_POST_ACTION:-}
+      COMPOSIO_REDDIT_TARGET_SUBREDDIT: ${COMPOSIO_REDDIT_TARGET_SUBREDDIT:-}
+      COMPOSIO_REDDIT_FLAIR_ID: ${COMPOSIO_REDDIT_FLAIR_ID:-}
       # Facebook analytics + comments sync slugs (#596/#597). Optional — the
       # adapter falls back to the verified code defaults when unset.
       COMPOSIO_FACEBOOK_LIST_POSTS_ACTION: ${COMPOSIO_FACEBOOK_LIST_POSTS_ACTION:-}
