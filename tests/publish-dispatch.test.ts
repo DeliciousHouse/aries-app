@@ -391,31 +391,42 @@ test('auto selector also routes through the seam (not the direct path)', async (
   assert.equal(out.platformPostId, 'fb_auto');
 });
 
-// ── Regression tests for #671: per-platform publish routing decoupled ────────
+// ── Regression tests for #671 + #677: per-platform publish routing decoupled ─
 //
-// Before the fix, `dispatchPublish` applied the `direct_meta` fast path
+// #671: Before the fix, `dispatchPublish` applied the `direct_meta` fast path
 // unconditionally for all platforms.  An X/Reddit/LinkedIn request with
 // selector='direct_meta' (the shipped prod default) would call directPublish,
 // which reaches normalizeMetaProvider and throws 'unsupported_provider' (400) —
 // so those platforms could never publish regardless of COMPOSIO_ENABLED.
 //
-// The fix gates the direct_meta fast path on `!composioOnly`, and for
-// composio-only platforms (x, reddit, linkedin) routes to the Composio
+// #677: YouTube was in metaPlatform() (correctly mapped to 'youtube') but was
+// NOT in COMPOSIO_ONLY_PUBLISH_PLATFORMS, so under direct_meta it took the fast
+// path → publishToMetaGraph('youtube') → terminal 'unsupported_provider'.
+// The fix adds 'youtube' to the COMPOSIO_ONLY set so it routes to Composio
+// regardless of the global selector (same guarantee as x/reddit/linkedin).
+//
+// The gate: the direct_meta fast path is now conditioned on `!composioOnly`, and
+// composio-only platforms (x, reddit, linkedin, youtube) route to the Composio
 // publisher REGARDLESS of the global selector when Composio is enabled.
 
-test('#671 PROVING: x/reddit/linkedin bypass direct_meta fast path when composio is enabled', async () => {
+test('#671/#677 PROVING: x/reddit/linkedin/youtube bypass direct_meta fast path when composio is enabled', async () => {
   // PROVING TEST — fails against pre-fix code.
   //
-  // Before the fix:
+  // Before the #671 fix:
   //   if (selector() === 'direct_meta') return directPublish(request);  // ran for ALL platforms
   //
-  // After the fix:
+  // After the #671 fix:
   //   if (!composioOnly && selector() === 'direct_meta') ...             // composio-only platforms skip it
   //
-  // With the pre-fix code, directCalled would be true and calls.length would be 0
-  // for each composio-only platform, causing both assertions to fail.
+  // Before the #677 fix: youtube was NOT in COMPOSIO_ONLY_PUBLISH_PLATFORMS, so
+  // composioOnly===false for youtube → direct_meta fast path fired → directPublish
+  // called with 'youtube' → publishToMetaGraph('youtube') → unsupported_provider.
+  // directCalled===true and calls.length===0, causing both assertions below to fail.
+  //
+  // After the #677 fix: youtube is in the set → composioOnly===true →
+  // direct_meta fast path skipped → publisherProvider.publishPost called.
 
-  for (const p of ['x', 'reddit', 'linkedin'] as const) {
+  for (const p of ['x', 'reddit', 'linkedin', 'youtube'] as const) {
     let directCalled = false;
     const calls: PublishPostInput[] = [];
 
@@ -513,12 +524,17 @@ test('#671 facebook and instagram stay on the direct_meta path (not composio-onl
   }
 });
 
-test('#671 composio-only platform with composio disabled throws terminal provider_not_configured', async () => {
+test('#671/#677 composio-only platform with composio disabled throws terminal provider_not_configured', async () => {
   // When Composio is disabled (COMPOSIO_ENABLED=false / composioEnabled()===false),
-  // dispatching to a composio-only platform (x, reddit, linkedin) must throw a
-  // terminal MetaPublishError before contacting any provider.  This signals to
-  // handlers that the post was NEVER sent (safe to surface; never auto-retry).
-  for (const p of ['x', 'reddit', 'linkedin'] as const) {
+  // dispatching to a composio-only platform (x, reddit, linkedin, youtube) must
+  // throw a terminal MetaPublishError before contacting any provider.  This
+  // signals to handlers that the post was NEVER sent (safe to surface; never
+  // auto-retry, and the direct-Meta path is NEVER a fallback for these platforms).
+  //
+  // #677 extension: youtube is now composio-only, so COMPOSIO_ENABLED=false with
+  // provider='youtube' must also throw provider_not_configured (not fall through
+  // to directPublish, which would throw a different error class).
+  for (const p of ['x', 'reddit', 'linkedin', 'youtube'] as const) {
     let directCalled = false;
     let providerBuilt = false;
 
