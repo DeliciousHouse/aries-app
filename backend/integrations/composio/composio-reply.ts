@@ -18,9 +18,9 @@
  *     -> handler leaves the claim, surfaces needs_manual_reconciliation, NEVER
  *     auto-retries (a retry of a reply that secretly posted is a duplicate).
  *
- * Routing: only Facebook is wired here (the verified Composio action). Instagram
- * comment-reply via Composio has no verified action, so an IG reply stays on the
- * direct path even under PUBLISH_PROVIDER=composio (see shouldUseComposioReply).
+ * Routing: Facebook and Instagram are wired here (both have verified Composio
+ * actions). Under PUBLISH_PROVIDER=direct_meta, both fall back to the direct-Meta
+ * path unchanged (shouldUseComposioReply returns false when not composio).
  */
 
 import { MetaPublishError, normalizeMetaProvider } from '../meta-publishing';
@@ -43,6 +43,9 @@ type Env = Partial<Record<string, string | undefined>>;
 /** Verified default; overridable via COMPOSIO_FACEBOOK_REPLY_COMMENT_ACTION. */
 export const DEFAULT_FB_CREATE_COMMENT_SLUG = 'FACEBOOK_CREATE_COMMENT';
 
+/** Verified default; overridable via COMPOSIO_INSTAGRAM_REPLY_COMMENT_ACTION. */
+export const DEFAULT_IG_CREATE_COMMENT_REPLY_SLUG = 'INSTAGRAM_POST_IG_COMMENT_REPLIES';
+
 export interface ComposioReplyDeps {
   gateway?: ComposioGateway;
   config?: ComposioConfig | null;
@@ -53,11 +56,12 @@ export interface ComposioReplyDeps {
  * True when an operator reply should be routed through Composio instead of the
  * direct Graph path. Mirrors how publishing chooses its provider
  * (effectivePublishProvider === 'composio', which already honors the
- * COMPOSIO_ENABLED master switch). Scoped to Facebook — the only platform with a
- * verified Composio reply action.
+ * COMPOSIO_ENABLED master switch). Covers Facebook and Instagram — both have
+ * verified Composio reply actions. Under PUBLISH_PROVIDER=direct_meta, both
+ * platforms fall through to the direct-Meta path (replyToComment) unchanged.
  */
 export function shouldUseComposioReply(platform: string, env: Env = process.env): boolean {
-  return platform === 'facebook' && effectivePublishProvider(env as NodeJS.ProcessEnv) === 'composio';
+  return (platform === 'facebook' || platform === 'instagram') && effectivePublishProvider(env as NodeJS.ProcessEnv) === 'composio';
 }
 
 /** Created comment id lands at data.id (or one nested data wrap). */
@@ -123,10 +127,15 @@ export async function replyToCommentViaComposio(
     );
   }
 
-  // Verified default applies to Facebook only; an env override can extend it.
+  // Env override wins (COMPOSIO_FACEBOOK_REPLY_COMMENT_ACTION or
+  // COMPOSIO_INSTAGRAM_REPLY_COMMENT_ACTION); else the verified default slug.
   const slug =
     config.actionSlugFor(provider, 'reply_comment') ??
-    (provider === 'facebook' ? DEFAULT_FB_CREATE_COMMENT_SLUG : null);
+    (provider === 'facebook'
+      ? DEFAULT_FB_CREATE_COMMENT_SLUG
+      : provider === 'instagram'
+        ? DEFAULT_IG_CREATE_COMMENT_REPLY_SLUG
+        : null);
   if (!slug) {
     throw new MetaPublishError(
       'reply_not_supported',
@@ -135,20 +144,30 @@ export async function replyToCommentViaComposio(
     );
   }
 
+  // Per-provider args differ:
+  //   Facebook (FACEBOOK_CREATE_COMMENT): object_id is the trailing comment-own
+  //     id (see replyTargetCommentId). Compound "{post_story_fbid}_{comment_id}"
+  //     is stripped to avoid the #621 502 misparse (Composio derives the acting
+  //     Page from the first "_"-delimited segment and ignores page_id).
+  //   Instagram (INSTAGRAM_POST_IG_COMMENT_REPLIES): ig_comment_id is the raw
+  //     stored external_comment_id (IG IDs are not compound — no stripping).
+  //     Message ≤300 chars + ≤4 hashtags + ≤1 URL per IG API; over-long messages
+  //     are surfaced by the Composio tool as successful:false (composio_reply_failed,
+  //     definitively-never-posted) — safe to retry after shortening. No silent
+  //     truncation (unlike the LinkedIn clamp) since a truncated IG reply is
+  //     confusing UX; the handler's MAX_REPLY_LENGTH=8000 guards abusive payloads.
+  const toolArgs: Record<string, unknown> =
+    provider === 'instagram'
+      ? { ig_comment_id: req.externalCommentId, message }
+      : { object_id: replyTargetCommentId(req.externalCommentId), message };
+
   const gateway = deps.gateway ?? createComposioGateway(config);
 
   let result;
   try {
     result = await gateway.executeTool(slug, {
       connectedAccountId: conn.connectedAccountId,
-      // object_id = the trailing comment-own id — NOT the compound form stored
-      // in external_comment_id ("{post_story_fbid}_{comment_id}"). Composio
-      // derives the acting Page from the first "_"-delimited segment of
-      // object_id and ignores any explicit page_id argument, so passing the
-      // compound id causes it to misparse the post_story_fbid as the page id
-      // (root cause of #621). Stripping to the trailing segment is the correct
-      // reply-target id for FACEBOOK_CREATE_COMMENT. See live probe notes in PR.
-      arguments: { object_id: replyTargetCommentId(req.externalCommentId), message },
+      arguments: toolArgs,
     });
   } catch (err) {
     // Transport/unknown: the reply MAY have reached Meta — treat as outcome
