@@ -24,14 +24,15 @@ export type PlatformCapability =
   | 'saves';                  // saves / bookmarks (Instagram, Facebook)
 
 export const PLATFORM_CAPABILITIES: Record<Platform, ReadonlySet<PlatformCapability>> = {
+  // YouTube via Composio: per-video statistics (views/likes/comments) +
+  // top-level comment threads. Deliberately OMITS 'account_daily_metrics'
+  // (no verified per-day channel series), 'watch_time'/'avg_view_duration'
+  // (not delivered by GET_VIDEO_DETAILS_BATCH), and 'audience_demographics'
+  // (not fetched) — the adapter only delivers these three.
   youtube: new Set<PlatformCapability>([
-    'account_daily_metrics',
     'post_list',
     'post_daily_metrics',
     'comments',
-    'audience_demographics',
-    'watch_time',
-    'avg_view_duration',
   ]),
   instagram: new Set<PlatformCapability>([
     'account_daily_metrics',

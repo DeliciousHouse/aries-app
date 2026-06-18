@@ -205,6 +205,10 @@ services:
       # LinkedIn rollout flag — default OFF ships the connect-time person-URN
       # lookup dormant (no LINKEDIN_GET_MY_INFO call; connect byte-identical).
       ARIES_LINKEDIN_ENABLED: ${ARIES_LINKEDIN_ENABLED:-false}
+      # YouTube insights rollout flag (#637/#638) — default OFF ships the
+      # Composio-backed YouTube insights adapter dormant (no bridge row, no
+      # adapter, no Composio tool). Gates insights only, not connectability.
+      ARIES_YOUTUBE_ENABLED: ${ARIES_YOUTUBE_ENABLED:-false}
       # Toolkit version for manual Composio tool execution (publish/analytics/
       # comments). The SDK rejects by-slug execution without one; default 'latest'
       # (gateway pairs it with a skip-check). Pin a concrete version to avoid drift.
@@ -512,6 +516,18 @@ services:
       COMPOSIO_X_POST_INSIGHTS_ACTION: ${COMPOSIO_X_POST_INSIGHTS_ACTION:-}
       COMPOSIO_X_LIST_COMMENTS_ACTION: ${COMPOSIO_X_LIST_COMMENTS_ACTION:-}
       COMPOSIO_X_LIST_POSTS_ACTION: ${COMPOSIO_X_LIST_POSTS_ACTION:-}
+      # YouTube analytics + comments (#637/#638), read by the insights-sync
+      # worker's YouTube adapter (backend/insights/adapters/youtube). The YouTube
+      # insights path (account bridge + adapter) turns on ONLY when
+      # ARIES_YOUTUBE_ENABLED=true AND ANALYTICS_PROVIDER=composio; otherwise
+      # dormant. AUTH_CONFIG_ID is the tenant's Composio auth config; the *_ACTION
+      # slugs are optional (verified code defaults: YOUTUBE_LIST_CHANNEL_VIDEOS,
+      # YOUTUBE_GET_VIDEO_DETAILS_BATCH, YOUTUBE_LIST_COMMENT_THREADS2).
+      ARIES_YOUTUBE_ENABLED: ${ARIES_YOUTUBE_ENABLED:-false}
+      COMPOSIO_YOUTUBE_AUTH_CONFIG_ID: ${COMPOSIO_YOUTUBE_AUTH_CONFIG_ID:-}
+      COMPOSIO_YOUTUBE_POST_INSIGHTS_ACTION: ${COMPOSIO_YOUTUBE_POST_INSIGHTS_ACTION:-}
+      COMPOSIO_YOUTUBE_LIST_COMMENTS_ACTION: ${COMPOSIO_YOUTUBE_LIST_COMMENTS_ACTION:-}
+      COMPOSIO_YOUTUBE_LIST_POSTS_ACTION: ${COMPOSIO_YOUTUBE_LIST_POSTS_ACTION:-}
     restart: unless-stopped
     networks:
       - docker_stack

@@ -4,9 +4,9 @@
  * Maps a platform string to its InsightsAdapter instance.
  *
  * Adapters are produced by per-platform builder functions so a platform that
- * needs per-tenant connection context (e.g. Facebook via Composio, which needs
- * the Composio `connectedAccountId`) can be constructed bound to that context,
- * while context-free adapters (YouTube) return a shared singleton.
+ * needs per-tenant connection context (e.g. Facebook, X, and YouTube via
+ * Composio, which need the Composio `connectedAccountId`) can be constructed
+ * bound to that context.
  *
  * To add a new platform:
  *   1. Create backend/insights/adapters/<platform>/index.ts
@@ -16,10 +16,10 @@
 
 import type { Platform } from '../platforms/registry';
 import type { InsightsAdapter, InsightsAdapterContext } from '../adapters/_adapter.types';
-import { youTubeInsightsAdapter } from '../adapters/youtube/index';
+import { createYouTubeInsightsAdapter } from '../adapters/youtube/index';
 import { createFacebookInsightsAdapter } from '../adapters/facebook/index';
 import { createXInsightsAdapter } from '../adapters/x/index';
-import { analyticsProviderSelector, isXEnabled } from '@/backend/integrations/providers/integration-config';
+import { analyticsProviderSelector, isXEnabled, isYouTubeEnabled } from '@/backend/integrations/providers/integration-config';
 
 type AdapterBuilder = (ctx: InsightsAdapterContext) => InsightsAdapter;
 
@@ -44,8 +44,27 @@ export function isXInsightsEnabled(env: NodeJS.ProcessEnv = process.env): boolea
   return isXEnabled(env) && analyticsProviderSelector(env) === 'composio';
 }
 
+/**
+ * Real off-switch for the Composio-backed YouTube insights path: active only when
+ * the YouTube rollout flag is ON (ARIES_YOUTUBE_ENABLED) AND analytics is on
+ * Composio (ANALYTICS_PROVIDER=composio). NEW flag (not ARIES_X_ENABLED). Default
+ * OFF on both axes → the YouTube adapter never activates and no Composio tool is
+ * ever executed; the previously registered throwing skeleton is gone.
+ */
+export function isYouTubeInsightsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return isYouTubeEnabled(env) && analyticsProviderSelector(env) === 'composio';
+}
+
 const REGISTRY: Partial<Record<Platform, AdapterBuilder>> = {
-  youtube: () => youTubeInsightsAdapter,
+  youtube: (ctx) => {
+    if (!isYouTubeInsightsEnabled()) {
+      throw new Error(
+        'YouTube insights adapter is disabled: set ARIES_YOUTUBE_ENABLED=1 and ' +
+        'ANALYTICS_PROVIDER=composio to enable Composio-backed YouTube analytics.',
+      );
+    }
+    return createYouTubeInsightsAdapter(ctx);
+  },
   facebook: (ctx) => {
     if (!isFacebookInsightsEnabled()) {
       throw new Error(
@@ -75,6 +94,7 @@ const REGISTRY: Partial<Record<Platform, AdapterBuilder>> = {
 export function hasAdapter(platform: Platform, env: NodeJS.ProcessEnv = process.env): boolean {
   if (platform === 'facebook') return isFacebookInsightsEnabled(env);
   if (platform === 'x') return isXInsightsEnabled(env);
+  if (platform === 'youtube') return isYouTubeInsightsEnabled(env);
   return platform in REGISTRY && REGISTRY[platform] != null;
 }
 
