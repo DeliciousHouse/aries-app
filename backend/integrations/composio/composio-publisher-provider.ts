@@ -81,6 +81,20 @@ function redditTitleFromContent(content: string): string {
   return `${collapsed.slice(0, REDDIT_TITLE_MAX - 1)}…`;
 }
 
+const LINKEDIN_COMMENTARY_MAX = 3000;
+
+/**
+ * LinkedIn's `commentary` is REQUIRED and capped at 3000 chars. Truncate with the
+ * existing ellipsis idiom (single `…` glyph counted within the cap). Unlike the
+ * Reddit title this preserves the full body (newlines included) — it is the post
+ * text, not a one-line title. Pure — no I/O — so it is trivially unit-testable.
+ */
+function linkedinCommentary(content: string): string {
+  const text = content ?? '';
+  if (text.length <= LINKEDIN_COMMENTARY_MAX) return text;
+  return `${text.slice(0, LINKEDIN_COMMENTARY_MAX - 1)}…`;
+}
+
 export class ComposioPublisherProvider implements PublisherProvider {
   readonly kind = 'composio' as const;
 
@@ -303,6 +317,63 @@ export class ComposioPublisherProvider implements PublisherProvider {
           ...(flairId ? { flair_id: flairId } : {}),
         };
       }
+    } else if (input.platform === 'linkedin') {
+      // LinkedIn: a SINGLE LINKEDIN_CREATE_LINKED_IN_POST call.
+      //
+      // author (the linkedin_profile_missing fix — FIRST, before slug/staging):
+      // the urn:li:person:<id> author URN is resolved + persisted at connect
+      // (#645) into connected_accounts.external_account_id; read it straight
+      // here. NEVER send a publish with a missing/placeholder author — a missing
+      // URN is a capability error (reconnect to resolve the profile), classified
+      // definitely-never-posted so the row is safely re-claimed.
+      const author = conn.externalAccountId?.trim() || null;
+      if (!author) {
+        throw new ComposioCapabilityMissingError(
+          'linkedin',
+          'reconnect LinkedIn to resolve your author profile',
+        );
+      }
+
+      // Single publish slug (never guessed — capability-missing when unset).
+      slug = this.requireSlug(input.platform, 'publish_post', 'publish posts');
+      // LinkedIn returns a share / ugcPost urn, not the shared default keys.
+      idKeys = ['id', 'share_id', 'ugcPostUrn', 'activity_urn', 'urn'];
+
+      // Unlike X, LinkedIn has NO separate upload action: an image is staged to
+      // Composio's S3 via gateway.uploadFile and the returned
+      // {name,mimetype,s3key} descriptor is pushed DIRECTLY into
+      // `images:[descriptor]` of THIS one publish call (the `images` input is a
+      // `file_uploadable`, so a bare URL would be rejected — same as X media).
+      // Staging runs BEFORE any post exists, so every failure here is a
+      // ComposioToolError → definitely-never-posted (safe rollback + re-claim).
+      // ONLY the LINKEDIN_CREATE_LINKED_IN_POST executed via the shared call
+      // below is the outcome-unknown boundary. A text-only post (no mediaUrls)
+      // OMITS `images` entirely — author + commentary alone are a valid post.
+      //
+      // LinkedIn has no native scheduling, so `scheduledFor` is ignored and the
+      // status resolves to `published`.
+      let descriptor: ComposioFileDescriptor | null = null;
+      if (input.mediaUrls.length > 0) {
+        try {
+          descriptor = await this.gateway.uploadFile({
+            file: input.mediaUrls[0],
+            toolSlug: slug,
+            toolkitSlug: this.config.toolkitSlugFor(input.platform),
+          });
+        } catch (error) {
+          // Staging to S3 never created a post — definitely-never-posted.
+          throw new ComposioToolError(
+            slug,
+            error instanceof Error ? error.message : 'failed to stage media for upload',
+          );
+        }
+      }
+
+      toolArgs = {
+        author,
+        commentary: linkedinCommentary(input.content),
+        ...(descriptor ? { images: [descriptor] } : {}),
+      };
     } else {
       // Instagram: caption + media_urls + placement + media_type (unchanged).
       slug = this.requireSlug(input.platform, 'publish_post', 'publish posts');

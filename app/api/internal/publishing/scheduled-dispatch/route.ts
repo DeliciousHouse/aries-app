@@ -6,7 +6,7 @@ import {
   type MetaPublishFailureKind,
 } from '@/backend/integrations/meta-publishing';
 import { dispatchPublish } from '@/backend/integrations/publish-dispatch';
-import { isRedditEnabled, isXEnabled } from '@/backend/integrations/providers/integration-config';
+import { isLinkedInEnabled, isRedditEnabled, isXEnabled } from '@/backend/integrations/providers/integration-config';
 import { toSignedPublicUrl } from '@/app/api/publish/dispatch/handler';
 import { resolveSignableBasename } from '@/backend/marketing/signable-basename';
 import { recomputeAndPersistPendingApprovalCount } from '@/backend/marketing/runtime-views';
@@ -260,13 +260,14 @@ export async function POST(req: Request): Promise<Response> {
   let firstPublishedPostId: string | null = null;
 
   for (const platform of platforms) {
-    // X (Twitter) and Reddit are Composio-only publish targets (no direct-Meta
-    // path), so neither is an `isMetaProvider`; accept each only when its rollout
-    // flag is on. OFF (default) keeps the exact `unsupported_provider` terminal
-    // result as before.
+    // X (Twitter), Reddit and LinkedIn are Composio-only publish targets (no
+    // direct-Meta path), so none is an `isMetaProvider`; accept each only when
+    // its rollout flag is on. OFF (default) keeps the exact `unsupported_provider`
+    // terminal result as before.
     const isXPublish = platform.trim().toLowerCase() === 'x' && isXEnabled();
     const isRedditPublish = platform.trim().toLowerCase() === 'reddit' && isRedditEnabled();
-    if (!isMetaProvider(platform) && !isXPublish && !isRedditPublish) {
+    const isLinkedInPublish = platform.trim().toLowerCase() === 'linkedin' && isLinkedInEnabled();
+    if (!isMetaProvider(platform) && !isXPublish && !isRedditPublish && !isLinkedInPublish) {
       // Unsupported provider can never succeed — terminal, not retryable.
       results.push({ provider: platform, ok: false, error: 'unsupported_provider', retryable: false, kind: 'permanent' });
       continue;

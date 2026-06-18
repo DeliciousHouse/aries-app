@@ -313,6 +313,56 @@ test('#631 metaPlatform routing: provider=x reaches the seam with platform=x, NO
   );
 });
 
+// ── Regression test for #646: metaPlatform() routing for 'linkedin' ─────────
+
+test('#646 metaPlatform routing: provider=linkedin reaches the seam with platform=linkedin, NOT coerced to facebook', async () => {
+  // Before the fix, metaPlatform('linkedin') fell through to 'facebook' (the else branch).
+  // A LinkedIn post would silently dispatch to a Facebook Page via the Composio seam
+  // with the wrong platform key.
+  const calls: PublishPostInput[] = [];
+  const provider = {
+    kind: 'composio',
+    supports: () => true,
+    publishPost: async (input: PublishPostInput) => {
+      calls.push(input);
+      return {
+        provider: 'composio',
+        platform: 'linkedin' as const,
+        externalPostId: 'urn:li:share:dispatch_test',
+        externalCampaignId: null,
+        externalAdId: null,
+        status: 'published' as const,
+        url: 'https://www.linkedin.com/feed/update/urn:li:share:dispatch_test',
+        rawResponse: {},
+      };
+    },
+  } as unknown as PublisherProvider;
+
+  const out = await dispatchPublish(
+    { tenantId: '42', provider: 'linkedin', content: 'hello linkedin', mediaUrls: [], scheduledFor: null },
+    {
+      selector: () => 'composio',
+      directPublish: async () => {
+        throw new Error('linkedin must never reach the direct-Meta path');
+      },
+      publisherProvider: () => provider,
+    },
+  );
+
+  assert.equal(calls.length, 1, 'exactly one publishPost call');
+  assert.equal(
+    calls[0].platform,
+    'linkedin',
+    'linkedin provider must reach the seam with platform=linkedin (NOT coerced to facebook)',
+  );
+  assert.notEqual(calls[0].platform, 'facebook', 'linkedin must NOT be coerced to facebook — that is the pre-fix bug');
+  assert.equal(out.platformPostId, 'urn:li:share:dispatch_test');
+  assert.ok(
+    out.connectionId.includes(':linkedin'),
+    `connectionId must reference 'linkedin', got: ${out.connectionId}`,
+  );
+});
+
 test('auto selector also routes through the seam (not the direct path)', async () => {
   const { provider, calls } = stubProvider({
     provider: 'direct_meta',
