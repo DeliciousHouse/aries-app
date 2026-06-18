@@ -269,6 +269,38 @@ test('YouTube bridge: when ARIES_YOUTUBE_ENABLED is off, the DB query does NOT i
   );
 });
 
+test('Reddit bridge: when ARIES_REDDIT_ENABLED=1 the DB query includes "reddit" alongside "facebook"', async () => {
+  const db = recordingDb([]);
+  const redditEnv = {
+    ANALYTICS_PROVIDER: 'composio',
+    ARIES_REDDIT_ENABLED: '1',
+  } as unknown as NodeJS.ProcessEnv;
+  await ensureInsightsAccountsForConnectedPlatforms(db, redditEnv);
+  const select = db.queries[0];
+  assert.ok(select, 'issued a SELECT query');
+  // The bridged-platform list must include 'reddit' when the rollout flag is on.
+  assert.ok(
+    Array.isArray(select.params) && (select.params as unknown[]).includes('reddit'),
+    'reddit is in bridged-platform params when ARIES_REDDIT_ENABLED=1',
+  );
+  assert.ok(
+    Array.isArray(select.params) && (select.params as unknown[]).includes('facebook'),
+    'facebook is always included',
+  );
+});
+
+test('Reddit bridge: when ARIES_REDDIT_ENABLED is off, the DB query does NOT include "reddit"', async () => {
+  const db = recordingDb([]);
+  const fbOnlyEnv = { ANALYTICS_PROVIDER: 'composio' } as unknown as NodeJS.ProcessEnv;
+  await ensureInsightsAccountsForConnectedPlatforms(db, fbOnlyEnv);
+  const select = db.queries[0];
+  assert.ok(select, 'issued a SELECT query');
+  assert.ok(
+    !(select.params as unknown[]).includes('reddit'),
+    'reddit is NOT in bridged-platform params when ARIES_REDDIT_ENABLED is off',
+  );
+});
+
 test('facebook is registered in the adapter factory and getAdapter binds the connection context', () => {
   // getAdapter builds a real Composio gateway (needs an API key) AND requires
   // the ANALYTICS_PROVIDER=composio off-switch to be on.
