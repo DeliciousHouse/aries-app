@@ -6,7 +6,7 @@ import {
   BRIDGED_PLATFORMS,
 } from '@/backend/insights/sync/ensure-account';
 import type { Queryable } from '@/backend/integrations/composio/connection-store';
-import { getAdapter, hasAdapter, isFacebookInsightsEnabled } from '@/backend/insights/sync/adapter-factory';
+import { getAdapter, hasAdapter, isFacebookInsightsEnabled, isComposioOnlyAnalyticsPlatform, isPlatformInsightsEnabled } from '@/backend/insights/sync/adapter-factory';
 import { FacebookInsightsAdapter } from '@/backend/insights/adapters/facebook/index';
 import { DEFAULT_LIST_MANAGED_PAGES_SLUG } from '@/backend/integrations/composio/facebook-page-resolver';
 import { DEFAULT_X_GET_ME_SLUG } from '@/backend/integrations/composio/x-user-resolver';
@@ -190,7 +190,7 @@ test('M4 off-switch: the bridge no-ops (no DB query) when ANALYTICS_PROVIDER != 
   ]);
   const result = await ensureInsightsAccountsForConnectedPlatforms(db, DIRECT_ENV);
   assert.equal(result.upserted, 0);
-  assert.equal(result.skippedReason, 'analytics_provider_not_composio');
+  assert.equal(result.skippedReason, 'no_enabled_analytics_platforms');
   assert.equal(db.queries.length, 0, 'no DB query at all when the path is disabled');
 });
 
@@ -214,6 +214,7 @@ test('X bridge: when ARIES_X_ENABLED=1 the DB query includes "x" alongside "face
   const db = recordingDb([]);
   const xEnv = {
     ANALYTICS_PROVIDER: 'composio',
+    COMPOSIO_ENABLED: '1',
     ARIES_X_ENABLED: '1',
   } as unknown as NodeJS.ProcessEnv;
   await ensureInsightsAccountsForConnectedPlatforms(db, xEnv);
@@ -243,6 +244,7 @@ test('YouTube bridge: when ARIES_YOUTUBE_ENABLED=1 the DB query includes "youtub
   const db = recordingDb([]);
   const ytEnv = {
     ANALYTICS_PROVIDER: 'composio',
+    COMPOSIO_ENABLED: '1',
     ARIES_YOUTUBE_ENABLED: '1',
   } as unknown as NodeJS.ProcessEnv;
   await ensureInsightsAccountsForConnectedPlatforms(db, ytEnv);
@@ -275,6 +277,7 @@ test('Reddit bridge: when ARIES_REDDIT_ENABLED=1 the DB query includes "reddit" 
   const db = recordingDb([]);
   const redditEnv = {
     ANALYTICS_PROVIDER: 'composio',
+    COMPOSIO_ENABLED: '1',
     ARIES_REDDIT_ENABLED: '1',
   } as unknown as NodeJS.ProcessEnv;
   await ensureInsightsAccountsForConnectedPlatforms(db, redditEnv);
@@ -295,6 +298,7 @@ test('LinkedIn bridge: when ARIES_LINKEDIN_ENABLED=1 the DB query includes "link
   const db = recordingDb([]);
   const liEnv = {
     ANALYTICS_PROVIDER: 'composio',
+    COMPOSIO_ENABLED: '1',
     ARIES_LINKEDIN_ENABLED: '1',
   } as unknown as NodeJS.ProcessEnv;
   await ensureInsightsAccountsForConnectedPlatforms(db, liEnv);
@@ -358,7 +362,7 @@ test('X bridge back-heals the username and upserts an insights_accounts row', as
 
   const result = await ensureInsightsAccountsForConnectedPlatforms(
     db,
-    { ANALYTICS_PROVIDER: 'composio', ARIES_X_ENABLED: '1' } as unknown as NodeJS.ProcessEnv,
+    { ANALYTICS_PROVIDER: 'composio', COMPOSIO_ENABLED: '1', ARIES_X_ENABLED: '1' } as unknown as NodeJS.ProcessEnv,
     { gateway, config: fakeConfig({ actions: {} }) },
   );
 
@@ -403,7 +407,7 @@ test('Reddit bridge back-heals the username and upserts an insights_accounts row
 
   const result = await ensureInsightsAccountsForConnectedPlatforms(
     db,
-    { ANALYTICS_PROVIDER: 'composio', ARIES_REDDIT_ENABLED: '1' } as unknown as NodeJS.ProcessEnv,
+    { ANALYTICS_PROVIDER: 'composio', COMPOSIO_ENABLED: '1', ARIES_REDDIT_ENABLED: '1' } as unknown as NodeJS.ProcessEnv,
     { gateway, config: fakeConfig({ actions: {} }) },
   );
 
@@ -448,7 +452,7 @@ test('regression: FB row with external_account_id set still upserts directly whe
 
   const result = await ensureInsightsAccountsForConnectedPlatforms(
     db,
-    { ANALYTICS_PROVIDER: 'composio', ARIES_X_ENABLED: '1' } as unknown as NodeJS.ProcessEnv,
+    { ANALYTICS_PROVIDER: 'composio', COMPOSIO_ENABLED: '1', ARIES_X_ENABLED: '1' } as unknown as NodeJS.ProcessEnv,
     { gateway, config: fakeConfig({ actions: {} }) },
   );
 
@@ -484,6 +488,7 @@ test('regression: YouTube back-heal still routes to channel resolver when X and 
     db,
     {
       ANALYTICS_PROVIDER: 'composio',
+      COMPOSIO_ENABLED: '1',
       ARIES_YOUTUBE_ENABLED: '1',
       ARIES_X_ENABLED: '1',
       ARIES_REDDIT_ENABLED: '1',
@@ -520,4 +525,156 @@ test('facebook is registered in the adapter factory and getAdapter binds the con
     if (prevProvider === undefined) delete process.env.ANALYTICS_PROVIDER;
     else process.env.ANALYTICS_PROVIDER = prevProvider;
   }
+});
+
+// ── Adversarial tests: #679 composio-only analytics seam ──────────────────────
+
+test('#679 (a) golden — FB path byte-identical to pre-fix: ANALYTICS_PROVIDER=composio + no rollout flags → SELECT params exactly ["facebook"]', async () => {
+  // This behavior must be byte-identical to pre-fix: a plain ANALYTICS_PROVIDER=composio
+  // env with no rollout flags must still only bridge facebook and nothing else.
+  const db = recordingDb([]);
+  const composioFbOnlyEnv = { ANALYTICS_PROVIDER: 'composio' } as unknown as NodeJS.ProcessEnv;
+  await ensureInsightsAccountsForConnectedPlatforms(db, composioFbOnlyEnv);
+  const select = db.queries[0];
+  assert.ok(select, 'a SELECT was issued');
+  assert.deepEqual(
+    select.params,
+    ['facebook'],
+    'FB path: params must be exactly ["facebook"] — no composio-only platforms leak in without their own flags',
+  );
+});
+
+test('#679 (a) golden — direct_meta no-op byte-identical to pre-fix: ANALYTICS_PROVIDER=direct_meta + no flags → zero DB queries', async () => {
+  // Pre-fix: early-return fired with skippedReason 'analytics_provider_not_composio'.
+  // Post-fix: per-platform bridgedPlatforms() returns [] → same no-op, new reason string.
+  const db = recordingDb([]);
+  const directMetaEnv = { ANALYTICS_PROVIDER: 'direct_meta' } as unknown as NodeJS.ProcessEnv;
+  const result = await ensureInsightsAccountsForConnectedPlatforms(db, directMetaEnv);
+  assert.equal(db.queries.length, 0, 'zero DB queries when all platforms are disabled');
+  assert.equal(result.upserted, 0);
+  assert.equal(result.skippedReason, 'no_enabled_analytics_platforms');
+});
+
+test('#679 (b) dormancy — ARIES_REDDIT_ENABLED OFF + COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER=composio → reddit NOT in SELECT params, no reddit row upserted', async () => {
+  // Proves the rollout flag gates reddit independently of COMPOSIO_ENABLED.
+  // COMPOSIO_ENABLED=1 is on (Composio globally active) but the Reddit flag is absent.
+  const db = recordingDb([]);
+  const dormantRedditEnv = {
+    COMPOSIO_ENABLED: '1',
+    ANALYTICS_PROVIDER: 'composio',
+    // ARIES_REDDIT_ENABLED intentionally absent
+  } as unknown as NodeJS.ProcessEnv;
+  await ensureInsightsAccountsForConnectedPlatforms(db, dormantRedditEnv);
+  const select = db.queries[0];
+  assert.ok(select, 'a SELECT was issued (facebook is still bridged)');
+  assert.ok(
+    !(select.params as unknown[]).includes('reddit'),
+    'reddit must NOT appear in SELECT params when ARIES_REDDIT_ENABLED is off (dormancy)',
+  );
+  assert.ok(
+    (select.params as unknown[]).includes('facebook'),
+    'facebook must still be bridged via ANALYTICS_PROVIDER=composio (independent of COMPOSIO_ENABLED)',
+  );
+  // No INSERT should have fired for reddit.
+  const redditInsert = db.queries.find(
+    (q) => /INSERT INTO insights_accounts/i.test(q.text) && q.params[1] === 'reddit',
+  );
+  assert.equal(redditInsert, undefined, 'no insights_accounts row upserted for reddit when dormant');
+});
+
+test('#679 (c) NEW behavior — ARIES_REDDIT_ENABLED=1 + COMPOSIO_ENABLED=1 + ANALYTICS_PROVIDER=direct_meta → SELECT includes "reddit", excludes "facebook"; reddit upserts via Composio back-heal', async () => {
+  // THE POINT OF THE FIX: reddit can provision through Composio even when the
+  // ANALYTICS_PROVIDER selector is 'direct_meta' (which governs facebook/instagram only).
+  //
+  // Pre-fix proof this would FAIL: ensure-account.ts had an all-or-nothing early-return:
+  //   if (selector !== 'composio') return { skippedReason: 'analytics_provider_not_composio' }
+  // With ANALYTICS_PROVIDER=direct_meta, selector!=='composio', so the function returned
+  // immediately with upserted=0. The (c) assertion below (upserted===1) would have failed.
+  const db = recordingDb([
+    {
+      id: 21,
+      tenant_id: 15,
+      platform: 'reddit',
+      external_account_id: null,
+      external_account_name: null,
+      connected_account_id: 'ca_reddit_c',
+    },
+  ]);
+  const gateway = fakeGateway({
+    executeResult: {
+      successful: true,
+      error: null,
+      data: { data: { name: 'sugar_reddit' } },
+    },
+  });
+  const newBehaviorEnv = {
+    ARIES_REDDIT_ENABLED: '1',
+    COMPOSIO_ENABLED: '1',
+    ANALYTICS_PROVIDER: 'direct_meta',
+  } as unknown as NodeJS.ProcessEnv;
+
+  const result = await ensureInsightsAccountsForConnectedPlatforms(db, newBehaviorEnv, {
+    gateway,
+    config: fakeConfig({ actions: {} }),
+  });
+
+  // SELECT params must include 'reddit' and must NOT include 'facebook'.
+  const select = db.queries[0];
+  assert.ok(select, 'a SELECT was issued');
+  assert.ok(
+    (select.params as unknown[]).includes('reddit'),
+    'reddit must be in SELECT params (ARIES_REDDIT_ENABLED=1 + COMPOSIO_ENABLED=1)',
+  );
+  assert.ok(
+    !(select.params as unknown[]).includes('facebook'),
+    'facebook must NOT be in SELECT params (ANALYTICS_PROVIDER=direct_meta disables FB path)',
+  );
+
+  // Reddit row must have been resolved via back-heal and upserted.
+  assert.equal(result.resolved, 1, 'reddit username was resolved via Composio back-heal');
+  assert.equal(result.upserted, 1, 'reddit insights_accounts row was upserted');
+
+  const insert = db.queries.find((q) => /INSERT INTO insights_accounts/i.test(q.text));
+  assert.ok(insert, 'an INSERT INTO insights_accounts was issued for reddit');
+  assert.deepEqual(insert!.params, [15, 'reddit', 'sugar_reddit', 'sugar_reddit']);
+});
+
+test('#679 seam parity — isPlatformInsightsEnabled dispatches correctly for all five platforms', () => {
+  const allOffEnv = {} as unknown as NodeJS.ProcessEnv;
+  const fbOnlyEnv = { ANALYTICS_PROVIDER: 'composio' } as unknown as NodeJS.ProcessEnv;
+  const redditOnlyEnv = { ARIES_REDDIT_ENABLED: '1', COMPOSIO_ENABLED: '1' } as unknown as NodeJS.ProcessEnv;
+  const fullEnv = { ANALYTICS_PROVIDER: 'composio', COMPOSIO_ENABLED: '1', ARIES_X_ENABLED: '1', ARIES_REDDIT_ENABLED: '1', ARIES_YOUTUBE_ENABLED: '1', ARIES_LINKEDIN_ENABLED: '1' } as unknown as NodeJS.ProcessEnv;
+
+  // facebook → ANALYTICS_PROVIDER gate (not affected by COMPOSIO_ENABLED)
+  assert.equal(isPlatformInsightsEnabled('facebook', fbOnlyEnv), true);
+  assert.equal(isPlatformInsightsEnabled('facebook', allOffEnv), false);
+  assert.equal(isPlatformInsightsEnabled('facebook', redditOnlyEnv), false, 'ANALYTICS_PROVIDER alone gates FB — COMPOSIO_ENABLED does not enable FB');
+
+  // composio-only platforms → rollout flag + COMPOSIO_ENABLED
+  assert.equal(isPlatformInsightsEnabled('reddit', redditOnlyEnv), true);
+  assert.equal(isPlatformInsightsEnabled('reddit', fbOnlyEnv), false, 'ANALYTICS_PROVIDER=composio alone does not enable reddit');
+  assert.equal(isPlatformInsightsEnabled('reddit', { ARIES_REDDIT_ENABLED: '1' } as unknown as NodeJS.ProcessEnv), false, 'ARIES_REDDIT_ENABLED without COMPOSIO_ENABLED → disabled');
+
+  // All five enabled together
+  assert.equal(isPlatformInsightsEnabled('facebook', fullEnv), true);
+  assert.equal(isPlatformInsightsEnabled('x', fullEnv), true);
+  assert.equal(isPlatformInsightsEnabled('youtube', fullEnv), true);
+  assert.equal(isPlatformInsightsEnabled('reddit', fullEnv), true);
+  assert.equal(isPlatformInsightsEnabled('linkedin', fullEnv), true);
+
+  // Unknown platform → always false
+  assert.equal(isPlatformInsightsEnabled('instagram', fullEnv), false, 'instagram is not in the seam');
+  assert.equal(isPlatformInsightsEnabled('unknown', fullEnv), false);
+});
+
+test('#679 isComposioOnlyAnalyticsPlatform: set is {x, reddit, linkedin, youtube}; facebook excluded', () => {
+  // These four platforms use COMPOSIO_ENABLED as their gate (not ANALYTICS_PROVIDER).
+  // NOTE: youtube IS in this set even though it is absent from the publish-only
+  // COMPOSIO_ONLY_PUBLISH_PLATFORMS — analytics and publish have different activation axes.
+  assert.equal(isComposioOnlyAnalyticsPlatform('x'), true);
+  assert.equal(isComposioOnlyAnalyticsPlatform('reddit'), true);
+  assert.equal(isComposioOnlyAnalyticsPlatform('linkedin'), true);
+  assert.equal(isComposioOnlyAnalyticsPlatform('youtube'), true);
+  assert.equal(isComposioOnlyAnalyticsPlatform('facebook'), false, 'facebook uses ANALYTICS_PROVIDER gate, not the composio-only set');
+  assert.equal(isComposioOnlyAnalyticsPlatform('instagram'), false, 'instagram is out of scope');
 });

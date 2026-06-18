@@ -16,6 +16,7 @@ import {
   hasAdapter,
   getAdapter,
   isRedditInsightsEnabled,
+  isComposioOnlyAnalyticsPlatform,
 } from '@/backend/insights/sync/adapter-factory';
 import type {
   ComposioGateway,
@@ -417,43 +418,58 @@ test('fetchAccountMetrics: always returns [] — Reddit has no verified account-
 
 // ── Dormancy / off-switch ─────────────────────────────────────────────────────
 
-const REDDIT_COMPOSIO_ENV = {
+// #679: composio-only platforms gate on ARIES_<P>_ENABLED + COMPOSIO_ENABLED (not ANALYTICS_PROVIDER).
+const REDDIT_ENABLED_ENV = {
   ARIES_REDDIT_ENABLED: '1',
-  ANALYTICS_PROVIDER: 'composio',
+  COMPOSIO_ENABLED: '1',
 } as unknown as NodeJS.ProcessEnv;
 
+// ARIES_REDDIT_ENABLED absent — flag off (ANALYTICS_PROVIDER is irrelevant for reddit).
 const FLAG_OFF_ENV = {
-  ANALYTICS_PROVIDER: 'composio',
+  COMPOSIO_ENABLED: '1',
 } as unknown as NodeJS.ProcessEnv;
 
-const PROVIDER_OFF_ENV = {
+// ARIES_REDDIT_ENABLED on but COMPOSIO_ENABLED absent — composio infrastructure off.
+const COMPOSIO_OFF_ENV = {
   ARIES_REDDIT_ENABLED: '1',
 } as unknown as NodeJS.ProcessEnv;
 
-test('dormancy: isRedditInsightsEnabled requires BOTH ARIES_REDDIT_ENABLED=1 AND ANALYTICS_PROVIDER=composio', () => {
-  assert.equal(isRedditInsightsEnabled(REDDIT_COMPOSIO_ENV), true, 'both flags on → enabled');
+test('dormancy: isRedditInsightsEnabled requires BOTH ARIES_REDDIT_ENABLED=1 AND COMPOSIO_ENABLED=1 (ANALYTICS_PROVIDER is irrelevant for reddit)', () => {
+  assert.equal(isRedditInsightsEnabled(REDDIT_ENABLED_ENV), true, 'both flags on → enabled');
   assert.equal(isRedditInsightsEnabled(FLAG_OFF_ENV), false, 'ARIES_REDDIT_ENABLED absent → disabled');
-  assert.equal(isRedditInsightsEnabled(PROVIDER_OFF_ENV), false, 'ANALYTICS_PROVIDER!=composio → disabled');
+  assert.equal(isRedditInsightsEnabled(COMPOSIO_OFF_ENV), false, 'COMPOSIO_ENABLED absent → disabled');
   assert.equal(
     isRedditInsightsEnabled({} as unknown as NodeJS.ProcessEnv),
     false,
     'no flags → disabled (default OFF)',
   );
+  // #679 (c) proof at adapter level: ANALYTICS_PROVIDER=direct_meta does NOT block reddit.
+  assert.equal(
+    isRedditInsightsEnabled({ ARIES_REDDIT_ENABLED: '1', COMPOSIO_ENABLED: '1', ANALYTICS_PROVIDER: 'direct_meta' } as unknown as NodeJS.ProcessEnv),
+    true,
+    '#679 (c): reddit enabled even when ANALYTICS_PROVIDER=direct_meta',
+  );
 });
 
 test('dormancy: hasAdapter("reddit") mirrors isRedditInsightsEnabled for all flag combinations', () => {
-  assert.equal(hasAdapter('reddit', REDDIT_COMPOSIO_ENV), true);
+  assert.equal(hasAdapter('reddit', REDDIT_ENABLED_ENV), true);
   assert.equal(hasAdapter('reddit', FLAG_OFF_ENV), false);
-  assert.equal(hasAdapter('reddit', PROVIDER_OFF_ENV), false);
+  assert.equal(hasAdapter('reddit', COMPOSIO_OFF_ENV), false);
   assert.equal(hasAdapter('reddit', {} as unknown as NodeJS.ProcessEnv), false);
+  // #679 (c): hasAdapter mirrors the same new-behavior case.
+  assert.equal(
+    hasAdapter('reddit', { ARIES_REDDIT_ENABLED: '1', COMPOSIO_ENABLED: '1', ANALYTICS_PROVIDER: 'direct_meta' } as unknown as NodeJS.ProcessEnv),
+    true,
+    '#679 (c): hasAdapter("reddit") true when ARIES_REDDIT_ENABLED+COMPOSIO_ENABLED regardless of ANALYTICS_PROVIDER',
+  );
 });
 
 test('dormancy: getAdapter("reddit") throws a diagnostic error mentioning ARIES_REDDIT_ENABLED when disabled', () => {
   const prevReddit = process.env.ARIES_REDDIT_ENABLED;
-  const prevProvider = process.env.ANALYTICS_PROVIDER;
+  const prevComposio = process.env.COMPOSIO_ENABLED;
   // Ensure both axes are off so the REGISTRY guard fires.
   delete process.env.ARIES_REDDIT_ENABLED;
-  process.env.ANALYTICS_PROVIDER = 'direct_meta';
+  delete process.env.COMPOSIO_ENABLED;
   try {
     assert.throws(
       () => getAdapter('reddit', { connectedAccountId: 'ca_reddit', tenantId: 1 }),
@@ -463,7 +479,12 @@ test('dormancy: getAdapter("reddit") throws a diagnostic error mentioning ARIES_
   } finally {
     if (prevReddit === undefined) delete process.env.ARIES_REDDIT_ENABLED;
     else process.env.ARIES_REDDIT_ENABLED = prevReddit;
-    if (prevProvider === undefined) delete process.env.ANALYTICS_PROVIDER;
-    else process.env.ANALYTICS_PROVIDER = prevProvider;
+    if (prevComposio === undefined) delete process.env.COMPOSIO_ENABLED;
+    else process.env.COMPOSIO_ENABLED = prevComposio;
   }
+});
+
+test('#679 isComposioOnlyAnalyticsPlatform: reddit is in the composio-only set', () => {
+  assert.equal(isComposioOnlyAnalyticsPlatform('reddit'), true);
+  assert.equal(isComposioOnlyAnalyticsPlatform('facebook'), false, 'facebook uses ANALYTICS_PROVIDER gate');
 });

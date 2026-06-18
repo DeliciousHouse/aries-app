@@ -16,6 +16,7 @@ import {
   hasAdapter,
   getAdapter,
   isYouTubeInsightsEnabled,
+  isComposioOnlyAnalyticsPlatform,
 } from '@/backend/insights/sync/adapter-factory';
 import type {
   ComposioGateway,
@@ -383,43 +384,60 @@ test('.items unwrap: adapter reads row array from {data:{items:[...]}} (YouTube 
 
 // ── Dormancy / off-switch ─────────────────────────────────────────────────────
 
-const YT_COMPOSIO_ENV = {
+// #679: YouTube gates on ARIES_YOUTUBE_ENABLED + COMPOSIO_ENABLED (not ANALYTICS_PROVIDER).
+// NOTE: youtube IS in the composio-only analytics set even though it is absent from
+// the publish-only COMPOSIO_ONLY_PUBLISH_PLATFORMS — the two sets are intentionally separate.
+const YT_ENABLED_ENV = {
   ARIES_YOUTUBE_ENABLED: '1',
-  ANALYTICS_PROVIDER: 'composio',
+  COMPOSIO_ENABLED: '1',
 } as unknown as NodeJS.ProcessEnv;
 
+// ARIES_YOUTUBE_ENABLED absent — flag off.
 const FLAG_OFF_ENV = {
-  ANALYTICS_PROVIDER: 'composio',
+  COMPOSIO_ENABLED: '1',
 } as unknown as NodeJS.ProcessEnv;
 
-const PROVIDER_OFF_ENV = {
+// ARIES_YOUTUBE_ENABLED on but COMPOSIO_ENABLED absent — composio infrastructure off.
+const COMPOSIO_OFF_ENV = {
   ARIES_YOUTUBE_ENABLED: '1',
 } as unknown as NodeJS.ProcessEnv;
 
-test('dormancy: isYouTubeInsightsEnabled requires BOTH ARIES_YOUTUBE_ENABLED=1 AND ANALYTICS_PROVIDER=composio', () => {
-  assert.equal(isYouTubeInsightsEnabled(YT_COMPOSIO_ENV), true, 'both flags on → enabled');
+test('dormancy: isYouTubeInsightsEnabled requires BOTH ARIES_YOUTUBE_ENABLED=1 AND COMPOSIO_ENABLED=1 (ANALYTICS_PROVIDER is irrelevant for YouTube)', () => {
+  assert.equal(isYouTubeInsightsEnabled(YT_ENABLED_ENV), true, 'both flags on → enabled');
   assert.equal(isYouTubeInsightsEnabled(FLAG_OFF_ENV), false, 'ARIES_YOUTUBE_ENABLED absent → disabled');
-  assert.equal(isYouTubeInsightsEnabled(PROVIDER_OFF_ENV), false, 'ANALYTICS_PROVIDER!=composio → disabled');
+  assert.equal(isYouTubeInsightsEnabled(COMPOSIO_OFF_ENV), false, 'COMPOSIO_ENABLED absent → disabled');
   assert.equal(
     isYouTubeInsightsEnabled({} as unknown as NodeJS.ProcessEnv),
     false,
     'no flags → disabled (default OFF)',
   );
+  // #679 (c) proof at adapter level: ANALYTICS_PROVIDER=direct_meta does NOT block YouTube.
+  assert.equal(
+    isYouTubeInsightsEnabled({ ARIES_YOUTUBE_ENABLED: '1', COMPOSIO_ENABLED: '1', ANALYTICS_PROVIDER: 'direct_meta' } as unknown as NodeJS.ProcessEnv),
+    true,
+    '#679 (c): YouTube enabled even when ANALYTICS_PROVIDER=direct_meta',
+  );
 });
 
 test('dormancy: hasAdapter("youtube") mirrors isYouTubeInsightsEnabled for all flag combinations', () => {
-  assert.equal(hasAdapter('youtube', YT_COMPOSIO_ENV), true);
+  assert.equal(hasAdapter('youtube', YT_ENABLED_ENV), true);
   assert.equal(hasAdapter('youtube', FLAG_OFF_ENV), false);
-  assert.equal(hasAdapter('youtube', PROVIDER_OFF_ENV), false);
+  assert.equal(hasAdapter('youtube', COMPOSIO_OFF_ENV), false);
   assert.equal(hasAdapter('youtube', {} as unknown as NodeJS.ProcessEnv), false);
+  // #679 (c): hasAdapter mirrors the same new-behavior case.
+  assert.equal(
+    hasAdapter('youtube', { ARIES_YOUTUBE_ENABLED: '1', COMPOSIO_ENABLED: '1', ANALYTICS_PROVIDER: 'direct_meta' } as unknown as NodeJS.ProcessEnv),
+    true,
+    '#679 (c): hasAdapter("youtube") true when ARIES_YOUTUBE_ENABLED+COMPOSIO_ENABLED regardless of ANALYTICS_PROVIDER',
+  );
 });
 
 test('dormancy: getAdapter("youtube") throws a diagnostic error mentioning ARIES_YOUTUBE_ENABLED when disabled', () => {
   const prevYt = process.env.ARIES_YOUTUBE_ENABLED;
-  const prevProvider = process.env.ANALYTICS_PROVIDER;
+  const prevComposio = process.env.COMPOSIO_ENABLED;
   // Ensure both axes are off so the REGISTRY guard fires.
   delete process.env.ARIES_YOUTUBE_ENABLED;
-  process.env.ANALYTICS_PROVIDER = 'direct_meta';
+  delete process.env.COMPOSIO_ENABLED;
   try {
     assert.throws(
       () => getAdapter('youtube', { connectedAccountId: 'ca_yt', tenantId: 1 }),
@@ -429,7 +447,12 @@ test('dormancy: getAdapter("youtube") throws a diagnostic error mentioning ARIES
   } finally {
     if (prevYt === undefined) delete process.env.ARIES_YOUTUBE_ENABLED;
     else process.env.ARIES_YOUTUBE_ENABLED = prevYt;
-    if (prevProvider === undefined) delete process.env.ANALYTICS_PROVIDER;
-    else process.env.ANALYTICS_PROVIDER = prevProvider;
+    if (prevComposio === undefined) delete process.env.COMPOSIO_ENABLED;
+    else process.env.COMPOSIO_ENABLED = prevComposio;
   }
+});
+
+test('#679 isComposioOnlyAnalyticsPlatform: youtube is in the composio-only analytics set (distinct from publish set)', () => {
+  assert.equal(isComposioOnlyAnalyticsPlatform('youtube'), true);
+  assert.equal(isComposioOnlyAnalyticsPlatform('facebook'), false, 'facebook uses ANALYTICS_PROVIDER gate');
 });

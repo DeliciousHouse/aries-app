@@ -17,6 +17,7 @@ import {
   hasAdapter,
   getAdapter,
   isLinkedInInsightsEnabled,
+  isComposioOnlyAnalyticsPlatform,
 } from '@/backend/insights/sync/adapter-factory';
 import { platformSupports } from '@/backend/insights/platforms/capabilities';
 import type {
@@ -400,43 +401,58 @@ test('capabilities: platformSupports("linkedin","account_daily_metrics") is fals
 
 // ── Dormancy / off-switch ─────────────────────────────────────────────────────
 
-const LI_COMPOSIO_ENV = {
+// #679: LinkedIn gates on ARIES_LINKEDIN_ENABLED + COMPOSIO_ENABLED (not ANALYTICS_PROVIDER).
+const LI_ENABLED_ENV = {
   ARIES_LINKEDIN_ENABLED: '1',
-  ANALYTICS_PROVIDER: 'composio',
+  COMPOSIO_ENABLED: '1',
 } as unknown as NodeJS.ProcessEnv;
 
+// ARIES_LINKEDIN_ENABLED absent — flag off.
 const FLAG_OFF_ENV = {
-  ANALYTICS_PROVIDER: 'composio',
+  COMPOSIO_ENABLED: '1',
 } as unknown as NodeJS.ProcessEnv;
 
-const PROVIDER_OFF_ENV = {
+// ARIES_LINKEDIN_ENABLED on but COMPOSIO_ENABLED absent — composio infrastructure off.
+const COMPOSIO_OFF_ENV = {
   ARIES_LINKEDIN_ENABLED: '1',
 } as unknown as NodeJS.ProcessEnv;
 
-test('dormancy: isLinkedInInsightsEnabled requires BOTH ARIES_LINKEDIN_ENABLED=1 AND ANALYTICS_PROVIDER=composio', () => {
-  assert.equal(isLinkedInInsightsEnabled(LI_COMPOSIO_ENV), true, 'both flags on → enabled');
+test('dormancy: isLinkedInInsightsEnabled requires BOTH ARIES_LINKEDIN_ENABLED=1 AND COMPOSIO_ENABLED=1 (ANALYTICS_PROVIDER is irrelevant for LinkedIn)', () => {
+  assert.equal(isLinkedInInsightsEnabled(LI_ENABLED_ENV), true, 'both flags on → enabled');
   assert.equal(isLinkedInInsightsEnabled(FLAG_OFF_ENV), false, 'ARIES_LINKEDIN_ENABLED absent → disabled');
-  assert.equal(isLinkedInInsightsEnabled(PROVIDER_OFF_ENV), false, 'ANALYTICS_PROVIDER!=composio → disabled');
+  assert.equal(isLinkedInInsightsEnabled(COMPOSIO_OFF_ENV), false, 'COMPOSIO_ENABLED absent → disabled');
   assert.equal(
     isLinkedInInsightsEnabled({} as unknown as NodeJS.ProcessEnv),
     false,
     'no flags → disabled (default OFF)',
   );
+  // #679 (c) proof at adapter level: ANALYTICS_PROVIDER=direct_meta does NOT block LinkedIn.
+  assert.equal(
+    isLinkedInInsightsEnabled({ ARIES_LINKEDIN_ENABLED: '1', COMPOSIO_ENABLED: '1', ANALYTICS_PROVIDER: 'direct_meta' } as unknown as NodeJS.ProcessEnv),
+    true,
+    '#679 (c): LinkedIn enabled even when ANALYTICS_PROVIDER=direct_meta',
+  );
 });
 
 test('dormancy: hasAdapter("linkedin") mirrors isLinkedInInsightsEnabled for all flag combinations', () => {
-  assert.equal(hasAdapter('linkedin', LI_COMPOSIO_ENV), true);
+  assert.equal(hasAdapter('linkedin', LI_ENABLED_ENV), true);
   assert.equal(hasAdapter('linkedin', FLAG_OFF_ENV), false);
-  assert.equal(hasAdapter('linkedin', PROVIDER_OFF_ENV), false);
+  assert.equal(hasAdapter('linkedin', COMPOSIO_OFF_ENV), false);
   assert.equal(hasAdapter('linkedin', {} as unknown as NodeJS.ProcessEnv), false);
+  // #679 (c): hasAdapter mirrors the same new-behavior case.
+  assert.equal(
+    hasAdapter('linkedin', { ARIES_LINKEDIN_ENABLED: '1', COMPOSIO_ENABLED: '1', ANALYTICS_PROVIDER: 'direct_meta' } as unknown as NodeJS.ProcessEnv),
+    true,
+    '#679 (c): hasAdapter("linkedin") true when ARIES_LINKEDIN_ENABLED+COMPOSIO_ENABLED regardless of ANALYTICS_PROVIDER',
+  );
 });
 
 test('dormancy: getAdapter("linkedin") throws a diagnostic error mentioning ARIES_LINKEDIN_ENABLED when disabled', () => {
   const prevLi = process.env.ARIES_LINKEDIN_ENABLED;
-  const prevProvider = process.env.ANALYTICS_PROVIDER;
+  const prevComposio = process.env.COMPOSIO_ENABLED;
   // Ensure both axes are off so the REGISTRY guard fires.
   delete process.env.ARIES_LINKEDIN_ENABLED;
-  process.env.ANALYTICS_PROVIDER = 'direct_meta';
+  delete process.env.COMPOSIO_ENABLED;
   try {
     assert.throws(
       () => getAdapter('linkedin', { connectedAccountId: 'ca_li', tenantId: 1 }),
@@ -446,7 +462,12 @@ test('dormancy: getAdapter("linkedin") throws a diagnostic error mentioning ARIE
   } finally {
     if (prevLi === undefined) delete process.env.ARIES_LINKEDIN_ENABLED;
     else process.env.ARIES_LINKEDIN_ENABLED = prevLi;
-    if (prevProvider === undefined) delete process.env.ANALYTICS_PROVIDER;
-    else process.env.ANALYTICS_PROVIDER = prevProvider;
+    if (prevComposio === undefined) delete process.env.COMPOSIO_ENABLED;
+    else process.env.COMPOSIO_ENABLED = prevComposio;
   }
+});
+
+test('#679 isComposioOnlyAnalyticsPlatform: linkedin is in the composio-only set', () => {
+  assert.equal(isComposioOnlyAnalyticsPlatform('linkedin'), true);
+  assert.equal(isComposioOnlyAnalyticsPlatform('facebook'), false, 'facebook uses ANALYTICS_PROVIDER gate');
 });
