@@ -257,6 +257,23 @@ const MAPPERS: Partial<Record<string, PlatformAnalyticsMapper>> = {
       };
     },
   },
+  // Reddit — single-post lookup; score / num_comments / upvote_ratio only.
+  // Reddit exposes NO impressions/reach/views metric, so impressions/views stay
+  // null (never a fabricated zero). `article` is the BARE base36 id (the stored
+  // platform_post_id is the `t3_<base36>` fullname → strip the prefix here).
+  // upvote_ratio has no NormalizedMetrics field, so it is intentionally omitted.
+  'reddit:post_insights': {
+    slug: 'REDDIT_RETRIEVE_REDDIT_POST',
+    buildArgs: (ctx) => ({ article: (ctx.externalPostId ?? '').replace(/^t3_/, '') }),
+    parse: (raw) => {
+      const p = payload(raw);
+      // score CAN be negative (net up/downvotes) — keep it honest, never clamp.
+      return {
+        likes: num(p.score),
+        comments: num(p.num_comments),
+      };
+    },
+  },
   // LinkedIn (organization-level share stats)
   'linkedin:account_insights': {
     slug: 'LINKEDIN_GET_SHARE_STATS',

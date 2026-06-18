@@ -59,6 +59,16 @@ export const PLATFORM_CAPABILITIES: Record<Platform, ReadonlySet<PlatformCapabil
     'post_daily_metrics',
     'comments',
   ]),
+  // Reddit: per-post engagement (score/num_comments/upvote_ratio via
+  // REDDIT_RETRIEVE_REDDIT_POST) + top-level post comments. Deliberately OMITS
+  // 'account_daily_metrics' (no verified Reddit account-insights action) and
+  // 'reach_impressions' — Reddit exposes NO impressions/reach metric at all
+  // (the absent reach cap IS the documented Reddit analytics limitation).
+  reddit: new Set<PlatformCapability>([
+    'post_list',
+    'post_daily_metrics',
+    'comments',
+  ]),
 };
 
 /** Returns true if the given platform supports a specific capability. */
