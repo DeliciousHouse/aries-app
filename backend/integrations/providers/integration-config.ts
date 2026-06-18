@@ -37,6 +37,17 @@ export function isXEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
 }
 
 /**
+ * YouTube insights rollout flag (#637 analytics, #638 comments). Default OFF —
+ * ships the Composio-backed YouTube insights adapter dormant. YouTube already
+ * *connects* via Composio, so this flag does NOT gate connectability (it is
+ * deliberately NOT wired into `connectablePlatforms`); it gates only the
+ * insights bridge + adapter. NEW flag — never reuse ARIES_X_ENABLED.
+ */
+export function isYouTubeEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return parseFlag(env.ARIES_YOUTUBE_ENABLED);
+}
+
+/**
  * Reddit publish rollout flag. Default OFF — ships the publish path dormant
  * (Reddit already *connects* via Composio; this flag gates publish only, so it
  * is deliberately NOT wired into `connectablePlatforms`).

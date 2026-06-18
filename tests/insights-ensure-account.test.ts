@@ -237,6 +237,38 @@ test('X bridge: when ARIES_X_ENABLED is off, the DB query only includes "faceboo
   assert.deepEqual(select.params, ['facebook'], 'only facebook when ARIES_X_ENABLED is off');
 });
 
+test('YouTube bridge: when ARIES_YOUTUBE_ENABLED=1 the DB query includes "youtube" alongside "facebook"', async () => {
+  const db = recordingDb([]);
+  const ytEnv = {
+    ANALYTICS_PROVIDER: 'composio',
+    ARIES_YOUTUBE_ENABLED: '1',
+  } as unknown as NodeJS.ProcessEnv;
+  await ensureInsightsAccountsForConnectedPlatforms(db, ytEnv);
+  const select = db.queries[0];
+  assert.ok(select, 'issued a SELECT query');
+  // The bridged-platform list must include 'youtube' when the rollout flag is on.
+  assert.ok(
+    Array.isArray(select.params) && (select.params as unknown[]).includes('youtube'),
+    'youtube is in bridged-platform params when ARIES_YOUTUBE_ENABLED=1',
+  );
+  assert.ok(
+    Array.isArray(select.params) && (select.params as unknown[]).includes('facebook'),
+    'facebook is always included',
+  );
+});
+
+test('YouTube bridge: when ARIES_YOUTUBE_ENABLED is off, the DB query does NOT include "youtube"', async () => {
+  const db = recordingDb([]);
+  const fbOnlyEnv = { ANALYTICS_PROVIDER: 'composio' } as unknown as NodeJS.ProcessEnv;
+  await ensureInsightsAccountsForConnectedPlatforms(db, fbOnlyEnv);
+  const select = db.queries[0];
+  assert.ok(select, 'issued a SELECT query');
+  assert.ok(
+    !(select.params as unknown[]).includes('youtube'),
+    'youtube is NOT in bridged-platform params when ARIES_YOUTUBE_ENABLED is off',
+  );
+});
+
 test('facebook is registered in the adapter factory and getAdapter binds the connection context', () => {
   // getAdapter builds a real Composio gateway (needs an API key) AND requires
   // the ANALYTICS_PROVIDER=composio off-switch to be on.
