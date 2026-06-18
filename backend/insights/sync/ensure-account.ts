@@ -26,13 +26,25 @@
 
 import pool from '@/lib/db';
 import type { Queryable } from '@/backend/integrations/composio/connection-store';
-import { analyticsProviderSelector } from '@/backend/integrations/providers/integration-config';
+import { analyticsProviderSelector, isXEnabled } from '@/backend/integrations/providers/integration-config';
 import { resolveComposioConfig, type ComposioConfig } from '@/backend/integrations/composio/composio-config';
 import { createComposioGateway, type ComposioGateway } from '@/backend/integrations/composio/composio-client';
 import { resolveFacebookManagedPage } from '@/backend/integrations/composio/facebook-page-resolver';
 
-/** Platforms whose Composio connections should be projected into insights_accounts. */
+/**
+ * Platforms whose Composio connections should be projected into insights_accounts.
+ * X (Twitter) is only bridged when ARIES_X_ENABLED is ON (computed dynamically by
+ * `bridgedPlatforms` below — the const itself is never mutated, so a flag-OFF
+ * environment is byte-identical to the FB-only bridge).
+ */
 export const BRIDGED_PLATFORMS = ['facebook'] as const;
+
+/** The bridged-platform list for this env: FB always; X only when ARIES_X_ENABLED. */
+function bridgedPlatforms(env: NodeJS.ProcessEnv): string[] {
+  const list: string[] = [...BRIDGED_PLATFORMS];
+  if (isXEnabled(env)) list.push('x');
+  return list;
+}
 
 interface BridgeRow {
   id: string | number;
@@ -85,7 +97,8 @@ export async function ensureInsightsAccountsForConnectedPlatforms(
     return { considered: 0, upserted: 0, resolved: 0, skippedNoPage: 0, skippedReason: 'analytics_provider_not_composio' };
   }
 
-  const placeholders = BRIDGED_PLATFORMS.map((_, i) => `$${i + 1}`).join(', ');
+  const platforms = bridgedPlatforms(env);
+  const placeholders = platforms.map((_, i) => `$${i + 1}`).join(', ');
   // NOTE: external_account_id is intentionally NOT filtered here — a null Page id
   // is back-healed below rather than skipped (the prod connection data gap).
   const sources = await db.query<BridgeRow>(
@@ -95,7 +108,7 @@ export async function ensureInsightsAccountsForConnectedPlatforms(
         AND provider = 'composio'
         AND connected_account_id IS NOT NULL
         AND platform IN (${placeholders})`,
-    [...BRIDGED_PLATFORMS],
+    platforms,
   );
 
   // Build the Composio gateway lazily — only when a row actually needs Page-id
@@ -127,6 +140,15 @@ export async function ensureInsightsAccountsForConnectedPlatforms(
     let pageName = row.external_account_name;
 
     if (!pageId) {
+      // Only Facebook has a Page-id resolver (FACEBOOK_LIST_MANAGED_PAGES). X's
+      // external account id is captured at connect by pickExternalAccountId, so a
+      // null id is not back-heal-able here — skip this tick (a later connect/
+      // re-auth populates it). Never invent an X account id.
+      if (row.platform !== 'facebook') {
+        skippedNoPage++;
+        log({ event: 'insights_bridge_page_unresolved', tenantId: row.tenant_id, platform: row.platform, reason: 'no_external_account_id' });
+        continue;
+      }
       // Back-heal: resolve the Page id from Composio and persist it once.
       const r = getResolver();
       if (!r || !row.connected_account_id) {

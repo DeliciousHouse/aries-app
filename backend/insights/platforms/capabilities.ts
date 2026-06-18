@@ -49,6 +49,15 @@ export const PLATFORM_CAPABILITIES: Record<Platform, ReadonlySet<PlatformCapabil
     'comments',
     'reach_impressions',
   ]),
+  // X (Twitter): per-post engagement (likes/replies/retweets) + replies-as-
+  // comments. Deliberately OMITS 'account_daily_metrics' (no verified X
+  // account-insights action) and 'reach_impressions' (impression_count is
+  // paid-tier-gated — see the X adapter's documented impressions limitation).
+  x: new Set<PlatformCapability>([
+    'post_list',
+    'post_daily_metrics',
+    'comments',
+  ]),
 };
 
 /** Returns true if the given platform supports a specific capability. */
