@@ -7,7 +7,12 @@ import StepContainer from '../components/StepContainer';
 const META_PLATFORM = 'facebook';
 const IG_PLATFORM = 'instagram';
 
-const META_OAUTH_HREF = '/oauth/connect/facebook';
+// Connect Facebook/Instagram through the canonical Composio connections screen
+// (the "Channel Integrations" surface), NOT the legacy direct-Meta OAuth broker
+// at /oauth/connect/* (which is no longer the connect path and, for Instagram,
+// is a dead branch that errors). Composio brokers the account connection and
+// returns the operator to this same screen on completion (#704).
+const META_OAUTH_HREF = '/dashboard/settings/channel-integrations';
 
 export type ConnectionState =
   | 'connected'

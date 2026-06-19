@@ -253,7 +253,10 @@ test('Connect step renders both Meta and Instagram cards even if only one comes 
   assert.equal(igCard.props['data-state'], 'not_connected');
 });
 
-test('Connect cards link to the Meta OAuth route by default', async () => {
+test('Connect cards route to the Composio channel-integrations surface, not legacy OAuth', async () => {
+  // Regression guard for #704: the onboarding ConnectPlatformsStep CTAs must
+  // point to /dashboard/settings/channel-integrations (the Composio connect
+  // surface), NOT the legacy /oauth/connect/* direct-Meta OAuth path.
   const { act, create } = await import('react-test-renderer');
   let root!: import('react-test-renderer').ReactTestRenderer;
 
@@ -279,8 +282,15 @@ test('Connect cards link to the Meta OAuth route by default', async () => {
 
   const fbCta = root.root.findByProps({ 'data-testid': 'connect-card-cta-facebook' });
   const igCta = root.root.findByProps({ 'data-testid': 'connect-card-cta-instagram' });
-  assert.equal(fbCta.props.href, '/oauth/connect/facebook');
-  assert.equal(igCta.props.href, '/oauth/connect/facebook');
+  assert.equal(fbCta.props.href, '/dashboard/settings/channel-integrations',
+    'FB connect CTA must route to the Composio surface, not /oauth/connect/*');
+  assert.equal(igCta.props.href, '/dashboard/settings/channel-integrations',
+    'IG connect CTA must route to the Composio surface, not /oauth/connect/*');
+  // Explicit anti-regression: neither CTA may reference the legacy path.
+  assert.ok(!fbCta.props.href.startsWith('/oauth/connect/'),
+    'FB connect CTA must not reference the legacy /oauth/connect/ path');
+  assert.ok(!igCta.props.href.startsWith('/oauth/connect/'),
+    'IG connect CTA must not reference the legacy /oauth/connect/ path');
 });
 
 test('Connect step never renders LinkedIn, X, TikTok, YouTube, or Reddit cards', async () => {

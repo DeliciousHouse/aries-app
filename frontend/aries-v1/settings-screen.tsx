@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 import { useIntegrations } from '@/hooks/use-integrations';
 import { useBusinessProfile } from '@/hooks/use-business-profile';
@@ -11,6 +12,7 @@ import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './com
 import { connectedProfileLabel } from './connected-profile-labels';
 
 export default function AriesSettingsScreen() {
+  const router = useRouter();
   const integrations = useIntegrations({ autoLoad: true });
   const business = useBusinessProfile({ autoLoad: true });
   const [businessName, setBusinessName] = useState('');
@@ -61,6 +63,14 @@ export default function AriesSettingsScreen() {
   ) {
     const card = integrationCards.find((item) => item.platform === platform);
     if (!card) {
+      return;
+    }
+    // Connect/Reconnect are brokered by Composio on the canonical "Channel
+    // Integrations" screen, NOT the legacy direct-Meta OAuth path the shared
+    // integrations hook would otherwise call (#704). Disconnect of an existing
+    // connection keeps its current behavior so live connections are untouched.
+    if (action === 'connect' || action === 'reconnect') {
+      router.push('/dashboard/settings/channel-integrations');
       return;
     }
     await integrations.runAction(action, card);
