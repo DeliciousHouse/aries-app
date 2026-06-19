@@ -198,6 +198,9 @@ services:
       # X (Twitter) connect rollout flag — default OFF ships the platform dormant
       # (card hidden; connect/capabilities 400 unsupported_platform as today).
       ARIES_X_ENABLED: ${ARIES_X_ENABLED:-false}
+      # TikTok connect rollout flag — default OFF ships TikTok dormant (gated out;
+      # no Composio comments/reply + publish audit-gated). Pair with .env.
+      ARIES_TIKTOK_ENABLED: ${ARIES_TIKTOK_ENABLED:-false}
       # Reddit publish rollout flag — default OFF ships the publish path dormant
       # (Reddit already connects; this gates publish only). When OFF a reddit
       # schedule/dispatch is rejected exactly as today.

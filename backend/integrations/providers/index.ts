@@ -15,6 +15,7 @@ export {
   parseFlag,
   isComposioEnabled,
   isXEnabled,
+  isTikTokEnabled,
   isRedditEnabled,
   isLinkedInEnabled,
   connectablePlatforms,
