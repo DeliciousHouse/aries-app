@@ -15,6 +15,18 @@ import {
 import { createCalendarViewModel } from '../frontend/aries-v1/view-models/calendar';
 import type { ScheduledPostItem, UnscheduledPostItem } from '../lib/api/aries-v1';
 
+// Derive a stable current-month fixture date so the calendar's default view
+// (which opens on new Date() after the #705 fix) renders the test fixtures
+// without navigating away. Using 14:00 UTC on the 15th avoids midnight
+// roll-overs in any host timezone and stays well clear of month boundaries.
+const _d = new Date();
+const _y = _d.getFullYear();
+const _m = String(_d.getMonth() + 1).padStart(2, '0');
+/** ISO timestamp for the 15th of the current month at 14:00 UTC. */
+const FIXTURE_CURRENT_MONTH_ISO = `${_y}-${_m}-15T14:00:00.000Z`;
+/** YYYY-MM-DD key matching the cell the presenter renders for that timestamp. */
+const FIXTURE_CURRENT_MONTH_DAY_KEY = `${_y}-${_m}-15`;
+
 function buildScheduledPost(overrides: Partial<ScheduledPostItem> = {}): ScheduledPostItem {
   return {
     id: '901',
@@ -25,7 +37,7 @@ function buildScheduledPost(overrides: Partial<ScheduledPostItem> = {}): Schedul
     caption: 'Queued carousel',
     platform: 'facebook',
     targetPlatforms: ['facebook', 'instagram'],
-    scheduledFor: '2026-04-15T14:00:00.000Z',
+    scheduledFor: FIXTURE_CURRENT_MONTH_ISO,
     dispatchStatus: 'pending',
     dispatchedAt: null,
     errorAt: null,
@@ -73,7 +85,7 @@ test('resolveDragSchedule is a no-op when an event is dropped on its own cell', 
     posts: [],
     timeZone: 'America/New_York',
   }).events[0];
-  // The event's dayKey is 2026-04-15 (14:00Z in NY). Dropping it there is a no-op.
+  // The event's dayKey is in the current month (FIXTURE_CURRENT_MONTH_ISO at 14:00Z). Dropping it there is a no-op.
   assert.equal(resolveDragSchedule({ kind: 'event', event }, event.dayKey), null);
 });
 
@@ -110,7 +122,7 @@ test('CalendarPresenter renders droppable cells and draggable tiles under jsdom'
   const { render, cleanup } = await import('@testing-library/react');
 
   const model = createCalendarViewModel({
-    scheduledPosts: [buildScheduledPost({ scheduledFor: '2026-04-15T14:00:00.000Z' })],
+    scheduledPosts: [buildScheduledPost({ scheduledFor: FIXTURE_CURRENT_MONTH_ISO })],
     posts: [],
     unscheduledPosts: [{ ...buildUnscheduled(), href: '/dashboard/social-content/job-9' }],
     timeZone: 'America/New_York',
@@ -138,8 +150,8 @@ test('CalendarPresenter renders droppable cells and draggable tiles under jsdom'
     const trayItem = container.querySelector('[data-testid="tray-item-77"]');
     assert.ok(trayItem, 'the backlog post should render a draggable tray item');
 
-    // The 2026-04-15 cell exists as a drop target (tenant-zone day key).
-    const targetCell = container.querySelector('[data-testid="cell-2026-04-15"]');
+    // The current-month day-15 cell exists as a drop target (tenant-zone day key).
+    const targetCell = container.querySelector(`[data-testid="cell-${FIXTURE_CURRENT_MONTH_DAY_KEY}"]`);
     assert.ok(targetCell, 'the tenant-zone target cell should be droppable');
   } finally {
     cleanup();
