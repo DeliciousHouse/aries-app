@@ -596,8 +596,13 @@ export default function DashboardHomePresenter({
                       </div>
                       <div className="flex-1" aria-hidden />
                       {channel.health !== 'connected' ? (
+                        // Connect/Reconnect routes operators to the canonical
+                        // Composio "Channel Integrations" screen rather than the
+                        // legacy direct-Meta OAuth broker at /oauth/connect/*
+                        // (no longer the connect path; IG there is a dead branch
+                        // that errors). Composio brokers every platform (#704).
                         <Link
-                          href={`/oauth/connect/${encodeURIComponent(channel.id)}?mode=${channel.health === 'attention' ? 'reconnect' : 'connect'}`}
+                          href="/dashboard/settings/channel-integrations"
                           className="mt-3 box-border flex w-full min-h-[2.5rem] shrink-0 items-center justify-center rounded-lg border border-transparent bg-[#2a2a35] px-3 text-center text-[0.9rem] font-medium text-white transition-colors hover:bg-[#34343f]"
                         >
                           {channel.health === 'attention' ? 'Reconnect' : 'Connect'}
