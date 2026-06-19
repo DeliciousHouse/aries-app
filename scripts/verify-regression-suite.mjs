@@ -232,6 +232,12 @@ const steps = [
     args: ['--test', 'tests/onboarding/variant-board-render.component.test.ts'],
   },
   {
+    // #705 regression: calendar-presenter must open on the current month, not
+    // the earliest queued event (which could be months in the past).
+    name: 'calendar initial-month regression (#705)',
+    args: ['--test', 'tests/calendar-initial-month.test.ts'],
+  },
+  {
     // #684 regression: analytics screen must gate the summary grid + Views column
     // on per-platform capabilities (account_daily_metrics / post_view_count) and
     // render an honest EmptyStatePanel — not fabricated zeros — for unsupported

@@ -18,6 +18,15 @@ import type { ScheduledPostItem } from '../../lib/api/aries-v1';
  * tree mounts under a DOM with real data and the queued posts surface.
  */
 
+// Derive stable current-month fixture dates so the calendar's default view
+// (which opens on new Date() after the #705 fix) renders the test fixtures
+// without navigating away. 14:00/16:30 UTC avoids midnight roll-overs.
+const _d = new Date();
+const _y = _d.getFullYear();
+const _m = String(_d.getMonth() + 1).padStart(2, '0');
+const FIXTURE_DAY_15_ISO = `${_y}-${_m}-15T14:00:00.000Z`;
+const FIXTURE_DAY_20_ISO = `${_y}-${_m}-20T16:30:00.000Z`;
+
 function buildScheduledPost(overrides: Partial<ScheduledPostItem> = {}): ScheduledPostItem {
   return {
     id: '901',
@@ -28,7 +37,7 @@ function buildScheduledPost(overrides: Partial<ScheduledPostItem> = {}): Schedul
     caption: 'Spring sale carousel',
     platform: 'facebook',
     targetPlatforms: ['facebook', 'instagram'],
-    scheduledFor: '2026-04-15T14:00:00.000Z',
+    scheduledFor: FIXTURE_DAY_15_ISO,
     dispatchStatus: 'pending',
     dispatchedAt: null,
     errorAt: null,
@@ -52,7 +61,7 @@ test('calendar smoke: planner mounts and renders queued posts', async () => {
         id: '902',
         postId: '43',
         title: 'Retargeting refresh',
-        scheduledFor: '2026-04-20T16:30:00.000Z',
+        scheduledFor: FIXTURE_DAY_20_ISO,
         dispatchStatus: 'dispatched',
       }),
     ],
