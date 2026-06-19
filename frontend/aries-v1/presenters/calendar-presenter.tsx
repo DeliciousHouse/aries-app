@@ -117,9 +117,7 @@ export default function CalendarPresenter({
 }: CalendarPresenterProps) {
   const timeZone = model.timeZone;
   const [view, setView] = useState<CalendarMode>('month');
-  const [currentDate, setCurrentDate] = useState(() =>
-    getInitialCalendarDate(model.events, timeZone),
-  );
+  const [currentDate, setCurrentDate] = useState(() => new Date());
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [rescheduleEventId, setRescheduleEventId] = useState<string | null>(null);
   const [scheduleTrayPost, setScheduleTrayPost] = useState<UnscheduledPost | null>(null);
@@ -1003,21 +1001,6 @@ function InfoPanel(props: { label: string; value: string }) {
  * still a local `Date` walk (cheap, zone-agnostic for "which 42 cells"); only
  * the event-to-cell match and "today" use tenant-zone keys.
  */
-
-function getInitialCalendarDate(events: CalendarEvent[], timeZone: string): Date {
-  const now = Date.now();
-  const nextUpcoming = events.find((event) => event.timestamp >= now);
-  const anchorIso = nextUpcoming?.scheduledForIso ?? events[0]?.scheduledForIso;
-  if (anchorIso) {
-    // Build a local Date positioned on the tenant-zone civil day of the anchor
-    // event so the grid opens on the month that actually contains it.
-    const parts = tenantZoneParts(anchorIso, timeZone);
-    if (parts) {
-      return new Date(parts.year, parts.month - 1, parts.day);
-    }
-  }
-  return new Date();
-}
 
 function startOfMonth(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), 1);
