@@ -138,8 +138,20 @@ export function composioAuthConfigId(
   // never inherit COMPOSIO_DEFAULT_AUTH_CONFIG_ID (typically a Meta-family config)
   // or a future accidental connect attempt would target the wrong toolkit (#690).
   if (platform === 'reddit' || platform === 'x' || platform === 'tiktok') return null;
-  const fallback = env.COMPOSIO_DEFAULT_AUTH_CONFIG_ID?.trim();
-  return fallback || null;
+  return composioDefaultAuthConfigId(env);
+}
+
+/**
+ * The shared default Composio auth-config id (COMPOSIO_DEFAULT_AUTH_CONFIG_ID),
+ * trimmed and normalized to null when unset/blank. This is the auth config that
+ * Meta-family platforms (facebook/instagram/meta_ads) fall back to when they
+ * have no per-platform id, so several platforms can share it. Single source of
+ * truth — the per-platform `composioAuthConfigId` fallback reuses this, and the
+ * reconcile path uses it to tell "shared default" (ambiguous, can't disambiguate
+ * by auth config) from a "platform-scoped" (toolkit-bound) auth config.
+ */
+export function composioDefaultAuthConfigId(env: NodeJS.ProcessEnv = process.env): string | null {
+  return env.COMPOSIO_DEFAULT_AUTH_CONFIG_ID?.trim() || null;
 }
 
 export function composioApiKey(env: NodeJS.ProcessEnv = process.env): string | null {

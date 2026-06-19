@@ -45,6 +45,7 @@ function configWith(toolkitVersion?: string): ComposioConfig {
     authConfigIdFor: () => null,
     toolkitSlugFor: (p) => p,
     actionSlugFor: () => null,
+    defaultAuthConfigId: () => null,
   };
 }
 

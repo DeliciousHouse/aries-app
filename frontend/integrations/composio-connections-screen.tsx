@@ -9,7 +9,13 @@
  * config. The flow is: see status -> click Connect -> approve -> done.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+
+// Bounded eager-reconcile schedule: ~5 attempts, backoff starting ~2s, ~30s
+// total. After returning from OAuth a row can briefly read `pending` until
+// Composio activates the connection; we poll a few times so the card flips to
+// "Connected" without a manual refresh, then stop (#699).
+const RECONCILE_DELAYS_MS = [2000, 4000, 6000, 8000, 10000];
 
 type Capabilities = {
   canPublishOrganic: boolean;
@@ -29,6 +35,7 @@ type Connection = {
   externalAccountName: string | null;
   capabilities: Capabilities | null;
   prerequisites?: string[];
+  reconcileError?: string | null;
 };
 
 type ListResponse = {
@@ -89,6 +96,10 @@ export default function ComposioConnectionsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Bounded retry bookkeeping for the eager reconcile (refs so changing them
+  // never re-renders / re-runs the polling effect).
+  const reconcileAttemptsRef = useRef(0);
+  const justReturnedFromOAuthRef = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -108,6 +119,38 @@ export default function ComposioConnectionsScreen() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Detect a return from OAuth (?connected=<platform>) once on mount. This runs
+  // before the first load resolves, so the polling effect sees it.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    justReturnedFromOAuthRef.current = new URLSearchParams(window.location.search).has('connected');
+  }, []);
+
+  // Bounded eager reconcile: while any connection is still `pending` (or the
+  // operator just returned from OAuth), re-load a few times so the card flips to
+  // "Connected" on its own. Stops as soon as no row is pending or the budget is
+  // spent, leaving the reconnect affordance + any advisory visible (#699).
+  useEffect(() => {
+    if (!data) return;
+    const hasPending = data.connections.some((c) => c.status === 'pending');
+    // Guarantee at least one reconcile poll right after returning from OAuth,
+    // even if the first snapshot hasn't flipped to `pending` yet.
+    const forcedByReturn = justReturnedFromOAuthRef.current && reconcileAttemptsRef.current === 0;
+    if (!hasPending && !forcedByReturn) {
+      // Converged (or nothing to wait on): reset the budget + clear the flag.
+      reconcileAttemptsRef.current = 0;
+      justReturnedFromOAuthRef.current = false;
+      return;
+    }
+    if (reconcileAttemptsRef.current >= RECONCILE_DELAYS_MS.length) return;
+    const delay = RECONCILE_DELAYS_MS[reconcileAttemptsRef.current];
+    reconcileAttemptsRef.current += 1;
+    const timer = setTimeout(() => {
+      void load();
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [data, load]);
 
   const connect = useCallback(async (platform: string) => {
     setBusy(platform);
@@ -230,6 +273,11 @@ export default function ComposioConnectionsScreen() {
                     <li key={i}>• {p}</li>
                   ))}
                 </ul>
+              )}
+              {conn.reconcileError && (
+                <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-200">
+                  {conn.reconcileError}
+                </div>
               )}
             </div>
           );

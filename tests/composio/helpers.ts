@@ -15,6 +15,7 @@ export interface RecordedExecute {
 export function fakeConfig(overrides?: {
   actions?: Partial<Record<ComposioOperation, string>>;
   authConfigId?: string | null;
+  defaultAuthConfigId?: string | null;
 }): ComposioConfig {
   const actions = overrides?.actions ?? {};
   const hasAuthOverride = overrides ? Object.prototype.hasOwnProperty.call(overrides, 'authConfigId') : false;
@@ -23,6 +24,7 @@ export function fakeConfig(overrides?: {
     authConfigIdFor: () => (hasAuthOverride ? (overrides!.authConfigId ?? null) : 'auth_cfg_test'),
     toolkitSlugFor: (p: IntegrationPlatform) => p,
     actionSlugFor: (_p: IntegrationPlatform, op: ComposioOperation) => actions[op] ?? null,
+    defaultAuthConfigId: () => overrides?.defaultAuthConfigId ?? null,
   };
 }
 
