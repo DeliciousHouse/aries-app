@@ -216,6 +216,13 @@ export default function ComposioConnectionsScreen() {
           const caps = conn.capabilities;
           const st = statusText(conn.status, caps);
           const isConnected = conn.status === 'connected';
+          // A pending / reauthorization_required / error row has an EXISTING
+          // connection record that can be cleared. A truly not_connected row has
+          // nothing to clear (#703).
+          const hasClearableRow =
+            conn.status === 'pending' ||
+            conn.status === 'reauthorization_required' ||
+            conn.status === 'error';
           return (
             <div key={conn.platform} className="rounded-xl border border-slate-700 bg-slate-900/40 p-5">
               <div className="flex items-start justify-between gap-4">
@@ -239,14 +246,30 @@ export default function ComposioConnectionsScreen() {
                       {busy === conn.platform ? '…' : 'Disconnect'}
                     </button>
                   ) : (
-                    <button
-                      type="button"
-                      onClick={() => connect(conn.platform)}
-                      disabled={busy === conn.platform || (data ? !data.composioEnabled : true)}
-                      className="rounded-lg bg-violet-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-violet-500 disabled:opacity-50"
-                    >
-                      {busy === conn.platform ? 'Starting…' : 'Connect'}
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => connect(conn.platform)}
+                        disabled={busy === conn.platform || (data ? !data.composioEnabled : true)}
+                        className="rounded-lg bg-violet-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-violet-500 disabled:opacity-50"
+                      >
+                        {busy === conn.platform ? 'Starting…' : 'Connect'}
+                      </button>
+                      {hasClearableRow && (
+                        // Clear a stuck row via the same disconnect handler (the
+                        // backend deletes unconditionally), so a pending / error /
+                        // reauthorization_required card isn't limited to Connect —
+                        // which would upsert ANOTHER pending row (#703).
+                        <button
+                          type="button"
+                          onClick={() => disconnect(conn.platform)}
+                          disabled={busy === conn.platform}
+                          className="rounded-lg border border-slate-600 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                        >
+                          {busy === conn.platform ? '…' : 'Clear'}
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
