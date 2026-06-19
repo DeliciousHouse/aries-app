@@ -37,21 +37,22 @@ import { isComposioEnabled, type ProviderSelector } from './providers/integratio
 import type { IntegrationPlatform, PublishResult } from './providers/types';
 import { publishNeverReachedPlatform } from './publish-outcome';
 
-function metaPlatform(provider: string): IntegrationPlatform {
+export function metaPlatform(provider: string): IntegrationPlatform {
   // Map the dispatch request's provider string to the integration platform the
   // provider seam services. X (Twitter), Reddit, LinkedIn and YouTube are each
-  // their own Composio-only platform; Instagram maps to instagram; everything
-  // else maps to facebook (the direct route's two-way split). Without the
-  // explicit cases, 'x'/'reddit'/'linkedin'/'youtube' would fall through to
-  // 'facebook' and be sent to a Facebook Page. None reaches the direct_meta fast
-  // path (normalizeMetaProvider throws a terminal 400), and
-  // DirectMetaProvider.supports() is false for them, so they can never post to FB.
+  // their own Composio-only platform; Instagram maps to instagram; tiktok now
+  // throws explicitly (gated out — no Composio publish path) so it never
+  // silently falls through to 'facebook' and posts to a Facebook Page (#690);
+  // everything else maps to facebook (the direct route's two-way split).
   const normalized = provider.trim().toLowerCase();
   if (normalized === 'x') return 'x';
   if (normalized === 'reddit') return 'reddit';
   if (normalized === 'linkedin') return 'linkedin';
   if (normalized === 'youtube') return 'youtube';
   if (normalized === 'instagram') return 'instagram';
+  if (normalized === 'tiktok') {
+    throw new Error('tiktok is not a supported publish platform (gated out; no Composio publish path)');
+  }
   return 'facebook';
 }
 
