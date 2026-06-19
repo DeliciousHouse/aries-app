@@ -28,7 +28,7 @@ import {
   upsertConnection,
   type Queryable,
 } from './connection-store';
-import { ComposioConfigError } from './errors';
+import { ComposioConfigError, ComposioError } from './errors';
 import { isActiveStatus, mapComposioStatus } from './status-map';
 import { resolveFacebookManagedPage } from './facebook-page-resolver';
 import { resolveLinkedInAuthorUrn } from './linkedin-author-resolver';
@@ -164,18 +164,43 @@ export class ComposioAccountProvider implements AccountConnectionProvider {
         authConfigIds: authConfigId ? [authConfigId] : undefined,
       });
     } catch {
-      // Fall back to whatever we already have stored.
-      return getConnectionRow(tenantId, platform, this.db);
+      // Could not reach Composio to confirm the live status. Surface a
+      // frontend-safe error (NEVER the raw SDK text) instead of silently
+      // returning the stored `pending` row — that swallowing is exactly what
+      // stranded an ACTIVE connection as pending (#699). The caller turns this
+      // into a per-platform advisory and still returns 200.
+      throw new ComposioError(
+        'composio_reconcile_failed',
+        'Could not reach Composio to confirm this connection. Please try again.',
+        { status: 502, retryable: true },
+      );
     }
 
     // When several platforms share COMPOSIO_DEFAULT_AUTH_CONFIG_ID the
     // auth-config filter returns connections for ALL of them, so narrow to this
     // platform's toolkit before picking — otherwise we could persist another
-    // platform's connected-account id onto this row. If no connection reports a
-    // toolkit slug (older payloads), fall back to the unfiltered set.
+    // platform's connected-account id onto this row.
     const expectedSlug = this.config.toolkitSlugFor(platform);
     const slugMatched = connections.filter((c) => c.toolkitSlug === expectedSlug);
-    const candidates = slugMatched.length > 0 ? slugMatched : connections.some((c) => c.toolkitSlug) ? [] : connections;
+
+    // A Composio auth config is toolkit-bound, so a non-null id that is NOT the
+    // shared COMPOSIO_DEFAULT_AUTH_CONFIG_ID already returns only this platform's
+    // connections — an exact-slug mismatch (e.g. 'instagram_business' vs the
+    // hard-coded 'instagram') must not strand an ACTIVE connection as pending
+    // (#699). When platforms share the default we cannot disambiguate by slug, so
+    // we keep the conservative empty set. If no connection reports a toolkit slug
+    // (older payloads), fall back to the unfiltered set.
+    const defaultAuthConfigId = this.config.defaultAuthConfigId();
+    const platformScoped = authConfigId !== null && authConfigId !== defaultAuthConfigId;
+
+    const candidates =
+      slugMatched.length > 0
+        ? slugMatched
+        : platformScoped
+          ? connections
+          : connections.some((c) => c.toolkitSlug)
+            ? []
+            : connections;
 
     const active = candidates.find((c) => isActiveStatus(c.status)) ?? candidates[0];
     if (!active) {
