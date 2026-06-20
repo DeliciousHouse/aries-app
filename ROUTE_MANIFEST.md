@@ -17,8 +17,8 @@ This manifest lists the supported direct route contract for the current Aries ru
 | Route | Surface | Purpose |
 |---|---|---|
 | `/dashboard` | App shell | Operator overview |
-| `/dashboard/campaigns` | App shell | Campaign list and workspace entrypoint |
-| `/dashboard/campaigns/:campaignId` | App shell | Campaign workspace |
+| `/dashboard/social-content` | App shell | Weekly social content list and workspace entrypoint |
+| `/dashboard/social-content/:postId` | App shell | Social content post workspace |
 | `/dashboard/posts` | App shell | Publish controls |
 | `/dashboard/calendar` | App shell | Calendar and sync controls |
 | `/dashboard/results` | App shell | Runtime-backed results overview |

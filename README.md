@@ -44,7 +44,7 @@ legacy compatibility shim and are not the supported path.
 ## Tech stack
 
 - **Framework:** Next.js App Router (`next` 16.x)
-- **UI:** React 18, Tailwind CSS v4
+- **UI:** React 19, Tailwind CSS v4
 - **Auth:** `next-auth` v5
 - **Data:** PostgreSQL (`pg`) + generated runtime files under `DATA_ROOT`
 - **Execution:** Hermes run submission + authenticated `/api/internal/hermes/runs` callbacks
