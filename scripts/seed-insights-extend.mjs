@@ -65,6 +65,45 @@ try {
     [tenantId],
   );
 
+  // ── 1b. Backfill account metrics to ~190 days deep ──────────────────────────
+  //    The base seed only writes ~30 days, leaving the 90-day PREVIOUS-period
+  //    window (90–180 days ago) empty → the trends comparison line is flat.
+  //    Backfill older days so the dashed prior line shows a real trend.
+  const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+  const dateStrNDaysAgo = (n) => {
+    const d = new Date();
+    d.setTime(d.getTime() - n * 86400000);
+    return d.toISOString().split('T')[0];
+  };
+  const acctRes = await client.query(
+    `SELECT id, platform FROM insights_accounts WHERE tenant_id = $1`,
+    [tenantId],
+  );
+  let backfilled = 0;
+  for (const acct of acctRes.rows) {
+    // Walk forward from 190d ago so followers grow over time.
+    let followers = 600;
+    for (let i = 190; i >= 31; i--) {
+      const followersDelta = rand(3, 22);
+      followers += followersDelta;
+      const r = await client.query(
+        `INSERT INTO insights_account_metrics_daily
+           (tenant_id, account_id, platform, date,
+            views, watch_time_minutes, followers, followers_delta,
+            likes, comments_count, shares, raw_source)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         ON CONFLICT (tenant_id, account_id, date) DO NOTHING`,
+        [
+          tenantId, acct.id, acct.platform, dateStrNDaysAgo(i),
+          rand(1200, 7000), rand(2500, 18000), followers, followersDelta,
+          rand(40, 260), rand(8, 70), rand(4, 45),
+          JSON.stringify({ adapter: 'demo_backfill', mapping: 'v1' }),
+        ],
+      );
+      backfilled += r.rowCount ?? 0;
+    }
+  }
+
   // ── 2. Mark every insights_post as Aries-generated (Activity + Top) ──────────
   //    Create a matching `posts` row, point aries_post_id at it, stamp content_type.
   const postsRes = await client.query(
@@ -197,6 +236,7 @@ try {
     tenantId,
     userId: userRes.rows[0].id,
     seeded: {
+      accountMetricsBackfilled: backfilled,
       primaryGoal:        'lead_generation',
       ariesPostsLinked:   linked,
       commentsClassified: classified,
