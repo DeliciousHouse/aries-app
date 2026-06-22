@@ -10,6 +10,7 @@ export type AppRouteId =
   | 'calendar'
   | 'results'
   | 'analytics'
+  | 'insights'
   | 'comments'
   | 'review'
   | 'businessProfile'
@@ -101,6 +102,13 @@ export const APP_ROUTES: readonly AppRoute[] = [
     href: '/dashboard/analytics',
     section: 'utility',
     description: 'Facebook performance: views, followers, engagement, and per-post metrics.'
+  },
+  {
+    id: 'insights',
+    title: 'Insights',
+    href: '/insights',
+    section: 'utility',
+    description: 'Cross-channel analytics: performance, audience, conversations, and what Aries did, from real data.'
   },
   {
     id: 'comments',

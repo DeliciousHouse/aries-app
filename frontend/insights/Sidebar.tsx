@@ -232,9 +232,9 @@ export function Sidebar({ activePage = "insights", onNavigate }: SidebarProps) {
           userSelect:     "none",
           flexShrink:     0,
         }}
-        title="Maya Castellanos · Owner"
+        title="Account"
       >
-        M
+        ·
       </div>
     </aside>
   );

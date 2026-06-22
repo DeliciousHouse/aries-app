@@ -59,9 +59,9 @@ function IconButton({
 
 export function Header({
   pageTitle,
-  brandName      = "Atelier North",
-  brandMeta      = "Residential Interior Design · Austin",
-  brandInitials  = "AN",
+  brandName      = "",
+  brandMeta      = "",
+  brandInitials  = "",
   onNotifications,
   onHelp,
 }: HeaderProps) {

@@ -22,7 +22,9 @@ import { enrichPosts, buildPatternCard } from './top-template-builder';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 import crypto from 'crypto';
 
-const TEMPLATE_VERSION = 'top-v1';
+// v2: builder output changed (numeric `id`, fixed sentiment Map lookup); bump
+// so any pre-existing top-v1 cache row is invalidated instead of served stale.
+const TEMPLATE_VERSION = 'top-v2';
 const CACHE_TTL_MS     = 60 * 60 * 1000;
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);

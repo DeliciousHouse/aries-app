@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { AnimatePresence, motion } from 'motion/react';
 import { createPortal } from 'react-dom';
 import {
+  Activity,
   BarChart3,
   Calendar,
   CheckCheck,
@@ -43,6 +44,7 @@ const ICONS: Record<AppRouteId, typeof LayoutDashboard> = {
   calendar: Calendar,
   results: BarChart3,
   analytics: TrendingUp,
+  insights: Activity,
   comments: MessageCircle,
   review: CheckCheck,
   businessProfile: Settings,
@@ -107,6 +109,7 @@ export default function AppShellClient({
       { type: 'link', routeId: 'calendar' },
       { type: 'link', routeId: 'results' },
       { type: 'link', routeId: 'analytics' },
+      { type: 'link', routeId: 'insights' },
       { type: 'link', routeId: 'comments' },
     ],
     [],
