@@ -193,18 +193,27 @@ function PostRow({
             gap:          16,
           }}
         >
-          <div style={{ display: "flex", gap: 26, flexWrap: "wrap" }}>
-            <MetricCell label="Shares"          value={post.shares.toLocaleString()} />
-            <MetricCell label="Comments"        value={post.comments.toLocaleString()} />
-            <MetricCell label="Save rate"       value={`${post.saveRate.toFixed(1)}%`} />
-            <MetricCell label="Engagement rate" value={`${post.engagement}%`} />
+          <div>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: C.t3, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>
+              Performance
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px 12px" }}>
+              <MetricCell label="Reach"           value={post.reach.toLocaleString()} />
+              <MetricCell label="Engagement rate" value={`${post.engagement}%`} />
+              <MetricCell label="Saves"           value={post.saves.toLocaleString()} />
+              <MetricCell label="Shares"          value={post.shares.toLocaleString()} />
+              <MetricCell label="Comments"        value={post.comments.toLocaleString()} />
+              <MetricCell label="Save rate"       value={`${post.saveRate.toFixed(1)}%`} />
+            </div>
           </div>
 
           {post.sentiment && <SentimentBar sentiment={post.sentiment} />}
 
-          <p style={{ margin: 0, fontSize: 12.5, color: C.t2, lineHeight: 1.55 }}>
-            {post.whyItWorked}
-          </p>
+          {/* Aries narrative — consistent with the Trends "Aries:" card */}
+          <div style={{ display: "flex", gap: 9, fontSize: 12.5, lineHeight: 1.55, padding: "11px 13px", background: `${C.accent}10`, border: `1px solid ${C.accent}28`, borderRadius: 10 }}>
+            <span style={{ flexShrink: 0, marginTop: 1 }}><Icon name="info" size={14} color={C.accentB} /></span>
+            <span style={{ color: C.t2 }}><strong style={{ color: C.accentB }}>Aries:</strong> {post.whyItWorked}</span>
+          </div>
 
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {post.permalink && (
@@ -253,56 +262,37 @@ function PatternPanel({ pattern }: { pattern: TopData["pattern"] }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <style>{`.tp-takeaway .strong{color:${C.t1};font-weight:600;}`}</style>
-      <div
-        style={{
-          fontSize:      10.5,
-          fontWeight:    700,
-          color:         C.t3,
-          textTransform: "uppercase",
-          letterSpacing: "0.07em",
-        }}
-      >
-        Pattern spotted
+
+      {/* Header — spark icon badge + title (matches the mock) */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ width: 26, height: 26, borderRadius: 7, background: `${C.accent}1c`, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+          <Icon name="spark" size={14} color={C.accentB} />
+        </span>
+        <span style={{ fontSize: 14, fontWeight: 600, color: C.t1 }}>Pattern spotted</span>
       </div>
-      <div style={{ fontSize: 14, fontWeight: 600, color: C.t1 }}>{pattern.title}</div>
+
+      <div>
+        <div style={{ fontSize: 15, fontWeight: 600, color: C.t1 }}>{pattern.title}</div>
+        <div style={{ fontSize: 11.5, color: C.t3, marginTop: 3 }}>Top performers, by content type</div>
+      </div>
 
       {pattern.breakdown.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <div
-            style={{
-              display:      "flex",
-              width:        "100%",
-              height:       12,
-              borderRadius: 99,
-              overflow:     "hidden",
-              background:   C.track,
-            }}
-          >
+          <div style={{ display: "flex", gap: 2, width: "100%", height: 12, borderRadius: 99, overflow: "hidden", background: C.track }}>
             {pattern.breakdown.map((b, i) => (
               <div
                 key={b.contentType}
-                style={{
-                  width:      `${(b.count / total) * 100}%`,
-                  background: BREAKDOWN_PALETTE[i % BREAKDOWN_PALETTE.length],
-                }}
+                style={{ width: `${(b.count / total) * 100}%`, background: BREAKDOWN_PALETTE[i % BREAKDOWN_PALETTE.length] }}
               />
             ))}
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {pattern.breakdown.map((b, i) => (
               <div key={b.contentType} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span
-                  style={{
-                    width:        9,
-                    height:       9,
-                    borderRadius: "50%",
-                    background:   BREAKDOWN_PALETTE[i % BREAKDOWN_PALETTE.length],
-                    flexShrink:   0,
-                  }}
-                />
-                <span style={{ fontSize: 12, color: C.t2, flex: 1 }}>{b.label}</span>
+                <span style={{ width: 9, height: 9, borderRadius: "50%", background: BREAKDOWN_PALETTE[i % BREAKDOWN_PALETTE.length], flexShrink: 0 }} />
+                <span style={{ fontSize: 12.5, color: C.t2, flex: 1 }}>{b.label}</span>
                 <span style={{ fontSize: 12, color: C.t3, fontVariantNumeric: "tabular-nums" }}>
-                  {b.count}
+                  {b.count} of {total}
                 </span>
               </div>
             ))}
@@ -310,14 +300,15 @@ function PatternPanel({ pattern }: { pattern: TopData["pattern"] }) {
         </div>
       )}
 
+      {/* Takeaway in its own inset card */}
       <div
         className="tp-takeaway"
-        style={{ fontSize: 13, color: C.t2, lineHeight: 1.6 }}
+        style={{ fontSize: 13, color: C.t2, lineHeight: 1.6, background: C.surfaceB, border: `1px solid ${C.borderB}`, borderRadius: 10, padding: "12px 14px" }}
         dangerouslySetInnerHTML={{ __html: pattern.takeaway }}
       />
 
       {pattern.note && (
-        <div style={{ fontSize: 11, color: C.t3, marginTop: "auto", paddingTop: 8, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 11, color: C.t3, marginTop: "auto", paddingTop: 4, lineHeight: 1.5 }}>
           {pattern.note}
         </div>
       )}
