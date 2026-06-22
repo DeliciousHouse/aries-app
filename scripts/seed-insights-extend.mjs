@@ -86,6 +86,11 @@ try {
     for (let i = 190; i >= 31; i--) {
       const followersDelta = rand(3, 22);
       followers += followersDelta;
+      // Recency weight: older days get lower volume so reach/engagement trend
+      // UPWARD toward today (current period > prior period → "Reach up", a
+      // growth story — not the misleading "down" a flat backfill produces).
+      const growth = (190 - i) / 159;            // 0 at 190d ago → 1 at 31d ago
+      const scale  = 0.45 + 0.85 * growth;       // ~0.45x (old) → ~1.3x (recent)
       const r = await client.query(
         `INSERT INTO insights_account_metrics_daily
            (tenant_id, account_id, platform, date,
@@ -95,8 +100,12 @@ try {
          ON CONFLICT (tenant_id, account_id, date) DO NOTHING`,
         [
           tenantId, acct.id, acct.platform, dateStrNDaysAgo(i),
-          rand(1200, 7000), rand(2500, 18000), followers, followersDelta,
-          rand(40, 260), rand(8, 70), rand(4, 45),
+          Math.round(rand(900, 2600) * scale),
+          Math.round(rand(2500, 9000) * scale),
+          followers, followersDelta,
+          Math.round(rand(40, 200) * scale),
+          Math.round(rand(8, 55) * scale),
+          Math.round(rand(4, 35) * scale),
           JSON.stringify({ adapter: 'demo_backfill', mapping: 'v1' }),
         ],
       );
@@ -107,9 +116,20 @@ try {
   // ── 2. Mark every insights_post as Aries-generated (Activity + Top) ──────────
   //    Create a matching `posts` row, point aries_post_id at it, stamp content_type.
   const postsRes = await client.query(
-    `SELECT id, title, caption FROM insights_posts WHERE tenant_id = $1 ORDER BY published_at DESC`,
+    `SELECT id, title, caption, platform FROM insights_posts WHERE tenant_id = $1 ORDER BY published_at DESC`,
     [tenantId],
   );
+
+  // A few comment bodies to spread across every post so the top-by-reach posts
+  // (older, high-reach) also carry comments → per-post sentiment populates.
+  const EXTRA_BODIES = [
+    'Love this — exactly the style I want.',
+    'How much would something like this cost?',
+    'Where can I find that lighting?',
+    'Stunning work 😍 saving this.',
+    'Can you do a space like mine? DMing you.',
+    'This is so helpful, thank you!',
+  ];
 
   let linked = 0;
   for (let i = 0; i < postsRes.rows.length; i++) {
@@ -140,6 +160,19 @@ try {
       [ip.id, postId, CONTENT_TYPES[i % CONTENT_TYPES.length]],
     );
     linked++;
+
+    // Seed ~6 comments on this post (idempotent) so per-post sentiment exists.
+    // Step 3 below classifies ALL comments (incl. these) + sets reply status.
+    for (let j = 0; j < EXTRA_BODIES.length; j++) {
+      const receivedAt = new Date(Date.now() - rand(1, 25) * 86400000);
+      await client.query(
+        `INSERT INTO insights_comments
+           (tenant_id, post_id, platform, external_comment_id, received_at, author_handle, body_text)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (tenant_id, platform, external_comment_id) DO NOTHING`,
+        [tenantId, ip.id, ip.platform, `demo_p${ip.id}_c${j}`, receivedAt, `demo_user_${rand(1, 400)}`, EXTRA_BODIES[j]],
+      );
+    }
   }
 
   // ── 3. Classify the seeded comments (Conversations tags, Goal leads, Attention) ─
@@ -174,6 +207,11 @@ try {
              is_lead   = EXCLUDED.is_lead,
              category  = EXCLUDED.category`,
       [c.id, tenantId, sentiment, isLead, category],
+    );
+    // ~80% of comments have been replied to — realistic "handled / need you" split.
+    await client.query(
+      `UPDATE insights_comments SET is_replied = $2 WHERE id = $1`,
+      [c.id, i % 5 !== 0],
     );
     classified++;
   }
