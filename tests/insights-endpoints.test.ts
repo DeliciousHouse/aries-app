@@ -66,6 +66,7 @@ async function json(res: Response): Promise<Record<string, unknown>> {
 
 let tenantId = -1;
 let wiredPostCount = 0;
+let fakeAriesPostId = -1;   // the temp posts row this test wires; cleaned up surgically
 
 test.before(async () => {
   if (!hasRequiredDbEnv()) return;   // individual tests will self-skip via requireDbEnvOrSkip
@@ -91,7 +92,7 @@ test.before(async () => {
        RETURNING id`,
       [tenantId],
     );
-    const fakeAriesPostId = postRes.rows[0].id;
+    fakeAriesPostId = postRes.rows[0].id;
 
     // Link the 5 most-recently-published insights_posts to this fake aries post
     const linked = await client.query<{ id: number }>(
@@ -117,10 +118,15 @@ test.after(async () => {
   // Clean up wired aries_post_id and the temp post to leave the seed clean
   const client = await pool.connect();
   try {
-    await client.query(
-      `UPDATE insights_posts SET aries_post_id = NULL WHERE tenant_id = $1`,
-      [tenantId],
-    );
+    // Surgical cleanup: only un-wire the links THIS test created (pointing at
+    // our temp post), not every aries_post_id in the tenant — otherwise a shared
+    // dev/demo tenant's real seed links get clobbered on every run.
+    if (fakeAriesPostId > 0) {
+      await client.query(
+        `UPDATE insights_posts SET aries_post_id = NULL WHERE tenant_id = $1 AND aries_post_id = $2`,
+        [tenantId, fakeAriesPostId],
+      );
+    }
     await client.query(
       `DELETE FROM posts
        WHERE tenant_id = $1 AND caption = 'Test post for insights integration test'`,
