@@ -121,15 +121,18 @@ export interface ContentMixSlice {
 }
 export interface ActivityData extends ApiBase {
   strip: {
-    postsPublished:   number;
-    commentsReceived: number;
-    highPerformers:   number;
-    hoursSaved:       number;
+    postsPublished:    number;
+    commentsReceived:  number;
+    commentsHandled:   number;
+    commentsNeedReply: number;
+    highPerformers:    number;
+    hoursSaved:        number;
   };
   footerLine: string;
   contentMix: ContentMixSlice[];
   meta: {
     platformCount:         number;
+    platforms:             string[];
     pendingClassification: number;
     hasData:               boolean;   // ← emptiness flag lives HERE
   };
