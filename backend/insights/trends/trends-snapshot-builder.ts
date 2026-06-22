@@ -198,14 +198,29 @@ export async function buildTrendsSnapshot(
     const currentStartStr = currentStart.toISOString().slice(0, 10);
 
     for (const row of acctRes.rows) {
-      const isCurrent = row.bucket >= currentStartStr;
+      // node-pg returns a `::date` column as a JS Date object pinned to LOCAL
+      // midnight (not a string). Two bugs followed: comparing that Date to the
+      // `currentStartStr` string coerces to NaN (always false), and using it as
+      // a Map key never matches buildBuckets()'s 'YYYY-MM-DD' keys — so every
+      // bucket was routed into the prior period and the current series stayed
+      // empty (reach headline 0 despite real data). Normalise to a 'YYYY-MM-DD'
+      // string from the LOCAL components — toISOString() would shift the date
+      // across the UTC boundary (e.g. a UTC-5 host turns 04-27 into 04-26).
+      const bucketKey = ((): string => {
+        if (typeof row.bucket === 'string') return row.bucket.slice(0, 10);
+        const d = row.bucket as unknown as Date;
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${d.getFullYear()}-${m}-${day}`;
+      })();
+      const isCurrent = bucketKey >= currentStartStr;
       const m = isCurrent ? curMap : priMap;
-      m.reach.set(row.bucket,        Number(row.reach));
-      m.followers.set(row.bucket,    Number(row.followers));
-      m.visits.set(row.bucket,       Number(row.visits));
-      m.comments.set(row.bucket,     Number(row.comments));
-      m.interactions.set(row.bucket, Number(row.interactions));
-      m.baseReach.set(row.bucket,    Number(row.reach));
+      m.reach.set(bucketKey,        Number(row.reach));
+      m.followers.set(bucketKey,    Number(row.followers));
+      m.visits.set(bucketKey,       Number(row.visits));
+      m.comments.set(bucketKey,     Number(row.comments));
+      m.interactions.set(bucketKey, Number(row.interactions));
+      m.baseReach.set(bucketKey,    Number(row.reach));
     }
 
     // Build per-bucket engagement rate: interactions / reach * 100
