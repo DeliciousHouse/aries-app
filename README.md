@@ -44,7 +44,7 @@ legacy compatibility shim and are not the supported path.
 ## Tech stack
 
 - **Framework:** Next.js App Router (`next` 16.x)
-- **UI:** React 18, Tailwind CSS v4
+- **UI:** React 19, Tailwind CSS v4
 - **Auth:** `next-auth` v5
 - **Data:** PostgreSQL (`pg`) + generated runtime files under `DATA_ROOT`
 - **Execution:** Hermes run submission + authenticated `/api/internal/hermes/runs` callbacks
@@ -89,14 +89,24 @@ in `.env` at a database the container can reach. See
 
 ## Documentation
 
-| Doc | What it covers |
-|-----|----------------|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture and the Hermes execution boundary |
-| [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md) | Running Aries AI locally, environment variables |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production deployment with Docker |
-| [docs/OAUTH_SCOPES.md](docs/OAUTH_SCOPES.md) | OAuth providers and required scopes |
-| [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md) | Auth, tenant isolation, callback trust boundary |
-| [docs/COMMERCIAL.md](docs/COMMERCIAL.md) | What is open source vs. commercial / managed hosting |
+Full documentation lives in [`docs/`](docs/README.md), organized by the
+[Diátaxis](https://diataxis.fr) framework. Highlights:
+
+| Doc | Quadrant | What it covers |
+|-----|----------|----------------|
+| [docs/tutorials/first-week-of-content.md](docs/tutorials/first-week-of-content.md) | Tutorial | Onboard a tenant, generate, review, approve, and schedule a week |
+| [docs/how-to/generate-and-approve-a-week.md](docs/how-to/generate-and-approve-a-week.md) | How-to | Submit a weekly job and walk the approval stages (UI and API) |
+| [docs/how-to/connect-a-social-platform.md](docs/how-to/connect-a-social-platform.md) | How-to | Connect a channel via OAuth/Composio; token storage; reconnecting |
+| [docs/how-to/integrate-hermes.md](docs/how-to/integrate-hermes.md) | How-to | Point Aries at Hermes and wire the authenticated callback |
+| [docs/how-to/run-background-workers.md](docs/how-to/run-background-workers.md) | How-to | Run and operate the sidecar and in-process workers |
+| [docs/reference/api-jobs-and-callbacks.md](docs/reference/api-jobs-and-callbacks.md) | Reference | The jobs API, approve route, and Hermes callback contract |
+| [docs/reference/background-workers.md](docs/reference/background-workers.md) | Reference | Every worker: command, cadence, env gates, defaults |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Explanation | System architecture and the Hermes execution boundary |
+| [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md) | How-to | Running Aries AI locally, environment variables |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | How-to | Production deployment with Docker |
+| [docs/OAUTH_SCOPES.md](docs/OAUTH_SCOPES.md) | Reference | OAuth providers and required scopes |
+| [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md) | Explanation | Auth, tenant isolation, callback trust boundary |
+| [docs/COMMERCIAL.md](docs/COMMERCIAL.md) | Explanation | What is open source vs. commercial / managed hosting |
 
 ## Validation
 
