@@ -246,7 +246,7 @@ export async function buildTopSnapshot(
       const multiplier   = avgReach > 0 ? Math.round((reach / avgReach) * 10) / 10 : 0;
 
       return {
-        id:            row.id,
+        id:            Number(row.id),
         platform:      row.platform,
         title:         row.title,
         caption:       row.caption,
@@ -263,7 +263,7 @@ export async function buildTopSnapshot(
         saveRate,
         multiplier,
         bestDow:       fmtDow(row.published_at),
-        sentiment:     sentimentByPost.get(row.id) ?? null,
+        sentiment:     sentimentByPost.get(Number(row.id)) ?? null,
         followerSplit: extractFollowerSplit(row.platform_data),
       };
     });

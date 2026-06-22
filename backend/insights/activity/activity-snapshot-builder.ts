@@ -33,9 +33,12 @@ export interface ContentMixSlice {
 export interface ActivitySnapshot {
   postsPublished:         number;
   commentsReceived:       number;
+  commentsHandled:        number;   // is_replied = true
+  commentsNeedReply:      number;   // is_replied = false
   highPerformers:         number;
   hoursSaved:             number;
   platformCount:          number;
+  platforms:              string[]; // distinct platforms the posts went out on
   contentMix:             ContentMixSlice[];
   pendingClassification:  number;   // rows where content_type IS NULL
 }
@@ -74,10 +77,12 @@ export async function buildActivitySnapshot(
     const postsRes = await client.query<{
       post_count:     string;
       platform_count: string;
+      platforms:      string[] | null;
     }>(
       `SELECT
          COUNT(*)                    AS post_count,
-         COUNT(DISTINCT platform)    AS platform_count
+         COUNT(DISTINCT platform)    AS platform_count,
+         array_agg(DISTINCT platform) AS platforms
        FROM insights_posts
        WHERE tenant_id      = $1
          AND published_at   >= $2
@@ -88,10 +93,13 @@ export async function buildActivitySnapshot(
 
     const postsPublished = Number(postsRes.rows[0].post_count);
     const platformCount  = Number(postsRes.rows[0].platform_count);
+    const platforms      = (postsRes.rows[0].platforms ?? []).filter((p): p is string => p != null);
 
-    // ── Comments received ─────────────────────────────────────────────────────
-    const commentsRes = await client.query<{ count: string }>(
-      `SELECT COUNT(*) AS count
+    // ── Comments received (+ handled / needs-reply split) ─────────────────────
+    const commentsRes = await client.query<{ count: string; needs_reply: string }>(
+      `SELECT
+         COUNT(*)                                       AS count,
+         COUNT(*) FILTER (WHERE c.is_replied = false)   AS needs_reply
        FROM insights_comments c
        JOIN insights_posts p ON p.id = c.post_id
        WHERE c.tenant_id     = $1
@@ -101,7 +109,9 @@ export async function buildActivitySnapshot(
       [tenantId, fromDate, platformFilter],
     );
 
-    const commentsReceived = Number(commentsRes.rows[0].count);
+    const commentsReceived  = Number(commentsRes.rows[0].count);
+    const commentsNeedReply = Number(commentsRes.rows[0].needs_reply);
+    const commentsHandled   = commentsReceived - commentsNeedReply;
 
     // ── High performers — posts ≥2x period average reach ─────────────────────
     // Mirrors the Section 3 detection so both sections agree.
@@ -179,9 +189,12 @@ export async function buildActivitySnapshot(
     return {
       postsPublished,
       commentsReceived,
+      commentsHandled,
+      commentsNeedReply,
       highPerformers,
       hoursSaved:   postsPublished * HOURS_PER_POST,
       platformCount,
+      platforms,
       contentMix,
       pendingClassification,
     };
