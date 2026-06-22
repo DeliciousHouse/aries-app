@@ -43,7 +43,8 @@ export function SectionHeader({
 
 export type IconName =
   | "eye" | "trend" | "comment" | "clock" | "post" | "spark"
-  | "arrow-up" | "bell" | "award" | "info" | "users" | "calendar";
+  | "arrow-up" | "bell" | "award" | "info" | "users" | "calendar"
+  | "heart" | "reply" | "send" | "question";
 
 // Map the backend's card.icon strings onto our set.
 const ICON_ALIAS: Record<string, IconName> = {
@@ -93,6 +94,14 @@ export function Icon({
       return (<svg {...common}><circle cx="9" cy="8" r="3.2" /><path d="M3 20a6 6 0 0 1 12 0" /><path d="M16 5.5a3 3 0 0 1 0 5.8M22 20a6 6 0 0 0-4-5.6" /></svg>);
     case "calendar":
       return (<svg {...common}><rect x="3.5" y="5" width="17" height="16" rx="2" /><path d="M3.5 10h17M8 3v4M16 3v4" /></svg>);
+    case "heart":
+      return (<svg {...common}><path d="M12 20s-7-4.4-9.3-8.8C1.2 7.7 3.1 4.7 6.3 4.7c1.9 0 3 1.1 3.7 2.1.7-1 1.8-2.1 3.7-2.1 3.2 0 5.1 3 3.6 6.5C19 15.6 12 20 12 20Z" /></svg>);
+    case "reply":
+      return (<svg {...common}><path d="M9 7 4 12l5 5" /><path d="M4 12h11a5 5 0 0 1 5 5v1" /></svg>);
+    case "send":
+      return (<svg {...common}><path d="M22 2 11 13" /><path d="M22 2 15 22l-4-9-9-4 20-7Z" /></svg>);
+    case "question":
+      return (<svg {...common}><circle cx="12" cy="12" r="9" /><path d="M9.2 9.3a2.8 2.8 0 0 1 5.4 1c0 1.9-2.6 2.2-2.6 4M12 17h.01" /></svg>);
     case "info":
     default:
       return (<svg {...common}><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg>);

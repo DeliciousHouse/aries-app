@@ -1,26 +1,21 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // ConversationsSection.tsx
-// Section 7 — Comment engagement and lead detection (uncached endpoint)
+// Section 7 — Comment engagement + lead detection (uncached endpoint)
 // API: GET /api/insights/conversations?period=…&platform=…
+//
+// Reply / Send to Sequences / View all route to the Conversations workspace,
+// which isn't built yet — they surface a "coming soon" toast for now.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type {
-  Period,
-  Platform,
-  ConversationsData,
-  ConversationItem,
-  LeadQualityItem,
+  Period, Platform, ConversationsData, ConversationItem, LeadQualityItem,
 } from "@/frontend/insights/types";
 import { useInsight } from "@/frontend/insights/useInsight";
 import { C, platformColor } from "@/frontend/insights/tokens";
 import {
-  SectionHeader,
-  Panel,
-  Pill,
-  ErrorState,
-  EmptyState,
-  LoadingRows,
+  SectionHeader, Panel, ChannelIcon, Icon, ErrorState, EmptyState, LoadingRows,
 } from "@/frontend/insights/ui";
+import type { IconName } from "@/frontend/insights/ui";
 
 interface ConversationsSectionProps {
   period:   Period;
@@ -36,77 +31,74 @@ function tagColor(tag: string | null): string {
   }
 }
 
-function ConversationRow({
-  item,
-  platform,
-  last,
-}: {
-  item:     ConversationItem;
-  platform: Platform;
-  last:     boolean;
-}) {
-  const bubbleColor = platformColor[platform] ?? C.accent;
+function tagIcon(tag: string | null): IconName {
+  switch (tag) {
+    case "lead":     return "users";
+    case "question": return "question";
+    case "positive": return "heart";
+    default:         return "comment";
+  }
+}
+
+const comingSoon = () => alert("Opens in the Conversations workspace (coming soon).");
+
+// Compact tag (smaller than the shared Pill).
+function MiniTag({ label, color }: { label: string; color: string }) {
   return (
-    <div
+    <span
       style={{
-        display:      "flex",
-        gap:          12,
-        alignItems:   "flex-start",
-        padding:      "14px 0",
-        borderBottom: last ? "none" : `1px solid ${C.border}`,
+        fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
+        color, background: `${color}1c`, border: `1px solid ${color}3a`,
+        borderRadius: 99, padding: "1px 6px", whiteSpace: "nowrap",
       }}
     >
+      {label}
+    </span>
+  );
+}
+
+function ActionButton({ icon, label, onClick }: { icon: IconName; label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 5,
+        background: "transparent", border: `1px solid ${C.border}`, color: C.t2,
+        borderRadius: 7, padding: "4px 10px", fontSize: 11.5, fontWeight: 500, cursor: "pointer",
+      }}
+    >
+      <Icon name={icon} size={12} color={C.t2} />
+      {label}
+    </button>
+  );
+}
+
+function ConversationRow({ item, last }: { item: ConversationItem; last: boolean }) {
+  const bubble = platformColor[item.platform] ?? C.accent;
+  return (
+    <div style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "15px 0", borderBottom: last ? "none" : `1px solid ${C.border}` }}>
       <div
         style={{
-          width:          36,
-          height:         36,
-          borderRadius:   "50%",
-          flexShrink:     0,
-          display:        "flex",
-          alignItems:     "center",
-          justifyContent: "center",
-          fontSize:       12,
-          fontWeight:     700,
-          color:          C.t1,
-          background:     `${bubbleColor}2a`,
-          border:         `1px solid ${bubbleColor}50`,
+          width: 36, height: 36, borderRadius: "50%", flexShrink: 0,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 12, fontWeight: 700, color: C.t1,
+          background: `${bubble}2a`, border: `1px solid ${bubble}50`,
         }}
       >
         {item.avatar}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: C.t1 }}>{item.author}</span>
+          <ChannelIcon platform={item.platform} size={12} />
           <span style={{ fontSize: 11, color: C.t3 }}>{item.timeAgo}</span>
-          {item.tagLabel && <Pill label={item.tagLabel} color={tagColor(item.tag)} />}
+          {item.tagLabel && <MiniTag label={item.tagLabel} color={tagColor(item.tag)} />}
         </div>
-        <div style={{ fontSize: 13, color: C.t2, marginTop: 5, lineHeight: 1.5 }}>
-          {item.text}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 8 }}>
-          <span style={{ fontSize: 11, color: C.t3 }}>re: {item.postRef}</span>
-          <button
-            style={{
-              background:   "none",
-              border:       "none",
-              padding:      0,
-              cursor:       "pointer",
-              fontSize:     11,
-              fontWeight:   600,
-              color:        C.accentB,
-            }}
-          >
-            Reply
-          </button>
-          <span
-            style={{
-              fontSize:   11,
-              fontWeight: 600,
-              color:      item.handled ? C.t3 : C.amber,
-            }}
-          >
-            {item.handled ? "Replied" : "Needs reply"}
-          </span>
+        <div style={{ fontSize: 13, color: C.t2, marginTop: 5, lineHeight: 1.5 }}>{item.text}</div>
+        <div style={{ fontSize: 11, color: C.t3, marginTop: 6 }}>on “{item.postRef}”</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 9 }}>
+          <ActionButton icon="reply" label="Reply" onClick={comingSoon} />
+          {item.tag === "lead" && <ActionButton icon="send" label="Send to Sequences" onClick={comingSoon} />}
         </div>
       </div>
     </div>
@@ -114,29 +106,17 @@ function ConversationRow({
 }
 
 function LeadQualityRow({ item }: { item: LeadQualityItem }) {
+  const color = tagColor(item.tag);
   return (
-    <div
-      style={{
-        display:      "flex",
-        alignItems:   "center",
-        gap:          12,
-        padding:      "10px 0",
-        borderBottom: `1px solid ${C.border}`,
-      }}
-    >
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: `1px solid ${C.border}` }}>
+      <span style={{ width: 30, height: 30, borderRadius: 8, background: `${color}1c`, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <Icon name={tagIcon(item.tag)} size={15} color={color} />
+      </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, color: C.t1, fontWeight: 500 }}>{item.label}</div>
         <div style={{ fontSize: 11, color: C.t3, marginTop: 2 }}>{item.note}</div>
       </div>
-      <span
-        style={{
-          fontSize:           15,
-          fontWeight:         700,
-          color:              tagColor(item.tag),
-          fontVariantNumeric: "tabular-nums",
-          flexShrink:         0,
-        }}
-      >
+      <span style={{ fontSize: 18, fontWeight: 700, color: C.t1, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
         {item.count}
       </span>
     </div>
@@ -144,9 +124,7 @@ function LeadQualityRow({ item }: { item: LeadQualityItem }) {
 }
 
 export function ConversationsSection({ period, platform }: ConversationsSectionProps) {
-  const { data, loading, error, refetch } =
-    useInsight<ConversationsData>("conversations", period, platform);
-
+  const { data, loading, error, refetch } = useInsight<ConversationsData>("conversations", period, platform);
   const empty = !data?.conversations?.length;
 
   return (
@@ -160,84 +138,58 @@ export function ConversationsSection({ period, platform }: ConversationsSectionP
         ) : empty || !data ? (
           <EmptyState message="No comments recorded in this period." />
         ) : (
-          <div
-            style={{
-              display:             "grid",
-              gridTemplateColumns: "1.6fr 1fr",
-              gap:                 24,
-            }}
-          >
-            {/* LEFT — meta row + conversation feed */}
-            <div>
-              <div
-                style={{
-                  display:      "flex",
-                  alignItems:   "center",
-                  gap:          8,
-                  flexWrap:     "wrap",
-                  fontSize:     12.5,
-                  color:        C.t3,
-                  paddingBottom: 6,
-                }}
-              >
-                <span>
+          <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 24 }}>
+            {/* LEFT — meta + feed + view-all */}
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, paddingBottom: 4 }}>
+                <div style={{ fontSize: 12.5, color: C.t3 }}>
                   <strong style={{ color: C.t1, fontWeight: 700 }}>{data.meta.total.toLocaleString()}</strong> comments
-                </span>
-                <span style={{ color: C.border }}>·</span>
-                <span style={{ color: data.meta.needsReply > 0 ? C.amber : C.t3 }}>
-                  <strong style={{ color: data.meta.needsReply > 0 ? C.amber : C.t1, fontWeight: 700 }}>
-                    {data.meta.needsReply.toLocaleString()}
-                  </strong>{" "}
-                  need a reply
-                </span>
-                <span style={{ color: C.border }}>·</span>
-                <span>
-                  <strong style={{ color: C.t1, fontWeight: 700 }}>{data.meta.positivePercent}%</strong> positive
-                </span>
+                  {" · "}
+                  <strong style={{ color: C.green, fontWeight: 700 }}>{data.meta.positivePercent}%</strong> positive
+                  {" · "}
+                  <strong style={{ color: C.amber, fontWeight: 700 }}>{data.meta.needsReply.toLocaleString()}</strong> need your reply
+                </div>
+                <span style={{ fontSize: 11, color: C.t3, flexShrink: 0 }}>Sorted by needing your reply</span>
               </div>
 
               <div style={{ display: "flex", flexDirection: "column" }}>
                 {data.conversations.map((item, i) => (
-                  <ConversationRow
-                    key={item.id}
-                    item={item}
-                    platform={platform}
-                    last={i === data.conversations.length - 1}
-                  />
+                  <ConversationRow key={item.id} item={item} last={i === data.conversations.length - 1} />
                 ))}
+              </div>
+
+              {/* View all + channel hint */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
+                <button
+                  onClick={comingSoon}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: C.accentB, padding: 0 }}
+                >
+                  View all {data.meta.needsReply} replies needed →
+                </button>
+                <span style={{ fontSize: 11, color: C.t3 }}>Comments and DMs from all channels</span>
               </div>
             </div>
 
             {/* RIGHT — what people are asking */}
             <div style={{ borderLeft: `1px solid ${C.border}`, paddingLeft: 20 }}>
-              <div
-                style={{
-                  fontSize:      10.5,
-                  fontWeight:    700,
-                  color:         C.t3,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.07em",
-                  marginBottom:  6,
-                }}
-              >
-                What people are asking
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ width: 26, height: 26, borderRadius: 7, background: `${C.accent}1c`, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+                  <Icon name="spark" size={14} color={C.accentB} />
+                </span>
+                <span style={{ fontSize: 14, fontWeight: 600, color: C.t1 }}>What people are asking</span>
               </div>
+              <div style={{ fontSize: 11.5, color: C.t3, marginTop: 4, marginBottom: 8 }}>
+                Aries classifies each comment so leads don’t slip through
+              </div>
+
               {data.leadQuality.map((item) => (
                 <LeadQualityRow key={item.tag} item={item} />
               ))}
-              {data.meta.viewAllLabel && (
-                <div
-                  style={{
-                    marginTop:      12,
-                    fontSize:       12,
-                    color:          C.t3,
-                    textDecoration: "underline",
-                    cursor:         "pointer",
-                  }}
-                >
-                  {data.meta.viewAllLabel}
-                </div>
-              )}
+
+              <div style={{ display: "flex", gap: 7, fontSize: 11, color: C.t3, marginTop: 12, lineHeight: 1.5 }}>
+                <span style={{ flexShrink: 0, marginTop: 1 }}><Icon name="send" size={12} color={C.t3} /></span>
+                Lead-tagged comments can be sent to the Sequences CRM with one click.
+              </div>
             </div>
           </div>
         )}
