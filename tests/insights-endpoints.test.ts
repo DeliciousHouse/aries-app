@@ -155,9 +155,14 @@ test('GET /api/insights/goal — week period returns valid shape', async (t) => 
     assert.ok('period' in body, 'missing period');
     assert.ok('platform' in body, 'missing platform');
     assert.ok('cached' in body, 'missing cached flag');
-    const meta = body.meta as Record<string, unknown> | undefined;
-    assert.ok(meta, 'missing meta');
-    assert.ok('hasData' in meta, 'meta missing hasData');
+    // Goal reports emptiness with a TOP-LEVEL hasData (unlike activity/trends/top
+    // which nest it under meta). It also returns post-level `contributors` plus
+    // category-grouped `categories` for the 30/90-day view.
+    assert.ok('hasData' in body, 'missing hasData');
+    assert.ok('metricValue' in body, 'missing metricValue');
+    assert.ok('metricValuePrev' in body, 'missing metricValuePrev');
+    assert.ok(Array.isArray(body.contributors), 'contributors should be an array');
+    assert.ok(Array.isArray(body.categories), 'categories should be an array');
   }
 
   console.log('[goal/week]', JSON.stringify({ status: body.status }));

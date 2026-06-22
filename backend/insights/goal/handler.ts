@@ -20,7 +20,7 @@ import { buildGoalText } from './goal-template-builder';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 import crypto from 'crypto';
 
-const TEMPLATE_VERSION = 'goal-template-v1';
+const TEMPLATE_VERSION = 'goal-template-v2';
 const CACHE_TTL_MS     = 60 * 60 * 1000;
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);
@@ -137,16 +137,18 @@ export async function handleGetInsightsGoal(
     const hash      = inputHash(tenantId, period, platform);
 
     const body: Record<string, unknown> = {
-      goal:           snapshot.goal,
-      goalLabel:      snapshot.goalLabel,
+      goal:            snapshot.goal,
+      goalLabel:       snapshot.goalLabel,
       ariesLine,
-      metricValue:    snapshot.metricValue,
-      metricLabel:    snapshot.metricLabel,
-      metricDelta:    snapshot.metricDelta,
-      secondaryValue: snapshot.secondaryValue,
-      secondaryLabel: snapshot.secondaryLabel,
-      contributors:   snapshot.contributors,
-      hasData:        snapshot.hasData,
+      metricValue:     snapshot.metricValue,
+      metricValuePrev: snapshot.metricValuePrev,
+      metricLabel:     snapshot.metricLabel,
+      metricDelta:     snapshot.metricDelta,
+      secondaryValue:  snapshot.secondaryValue,
+      secondaryLabel:  snapshot.secondaryLabel,
+      contributors:    snapshot.contributors,
+      categories:      snapshot.categories,
+      hasData:         snapshot.hasData,
     };
 
     await upsert(client, tenantId, period, platform, body, hash);
