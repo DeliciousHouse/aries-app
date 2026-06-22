@@ -297,7 +297,8 @@ export interface AudienceData extends ApiBase {
   };
   activeTimes: {
     hasData:    boolean;
-    grid:       number[][] | null;
+    grid:       number[][] | null;   // 7 (Mon..Sun) × 24 (hours), 0–100
     peakWindow: { day: string; hour: string; score: number } | null;
+    timezone:   string | null;
   };
 }

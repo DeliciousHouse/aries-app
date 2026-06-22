@@ -58,10 +58,11 @@ try {
 
   // ── 1. Business profile + primary goal (Goal section) ────────────────────────
   await client.query(
-    `INSERT INTO business_profiles (tenant_id, business_name, tenant_slug, primary_goal, business_type, channels)
-     VALUES ($1, 'Insights Demo Brand', 'insights-demo', 'lead_generation', 'service', ARRAY['instagram','facebook','youtube'])
+    `INSERT INTO business_profiles (tenant_id, business_name, tenant_slug, primary_goal, business_type, channels, timezone)
+     VALUES ($1, 'Insights Demo Brand', 'insights-demo', 'lead_generation', 'service', ARRAY['instagram','facebook','youtube'], 'America/Chicago')
      ON CONFLICT (tenant_id) DO UPDATE SET primary_goal = EXCLUDED.primary_goal,
-                                           channels      = EXCLUDED.channels`,
+                                           channels      = EXCLUDED.channels,
+                                           timezone      = COALESCE(business_profiles.timezone, EXCLUDED.timezone)`,
     [tenantId],
   );
 
@@ -74,6 +75,40 @@ try {
     const d = new Date();
     d.setTime(d.getTime() - n * 86400000);
     return d.toISOString().split('T')[0];
+  };
+
+  // Realistic audience engagement windows for the "When they're listening"
+  // heatmap (Audience section). Each entry is [dow (0=Sun..6=Sat), hour, weight]
+  // in the tenant's local tz (America/Chicago). Biased toward weekend late
+  // mornings + weekday evenings so the derived heatmap has a believable peak.
+  const ENGAGE_WINDOWS = [
+    [6, 10, 7], [6, 11, 6], [6, 12, 4],          // Sat late morning — strongest
+    [0, 10, 5], [0, 11, 5], [0, 12, 3],          // Sun late morning
+    [2, 19, 3], [3, 20, 3], [4, 18, 3], [1, 20, 2], // weekday evenings
+    [1, 8, 2],  [5, 9, 2],  [4, 12, 2],           // commute / lunch
+    [3, 14, 1], [5, 16, 1], [2, 21, 1], [0, 18, 1], // scattered
+  ];
+  const ENGAGE_TOTAL = ENGAGE_WINDOWS.reduce((s, w) => s + w[2], 0);
+  // America/Chicago is UTC-5 in June (CDT); every seeded comment falls inside
+  // the last ~28 days = summer, so the offset is a constant +5h to reach UTC.
+  const CDT_OFFSET_H = 5;
+  const engagementReceivedAt = () => {
+    let r = rand(1, ENGAGE_TOTAL);
+    let win = ENGAGE_WINDOWS[0];
+    for (const w of ENGAGE_WINDOWS) { r -= w[2]; if (r <= 0) { win = w; break; } }
+    const [dow, hour] = win;
+    // Anchor at 12:00 CDT (= 17:00 UTC) so the weekday read is unambiguous,
+    // step back to the most recent matching dow, then 0–3 whole weeks earlier.
+    const probe = new Date();
+    probe.setUTCHours(17, 0, 0, 0);
+    let back = (probe.getUTCDay() - dow + 7) % 7;
+    back += rand(0, 3) * 7;
+    probe.setUTCDate(probe.getUTCDate() - back);
+    // Local hour:minute → UTC = hour + 5 (Date.UTC normalizes any midnight roll).
+    return new Date(Date.UTC(
+      probe.getUTCFullYear(), probe.getUTCMonth(), probe.getUTCDate(),
+      hour + CDT_OFFSET_H, rand(0, 59), 0,
+    ));
   };
   const acctRes = await client.query(
     `SELECT id, platform FROM insights_accounts WHERE tenant_id = $1`,
@@ -164,12 +199,13 @@ try {
     // Seed ~6 comments on this post (idempotent) so per-post sentiment exists.
     // Step 3 below classifies ALL comments (incl. these) + sets reply status.
     for (let j = 0; j < EXTRA_BODIES.length; j++) {
-      const receivedAt = new Date(Date.now() - rand(1, 25) * 86400000);
+      const receivedAt = engagementReceivedAt();
       await client.query(
         `INSERT INTO insights_comments
            (tenant_id, post_id, platform, external_comment_id, received_at, author_handle, body_text)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (tenant_id, platform, external_comment_id) DO NOTHING`,
+         ON CONFLICT (tenant_id, platform, external_comment_id)
+           DO UPDATE SET received_at = EXCLUDED.received_at`,
         [tenantId, ip.id, ip.platform, `demo_p${ip.id}_c${j}`, receivedAt, `demo_user_${rand(1, 400)}`, EXTRA_BODIES[j]],
       );
     }
@@ -227,19 +263,27 @@ try {
   let scheduled = 0;
   for (const s of SCHED) {
     const marker = `[demo-sched-${s.inDays}]`;
+    // Keep the idempotency marker on a trailing line so the DISPLAY title
+    // (first caption line, read by the Audience builder) stays clean.
+    const caption = `${s.caption}\n${marker}`;
     const existing = await client.query(
       `SELECT id FROM posts WHERE tenant_id = $1 AND caption LIKE $2 LIMIT 1`,
-      [tenantId, `${marker}%`],
+      [tenantId, `%${marker}%`],
     );
     let postId;
     if (existing.rows.length > 0) {
       postId = existing.rows[0].id;
+      // Heal any previously-seeded row that still has the marker as a prefix.
+      await client.query(
+        `UPDATE posts SET caption = $2 WHERE id = $1`,
+        [postId, caption],
+      );
     } else {
       const ins = await client.query(
         `INSERT INTO posts (tenant_id, caption, published_status, scheduled_at)
          VALUES ($1, $2, 'scheduled', now() + ($3 || ' days')::interval)
          RETURNING id`,
-        [tenantId, `${marker} ${s.caption}`, String(s.inDays)],
+        [tenantId, caption, String(s.inDays)],
       );
       postId = ins.rows[0].id;
     }

@@ -39,8 +39,9 @@ export interface AudienceDemographics {
 
 export interface AudienceActiveTimesGrid {
   hasData:    boolean;
-  grid:       number[][] | null;   // 7 (days) × 24 (hours), scores 0–100; null when !hasData
+  grid:       number[][] | null;   // 7 (Mon..Sun) × 24 (hours), scores 0–100; null when !hasData
   peakWindow: { day: string; hour: string; score: number } | null;
+  timezone:   string | null;       // IANA tz the grid is bucketed/displayed in
 }
 
 export interface AudienceSnapshot {
@@ -64,11 +65,37 @@ function captionToTitle(caption: string | null): string {
     : firstLine;
 }
 
+// Default bucket timezone when the tenant has no business_profiles.timezone set.
+// The current prod tenant is US-Central; per-tenant tz should be populated there.
+const DEFAULT_TZ = 'America/Chicago';
+
+// Grid rows are Mon..Sun (matches the frontend day-axis order).
+const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+function periodDays(period: NarrativePeriod): number {
+  if (period === 'week')  return 7;
+  if (period === '30day') return 30;
+  return 90;
+}
+
+// Minimum engagement events before the heatmap is meaningful enough to show.
+const MIN_HEATMAP_EVENTS = 8;
+
+// Postgres DOW: 0=Sun..6=Sat → grid row index where 0=Mon..6=Sun.
+function dowToRow(dow: number): number {
+  return (dow + 6) % 7;
+}
+
+function fmtHour(hour: number): string {
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${h12} ${hour < 12 ? 'AM' : 'PM'}`;
+}
+
 // ── Main builder ──────────────────────────────────────────────────────────────
 
 export async function buildAudienceSnapshot(
   tenantId: number,
-  _period:  NarrativePeriod,   // reserved for future period-scoped schedule filtering
+  period:   NarrativePeriod,
   platform: string,
 ): Promise<AudienceSnapshot> {
   const platformFilter = platform === 'all' ? null : platform;
@@ -118,9 +145,69 @@ export async function buildAudienceSnapshot(
       };
     });
 
-    // ── Demographics + active times: not yet in DB ────────────────────────────
-    // These require platform audience-analytics APIs (Instagram Insights,
-    // YouTube Analytics, etc.) via Composio adapters — Phase 3 work.
+    // ── Active times: real engagement-timing heatmap ──────────────────────────
+    // Built from when the audience actually engages (comment timestamps),
+    // bucketed by day-of-week × hour in the tenant's local timezone. This is
+    // engagement timing, NOT the platform "followers online" metric — that
+    // still needs the Phase 3 audience-analytics adapters (see demographics).
+    const tzRes = await client.query<{ timezone: string | null }>(
+      `SELECT timezone FROM business_profiles WHERE tenant_id = $1 LIMIT 1`,
+      [tenantId],
+    );
+    const timezone = tzRes.rows[0]?.timezone || DEFAULT_TZ;
+
+    const days     = periodDays(period);
+    const fromDate = new Date();
+    fromDate.setUTCHours(0, 0, 0, 0);
+    fromDate.setUTCDate(fromDate.getUTCDate() - days);
+
+    const heatRes = await client.query<{ dow: number; hour: number; n: string }>(
+      `SELECT
+         EXTRACT(DOW  FROM (received_at AT TIME ZONE $4))::int AS dow,
+         EXTRACT(HOUR FROM (received_at AT TIME ZONE $4))::int AS hour,
+         COUNT(*) AS n
+       FROM insights_comments
+       WHERE tenant_id    = $1
+         AND received_at >= $2
+         AND ($3::text IS NULL OR platform = $3)
+       GROUP BY 1, 2`,
+      [tenantId, fromDate, platformFilter, timezone],
+    );
+
+    // Assemble the 7×24 counts grid; track the peak cell + total volume.
+    const counts: number[][] = Array.from({ length: 7 }, () => new Array(24).fill(0));
+    let total = 0;
+    let peak = { row: 0, hour: 0, count: 0 };
+    for (const r of heatRes.rows) {
+      const row  = dowToRow(Number(r.dow));
+      const hour = Number(r.hour);
+      const n    = Number(r.n);
+      if (row < 0 || row > 6 || hour < 0 || hour > 23) continue;
+      counts[row][hour] = n;
+      total += n;
+      if (n > peak.count) peak = { row, hour, count: n };
+    }
+
+    const activeTimes: AudienceActiveTimesGrid =
+      total < MIN_HEATMAP_EVENTS
+        ? { hasData: false, grid: null, peakWindow: null, timezone }
+        : {
+            hasData: true,
+            // Normalize counts → 0–100 relative to the busiest cell.
+            grid: counts.map((row) =>
+              row.map((c) => (peak.count > 0 ? Math.round((c / peak.count) * 100) : 0)),
+            ),
+            peakWindow: {
+              day:   DAY_LABELS[peak.row],
+              hour:  fmtHour(peak.hour),
+              score: 100,
+            },
+            timezone,
+          };
+
+    // ── Demographics: not yet in DB ───────────────────────────────────────────
+    // Follower age/location come only from the platform audience-analytics APIs
+    // (Instagram/Facebook Insights) via Composio adapters — Phase 3 work.
     return {
       schedule,
       demographics: {
@@ -128,11 +215,7 @@ export async function buildAudienceSnapshot(
         ages:      [],
         locations: [],
       },
-      activeTimes: {
-        hasData:    false,
-        grid:       null,
-        peakWindow: null,
-      },
+      activeTimes,
     };
 
   } finally {
