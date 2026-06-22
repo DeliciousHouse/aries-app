@@ -110,7 +110,7 @@ jobs:
           password: ${{ secrets.GHCR_WORKFLOW_TOKEN || github.token }}
 
       - name: Checkout deploy source
-        uses: actions/checkout@v6.0.3
+        uses: actions/checkout@v7.0.0
         with:
           ref: ${{ steps.resolve.outputs.checkout_ref }}
           fetch-depth: 0
