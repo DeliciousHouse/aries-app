@@ -1,17 +1,18 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // InsightsFilters.tsx
-// Period segmented control + platform chip picker.
-// Lift period/platform state to whichever parent assembles the dashboard.
+// PERIOD segmented control + CHANNEL chip picker (with brand logos).
+// Sits directly under the hero band (see app/insights/page.tsx).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { Period, Platform } from "@/frontend/insights/types";
-import { C, platformColor, platformLabel } from "@/frontend/insights/tokens";
+import { C } from "@/frontend/insights/tokens";
+import { ChannelIcon } from "@/frontend/insights/ui";
 
 interface InsightsFiltersProps {
-  period:          Period;
-  platform:        Platform;
-  onPeriodChange:  (p: Period)   => void;
-  onPlatformChange:(p: Platform) => void;
+  period:           Period;
+  platform:         Platform;
+  onPeriodChange:   (p: Period)   => void;
+  onPlatformChange: (p: Platform) => void;
 }
 
 const PERIOD_OPTS: Array<{ value: Period; label: string }> = [
@@ -28,6 +29,23 @@ const PLATFORM_OPTS: Array<{ value: Platform; label: string }> = [
   { value: "tiktok",    label: "TikTok"       },
 ];
 
+function GroupLabel({ children }: { children: string }) {
+  return (
+    <span
+      style={{
+        fontSize:      10,
+        fontWeight:    700,
+        color:         C.t3,
+        textTransform: "uppercase",
+        letterSpacing: "0.09em",
+        marginRight:   2,
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
 export function InsightsFilters({
   period,
   platform,
@@ -37,14 +55,14 @@ export function InsightsFilters({
   return (
     <div
       style={{
-        display:     "flex",
-        alignItems:  "center",
-        gap:         12,
-        flexWrap:    "wrap",
-        marginBottom: 28,
+        display:    "flex",
+        alignItems: "center",
+        gap:        14,
+        flexWrap:   "wrap",
       }}
     >
-      {/* ── Period segmented control ── */}
+      {/* ── PERIOD ── */}
+      <GroupLabel>Period</GroupLabel>
       <div
         style={{
           display:      "flex",
@@ -57,37 +75,36 @@ export function InsightsFilters({
         role="group"
         aria-label="Time period"
       >
-        {PERIOD_OPTS.map((opt) => (
-          <button
-            key={opt.value}
-            onClick={() => onPeriodChange(opt.value)}
-            aria-pressed={period === opt.value}
-            style={{
-              padding:      "6px 14px",
-              borderRadius: 7,
-              border:       "none",
-              cursor:       "pointer",
-              fontSize:     12,
-              fontWeight:   500,
-              background:   period === opt.value ? C.accent : "transparent",
-              color:        period === opt.value ? "#fff" : C.t3,
-              transition:   "background 0.15s, color 0.15s",
-            }}
-          >
-            {opt.label}
-          </button>
-        ))}
+        {PERIOD_OPTS.map((opt) => {
+          const active = period === opt.value;
+          return (
+            <button
+              key={opt.value}
+              onClick={() => onPeriodChange(opt.value)}
+              aria-pressed={active}
+              style={{
+                padding:      "6px 14px",
+                borderRadius: 7,
+                border:       "none",
+                cursor:       "pointer",
+                fontSize:     12.5,
+                fontWeight:   600,
+                background:   active ? C.accent : "transparent",
+                color:        active ? "#fff" : C.t3,
+                transition:   "background 0.15s, color 0.15s",
+              }}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
       </div>
 
-      {/* Divider */}
-      <div style={{ width: 1, height: 24, background: C.border }} />
+      <div style={{ width: 1, height: 22, background: C.border, margin: "0 2px" }} />
 
-      {/* ── Platform chips ── */}
-      <div
-        style={{ display: "flex", gap: 6, flexWrap: "wrap" }}
-        role="group"
-        aria-label="Platform filter"
-      >
+      {/* ── CHANNEL ── */}
+      <GroupLabel>Channel</GroupLabel>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} role="group" aria-label="Channel filter">
         {PLATFORM_OPTS.map((opt) => {
           const active = platform === opt.value;
           return (
@@ -96,46 +113,26 @@ export function InsightsFilters({
               onClick={() => onPlatformChange(opt.value)}
               aria-pressed={active}
               style={{
-                padding:      "5px 12px",
+                padding:      "5px 11px 5px 9px",
                 borderRadius: 99,
                 border:       `1px solid ${active ? C.accent : C.border}`,
                 cursor:       "pointer",
-                fontSize:     12,
-                fontWeight:   500,
-                background:   active ? `${C.accent}18` : "transparent",
-                color:        active ? C.accentB : C.t3,
+                fontSize:     12.5,
+                fontWeight:   active ? 600 : 500,
+                background:   active ? `${C.accent}1f` : "transparent",
+                color:        active ? C.t1 : C.t2,
                 transition:   "all 0.15s",
                 display:      "flex",
                 alignItems:   "center",
-                gap:          5,
+                gap:          6,
               }}
             >
-              {opt.value !== "all" && (
-                <span
-                  style={{
-                    width:        6,
-                    height:       6,
-                    borderRadius: "50%",
-                    background:   platformColor[opt.value],
-                    display:      "inline-block",
-                    flexShrink:   0,
-                  }}
-                />
-              )}
+              <ChannelIcon platform={opt.value} size={14} />
               {opt.label}
             </button>
           );
         })}
       </div>
-
-      <div style={{ flex: 1 }} />
-
-      {/* Context label */}
-      <span style={{ fontSize: 11, color: C.t3 }}>
-        {platformLabel[platform]}
-        {" · "}
-        {period === "week" ? "This week" : period === "30day" ? "Last 30 days" : "Last 90 days"}
-      </span>
     </div>
   );
 }

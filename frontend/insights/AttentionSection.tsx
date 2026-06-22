@@ -7,7 +7,7 @@
 import type { Period, Platform, AttentionData, AttentionCard, AttentionCta } from "@/frontend/insights/types";
 import { useInsight } from "@/frontend/insights/useInsight";
 import { C } from "@/frontend/insights/tokens";
-import { SectionCard, ErrorState, EmptyState, Skeleton } from "@/frontend/insights/ui";
+import { SectionHeader, Panel, Pill, ErrorState, EmptyState, LoadingRows } from "@/frontend/insights/ui";
 
 interface AttentionSectionProps {
   period:   Period;
@@ -16,25 +16,37 @@ interface AttentionSectionProps {
 
 function toneColor(tone: AttentionCard["tone"]): string {
   switch (tone) {
-    case "urgent":   return C.red;
-    case "positive": return C.green;
+    case "urgent":    return C.amber;
+    case "positive":  return C.green;
     case "celebrate": return C.accent;
     case "neutral":
-    default:         return C.t3;
+    default:          return C.t3;
+  }
+}
+
+// Icon shown INSIDE the badge pill, chosen by card type.
+function badgeIcon(type: AttentionCard["type"]): string {
+  switch (type) {
+    case "unreplied":   return "comment";   // messaging icon
+    case "opportunity": return "trend";     // upward zigzag
+    case "pattern":     return "spark";
+    case "milestone":   return "award";
+    case "calibrating":
+    default:            return "info";
   }
 }
 
 // ── CTA buttons ────────────────────────────────────────────────────────────────
 
-function PrimaryCta({ cta, tint }: { cta: AttentionCta; tint: string }) {
+function PrimaryCta({ cta }: { cta: AttentionCta }) {
   const baseStyle = {
     fontSize:       12,
     fontWeight:     600,
-    color:          C.t1,
-    background:     tint,
+    color:          "#fff",
+    background:     C.accent,
     border:         "none",
     borderRadius:   8,
-    padding:        "7px 14px",
+    padding:        "6px 12px",
     cursor:         "pointer",
     textDecoration: "none",
     display:        "inline-block",
@@ -66,9 +78,9 @@ function SecondaryCta({ cta }: { cta: AttentionCta }) {
     fontWeight:     500,
     color:          C.t2,
     background:     "transparent",
-    border:         `1px solid ${C.borderB}`,
+    border:         `1px solid ${C.border}`,
     borderRadius:   8,
-    padding:        "7px 14px",
+    padding:        "6px 12px",
     cursor:         "pointer",
     textDecoration: "none",
     display:        "inline-block",
@@ -100,48 +112,50 @@ function AttentionCardView({ card }: { card: AttentionCard }) {
   return (
     <div
       style={{
+        position:      "relative",
         background:    C.surfaceB,
         border:        `1px solid ${C.borderB}`,
         borderRadius:  12,
-        padding:       "16px 18px",
+        padding:       16,
+        paddingLeft:   18,
         display:       "flex",
         flexDirection: "column",
-        gap:           10,
       }}
     >
-      {/* Badge */}
+      {/* Short accent marker — a few px at the top-left, not the whole side */}
       <span
         style={{
-          alignSelf:     "flex-start",
-          fontSize:      11,
-          fontWeight:    700,
-          color:         tint,
-          background:    `${tint}1f`,
-          borderRadius:  99,
-          padding:       "3px 10px",
-          textTransform: "uppercase",
-          letterSpacing: "0.05em",
+          position:     "absolute",
+          top:          14,
+          left:         0,
+          width:        3,
+          height:       20,
+          borderRadius: 99,
+          background:   tint,
         }}
-      >
-        {card.badge}
-      </span>
+      />
 
-      {/* Title — may contain <em> tags, styled accent/bold */}
+      {/* Badge pill — icon sits INSIDE the pill with the label */}
+      <div style={{ alignSelf: "flex-start" }}>
+        <Pill label={card.badge} color={tint} icon={badgeIcon(card.type)} />
+      </div>
+
+      {/* Title — may contain <em> tags, styled normal/bold */}
       <div
         className="insights-attention-title"
-        style={{ fontSize: 15, fontWeight: 600, color: C.t1, lineHeight: 1.4 }}
+        style={{ fontSize: 14.5, fontWeight: 500, color: C.t1, lineHeight: 1.4, marginTop: 10 }}
         dangerouslySetInnerHTML={{ __html: card.title }}
       />
 
       {/* Body */}
-      <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: C.t2 }}>
+      <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: C.t2, marginTop: 6 }}>
         {card.body}
       </p>
 
       {/* CTAs */}
       {(card.ctaPrimary || card.ctaSecondary) && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 2 }}>
-          {card.ctaPrimary && <PrimaryCta cta={card.ctaPrimary} tint={tint} />}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+          {card.ctaPrimary && <PrimaryCta cta={card.ctaPrimary} />}
           {card.ctaSecondary && <SecondaryCta cta={card.ctaSecondary} />}
         </div>
       )}
@@ -153,30 +167,42 @@ export function AttentionSection({ period, platform }: AttentionSectionProps) {
   const { data, loading, error, refetch } =
     useInsight<AttentionData>("attention", period, platform);
 
+  const cardCount = data?.cards?.length ?? 0;
+
   return (
-    <SectionCard title="Attention" eyebrow="Worth your attention">
-      <style>{`
-        .insights-attention-title em {
-          font-style: normal;
-          font-weight: 700;
-          color: ${C.accentB};
-        }
-      `}</style>
-      {loading ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {[1, 2, 3].map((n) => <Skeleton key={n} h={120} />)}
-        </div>
-      ) : error ? (
-        <ErrorState message={error} onRetry={refetch} />
-      ) : data?.allCaughtUp || !data?.cards?.length ? (
-        <EmptyState message="You're all caught up — nothing needs your attention right now." />
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {data.cards.map((card, i) => (
-            <AttentionCardView key={`${card.type}-${i}`} card={card} />
-          ))}
-        </div>
-      )}
-    </SectionCard>
+    <section>
+      <SectionHeader
+        title="Worth your attention"
+        note={cardCount ? `${cardCount} things worth your time` : undefined}
+      />
+      <Panel>
+        <style>{`
+          .insights-attention-title em {
+            font-style: normal;
+            font-weight: 700;
+            color: ${C.t1};
+          }
+        `}</style>
+        {loading ? (
+          <LoadingRows n={3} />
+        ) : error ? (
+          <ErrorState message={error} onRetry={refetch} />
+        ) : !data || data.allCaughtUp || !data.cards?.length ? (
+          <EmptyState message="You're all caught up — nothing needs your attention right now." />
+        ) : (
+          <div
+            style={{
+              display:             "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
+              gap:                 14,
+            }}
+          >
+            {data.cards.map((card, i) => (
+              <AttentionCardView key={`${card.type}-${i}`} card={card} />
+            ))}
+          </div>
+        )}
+      </Panel>
+    </section>
   );
 }

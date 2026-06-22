@@ -55,23 +55,34 @@ export interface NarrativeData extends ApiBase {
 }
 
 // § Goal — backend/insights/goal/handler.ts
+export interface GoalContributor {
+  title:       string;
+  platform:    string;
+  contentType: string | null;
+  metricValue: number;
+  metricLabel: string;
+}
+export interface GoalCategory {
+  contentType: string;
+  label:       string;
+  postCount:   number;
+  metricValue: number;
+  metricLabel: string;
+}
 export interface GoalData extends ApiBase {
   // status may be "no_goal" (no further fields) when no primary_goal is set
-  goal:           string | null;
-  goalLabel:      string | null;
-  ariesLine:      string;
-  metricValue:    number;
-  metricLabel:    string;
-  metricDelta:    number;
-  secondaryValue: number | null;
-  secondaryLabel: string | null;
-  contributors: Array<{
-    title:       string;
-    platform:    string;
-    metricValue: number;
-    metricLabel: string;
-  }>;
-  hasData: boolean;   // ← top-level for this section
+  goal:            string | null;
+  goalLabel:       string | null;
+  ariesLine:       string;
+  metricValue:     number;
+  metricValuePrev: number;
+  metricLabel:     string;
+  metricDelta:     number;
+  secondaryValue:  number | null;
+  secondaryLabel:  string | null;
+  contributors:    GoalContributor[];   // top posts — used for the this-week view
+  categories:      GoalCategory[];      // grouped by content type — used for 30/90-day
+  hasData:         boolean;             // ← top-level for this section
 }
 
 // § Attention — backend/insights/attention/handler.ts

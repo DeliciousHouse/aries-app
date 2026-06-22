@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // TopPostsSection.tsx
-// Content performance — sortable top posts, expandable, with pattern callout
-// API: GET /api/insights/top?period=…&platform=…&sort=…
+// Content performance — sortable top posts, expandable rich detail, with a
+// pattern callout. API: GET /api/insights/top?period=…&platform=…&sort=…
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState } from "react";
@@ -13,10 +13,12 @@ import type {
   SortKey,
 } from "@/frontend/insights/types";
 import { useInsight } from "@/frontend/insights/useInsight";
-import { C } from "@/frontend/insights/tokens";
+import { C, platformLabel } from "@/frontend/insights/tokens";
 import {
-  SectionCard,
-  PlatformDot,
+  SectionHeader,
+  Panel,
+  ChannelIcon,
+  Icon,
   ErrorState,
   EmptyState,
   LoadingRows,
@@ -35,20 +37,75 @@ const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
   { value: "comments",   label: "Comments" },
 ];
 
-function Stat({ label, value }: { label: string; value: string }) {
+const BREAKDOWN_PALETTE = [
+  C.accent,
+  C.accentB,
+  C.green,
+  C.amber,
+  C.fbBlue,
+  C.igPink,
+] as const;
+
+// ── A single icon + value stat on the collapsed row ──────────────────────────
+function RowStat({ icon, value }: { icon: "eye" | "trend" | "comment"; value: string }) {
   return (
-    <div style={{ textAlign: "right" }}>
-      <div
+    <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}>
+      <Icon name={icon} size={13} color={C.t3} />
+      <span
         style={{
-          fontSize:           12,
+          fontSize:           12.5,
           fontWeight:         600,
           color:              C.t1,
           fontVariantNumeric: "tabular-nums",
         }}
       >
         {value}
+      </span>
+    </div>
+  );
+}
+
+// ── A labelled metric in the expanded strip ──────────────────────────────────
+function MetricCell({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      <span style={{ fontSize: 10.5, color: C.t3 }}>{label}</span>
+      <span
+        style={{
+          fontSize:           14.5,
+          fontWeight:         700,
+          color:              C.t1,
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+// ── Sentiment stacked bar + legend ───────────────────────────────────────────
+function SentimentBar({ sentiment }: { sentiment: NonNullable<TopPost["sentiment"]> }) {
+  const { positive, neutral, negative } = sentiment;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div
+        style={{
+          display:      "flex",
+          width:        "100%",
+          height:       8,
+          borderRadius: 99,
+          overflow:     "hidden",
+          background:   C.track,
+        }}
+      >
+        <div style={{ width: `${positive}%`, background: C.green }} />
+        <div style={{ width: `${neutral}%`,  background: C.t3 }} />
+        <div style={{ width: `${negative}%`, background: C.red }} />
       </div>
-      <div style={{ fontSize: 10, color: C.t3 }}>{label}</div>
+      <div style={{ fontSize: 11, color: C.t3 }}>
+        {positive}% positive · {neutral}% neutral · {negative}% negative
+      </div>
     </div>
   );
 }
@@ -65,14 +122,13 @@ function PostRow({
   onToggle: () => void;
 }) {
   return (
-    <>
+    <div style={{ borderTop: rank > 1 ? `1px solid ${C.border}` : "none" }}>
       <button
         onClick={onToggle}
         style={{
           width:      "100%",
           background: "none",
           border:     "none",
-          borderTop:  rank > 1 ? `1px solid ${C.border}` : "none",
           padding:    "14px 0",
           cursor:     "pointer",
           display:    "flex",
@@ -81,12 +137,15 @@ function PostRow({
           textAlign:  "left",
         }}
       >
-        <PlatformDot platform={post.platform} />
+        <span style={{ flexShrink: 0, display: "flex" }}>
+          <ChannelIcon platform={post.platform} size={15} />
+        </span>
 
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
           <span
             style={{
               fontSize:     13,
+              fontWeight:   500,
               color:        C.t1,
               overflow:     "hidden",
               textOverflow: "ellipsis",
@@ -98,11 +157,10 @@ function PostRow({
           <span style={{ fontSize: 11, color: C.t3 }}>{post.dateLabel}</span>
         </div>
 
-        <div style={{ display: "flex", gap: 20, flexShrink: 0 }}>
-          <Stat label="Reach"      value={post.reach.toLocaleString()} />
-          <Stat label="Eng%"       value={`${post.engagement}%`} />
-          <Stat label="Saves"      value={post.saves.toLocaleString()} />
-          <Stat label="Multiplier" value={`${post.multiplier}x`} />
+        <div style={{ display: "flex", gap: 16, flexShrink: 0, alignItems: "center" }}>
+          <RowStat icon="eye"     value={post.reach.toLocaleString()} />
+          <RowStat icon="trend"   value={`${post.engagement}%`} />
+          <RowStat icon="comment" value={post.comments.toLocaleString()} />
         </div>
 
         <svg
@@ -125,86 +183,144 @@ function PostRow({
       {expanded && (
         <div
           style={{
-            padding:      "12px 16px 16px",
+            padding:      "16px 18px 18px",
             background:   C.surfaceB,
             borderRadius: 10,
-            marginBottom: 8,
+            marginBottom: 12,
             border:       `1px solid ${C.borderB}`,
+            display:      "flex",
+            flexDirection: "column",
+            gap:          16,
           }}
         >
-          <div
-            style={{
-              fontSize:      11,
-              color:         C.accentB,
-              fontWeight:    600,
-              marginBottom:  8,
-              textTransform: "uppercase",
-              letterSpacing: "0.05em",
-            }}
-          >
-            Why it worked
+          <div style={{ display: "flex", gap: 26, flexWrap: "wrap" }}>
+            <MetricCell label="Shares"          value={post.shares.toLocaleString()} />
+            <MetricCell label="Comments"        value={post.comments.toLocaleString()} />
+            <MetricCell label="Save rate"       value={`${post.saveRate.toFixed(1)}%`} />
+            <MetricCell label="Engagement rate" value={`${post.engagement}%`} />
           </div>
-          <p
-            style={{
-              margin:       0,
-              marginBottom: 14,
-              fontSize:     13,
-              color:        C.t2,
-              lineHeight:   1.65,
-            }}
-          >
+
+          {post.sentiment && <SentimentBar sentiment={post.sentiment} />}
+
+          <p style={{ margin: 0, fontSize: 12.5, color: C.t2, lineHeight: 1.55 }}>
             {post.whyItWorked}
           </p>
 
-          <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-            <Stat2 label="Shares"    value={post.shares.toLocaleString()} />
-            <Stat2 label="Comments"  value={post.comments.toLocaleString()} />
-            <Stat2 label="Save rate" value={`${post.saveRate}%`} />
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {post.permalink && (
+              <a
+                href={post.permalink}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  border:         `1px solid ${C.border}`,
+                  color:          C.t2,
+                  borderRadius:   8,
+                  padding:        "6px 12px",
+                  fontSize:       12,
+                  textDecoration: "none",
+                  display:        "inline-flex",
+                  alignItems:     "center",
+                }}
+              >
+                Open on {platformLabel[post.platform] ?? post.platform}
+              </a>
+            )}
+            <button
+              onClick={() => alert("Ad promotion coming soon")}
+              style={{
+                background:   C.accent,
+                color:        "#fff",
+                border:       "none",
+                borderRadius: 8,
+                padding:      "6px 12px",
+                fontSize:     12,
+                fontWeight:   600,
+                cursor:       "pointer",
+              }}
+            >
+              Promote as ad
+            </button>
           </div>
-
-          {post.sentiment && (
-            <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={{ fontSize: 11, color: C.t3 }}>Sentiment</span>
-              <div style={{ display: "flex", gap: 16 }}>
-                <span style={{ fontSize: 12, color: C.green }}>
-                  Positive {post.sentiment.positive}%
-                </span>
-                <span style={{ fontSize: 12, color: C.t2 }}>
-                  Neutral {post.sentiment.neutral}%
-                </span>
-                <span style={{ fontSize: 12, color: C.red }}>
-                  Negative {post.sentiment.negative}%
-                </span>
-              </div>
-            </div>
-          )}
-
-          {post.followerSplit && (
-            <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={{ fontSize: 11, color: C.t3 }}>Follower split</span>
-              <span style={{ fontSize: 13, color: C.t2 }}>{post.followerSplit}</span>
-            </div>
-          )}
         </div>
       )}
-    </>
+    </div>
   );
 }
 
-function Stat2({ label, value }: { label: string; value: string }) {
+function PatternPanel({ pattern }: { pattern: TopData["pattern"] }) {
+  const total = pattern.breakdown.reduce((s, b) => s + b.count, 0) || 1;
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-      <span style={{ fontSize: 11, color: C.t3 }}>{label}</span>
-      <span
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <style>{`.tp-takeaway .strong{color:${C.t1};font-weight:600;}`}</style>
+      <div
         style={{
-          fontSize:           15,
-          fontWeight:         700,
-          color:              C.t1,
-          fontVariantNumeric: "tabular-nums",
+          fontSize:      10.5,
+          fontWeight:    700,
+          color:         C.t3,
+          textTransform: "uppercase",
+          letterSpacing: "0.07em",
         }}
       >
-        {value}
-      </span>
+        Pattern spotted
+      </div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: C.t1 }}>{pattern.title}</div>
+
+      {pattern.breakdown.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div
+            style={{
+              display:      "flex",
+              width:        "100%",
+              height:       12,
+              borderRadius: 99,
+              overflow:     "hidden",
+              background:   C.track,
+            }}
+          >
+            {pattern.breakdown.map((b, i) => (
+              <div
+                key={b.contentType}
+                style={{
+                  width:      `${(b.count / total) * 100}%`,
+                  background: BREAKDOWN_PALETTE[i % BREAKDOWN_PALETTE.length],
+                }}
+              />
+            ))}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            {pattern.breakdown.map((b, i) => (
+              <div key={b.contentType} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span
+                  style={{
+                    width:        9,
+                    height:       9,
+                    borderRadius: "50%",
+                    background:   BREAKDOWN_PALETTE[i % BREAKDOWN_PALETTE.length],
+                    flexShrink:   0,
+                  }}
+                />
+                <span style={{ fontSize: 12, color: C.t2, flex: 1 }}>{b.label}</span>
+                <span style={{ fontSize: 12, color: C.t3, fontVariantNumeric: "tabular-nums" }}>
+                  {b.count}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div
+        className="tp-takeaway"
+        style={{ fontSize: 13, color: C.t2, lineHeight: 1.6 }}
+        dangerouslySetInnerHTML={{ __html: pattern.takeaway }}
+      />
+
+      {pattern.note && (
+        <div style={{ fontSize: 11, color: C.t3, marginTop: "auto", paddingTop: 8, lineHeight: 1.5 }}>
+          {pattern.note}
+        </div>
+      )}
     </div>
   );
 }
@@ -224,11 +340,13 @@ export function TopPostsSection({ period, platform }: TopPostsSectionProps) {
       return next;
     });
 
+  const empty = !data?.meta?.hasData || !data?.posts?.length;
+
   return (
-    <SectionCard
-      title="Top Posts"
-      eyebrow="Content performance"
-      action={
+    <section>
+      {/* Header row: title on the left, sort select on the right */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+        <SectionHeader title="Top performing content" />
         <select
           value={sort}
           onChange={(e) => setSort(e.target.value as SortKey)}
@@ -237,10 +355,11 @@ export function TopPostsSection({ period, platform }: TopPostsSectionProps) {
             border:       `1px solid ${C.border}`,
             color:        C.t2,
             borderRadius: 8,
-            padding:      "6px 10px",
+            padding:      "5px 10px",
             fontSize:     12,
             cursor:       "pointer",
             outline:      "none",
+            marginBottom: 14,
           }}
         >
           {SORT_OPTIONS.map((o) => (
@@ -249,93 +368,72 @@ export function TopPostsSection({ period, platform }: TopPostsSectionProps) {
             </option>
           ))}
         </select>
-      }
-    >
-      {loading ? (
-        <LoadingRows n={5} />
-      ) : error ? (
-        <ErrorState message={error} onRetry={refetch} />
-      ) : !data?.meta?.hasData || !data?.posts?.length ? (
-        <EmptyState message="No posts published in this period." />
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          {data.posts.map((post, i) => (
-            <PostRow
-              key={post.id}
-              post={post}
-              rank={i + 1}
-              expanded={expanded.has(post.id)}
-              onToggle={() => toggleExpand(post.id)}
-            />
-          ))}
+      </div>
 
-          {/* Pattern callout */}
-          <div
-            style={{
-              marginTop:    14,
-              padding:      "14px 16px",
-              background:   `${C.accent}10`,
-              border:       `1px solid ${C.accent}28`,
-              borderRadius: 10,
-              display:      "flex",
-              flexDirection: "column",
-              gap:          8,
-            }}
-          >
+      <Panel>
+        {loading ? (
+          <LoadingRows n={5} />
+        ) : error ? (
+          <ErrorState message={error} onRetry={refetch} />
+        ) : empty || !data ? (
+          <EmptyState message="No posts published in this period." />
+        ) : (
+          <>
             <div
               style={{
-                fontSize:      11,
-                color:         C.accentB,
-                fontWeight:    600,
-                textTransform: "uppercase",
-                letterSpacing: "0.05em",
+                display:             "grid",
+                gridTemplateColumns: "1.7fr 1fr",
+                gap:                 24,
               }}
             >
-              {data.pattern.title}
-            </div>
-            <div
-              style={{ fontSize: 13, color: C.t2, lineHeight: 1.6 }}
-              dangerouslySetInnerHTML={{ __html: data.pattern.takeaway }}
-            />
-            {data.pattern.note && (
-              <div style={{ fontSize: 12, color: C.t3 }}>{data.pattern.note}</div>
-            )}
-            {data.pattern.breakdown.length > 0 && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {data.pattern.breakdown.map((b) => (
-                  <span
-                    key={b.contentType}
-                    style={{
-                      fontSize:     11,
-                      color:        C.t2,
-                      padding:      "4px 10px",
-                      borderRadius: 99,
-                      background:   C.surfaceB,
-                      border:       `1px solid ${C.borderB}`,
-                    }}
-                  >
-                    {b.label}{" "}
-                    <span style={{ color: C.t1, fontWeight: 600 }}>×{b.count}</span>
-                  </span>
-                ))}
+              {/* LEFT — top 5 posts */}
+              <div>
+                <div
+                  style={{
+                    fontSize:      10.5,
+                    fontWeight:    700,
+                    color:         C.t3,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.07em",
+                    marginBottom:  6,
+                  }}
+                >
+                  Your top 5 posts
+                </div>
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  {data.posts.map((post, i) => (
+                    <PostRow
+                      key={post.id}
+                      post={post}
+                      rank={i + 1}
+                      expanded={expanded.has(post.id)}
+                      onToggle={() => toggleExpand(post.id)}
+                    />
+                  ))}
+                </div>
               </div>
-            )}
-          </div>
 
-          {/* Footer line */}
-          <div
-            style={{
-              marginTop:  12,
-              paddingTop: 10,
-              borderTop:  `1px solid ${C.border}`,
-              fontSize:   12,
-              color:      C.t3,
-            }}
-          >
-            {data.meta.postCount} posts · avg reach {data.meta.avgReach.toLocaleString()}
-          </div>
-        </div>
-      )}
-    </SectionCard>
+              {/* RIGHT — pattern spotted */}
+              <div style={{ borderLeft: `1px solid ${C.border}`, paddingLeft: 20 }}>
+                <PatternPanel pattern={data.pattern} />
+              </div>
+            </div>
+
+            {/* Footer line */}
+            <div
+              style={{
+                marginTop:  18,
+                paddingTop: 14,
+                borderTop:  `1px solid ${C.border}`,
+                fontSize:   12,
+                color:      C.t3,
+              }}
+            >
+              {data.meta.postCount} posts · avg reach {data.meta.avgReach.toLocaleString()}
+            </div>
+          </>
+        )}
+      </Panel>
+    </section>
   );
 }

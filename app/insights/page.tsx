@@ -19,7 +19,7 @@ import { AriesSection }         from "@/frontend/insights/AriesSection";
 import { AudienceSection }      from "@/frontend/insights/AudienceSection";
 
 export default function InsightsPage() {
-  const [period, setPeriod]     = useState<Period>("week");
+  const [period, setPeriod]     = useState<Period>("90day");
   const [platform, setPlatform] = useState<Platform>("all");
 
   return (
@@ -35,46 +35,41 @@ export default function InsightsPage() {
 
         <main
           style={{
-            flex:      1,
-            padding:   "28px 28px 60px",
-            maxWidth:  1100,
-            width:     "100%",
-            margin:    "0 auto",
+            flex:     1,
+            padding:  "28px 40px 72px",
+            maxWidth: 1280,
+            width:    "100%",
+            margin:   "0 auto",
           }}
         >
-          <InsightsFilters
-            period={period}
-            platform={platform}
-            onPeriodChange={setPeriod}
-            onPlatformChange={setPlatform}
-          />
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-            {/* Row 1: Hero (full width) */}
+          {/* Every section is its own full-width row, stacked top to bottom. */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 30 }}>
+            {/* 1 — Hero band */}
             <HeroSection period={period} platform={platform} />
 
-            {/* Row 2: Goal + Attention side by side */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-              <GoalSection      period={period} platform={platform} />
-              <AttentionSection period={period} platform={platform} />
-            </div>
+            {/* Filters sit directly UNDER the hero (matches the mock) */}
+            <InsightsFilters
+              period={period}
+              platform={platform}
+              onPeriodChange={setPeriod}
+              onPlatformChange={setPlatform}
+            />
 
-            {/* Row 3: Activity + Trends side by side */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-              <ActivitySection period={period} platform={platform} />
-              <TrendsSection   period={period} platform={platform} />
-            </div>
-
-            {/* Row 4: Top Posts (full width) */}
+            {/* 2 — Goal */}
+            <GoalSection period={period} platform={platform} />
+            {/* 3 — Worth your attention */}
+            <AttentionSection period={period} platform={platform} />
+            {/* 4 — What Aries did */}
+            <ActivitySection period={period} platform={platform} />
+            {/* 5 — Performance trends */}
+            <TrendsSection period={period} platform={platform} />
+            {/* 6 — Top performing content */}
             <TopPostsSection period={period} platform={platform} />
-
-            {/* Row 5: Conversations + Aries side by side */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-              <ConversationsSection period={period} platform={platform} />
-              <AriesSection         period={period} platform={platform} />
-            </div>
-
-            {/* Row 6: Audience (full width) */}
+            {/* 7 — Conversations */}
+            <ConversationsSection period={period} platform={platform} />
+            {/* 8 — Working with Aries */}
+            <AriesSection period={period} platform={platform} />
+            {/* 9 — Audience */}
             <AudienceSection period={period} platform={platform} />
           </div>
         </main>

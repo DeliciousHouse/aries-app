@@ -1,183 +1,227 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // GoalSection.tsx
-// Section 2 — Primary business goal tracking
+// Section 2 — Your goal: the outcome metric Aries is driving toward.
 // API: GET /api/insights/goal?period=…&platform=…
+//
+// "What contributed" adapts to the period:
+//   • this week  → individual posts (few posts, names are meaningful)
+//   • 30/90 days → content categories (too many posts to name individually)
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { Period, Platform, GoalData } from "@/frontend/insights/types";
 import { useInsight } from "@/frontend/insights/useInsight";
-import { C } from "@/frontend/insights/tokens";
-import { SectionCard, DeltaBadge, PlatformDot, ErrorState, EmptyState, Skeleton } from "@/frontend/insights/ui";
+import { C, platformLabel } from "@/frontend/insights/tokens";
+import {
+  SectionHeader, Panel, ChannelIcon, Icon, ErrorState, EmptyState, LoadingRows,
+} from "@/frontend/insights/ui";
 
 interface GoalSectionProps {
   period:   Period;
   platform: Platform;
 }
 
+const PERIOD_TITLE: Record<Period, string> = {
+  week:    "this week",
+  "30day": "last 30 days",
+  "90day": "last 90 days",
+};
+
+const PERIOD_PRIOR: Record<Period, string> = {
+  week:    "last week",
+  "30day": "prior 30 days",
+  "90day": "prior 90 days",
+};
+
+// Short imperative phrasing for the goal eyebrow (mock: "YOUR GOAL · GET LEADS").
+const GOAL_VERB: Record<string, string> = {
+  lead_generation: "Get leads",
+  content_growth:  "Grow audience",
+  product_sales:   "Drive sales",
+  brand_awareness: "Build awareness",
+};
+
+function titleCase(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** Singularize the metric label when the value is exactly 1 ("1 lead"). */
+function unit(label: string, value: number): string {
+  if (value !== 1) return label;
+  return label.endsWith("s") ? label.slice(0, -1) : label;
+}
+
+function ComparisonBadge({ data, period }: { data: GoalData; period: Period }) {
+  const abs = data.metricValue - data.metricValuePrev;
+  const up  = abs >= 0;
+  // Week → absolute ("+2 vs last week"); longer periods → % unless prior was 0.
+  let text: string;
+  if (period === "week" || data.metricValuePrev === 0) {
+    text = `${up ? "+" : ""}${abs} vs ${PERIOD_PRIOR[period]}`;
+  } else {
+    text = `${data.metricDelta >= 0 ? "+" : ""}${data.metricDelta}% vs ${PERIOD_PRIOR[period]}`;
+  }
+  const color = up ? C.green : C.red;
+  return (
+    <span
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 4,
+        fontSize: 12.5, fontWeight: 600, color,
+        background: `${color}1c`, borderRadius: 99, padding: "3px 10px",
+      }}
+    >
+      {up ? "▲" : "▼"} {text}
+    </span>
+  );
+}
+
 export function GoalSection({ period, platform }: GoalSectionProps) {
   const { data, loading, error, refetch } =
     useInsight<GoalData>("goal", period, platform);
 
+  const goalVerb = data?.goal ? (GOAL_VERB[data.goal] ?? data.goalLabel ?? "") : "";
+  const displayLabel =
+    data?.goal === "lead_generation" ? "likely leads" : (data?.metricLabel ?? "");
+  const useCategories = period !== "week";
+  const channelContext = platform === "all" ? "All channels" : (platformLabel[platform] ?? platform);
+  // Defensive: a stale cached body (pre-v2) may lack these arrays.
+  const categories   = data?.categories   ?? [];
+  const contributors = data?.contributors ?? [];
+
   return (
-    <SectionCard title="Goal" eyebrow="Business goal">
-      {loading ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <Skeleton h={16} w="40%" />
-          <Skeleton h={40} w="55%" />
-          <Skeleton h={16} w="70%" />
-          <Skeleton h={48} />
-          <Skeleton h={48} />
-        </div>
-      ) : error ? (
-        <ErrorState message={error} onRetry={refetch} />
-      ) : data?.status === "no_goal" ? (
-        <EmptyState message="No primary goal set. Go to Settings to configure your goal." />
-      ) : !data ? (
-        <EmptyState message="No primary goal set. Go to Settings to configure your goal." />
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          {/* ── Goal label ── */}
-          {data.goalLabel && (
-            <div
-              style={{
-                fontSize:      11,
-                color:         C.t3,
-                fontWeight:    600,
-                textTransform: "uppercase",
-                letterSpacing: "0.06em",
-              }}
-            >
-              {data.goalLabel}
-            </div>
-          )}
+    <section>
+      <SectionHeader
+        title={`Your goal · ${PERIOD_TITLE[period]}`}
+        note="Outcome Aries is delivering for what you signed up for"
+      />
+      <Panel>
+        {loading ? (
+          <LoadingRows n={4} />
+        ) : error ? (
+          <ErrorState message={error} onRetry={refetch} />
+        ) : !data || data.status === "no_goal" ? (
+          <EmptyState message="No primary goal set. Go to Settings to configure your goal." />
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 28 }}>
+            {/* ── LEFT: the headline metric ── */}
+            <div style={{ display: "flex", flexDirection: "column", paddingRight: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", marginBottom: 14 }}>
+                <span style={{ color: C.t3 }}>YOUR GOAL</span>
+                <span style={{ color: C.t3 }}>{"  ·  "}</span>
+                <span style={{ color: C.accentB, textTransform: "uppercase" }}>{goalVerb}</span>
+              </div>
 
-          {/* ── Primary metric ── */}
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-            <span
-              style={{
-                fontSize:           42,
-                fontWeight:         800,
-                color:              C.t1,
-                fontVariantNumeric: "tabular-nums",
-                lineHeight:         1,
-              }}
-            >
-              {data.metricValue.toLocaleString()}
-            </span>
-            <span style={{ fontSize: 14, color: C.t3 }}>{data.metricLabel}</span>
-            <DeltaBadge delta={data.metricDelta} />
-          </div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 48, fontWeight: 800, color: C.t1, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
+                  {data.metricValue.toLocaleString()}
+                </span>
+                <span style={{ fontSize: 15, color: C.t2 }}>{displayLabel}</span>
+                <ComparisonBadge data={data} period={period} />
+              </div>
 
-          {/* ── Secondary metric ── */}
-          {data.secondaryValue != null && (
-            <div
-              style={{
-                display:      "inline-flex",
-                alignItems:   "baseline",
-                gap:          6,
-                padding:      "10px 14px",
-                background:   C.surfaceB,
-                border:       `1px solid ${C.borderB}`,
-                borderRadius: 10,
-                width:        "fit-content",
-              }}
-            >
-              <span
+              {data.secondaryValue != null && (
+                <div style={{ fontSize: 12.5, color: C.t3, marginTop: 8 }}>
+                  {data.secondaryValue.toLocaleString()} {data.secondaryLabel}
+                </div>
+              )}
+
+              {/* Aries narrative — own inset card with a spark icon */}
+              <div
                 style={{
-                  fontSize:           18,
-                  fontWeight:         700,
-                  color:              C.t1,
-                  fontVariantNumeric: "tabular-nums",
+                  display: "flex", gap: 10, marginTop: 18,
+                  background: C.surfaceB, border: `1px solid ${C.borderB}`,
+                  borderRadius: 10, padding: "13px 15px",
                 }}
               >
-                {data.secondaryValue.toLocaleString()}
-              </span>
-              <span style={{ fontSize: 13, color: C.t2 }}>{data.secondaryLabel}</span>
-            </div>
-          )}
+                <span style={{ flexShrink: 0, marginTop: 1 }}>
+                  <Icon name="spark" size={15} color={C.accentB} />
+                </span>
+                <p style={{ margin: 0, fontSize: 13, color: C.t2, lineHeight: 1.55 }}>
+                  <span style={{ color: C.accentB, fontWeight: 600 }}>Aries: </span>
+                  {data.ariesLine}
+                </p>
+              </div>
 
-          {/* ── Aries note ── */}
-          {data.ariesLine && (
-            <div
-              style={{
-                fontSize:   13,
-                lineHeight: 1.5,
-                color:      C.t2,
-                paddingLeft: 12,
-                borderLeft:  `2px solid ${C.accent}`,
-              }}
-            >
-              <strong style={{ color: C.accentB }}>Aries:</strong> {data.ariesLine}
-            </div>
-          )}
-
-          {/* ── Contributors ── */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div
-              style={{
-                fontSize:      12,
-                color:         C.t3,
-                fontWeight:    600,
-                textTransform: "uppercase",
-                letterSpacing: "0.05em",
-              }}
-            >
-              What contributed
+              <div style={{ flex: 1 }} />
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: C.t3, marginTop: 16 }}>
+                <Icon name="info" size={12} color={C.t3} />
+                Aries-classified — verify on Conversations before reaching out.
+              </div>
             </div>
 
-            {data.contributors.length === 0 ? (
-              <span style={{ fontSize: 13, color: C.t3 }}>
-                No contributing posts yet — Aries is still building signal.
-              </span>
-            ) : (
-              data.contributors.map((c, i) => (
-                <div
-                  key={i}
-                  style={{
-                    display:        "flex",
-                    alignItems:     "center",
-                    justifyContent: "space-between",
-                    padding:        "10px 12px",
-                    background:     C.surfaceB,
-                    border:         `1px solid ${C.borderB}`,
-                    borderRadius:   8,
-                    gap:            8,
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                    <PlatformDot platform={c.platform} />
-                    <span
-                      style={{
-                        fontSize:     13,
-                        color:        C.t2,
-                        overflow:     "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace:   "nowrap",
-                      }}
-                    >
-                      {c.title}
-                    </span>
-                  </div>
-                  <span
-                    style={{
-                      fontSize:           13,
-                      fontWeight:         700,
-                      color:              C.t1,
-                      flexShrink:         0,
-                      fontVariantNumeric: "tabular-nums",
-                    }}
-                  >
-                    {c.metricValue.toLocaleString()}{" "}
-                    <span style={{ fontSize: 11, color: C.t3, fontWeight: 500 }}>
-                      {c.metricLabel}
-                    </span>
-                  </span>
-                </div>
-              ))
-            )}
+            {/* ── RIGHT: what contributed ── */}
+            <div style={{ borderLeft: `1px solid ${C.border}`, paddingLeft: 28 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: C.t3, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 14 }}>
+                What contributed
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                {useCategories
+                  ? categories.map((cat, i) => (
+                      <ContribRow
+                        key={cat.contentType}
+                        primary={`${cat.label} (${cat.postCount} ${cat.postCount === 1 ? "post" : "posts"})`}
+                        sub={`${channelContext} · ${cat.label}`}
+                        value={cat.metricValue}
+                        unitLabel={unit(cat.metricLabel, cat.metricValue)}
+                        last={i === categories.length - 1}
+                      />
+                    ))
+                  : contributors.map((c, i) => (
+                      <ContribRow
+                        key={`${c.title}-${i}`}
+                        primary={c.title}
+                        subIcon={c.platform}
+                        sub={`${platformLabel[c.platform] ?? titleCase(c.platform)}${c.contentType ? ` · ${titleCase(c.contentType)}` : ""}`}
+                        value={c.metricValue}
+                        unitLabel={unit(c.metricLabel, c.metricValue)}
+                        last={i === contributors.length - 1}
+                      />
+                    ))}
+                {(useCategories ? categories.length === 0 : contributors.length === 0) && (
+                  <div style={{ fontSize: 12.5, color: C.t3 }}>No contributing posts yet.</div>
+                )}
+              </div>
+            </div>
           </div>
+        )}
+      </Panel>
+    </section>
+  );
+}
+
+function ContribRow({
+  primary, sub, subIcon, value, unitLabel, last,
+}: {
+  primary:   string;
+  sub:       string;
+  subIcon?:  string;
+  value:     number;
+  unitLabel: string;
+  last:      boolean;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex", alignItems: "center", gap: 12,
+        padding: "13px 0",
+        borderBottom: last ? "none" : `1px solid ${C.border}`,
+      }}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13.5, color: C.t1, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {primary}
         </div>
-      )}
-    </SectionCard>
+        <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, color: C.t3, marginTop: 3 }}>
+          {subIcon && <ChannelIcon platform={subIcon} size={12} />}
+          {sub}
+        </div>
+      </div>
+      <div style={{ flexShrink: 0, textAlign: "right" }}>
+        <span style={{ fontSize: 16, fontWeight: 700, color: C.t1, fontVariantNumeric: "tabular-nums" }}>
+          {value.toLocaleString()}
+        </span>{" "}
+        <span style={{ fontSize: 12, color: C.t3 }}>{unitLabel}</span>
+      </div>
+    </div>
   );
 }
