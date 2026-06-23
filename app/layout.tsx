@@ -3,6 +3,7 @@ import { Inter, Manrope } from 'next/font/google';
 import type { ReactNode } from 'react';
 import './globals.css';
 import { ARIES_FAVICON_ICO_PATH, ARIES_FAVICON_PNG_PATH, ARIES_LOGO_WEBP_PATH } from '@/lib/brand';
+import FeedbackWidget from '@/frontend/feedback/feedback-widget';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -35,7 +36,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body className={`${inter.variable} ${manrope.variable}`}>{children}</body>
+      <body className={`${inter.variable} ${manrope.variable}`}>
+        {children}
+        <FeedbackWidget />
+      </body>
     </html>
   );
 }
