@@ -1,5 +1,19 @@
 # TODOS
 
+## Feedback
+
+### Make the feedback Google-Sheet mirror exactly-once (currently at-least-once)
+
+**What:** Close the residual double-append window in `POST /api/feedback`: if the Composio Sheet append succeeds but the follow-up `recordSheetSync('synced')` DB write fails, the ledger stays `pending`/`failed`, so a later client retry appends a SECOND Sheet row. The DB stays single-row (upsert by `submission_id`), so the source of truth is correct — only the Sheet mirror can duplicate.
+
+**Why:** The spec promises "one row per submission." Today that holds except in the narrow append-OK + ledger-write-fails + user-retries case. Low harm (every row carries Submission ID for trivial dedupe; DB is authoritative), but worth hardening.
+
+**Context:** Raised by Copilot on PR #719 (`app/api/feedback/route.ts`). Two viable fixes: (a) persist an intermediate `sheet_sync_status='syncing'` BEFORE the append and treat `syncing` as non-appendable on retry (trades a possible lost mirror for no-dup); (b) switch the mirror to `GOOGLESHEETS_UPSERT_ROWS` keyed on the Submission ID column for true idempotency (preferred; needs the upsert action's verified schema + a key-column config + header awareness).
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** None
+
 ## Ship
 
 ### Triage auth and integrations full-suite failures seen during /ship
