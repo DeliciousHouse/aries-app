@@ -21,6 +21,16 @@ export type GoalType = 'lead_generation' | 'content_growth' | 'product_sales' | 
 export interface GoalContributor {
   title: string;
   platform: string;
+  contentType: string | null;
+  metricValue: number;
+  metricLabel: string;
+}
+
+/** Goal metric grouped by content category (for the 30/90-day "what contributed" view). */
+export interface GoalCategory {
+  contentType: string;   // raw content_type or 'other'
+  label: string;         // display label, e.g. "Educational"
+  postCount: number;
   metricValue: number;
   metricLabel: string;
 }
@@ -36,8 +46,14 @@ export interface GoalSnapshot {
   metricLabel: string;
   secondaryValue: number | null;
   secondaryLabel: string | null;
-  contributors: GoalContributor[];
+  contributors: GoalContributor[];   // top posts (used for the week view)
+  categories: GoalCategory[];        // grouped by content type (used for 30/90-day)
   hasData: boolean;
+}
+
+function categoryLabel(contentType: string): string {
+  if (contentType === 'other') return 'Other';
+  return contentType.charAt(0).toUpperCase() + contentType.slice(1);
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -243,11 +259,11 @@ async function queryContributors(
   fromDate: Date,
   platformFilter: string | null,
 ): Promise<GoalContributor[]> {
-  let rows: Array<{ title: string | null; platform: string; metric: string }> = [];
+  let rows: Array<{ title: string | null; platform: string; content_type: string | null; metric: string }> = [];
 
   if (goal === 'lead_generation') {
-    const res = await client.query<{ title: string | null; platform: string; metric: string }>(
-      `SELECT p.title, p.platform, COUNT(cc.comment_id) AS metric
+    const res = await client.query<{ title: string | null; platform: string; content_type: string | null; metric: string }>(
+      `SELECT p.title, p.platform, p.content_type, COUNT(cc.comment_id) AS metric
        FROM insights_posts p
        JOIN insights_comments c ON c.post_id = p.id AND c.tenant_id = p.tenant_id
        JOIN insights_comment_classifications cc ON cc.comment_id = c.id
@@ -255,7 +271,7 @@ async function queryContributors(
          AND p.published_at >= $2
          AND cc.is_lead = true
          AND ($3::text IS NULL OR p.platform = $3)
-       GROUP BY p.id, p.title, p.platform
+       GROUP BY p.id, p.title, p.platform, p.content_type
        ORDER BY metric DESC
        LIMIT 2`,
       [tenantId, fromDate, platformFilter],
@@ -266,15 +282,15 @@ async function queryContributors(
       ? 'COALESCE(SUM(m.saves), 0)'
       : 'COALESCE(SUM(COALESCE(m.reach, m.views, 0)), 0)';
 
-    const res = await client.query<{ title: string | null; platform: string; metric: string }>(
-      `SELECT p.title, p.platform, ${metricCol} AS metric
+    const res = await client.query<{ title: string | null; platform: string; content_type: string | null; metric: string }>(
+      `SELECT p.title, p.platform, p.content_type, ${metricCol} AS metric
        FROM insights_posts p
        LEFT JOIN insights_post_metrics_daily m
               ON m.post_id = p.id AND m.tenant_id = p.tenant_id
        WHERE p.tenant_id = $1
          AND p.published_at >= $2
          AND ($3::text IS NULL OR p.platform = $3)
-       GROUP BY p.id, p.title, p.platform
+       GROUP BY p.id, p.title, p.platform, p.content_type
        ORDER BY metric DESC
        LIMIT 2`,
       [tenantId, fromDate, platformFilter],
@@ -287,8 +303,69 @@ async function queryContributors(
     .map((r) => ({
       title:       r.title || 'Untitled',
       platform:    r.platform,
+      contentType: r.content_type,
       metricValue: Number(r.metric),
       metricLabel: contributorMetricLabel(goal, r.platform),
+    }));
+}
+
+// Group the goal metric by content category (for the 30/90-day view).
+async function queryCategories(
+  client: PoolClient,
+  tenantId: number,
+  goal: GoalType,
+  fromDate: Date,
+  platformFilter: string | null,
+): Promise<GoalCategory[]> {
+  let rows: Array<{ content_type: string | null; post_count: string; metric: string }> = [];
+
+  if (goal === 'lead_generation') {
+    const res = await client.query<{ content_type: string | null; post_count: string; metric: string }>(
+      `SELECT COALESCE(p.content_type, 'other') AS content_type,
+              COUNT(DISTINCT p.id)              AS post_count,
+              COUNT(cc.comment_id)              AS metric
+       FROM insights_posts p
+       JOIN insights_comments c ON c.post_id = p.id AND c.tenant_id = p.tenant_id
+       JOIN insights_comment_classifications cc ON cc.comment_id = c.id
+       WHERE p.tenant_id = $1
+         AND p.published_at >= $2
+         AND cc.is_lead = true
+         AND ($3::text IS NULL OR p.platform = $3)
+       GROUP BY COALESCE(p.content_type, 'other')
+       ORDER BY metric DESC`,
+      [tenantId, fromDate, platformFilter],
+    );
+    rows = res.rows;
+  } else {
+    const metricCol = goal === 'product_sales'
+      ? 'COALESCE(SUM(m.saves), 0)'
+      : 'COALESCE(SUM(COALESCE(m.reach, m.views, 0)), 0)';
+
+    const res = await client.query<{ content_type: string | null; post_count: string; metric: string }>(
+      `SELECT COALESCE(p.content_type, 'other') AS content_type,
+              COUNT(DISTINCT p.id)              AS post_count,
+              ${metricCol}                      AS metric
+       FROM insights_posts p
+       LEFT JOIN insights_post_metrics_daily m
+              ON m.post_id = p.id AND m.tenant_id = p.tenant_id
+       WHERE p.tenant_id = $1
+         AND p.published_at >= $2
+         AND ($3::text IS NULL OR p.platform = $3)
+       GROUP BY COALESCE(p.content_type, 'other')
+       ORDER BY metric DESC`,
+      [tenantId, fromDate, platformFilter],
+    );
+    rows = res.rows;
+  }
+
+  return rows
+    .filter((r) => Number(r.metric) > 0)
+    .map((r) => ({
+      contentType: r.content_type ?? 'other',
+      label:       categoryLabel(r.content_type ?? 'other'),
+      postCount:   Number(r.post_count),
+      metricValue: Number(r.metric),
+      metricLabel: contributorMetricLabel(goal, platformFilter ?? 'all'),
     }));
 }
 
@@ -332,6 +409,7 @@ export async function buildGoalSnapshot(
     }
 
     const contributors = await queryContributors(client, tenantId, goal, fromDate, platformFilter);
+    const categories   = await queryCategories(client, tenantId, goal, fromDate, platformFilter);
 
     return {
       goal,
@@ -345,6 +423,7 @@ export async function buildGoalSnapshot(
       secondaryValue: secondary,
       secondaryLabel: goal === 'product_sales' ? 'profile visits' : null,
       contributors,
+      categories,
       hasData:        current > 0 || prev > 0,
     };
   } finally {

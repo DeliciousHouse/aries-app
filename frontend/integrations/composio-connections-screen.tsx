@@ -9,7 +9,13 @@
  * config. The flow is: see status -> click Connect -> approve -> done.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+
+// Bounded eager-reconcile schedule: ~5 attempts, backoff starting ~2s, ~30s
+// total. After returning from OAuth a row can briefly read `pending` until
+// Composio activates the connection; we poll a few times so the card flips to
+// "Connected" without a manual refresh, then stop (#699).
+const RECONCILE_DELAYS_MS = [2000, 4000, 6000, 8000, 10000];
 
 type Capabilities = {
   canPublishOrganic: boolean;
@@ -28,6 +34,8 @@ type Connection = {
   status: 'not_connected' | 'pending' | 'connected' | 'reauthorization_required' | 'error';
   externalAccountName: string | null;
   capabilities: Capabilities | null;
+  prerequisites?: string[];
+  reconcileError?: string | null;
 };
 
 type ListResponse = {
@@ -46,6 +54,7 @@ const PLATFORM_LABEL: Record<string, string> = {
   youtube: 'YouTube',
   linkedin: 'LinkedIn',
   reddit: 'Reddit',
+  x: 'X',
 };
 
 function statusText(status: Connection['status'], caps: Capabilities | null): { label: string; tone: string } {
@@ -87,6 +96,10 @@ export default function ComposioConnectionsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Bounded retry bookkeeping for the eager reconcile (refs so changing them
+  // never re-renders / re-runs the polling effect).
+  const reconcileAttemptsRef = useRef(0);
+  const justReturnedFromOAuthRef = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -106,6 +119,38 @@ export default function ComposioConnectionsScreen() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Detect a return from OAuth (?connected=<platform>) once on mount. This runs
+  // before the first load resolves, so the polling effect sees it.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    justReturnedFromOAuthRef.current = new URLSearchParams(window.location.search).has('connected');
+  }, []);
+
+  // Bounded eager reconcile: while any connection is still `pending` (or the
+  // operator just returned from OAuth), re-load a few times so the card flips to
+  // "Connected" on its own. Stops as soon as no row is pending or the budget is
+  // spent, leaving the reconnect affordance + any advisory visible (#699).
+  useEffect(() => {
+    if (!data) return;
+    const hasPending = data.connections.some((c) => c.status === 'pending');
+    // Guarantee at least one reconcile poll right after returning from OAuth,
+    // even if the first snapshot hasn't flipped to `pending` yet.
+    const forcedByReturn = justReturnedFromOAuthRef.current && reconcileAttemptsRef.current === 0;
+    if (!hasPending && !forcedByReturn) {
+      // Converged (or nothing to wait on): reset the budget + clear the flag.
+      reconcileAttemptsRef.current = 0;
+      justReturnedFromOAuthRef.current = false;
+      return;
+    }
+    if (reconcileAttemptsRef.current >= RECONCILE_DELAYS_MS.length) return;
+    const delay = RECONCILE_DELAYS_MS[reconcileAttemptsRef.current];
+    reconcileAttemptsRef.current += 1;
+    const timer = setTimeout(() => {
+      void load();
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [data, load]);
 
   const connect = useCallback(async (platform: string) => {
     setBusy(platform);
@@ -171,6 +216,13 @@ export default function ComposioConnectionsScreen() {
           const caps = conn.capabilities;
           const st = statusText(conn.status, caps);
           const isConnected = conn.status === 'connected';
+          // A pending / reauthorization_required / error row has an EXISTING
+          // connection record that can be cleared. A truly not_connected row has
+          // nothing to clear (#703).
+          const hasClearableRow =
+            conn.status === 'pending' ||
+            conn.status === 'reauthorization_required' ||
+            conn.status === 'error';
           return (
             <div key={conn.platform} className="rounded-xl border border-slate-700 bg-slate-900/40 p-5">
               <div className="flex items-start justify-between gap-4">
@@ -194,14 +246,30 @@ export default function ComposioConnectionsScreen() {
                       {busy === conn.platform ? '…' : 'Disconnect'}
                     </button>
                   ) : (
-                    <button
-                      type="button"
-                      onClick={() => connect(conn.platform)}
-                      disabled={busy === conn.platform || (data ? !data.composioEnabled : true)}
-                      className="rounded-lg bg-violet-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-violet-500 disabled:opacity-50"
-                    >
-                      {busy === conn.platform ? 'Starting…' : 'Connect'}
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => connect(conn.platform)}
+                        disabled={busy === conn.platform || (data ? !data.composioEnabled : true)}
+                        className="rounded-lg bg-violet-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-violet-500 disabled:opacity-50"
+                      >
+                        {busy === conn.platform ? 'Starting…' : 'Connect'}
+                      </button>
+                      {hasClearableRow && (
+                        // Clear a stuck row via the same disconnect handler (the
+                        // backend deletes unconditionally), so a pending / error /
+                        // reauthorization_required card isn't limited to Connect —
+                        // which would upsert ANOTHER pending row (#703).
+                        <button
+                          type="button"
+                          onClick={() => disconnect(conn.platform)}
+                          disabled={busy === conn.platform}
+                          className="rounded-lg border border-slate-600 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                        >
+                          {busy === conn.platform ? '…' : 'Clear'}
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -221,6 +289,18 @@ export default function ComposioConnectionsScreen() {
                     </ul>
                   )}
                 </>
+              )}
+              {!isConnected && conn.prerequisites && conn.prerequisites.length > 0 && (
+                <ul className="mt-4 space-y-1 text-xs text-slate-400">
+                  {conn.prerequisites.map((p, i) => (
+                    <li key={i}>• {p}</li>
+                  ))}
+                </ul>
+              )}
+              {conn.reconcileError && (
+                <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-200">
+                  {conn.reconcileError}
+                </div>
               )}
             </div>
           );

@@ -231,6 +231,20 @@ const steps = [
     name: 'onboarding variant board render (jsdom)',
     args: ['--test', 'tests/onboarding/variant-board-render.component.test.ts'],
   },
+  {
+    // #705 regression: calendar-presenter must open on the current month, not
+    // the earliest queued event (which could be months in the past).
+    name: 'calendar initial-month regression (#705)',
+    args: ['--test', 'tests/calendar-initial-month.test.ts'],
+  },
+  {
+    // #684 regression: analytics screen must gate the summary grid + Views column
+    // on per-platform capabilities (account_daily_metrics / post_view_count) and
+    // render an honest EmptyStatePanel — not fabricated zeros — for unsupported
+    // platforms (x, reddit, linkedin for grid; x/reddit/linkedin for Views column).
+    name: 'insights dashboard UI source assertions (#648, #684)',
+    args: ['--test', 'tests/insights-dashboard-ui.test.ts'],
+  },
 ];
 
 for (const [index, step] of steps.entries()) {

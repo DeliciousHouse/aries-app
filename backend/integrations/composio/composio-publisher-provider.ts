@@ -22,8 +22,9 @@ import {
   type UploadMediaResult,
 } from '../providers/types';
 import { PublishGuardError } from '../providers/errors';
+import { redditTargetSubreddit } from '../providers/integration-config';
 import type { ComposioConfig, ComposioOperation } from './composio-config';
-import type { ComposioGateway } from './composio-client';
+import type { ComposioFileDescriptor, ComposioGateway } from './composio-client';
 import { getConnectionRow, type Queryable } from './connection-store';
 import {
   ComposioCapabilityMissingError,
@@ -31,6 +32,7 @@ import {
   ComposioToolError,
 } from './errors';
 import { resolveFacebookManagedPage } from './facebook-page-resolver';
+import { synthesizeStillToVideo, type StillToVideoResult } from '../still-to-video';
 import pool from '@/lib/db';
 
 function pickId(data: unknown, keys: string[]): string | null {
@@ -41,8 +43,10 @@ function pickId(data: unknown, keys: string[]): string | null {
     if (typeof v === 'string' && v.trim()) return v.trim();
     if (typeof v === 'number') return String(v);
   }
-  // Some tools nest the payload under data/response.
-  for (const nestKey of ['data', 'response', 'result']) {
+  // Some tools nest the payload under data/response/result, and Reddit nests the
+  // created object under `json` (data.json.data.name → the t3_ fullname).
+  // YouTube nests the created object under `video` (data.video.id → the videoId).
+  for (const nestKey of ['data', 'response', 'result', 'json', 'video']) {
     const nested = obj[nestKey];
     if (nested && typeof nested === 'object') {
       const found = pickId(nested, keys);
@@ -56,6 +60,99 @@ function pickUrl(data: unknown): string | null {
   return pickId(data, ['permalink', 'permalink_url', 'url', 'link']);
 }
 
+/** The id keys used for the shared post-id extraction unless a branch overrides. */
+const DEFAULT_POST_ID_KEYS = ['post_id', 'id', 'media_id'];
+
+const REDDIT_TITLE_MAX = 300;
+const REDDIT_FALLBACK_TITLE = 'New post';
+
+/**
+ * Reddit requires a non-empty `title` (it rejects an empty one) ≤ 300 chars. Take
+ * the first non-empty line of the post content, collapse internal whitespace, and
+ * truncate with an ellipsis. Falls back to a stable label when content is empty.
+ * Pure — no I/O — so it is trivially unit-testable.
+ */
+function redditTitleFromContent(content: string): string {
+  const firstLine = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  const collapsed = (firstLine ?? '').replace(/\s+/g, ' ').trim();
+  if (!collapsed) return REDDIT_FALLBACK_TITLE;
+  if (collapsed.length <= REDDIT_TITLE_MAX) return collapsed;
+  return `${collapsed.slice(0, REDDIT_TITLE_MAX - 1)}…`;
+}
+
+const LINKEDIN_COMMENTARY_MAX = 3000;
+
+/**
+ * LinkedIn's `commentary` is REQUIRED and capped at 3000 chars. Truncate with the
+ * existing ellipsis idiom (single `…` glyph counted within the cap). Unlike the
+ * Reddit title this preserves the full body (newlines included) — it is the post
+ * text, not a one-line title. Pure — no I/O — so it is trivially unit-testable.
+ */
+function linkedinCommentary(content: string): string {
+  const text = content ?? '';
+  if (text.length <= LINKEDIN_COMMENTARY_MAX) return text;
+  return `${text.slice(0, LINKEDIN_COMMENTARY_MAX - 1)}…`;
+}
+
+const YOUTUBE_TITLE_MAX = 100; // YouTube hard-limits a video title to 100 chars.
+const YOUTUBE_DESCRIPTION_MAX = 5000;
+const YOUTUBE_FALLBACK_TITLE = 'New post';
+const YOUTUBE_DEFAULT_CATEGORY_ID = '22'; // People & Blogs — a safe general default.
+
+/**
+ * The YouTube Data API rejects `<`/`>` anywhere in snippet.title/description
+ * (HTTP 400 invalidVideoMetadata). Strip them so a caption like "buy 1 get 1 <3"
+ * cannot turn into a deterministically-failing payload (which would re-fail on
+ * every worker re-claim → a poison-retry loop, since the failure is classified
+ * never-posted). Removed, not escaped — YouTube has no entity decoding here.
+ */
+function stripYouTubeAngleBrackets(text: string): string {
+  return text.replace(/[<>]/g, '');
+}
+
+/**
+ * YouTube `title` is REQUIRED and ≤ 100 chars. Take the first non-empty line of
+ * the content, collapse internal whitespace, strip forbidden angle brackets, and
+ * truncate with the shared `…` idiom. Pure — no I/O — so it is unit-testable.
+ */
+function youtubeTitleFromContent(content: string): string {
+  const firstLine = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  const collapsed = stripYouTubeAngleBrackets((firstLine ?? '').replace(/\s+/g, ' ')).trim();
+  if (!collapsed) return YOUTUBE_FALLBACK_TITLE;
+  if (collapsed.length <= YOUTUBE_TITLE_MAX) return collapsed;
+  return `${collapsed.slice(0, YOUTUBE_TITLE_MAX - 1)}…`;
+}
+
+/** YouTube `description` is REQUIRED, ≤5000 chars, no angle brackets (full body kept). */
+function youtubeDescription(content: string): string {
+  const text = stripYouTubeAngleBrackets(content ?? '');
+  if (text.length <= YOUTUBE_DESCRIPTION_MAX) return text;
+  return `${text.slice(0, YOUTUBE_DESCRIPTION_MAX - 1)}…`;
+}
+
+/** YouTube `categoryId` is REQUIRED — operator-overridable, defaults to '22'. */
+function youtubeCategoryId(env: NodeJS.ProcessEnv = process.env): string {
+  return env.COMPOSIO_YOUTUBE_CATEGORY_ID?.trim() || YOUTUBE_DEFAULT_CATEGORY_ID;
+}
+
+/**
+ * YouTube `privacyStatus` is REQUIRED. Defaults to `public` (parity with how the
+ * other platforms publish live); an operator can set `unlisted`/`private` via
+ * COMPOSIO_YOUTUBE_PRIVACY_STATUS (recommended for first live verification).
+ * Any unrecognized value falls back to `public`.
+ */
+function youtubePrivacyStatus(env: NodeJS.ProcessEnv = process.env): string {
+  const raw = env.COMPOSIO_YOUTUBE_PRIVACY_STATUS?.trim().toLowerCase();
+  if (raw === 'public' || raw === 'private' || raw === 'unlisted') return raw;
+  return 'public';
+}
+
 export class ComposioPublisherProvider implements PublisherProvider {
   readonly kind = 'composio' as const;
 
@@ -63,6 +160,9 @@ export class ComposioPublisherProvider implements PublisherProvider {
     private readonly gateway: ComposioGateway,
     private readonly config: ComposioConfig,
     private readonly db: Queryable = pool,
+    // Still→video synthesis for YouTube publish. Injected (defaults to the real
+    // ffmpeg-backed helper) so unit tests can fake it without a binary on CI.
+    private readonly synthesizeVideo: typeof synthesizeStillToVideo = synthesizeStillToVideo,
   ) {}
 
   supports(platform: IntegrationPlatform): boolean {
@@ -105,21 +205,32 @@ export class ComposioPublisherProvider implements PublisherProvider {
     if (!input.approved) throw new PublishGuardError();
 
     const conn = await this.requireActiveConnection({ tenantId: input.tenantId, platform: input.platform });
-    const slug = this.requireSlug(input.platform, 'publish_post', 'publish posts');
 
-    // Build platform-correct content arguments.
+    // ── Action slug + argument selection (#627) ────────────────────────────
     //
-    // Facebook (FACEBOOK_CREATE_POST) requires:
-    //   - `message` for the post text (NOT `text`/`caption` — those are ignored)
-    //   - `page_id` for the target Page (NOT optional; the action 400s without it)
+    // Facebook has two distinct action slugs with incompatible parameter schemas:
     //
-    // Instagram uses `caption` (unchanged from before).
+    //   FACEBOOK_CREATE_PHOTO_POST (`upload_media` op slot)
+    //     Required: url (signed public image URL), message, page_id
+    //     Used for: image posts (mediaUrls.length > 0)
+    //     FACEBOOK_CREATE_POST ignores media_urls entirely, so image posts MUST
+    //     route here — confirmed live via FACEBOOK_GET_POST (full_picture present).
     //
-    // The page_id is stored at connect-time in connected_accounts.external_account_id.
-    // If that column is null (OAuth callback / account-info race), we fall back to a
-    // live FACEBOOK_LIST_MANAGED_PAGES call via resolveFacebookManagedPage and throw
-    // a clear capability error when still unable to identify the Page.
-    let platformArgs: Record<string, unknown>;
+    //   FACEBOOK_CREATE_POST (`publish_post` op slot)
+    //     Required: message, page_id
+    //     Used for: text/link-only posts (no media)
+    //
+    // Instagram: single `publish_post` slug via caption + media_urls + placement.
+    //
+    // The page_id for Facebook is stored at connect-time in
+    // connected_accounts.external_account_id. When null (OAuth callback race),
+    // resolveFacebookManagedPage is called as a fallback.
+    let slug: string;
+    let toolArgs: Record<string, unknown>;
+    // The created post id lives at different keys per platform; a branch may
+    // override before the shared extraction at the end of publishPost.
+    let idKeys = DEFAULT_POST_ID_KEYS;
+
     if (input.platform === 'facebook') {
       let pageId = conn.externalAccountId ?? null;
       if (!pageId) {
@@ -136,20 +247,288 @@ export class ComposioPublisherProvider implements PublisherProvider {
           'identify the posting Page — reconnect your Facebook account to resolve this',
         );
       }
-      platformArgs = { message: input.content, page_id: pageId };
-    } else {
-      platformArgs = { caption: input.content };
-    }
 
-    const result = await this.gateway.executeTool(slug, {
-      connectedAccountId: conn.connectedAccountId!,
-      arguments: {
-        ...platformArgs,
+      const hasImage = input.mediaUrls.length > 0;
+      if (hasImage) {
+        // Photo post: FACEBOOK_CREATE_PHOTO_POST via the `upload_media` op slot
+        // (COMPOSIO_FACEBOOK_UPLOAD_MEDIA_ACTION=FACEBOOK_CREATE_PHOTO_POST).
+        // Only the first image is posted; multi-image carousel is a future feature.
+        slug = this.requireSlug(input.platform, 'upload_media', 'publish photo posts');
+        toolArgs = {
+          url: input.mediaUrls[0],
+          message: input.content,
+          page_id: pageId,
+          ...(input.scheduledFor ? { scheduled_publish_time: input.scheduledFor } : {}),
+        };
+      } else {
+        // Text-only post: FACEBOOK_CREATE_POST via the `publish_post` op slot.
+        slug = this.requireSlug(input.platform, 'publish_post', 'publish posts');
+        toolArgs = {
+          message: input.content,
+          page_id: pageId,
+          ...(input.scheduledFor ? { scheduled_publish_time: input.scheduledFor } : {}),
+        };
+      }
+    } else if (input.platform === 'x') {
+      // X (Twitter): a text post, optionally with a single image. Unlike
+      // Facebook's photo post (which accepts an image URL), TWITTER_UPLOAD_MEDIA's
+      // `media` is a `file_uploadable` field that needs a staged S3 descriptor —
+      // the gateway constructs the SDK WITHOUT auto-upload, so a raw URL would be
+      // rejected ("Following fields are missing: {'media'}"). An image post is
+      // therefore a pre-publish UPLOAD (stage bytes → register the Twitter media)
+      // followed by the create-post call.
+      //
+      // The whole upload runs BEFORE any tweet exists, so every failure here is
+      // surfaced as a ComposioToolError → the dispatcher classifies it
+      // definitely-never-posted (safe to roll back the claim + retry). ONLY the
+      // final TWITTER_CREATION_OF_A_POST executed via the shared call below is the
+      // outcome-unknown boundary (a transport drop after that may have posted).
+      //
+      // X has no Page-id (resolves through the default connectedAccountId path)
+      // and no native scheduling here, so `scheduledFor` is ignored and the
+      // status resolves to `published`.
+      let mediaId: string | null = null;
+      if (input.mediaUrls.length > 0) {
+        const uploadSlug = this.requireSlug(input.platform, 'upload_media', 'upload media for X posts');
+        const toolkitSlug = this.config.toolkitSlugFor(input.platform);
+        let descriptor: ComposioFileDescriptor;
+        try {
+          descriptor = await this.gateway.uploadFile({
+            file: input.mediaUrls[0],
+            toolSlug: uploadSlug,
+            toolkitSlug,
+          });
+        } catch (error) {
+          // Staging to S3 never created a tweet — definitely-never-posted.
+          throw new ComposioToolError(
+            uploadSlug,
+            error instanceof Error ? error.message : 'failed to stage media for upload',
+          );
+        }
+        const uploaded = await this.gateway.executeTool(uploadSlug, {
+          connectedAccountId: conn.connectedAccountId!,
+          arguments: { media: descriptor, media_category: 'tweet_image' },
+        });
+        if (!uploaded.successful) {
+          throw new ComposioToolError(uploadSlug, uploaded.error ?? 'media upload reported unsuccessful');
+        }
+        // The Twitter media id comes back nested (commonly data.data.id) and must
+        // be a numeric-string for media_media_ids; never use media_key.
+        mediaId = pickId(uploaded.data, ['media_id_string', 'media_id', 'id']);
+        if (!mediaId) {
+          throw new ComposioToolError(uploadSlug, 'media upload returned no media id');
+        }
+      }
+      slug = this.requireSlug(input.platform, 'publish_post', 'publish posts');
+      toolArgs = {
+        text: input.content,
+        ...(mediaId ? { media_media_ids: [mediaId] } : {}),
+      };
+    } else if (input.platform === 'reddit') {
+      // Reddit: a SINGLE REDDIT_CREATE_REDDIT_POST call. There is NO media-upload
+      // action — an image is posted as a `kind='link'` whose url IS the image
+      // (Reddit fetches it), never a pre-staged upload. So unlike X, there is no
+      // pre-publish step: this is exactly the FB-style single-call,
+      // outcome-unknown boundary (a transport drop after dispatch may have
+      // posted). Every PRE-call failure here (no subreddit, no slug, no
+      // connection) throws BEFORE the shared executeTool below → classified
+      // definitely-never-posted → safe rollback + worker re-claim. Reddit is
+      // rate-limited and posts can be silently automod-removed; we deliberately
+      // do NOT retry-loop a create — a rate-limited create surfaces as
+      // never-posted and the standing worker re-claims the row.
+      //
+      // Subreddit target (never guessed): an explicit
+      // COMPOSIO_REDDIT_TARGET_SUBREDDIT, else the connected user's own profile
+      // (`u_<username>` self-post), else refuse with a capability error.
+      let subreddit = redditTargetSubreddit();
+      if (!subreddit && conn.externalAccountName) {
+        subreddit = `u_${conn.externalAccountName}`;
+      }
+      if (!subreddit) {
+        throw new ComposioCapabilityMissingError(
+          'reddit',
+          'configure a target subreddit (COMPOSIO_REDDIT_TARGET_SUBREDDIT) or reconnect Reddit',
+        );
+      }
+
+      slug = this.requireSlug(input.platform, 'publish_post', 'publish posts');
+      // Reddit returns a fullname id (`t3_<base36>`) at data.json.data.name — NOT
+      // in the shared default keys (and under a `json` nest), so override here.
+      idKeys = ['name', 'id', 'post_id'];
+
+      const title = redditTitleFromContent(input.content);
+      const flairId = process.env.COMPOSIO_REDDIT_FLAIR_ID?.trim();
+      if (input.mediaUrls.length > 0) {
+        // Image post: the image IS the link target (kind='link'); not dropped,
+        // not pre-uploaded.
+        toolArgs = {
+          subreddit,
+          title,
+          kind: 'link',
+          url: input.mediaUrls[0],
+          ...(flairId ? { flair_id: flairId } : {}),
+        };
+      } else {
+        // Text post: kind='self' with the body as `text`.
+        toolArgs = {
+          subreddit,
+          title,
+          kind: 'self',
+          text: input.content,
+          ...(flairId ? { flair_id: flairId } : {}),
+        };
+      }
+    } else if (input.platform === 'linkedin') {
+      // LinkedIn: a SINGLE LINKEDIN_CREATE_LINKED_IN_POST call.
+      //
+      // author (the linkedin_profile_missing fix — FIRST, before slug/staging):
+      // the urn:li:person:<id> author URN is resolved + persisted at connect
+      // (#645) into connected_accounts.external_account_id; read it straight
+      // here. NEVER send a publish with a missing/placeholder author — a missing
+      // URN is a capability error (reconnect to resolve the profile), classified
+      // definitely-never-posted so the row is safely re-claimed.
+      const author = conn.externalAccountId?.trim() || null;
+      if (!author) {
+        throw new ComposioCapabilityMissingError(
+          'linkedin',
+          'reconnect LinkedIn to resolve your author profile',
+        );
+      }
+
+      // Single publish slug (never guessed — capability-missing when unset).
+      slug = this.requireSlug(input.platform, 'publish_post', 'publish posts');
+      // LinkedIn returns a share / ugcPost urn, not the shared default keys.
+      idKeys = ['id', 'share_id', 'ugcPostUrn', 'activity_urn', 'urn'];
+
+      // Unlike X, LinkedIn has NO separate upload action: an image is staged to
+      // Composio's S3 via gateway.uploadFile and the returned
+      // {name,mimetype,s3key} descriptor is pushed DIRECTLY into
+      // `images:[descriptor]` of THIS one publish call (the `images` input is a
+      // `file_uploadable`, so a bare URL would be rejected — same as X media).
+      // Staging runs BEFORE any post exists, so every failure here is a
+      // ComposioToolError → definitely-never-posted (safe rollback + re-claim).
+      // ONLY the LINKEDIN_CREATE_LINKED_IN_POST executed via the shared call
+      // below is the outcome-unknown boundary. A text-only post (no mediaUrls)
+      // OMITS `images` entirely — author + commentary alone are a valid post.
+      //
+      // LinkedIn has no native scheduling, so `scheduledFor` is ignored and the
+      // status resolves to `published`.
+      let descriptor: ComposioFileDescriptor | null = null;
+      if (input.mediaUrls.length > 0) {
+        try {
+          descriptor = await this.gateway.uploadFile({
+            file: input.mediaUrls[0],
+            toolSlug: slug,
+            toolkitSlug: this.config.toolkitSlugFor(input.platform),
+          });
+        } catch (error) {
+          // Staging to S3 never created a post — definitely-never-posted.
+          throw new ComposioToolError(
+            slug,
+            error instanceof Error ? error.message : 'failed to stage media for upload',
+          );
+        }
+      }
+
+      toolArgs = {
+        author,
+        commentary: linkedinCommentary(input.content),
+        ...(descriptor ? { images: [descriptor] } : {}),
+      };
+    } else if (input.platform === 'youtube') {
+      // YouTube: the native post is a VIDEO upload, but the Aries pipeline emits
+      // a single still image. We synthesize a short Ken-Burns MP4 from the still
+      // (backend/integrations/still-to-video.ts), stage it to Composio's S3 (the
+      // `videoFile`/`videoFilePath` input is a file_uploadable, so a bare path is
+      // rejected unless pre-staged — same as X media / LinkedIn images), then
+      // upload via YOUTUBE_UPLOAD_VIDEO / YOUTUBE_MULTIPART_UPLOAD_VIDEO.
+      //
+      // Synthesis + staging both run BEFORE any video exists on the channel, so
+      // every failure here is a ComposioToolError → definitely-never-posted
+      // (safe rollback + worker re-claim). ONLY the final executeTool below is
+      // the outcome-unknown boundary. YouTube has no native scheduling here, so
+      // `scheduledFor` is ignored and the status resolves to `published`.
+      if (input.mediaUrls.length === 0) {
+        // Nothing to make a video from — refuse rather than upload an empty clip.
+        throw new ComposioCapabilityMissingError(
+          'youtube',
+          'a creative image is required to synthesize the YouTube video',
+        );
+      }
+      slug = this.requireSlug(input.platform, 'publish_post', 'publish videos');
+
+      let synthesized: StillToVideoResult;
+      try {
+        synthesized = await this.synthesizeVideo({ image: input.mediaUrls[0] });
+      } catch (error) {
+        // Synthesis never created a video — definitely-never-posted.
+        throw new ComposioToolError(
+          slug,
+          error instanceof Error ? error.message : 'failed to synthesize video from image',
+        );
+      }
+
+      let descriptor: ComposioFileDescriptor;
+      try {
+        descriptor = await this.gateway.uploadFile({
+          file: synthesized.path,
+          toolSlug: slug,
+          toolkitSlug: this.config.toolkitSlugFor(input.platform),
+        });
+      } catch (error) {
+        // Staging to S3 never created a video — definitely-never-posted.
+        await synthesized.cleanup();
+        throw new ComposioToolError(
+          slug,
+          error instanceof Error ? error.message : 'failed to stage video for upload',
+        );
+      }
+      // Composio holds the bytes in its S3 once staged; drop the local temp file
+      // before the (slower) upload call so a failure there never leaks it.
+      await synthesized.cleanup();
+
+      // The two YouTube upload actions name the file arg differently but take the
+      // same {name,mimetype,s3key} descriptor:
+      //   YOUTUBE_UPLOAD_VIDEO           → videoFilePath
+      //   YOUTUBE_MULTIPART_UPLOAD_VIDEO → videoFile
+      // Key off the configured slug so either works via
+      // COMPOSIO_YOUTUBE_PUBLISH_POST_ACTION.
+      const videoArgKey = slug.toUpperCase().includes('MULTIPART') ? 'videoFile' : 'videoFilePath';
+      // The created videoId comes back nested (commonly data.video.id) — covered
+      // by the `video` nest key added to pickId above.
+      idKeys = ['videoId', 'video_id', 'id'];
+      toolArgs = {
+        [videoArgKey]: descriptor,
+        title: youtubeTitleFromContent(input.content),
+        description: youtubeDescription(input.content),
+        // `tags` is required by YOUTUBE_UPLOAD_VIDEO (optional for multipart); an
+        // empty array satisfies the schema without inventing keywords.
+        tags: [],
+        categoryId: youtubeCategoryId(),
+        privacyStatus: youtubePrivacyStatus(),
+      };
+    } else if (input.platform === 'instagram') {
+      // Instagram: caption + media_urls + placement + media_type (unchanged).
+      slug = this.requireSlug(input.platform, 'publish_post', 'publish posts');
+      toolArgs = {
+        caption: input.content,
         media_urls: input.mediaUrls,
         placement: input.placement ?? 'feed',
         media_type: input.mediaType ?? 'image',
         ...(input.scheduledFor ? { scheduled_publish_time: input.scheduledFor } : {}),
-      },
+      };
+    } else {
+      // Unknown / unhandled platform — refuse explicitly rather than silently
+      // falling through to an Instagram payload on the wrong network.
+      throw new ComposioToolError(
+        'publish_post',
+        `${input.platform} is not a supported publish target`,
+      );
+    }
+
+    const result = await this.gateway.executeTool(slug, {
+      connectedAccountId: conn.connectedAccountId!,
+      arguments: toolArgs,
     });
 
     if (!result.successful) {
@@ -159,7 +538,7 @@ export class ComposioPublisherProvider implements PublisherProvider {
     return {
       provider: 'composio',
       platform: input.platform,
-      externalPostId: pickId(result.data, ['post_id', 'id', 'media_id']),
+      externalPostId: pickId(result.data, idKeys),
       externalCampaignId: null,
       externalAdId: null,
       status: input.scheduledFor ? 'scheduled' : 'published',

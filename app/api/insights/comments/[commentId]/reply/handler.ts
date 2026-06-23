@@ -4,7 +4,12 @@ import pool from '@/lib/db';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 import { isNativeReplyEnabled } from '@/backend/integrations/meta-reply-env';
 import { replyToComment, type MetaReplyRequest, type MetaReplySuccess } from '@/backend/integrations/meta-reply';
-import { replyToCommentViaComposio, shouldUseComposioReply } from '@/backend/integrations/composio/composio-reply';
+import {
+  replyToCommentViaComposio,
+  replyToCommentViaComposioForPlatform,
+  shouldUseComposioReply,
+  isComposioReplyPlatform,
+} from '@/backend/integrations/composio/composio-reply';
 import {
   classifyMetaPublishFailure,
   classifyMetaPublishFailureKind,
@@ -110,11 +115,17 @@ export async function handleReplyToComment(
     id: string | number;
     platform: string;
     external_comment_id: string;
+    external_post_id: string;
     is_replied: boolean;
   }>(
-    `SELECT id, platform, external_comment_id, is_replied
-     FROM insights_comments
-     WHERE id = $1 AND tenant_id = $2`,
+    // INNER JOIN insights_posts to also pull the parent post's external id. Every
+    // comment has a NOT NULL post_id -> insights_posts(id), so the join never
+    // drops a row. external_post_id is the LinkedIn reply `object` (share/ugcPost
+    // URN); harmless/ignored for FB/IG/X/YouTube/Reddit.
+    `SELECT c.id, c.platform, c.external_comment_id, c.is_replied, p.external_post_id
+     FROM insights_comments c
+     INNER JOIN insights_posts p ON p.id = c.post_id
+     WHERE c.id = $1 AND c.tenant_id = $2`,
     [commentId, tenantId],
   );
   const comment = loaded.rows[0];
@@ -126,13 +137,17 @@ export async function handleReplyToComment(
     return json({ status: 'already_replied', comment_id: commentId }, 200);
   }
 
-  // (e) Provider guard — only Meta (IG/FB) is reply-capable on this path.
-  if (!isMetaProvider(comment.platform)) {
+  // (e) Provider guard — Meta (IG/FB) on the direct/Composio-FB path, or one of
+  // the new Composio-only platforms (X/YouTube/Reddit/LinkedIn) when ITS rollout
+  // flag is on. Each new platform stays invisible (422 reply_not_supported,
+  // byte-identical to a Meta-platform reject) until its ARIES_<P>_ENABLED flips.
+  const platform = comment.platform;
+  if (!isMetaProvider(platform) && !isComposioReplyPlatform(platform, deps.env)) {
     return json(
       {
         status: 'error',
         reason: 'reply_not_supported',
-        message: `Replies are not supported for platform '${comment.platform}'.`,
+        message: `Replies are not supported for platform '${platform}'.`,
       },
       422,
     );
@@ -168,19 +183,26 @@ export async function handleReplyToComment(
   // outcome-unknown handling below is identical.
   const replyRequest: MetaReplyRequest = {
     tenantId: String(tenantId),
-    provider: comment.platform,
+    provider: platform,
     externalCommentId: comment.external_comment_id,
+    externalPostId: comment.external_post_id,
     message,
   };
-  const useComposioReply = shouldUseComposioReply(comment.platform, deps.env);
+  const useComposioReply = shouldUseComposioReply(platform, deps.env);
 
   let replySucceeded = false;
   try {
-    const published = useComposioReply
-      ? await (deps.composioReply
-          ? deps.composioReply(replyRequest)
-          : replyToCommentViaComposio(replyRequest, deps.env, { db: deps.db }))
-      : await replyToComment({ ...replyRequest, fetchImpl: deps.fetchImpl });
+    // New Composio-only platforms (X/YouTube/Reddit/LinkedIn) route through the
+    // per-platform Composio reply; the FB/IG branch below is UNCHANGED. Every
+    // path returns a { platformReplyId } and throws the same MetaPublishError
+    // taxonomy, so the claim/rollback/outcome-unknown handling is identical.
+    const published = isComposioReplyPlatform(platform, deps.env)
+      ? await replyToCommentViaComposioForPlatform(replyRequest, platform, deps.env, { db: deps.db })
+      : useComposioReply
+        ? await (deps.composioReply
+            ? deps.composioReply(replyRequest)
+            : replyToCommentViaComposio(replyRequest, deps.env, { db: deps.db }))
+        : await replyToComment({ ...replyRequest, fetchImpl: deps.fetchImpl });
     replySucceeded = true;
 
     // (h) Confirmed success — record the platform reply id + delivery stamp.

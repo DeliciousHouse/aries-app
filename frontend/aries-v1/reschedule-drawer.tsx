@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { type ComponentType, useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarClock, Check, LoaderCircle, X } from 'lucide-react';
-import { FacebookIcon, InstagramIcon } from './brand-icons';
+import { FacebookIcon, InstagramIcon, LinkedinIcon, YoutubeIcon } from './brand-icons';
+import { XIcon, RedditIcon } from '@/frontend/components/Icons';
+import type { AllowedTargetPlatform } from '@/backend/social-content/scheduled-posts';
 
 import {
   DEFAULT_TENANT_TIMEZONE,
@@ -10,18 +12,22 @@ import {
   wallTimeToUtc,
 } from '@/lib/format-timestamp';
 
-const PLATFORM_OPTIONS = [
-  { id: 'instagram' as const, label: 'Instagram', Icon: InstagramIcon },
-  { id: 'facebook' as const, label: 'Facebook', Icon: FacebookIcon },
-];
+type PlatformIcon = ComponentType<{ className?: string; 'aria-hidden'?: boolean | 'true' | 'false' }>;
 
-type PlatformId = (typeof PLATFORM_OPTIONS)[number]['id'];
+const PLATFORM_OPTIONS: Array<{ id: AllowedTargetPlatform; label: string; Icon: PlatformIcon }> = [
+  { id: 'instagram', label: 'Instagram', Icon: InstagramIcon as PlatformIcon },
+  { id: 'facebook', label: 'Facebook', Icon: FacebookIcon as PlatformIcon },
+  { id: 'x', label: 'X', Icon: XIcon as PlatformIcon },
+  { id: 'reddit', label: 'Reddit', Icon: RedditIcon as PlatformIcon },
+  { id: 'linkedin', label: 'LinkedIn', Icon: LinkedinIcon as PlatformIcon },
+  { id: 'youtube', label: 'YouTube', Icon: YoutubeIcon as PlatformIcon },
+];
 
 export interface ScheduleSavedDetail {
   jobId: string;
   postId: string;
   scheduledAt: string;
-  platforms: PlatformId[];
+  platforms: AllowedTargetPlatform[];
   updatedAt: string;
 }
 
@@ -29,7 +35,14 @@ export interface RescheduleDrawerProps {
   jobId: string;
   postId: string;
   defaultScheduledAt?: string | null;
-  defaultPlatforms?: PlatformId[];
+  defaultPlatforms?: AllowedTargetPlatform[];
+  /**
+   * Which platforms to show as selectable options. Defaults to
+   * `['facebook', 'instagram']` (byte-identical to previous behaviour when all
+   * rollout flags are OFF). Pass the server-computed `allowedPublishPlatforms`
+   * to surface X / Reddit / LinkedIn when their flags are ON.
+   */
+  allowedPlatforms?: AllowedTargetPlatform[];
   /** Tenant business timezone — the datetime-local wall time is read in it. */
   timeZone?: string;
   timezoneLabel?: string;
@@ -54,16 +67,25 @@ function toLocalInputValue(iso: string | null | undefined, timeZone: string): st
 
 export default function RescheduleDrawer(props: RescheduleDrawerProps) {
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
-  const initialPlatforms = useMemo<Set<PlatformId>>(
+  const initialPlatforms = useMemo<Set<AllowedTargetPlatform>>(
     () => new Set(props.defaultPlatforms?.length ? props.defaultPlatforms : ['instagram', 'facebook']),
     [props.defaultPlatforms],
   );
+
+  // Platforms visible in the picker. Defaults to facebook+instagram so the
+  // rendered output is byte-identical to the old behaviour when all flags are OFF.
+  const visibleOptions = useMemo(() => {
+    const allowed = new Set<AllowedTargetPlatform>(
+      props.allowedPlatforms ?? ['facebook', 'instagram'],
+    );
+    return PLATFORM_OPTIONS.filter((o) => allowed.has(o.id));
+  }, [props.allowedPlatforms]);
 
   const timeZone = props.timeZone ?? DEFAULT_TENANT_TIMEZONE;
   const [scheduledAtLocal, setScheduledAtLocal] = useState(() =>
     toLocalInputValue(props.defaultScheduledAt, timeZone),
   );
-  const [platforms, setPlatforms] = useState<Set<PlatformId>>(initialPlatforms);
+  const [platforms, setPlatforms] = useState<Set<AllowedTargetPlatform>>(initialPlatforms);
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<string | null>(null);
@@ -82,7 +104,7 @@ export default function RescheduleDrawer(props: RescheduleDrawerProps) {
     return () => window.removeEventListener('keydown', onKey);
   }, [props, submitting]);
 
-  function togglePlatform(id: PlatformId) {
+  function togglePlatform(id: AllowedTargetPlatform) {
     setErrorMessage(null);
     setPlatforms((current) => {
       const next = new Set(current);
@@ -110,7 +132,7 @@ export default function RescheduleDrawer(props: RescheduleDrawerProps) {
       setErrorMessage('That date and time could not be read. Try again.');
       return;
     }
-    const orderedPlatforms: PlatformId[] = PLATFORM_OPTIONS
+    const orderedPlatforms: AllowedTargetPlatform[] = PLATFORM_OPTIONS
       .map((option) => option.id)
       .filter((id) => platforms.has(id));
     if (orderedPlatforms.length === 0) {
@@ -149,7 +171,7 @@ export default function RescheduleDrawer(props: RescheduleDrawerProps) {
   }
 
   const tzLabel = props.timezoneLabel ?? timeZone;
-  const orderedPlatformChips: PlatformId[] = PLATFORM_OPTIONS
+  const orderedPlatformChips: AllowedTargetPlatform[] = PLATFORM_OPTIONS
     .map((option) => option.id)
     .filter((id) => platforms.has(id));
 
@@ -216,7 +238,7 @@ export default function RescheduleDrawer(props: RescheduleDrawerProps) {
           <fieldset className="space-y-3">
             <legend className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Publish to</legend>
             <div className="grid gap-2 sm:grid-cols-2">
-              {PLATFORM_OPTIONS.map((option) => {
+              {visibleOptions.map((option) => {
                 const checked = platforms.has(option.id);
                 const Icon = option.Icon;
                 return (

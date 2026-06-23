@@ -144,3 +144,107 @@ test('Composio explicit failure rolls the claim back so a retry can re-attempt',
   assert.equal(state.is_replied, false, 'claim rolled back on a definite failure');
   assert.equal(state.platform_reply_id, null);
 });
+
+// ── New-platform dormancy (per-platform ARIES_<P>_ENABLED OFF → 422) ─────────
+//
+// When a platform's rollout flag is off, a stored comment of that platform → the
+// route returns 422 reply_not_supported and never reaches the Composio dispatch
+// (no pre-claim UPDATE is issued). The master ARIES_NATIVE_REPLY_ENABLED OFF
+// case → 404 is also guarded here for new-platform context.
+
+const BASE_ENV_NO_PLATFORM = {
+  ARIES_NATIVE_REPLY_ENABLED: '1',
+  COMPOSIO_ENABLED: 'true',
+  // Intentionally NO ARIES_X_ENABLED / ARIES_YOUTUBE_ENABLED / ARIES_REDDIT_ENABLED / ARIES_LINKEDIN_ENABLED.
+} as const;
+
+function newPlatformComment(platform: string): CommentRow {
+  return {
+    id: 5,
+    tenant_id: 12,
+    platform,
+    external_comment_id: `${platform}_ext_1`,
+    is_replied: false,
+    platform_reply_id: null,
+  };
+}
+
+test('X: ARIES_X_ENABLED OFF → 422 reply_not_supported, no pre-claim UPDATE issued', async () => {
+  const { db, calls } = makeFakeCommentDb(newPlatformComment('x'));
+
+  const res = await handleReplyToComment(replyRequest('Hello!'), '5', {
+    env: BASE_ENV_NO_PLATFORM,
+    db,
+    tenantContextLoader: tenantLoader(12),
+  });
+
+  assert.equal(res.status, 422);
+  assert.equal((await res.json()).reason, 'reply_not_supported');
+  const updateCalls = calls.filter(c => c.sql.includes('SET is_replied'));
+  assert.equal(updateCalls.length, 0, 'no claim UPDATE when X platform is dormant');
+});
+
+test('YouTube: ARIES_YOUTUBE_ENABLED OFF → 422 reply_not_supported, no pre-claim UPDATE issued', async () => {
+  const { db, calls } = makeFakeCommentDb(newPlatformComment('youtube'));
+
+  const res = await handleReplyToComment(replyRequest('Hello!'), '5', {
+    env: BASE_ENV_NO_PLATFORM,
+    db,
+    tenantContextLoader: tenantLoader(12),
+  });
+
+  assert.equal(res.status, 422);
+  assert.equal((await res.json()).reason, 'reply_not_supported');
+  const updateCalls = calls.filter(c => c.sql.includes('SET is_replied'));
+  assert.equal(updateCalls.length, 0, 'no claim UPDATE when YouTube platform is dormant');
+});
+
+test('Reddit: ARIES_REDDIT_ENABLED OFF → 422 reply_not_supported, no pre-claim UPDATE issued', async () => {
+  const { db, calls } = makeFakeCommentDb(newPlatformComment('reddit'));
+
+  const res = await handleReplyToComment(replyRequest('Hello!'), '5', {
+    env: BASE_ENV_NO_PLATFORM,
+    db,
+    tenantContextLoader: tenantLoader(12),
+  });
+
+  assert.equal(res.status, 422);
+  assert.equal((await res.json()).reason, 'reply_not_supported');
+  const updateCalls = calls.filter(c => c.sql.includes('SET is_replied'));
+  assert.equal(updateCalls.length, 0, 'no claim UPDATE when Reddit platform is dormant');
+});
+
+test('LinkedIn: ARIES_LINKEDIN_ENABLED OFF → 422 reply_not_supported, no pre-claim UPDATE issued', async () => {
+  const { db, calls } = makeFakeCommentDb(newPlatformComment('linkedin'));
+
+  const res = await handleReplyToComment(replyRequest('Hello!'), '5', {
+    env: BASE_ENV_NO_PLATFORM,
+    db,
+    tenantContextLoader: tenantLoader(12),
+  });
+
+  assert.equal(res.status, 422);
+  assert.equal((await res.json()).reason, 'reply_not_supported');
+  const updateCalls = calls.filter(c => c.sql.includes('SET is_replied'));
+  assert.equal(updateCalls.length, 0, 'no claim UPDATE when LinkedIn platform is dormant');
+});
+
+test('ARIES_NATIVE_REPLY_ENABLED OFF with an X comment → 404 (route is invisible)', async () => {
+  let dbCalls = 0;
+  const db = {
+    query: async () => {
+      dbCalls += 1;
+      return { rows: [], rowCount: 0 };
+    },
+  } as unknown as Pool;
+
+  const res = await handleReplyToComment(replyRequest('Hello!'), '5', {
+    env: {}, // master switch OFF
+    db,
+    tenantContextLoader: tenantLoader(12),
+  });
+
+  assert.equal(res.status, 404);
+  assert.equal((await res.json()).reason, 'not_found');
+  assert.equal(dbCalls, 0, 'no DB access when master flag is OFF');
+});

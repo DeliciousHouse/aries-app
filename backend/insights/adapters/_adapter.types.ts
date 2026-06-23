@@ -92,10 +92,14 @@ export interface RawComment {
  * Composio-backed adapters (Facebook) need the per-tenant Composio
  * `connectedAccountId` to authenticate every tool call; `pageId` is the
  * platform-side account id (mirrors `insights_accounts.external_account_id`).
+ * `tenantId` is supplied for adapters that source their post list from Aries'
+ * own DB (e.g. X, which has no Composio "list my tweets" action); FB/YouTube
+ * ignore it.
  */
 export interface InsightsAdapterContext {
   connectedAccountId?: string | null;
   pageId?: string | null;
+  tenantId?: number | null;
 }
 
 // ── The adapter interface ─────────────────────────────────────────────────────

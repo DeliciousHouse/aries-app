@@ -195,6 +195,23 @@ services:
       # restart. See docs/integrations/composio.md.
       COMPOSIO_ENABLED: ${COMPOSIO_ENABLED:-false}
       COMPOSIO_API_KEY: ${COMPOSIO_API_KEY:-}
+      # X (Twitter) connect rollout flag — default OFF ships the platform dormant
+      # (card hidden; connect/capabilities 400 unsupported_platform as today).
+      ARIES_X_ENABLED: ${ARIES_X_ENABLED:-false}
+      # TikTok connect rollout flag — default OFF ships TikTok dormant (gated out;
+      # no Composio comments/reply + publish audit-gated). Pair with .env.
+      ARIES_TIKTOK_ENABLED: ${ARIES_TIKTOK_ENABLED:-false}
+      # Reddit publish rollout flag — default OFF ships the publish path dormant
+      # (Reddit already connects; this gates publish only). When OFF a reddit
+      # schedule/dispatch is rejected exactly as today.
+      ARIES_REDDIT_ENABLED: ${ARIES_REDDIT_ENABLED:-false}
+      # LinkedIn rollout flag — default OFF ships the connect-time person-URN
+      # lookup dormant (no LINKEDIN_GET_MY_INFO call; connect byte-identical).
+      ARIES_LINKEDIN_ENABLED: ${ARIES_LINKEDIN_ENABLED:-false}
+      # YouTube insights rollout flag (#637/#638) — default OFF ships the
+      # Composio-backed YouTube insights adapter dormant (no bridge row, no
+      # adapter, no Composio tool). Gates insights only, not connectability.
+      ARIES_YOUTUBE_ENABLED: ${ARIES_YOUTUBE_ENABLED:-false}
       # Toolkit version for manual Composio tool execution (publish/analytics/
       # comments). The SDK rejects by-slug execution without one; default 'latest'
       # (gateway pairs it with a skip-check). Pin a concrete version to avoid drift.
@@ -207,6 +224,8 @@ services:
       COMPOSIO_YOUTUBE_AUTH_CONFIG_ID: ${COMPOSIO_YOUTUBE_AUTH_CONFIG_ID:-}
       COMPOSIO_LINKEDIN_AUTH_CONFIG_ID: ${COMPOSIO_LINKEDIN_AUTH_CONFIG_ID:-}
       COMPOSIO_REDDIT_AUTH_CONFIG_ID: ${COMPOSIO_REDDIT_AUTH_CONFIG_ID:-}
+      # X (Twitter) auth config — only consulted when ARIES_X_ENABLED=true.
+      COMPOSIO_X_AUTH_CONFIG_ID: ${COMPOSIO_X_AUTH_CONFIG_ID:-}
       # Composio action slugs (COMPOSIO_<PLATFORM>_<OPERATION>_ACTION). Required
       # for Composio-routed publishing — a missing slug is refused with a clear
       # capability error, never executed against a guessed action.
@@ -214,6 +233,43 @@ services:
       COMPOSIO_INSTAGRAM_PUBLISH_POST_ACTION: ${COMPOSIO_INSTAGRAM_PUBLISH_POST_ACTION:-}
       COMPOSIO_FACEBOOK_UPLOAD_MEDIA_ACTION: ${COMPOSIO_FACEBOOK_UPLOAD_MEDIA_ACTION:-}
       COMPOSIO_INSTAGRAM_UPLOAD_MEDIA_ACTION: ${COMPOSIO_INSTAGRAM_UPLOAD_MEDIA_ACTION:-}
+      # X (Twitter) publish slugs — only consulted when ARIES_X_ENABLED=true and
+      # PUBLISH_PROVIDER=composio/auto. Publish executes in the app process (the
+      # scheduled-posts-worker only POSTs to the route), so these live here only.
+      #   COMPOSIO_X_PUBLISH_POST_ACTION=TWITTER_CREATION_OF_A_POST
+      #   COMPOSIO_X_UPLOAD_MEDIA_ACTION=TWITTER_UPLOAD_MEDIA
+      COMPOSIO_X_PUBLISH_POST_ACTION: ${COMPOSIO_X_PUBLISH_POST_ACTION:-}
+      COMPOSIO_X_UPLOAD_MEDIA_ACTION: ${COMPOSIO_X_UPLOAD_MEDIA_ACTION:-}
+      # Reddit publish (#641) — only consulted when ARIES_REDDIT_ENABLED=true and
+      # PUBLISH_PROVIDER=composio/auto. Publish runs in the app process (the
+      # scheduled-posts-worker only POSTs to the route), so these live here only.
+      # No media-upload action (image is the kind=link url). TARGET_SUBREDDIT
+      # unset → the connected user's own profile (u_<username>); FLAIR_ID optional.
+      #   COMPOSIO_REDDIT_PUBLISH_POST_ACTION=REDDIT_CREATE_REDDIT_POST
+      COMPOSIO_REDDIT_PUBLISH_POST_ACTION: ${COMPOSIO_REDDIT_PUBLISH_POST_ACTION:-}
+      COMPOSIO_REDDIT_TARGET_SUBREDDIT: ${COMPOSIO_REDDIT_TARGET_SUBREDDIT:-}
+      COMPOSIO_REDDIT_FLAIR_ID: ${COMPOSIO_REDDIT_FLAIR_ID:-}
+      # LinkedIn member-identity slug (#645) — only consulted when
+      # ARIES_LINKEDIN_ENABLED=true. Optional; defaults to the verified
+      # LINKEDIN_GET_MY_INFO slug. Resolves the member's urn:li:person:<id> at
+      # connect so LinkedIn publish (#646) has an author. App-process only.
+      COMPOSIO_LINKEDIN_ACCOUNT_INFO_ACTION: ${COMPOSIO_LINKEDIN_ACCOUNT_INFO_ACTION:-}
+      # LinkedIn publish slug (#646) — only consulted when ARIES_LINKEDIN_ENABLED=true
+      # and PUBLISH_PROVIDER=composio/auto. ONE action (no separate media-upload —
+      # the image is staged via gateway.uploadFile and passed in images:[...]).
+      # Publish runs in the app process, so this lives here only.
+      #   COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION=LINKEDIN_CREATE_LINKED_IN_POST
+      COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: ${COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION:-}
+      # YouTube publish (#636) — only consulted when ARIES_YOUTUBE_ENABLED=true and
+      # PUBLISH_PROVIDER=composio/auto. Aries synthesizes a short MP4 from the still
+      # (ffmpeg), stages it via gateway.uploadFile, and uploads it. The action is a
+      # VIDEO upload; the file arg key (videoFilePath vs videoFile) is derived from
+      # the configured slug. CATEGORY_ID defaults to '22'; PRIVACY_STATUS defaults to
+      # 'public' (set 'unlisted' for first live verification). App-process only.
+      #   COMPOSIO_YOUTUBE_PUBLISH_POST_ACTION=YOUTUBE_UPLOAD_VIDEO
+      COMPOSIO_YOUTUBE_PUBLISH_POST_ACTION: ${COMPOSIO_YOUTUBE_PUBLISH_POST_ACTION:-}
+      COMPOSIO_YOUTUBE_CATEGORY_ID: ${COMPOSIO_YOUTUBE_CATEGORY_ID:-}
+      COMPOSIO_YOUTUBE_PRIVACY_STATUS: ${COMPOSIO_YOUTUBE_PRIVACY_STATUS:-}
       # Facebook analytics + comments sync slugs (#596/#597). Optional — the
       # adapter falls back to the verified code defaults when unset.
       COMPOSIO_FACEBOOK_LIST_POSTS_ACTION: ${COMPOSIO_FACEBOOK_LIST_POSTS_ACTION:-}
@@ -224,8 +280,16 @@ services:
       # Optional; defaults to the verified FACEBOOK_CREATE_COMMENT slug. Consumed
       # only by the app (the reply endpoint), routed when PUBLISH_PROVIDER=composio.
       COMPOSIO_FACEBOOK_REPLY_COMMENT_ACTION: ${COMPOSIO_FACEBOOK_REPLY_COMMENT_ACTION:-}
-      PUBLISH_PROVIDER: ${PUBLISH_PROVIDER:-direct_meta}
-      ANALYTICS_PROVIDER: ${ANALYTICS_PROVIDER:-direct_meta}
+      # New-platform native reply via Composio (#634/gate-5) — X/YouTube/Reddit/
+      # LinkedIn. Optional slug overrides; default to the verified catalog slugs.
+      # Consumed only by the app (the reply endpoint runs in aries-app), each
+      # admitted behind its own ARIES_<P>_ENABLED + master ARIES_NATIVE_REPLY_ENABLED.
+      COMPOSIO_X_REPLY_COMMENT_ACTION: ${COMPOSIO_X_REPLY_COMMENT_ACTION:-}
+      COMPOSIO_YOUTUBE_REPLY_COMMENT_ACTION: ${COMPOSIO_YOUTUBE_REPLY_COMMENT_ACTION:-}
+      COMPOSIO_REDDIT_REPLY_COMMENT_ACTION: ${COMPOSIO_REDDIT_REPLY_COMMENT_ACTION:-}
+      COMPOSIO_LINKEDIN_REPLY_COMMENT_ACTION: ${COMPOSIO_LINKEDIN_REPLY_COMMENT_ACTION:-}
+      PUBLISH_PROVIDER: ${PUBLISH_PROVIDER:-composio}
+      ANALYTICS_PROVIDER: ${ANALYTICS_PROVIDER:-composio}
       AUTH_URL: ${AUTH_URL}
       AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
       MARKETING_STATUS_PUBLIC: ${MARKETING_STATUS_PUBLIC:-}
@@ -450,7 +514,7 @@ services:
       # executes Composio tools, so this sidecar needs the same Composio
       # credentials as the app (COMPOSIO_API_KEY etc.); the *_ACTION slugs are
       # optional (verified code defaults).
-      ANALYTICS_PROVIDER: ${ANALYTICS_PROVIDER:-direct_meta}
+      ANALYTICS_PROVIDER: ${ANALYTICS_PROVIDER:-composio}
       COMPOSIO_ENABLED: ${COMPOSIO_ENABLED:-false}
       COMPOSIO_API_KEY: ${COMPOSIO_API_KEY:-}
       # Toolkit version for manual Composio tool execution (see aries-app above).
@@ -461,6 +525,55 @@ services:
       COMPOSIO_FACEBOOK_POST_INSIGHTS_ACTION: ${COMPOSIO_FACEBOOK_POST_INSIGHTS_ACTION:-}
       COMPOSIO_FACEBOOK_ACCOUNT_INSIGHTS_ACTION: ${COMPOSIO_FACEBOOK_ACCOUNT_INSIGHTS_ACTION:-}
       COMPOSIO_FACEBOOK_LIST_COMMENTS_ACTION: ${COMPOSIO_FACEBOOK_LIST_COMMENTS_ACTION:-}
+      # X (Twitter) analytics + comment replies (#632/#633), read by the
+      # insights-sync worker's X adapter (backend/insights/adapters/x). The X
+      # insights path (account bridge + adapter) turns on ONLY when
+      # ARIES_X_ENABLED=true AND COMPOSIO_ENABLED=true; otherwise dormant.
+      # AUTH_CONFIG_ID is the tenant's Composio auth config; the *_ACTION slugs
+      # are optional (verified code defaults: TWITTER_POST_LOOKUP_BY_POST_ID(S),
+      # TWITTER_RECENT_SEARCH).
+      ARIES_X_ENABLED: ${ARIES_X_ENABLED:-false}
+      COMPOSIO_X_AUTH_CONFIG_ID: ${COMPOSIO_X_AUTH_CONFIG_ID:-}
+      COMPOSIO_X_POST_INSIGHTS_ACTION: ${COMPOSIO_X_POST_INSIGHTS_ACTION:-}
+      COMPOSIO_X_LIST_COMMENTS_ACTION: ${COMPOSIO_X_LIST_COMMENTS_ACTION:-}
+      COMPOSIO_X_LIST_POSTS_ACTION: ${COMPOSIO_X_LIST_POSTS_ACTION:-}
+      # YouTube analytics + comments (#637/#638), read by the insights-sync
+      # worker's YouTube adapter (backend/insights/adapters/youtube). The YouTube
+      # insights path (account bridge + adapter) turns on ONLY when
+      # ARIES_YOUTUBE_ENABLED=true AND COMPOSIO_ENABLED=true; otherwise
+      # dormant. AUTH_CONFIG_ID is the tenant's Composio auth config; the *_ACTION
+      # slugs are optional (verified code defaults: YOUTUBE_LIST_CHANNEL_VIDEOS,
+      # YOUTUBE_GET_VIDEO_DETAILS_BATCH, YOUTUBE_LIST_COMMENT_THREADS2).
+      ARIES_YOUTUBE_ENABLED: ${ARIES_YOUTUBE_ENABLED:-false}
+      COMPOSIO_YOUTUBE_AUTH_CONFIG_ID: ${COMPOSIO_YOUTUBE_AUTH_CONFIG_ID:-}
+      COMPOSIO_YOUTUBE_POST_INSIGHTS_ACTION: ${COMPOSIO_YOUTUBE_POST_INSIGHTS_ACTION:-}
+      COMPOSIO_YOUTUBE_LIST_COMMENTS_ACTION: ${COMPOSIO_YOUTUBE_LIST_COMMENTS_ACTION:-}
+      COMPOSIO_YOUTUBE_LIST_POSTS_ACTION: ${COMPOSIO_YOUTUBE_LIST_POSTS_ACTION:-}
+      # Reddit analytics + comments (#642/#643), read by the insights-sync worker's
+      # Reddit adapter (backend/insights/adapters/reddit). The Reddit insights path
+      # (account bridge + adapter) turns on ONLY when ARIES_REDDIT_ENABLED=true AND
+      # COMPOSIO_ENABLED=true; otherwise dormant. REUSES ARIES_REDDIT_ENABLED
+      # from the #641 publish path (no new flag). This flag MUST be set on the
+      # worker (not just aries-app): the worker process runs the insights sync, so
+      # without it here the sidecar reads it false and Reddit insights stay dormant
+      # even when enabled. AUTH_CONFIG_ID is the tenant's Composio auth config; the
+      # *_ACTION slugs are optional (verified code defaults: REDDIT_RETRIEVE_REDDIT_POST,
+      # REDDIT_RETRIEVE_POST_COMMENTS). NO LIST_POSTS — Reddit's post universe is
+      # the `posts` table (no Composio "list my posts" action), like X.
+      ARIES_REDDIT_ENABLED: ${ARIES_REDDIT_ENABLED:-false}
+      COMPOSIO_REDDIT_AUTH_CONFIG_ID: ${COMPOSIO_REDDIT_AUTH_CONFIG_ID:-}
+      COMPOSIO_REDDIT_POST_INSIGHTS_ACTION: ${COMPOSIO_REDDIT_POST_INSIGHTS_ACTION:-}
+      COMPOSIO_REDDIT_LIST_COMMENTS_ACTION: ${COMPOSIO_REDDIT_LIST_COMMENTS_ACTION:-}
+      # LinkedIn analytics (#647), read by the insights-sync worker's LinkedIn
+      # adapter (backend/insights/adapters/linkedin). The LinkedIn insights path
+      # (account bridge + adapter) turns on ONLY when ARIES_LINKEDIN_ENABLED=true
+      # AND COMPOSIO_ENABLED=true; otherwise dormant. AUTH_CONFIG_ID is the
+      # tenant's Composio auth config; POST_INSIGHTS_ACTION is optional (verified
+      # code default: LINKEDIN_LIST_REACTIONS). Personal-reactions-only — there is
+      # no list-comments slug (LinkedIn has no Composio list-comments action, #648).
+      ARIES_LINKEDIN_ENABLED: ${ARIES_LINKEDIN_ENABLED:-false}
+      COMPOSIO_LINKEDIN_AUTH_CONFIG_ID: ${COMPOSIO_LINKEDIN_AUTH_CONFIG_ID:-}
+      COMPOSIO_LINKEDIN_POST_INSIGHTS_ACTION: ${COMPOSIO_LINKEDIN_POST_INSIGHTS_ACTION:-}
     restart: unless-stopped
     networks:
       - docker_stack

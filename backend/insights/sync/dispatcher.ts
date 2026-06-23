@@ -174,7 +174,7 @@ export async function syncAccountForTenant(
       const conn = await getConnectionRow(String(tenantId), platform, client).catch(() => null);
       connectedAccountId = conn?.connectedAccountId ?? null;
     }
-    const adapter = resolveAdapter(platform, { connectedAccountId, pageId: externalAccountId });
+    const adapter = resolveAdapter(platform, { tenantId, connectedAccountId, pageId: externalAccountId });
     const range30 = lastNDaysRange(30);
 
     let postsSeen = 0;

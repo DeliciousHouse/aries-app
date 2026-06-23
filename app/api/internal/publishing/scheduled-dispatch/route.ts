@@ -6,6 +6,7 @@ import {
   type MetaPublishFailureKind,
 } from '@/backend/integrations/meta-publishing';
 import { dispatchPublish } from '@/backend/integrations/publish-dispatch';
+import { isLinkedInEnabled, isRedditEnabled, isXEnabled, isYouTubeEnabled } from '@/backend/integrations/providers/integration-config';
 import { toSignedPublicUrl } from '@/app/api/publish/dispatch/handler';
 import { resolveSignableBasename } from '@/backend/marketing/signable-basename';
 import { recomputeAndPersistPendingApprovalCount } from '@/backend/marketing/runtime-views';
@@ -259,7 +260,15 @@ export async function POST(req: Request): Promise<Response> {
   let firstPublishedPostId: string | null = null;
 
   for (const platform of platforms) {
-    if (!isMetaProvider(platform)) {
+    // X (Twitter), Reddit, LinkedIn and YouTube are Composio-only publish targets
+    // (no direct-Meta path), so none is an `isMetaProvider`; accept each only when
+    // its rollout flag is on. OFF (default) keeps the exact `unsupported_provider`
+    // terminal result as before.
+    const isXPublish = platform.trim().toLowerCase() === 'x' && isXEnabled();
+    const isRedditPublish = platform.trim().toLowerCase() === 'reddit' && isRedditEnabled();
+    const isLinkedInPublish = platform.trim().toLowerCase() === 'linkedin' && isLinkedInEnabled();
+    const isYouTubePublish = platform.trim().toLowerCase() === 'youtube' && isYouTubeEnabled();
+    if (!isMetaProvider(platform) && !isXPublish && !isRedditPublish && !isLinkedInPublish && !isYouTubePublish) {
       // Unsupported provider can never succeed — terminal, not retryable.
       results.push({ provider: platform, ok: false, error: 'unsupported_provider', retryable: false, kind: 'permanent' });
       continue;

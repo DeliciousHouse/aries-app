@@ -15,7 +15,12 @@
  */
 
 import type { IntegrationPlatform } from '../providers/types';
-import { composioApiKey, composioAuthConfigId, composioToolkitVersion } from '../providers/integration-config';
+import {
+  composioApiKey,
+  composioAuthConfigId,
+  composioDefaultAuthConfigId,
+  composioToolkitVersion,
+} from '../providers/integration-config';
 
 /** Stable Composio toolkit slug per platform. */
 export const TOOLKIT_SLUG: Record<IntegrationPlatform, string> = {
@@ -26,6 +31,9 @@ export const TOOLKIT_SLUG: Record<IntegrationPlatform, string> = {
   youtube: 'youtube',
   linkedin: 'linkedin',
   reddit: 'reddit',
+  // Composio's toolkit for X is 'twitter'; Aries' platform key stays 'x'
+  // (so its action/auth env keys are COMPOSIO_X_*).
+  x: 'twitter',
 };
 
 export type ComposioOperation =
@@ -69,6 +77,13 @@ export interface ComposioConfig {
   authConfigIdFor(platform: IntegrationPlatform): string | null;
   toolkitSlugFor(platform: IntegrationPlatform): string;
   actionSlugFor(platform: IntegrationPlatform, op: ComposioOperation): string | null;
+  /**
+   * The shared default auth-config id (COMPOSIO_DEFAULT_AUTH_CONFIG_ID), or null
+   * when unset. Lets the reconcile path tell a platform-scoped (toolkit-bound)
+   * auth config apart from the shared default that several Meta-family platforms
+   * fall back to.
+   */
+  defaultAuthConfigId(): string | null;
 }
 
 /**
@@ -85,5 +100,6 @@ export function resolveComposioConfig(env: NodeJS.ProcessEnv = process.env): Com
     authConfigIdFor: (platform) => composioAuthConfigId(platform, env),
     toolkitSlugFor: (platform) => TOOLKIT_SLUG[platform],
     actionSlugFor: (platform, op) => actionSlug(platform, op, env),
+    defaultAuthConfigId: () => composioDefaultAuthConfigId(env),
   };
 }

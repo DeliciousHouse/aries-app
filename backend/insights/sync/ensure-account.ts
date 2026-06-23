@@ -7,32 +7,71 @@
  * Nothing else inserts into insights_accounts, so without this bridge the sync
  * worker's `SELECT DISTINCT tenant_id FROM insights_accounts` is always empty
  * and the whole analytics pipeline no-ops even though a tenant has a connected
- * Facebook account. This runs once per worker tick and idempotently upserts one
+ * account. This runs once per worker tick and idempotently upserts one
  * insights_accounts row per tenant that has a connected, Composio-backed
- * Facebook connection (mapping connected_accounts.external_account_id → the
- * page id stored in insights_accounts.external_account_id).
+ * connection (mapping connected_accounts.external_account_id → the platform
+ * account id stored in insights_accounts.external_account_id).
  *
- * Page-id back-heal: the Facebook Page id is not part of the Composio connection
- * metadata, so legacy rows can have `external_account_id IS NULL` (the prod
- * 2026-06-04 connection). For such rows the bridge resolves the Page id from
- * Composio (FACEBOOK_LIST_MANAGED_PAGES) using the connection's
- * connected_account_id, persists it back to connected_accounts so it is captured
- * once, then upserts insights_accounts. Resolution is fail-safe: an error or no
- * Page logs + skips that tenant — never throws (the worker tick must not wedge).
+ * External-id back-heal: the external account id is not part of the Composio
+ * connection metadata for several platforms, so legacy rows can have
+ * `external_account_id IS NULL`. For such rows the bridge resolves the id from
+ * Composio using the connection's connected_account_id, persists it back to
+ * connected_accounts so it is captured once, then upserts insights_accounts.
+ * Resolution is fail-safe: an error or no result logs + skips that tenant —
+ * never throws (the worker tick must not wedge).
  *
- * Instagram is intentionally out of scope (#596/#597 are Facebook-only); add
- * platforms to BRIDGED_PLATFORMS when their adapter lands.
+ * Resolver per platform:
+ *   facebook  → FACEBOOK_LIST_MANAGED_PAGES       → page id
+ *   instagram → INSTAGRAM_GET_USER_INFO ('me')     → ig user id + username (#692/#693)
+ *   youtube   → YOUTUBE_LIST_CHANNELS             → channel id
+ *   x         → TWITTER_USER_LOOKUP_ME            → username/handle (#670)
+ *   reddit    → REDDIT_GET_REDDIT_USER_ABOUT      → username (#670)
+ *   linkedin  → no back-heal (URN resolved at connect via ensure-linkedin-urn.ts)
+ *
+ * Instagram is now bridged (#692/#693): both facebook and instagram are governed
+ * by the ANALYTICS_PROVIDER=composio gate (no separate ARIES_INSTAGRAM_ENABLED
+ * flag). Add platforms to BRIDGED_PLATFORMS when their adapter lands.
  */
 
 import pool from '@/lib/db';
 import type { Queryable } from '@/backend/integrations/composio/connection-store';
-import { analyticsProviderSelector } from '@/backend/integrations/providers/integration-config';
+import { isPlatformInsightsEnabled } from '@/backend/insights/sync/adapter-factory';
 import { resolveComposioConfig, type ComposioConfig } from '@/backend/integrations/composio/composio-config';
 import { createComposioGateway, type ComposioGateway } from '@/backend/integrations/composio/composio-client';
 import { resolveFacebookManagedPage } from '@/backend/integrations/composio/facebook-page-resolver';
+import { resolveInstagramAccount } from '@/backend/integrations/composio/instagram-account-resolver';
+import { resolveYouTubeChannel } from '@/backend/integrations/composio/youtube-channel-resolver';
+import { resolveXUser } from '@/backend/integrations/composio/x-user-resolver';
+import { resolveRedditUser } from '@/backend/integrations/composio/reddit-user-resolver';
 
-/** Platforms whose Composio connections should be projected into insights_accounts. */
-export const BRIDGED_PLATFORMS = ['facebook'] as const;
+/**
+ * Platforms bridged unconditionally when ANALYTICS_PROVIDER=composio. Both
+ * facebook and instagram use the same ANALYTICS_PROVIDER gate (no separate
+ * ARIES_INSTAGRAM_ENABLED flag). Exported for test introspection.
+ * Composio-only platforms (x, youtube, reddit, linkedin) are NOT listed here
+ * because they are conditional on both their rollout flag AND COMPOSIO_ENABLED —
+ * they are included in the dynamic bridgedPlatforms() result only when both
+ * conditions are met. See bridgedPlatforms() below.
+ */
+export const BRIDGED_PLATFORMS = ['facebook', 'instagram'] as const;
+
+/**
+ * Full bridged-platform list for this env, computed per-platform using the same
+ * `is<P>InsightsEnabled` predicates as the adapter factory (via
+ * isPlatformInsightsEnabled). The two can therefore never drift.
+ *
+ *   facebook  → bridged iff ANALYTICS_PROVIDER=composio
+ *   instagram → bridged iff ANALYTICS_PROVIDER=composio (same gate as facebook)
+ *   x         → bridged iff ARIES_X_ENABLED + COMPOSIO_ENABLED
+ *   youtube   → bridged iff ARIES_YOUTUBE_ENABLED + COMPOSIO_ENABLED
+ *   reddit    → bridged iff ARIES_REDDIT_ENABLED + COMPOSIO_ENABLED
+ *   linkedin  → bridged iff ARIES_LINKEDIN_ENABLED + COMPOSIO_ENABLED
+ */
+function bridgedPlatforms(env: NodeJS.ProcessEnv): string[] {
+  return ['facebook', 'instagram', 'x', 'youtube', 'reddit', 'linkedin'].filter(
+    (p) => isPlatformInsightsEnabled(p, env),
+  );
+}
 
 interface BridgeRow {
   id: string | number;
@@ -72,20 +111,25 @@ function log(obj: Record<string, unknown>): void {
  * connections. Safe to call every tick: the UNIQUE (tenant_id, platform,
  * external_account_id) constraint collapses re-runs onto the existing row.
  *
- * Gated by the same off-switch as the adapter (ANALYTICS_PROVIDER=composio):
- * when analytics is not on Composio this is a no-op, so nothing is populated and
- * the worker stays a clean no-op (no failed sync runs for a disabled path).
+ * Gated per-platform by the same predicates the adapter factory uses (via
+ * isPlatformInsightsEnabled), so the bridge and adapter selections can never
+ * drift:
+ *   - Facebook and Instagram are bridged only when ANALYTICS_PROVIDER=composio.
+ *   - Composio-only platforms (x, youtube, reddit, linkedin) are bridged only
+ *     when their rollout flag AND COMPOSIO_ENABLED are both on — independent of
+ *     ANALYTICS_PROVIDER, which governs facebook/instagram only.
+ * When no platform is enabled the function is a clean no-op (no DB query issued).
  */
 export async function ensureInsightsAccountsForConnectedPlatforms(
   db: Queryable = pool,
   env: NodeJS.ProcessEnv = process.env,
   deps: EnsureAccountsDeps = {},
 ): Promise<EnsureAccountsResult> {
-  if (analyticsProviderSelector(env) !== 'composio') {
-    return { considered: 0, upserted: 0, resolved: 0, skippedNoPage: 0, skippedReason: 'analytics_provider_not_composio' };
+  const platforms = bridgedPlatforms(env);
+  if (platforms.length === 0) {
+    return { considered: 0, upserted: 0, resolved: 0, skippedNoPage: 0, skippedReason: 'no_enabled_analytics_platforms' };
   }
-
-  const placeholders = BRIDGED_PLATFORMS.map((_, i) => `$${i + 1}`).join(', ');
+  const placeholders = platforms.map((_, i) => `$${i + 1}`).join(', ');
   // NOTE: external_account_id is intentionally NOT filtered here — a null Page id
   // is back-healed below rather than skipped (the prod connection data gap).
   const sources = await db.query<BridgeRow>(
@@ -95,7 +139,7 @@ export async function ensureInsightsAccountsForConnectedPlatforms(
         AND provider = 'composio'
         AND connected_account_id IS NOT NULL
         AND platform IN (${placeholders})`,
-    [...BRIDGED_PLATFORMS],
+    platforms,
   );
 
   // Build the Composio gateway lazily — only when a row actually needs Page-id
@@ -127,38 +171,95 @@ export async function ensureInsightsAccountsForConnectedPlatforms(
     let pageName = row.external_account_name;
 
     if (!pageId) {
-      // Back-heal: resolve the Page id from Composio and persist it once.
+      // Back-heal is available for facebook, instagram, youtube, x, and reddit.
+      // LinkedIn's URN is resolved at connect time via ensure-linkedin-urn.ts, so
+      // a null id there is not back-heal-able here — skip and let a later
+      // connect/re-auth populate it. Never invent an external account id.
+      if (!['facebook', 'instagram', 'youtube', 'x', 'reddit'].includes(row.platform)) {
+        skippedNoPage++;
+        log({ event: 'insights_bridge_page_unresolved', tenantId: row.tenant_id, platform: row.platform, reason: 'no_external_account_id' });
+        continue;
+      }
+      // Back-heal: resolve the external id from Composio and persist it once.
       const r = getResolver();
       if (!r || !row.connected_account_id) {
         skippedNoPage++;
-        log({ event: 'insights_bridge_page_unresolved', tenantId: row.tenant_id, reason: r ? 'no_connected_account' : 'composio_unavailable' });
+        log({ event: 'insights_bridge_page_unresolved', tenantId: row.tenant_id, platform: row.platform, reason: r ? 'no_connected_account' : 'composio_unavailable' });
         continue;
       }
-      let page: Awaited<ReturnType<typeof resolveFacebookManagedPage>> = null;
+      // Each resolver is fail-safe (returns null, never throws); the catch is a
+      // belt-and-braces guard so a single tenant can never wedge the worker tick.
+      let resolvedId: string | null = null;
+      let resolvedName: string | null = null;
+      let resolvedManagedCount = 0;
       try {
-        page = await resolveFacebookManagedPage(r.gateway, r.config, row.connected_account_id);
+        if (row.platform === 'youtube') {
+          const channel = await resolveYouTubeChannel(r.gateway, r.config, row.connected_account_id);
+          if (channel) {
+            resolvedId = channel.channelId;
+            resolvedName = channel.channelName;
+            resolvedManagedCount = channel.managedCount;
+          }
+        } else if (row.platform === 'x') {
+          // Resolve the X username (handle); stored as external_account_id so the
+          // fetchComments `-from:<handle>` filter in the X adapter works correctly.
+          const user = await resolveXUser(r.gateway, r.config, row.connected_account_id);
+          if (user) {
+            resolvedId = user.username;
+            resolvedName = user.name;
+            resolvedManagedCount = 1;
+          }
+        } else if (row.platform === 'reddit') {
+          // Resolve the Reddit username; stored as external_account_id to satisfy
+          // the NOT NULL enrollment column (the Reddit adapter is DB-driven and
+          // never uses pageId, but the column must be non-null to enroll the row).
+          const user = await resolveRedditUser(r.gateway, r.config, row.connected_account_id);
+          if (user) {
+            resolvedId = user.username;
+            resolvedName = user.name;
+            resolvedManagedCount = 1;
+          }
+        } else if (row.platform === 'instagram') {
+          // Resolve the IG user id (numeric) via INSTAGRAM_GET_USER_INFO('me').
+          // The 'me' resolution is UNVERIFIED live (IG is not connected yet as of
+          // #692/#693); if it fails on first live connect, the fail-safe null just
+          // skips this tenant — it never wedges the FB/X sync.
+          const account = await resolveInstagramAccount(r.gateway, r.config, row.connected_account_id);
+          if (account) {
+            resolvedId = account.igUserId;
+            resolvedName = account.username;
+            resolvedManagedCount = 1;
+          }
+        } else {
+          const page = await resolveFacebookManagedPage(r.gateway, r.config, row.connected_account_id);
+          if (page) {
+            resolvedId = page.pageId;
+            resolvedName = page.pageName;
+            resolvedManagedCount = page.managedCount;
+          }
+        }
       } catch (err) {
-        page = null;
-        log({ event: 'insights_bridge_page_resolve_error', tenantId: row.tenant_id, error: err instanceof Error ? err.message : String(err) });
+        resolvedId = null;
+        log({ event: 'insights_bridge_page_resolve_error', tenantId: row.tenant_id, platform: row.platform, error: err instanceof Error ? err.message : String(err) });
       }
-      if (!page) {
+      if (!resolvedId) {
         skippedNoPage++;
-        log({ event: 'insights_bridge_page_unresolved', tenantId: row.tenant_id, reason: 'no_managed_page' });
+        log({ event: 'insights_bridge_page_unresolved', tenantId: row.tenant_id, platform: row.platform, reason: 'no_managed_account' });
         continue;
       }
-      pageId = page.pageId;
-      pageName = pageName ?? page.pageName;
-      // Persist back so the Page id is captured once (future ticks skip resolution).
+      pageId = resolvedId;
+      pageName = pageName ?? resolvedName;
+      // Persist back so the external id is captured once (future ticks skip resolution).
       await db.query(
         `UPDATE connected_accounts
            SET external_account_id = $1,
                external_account_name = COALESCE($2, external_account_name),
                updated_at = now()
          WHERE id = $3`,
-        [pageId, page.pageName, row.id],
+        [pageId, resolvedName, row.id],
       );
       resolved++;
-      log({ event: 'insights_bridge_page_resolved', tenantId: row.tenant_id, pageId, managedCount: page.managedCount });
+      log({ event: 'insights_bridge_page_resolved', tenantId: row.tenant_id, platform: row.platform, pageId, managedCount: resolvedManagedCount });
     }
 
     const res = await db.query(

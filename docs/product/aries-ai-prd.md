@@ -2,8 +2,9 @@
 
 **Status:** Canonical operating specification  
 **Audience:** Engineers, AI agents, contributors, operators, reviewers  
-**Scope:** Aries AI application runtime, Hermes-native orchestration, social content generation, onboarding, memory-aware execution, tenant isolation, approval-gated publishing, and future platform extension  
+**Scope:** Aries AI application runtime, Hermes orchestration, social and multi-platform content generation, onboarding, memory-aware execution, tenant isolation, approval-gated (and optionally autonomous) publishing, analytics/insights ingestion, and future platform extension  
 **Last consolidated:** 2026-05-10  
+**Last reconciled:** 2026-06-18 — reconciled against `aries-app` @ v0.1.15.27. This pass folded in: full removal of OpenClaw/Lobster execution; the polled Hermes + durable-reconciler delivery model; the default-ON single-tenant autonomous mode; the Composio publish/analytics provider layer; multi-platform publishing (X/YouTube/Reddit/LinkedIn); the insights/analytics subsystem; scheduling/calendar; Slack notifications; and live Honcho memory. See `docs/audits/2026-06-18-prd-drift-audit.md` for the per-finding source map.
 
 This PRD is intentionally implementation-aware. It describes the intended product and architecture without overfitting to transient file names, temporary implementations, or deprecated execution systems.
 
@@ -77,7 +78,7 @@ Aries follows these product principles:
 
 1. **Deterministic orchestration over unconstrained chat.** Every production workflow must have an explicit lifecycle, typed inputs, stage boundaries, retry semantics, and terminal states.
 2. **Aries owns product truth.** Postgres and Aries-managed runtime records are canonical. Hermes execution traces and Honcho derived memory are not sources of truth.
-3. **AI proposes; humans approve high-impact actions.** Human approval is mandatory for publishing, risky automation, strategic memory promotion, and sensitive generated media actions.
+3. **AI proposes; humans approve high-impact actions — unless a tenant is explicitly configured for autonomous operation.** Human approval is the default gate for publishing, risky automation, strategic memory promotion, and sensitive generated media actions. This is configurable, not absolute: when `ARIES_AUTO_APPROVE_MARKETING_PIPELINE=1` (the current single-tenant production default in `docker-compose.yml`), an audited `ai-orchestrator` actor satisfies the strategy/production/publish gates and `ARIES_AUTOSCHEDULE_ON_APPROVAL` can auto-schedule approved posts. The approval gate itself remains a code-level boundary in every mode; autonomous mode changes who/what is permitted to satisfy it, recorded in the approval audit trail. See §7.5, §12.4, and §15.3.
 4. **Memory is curated, not automatic recall.** Durable memory may only contain approved, tenant-scoped, provenance-bearing facts. Raw tool output, speculative findings, and unapproved candidates must not become memory.
 5. **Providers are replaceable.** Workflows should request capabilities such as `image.generate`, `video.generate`, `research.run`, and `publish.dispatch`, not hard-code model vendors into product behavior.
 6. **Tenant isolation is a product feature, not only an infrastructure concern.** Tenant context is server-derived, never client-selected, and must shape API access, storage paths, memory namespaces, callbacks, and publishing boundaries.
@@ -94,8 +95,8 @@ Aries should support:
 
 - structured onboarding and business profile creation;
 - brand context ingestion;
-- weekly and campaign-based content planning;
-- social post, image, and video script generation;
+- weekly and one-off (event) social content planning;
+- social post, image, story, and video script generation;
 - approval-gated publishing;
 - integrations with social platforms and calendars;
 - curated tenant memory;
@@ -105,7 +106,7 @@ Aries should support:
 
 ### 2.2 Intended Platform Evolution
 
-Aries should evolve from a weekly social content workflow into a generalized workflow platform without losing deterministic execution rules. Future workflows may include competitor research, campaign planning, creative production, landing page creation, performance analysis, content calendars, and multi-channel publishing.
+Aries should evolve from a weekly social content workflow into a generalized workflow platform without losing deterministic execution rules. Several capabilities once listed here as "future" have shipped and are now present-tense product behavior: competitor/brand research, creative production, performance analysis (the insights/analytics subsystem), content calendars (scheduling), and multi-channel publishing (Meta plus X/YouTube/Reddit/LinkedIn). Genuinely future workflows still include landing-page generation, contributor-defined workflow extensions, and a tenant-facing workflow registry. See §17.
 
 Platform expansion must preserve the existing boundary model:
 
@@ -130,7 +131,7 @@ Aries should treat AI as an execution assistant, not an independent operator. AI
 - prepare platform-specific publish payloads;
 - identify memory candidates.
 
-AI must not, without explicit approval:
+AI must not, without explicit approval (in human-in-the-loop mode; in configured autonomous mode an audited `ai-orchestrator` actor may satisfy the publish/strategy/production gates and approved posts may be auto-scheduled to the calendar — see §1.4 principle 3, §7.5, §12.4):
 
 - publish or activate external content;
 - store speculative or third-party findings as durable memory;
@@ -163,7 +164,7 @@ The PRD uses **tenant** for the authoritative product boundary and **Honcho work
 
 ### 3.3 User
 
-A user is an authenticated person associated with one or more tenants. User privileges are tenant-scoped. A user may act as a creator, operator, approver, admin, or viewer depending on tenant membership and role.
+A user is an authenticated person associated with one or more tenants. User privileges are tenant-scoped. Each membership carries exactly one of three implemented roles — `tenant_admin`, `tenant_analyst`, or `tenant_viewer` (see `lib/tenant-context.ts`, `backend/auth/permission-check.ts`). "Operator" and "approver" are usage personas layered on these roles, not distinct DB roles; "creator" is a per-job ownership check, not a role. Approval authority is held by `tenant_admin`.
 
 ### 3.4 Operator
 
@@ -171,7 +172,7 @@ An operator is a user actively configuring or running workflows. Operators may c
 
 ### 3.5 Approver
 
-An approver is a user or role authorized to approve workflow stages, content artifacts, publishing actions, or memory promotion. Approvals must be recorded with actor identity, time, target resource, decision, and resulting transition.
+An approver is a user or role authorized to approve workflow stages, content artifacts, publishing actions, or memory promotion (in practice, the `tenant_admin` role). Approvals must be recorded with actor identity, time, target resource, decision, and resulting transition. Two non-classical participants now exist: in configured autonomous mode the synthetic `ai-orchestrator` actor satisfies marketing-pipeline gates (recorded in the approval history), and when Slack notifications are enabled a "needs approval" message with a deep link is posted to the tenant's Slack channel at the human gate (see §5.4, §8.10).
 
 ### 3.6 Onboarding
 
@@ -215,7 +216,7 @@ Approval is not the same as completion. A completed generation stage may still r
 
 ### 3.13 Artifact
 
-An artifact is a generated or uploaded output associated with a tenant and job. Examples include social post drafts, image previews, video scripts, campaign briefs, reports, publishing payloads, brand kits, screenshots, and structured research results.
+An artifact is a generated or uploaded output associated with a tenant and job. Examples include social post drafts, image previews, story creatives, video scripts, content briefs, insights narratives, reports, publishing payloads, brand kits, screenshots, and structured research results.
 
 Artifacts must be tenant-scoped, addressable, auditable, and safe to render in the UI. Raw provider responses should not be exposed directly to users unless explicitly normalized.
 
@@ -225,11 +226,11 @@ Memory is curated, tenant-scoped context that can be used to improve future exec
 
 ### 3.15 Provider
 
-A provider is an execution implementation behind a capability boundary. Examples include Hermes for long-running AI execution, publishing providers for social platforms, and model providers for text, image, or video generation. Product workflows must depend on provider capabilities, not specific vendor names.
+A provider is an execution implementation behind a capability boundary. Examples include Hermes for long-running AI execution, publishing providers for social platforms (direct Meta Graph vs. Composio), analytics/insights providers (Composio analytics adapters), and model providers for text, image, or video generation. Product workflows must depend on provider capabilities, not specific vendor names. The implemented capability ports are publisher, analytics, capability/preflight, and connection — selected by `backend/integrations/providers/provider-factory.ts`.
 
 ### 3.16 Publishing
 
-Publishing is the act of sending approved content or campaign assets to an external platform. Publishing includes preparation, validation, dispatch, retry, and platform response handling. Publishing must be approval-gated and platform-specific constraints must be enforced.
+Publishing is the act of sending approved posts / social content to an external platform. It is multi-platform: Meta (Facebook/Instagram, including Stories/Reels) plus X, YouTube, Reddit, and LinkedIn (each behind an `ARIES_*_ENABLED` flag and routed through the Composio provider). Publishing includes preparation, validation, dispatch (immediate or scheduled), retry, and platform response handling. Publishing must be approval-gated (except in configured autonomous mode) and platform-specific constraints must be enforced via the capability/preflight port.
 
 ### 3.17 Orchestration
 
@@ -237,7 +238,7 @@ Orchestration is the Aries-owned coordination of workflow stages, execution prov
 
 ### 3.18 Callback
 
-A callback is an authenticated provider-to-Aries request carrying execution results. Callbacks are internal, authenticated, schema-validated, and bound to a specific run or job. They are not general-purpose webhooks.
+A callback is an authenticated request carrying execution results into Aries' internal callback handler. Callbacks are internal, authenticated, schema-validated, and bound to a specific run or job. They are not general-purpose webhooks. **Note on transport:** Hermes does not push callbacks — its `/v1/runs` API is poll-only. In practice the "callback" is invoked by Aries' own machinery: a best-effort in-request poll-bridge and, as the durable guarantee, the standing Hermes run reconciler (`backend/marketing/hermes-reconciler.ts`). Both deliver through the same idempotent `handleHermesRunCallback` path. See §9.4 and §19.4.
 
 ### 3.19 Resume
 
@@ -246,6 +247,22 @@ Resume is the act of continuing a workflow after an approval, callback, repair, 
 ### 3.20 Curation
 
 Curation is the process that evaluates candidate memory or generated findings before persistence. It includes schema validation, reject-list filtering, auto-approval policy evaluation, human review queueing, and final write to durable memory if approved.
+
+### 3.21 Post / Social Content
+
+A post (also "social content") is the central tenant-facing content entity, persisted in the `posts` table and surfaced under the `/social-content` and `/posts` routes. It is the canonical noun for what older code and the legacy `/campaigns/*` route still call a "campaign." A social content job produces one or more posts; each post carries platform targeting, media, schedule, approval, and publish state. See §19.5 for the in-progress terminology migration.
+
+### 3.22 Schedule / Scheduled Post
+
+A scheduled post is an approved post queued for future (or immediate) dispatch. Scheduling is backed by the `scheduled_posts` table (with per-platform `scheduled_post_dispatches` child rows) and the `marketing_schedule` cadence, surfaced through the calendar planner UI and drained by the `scheduled-posts-worker` sidecar. Scheduling is tenant-timezone-aware (per-tenant business timezone).
+
+### 3.23 Insights / Analytics
+
+Insights is the analytics subsystem that ingests per-platform performance and engagement (analytics + comments) into the `insights_*` tables and surfaces them through analytics and comments screens plus the dashboard hero "Aries Score" narrative. Ingestion runs through provider analytics adapters (Composio) driven by the `insights-sync-worker` and `honcho-performance-worker` sidecars. Insights data is read-derived, not canonical product state.
+
+### 3.24 Taste Profile
+
+A taste profile is a tenant-scoped, learned representation of brand creative preference (distinct from curated Memory). It is produced by the onboarding variant board (operator picks among generated first-post variants) and the brand taste-learning loop, persisted in the `marketing_taste_profile` / signal tables. Both the read and write paths are flag-gated and ship default-OFF.
 
 ---
 
@@ -288,7 +305,7 @@ Usage pattern:
 
 ### 4.4 Approver / Reviewer
 
-The approver is responsible for policy, quality, legal, brand, and publishing approval. The approver may be a tenant admin, manager, client, or designated reviewer.
+The approver is responsible for policy, quality, legal, brand, and publishing approval. In the implemented role model the approver is the `tenant_admin` ("manager / client / designated reviewer" are organizational descriptions, not separate roles). In configured autonomous mode the synthetic `ai-orchestrator` actor stands in for the human approver at marketing-pipeline gates, and Slack notifications can route the approval prompt to the tenant's channel.
 
 Usage pattern:
 
@@ -305,7 +322,8 @@ The platform operator or engineer manages deployment, runtime health, environmen
 Usage pattern:
 
 - validates environment variables;
-- monitors Hermes callbacks and job status;
+- monitors the Hermes poll/reconciler delivery path, the stale-run reaper, and job status;
+- operates the worker sidecars (Hermes reconciler, stale-run reaper, scheduled-posts, weekly-trigger, insights-sync, honcho-performance) and ensures deploys force-recreate all of them;
 - reviews logs and database health;
 - handles provider outages;
 - manages production rollouts and feature gates.
@@ -351,7 +369,7 @@ Create or enrich tenant context so Aries can generate relevant social content wh
 4. Aries validates the payload and creates an onboarding run.
 5. Aries may invoke enrichment through Hermes or another execution provider if enabled.
 6. Enrichment output is normalized into a brand/business profile draft and candidate memory facts.
-7. User reviews onboarding output before it becomes authoritative brand context where policy requires review.
+7. User reviews onboarding output before it becomes authoritative brand context where policy requires review. A gated variant-board step (default OFF) may present generated first-post variants for the operator to pick, seeding a tenant taste profile (see §3.24).
 8. Approved brand facts are written into Aries canonical state.
 9. Memory seed candidates are curated; only approved memory candidates enter the tenant memory store.
 10. Dashboard and workflow UIs use the approved profile and safe read models.
@@ -400,10 +418,10 @@ Generate a weekly package of social content drafts and optional media requests t
 2. User provides objective, theme, audience, competitors if relevant, target channels, constraints, and requested asset counts.
 3. Aries validates input, clamps unsafe counts, and derives tenant context server-side.
 4. Aries loads approved brand and memory context within a fixed budget.
-5. Aries creates a job record and execution request.
-6. Aries submits a provider-abstract workflow request to Hermes.
-7. Hermes performs bounded planning and generation and returns results through an authenticated callback.
-8. Aries validates callback credentials, callback token, run ID, job ID, output schema, tenant association, and idempotency.
+5. Aries creates a job record and execution request. (This flow may also be triggered automatically on a per-tenant cadence by the weekly-trigger worker, not only by an operator opening the create surface.)
+6. Aries submits a provider-abstract workflow request to Hermes, which runs the pipeline as named profile stages (research → strategy → production → publish).
+7. Hermes performs bounded planning and generation. Because Hermes is poll-only (it does not push callbacks), Aries' durable run reconciler — backed by a best-effort in-request poll-bridge — polls the run to completion and ingests the result via the idempotent in-process callback handler.
+8. The callback handler validates the callback token, run ID, job ID, output schema, tenant association (from the stored job, never the payload), and idempotency.
 9. Aries stores normalized content drafts and artifact metadata.
 10. User reviews posts, image previews, scripts, and optional media render requests.
 11. User approves, revises, rejects, or requests generation changes.
@@ -411,12 +429,11 @@ Generate a weekly package of social content drafts and optional media requests t
 
 #### Required Behavior
 
-- Active social-content workflow must use Hermes-native execution by default.
-- Product code must not hard-code legacy Lobster/OpenClaw paths into active social-content behavior.
+- Active social-content workflow uses Hermes execution (the sole execution provider; OpenClaw/Lobster has been removed — see §8.6, §19.1).
 - Media requests must be abstract capability requests rather than provider-specific requests.
 - Text planning may run even when media generation is unavailable.
 - Video render requests must require human approval.
-- Generated drafts must not publish automatically.
+- Generated drafts must not publish automatically **in human-in-the-loop mode**. In configured autonomous mode (`ARIES_AUTO_APPROVE_MARKETING_PIPELINE=1`, the single-tenant production default) the pipeline auto-approves and, with `ARIES_AUTOSCHEDULE_ON_APPROVAL`, auto-schedules approved posts for dispatch.
 
 ### 5.4 Approval Workflow
 
@@ -429,8 +446,8 @@ Ensure that generated strategy, content, media, memory, and publishing actions a
 1. Workflow reaches an approval checkpoint.
 2. Aries creates or updates an approval record with target resource, actor requirements, current state, and payload summary.
 3. UI displays a safe review model, not raw provider output.
-4. Approver chooses approve, reject, request changes, or hold.
-5. Aries records the decision and actor metadata.
+4. Approver chooses approve, reject, request changes, or hold. (In configured autonomous mode the `ai-orchestrator` actor satisfies eligible marketing-pipeline gates without a human click; auto-approved gates are not announced.)
+5. Aries records the decision and actor metadata. When Slack notifications are enabled, a "needs approval" Block Kit message with a "Review in Aries" deep link is posted to the tenant's Slack channel at the human gate (deduped per `approval:<jobId>:<stage>`).
 6. Approval decision triggers a deterministic state transition.
 7. If approved, workflow may resume from the next allowed stage.
 8. If rejected or changes requested, workflow enters revision or terminal rejected state.
@@ -452,16 +469,17 @@ Dispatch approved content to configured external platforms without bypassing rev
 
 #### Flow
 
-1. User connects platform account through OAuth or another supported integration mechanism.
+1. User connects a platform account — either directly (Meta OAuth) or through the Composio provider-managed connection model (the exclusive path for X, YouTube, Reddit, and LinkedIn). Composio auto-provisions a managed auth config on connect.
 2. Aries stores integration state and encrypted credentials according to security rules.
-3. User selects approved content for publishing.
-4. Aries prepares platform-specific payloads and validates required fields.
+3. User selects approved content for publishing, and may target one or more platforms.
+4. Aries prepares platform-specific payloads, runs the capability/preflight check for the target platform, and validates required fields.
 5. Aries displays a publish review summary.
-6. Authorized approver confirms dispatch.
-7. Aries dispatches through the appropriate publishing provider.
-8. Provider response is recorded in Aries.
+6. Authorized approver confirms dispatch (or, in autonomous mode, the `ai-orchestrator` gate is satisfied).
+7. Aries dispatches through the selected publishing provider — direct Meta Graph or Composio — resolved by the provider factory. Dispatch is either immediate or scheduled: scheduled posts are persisted and later drained by the `scheduled-posts-worker` through the internal scheduled-dispatch route.
+8. Provider response is recorded in Aries (status, external IDs, retryability).
 9. UI shows success, failure, or retryable error.
-10. Retry can be triggered only for approved content and must preserve idempotency where possible.
+10. Retry can be triggered only for approved content and must preserve idempotency where possible. (Retry currently requires session auth but not a separate re-approval gate — see §16.5.)
+11. After publish, the insights subsystem ingests per-platform analytics and comments for the post, feeding performance summaries (the Stage-4 optimize loop).
 
 #### Required Behavior
 
@@ -480,7 +498,7 @@ Allow long-running workflows to continue after callbacks, failures, approvals, o
 
 1. Job enters a waiting, submitted, retryable failure, or approval-required state.
 2. Aries stores state, current stage, attempt count, maximum attempts, last error, and next allowed transition.
-3. Resume trigger occurs through callback, approval, retry endpoint, or operator action.
+3. Resume trigger occurs through the in-process callback handler (driven by the durable reconciler/poll-bridge), approval, retry endpoint, or operator action. Note the stale-run reaper does **not** resume runs — it terminally fails runs that exceed their deadline.
 4. Aries revalidates tenant authorization and current job state.
 5. Aries determines whether the transition is allowed.
 6. Aries resumes from the last known stage or starts a new provider execution with an idempotency key.
@@ -526,7 +544,7 @@ Use approved tenant memory to improve future AI executions without leaking tenan
 
 ### 6.1 Operator Interface Requirements
 
-**FR-UI-1:** Aries must provide authenticated operator screens for dashboard, onboarding, social content job creation, job status, approvals, integrations, and publishing actions.
+**FR-UI-1:** Aries must provide authenticated operator screens for dashboard, onboarding, social content job creation, job status, approvals, integrations, publishing actions, the scheduling/calendar planner, and the analytics/insights surfaces (analytics + comments/replies, with a per-platform selector).
 
 **FR-UI-2:** The UI must consume safe read models from Aries APIs. It must not require raw provider envelopes, internal execution traces, secrets, or unrestricted tenant identifiers.
 
@@ -574,7 +592,7 @@ Use approved tenant memory to improve future AI executions without leaking tenan
 
 **FR-SOC-5:** Active social-content workflows must use Hermes-native execution by default.
 
-**FR-SOC-6:** Active social-content payloads must not depend on legacy Lobster workflow files or direct provider credentials.
+**FR-SOC-6:** Active social-content payloads must not include direct provider credentials. (The former prohibition on legacy Lobster workflow files is now moot — OpenClaw/Lobster execution has been removed; see §8.6, §19.1, invariant inv-06.)
 
 **FR-SOC-7:** Content outputs must be stored as tenant-scoped artifacts or draft records before they are rendered in the UI.
 
@@ -620,7 +638,7 @@ Use approved tenant memory to improve future AI executions without leaking tenan
 
 ### 6.8 Integration Requirements
 
-**FR-INT-1:** Aries must support tenant-scoped integration states for supported social and publishing platforms.
+**FR-INT-1:** Aries must support tenant-scoped integration states for supported social and publishing platforms — Meta (Facebook/Instagram) via direct OAuth, and X, YouTube, Reddit, and LinkedIn via the Composio provider-managed connection model. Each non-Meta platform is gated by an `ARIES_*_ENABLED` flag and the Composio layer by `COMPOSIO_ENABLED`.
 
 **FR-INT-2:** Integration status must distinguish disconnected, pending, connected, syncing, ready, paused, repairing, failed, and reauthorization-required conditions where applicable.
 
@@ -644,17 +662,23 @@ Use approved tenant memory to improve future AI executions without leaking tenan
 
 **FR-PUB-6:** Publishing must not activate paid campaigns automatically unless the tenant has explicitly approved that exact action and platform policy supports it. Default ad-platform behavior should create paused or draft entities.
 
+**FR-PUB-7:** Publishing must be multi-platform behind a publisher capability port: Meta (Facebook/Instagram, incl. Stories/Reels and image stories) plus X, YouTube (including still→video synthesis), Reddit, and LinkedIn. Aries must select between the direct Meta provider and the Composio provider via the provider factory without product-flow changes; the non-Meta platforms are Composio-only.
+
+**FR-PUB-8:** Aries must support scheduled dispatch: approved posts may be queued (`scheduled_posts` + per-platform dispatch rows) and drained by a durable worker through the internal scheduled-dispatch route, tenant-timezone-aware. Scheduled dispatch must be idempotent and survive process restarts.
+
+**FR-PUB-9:** Before dispatch, Aries must run a per-platform capability/preflight check (media constraints, platform limits) rather than assuming Meta semantics for all platforms.
+
 ### 6.10 Execution Provider Requirements
 
 **FR-EXEC-1:** Aries must expose execution through provider ports, not direct workflow implementation calls from UI routes.
 
-**FR-EXEC-2:** Hermes is the default provider for long-running social content execution.
+**FR-EXEC-2:** Hermes is the sole provider for long-running social content execution. The marketing pipeline routes stages to named Hermes profiles (`aries-research`, `aries-strategist`, `aries-content-generator`), each with its own gateway URL and API key.
 
 **FR-EXEC-3:** Execution submissions must include callback URL, callback token, run/job IDs, workflow key, workflow version, tenant-safe context, and idempotency where applicable.
 
 **FR-EXEC-4:** Execution providers must return structured results, either synchronously for explicitly short operations or asynchronously through callbacks for long-running workflows.
 
-**FR-EXEC-5:** Legacy providers may remain only as explicit compatibility or fallback paths, not active default behavior.
+**FR-EXEC-5:** There is no legacy execution provider. OpenClaw/Lobster execution has been fully removed; Hermes is the sole execution provider. Only a bounded filesystem/DB-column naming allowlist for pre-rename on-disk artifacts remains, enforced by invariant test `inv-06-openclaw-lobster-compat-only`. There is no selector that re-enables a legacy execution path.
 
 ### 6.11 Audit Requirements
 
@@ -689,6 +713,8 @@ Use approved tenant memory to improve future AI executions without leaking tenan
 
 **ASR-PROV-4:** Provider-specific failures must be normalized into Aries runtime states and error models.
 
+**ASR-PROV-5:** The capability abstraction extends beyond execution to publishing and analytics. Aries implements typed publisher, analytics, capability/preflight, and connection ports with selectable implementations (direct Meta Graph vs. Composio), chosen by `backend/integrations/providers/provider-factory.ts`. The Composio layer is the selector default for publish/analytics but is gated by `COMPOSIO_ENABLED` (ships OFF), so the effective default publisher is direct Meta until Composio is enabled; X/YouTube/Reddit/LinkedIn require Composio. Product behavior must depend on the port, not the chosen vendor. See `docs/integrations/composio.md`.
+
 ### 7.2 Deterministic Orchestration
 
 **ASR-DET-1:** AI execution must operate inside deterministic workflow stages.
@@ -699,7 +725,7 @@ Use approved tenant memory to improve future AI executions without leaking tenan
 
 **ASR-DET-4:** Workflows must define allowed transitions. AI output may influence content, but must not invent state transitions.
 
-**ASR-DET-5:** Long-running AI jobs must be callback-based, not synchronous polling, except for explicitly short development or test paths.
+**ASR-DET-5:** Long-running AI jobs must be asynchronous and delivered durably — they must not block a browser request thread. Because the Hermes provider is poll-only, Aries delivers results via a durable run reconciler that polls each run to completion and ingests it through the idempotent in-process callback handler (with a best-effort in-request poll-bridge as a fast path). What is forbidden is synchronous request-path polling that holds an HTTP request open; out-of-band polling by a standing worker is the sanctioned mechanism.
 
 ### 7.3 Memory Handling
 
@@ -727,7 +753,7 @@ Use approved tenant memory to improve future AI executions without leaking tenan
 
 ### 7.5 Approval Requirements
 
-**ASR-APR-1:** AI-generated social posts are drafts until approved.
+**ASR-APR-1:** AI-generated social posts are drafts until approved. In human-in-the-loop mode "approved" means a human decision; in configured autonomous mode (`ARIES_AUTO_APPROVE_MARKETING_PIPELINE=1`) an audited `ai-orchestrator` actor may satisfy the gate.
 
 **ASR-APR-2:** AI-generated images and previews require review before publishing.
 
@@ -735,7 +761,7 @@ Use approved tenant memory to improve future AI executions without leaking tenan
 
 **ASR-APR-4:** Strategic, inferred, third-party, or lower-confidence research findings require human approval before durable memory persistence.
 
-**ASR-APR-5:** AI must never approve its own output for publishing or memory promotion.
+**ASR-APR-5:** AI must never approve its own output for publishing or memory promotion **in human-in-the-loop mode**. This is not an absolute invariant of the shipped system: configured autonomous mode deliberately lets the `ai-orchestrator` actor satisfy the strategy/production/publish gates without a human, as an operator-selected deployment posture (the current single-tenant production default). The memory-promotion gates for strategic/inferred/third-party findings (ASR-APR-4) remain human-gated. The publish-stage auto-approval still refuses on a failed preflight/publish-ready signal.
 
 ### 7.6 Safety Constraints
 
@@ -800,12 +826,14 @@ Aries Backend Services
         ↓
 Execution Provider Ports
         ↓
-Hermes / Provider Runtime
+Hermes Runtime (poll-only; does not push)
         ↓
-Authenticated Callback to Aries
+Aries-driven delivery: durable reconciler / poll-bridge → idempotent in-process callback handler
         ↓
 Postgres + Runtime Artifacts + Approval State + Derived Memory
 ```
+
+Note: the last hop is Aries pulling from Hermes and self-delivering, not Hermes calling back into Aries.
 
 ### 8.2 Frontend
 
@@ -816,8 +844,10 @@ The frontend provides:
 - workflow creation screens;
 - job status and artifact review screens;
 - approval surfaces;
-- integration settings;
-- publishing review and retry surfaces.
+- integration settings (including Composio connections);
+- publishing review and retry surfaces;
+- analytics and comments/reply surfaces with a per-platform selector;
+- the scheduling/calendar planner.
 
 Frontend code must not own security decisions. It displays server-provided safe read models and submits user intent to route handlers.
 
@@ -845,9 +875,13 @@ Backend services own domain behavior:
 - publishing preparation and dispatch;
 - integration state;
 - memory loading and curation;
+- insights/analytics ingestion and read models;
+- scheduling and weekly-automation triggering;
+- brand taste-learning;
+- Slack notification dispatch;
 - audit logging.
 
-Backend services must be testable independent of UI rendering.
+Backend services must be testable independent of UI rendering. Several run as standing worker sidecars (Hermes reconciler, stale-run reaper, scheduled-posts, weekly-trigger, insights-sync, honcho-performance).
 
 ### 8.5 Orchestration Layer
 
@@ -859,12 +893,12 @@ The orchestration layer must not defer product policy decisions to Hermes. Herme
 
 Execution providers are adapters that perform long-running or specialized work.
 
-Current intended provider posture:
+Current provider posture:
 
-- **Hermes:** default for long-running AI execution and social content workflows.
-- **Legacy OpenClaw/Lobster:** deprecated compatibility or explicit fallback only.
-- **Model vendors:** hidden behind Hermes or provider adapters.
-- **Publishing providers:** platform-specific integration adapters behind Aries approval and dispatch policies.
+- **Hermes:** the **sole** execution provider for long-running AI execution and social content workflows. The marketing pipeline routes stages to named Hermes profiles (`aries-research`, `aries-strategist`, `aries-content-generator`), each with its own gateway URL and key. Hermes is poll-only; delivery is owned by the Aries reconciler/poll-bridge (§9.4).
+- **Legacy OpenClaw/Lobster: removed.** OpenClaw/Lobster execution was fully removed (CHANGELOG v0.1.6.0). `provider-factory.ts` resolves Hermes for any `ARIES_EXECUTION_PROVIDER` value; there is no path to re-enable a legacy executor. Only a bounded naming allowlist (a few `lobster-stageN-cache` directory names for pre-rename on-disk artifacts and defensive reads of legacy `lobster_resume_token*` JSON fields) remains, and adding `OPENCLAW_`/`lobster` anywhere outside that allowlist is a test failure (invariant `inv-06`).
+- **Model vendors:** hidden behind Hermes profiles or provider adapters.
+- **Publishing & analytics providers:** Aries implements typed publisher, analytics, capability/preflight, and connection ports with two implementations — the direct Meta Graph provider and the **Composio** provider — selected by `backend/integrations/providers/provider-factory.ts`. Composio is the selector default for publish/analytics (gated by `COMPOSIO_ENABLED`, default OFF → effective publisher is direct Meta until enabled) and is the exclusive path for X, YouTube, Reddit, and LinkedIn. See `docs/integrations/composio.md`.
 
 ### 8.7 Memory Systems
 
@@ -878,9 +912,9 @@ Memory architecture separates canonical state from derived recall:
 
 Aries persistence includes:
 
-- Postgres for canonical state;
+- Postgres for canonical state — including the `insights_*` analytics tables and the `scheduled_posts` / `scheduled_post_dispatches` / `marketing_schedule` scheduling tables, plus `marketing_taste_profile`/signal and Honcho write-idempotency tables;
 - tenant-scoped runtime files under configured data roots;
-- derived memory in Honcho when memory features are enabled;
+- derived memory in Honcho (memory flags are enabled by default; writes are no-ops unless the Honcho base URL + JWTs are configured);
 - provider-side execution traces that are useful for audit but not canonical.
 
 ### 8.9 APIs
@@ -891,16 +925,19 @@ Aries APIs include:
 - social content job APIs;
 - job status APIs;
 - approval APIs;
-- integration and OAuth APIs;
-- publish dispatch and retry APIs;
+- integration and OAuth APIs (including Composio connect per platform);
+- publish dispatch, retry, and internal scheduled-dispatch APIs;
+- scheduling/calendar APIs;
+- insights/analytics read APIs (summary, posts, account metrics, comments);
 - internal execution callback APIs;
-- future research job APIs.
+- research job APIs (live, gated; `aries-research` callback, review-queue, retry-research);
+- inbound Slack Events API.
 
 APIs should be browser-safe unless explicitly internal. Internal APIs must authenticate with internal secrets and per-run tokens where applicable.
 
 ### 8.10 Webhooks
 
-Aries does not expose a general inbound webhook model as a product primitive. Existing callback-style endpoints are internal execution callbacks or OAuth callbacks. Future external webhook support must define authentication, tenant mapping, replay protection, schema validation, and authorization rules before being treated as supported product behavior.
+Aries does not expose a general inbound webhook model as a product primitive. Existing callback-style endpoints are internal execution callbacks or OAuth callbacks — plus one genuine inbound webhook: the **Slack Events** endpoint (`app/api/.../slack/events`), which uses Slack signature verification and `event_id` dedupe. Any further external webhook support must define authentication, tenant mapping, replay protection, schema validation, and authorization rules before being treated as supported product behavior.
 
 ---
 
@@ -943,7 +980,7 @@ Aries should normalize runtime state across workflows. Recommended canonical sta
 | `failed` | Workflow failed with no automatic continuation. |
 | `canceled` | Workflow was intentionally canceled. |
 
-Workflow-specific states may exist, but they should map to these canonical states for UI and API consistency.
+Workflow-specific states may exist, but they should map to these canonical states for UI and API consistency. (Implementation note: the marketing run store implements a 6-state subset of the above, and the spelling used in code is `cancelled` — align UI/API labels accordingly.)
 
 ### 9.3 Stage Transitions
 
@@ -979,9 +1016,11 @@ The intended weekly social content lifecycle:
 12. **Dispatch:** Aries sends approved payloads to external platforms.
 13. **Completion:** Aries records final statuses and exposes results.
 
-**Implementation note (v0.1.2.7 — poll-bridge):** The lifecycle above describes the intended callback-native model. In the current runtime, Hermes `/v1/runs` does not invoke the `callback_url` field submitted with the request — it is a polling API only. `HermesMarketingPort` compensates with a poll-bridge: after submitting a run, it spawns a background task that polls `GET /v1/runs/{id}` until the run reaches a terminal status, then calls `handleHermesRunCallback` in-process (bypassing the HTTP route, since we are already inside the trusted backend). This makes step 6 above (Callback Validation) execute in-process rather than over HTTP. The behavioral contract is identical; the transport is different. The poll-bridge is enabled by default and can be disabled with `HERMES_POLL_BRIDGE_ENABLED=0` (e.g., in tests that supply their own callback). See `backend/marketing/ports/hermes.ts` for the implementation.
+**Note — multi-stage pipeline:** Steps 4–7 above are not a single Hermes submission. The marketing pipeline runs as distinct profile-bound stages (research → strategy → production → publish), each with its own approval gate, mapped in `backend/marketing/ports/hermes.ts` and the workflow catalog.
 
-**Update (v0.1.15.1 — durable reconciler):** The per-request poll-bridge above did not survive the Next.js production request lifecycle, so completed runs were never ingested and every marketing job was eventually reaped (no marketing success 2026-05-27 → fix). The durable delivery mechanism is now the **Hermes run reconciler** (`backend/marketing/hermes-reconciler.ts` + `scripts/hermes-reconciler-worker.ts`), a standing worker spawned by `start-runtime.mjs` as a sibling of the stale-run reaper. Every `ARIES_RECONCILER_INTERVAL_MS` (default 60s) it re-discovers in-flight marketing runs and ingests any Hermes has finished, via the same idempotent `handleHermesRunCallback` path (deterministic `event_id = reconcile-<hermesRunId>`). Gated by `ARIES_RECONCILER_ENABLED` (default ON). The poll-bridge remains present as a best-effort fast path, but the reconciler is what guarantees delivery.
+**Note — one-off variants:** Besides the weekly cadence, Aries supports one-off / event workflows (`one_off_post` / `one_off_campaign`) that auto-stop on a hard deadline. ("Campaign" survives here as the legacy noun for an event-scoped batch of posts.)
+
+**Implementation note (v0.1.2.7 → v0.1.15.1 — delivery):** Hermes `/v1/runs` does not invoke the submitted `callback_url` — it is a poll-only API. An early per-request poll-bridge (spawn a background poll of `GET /v1/runs/{id}`, then call `handleHermesRunCallback` in-process) did not survive the Next.js production request lifecycle, so completed runs were never ingested and jobs were eventually reaped (no marketing success 2026-05-27). The durable delivery mechanism is now the **Hermes run reconciler** (`backend/marketing/hermes-reconciler.ts` + `scripts/hermes-reconciler-worker.ts`), a standing worker spawned alongside the stale-run reaper. Every `ARIES_RECONCILER_INTERVAL_MS` (default 60s) it re-discovers in-flight runs and ingests any Hermes has finished, via the same idempotent `handleHermesRunCallback` (deterministic `event_id = reconcile-<hermesRunId>`). Gated by `ARIES_RECONCILER_ENABLED` (default ON). The in-request poll-bridge remains as a best-effort fast path (`HERMES_POLL_BRIDGE_ENABLED`), but the reconciler is what guarantees delivery. The separate stale-run reaper terminally fails runs that exceed their deadline; it does not resume them.
 
 ### 9.5 Research Workflow Stages
 
@@ -1039,6 +1078,8 @@ Internal callbacks must:
 
 ## 10. Memory Architecture
 
+> **Production status (reconciled 2026-06-18):** Honcho memory is **live in production**, not aspirational. `HONCHO_ENABLED` and the three write flags (`HONCHO_WRITE_APPROVALS_ENABLED`, `HONCHO_WRITE_PUBLISH_ENABLED`, `HONCHO_WRITE_PREFERENCES_ENABLED`) default ON (writes still no-op without a base URL + JWTs); the integration uses the Honcho v3 API with dual-plane (control/data) JWTs. The sections below describe the intended design; runtime-specific deltas are called out inline (notably continuous profile writes in §10.2 and the current session-scoped-only retrieval limit in §10.8).
+
 ### 10.1 Memory Goals
 
 Aries memory exists to provide safe continuity across workflows. It should help Aries remember approved facts, preferences, constraints, research conclusions, rejected angles, and tenant-specific context while avoiding cross-tenant leaks and unreviewed hallucination persistence.
@@ -1080,6 +1121,10 @@ Honcho stores:
 - sessions grouping approved memories when needed.
 
 Honcho must not store raw scrape, failed envelopes, malformed output, credentials, logs, unapproved candidates, or provider traces.
+
+#### 10.2.1 Continuous Profile Writes
+
+The dominant write path in the live system is the continuous profile-writes subsystem (`backend/memory/write-events.ts`): several event producers emit approved, curated, tenant-scoped memory events as the pipeline runs — covering approval and denial decisions, publish and performance events, and creative-voice preferences. Writes are deduplicated by a Honcho write-idempotency table and run behind the per-event flags noted above. This is the mechanism by which approvals/denials, publishes, and preferences become durable memory, and any description of memory writes should reference it.
 
 ### 10.3 Tenant Isolation
 
@@ -1181,6 +1226,8 @@ Memory retrieval must:
 - include source/provenance metadata when useful;
 - avoid treating synthesized recall as authoritative without backing messages.
 
+**Implementation limit (2026-06-18):** Retrieval is currently **session-scoped only**. The cross-peer recall described above (e.g. loading `peer-brand` / `peer-policy` context without a session) is not yet implemented — reads without a session return an empty set, so research/strategy memory context is presently empty in practice. The peer model below is the intended design; do not assume cross-peer recall is live.
+
 ### 10.9 Curation Rules
 
 Candidate memory has three outcomes:
@@ -1224,7 +1271,10 @@ The curator must reject:
 - unapproved candidate facts;
 - low-confidence claims below configured threshold;
 - speculative claims without provenance;
-- narrative summaries that are not discrete factual statements.
+- narrative summaries that are not discrete factual statements;
+- prompt-injection residue detected in candidate content.
+
+Separately from this reject list, operator-authored preference labels are PII-scrubbed before write (`scrubPreferenceLabelForHoncho`), with a v2 narrow-denylist mode behind `ARIES_MEMORY_LABEL_REDACTION_V2` (default OFF) that preserves legitimate creative descriptors such as "Bold Minimalist."
 
 ### 10.11 Memory Lifecycle
 
@@ -1239,7 +1289,7 @@ Memory lifecycle states:
 
 ### 10.12 Tenant Deletion and Archive
 
-Tenant deletion or archival must include durable memory cleanup. Workspace-per-tenant enables a single workspace-level deletion or archive operation rather than multi-peer cleanup. The exact Honcho deletion mechanism must be verified before production reliance.
+Tenant deletion or archival must include durable memory cleanup. Workspace-per-tenant enables a single workspace-level deletion or archive operation rather than multi-peer cleanup. This is implemented and tested: `backend/memory/tenant-deletion.ts` issues the Honcho workspace DELETE and bounded poll-verifies removal (covered by `memory-tenant-deletion.test.ts`).
 
 ---
 
@@ -1267,10 +1317,13 @@ Expected API route families:
 - social content jobs and job status;
 - approvals and stage decisions;
 - integrations sync/status;
-- OAuth connect, callback, reconnect, disconnect;
-- publish dispatch and retry;
+- OAuth connect, callback, reconnect, disconnect (direct Meta) and Composio connect per platform;
+- publish dispatch and retry, plus internal scheduled-dispatch;
+- scheduling / calendar;
+- insights/analytics reads (summary, posts, account metrics, comments);
 - internal Hermes callback handling;
-- future research jobs and research status;
+- research jobs and research status (live, gated);
+- inbound Slack Events;
 - health checks and operational validation routes.
 
 ### 11.3 Internal APIs
@@ -1286,34 +1339,30 @@ Internal APIs such as Hermes callbacks must:
 
 ### 11.4 OAuth and Integrations
 
-OAuth and platform integrations must support:
+Aries supports two connection models:
 
-- connect;
-- callback;
-- reconnect;
-- disconnect;
-- status;
-- reauthorization-required states;
-- token refresh where applicable;
-- secure token storage;
-- tenant-scoped visibility.
+1. **Direct OAuth** (Meta Facebook/Instagram): connect, callback, reconnect (including Meta scope upgrades), disconnect, status, reauthorization-required states, token refresh, secure token storage, tenant-scoped visibility.
+2. **Provider-managed connection** (Composio): the exclusive path for X, YouTube, Reddit, and LinkedIn. Composio auto-provisions a managed auth config on connect; Aries recognizes Composio `connected_accounts` in the onboarding gate and surfaces them in the dashboard. The connection capability port abstracts both models.
+
+Both models must enforce: status, reauthorization-required states, secure token storage, and tenant-scoped visibility.
 
 ### 11.5 Publishing APIs
 
 Publishing APIs must support:
 
 - publish preparation;
-- dispatch;
+- dispatch (immediate and scheduled — via the internal scheduled-dispatch route drained by the scheduled-posts worker);
+- multi-platform targeting (Meta + X/YouTube/Reddit/LinkedIn);
 - retry;
 - platform response recording;
 - external ID tracking;
 - failure handling;
 - idempotency or deduplication policy;
-- approval verification before dispatch.
+- approval verification before dispatch (except in configured autonomous mode).
 
 ### 11.6 Provider Integration Model
 
-Providers should be adapters implementing typed capability ports. Aries should be able to swap provider implementations without rewriting product workflow behavior.
+Providers should be adapters implementing typed capability ports. Aries should be able to swap provider implementations without rewriting product workflow behavior. This is now literally implemented: four capability ports (publisher, analytics, capability/preflight, connection) with two implementations — direct Meta Graph and Composio — selected at runtime by `provider-factory.ts`. The non-Meta platforms (X/YouTube/Reddit/LinkedIn) are Composio-only.
 
 Provider adapters must normalize:
 
@@ -1376,9 +1425,9 @@ Rules:
 
 ### 12.4 Approval Boundaries
 
-Approval boundaries are security boundaries. Workflows must not bypass approval because a provider returned a confident answer.
+Approval boundaries are security boundaries. Workflows must not bypass approval because a provider returned a confident answer. The gate is a code-level boundary in every mode; what varies is who may satisfy it. In configured autonomous mode (`ARIES_AUTO_APPROVE_MARKETING_PIPELINE=1`, the current single-tenant production default; `ARIES_AUTOSCHEDULE_ON_APPROVAL` for auto-scheduling), the synthetic `ai-orchestrator` actor satisfies the marketing strategy/production/publish gates with an audited record — it does not remove the gate. See §1.4 principle 3, §7.5, FR-APP-3/4.
 
-Approvals are required for:
+Approvals are required for (subject to the autonomous-mode carve-out above for the marketing pipeline):
 
 - external publishing;
 - paid campaign activation;
@@ -1441,7 +1490,10 @@ The following may run automatically if tenant-authorized and within configured l
 - video script generation;
 - publish payload preparation;
 - first-party high-confidence factual memory auto-approval under configured policy;
-- retry of internal non-side-effect stages.
+- retry of internal non-side-effect stages;
+- insights/analytics ingestion (read-only sync of platform performance and comments);
+- draft-expiry sweeps that clean up stranded pre-publish posts (default OFF);
+- in configured autonomous mode only: `ai-orchestrator` approval of marketing strategy/production/publish gates and auto-scheduling of approved posts.
 
 ### 13.3 What Requires Approval
 
@@ -1469,6 +1521,8 @@ Aries must not automatically:
 - reuse another tenant’s context.
 
 ### 13.5 Provider-Specific Concerns
+
+Provider-specific concerns now span multiple platforms (not just Meta): Aries runs a per-platform capability/preflight check (`backend/integrations/.../capability-preflight.ts`, with a Composio capability provider) to enforce each platform's media and format limits — e.g. Reddit, YouTube, LinkedIn, and TikTok (scaffold) constraints — rather than assuming Meta semantics everywhere.
 
 Publishing providers may impose constraints such as:
 
@@ -1567,13 +1621,13 @@ Aries must handle:
 Aries should support deployment with:
 
 - external Postgres;
-- containerized application runtime;
+- containerized application runtime (app plus the worker sidecars);
 - configurable data root;
-- Hermes endpoint and key configuration;
-- optional Honcho memory configuration;
-- provider abstraction for models and publishing.
+- per-capability Hermes profile gateways (research/strategist/content-generator) with a shared fallback;
+- Honcho memory as the live default backend (degrades silently to no-op if base URL/JWTs are unconfigured);
+- provider abstraction for models, publishing, and analytics (direct Meta vs. Composio).
 
-No active product workflow should require a developer’s local filesystem layout or a legacy workflow file path unless explicitly operating in legacy mode.
+No active product workflow should require a developer’s local filesystem layout. (There is no longer a "legacy mode"; OpenClaw/Lobster execution has been removed — see §8.6.)
 
 ### 14.7 Provider Independence
 
@@ -1583,8 +1637,8 @@ Provider independence requires:
 - no provider secrets in browser payloads;
 - abstract media and execution requests;
 - normalized callback and error handling;
-- compatibility with multiple execution adapters;
-- tests that forbid legacy provider leakage in active workflows.
+- a single-provider execution-port abstraction (Hermes) plus swappable publish/analytics providers (direct Meta vs. Composio) that keep vendor names out of product behavior;
+- tests that forbid legacy provider leakage in active workflows (the codified invariant suite, e.g. inv-05/06/15).
 
 ### 14.8 Data Integrity
 
@@ -1606,13 +1660,13 @@ Requirements:
 
 Aries assumes:
 
-- Next.js application runtime;
-- Postgres as canonical database;
+- Next.js application runtime plus standing worker sidecars (Hermes reconciler, stale-run reaper, scheduled-posts, weekly-trigger, insights-sync, honcho-performance);
+- Postgres as canonical database (including `insights_*` and scheduling tables);
 - configured runtime data root for generated files;
-- Hermes endpoint and API key for default long-running execution;
-- internal callback secret for provider-to-Aries callbacks;
-- optional Honcho configuration for memory;
-- platform OAuth credentials for publishing integrations;
+- per-capability Hermes profile gateways/keys (research/strategist/content-generator) for long-running execution;
+- internal callback secret for the internal callback handler;
+- Honcho configuration for memory (live default; no-op without base URL + JWTs);
+- platform credentials for publishing integrations — Meta OAuth plus the Composio layer (and `ARIES_*_ENABLED` flags) for X/YouTube/Reddit/LinkedIn;
 - production deployment with externalized secrets.
 
 ### 15.2 Deployment Assumptions
@@ -1626,11 +1680,11 @@ Production deployment should:
 - configure internal callback secret;
 - avoid repo bind mounts in production;
 - validate DB health after deployment;
-- keep legacy execution disabled unless deliberately selected.
+- force-recreate **all** worker sidecars onto the new image on every deploy (a prior incident left omitted `restart: unless-stopped` workers running a stale image; this is now guarded by a deploy-manifest-parity test). Legacy execution is not a configuration concern — it has been removed (§8.6), so there is nothing to "keep disabled."
 
 ### 15.3 Human Review Requirements
 
-Operators must review:
+In human-in-the-loop mode (`ARIES_AUTO_APPROVE_MARKETING_PIPELINE=0`), operators must review the items below. The current single-tenant production default ships autonomous (auto-approve ON), where the audited `ai-orchestrator` actor substitutes for human review at the marketing-pipeline gates (auto-scheduling and the weekly automated trigger remain default OFF):
 
 - first onboarding results if profile confidence is uncertain;
 - generated strategy before asset production where relevant;
@@ -1655,17 +1709,22 @@ Safeguards:
 - idempotency tests;
 - destructive operation approval gates.
 
+These safeguard families are now codified as the canonical §20 invariant suite (`tests/prd-invariants/inv-01..inv-15`) running as runtime tests; feature gating is implemented via deployment flags as noted throughout.
+
 ### 15.5 Current Validation Debt
 
 Known validation work that should remain visible until resolved:
 
 - full auth and integration test suites need stable configuration;
 - social content dashboard hydration and runtime projection tests should remain active;
-- public surface contract tests should be aligned with current user-facing routes;
-- environment-coupled tests should be isolated or clearly marked;
-- Honcho memory integration requires production-hardening verification before live use — **still open** as of 2026-05-13; see §16.1;
-- Hermes `aries-research` profile coordination remains a separate execution-provider task — **still open** as of 2026-05-13; see §16.2;
-- stage-cache tenant prefix isolation gap (lobster stage caches lacked tenant path segment) — **addressed in PR #302** (`fix/stage-cache-tenant-prefix`); regression test still recommended (see `docs/audits/2026-05-12-prd-audit-critical-verification.md` Finding 1).
+- public surface contract tests should be aligned with current user-facing routes.
+
+**Resolved since 2026-05-13 (kept for traceability):**
+
+- ~~environment-coupled tests should be isolated or clearly marked~~ — addressed by the test-suite split.
+- ~~Honcho memory production-hardening before live use~~ — **resolved:** Honcho is live in production (flags default ON, #441); see §10, §16.1.
+- ~~Hermes `aries-research` profile coordination~~ — **resolved (Aries-side):** the three-profile map (`aries-research`/`aries-strategist`/`aries-content-generator`) is wired with per-profile credentials; remaining items are Hermes-side. See §16.2.
+- ~~stage-cache tenant prefix isolation gap~~ — **resolved:** fixed (PR #302) and regression-tested.
 
 ### 15.6 Protected Operational Areas
 
@@ -1688,28 +1747,22 @@ High-risk changes should require explicit human approval and validation.
 
 ### 16.1 Honcho Production Hardening
 
-Open questions:
+**Status (2026-06-18):** Honcho is live in production (flags default ON, #441) using the v3 API with dual-plane control/data JWTs, and workspace deletion is implemented + tested (§10.12). The remaining open questions are narrower:
 
-- Which exact workspace-scoped JWT minting mechanism will Aries use in production?
 - How will Aries rotate tenant memory credentials?
-- What is the verified delete/archive behavior for Honcho workspaces?
-- Which operational role can inspect or redact tenant memory?
+- Which operational role can inspect or redact tenant memory? (Inspection UI still deferred — §16.6, §17.)
 
-Risk: without server-enforced Honcho auth or network isolation, tenant memory isolation depends too heavily on Aries wrapper conventions.
+Risk: without server-enforced Honcho auth or network isolation, tenant memory isolation depends heavily on Aries wrapper conventions and the per-tenant workspace + dual-plane JWT setup.
 
 ### 16.2 Hermes `aries-research` Profile
 
-**Status (2026-05-25, Aries-side):** The marketing pipeline now targets three named Hermes profiles — `aries-research`, `aries-strategist`, and `aries-content-generator` — via the stage→profile map in `backend/marketing/ports/hermes.ts`. Each profile binds to its own gateway URL and API key (`HERMES_RESEARCH_GATEWAY_URL` / `HERMES_RESEARCH_API_SERVER_KEY`, etc.), so credentials and rate limits are partitioned per profile.
+**Status (resolved Aries-side, 2026-05-25):** The marketing pipeline targets three named Hermes profiles — `aries-research`, `aries-strategist`, `aries-content-generator` — via the stage→profile map in `backend/marketing/ports/hermes.ts`, each bound to its own gateway URL and key so credentials and rate limits are partitioned per profile. The remaining open questions are **Hermes-side** (upstream dependency), not an Aries gap:
 
-The remaining open questions are **Hermes-side** (server registration, tool allowlists, output schema enforcement) and tracked as a Hermes dependency, not an Aries gap. The §20 invariants the Aries side guards (no callback-supplied tenant id, callback authn/idempotency, capability ports) hold regardless of which profile Hermes routes to.
-
-Open questions (Hermes-side, tracked as upstream dependencies):
-
-- Is the tool allowlist for `aries-research` enforced server-side by Hermes?
-- Is the output schema enforced provider-side, Aries-side, or both?
+- Is the `aries-research` tool allowlist enforced server-side by Hermes?
+- Is output schema enforced provider-side, Aries-side, or both?
 - Has the profile been audited for any path to Aries tenant memory?
 
-Risk: an overly broad Hermes profile could access tools or memory surfaces not intended for research jobs. Mitigation lives at the Aries→Hermes boundary: per-profile credentials, callback-token verification, and the `inv-14-callbacks-authn-schema-tenant-idemp` invariant test.
+Risk: an overly broad Hermes profile could access tools or memory surfaces not intended for research jobs. Mitigation lives at the Aries→Hermes boundary: per-profile credentials, callback-token verification, and the `inv-14` invariant.
 
 ### 16.3 Route and Documentation Drift
 
@@ -1719,44 +1772,26 @@ Open question:
 
 Risk: older route contracts and marketing pipeline documents may preserve historical terminology. Active PRD and implementation should prefer current README/runtime/tests over deprecated compatibility docs.
 
-**Known active gap (2026-05-13):** The codebase contains 150+ files using `campaign` in route paths (e.g., `/campaigns/`, `/dashboard/campaigns/`), API endpoints, database identifiers, and hook names. This PRD uses "posts," "social content," and "jobs" as the canonical product terms. The `campaign` terminology is a known cleanup backlog item (Audit Batch 1 — L effort, separate initiative). Contributors should treat `campaign`-labeled identifiers as legacy naming for the same concepts this PRD calls "social content jobs" or "posts" — they are not contradictory design intent. The rename has not been executed; do not infer from the route names that "campaign" is the product concept.
+**Status (2026-06-18) — partially executed:** The campaign→social-content/post rename is underway (#493 "cut 2a", #494 wire-key migration). The `/social-content` and `/posts` routes are canonical; `/dashboard/campaigns` is gone and `/campaigns` now redirects; the `use-runtime-campaigns` hook has been removed. Residual `campaign` identifiers remain in ~180 files (and "campaign" legitimately survives as the noun for one-off/event batches). Contributors should treat remaining `campaign`-labeled identifiers as legacy naming for the same concepts this PRD calls "social content jobs" or "posts." See §19.5.
 
 ### 16.4 Legacy Execution Leakage
 
-**Status (2026-05-25):** Codified by the §20 invariant suite (`tests/prd-invariants/inv-06-openclaw-lobster-compat-only.test.ts`). OpenClaw is fully dead at runtime — the suite asserts no `process.env.OPENCLAW_*` reads in `backend/` or `lib/`. Lobster is scoped to a small filesystem-naming allowlist:
+**Status — resolved (2026-05-25):** Closed by invariant `inv-06-openclaw-lobster-compat-only`. OpenClaw is fully dead at runtime (the suite asserts zero `process.env.OPENCLAW_*` reads in `backend/`/`lib/`); Lobster is scoped to a small filesystem-/DB-column naming allowlist for pre-rename artifacts. Adding `lobster`/`OPENCLAW_` outside that allowlist fails the test.
 
-- `backend/marketing/artifact-store.ts`, `artifact-collector.ts`, `publish-review.ts`, `jobs-status.ts` — `lobster-stageN-cache` directory names for pre-rename on-disk artifacts
-- `backend/marketing/approval-store.ts` — defensive reads of legacy `lobster_resume_token*` fields from pre-rename approval JSON
-- `backend/marketing/asset-ingest.ts` — `/host-lobster-output` host mount path
-
-Adding `lobster` or `OPENCLAW_` anywhere outside this allowlist is now a test failure. The risk below has therefore moved from open-ended to bounded.
-
-Risk (bounded): the filesystem-cache allowlist is naming, not behavior — runtime code paths flow through the Hermes execution port regardless of cache directory names. The compat names will age out as pre-rename artifacts roll off disk; until then, the invariant test fails loud if new leakage appears.
+Residual risk (bounded): the allowlist is naming, not behavior — runtime flows through the Hermes execution port regardless of cache directory names, and the compat names age out as pre-rename artifacts roll off disk.
 
 ### 16.5 Publishing Activation Boundary
 
-**Status (2026-05-26):** Scheduled publishing is live for Meta (Facebook + Instagram). The `scheduled_posts` table (schema in `scripts/init-db.js:455`) tracks `dispatch_status` (pending/in_flight/dispatched/failed) with per-platform child rows in `scheduled_post_dispatches`. The worker (`scripts/automations/scheduled-posts-worker.mjs`) drains due rows every 60 seconds and fires `publishToMetaGraph`. The tenant scheduling surface is `app/api/social-content/jobs/[jobId]/posts/[postId]/schedule/route.ts`; the internal dispatch surface is `app/api/internal/publishing/scheduled-dispatch/route.ts`.
+**Status (2026-05-26) — largely resolved:** Scheduled publishing is live for Meta (Facebook/Instagram). `scheduled_posts` tracks `dispatch_status` with per-platform child rows; the scheduled-posts worker drains due rows every 60s and fires the Meta dispatch. Both immediate and scheduled states work. The remaining open questions are narrower:
 
-Boundaries of what has shipped:
-- **Meta (Facebook/Instagram):** scheduled and dispatched via `publishToMetaGraph`. Both draft (scheduled_for > NOW) and immediate (scheduled_for = NOW) states work.
-- **LinkedIn and others:** not wired through scheduled-dispatch; platform-specific dispatch not yet built.
-- **Retry (`app/api/publish/retry`):** requires session auth but does not require a separate re-approval gate. The approval-model-for-retry question below is unresolved.
-- **Paid campaign activation:** no evidence of any paid campaign activation path in the codebase; this sub-question has not been scoped.
+- What approval model is required for retry after partial provider failure? (Retry currently needs session auth but no separate re-approval gate — unresolved.)
+- Can paid campaign activation ever be tenant-policy automated after prior approval? (No paid-campaign activation path exists in code; unscoped.)
 
-Open questions (still unresolved):
-
-- What approval model is required for retry after partial provider failure?
-- Can paid campaign activation ever be tenant-policy automated after prior approval?
-
-Risk: platform-specific behavior may accidentally create externally visible content before user review.
+Risk: platform-specific behavior may accidentally create externally visible content before user review; the per-platform preflight (§13.5) and approval gates are the mitigations.
 
 ### 16.6 Memory UI and Redaction
 
-**Status (2026-05-26, redaction only):** The `ARIES_MEMORY_LABEL_REDACTION_V2` flag is live. `scrubPreferenceLabelForHoncho` in `backend/memory/write-events.ts:871` implements two modes — v1 (broad `[A-Z][a-z]+\s+[A-Z][a-z]+` regex, default) and v2 (narrow first-name denylist, preserves creative descriptors like "Bold Minimalist"). The flag is documented in CLAUDE.md and is off by default pending rollout evaluation.
-
-`app/creative-memory/page.tsx` exists but is an internal developer tool for prompt-recipe inspection — it is not linked from the operator dashboard and is not a tenant-facing memory inspection surface.
-
-Open questions (all sub-questions below remain unresolved; deferred to §17 "Memory inspection UI"):
+**Status (2026-06-18):** Label redaction has shipped — `scrubPreferenceLabelForHoncho` with a narrow v2 mode behind `ARIES_MEMORY_LABEL_REDACTION_V2` (default OFF). The inspection-UI questions remain open (the existing `creative-memory` page is an internal dev tool, not a tenant-facing surface):
 
 - Should tenant admins have self-serve memory inspection?
 - How are incorrect memories corrected by users?
@@ -1767,21 +1802,17 @@ Risk: without inspection UI, memory quality and user trust depend on operational
 
 ### 16.7 Provider Cost and Quotas
 
-**Deferred — reason:** No per-tenant quota tracking tables, cost-confirmation UI, or Aries-side quota modeling has been implemented. Rate-limit resilience is handled operationally by the CLAUDE.md resumability guardrail (preserve partial artifacts on non-fatal Hermes failure; do not discard work on rate-limit) rather than by Aries quota code. Provider quota failures propagate as Hermes stage errors and surface to the operator dashboard as stage failures. The design for per-tenant limits and cost-confirmation flows has not been scoped.
-
-Open questions (still unresolved):
+Open questions:
 
 - What are per-tenant generation limits?
 - Which media generation actions require cost confirmation?
-- How are provider quota failures surfaced to tenants in a structured way?
+- How are provider quota failures surfaced?
 
 Risk: media generation may incur unexpected costs or fail unpredictably if quotas are not modeled.
 
 ### 16.8 Content Policy and Platform Compliance
 
-**Deferred — reason:** No Aries-side pre-publish policy enforcement has been implemented. The `pre_publish_review` and `pre_publish_ad` UI states in `backend/marketing/dashboard-content.ts` are human approval gates, not automated policy checks — an operator must click to approve before publish fires. Platform-side rejection (Meta Graph API errors on publish) is the only enforcement currently in place. Region-specific disclosure logic has not been designed. The split between provider-side and Aries-side policy checks has not been scoped.
-
-Open questions (still unresolved):
+Open questions:
 
 - Which platform policies are enforced in Aries before publish?
 - Which policy checks are provider-side only?
@@ -1795,13 +1826,15 @@ Risk: generated content may be rejected by platforms or violate tenant complianc
 
 Future expansion should preserve deterministic orchestration, approval gates, and tenant isolation.
 
+> **Shipped since this list was written (2026-06-18) — no longer "future":** content calendar/scheduling (#2); multi-platform publishing for Instagram/Facebook/X/YouTube/Reddit/LinkedIn (#3, TikTok still scaffold-only); platform analytics ingestion + performance summaries (#4 — optimization *recommendations* still future); and a partial form of content-variant generation/approval via the onboarding variant board (#5). The entries below are retained with their status annotated.
+
 Potential areas:
 
-1. **Workflow registry:** admin-defined workflow catalog with explicit stage schemas and provider capabilities.
-2. **Content calendar:** scheduling and calendar view for generated and approved content.
-3. **Multi-platform publishing:** deeper support for Instagram, Facebook, LinkedIn, X, YouTube, TikTok, Reddit, and future channels.
-4. **Performance feedback loop:** platform analytics ingestion, content performance summaries, and optimization recommendations.
-5. **A/B testing:** controlled generation and approval of content variants.
+1. **Workflow registry:** admin-defined workflow catalog with explicit stage schemas and provider capabilities. *(Future — a read-only workflow catalog exists; the tenant-facing admin registry does not.)*
+2. **Content calendar:** ~~scheduling and calendar view~~ — **shipped** (calendar planner UI, `scheduled_posts`, scheduled-posts worker, per-tenant timezone).
+3. **Multi-platform publishing:** ~~deeper support for Instagram, Facebook, LinkedIn, X, YouTube, Reddit~~ — **shipped** (via Composio); **TikTok remains future** (scaffold, no live publish).
+4. **Performance feedback loop:** platform analytics ingestion + content performance summaries — **shipped** (insights subsystem); optimization *recommendations* remain future.
+5. **A/B testing:** controlled generation and approval of content variants — **partially shipped** via the onboarding variant board; general A/B remains future.
 6. **Policy packs:** tenant-configurable compliance, brand, and industry-specific review policies.
 7. **Memory inspection UI:** tenant admin tools for memory review, supersession, redaction, and export.
 8. **Research workflows:** bounded competitor, market, audience, and trend research using approved memory rules.
@@ -1820,7 +1853,11 @@ Potential areas:
 
 **Artifact** — A generated or uploaded output associated with a tenant and job.
 
-**Callback** — An authenticated internal request from an execution provider back to Aries.
+**Callback** — Execution results entering Aries' internal callback handler. For Hermes this is invoked by Aries' own reconciler/poll-bridge (Hermes is poll-only), not pushed by the provider.
+
+**Composio** — Provider layer implementing the publish/analytics/connection capability ports; selector default for publish/analytics (gated by `COMPOSIO_ENABLED`) and the exclusive integration path for X, YouTube, Reddit, and LinkedIn.
+
+**Insights / Analytics** — Subsystem ingesting per-platform performance and comments into the `insights_*` tables and surfacing them in analytics/comments screens and the dashboard narrative.
 
 **Canonical State** — Aries-owned source-of-truth state, primarily in Postgres.
 
@@ -1830,7 +1867,7 @@ Potential areas:
 
 **Execution** — Provider-level run or attempt associated with a job.
 
-**Hermes** — The intended default AI execution layer for long-running Aries workflows.
+**Hermes** — The sole AI execution provider for long-running Aries workflows (poll-only; delivery owned by the Aries reconciler). Runs as named per-capability profiles.
 
 **Honcho** — Memory store used for derived, tenant-scoped approved memory.
 
@@ -1842,11 +1879,17 @@ Potential areas:
 
 **Provider Abstraction** — Architecture pattern where Aries requests capabilities instead of hard-coding specific vendors.
 
-**Publish Dispatch** — External side-effect operation that sends approved content to a platform.
+**Publish Dispatch** — External side-effect operation that sends approved content to a platform (immediate or scheduled).
+
+**Reconciler** — The standing Hermes run reconciler worker that polls in-flight runs to completion and ingests results idempotently; the durable delivery guarantee that replaced the per-request poll-bridge.
 
 **Resume** — Continuing a workflow from a waiting, approval, callback, or retry state.
 
 **Run** — Execution-provider instance. A job may have one or more runs.
+
+**Scheduled Post** — An approved post queued for future/immediate dispatch (`scheduled_posts`), drained by the scheduled-posts worker, tenant-timezone-aware.
+
+**Social Content / Post** — The canonical content entity (`posts` table; `/social-content`, `/posts` routes); the current term for what legacy code calls a "campaign."
 
 **Stage** — Named workflow phase with inputs, outputs, and transitions.
 
@@ -1862,9 +1905,9 @@ Potential areas:
 
 ### 19.1 Legacy OpenClaw / Lobster Execution
 
-OpenClaw/Lobster workflows are historical or compatibility execution paths. They may remain useful for older marketing pipeline references or explicit fallback behavior, but they are not the current default execution architecture for active social-content workflows.
+OpenClaw/Lobster execution has been **fully removed** (CHANGELOG v0.1.6.0). It is no longer an execution path, a fallback, or an opt-in compatibility mode — `provider-factory.ts` always resolves Hermes and there is no selector to re-enable a legacy executor.
 
-Current rule: Hermes-native execution is the intended default. Legacy `.lobster` workflow file paths, OpenClaw gateway assumptions, and placeholder wrapper scripts must not be treated as canonical active product behavior unless a workflow explicitly opts into legacy compatibility.
+Current rule: Hermes is the sole execution provider. The only surviving `lobster`/`OPENCLAW_` references are a bounded naming allowlist — a few `lobster-stageN-cache` directory names for pre-rename on-disk artifacts and defensive reads of legacy `lobster_resume_token*` fields in pre-rename approval JSON — enforced by invariant `inv-06`. Adding either token outside that allowlist is a test failure.
 
 ### 19.2 Legacy Brand Campaign / Meta Ads Pipeline
 
@@ -1886,25 +1929,27 @@ Current rule: Aries product workflows must use provider abstraction. Vendor-spec
 
 ### 19.4 Synchronous Long-Running Polling
 
-Older enrichment paths may use short synchronous polling. This is acceptable only for short, bounded operations or tests. Multi-minute workflows should be callback-based.
+Older enrichment paths may use short synchronous polling that holds a request open. This is acceptable only for short, bounded operations or tests. Multi-minute workflows must not block a request thread.
 
-Current rule: long-running jobs use fire-and-forget submission with authenticated callbacks.
+Current rule: long-running jobs use asynchronous submission with **durable, out-of-band delivery**. Because the Hermes provider is poll-only (it does not push callbacks), Aries delivers via the standing run reconciler that polls each run to completion and ingests it through the idempotent in-process callback handler (with a best-effort in-request poll-bridge fast path). Note: the earlier "fire-and-forget submission with authenticated provider-pushed callbacks" model was never actually how Hermes behaves and its in-request variant failed in production (2026-05-27); the reconciler is the durable replacement. See §9.4, §3.18.
 
 ### 19.5 "Campaign" Terminology in Routes and Database Identifiers
 
-The codebase retains `campaign` in route paths, database table names, API endpoints, React hooks, and component names throughout — a legacy of the older brand-campaign / Meta Ads pipeline described in §19.2. This PRD uses "social content," "posts," and "jobs" as the canonical terms for the same concepts. The discrepancy is a known cleanup backlog item (Audit Batch 1, estimated L effort), not an architectural contradiction. Contributors reading route names like `/campaigns/` or hook names like `use-runtime-campaigns` should map them mentally to "social content jobs" as described in §3, §5, and §9. The rename has not been executed as of 2026-05-13; a separate initiative is required. See §16.3 for the open-questions framing.
+The codebase historically used `campaign` in route paths, table names, API endpoints, hooks, and components — a legacy of the older brand-campaign / Meta Ads pipeline (§19.2). This PRD uses "social content," "posts," and "jobs" as the canonical terms. The rename is **partially executed** (#493 "cut 2a", #494 wire-key migration): `/social-content` and `/posts` are canonical, `/dashboard/campaigns` is removed, `/campaigns` redirects, and `use-runtime-campaigns` is gone. ~180 files still carry `campaign` identifiers, and "campaign" legitimately persists as the noun for one-off/event batches. Contributors should map remaining `campaign`-labeled identifiers to "social content jobs"/"posts." See §16.3.
 
 ---
 
 ## 20. Canonical Behavioral Invariants
 
+These invariants are machine-enforced: each maps to a runtime test in `tests/prd-invariants/` (`inv-01`…`inv-15`, plus `inv-01b`), added in #467/#471. Treat a failing invariant test as a release blocker.
+
 1. Aries owns tenant boundaries, canonical state, approvals, audit, and workflow policy.
 2. Hermes executes bounded tasks and returns structured results; Hermes does not own Aries product state.
 3. Honcho stores only approved durable memory; it does not replace Postgres.
 4. Tenant IDs are derived server-side; clients and callbacks do not decide tenant access.
-5. Active social-content workflows are Hermes-native by default.
-6. Legacy OpenClaw/Lobster behavior is compatibility-only unless explicitly selected.
-7. Publishing requires approval.
+5. Active social-content workflows run on Hermes, the sole execution provider.
+6. There is no OpenClaw/Lobster execution path; only a bounded naming allowlist for pre-rename artifacts remains (inv-06).
+7. Publishing requires approval — by a human in human-in-the-loop mode, or by the audited `ai-orchestrator` actor in configured autonomous mode. The gate is never removed (see §1.4, §7.5, §12.4).
 8. Video render requests require approval.
 9. AI-generated content is draft content until approved.
 10. Memory is curated, append-only, provenance-bearing, and supersedable.

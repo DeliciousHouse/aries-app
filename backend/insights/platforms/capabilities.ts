@@ -16,6 +16,8 @@ export type PlatformCapability =
   | 'account_daily_metrics'   // channel-level daily views, followers, watch time
   | 'post_list'               // list of published posts / videos
   | 'post_daily_metrics'      // per-post daily breakdowns
+  | 'post_view_count'         // per-post view/impression count (youtube, instagram, facebook only)
+  | 'post_share_count'        // per-post share count (facebook shares, instagram shares, x retweet_count only)
   | 'comments'                // per-post comment fetch
   | 'audience_demographics'   // age/gender/country breakdown
   | 'watch_time'              // cumulative watch-time minutes
@@ -24,19 +26,23 @@ export type PlatformCapability =
   | 'saves';                  // saves / bookmarks (Instagram, Facebook)
 
 export const PLATFORM_CAPABILITIES: Record<Platform, ReadonlySet<PlatformCapability>> = {
+  // YouTube via Composio: per-video statistics (views/likes/comments) +
+  // top-level comment threads. Deliberately OMITS 'account_daily_metrics'
+  // (no verified per-day channel series), 'watch_time'/'avg_view_duration'
+  // (not delivered by GET_VIDEO_DETAILS_BATCH), and 'audience_demographics'
+  // (not fetched) — the adapter only delivers these three.
   youtube: new Set<PlatformCapability>([
-    'account_daily_metrics',
     'post_list',
     'post_daily_metrics',
+    'post_view_count',
     'comments',
-    'audience_demographics',
-    'watch_time',
-    'avg_view_duration',
   ]),
   instagram: new Set<PlatformCapability>([
     'account_daily_metrics',
     'post_list',
     'post_daily_metrics',
+    'post_view_count',
+    'post_share_count',
     'comments',
     'audience_demographics',
     'reach_impressions',
@@ -46,8 +52,42 @@ export const PLATFORM_CAPABILITIES: Record<Platform, ReadonlySet<PlatformCapabil
     'account_daily_metrics',
     'post_list',
     'post_daily_metrics',
+    'post_view_count',
+    'post_share_count',
     'comments',
     'reach_impressions',
+  ]),
+  // X (Twitter): per-post engagement (likes/replies/retweets) + replies-as-
+  // comments. Deliberately OMITS 'account_daily_metrics' (no verified X
+  // account-insights action) and 'reach_impressions' (impression_count is
+  // paid-tier-gated — see the X adapter's documented impressions limitation).
+  x: new Set<PlatformCapability>([
+    'post_list',
+    'post_daily_metrics',
+    'post_share_count',
+    'comments',
+  ]),
+  // Reddit: per-post engagement (score/num_comments/upvote_ratio via
+  // REDDIT_RETRIEVE_REDDIT_POST) + top-level post comments. Deliberately OMITS
+  // 'account_daily_metrics' (no verified Reddit account-insights action) and
+  // 'reach_impressions' — Reddit exposes NO impressions/reach metric at all
+  // (the absent reach cap IS the documented Reddit analytics limitation).
+  reddit: new Set<PlatformCapability>([
+    'post_list',
+    'post_daily_metrics',
+    'comments',
+  ]),
+  // LinkedIn via Composio (#647 analytics): per-post PERSONAL reaction counts
+  // (LINKEDIN_LIST_REACTIONS → likes). Deliberately OMITS 'comments' (#648):
+  // LinkedIn exposes NO Composio list-comments action, so the adapter ingests no
+  // comments and the UI advertises no LinkedIn comment feature — a genuine
+  // platform limitation, not a stub. Also OMITS 'account_daily_metrics'
+  // (LINKEDIN_GET_SHARE_STATS is organization-admin only; #645 captured the
+  // person URN, not an org URN — an org-stats follow-up) and 'reach_impressions'
+  // (personal reactions expose no impressions/reach metric).
+  linkedin: new Set<PlatformCapability>([
+    'post_list',
+    'post_daily_metrics',
   ]),
 };
 

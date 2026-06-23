@@ -1,0 +1,57 @@
+/*
+ * insights.css
+ * Global resets + animation keyframes for the Insights component library.
+ * Import once at your app root (e.g. in _app.tsx or layout.tsx).
+ *
+ *   import "@/components/insights/insights.css";
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: #0e0e12;
+  color: #f4f4f8;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Skeleton shimmer */
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar           { width: 6px; height: 6px; }
+::-webkit-scrollbar-track     { background: #0e0e12; }
+::-webkit-scrollbar-thumb     { background: #2a2a35; border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover{ background: #33333f; }
+
+/* Focus rings */
+button:focus-visible,
+a:focus-visible,
+select:focus-visible {
+  outline: 2px solid #a855f7;
+  outline-offset: 2px;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration:       0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration:      0.01ms !important;
+  }
+}
+
+/* Inter via Google Fonts — include in your <head> or import separately */
+/* @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap'); */

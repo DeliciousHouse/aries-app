@@ -13,19 +13,21 @@
 
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 import {
-  INTEGRATION_PLATFORMS,
   isIntegrationPlatform,
   isRequestedCapability,
   type IntegrationPlatform,
   type RequestedCapability,
 } from '@/backend/integrations/providers/types';
 import {
+  connectablePlatforms,
   getAccountConnectionProvider,
   getCapabilityProvider,
   resolveIntegrationConfig,
+  type AccountConnectionProvider,
 } from '@/backend/integrations/providers';
 import { IntegrationError } from '@/backend/integrations/providers/errors';
 import { notConnectedAccount } from '@/backend/integrations/composio/connection-store';
+import { platformPrerequisites } from '@/backend/integrations/composio/capability-preflight';
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -43,7 +45,10 @@ function errorResponse(error: unknown): Response {
 }
 
 function platformOr400(raw: string): IntegrationPlatform | Response {
-  if (!isIntegrationPlatform(raw)) {
+  // isIntegrationPlatform narrows the type; connectablePlatforms() is the flag
+  // gate. A recognized-but-not-enabled platform (e.g. 'x' while ARIES_X_ENABLED
+  // is OFF) yields the IDENTICAL unsupported_platform 400 as an unknown one.
+  if (!isIntegrationPlatform(raw) || !connectablePlatforms().includes(raw)) {
     return json({ status: 'error', reason: 'unsupported_platform', message: `Unsupported platform: ${raw}` }, 400);
   }
   return raw;
@@ -118,32 +123,52 @@ export async function handleComposioConnect(
   }
 }
 
-export async function handleComposioList(loader?: TenantContextLoader): Promise<Response> {
+export async function handleComposioList(
+  loader?: TenantContextLoader,
+  provider: AccountConnectionProvider | null = getAccountConnectionProvider(),
+): Promise<Response> {
   const tenantResult = await loadTenantContextOrResponse(loader);
   if ('response' in tenantResult) return tenantResult.response;
   const { tenantId } = tenantResult.tenantContext;
 
   const config = resolveIntegrationConfig();
-  const provider = getAccountConnectionProvider();
 
   const externalUserId = externalUserIdFor(tenantId);
+  // Per-platform reconcile failures captured as frontend-safe advisories (#699).
+  // A Composio outage must NOT blank the whole screen, so these are recorded and
+  // surfaced per card rather than failing the request.
+  const reconcileErrors = new Map<IntegrationPlatform, string>();
   let stored: Awaited<ReturnType<NonNullable<typeof provider>['listConnections']>> = [];
   if (provider) {
     try {
       stored = await provider.listConnections(externalUserId, { tenantId });
       // Reconcile any pending connections: once the user has approved out-of-band,
       // this flips the stored row from `pending` to `connected` and records the
-      // connected-account id. Best-effort — a refresh failure leaves the row as-is.
+      // connected-account id. A refresh failure no longer silently leaves the row
+      // stranded as `pending` (#699) — we record a frontend-safe per-platform
+      // advisory and still re-read + return 200.
       const pending = stored.filter((c) => c.status === 'pending');
       if (pending.length > 0) {
         await Promise.all(
           pending.map((c) =>
-            provider.refreshConnectionStatus(externalUserId, c.platform, { tenantId }).catch(() => null),
+            provider
+              .refreshConnectionStatus(externalUserId, c.platform, { tenantId })
+              .then(() => undefined)
+              .catch((error: unknown) => {
+                reconcileErrors.set(
+                  c.platform,
+                  error instanceof IntegrationError
+                    ? error.message
+                    : "We couldn't confirm this connection. Please try again.",
+                );
+              }),
           ),
         );
         stored = await provider.listConnections(externalUserId, { tenantId });
       }
     } catch (error) {
+      // A genuine DB read failure (not a per-platform reconcile failure) — the
+      // list itself could not be read, so a 500 is correct.
       return errorResponse(error);
     }
   }
@@ -151,9 +176,14 @@ export async function handleComposioList(loader?: TenantContextLoader): Promise<
   // Merge stored rows with not-connected placeholders so the UI can render
   // every supported platform regardless of whether a row exists yet.
   const byPlatform = new Map(stored.map((c) => [c.platform, c]));
-  const connections = INTEGRATION_PLATFORMS.map(
-    (platform) => byPlatform.get(platform) ?? notConnectedAccount(tenantId, externalUserId, platform, 'composio'),
-  );
+  const connections = connectablePlatforms().map((platform) => {
+    const account = byPlatform.get(platform) ?? notConnectedAccount(tenantId, externalUserId, platform, 'composio');
+    return {
+      ...account,
+      prerequisites: platformPrerequisites(platform),
+      reconcileError: reconcileErrors.get(platform) ?? null,
+    };
+  });
 
   return json({
     status: 'ok',

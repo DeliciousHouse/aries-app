@@ -20,7 +20,7 @@ import { buildActivitySnapshot } from './activity-snapshot-builder';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 import crypto from 'crypto';
 
-const TEMPLATE_VERSION = 'activity-v1';
+const TEMPLATE_VERSION = 'activity-v2';
 const CACHE_TTL_MS     = 60 * 60 * 1000; // 1 hour
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);
@@ -88,15 +88,19 @@ async function upsert(
   );
 }
 
-function buildFooterLine(postsPublished: number, platformCount: number): string {
-  if (postsPublished === 0) {
+// An insight line — NOT a restatement of the posts-published count (which has
+// its own card). Surfaces what Aries noticed: the leading content type when one
+// clearly dominates, otherwise the always-true learning message.
+function buildFooterLine(snap: { postsPublished: number; contentMix: Array<{ contentType: string; pct: number }> }): string {
+  if (snap.postsPublished === 0) {
     return 'No Aries-published posts in this period.';
   }
-  const postWord = postsPublished === 1 ? 'post' : 'posts';
-  if (platformCount <= 1) {
-    return `Aries published ${postsPublished} ${postWord} this period.`;
+  const top = snap.contentMix[0];
+  if (top && top.contentType !== 'uncategorized' && top.pct >= 35) {
+    const label = top.contentType.charAt(0).toUpperCase() + top.contentType.slice(1);
+    return `${label} content is leading your mix this period — Aries is leaning into what's working.`;
   }
-  return `Aries published ${postsPublished} ${postWord} across ${platformCount} channels.`;
+  return 'Aries learns from every comment, save, and click — content quality compounds week over week.';
 }
 
 export async function handleGetInsightsActivity(
@@ -143,15 +147,18 @@ export async function handleGetInsightsActivity(
 
     const body: Record<string, unknown> = {
       strip: {
-        postsPublished:   snap.postsPublished,
-        commentsReceived: snap.commentsReceived,
-        highPerformers:   snap.highPerformers,
-        hoursSaved:       snap.hoursSaved,
+        postsPublished:    snap.postsPublished,
+        commentsReceived:  snap.commentsReceived,
+        commentsHandled:   snap.commentsHandled,
+        commentsNeedReply: snap.commentsNeedReply,
+        highPerformers:    snap.highPerformers,
+        hoursSaved:        snap.hoursSaved,
       },
-      footerLine: buildFooterLine(snap.postsPublished, snap.platformCount),
+      footerLine: buildFooterLine(snap),
       contentMix: snap.contentMix,
       meta: {
         platformCount:         snap.platformCount,
+        platforms:             snap.platforms,
         pendingClassification: snap.pendingClassification,
         hasData:               snap.postsPublished > 0,
       },

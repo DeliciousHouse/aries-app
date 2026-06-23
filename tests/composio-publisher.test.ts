@@ -6,6 +6,7 @@ import { PublishGuardError } from '@/backend/integrations/providers/errors';
 import {
   ComposioCapabilityMissingError,
   ComposioConnectionMissingError,
+  ComposioToolError,
 } from '@/backend/integrations/composio/errors';
 import { fakeConfig, fakeGateway, fakeDb } from './composio/helpers';
 
@@ -54,9 +55,11 @@ test('publishPost approved + active connection but no action slug throws capabil
 });
 
 test('publishPost approved + slug executes and normalizes the post id', async () => {
+  // Text-only (no media) so the publish_post slug is used — the image-post path is
+  // covered by the #627 regression tests below.
   const gateway = fakeGateway({ executeResult: { data: { id: 'post_999', permalink: 'https://fb/p/999' }, successful: true, error: null } });
   const provider = new ComposioPublisherProvider(gateway, fakeConfig({ actions: { publish_post: 'FB_POST' } }), fakeDb());
-  const result = await provider.publishPost({ tenantId, platform: 'facebook', content: 'hi', mediaUrls: ['u'], approved: true });
+  const result = await provider.publishPost({ tenantId, platform: 'facebook', content: 'hi', mediaUrls: [], approved: true });
   assert.equal(result.status, 'published');
   assert.equal(result.externalPostId, 'post_999');
   assert.equal(result.url, 'https://fb/p/999');
@@ -208,4 +211,154 @@ test('#624 IG publishPost sends `caption` (not `message`) and no `page_id`', asy
   assert.equal(args.caption, 'Hello IG', 'Instagram must still use `caption`');
   assert.equal(args.message,  undefined, '`message` must not be set for Instagram');
   assert.equal(args.page_id,  undefined, '`page_id` must not be set for Instagram');
+});
+
+// ── Regression tests for #627: FB image posts use FACEBOOK_CREATE_PHOTO_POST ─
+
+test('#627 FB image post routes to upload_media slug (FACEBOOK_CREATE_PHOTO_POST) with url+message+page_id', async () => {
+  // When mediaUrls is non-empty, publishPost must use the `upload_media` slug
+  // (FACEBOOK_CREATE_PHOTO_POST) with `url` (not `media_urls`) + `message` + `page_id`.
+  // Using FACEBOOK_CREATE_POST (the publish_post slug) ignores the image entirely.
+  const gateway = fakeGateway({ executeResult: { data: { id: '123', post_id: '1002997576221948_456' }, successful: true, error: null } });
+  const provider = new ComposioPublisherProvider(
+    gateway,
+    fakeConfig({ actions: { publish_post: 'FB_POST', upload_media: 'FB_PHOTO_POST' } }),
+    fakeDb(),
+  );
+  await provider.publishPost({
+    tenantId,
+    platform: 'facebook',
+    content: 'Look at this image!',
+    mediaUrls: ['https://aries.example.com/api/public/media/token123/image.png'],
+    approved: true,
+  });
+
+  assert.equal(gateway.calls.length, 1, 'exactly one executeTool call');
+  const call = gateway.calls[0];
+
+  // Must route to the photo slug, NOT the text slug
+  assert.equal(call.slug, 'FB_PHOTO_POST', 'image post must use upload_media slug (FACEBOOK_CREATE_PHOTO_POST)');
+  assert.notEqual(call.slug, 'FB_POST', 'image post must NOT use publish_post slug (FACEBOOK_CREATE_POST)');
+
+  const args = call.options.arguments as Record<string, unknown>;
+  // url must be the first (and only) mediaUrl
+  assert.equal(args.url, 'https://aries.example.com/api/public/media/token123/image.png', 'url must be the signed image URL');
+  // message (not caption or text) carries the post text
+  assert.equal(args.message, 'Look at this image!', 'message must carry the post text');
+  // page_id must be injected from the stored external_account_id
+  assert.equal(args.page_id, 'ext_1', 'page_id must equal the stored external_account_id');
+  // must NOT use media_urls (which FACEBOOK_CREATE_POST / FACEBOOK_CREATE_PHOTO_POST ignores / mishandles)
+  assert.equal(args.media_urls, undefined, 'media_urls must NOT be passed to FACEBOOK_CREATE_PHOTO_POST');
+  assert.equal(args.caption,    undefined, 'caption must NOT be set for Facebook photo posts');
+  assert.equal(args.text,       undefined, 'text must NOT be set (old wrong field)');
+});
+
+test('#627 FB text-only post still uses publish_post slug (FACEBOOK_CREATE_POST) with message+page_id', async () => {
+  const gateway = fakeGateway({ executeResult: { data: { id: 'post_text_1' }, successful: true, error: null } });
+  const provider = new ComposioPublisherProvider(
+    gateway,
+    fakeConfig({ actions: { publish_post: 'FB_POST', upload_media: 'FB_PHOTO_POST' } }),
+    fakeDb(),
+  );
+  await provider.publishPost({
+    tenantId,
+    platform: 'facebook',
+    content: 'Text only, no image.',
+    mediaUrls: [],
+    approved: true,
+  });
+
+  assert.equal(gateway.calls.length, 1, 'exactly one executeTool call');
+  const call = gateway.calls[0];
+  assert.equal(call.slug, 'FB_POST', 'text-only post must still use publish_post slug');
+  const args = call.options.arguments as Record<string, unknown>;
+  assert.equal(args.message, 'Text only, no image.', 'text-only post must carry message');
+  assert.equal(args.page_id, 'ext_1', 'text-only post must carry page_id');
+  assert.equal(args.url,        undefined, 'url must NOT be set for text-only post');
+  assert.equal(args.media_urls, undefined, 'media_urls must NOT be set for text-only post');
+});
+
+test('#627 FB image post with no upload_media slug throws capability-missing', async () => {
+  // No upload_media slug configured → should throw ComposioCapabilityMissingError
+  const provider = new ComposioPublisherProvider(
+    fakeGateway(),
+    fakeConfig({ actions: { publish_post: 'FB_POST' /* no upload_media */ } }),
+    fakeDb(),
+  );
+  await assert.rejects(
+    () => provider.publishPost({ tenantId, platform: 'facebook', content: 'hi', mediaUrls: ['img.png'], approved: true }),
+    ComposioCapabilityMissingError,
+    'missing upload_media slug must throw capability-missing',
+  );
+});
+
+// ── Regression tests for #667: unhandled-platform refusal ─────────────────
+//
+// Before the fix, the publishPost dispatch had a bare `else` that silently
+// built an Instagram `caption`/`media_urls` payload for any platform that
+// wasn't facebook, x, reddit, or linkedin — including tiktok, youtube, and
+// meta_ads. The fix made Instagram an explicit `else if` branch and added a
+// final `else` that throws ComposioToolError immediately.
+//
+// The explicit Instagram branch is already exercised by the '#624 IG
+// publishPost sends `caption`...' test above. These two tests guard the new
+// refusal path.
+
+test('#667 publishPost with an unhandled IntegrationPlatform throws ComposioToolError naming the platform', async () => {
+  // 'tiktok' is a valid IntegrationPlatform but has no dispatch branch in
+  // publishPost. Before the fix it silently built an Instagram payload for the
+  // wrong account; after the fix the final else throws before any gateway call.
+  const provider = new ComposioPublisherProvider(
+    fakeGateway(),
+    fakeConfig({ actions: { publish_post: 'TIKTOK_POST' } }),
+    fakeDb(),
+  );
+  await assert.rejects(
+    () =>
+      provider.publishPost({
+        tenantId,
+        platform: 'tiktok',
+        content: 'hello tiktok',
+        mediaUrls: [],
+        approved: true,
+      }),
+    (err: unknown) => {
+      assert.ok(err instanceof ComposioToolError, `expected ComposioToolError, got ${(err as Error)?.name}`);
+      assert.match(
+        (err as Error).message,
+        /tiktok/,
+        'error message must name the unhandled platform',
+      );
+      assert.match(
+        (err as Error).message,
+        /not a supported publish target/,
+        'error message must include "not a supported publish target"',
+      );
+      return true;
+    },
+  );
+});
+
+test('#667 unhandled-platform publishPost makes zero gateway calls (no silent publish to wrong network)', async () => {
+  // Safety property: the refusal must happen BEFORE any executeTool call.
+  // On the pre-fix code this assertion would also fail because the Instagram
+  // payload would be constructed and the gateway called.
+  const gateway = fakeGateway();
+  const provider = new ComposioPublisherProvider(
+    gateway,
+    fakeConfig({ actions: { publish_post: 'YOUTUBE_POST' } }),
+    fakeDb(),
+  );
+  await assert.rejects(
+    () =>
+      provider.publishPost({
+        tenantId,
+        platform: 'youtube',
+        content: 'hello youtube',
+        mediaUrls: ['https://aries.example.com/api/public/media/tok/img.png'],
+        approved: true,
+      }),
+    ComposioToolError,
+  );
+  assert.equal(gateway.calls.length, 0, 'no gateway call must be made for an unhandled platform');
 });

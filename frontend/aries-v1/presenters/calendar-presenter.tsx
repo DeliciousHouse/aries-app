@@ -34,6 +34,7 @@ import type {
 } from '@/frontend/aries-v1/view-models/calendar';
 import { RedditIcon, XIcon } from '@/frontend/components/Icons';
 import RescheduleDrawer from '@/frontend/aries-v1/reschedule-drawer';
+import { ALLOWED_TARGET_PLATFORMS, type AllowedTargetPlatform } from '@/backend/social-content/scheduled-posts';
 import {
   formatTimeInTenantZone,
   tenantZoneDateKey,
@@ -96,6 +97,13 @@ export interface CalendarPresenterProps {
   campaignsLoading?: boolean;
   /** Called after the RescheduleDrawer saves — lets the screen refetch the queue. */
   onRescheduled?: () => void;
+  /**
+   * Platforms the operator is allowed to schedule to right now. Computed
+   * server-side from rollout flags and passed down. Defaults to
+   * `['facebook','instagram']` when absent (byte-identical to previous behaviour
+   * when all flags are OFF).
+   */
+  allowedPublishPlatforms?: AllowedTargetPlatform[];
 }
 
 export default function CalendarPresenter({
@@ -105,12 +113,11 @@ export default function CalendarPresenter({
   schedulingError,
   campaignsLoading,
   onRescheduled,
+  allowedPublishPlatforms,
 }: CalendarPresenterProps) {
   const timeZone = model.timeZone;
   const [view, setView] = useState<CalendarMode>('month');
-  const [currentDate, setCurrentDate] = useState(() =>
-    getInitialCalendarDate(model.events, timeZone),
-  );
+  const [currentDate, setCurrentDate] = useState(() => new Date());
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [rescheduleEventId, setRescheduleEventId] = useState<string | null>(null);
   const [scheduleTrayPost, setScheduleTrayPost] = useState<UnscheduledPost | null>(null);
@@ -482,9 +489,12 @@ export default function CalendarPresenter({
             postId={rescheduleTarget.postId}
             defaultScheduledAt={rescheduleTarget.scheduledForIso}
             defaultPlatforms={rescheduleTarget.targetPlatforms.filter(
-              (platform): platform is 'facebook' | 'instagram' =>
-                platform === 'facebook' || platform === 'instagram',
+              (platform): platform is AllowedTargetPlatform =>
+                (allowedPublishPlatforms ?? (['facebook', 'instagram'] as AllowedTargetPlatform[])).includes(
+                  platform as AllowedTargetPlatform,
+                ),
             )}
+            allowedPlatforms={allowedPublishPlatforms}
             timeZone={timeZone}
             onClose={() => setRescheduleEventId(null)}
             onSaved={() => {
@@ -500,10 +510,14 @@ export default function CalendarPresenter({
             jobId={scheduleTrayPost.jobId}
             postId={scheduleTrayPost.postId}
             defaultPlatforms={
-              scheduleTrayPost.platform === 'facebook' || scheduleTrayPost.platform === 'instagram'
-                ? [scheduleTrayPost.platform]
+              scheduleTrayPost.platform !== null &&
+              (allowedPublishPlatforms ?? (['facebook', 'instagram'] as AllowedTargetPlatform[])).includes(
+                scheduleTrayPost.platform as AllowedTargetPlatform,
+              )
+                ? [scheduleTrayPost.platform as AllowedTargetPlatform]
                 : undefined
             }
+            allowedPlatforms={allowedPublishPlatforms}
             timeZone={timeZone}
             onClose={() => setScheduleTrayPost(null)}
             onSaved={() => {
@@ -551,11 +565,19 @@ function PublishNowButton({
     setErrorMessage(null);
     try {
       const url = `/api/social-content/jobs/${encodeURIComponent(jobId)}/posts/${encodeURIComponent(postId)}/schedule`;
+      // Pass the post's real targets through (filtered to the known set). The
+      // server-side normalizeTargetPlatforms is the flag-aware gate, so a target
+      // whose rollout flag is off (e.g. youtube when ARIES_YOUTUBE_ENABLED is
+      // off) is rejected with invalid_platforms rather than silently rerouted —
+      // previously anything outside fb/ig was coerced to facebook (a wrong-network
+      // mis-publish once x/reddit/linkedin/youtube became selectable targets).
+      const known = new Set<string>(ALLOWED_TARGET_PLATFORMS);
       const filtered = targetPlatforms.filter(
-        (p): p is 'facebook' | 'instagram' => p === 'facebook' || p === 'instagram',
+        (p): p is AllowedTargetPlatform => known.has(p),
       );
-      const fallback: 'facebook' | 'instagram' =
-        platform === 'facebook' || platform === 'instagram' ? platform : 'facebook';
+      const fallback: AllowedTargetPlatform = known.has(platform)
+        ? (platform as AllowedTargetPlatform)
+        : 'facebook';
       const platforms = filtered.length > 0 ? filtered : [fallback];
       const response = await fetch(url, {
         method: 'PATCH',
@@ -979,21 +1001,6 @@ function InfoPanel(props: { label: string; value: string }) {
  * still a local `Date` walk (cheap, zone-agnostic for "which 42 cells"); only
  * the event-to-cell match and "today" use tenant-zone keys.
  */
-
-function getInitialCalendarDate(events: CalendarEvent[], timeZone: string): Date {
-  const now = Date.now();
-  const nextUpcoming = events.find((event) => event.timestamp >= now);
-  const anchorIso = nextUpcoming?.scheduledForIso ?? events[0]?.scheduledForIso;
-  if (anchorIso) {
-    // Build a local Date positioned on the tenant-zone civil day of the anchor
-    // event so the grid opens on the month that actually contains it.
-    const parts = tenantZoneParts(anchorIso, timeZone);
-    if (parts) {
-      return new Date(parts.year, parts.month - 1, parts.day);
-    }
-  }
-  return new Date();
-}
 
 function startOfMonth(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), 1);

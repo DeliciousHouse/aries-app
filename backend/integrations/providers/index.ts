@@ -14,6 +14,11 @@ export * from './errors';
 export {
   parseFlag,
   isComposioEnabled,
+  isXEnabled,
+  isTikTokEnabled,
+  isRedditEnabled,
+  isLinkedInEnabled,
+  connectablePlatforms,
   publishProviderSelector,
   analyticsProviderSelector,
   composioAuthConfigId,

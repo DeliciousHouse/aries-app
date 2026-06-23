@@ -158,7 +158,7 @@ export async function handlePatchScheduleSocialContentPost(
   if (!normalizedPlatforms || normalizedPlatforms.length === 0) {
     return NextResponse.json(
       {
-        error: '`platforms` must be a non-empty array of "facebook" or "instagram".',
+        error: '`platforms` must be a non-empty array of supported target platforms.',
         reason: 'invalid_platforms',
       },
       { status: 400 },

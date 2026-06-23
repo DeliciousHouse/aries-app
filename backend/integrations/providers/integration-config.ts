@@ -10,7 +10,7 @@
  * (`1` | `true` | `yes` | `on`); see CLAUDE.md "Optional safety flags".
  */
 
-import type { IntegrationPlatform } from './types';
+import { INTEGRATION_PLATFORMS, type IntegrationPlatform } from './types';
 
 export type ProviderSelector = 'direct_meta' | 'composio' | 'auto';
 
@@ -31,12 +31,89 @@ export function isComposioEnabled(env: NodeJS.ProcessEnv = process.env): boolean
   return parseFlag(env.COMPOSIO_ENABLED);
 }
 
+/** X (Twitter) connect rollout flag. Default OFF — ships the platform dormant. */
+export function isXEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return parseFlag(env.ARIES_X_ENABLED);
+}
+
+/**
+ * TikTok connect rollout flag. Default OFF — ships TikTok dormant because it
+ * cannot reach the 5-gate golden journey today: Composio has no TikTok
+ * comments/reply actions, public publish is audit-gated, and analytics is
+ * account-level only. Gate it out until Composio adds the missing actions and
+ * the publish app is audited. NEW flag — never reuse ARIES_X_ENABLED.
+ */
+export function isTikTokEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return parseFlag(env.ARIES_TIKTOK_ENABLED);
+}
+
+/**
+ * YouTube rollout flag (#637 analytics, #638 comments, #636 publish). Default
+ * OFF — ships the Composio-backed YouTube insights adapter AND the still→video
+ * publish path dormant. YouTube already *connects* via Composio, so this flag
+ * does NOT gate connectability (it is deliberately NOT wired into
+ * `connectablePlatforms`); it gates the insights bridge + adapter, the publish
+ * branch (composio-publisher-provider), and YouTube as a schedulable target
+ * (scheduled-posts allowlist + scheduled-dispatch admit gate). NEW flag — never
+ * reuse ARIES_X_ENABLED.
+ */
+export function isYouTubeEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return parseFlag(env.ARIES_YOUTUBE_ENABLED);
+}
+
+/**
+ * Reddit publish rollout flag. Default OFF — ships the publish path dormant
+ * (Reddit already *connects* via Composio; this flag gates publish only, so it
+ * is deliberately NOT wired into `connectablePlatforms`).
+ */
+export function isRedditEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return parseFlag(env.ARIES_REDDIT_ENABLED);
+}
+
+/**
+ * Explicit target subreddit for Reddit publish (COMPOSIO_REDDIT_TARGET_SUBREDDIT).
+ * Returns null when unset/empty so the publisher falls back to the connected
+ * user's own profile (`u_<username>`) and never guesses a community.
+ */
+export function redditTargetSubreddit(env: NodeJS.ProcessEnv = process.env): string | null {
+  const v = env.COMPOSIO_REDDIT_TARGET_SUBREDDIT?.trim();
+  return v || null;
+}
+
+/**
+ * LinkedIn rollout flag. Default OFF. Gates the connect-time person-URN
+ * resolution (and, later, LinkedIn publish #646); LinkedIn is already a
+ * connectable platform, so this flag does NOT gate connectability — only the
+ * extra `LINKEDIN_GET_MY_INFO` author-URN lookup. When OFF the connect path is
+ * byte-identical to today (no executeTool call).
+ */
+export function isLinkedInEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return parseFlag(env.ARIES_LINKEDIN_ENABLED);
+}
+
+/**
+ * Platforms an operator can actually connect right now. The single dormancy
+ * chokepoint for flag-gated platforms: when `ARIES_X_ENABLED` is OFF, `'x'` is
+ * filtered out everywhere (connect/capabilities/disconnect gate + the UI list),
+ * so the platform is byte-for-byte invisible until the flag flips on.
+ * `ARIES_TIKTOK_ENABLED` gates `'tiktok'` the same way — dormant by default
+ * until Composio adds the missing comments/reply actions and publish is audited.
+ */
+export function connectablePlatforms(
+  env: NodeJS.ProcessEnv = process.env,
+): readonly IntegrationPlatform[] {
+  const excluded = new Set<IntegrationPlatform>();
+  if (!isXEnabled(env)) excluded.add('x');
+  if (!isTikTokEnabled(env)) excluded.add('tiktok');
+  return INTEGRATION_PLATFORMS.filter((p) => !excluded.has(p));
+}
+
 export function publishProviderSelector(env: NodeJS.ProcessEnv = process.env): ProviderSelector {
-  return parseSelector(env.PUBLISH_PROVIDER, 'direct_meta');
+  return parseSelector(env.PUBLISH_PROVIDER, 'composio');
 }
 
 export function analyticsProviderSelector(env: NodeJS.ProcessEnv = process.env): ProviderSelector {
-  return parseSelector(env.ANALYTICS_PROVIDER, 'direct_meta');
+  return parseSelector(env.ANALYTICS_PROVIDER, 'composio');
 }
 
 /** Per-platform Composio auth-config ID, falling back to the default config. */
@@ -52,11 +129,29 @@ export function composioAuthConfigId(
     youtube: env.COMPOSIO_YOUTUBE_AUTH_CONFIG_ID,
     linkedin: env.COMPOSIO_LINKEDIN_AUTH_CONFIG_ID,
     reddit: env.COMPOSIO_REDDIT_AUTH_CONFIG_ID,
+    x: env.COMPOSIO_X_AUTH_CONFIG_ID,
   };
   const specific = perPlatform[platform]?.trim();
   if (specific) return specific;
-  const fallback = env.COMPOSIO_DEFAULT_AUTH_CONFIG_ID?.trim();
-  return fallback || null;
+  // reddit + x are toolkit-specific (reddit provisions Composio-managed auth;
+  // x needs its own custom OAuth app). tiktok is gated-out/dormant and must
+  // never inherit COMPOSIO_DEFAULT_AUTH_CONFIG_ID (typically a Meta-family config)
+  // or a future accidental connect attempt would target the wrong toolkit (#690).
+  if (platform === 'reddit' || platform === 'x' || platform === 'tiktok') return null;
+  return composioDefaultAuthConfigId(env);
+}
+
+/**
+ * The shared default Composio auth-config id (COMPOSIO_DEFAULT_AUTH_CONFIG_ID),
+ * trimmed and normalized to null when unset/blank. This is the auth config that
+ * Meta-family platforms (facebook/instagram/meta_ads) fall back to when they
+ * have no per-platform id, so several platforms can share it. Single source of
+ * truth — the per-platform `composioAuthConfigId` fallback reuses this, and the
+ * reconcile path uses it to tell "shared default" (ambiguous, can't disambiguate
+ * by auth config) from a "platform-scoped" (toolkit-bound) auth config.
+ */
+export function composioDefaultAuthConfigId(env: NodeJS.ProcessEnv = process.env): string | null {
+  return env.COMPOSIO_DEFAULT_AUTH_CONFIG_ID?.trim() || null;
 }
 
 export function composioApiKey(env: NodeJS.ProcessEnv = process.env): string | null {

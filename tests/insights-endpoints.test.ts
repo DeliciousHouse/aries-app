@@ -66,6 +66,7 @@ async function json(res: Response): Promise<Record<string, unknown>> {
 
 let tenantId = -1;
 let wiredPostCount = 0;
+let fakeAriesPostId = -1;   // the temp posts row this test wires; cleaned up surgically
 
 test.before(async () => {
   if (!hasRequiredDbEnv()) return;   // individual tests will self-skip via requireDbEnvOrSkip
@@ -91,7 +92,7 @@ test.before(async () => {
        RETURNING id`,
       [tenantId],
     );
-    const fakeAriesPostId = postRes.rows[0].id;
+    fakeAriesPostId = postRes.rows[0].id;
 
     // Link the 5 most-recently-published insights_posts to this fake aries post
     const linked = await client.query<{ id: number }>(
@@ -117,10 +118,15 @@ test.after(async () => {
   // Clean up wired aries_post_id and the temp post to leave the seed clean
   const client = await pool.connect();
   try {
-    await client.query(
-      `UPDATE insights_posts SET aries_post_id = NULL WHERE tenant_id = $1`,
-      [tenantId],
-    );
+    // Surgical cleanup: only un-wire the links THIS test created (pointing at
+    // our temp post), not every aries_post_id in the tenant — otherwise a shared
+    // dev/demo tenant's real seed links get clobbered on every run.
+    if (fakeAriesPostId > 0) {
+      await client.query(
+        `UPDATE insights_posts SET aries_post_id = NULL WHERE tenant_id = $1 AND aries_post_id = $2`,
+        [tenantId, fakeAriesPostId],
+      );
+    }
     await client.query(
       `DELETE FROM posts
        WHERE tenant_id = $1 AND caption = 'Test post for insights integration test'`,
@@ -155,9 +161,14 @@ test('GET /api/insights/goal — week period returns valid shape', async (t) => 
     assert.ok('period' in body, 'missing period');
     assert.ok('platform' in body, 'missing platform');
     assert.ok('cached' in body, 'missing cached flag');
-    const meta = body.meta as Record<string, unknown> | undefined;
-    assert.ok(meta, 'missing meta');
-    assert.ok('hasData' in meta, 'meta missing hasData');
+    // Goal reports emptiness with a TOP-LEVEL hasData (unlike activity/trends/top
+    // which nest it under meta). It also returns post-level `contributors` plus
+    // category-grouped `categories` for the 30/90-day view.
+    assert.ok('hasData' in body, 'missing hasData');
+    assert.ok('metricValue' in body, 'missing metricValue');
+    assert.ok('metricValuePrev' in body, 'missing metricValuePrev');
+    assert.ok(Array.isArray(body.contributors), 'contributors should be an array');
+    assert.ok(Array.isArray(body.categories), 'categories should be an array');
   }
 
   console.log('[goal/week]', JSON.stringify({ status: body.status }));

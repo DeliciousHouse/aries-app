@@ -5,6 +5,7 @@ import {
   replyToCommentViaComposio,
   shouldUseComposioReply,
   DEFAULT_FB_CREATE_COMMENT_SLUG,
+  DEFAULT_IG_CREATE_COMMENT_REPLY_SLUG,
 } from '@/backend/integrations/composio/composio-reply';
 import { MetaPublishError, classifyMetaPublishFailure } from '@/backend/integrations/meta-publishing';
 import { fakeConfig, fakeGateway, fakeDb } from './composio/helpers';
@@ -36,8 +37,22 @@ test('shouldUseComposioReply: composio selected but master switch OFF → false'
   assert.equal(shouldUseComposioReply('facebook', { PUBLISH_PROVIDER: 'composio' }), false);
 });
 
-test('shouldUseComposioReply: instagram is never routed via Composio (no verified action)', () => {
-  assert.equal(shouldUseComposioReply('instagram', { COMPOSIO_ENABLED: 'true', PUBLISH_PROVIDER: 'composio' }), false);
+test('shouldUseComposioReply: IG + composio enabled+selected → true (#694)', () => {
+  // After fix: Instagram IS admitted to the Composio reply path when composio is selected.
+  assert.equal(
+    shouldUseComposioReply('instagram', { COMPOSIO_ENABLED: 'true', PUBLISH_PROVIDER: 'composio' }),
+    true,
+  );
+});
+
+test('shouldUseComposioReply: IG but direct_meta → false (falls back to direct-Graph path)', () => {
+  assert.equal(shouldUseComposioReply('instagram', { COMPOSIO_ENABLED: 'true', PUBLISH_PROVIDER: 'direct_meta' }), false);
+  assert.equal(shouldUseComposioReply('instagram', {}), false);
+});
+
+test('shouldUseComposioReply: IG composio selected but master switch OFF → false', () => {
+  // effectivePublishProvider forces direct_meta when COMPOSIO_ENABLED is off.
+  assert.equal(shouldUseComposioReply('instagram', { PUBLISH_PROVIDER: 'composio' }), false);
 });
 
 // ── replyToCommentViaComposio ───────────────────────────────────────────────────
@@ -199,6 +214,165 @@ test('empty reply text is rejected before any tool call', async () => {
   const gateway = fakeGateway();
   await assert.rejects(
     () => replyToCommentViaComposio({ ...baseReq, message: '   ' }, {}, { gateway, config: fakeConfig({ actions: {} }), db: fakeDb() }),
+    (err: unknown) => err instanceof MetaPublishError && err.code === 'missing_reply_text',
+  );
+  assert.equal(gateway.calls.length, 0);
+});
+
+// ── replyToCommentViaComposio for Instagram (#694) ─────────────────────────────
+//
+// The fix admitted Instagram to the Composio reply path. IG args are different
+// from FB: `ig_comment_id` is the raw external comment id (NOT stripped like
+// the FB `object_id`), and the slug is DEFAULT_IG_CREATE_COMMENT_REPLY_SLUG.
+
+const igReq = {
+  tenantId: '42',
+  provider: 'instagram',
+  externalCommentId: '17841405822304914',
+  message: 'Love this post!',
+};
+
+test('IG success: calls INSTAGRAM_POST_IG_COMMENT_REPLIES with {ig_comment_id, message} args', async () => {
+  const gateway = fakeGateway({
+    executeResult: { successful: true, error: null, data: { id: 'ig_reply_1' } },
+  });
+  const out = await replyToCommentViaComposio(igReq, {}, {
+    gateway,
+    config: fakeConfig({ actions: {} }),
+    db: fakeDb(),
+  });
+
+  assert.equal(out.platformReplyId, 'ig_reply_1');
+  assert.equal(out.provider, 'instagram');
+  assert.equal(gateway.calls[0].slug, DEFAULT_IG_CREATE_COMMENT_REPLY_SLUG);
+  assert.equal(gateway.calls[0].options.connectedAccountId, 'ca_123');
+  // IG args use ig_comment_id — NOT the FB object_id field.
+  assert.deepEqual(gateway.calls[0].options.arguments, {
+    ig_comment_id: '17841405822304914',
+    message: 'Love this post!',
+  });
+});
+
+test('IG: raw externalCommentId is passed as ig_comment_id with NO stripping (IG ids are not compound)', async () => {
+  // Unlike FB ("{post_story_fbid}_{comment_id}" compound → trailing-segment strip),
+  // Instagram comment ids are not compound. The raw stored external_comment_id must
+  // be forwarded to Composio unchanged as `ig_comment_id`. This is the load-bearing
+  // behavioral difference between the IG and FB paths.
+  const compoundLookingId = 'PREFIX_17841405822304914';
+  const gateway = fakeGateway({
+    executeResult: { successful: true, error: null, data: { id: 'ig_reply_no_strip' } },
+  });
+  await replyToCommentViaComposio(
+    { ...igReq, externalCommentId: compoundLookingId },
+    {},
+    { gateway, config: fakeConfig({ actions: {} }), db: fakeDb() },
+  );
+  const args = gateway.calls[0].options.arguments as Record<string, string>;
+  // Must be the raw id, NOT the trailing segment.
+  assert.equal(args.ig_comment_id, compoundLookingId, 'ig_comment_id must be the raw id (no stripping)');
+  // Must NOT send object_id (the FB field).
+  assert.equal('object_id' in args, false, 'must NOT send object_id for IG');
+});
+
+test('IG success: reads nested data.data.id wrapper too', async () => {
+  const gateway = fakeGateway({
+    executeResult: { successful: true, error: null, data: { data: { id: 'ig_reply_nested' } } },
+  });
+  const out = await replyToCommentViaComposio(igReq, {}, { gateway, config: fakeConfig({ actions: {} }), db: fakeDb() });
+  assert.equal(out.platformReplyId, 'ig_reply_nested');
+});
+
+test('IG: explicit failure (successful:false) → composio_reply_failed / definitely_never_posted (rollback safe)', async () => {
+  const gateway = fakeGateway({ executeResult: { successful: false, error: 'comment not accessible', data: null } });
+  await assert.rejects(
+    () => replyToCommentViaComposio(igReq, {}, { gateway, config: fakeConfig({ actions: {} }), db: fakeDb() }),
+    (err: unknown) => {
+      assert.ok(err instanceof MetaPublishError);
+      assert.equal(err.code, 'composio_reply_failed');
+      assert.equal(err.outcomeUnknown, false);
+      assert.equal(classifyMetaPublishFailure(err), 'definitely_never_posted');
+      return true;
+    },
+  );
+});
+
+test('IG: 2xx without a comment id → composio_reply_missing_id / outcome_unknown (no rollback, no auto-retry)', async () => {
+  const gateway = fakeGateway({ executeResult: { successful: true, error: null, data: {} } });
+  await assert.rejects(
+    () => replyToCommentViaComposio(igReq, {}, { gateway, config: fakeConfig({ actions: {} }), db: fakeDb() }),
+    (err: unknown) => {
+      assert.ok(err instanceof MetaPublishError);
+      assert.equal(err.code, 'composio_reply_missing_id');
+      assert.equal(err.outcomeUnknown, true);
+      assert.equal(classifyMetaPublishFailure(err), 'outcome_unknown');
+      return true;
+    },
+  );
+});
+
+test('IG: transport error (gateway throws) → composio_reply_unconfirmed / outcome_unknown (reply may have posted)', async () => {
+  const gateway = {
+    ...fakeGateway(),
+    async executeTool() {
+      throw new Error('ECONNRESET talking to Composio IG endpoint');
+    },
+  };
+  await assert.rejects(
+    () => replyToCommentViaComposio(igReq, {}, { gateway, config: fakeConfig({ actions: {} }), db: fakeDb() }),
+    (err: unknown) => {
+      assert.ok(err instanceof MetaPublishError);
+      assert.equal(err.code, 'composio_reply_unconfirmed');
+      assert.equal(err.outcomeUnknown, true);
+      assert.equal(classifyMetaPublishFailure(err), 'outcome_unknown');
+      return true;
+    },
+  );
+});
+
+test('IG: no active connection → oauth_token_missing (never-posted, reconnect)', async () => {
+  const gateway = fakeGateway();
+  await assert.rejects(
+    () => replyToCommentViaComposio(igReq, {}, { gateway, config: fakeConfig({ actions: {} }), db: fakeDb({ connectionRow: null }) }),
+    (err: unknown) => {
+      assert.ok(err instanceof MetaPublishError);
+      assert.equal(err.code, 'oauth_token_missing');
+      assert.equal(err.outcomeUnknown, false);
+      return true;
+    },
+  );
+  assert.equal(gateway.calls.length, 0, 'no tool call without a connection');
+});
+
+test('IG: COMPOSIO_INSTAGRAM_REPLY_COMMENT_ACTION env override replaces the default IG slug (via fakeConfig)', async () => {
+  // Mirrors the existing FB "an env/config override replaces the default reply slug" test.
+  const gateway = fakeGateway({ executeResult: { successful: true, error: null, data: { id: 'ig_custom_reply' } } });
+  await replyToCommentViaComposio(igReq, {}, {
+    gateway,
+    config: fakeConfig({ actions: { reply_comment: 'CUSTOM_IG_ACTION' } }),
+    db: fakeDb(),
+  });
+  assert.equal(gateway.calls[0].slug, 'CUSTOM_IG_ACTION');
+});
+
+test('IG: COMPOSIO_INSTAGRAM_REPLY_COMMENT_ACTION wired through resolveComposioConfig env chain', async () => {
+  // Exercises the actual env-var-name → actionEnvKey('instagram', 'reply_comment')
+  // → 'COMPOSIO_INSTAGRAM_REPLY_COMMENT_ACTION' → slug chain without any network call.
+  const { resolveComposioConfig } = await import('@/backend/integrations/composio/composio-config');
+  const env = {
+    COMPOSIO_API_KEY: 'test-key-for-env-chain-test',
+    COMPOSIO_INSTAGRAM_REPLY_COMMENT_ACTION: 'MY_CUSTOM_IG_REPLY_SLUG',
+  } as unknown as NodeJS.ProcessEnv;
+  const config = resolveComposioConfig(env);
+  assert.ok(config, 'resolveComposioConfig must return a config when API key is set');
+  const slug = config.actionSlugFor('instagram', 'reply_comment');
+  assert.equal(slug, 'MY_CUSTOM_IG_REPLY_SLUG',
+    'COMPOSIO_INSTAGRAM_REPLY_COMMENT_ACTION must override the default IG reply slug');
+});
+
+test('IG: empty reply text is rejected before any tool call', async () => {
+  const gateway = fakeGateway();
+  await assert.rejects(
+    () => replyToCommentViaComposio({ ...igReq, message: '   ' }, {}, { gateway, config: fakeConfig({ actions: {} }), db: fakeDb() }),
     (err: unknown) => err instanceof MetaPublishError && err.code === 'missing_reply_text',
   );
   assert.equal(gateway.calls.length, 0);

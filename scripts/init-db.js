@@ -188,7 +188,7 @@ async function initDb() {
         id BIGSERIAL PRIMARY KEY,
         tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
         external_user_id TEXT NOT NULL,
-        platform TEXT NOT NULL CHECK (platform IN ('facebook','instagram','meta_ads','tiktok','youtube','linkedin','reddit')),
+        platform TEXT NOT NULL CHECK (platform IN ('facebook','instagram','meta_ads','tiktok','youtube','linkedin','reddit','x')),
         provider TEXT NOT NULL DEFAULT 'composio' CHECK (provider IN ('composio','direct_meta','none')),
         connected_account_id TEXT,
         auth_config_id TEXT,
@@ -204,6 +204,19 @@ async function initDb() {
 
       CREATE INDEX IF NOT EXISTS idx_connected_accounts_tenant ON connected_accounts (tenant_id);
       CREATE INDEX IF NOT EXISTS idx_connected_accounts_tenant_platform ON connected_accounts (tenant_id, platform);
+
+      -- X (Twitter) connect (#650 added 'x' to IntegrationPlatform but not this
+      -- CHECK), applied to EXISTING databases: widen the platform CHECK to allow
+      -- 'x' so the Composio connect callback's upsertConnection(platform='x') is
+      -- not rejected at the DB layer. Idempotent: DROP IF EXISTS + re-ADD. No 'x'
+      -- rows can pre-exist (the old CHECK blocked them), so re-adding the
+      -- constraint never fails on existing data. Mirrored in
+      -- migrations/20260618000000_connected_accounts_allow_x.sql.
+      ALTER TABLE connected_accounts
+        DROP CONSTRAINT IF EXISTS connected_accounts_platform_check;
+      ALTER TABLE connected_accounts
+        ADD CONSTRAINT connected_accounts_platform_check
+        CHECK (platform IN ('facebook','instagram','meta_ads','tiktok','youtube','linkedin','reddit','x'));
     `);
 
     await client.query(`

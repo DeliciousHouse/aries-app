@@ -30,6 +30,14 @@ export type MetaReplyRequest = {
   tenantId: string;
   provider: string;
   externalCommentId: string;
+  /**
+   * The parent post's external id (insights_posts.external_post_id). Used ONLY by
+   * the Composio LinkedIn reply path as the `object` (share/ugcPost URN) the reply
+   * is attached to. The direct-Graph Meta reply (this module) and the other
+   * Composio reply platforms ignore it. Optional + nullable so existing callers
+   * are unaffected.
+   */
+  externalPostId?: string | null;
   message: string;
   fetchImpl?: typeof fetch;
 };

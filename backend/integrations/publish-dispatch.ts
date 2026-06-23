@@ -26,18 +26,34 @@ import {
   type MetaPublishRequest,
   type MetaPublishSuccess,
 } from './meta-publishing';
-import { effectivePublishProvider, getPublisherProvider } from './providers/provider-factory';
+import {
+  effectivePublishProvider,
+  getPublisherProvider,
+  getPublisherProviderForPlatform,
+  isComposioOnlyPublishPlatform,
+} from './providers/provider-factory';
 import type { PublisherProvider } from './providers/interfaces';
-import type { ProviderSelector } from './providers/integration-config';
+import { isComposioEnabled, type ProviderSelector } from './providers/integration-config';
 import type { IntegrationPlatform, PublishResult } from './providers/types';
 import { publishNeverReachedPlatform } from './publish-outcome';
 
-function metaPlatform(provider: string): IntegrationPlatform {
-  // Mirrors DirectMetaProvider: only organic FB/IG are serviced; anything that
-  // is not instagram is treated as facebook (publishToMetaGraph has the same
-  // two-way split), so the Composio route targets the same platform the direct
-  // route would have.
-  return provider.trim().toLowerCase() === 'instagram' ? 'instagram' : 'facebook';
+export function metaPlatform(provider: string): IntegrationPlatform {
+  // Map the dispatch request's provider string to the integration platform the
+  // provider seam services. X (Twitter), Reddit, LinkedIn and YouTube are each
+  // their own Composio-only platform; Instagram maps to instagram; tiktok now
+  // throws explicitly (gated out — no Composio publish path) so it never
+  // silently falls through to 'facebook' and posts to a Facebook Page (#690);
+  // everything else maps to facebook (the direct route's two-way split).
+  const normalized = provider.trim().toLowerCase();
+  if (normalized === 'x') return 'x';
+  if (normalized === 'reddit') return 'reddit';
+  if (normalized === 'linkedin') return 'linkedin';
+  if (normalized === 'youtube') return 'youtube';
+  if (normalized === 'instagram') return 'instagram';
+  if (normalized === 'tiktok') {
+    throw new Error('tiktok is not a supported publish platform (gated out; no Composio publish path)');
+  }
+  return 'facebook';
 }
 
 export interface DispatchPublishDeps {
@@ -45,8 +61,10 @@ export interface DispatchPublishDeps {
   selector?: () => ProviderSelector;
   /** Direct-Meta publish. Defaults to the real `publishToMetaGraph`. */
   directPublish?: (request: MetaPublishRequest) => Promise<MetaPublishSuccess>;
-  /** Provider seam factory. Defaults to the real `getPublisherProvider`. */
+  /** Provider seam factory. Defaults to the platform-aware `getPublisherProviderForPlatform`. */
   publisherProvider?: () => PublisherProvider;
+  /** Reports whether Composio is enabled. Defaults to env-based `isComposioEnabled`. */
+  composioEnabled?: () => boolean;
 }
 
 export async function dispatchPublish(
@@ -55,15 +73,36 @@ export async function dispatchPublish(
 ): Promise<MetaPublishSuccess> {
   const selector = deps.selector ?? effectivePublishProvider;
   const directPublish = deps.directPublish ?? publishToMetaGraph;
+  const composioEnabled = deps.composioEnabled ?? isComposioEnabled;
 
-  // Fast path: the shipped default. Identical to the pre-seam call the handlers
-  // made, so nothing about direct-Meta publishing changes.
-  if (selector() === 'direct_meta') {
+  // Resolve the platform early so the routing decision is made in one place.
+  const platform = metaPlatform(request.provider);
+  const composioOnly = isComposioOnlyPublishPlatform(platform);
+
+  // Composio-only platforms (x, reddit, linkedin, youtube) require Composio to be enabled.
+  // Reject with a terminal 400 before any provider is contacted so the handlers
+  // classify this as definitely-never-posted (safe to surface, never auto-retry,
+  // and the direct-Meta path is NEVER a fallback for these platforms).
+  if (composioOnly && !composioEnabled()) {
+    throw new MetaPublishError(
+      'provider_not_configured',
+      `Publishing to ${platform} requires Composio to be enabled (COMPOSIO_ENABLED=true).`,
+      { status: 400, retryable: false },
+    );
+  }
+
+  // Fast path for non-composio-only platforms: the shipped default (direct_meta).
+  // FB/IG publishing is byte-identical to the pre-seam call under direct_meta.
+  // Composio-only platforms (x, reddit, linkedin, youtube) skip this branch
+  // entirely — they never take the direct-Meta path regardless of the global selector.
+  if (!composioOnly && selector() === 'direct_meta') {
     return directPublish(request);
   }
 
-  const provider = (deps.publisherProvider ?? getPublisherProvider)();
-  const platform = metaPlatform(request.provider);
+  // For composio-only platforms, always use the Composio publisher. For
+  // selector-driven platforms that reach here (composio / auto mode), the
+  // platform-aware factory delegates to the selector as before.
+  const provider = (deps.publisherProvider ?? (() => getPublisherProviderForPlatform(platform)))();
 
   let result: PublishResult;
   try {
