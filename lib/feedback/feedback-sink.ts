@@ -178,6 +178,7 @@ export async function syncFeedbackToSheet(
         authConfigIdFor: () => null,
         toolkitSlugFor: () => GOOGLESHEETS_TOOLKIT,
         actionSlugFor: () => null,
+        defaultAuthConfigId: () => null,
       });
   } catch (error) {
     return { status: 'failed', screenshotLink: screenshotLink || null, error: errorText(error) };
