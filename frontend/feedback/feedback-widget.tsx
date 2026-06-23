@@ -3,7 +3,8 @@
 /**
  * Floating feedback widget — mounted once in the root layout so it appears on
  * every page, authenticated or not (spec §4). A bottom-right button opens a
- * lightweight modal: comment + category + severity + optional screenshot. On
+ * lightweight modal: comment + category + optional screenshot (severity is
+ * inferred server-side, not asked of the user). On
  * submit it captures page/browser/console context and POSTs to /api/feedback.
  *
  * Failure preserves the user's input and offers a retry (spec §9.6); success
@@ -19,9 +20,7 @@ import {
   FEEDBACK_CATEGORIES,
   FEEDBACK_LIMITS,
   FEEDBACK_SCREENSHOT_MIME_TYPES,
-  FEEDBACK_SEVERITIES,
   type FeedbackCategory,
-  type FeedbackSeverity,
 } from '@/lib/feedback/options';
 import { cn } from '../donor/lib/utils';
 import { getRecentConsoleErrors, installConsoleCapture } from './console-capture';
@@ -120,7 +119,6 @@ function FeedbackModal({ onClose }: { onClose: () => void }): React.ReactElement
   const titleId = useId();
   const commentId = useId();
   const categoryId = useId();
-  const severityId = useId();
   const statusId = useId();
 
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -134,7 +132,6 @@ function FeedbackModal({ onClose }: { onClose: () => void }): React.ReactElement
 
   const [comment, setComment] = useState('');
   const [category, setCategory] = useState<FeedbackCategory>(FEEDBACK_CATEGORIES[0]);
-  const [severity, setSeverity] = useState<FeedbackSeverity>(FEEDBACK_SEVERITIES[0]);
   const [screenshot, setScreenshot] = useState<{ file: File; previewUrl: string } | null>(null);
   const [phase, setPhase] = useState<Phase>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -237,7 +234,6 @@ function FeedbackModal({ onClose }: { onClose: () => void }): React.ReactElement
           submissionId: submissionIdRef.current,
           comment: comment.trim(),
           category,
-          severity,
           context: captureContext(),
           screenshot: screenshotPayload,
         }),
@@ -272,7 +268,7 @@ function FeedbackModal({ onClose }: { onClose: () => void }): React.ReactElement
       setErrorMessage("We couldn't reach the server. Check your connection and try again.");
       setPhase('error');
     }
-  }, [category, comment, commentValid, onClose, screenshot, severity, submitting]);
+  }, [category, comment, commentValid, onClose, screenshot, submitting]);
 
   return (
     <div
@@ -349,43 +345,23 @@ function FeedbackModal({ onClose }: { onClose: () => void }): React.ReactElement
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label htmlFor={categoryId} className="mb-1.5 block text-sm font-medium text-white/85">
-                Category
-              </label>
-              <select
-                id={categoryId}
-                value={category}
-                onChange={(event) => setCategory(event.target.value as FeedbackCategory)}
-                disabled={submitting}
-                className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:outline-none focus-visible:border-white/40 focus-visible:ring-2 focus-visible:ring-white/70 disabled:opacity-60"
-              >
-                {FEEDBACK_CATEGORIES.map((value) => (
-                  <option key={value} value={value} className="bg-[#0c0d12]">
-                    {value}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor={severityId} className="mb-1.5 block text-sm font-medium text-white/85">
-                Severity
-              </label>
-              <select
-                id={severityId}
-                value={severity}
-                onChange={(event) => setSeverity(event.target.value as FeedbackSeverity)}
-                disabled={submitting}
-                className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:outline-none focus-visible:border-white/40 focus-visible:ring-2 focus-visible:ring-white/70 disabled:opacity-60"
-              >
-                {FEEDBACK_SEVERITIES.map((value) => (
-                  <option key={value} value={value} className="bg-[#0c0d12]">
-                    {value}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <div>
+            <label htmlFor={categoryId} className="mb-1.5 block text-sm font-medium text-white/85">
+              Category
+            </label>
+            <select
+              id={categoryId}
+              value={category}
+              onChange={(event) => setCategory(event.target.value as FeedbackCategory)}
+              disabled={submitting}
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:outline-none focus-visible:border-white/40 focus-visible:ring-2 focus-visible:ring-white/70 disabled:opacity-60"
+            >
+              {FEEDBACK_CATEGORIES.map((value) => (
+                <option key={value} value={value} className="bg-[#0c0d12]">
+                  {value}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div>

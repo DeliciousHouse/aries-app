@@ -50,6 +50,7 @@ function config(overrides?: Partial<FeedbackConfig>): FeedbackConfig {
     appBaseUrl: 'https://aries.example.com',
     rateLimitPerHour: 20,
     composio,
+    severityLlm: null,
     ...overrides,
   };
 }

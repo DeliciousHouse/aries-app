@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.17.0 — feat(feedback): infer severity (drop the dropdown) + wire Composio env into the container
+
+Follow-ups to the feedback button (v0.1.16.0):
+
+- **Severity is now inferred, not asked.** The Severity dropdown is removed from
+  the form — users found it confusing. The server classifies severity (Low/Medium/
+  High/Blocker) from the comment + category via a short, bounded Hermes call
+  (`lib/feedback/severity-classifier.ts`), with a deterministic category/keyword
+  heuristic fallback when Hermes is disabled, slow, or errors. It never blocks long
+  or fails a submission. Rate-limiting runs BEFORE the LLM call so spam can't
+  trigger classification runs. Knobs: `FEEDBACK_SEVERITY_LLM_ENABLED` (default on
+  when Hermes is configured), `FEEDBACK_SEVERITY_TIMEOUT_MS` (default 6000),
+  `HERMES_SEVERITY_SESSION_KEY`.
+- **docker-compose env passthrough.** The app container gets env only via explicit
+  `${VAR}` interpolation (no `env_file`), so the feedback Composio/Sheet vars now
+  appear in the app service `environment:` block — without this the deployed
+  container never saw them even when set in the host `.env`. `FEEDBACK_ENABLED`
+  defaults to `true` in compose (an empty value would otherwise read as falsey and
+  hide the button); `resolveFeedbackConfig` also treats an empty string as unset.
+
 ## v0.1.16.0 — feat(feedback): in-app feedback button on every page
 
 A persistent floating feedback button on every page (including the login/auth
