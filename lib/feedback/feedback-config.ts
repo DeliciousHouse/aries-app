@@ -43,6 +43,15 @@ export interface FeedbackComposioConfig {
   appendActionSlug: string;
 }
 
+/** Hermes-backed severity classification (severity is inferred, not user-entered). */
+export interface FeedbackSeverityLlmConfig {
+  gatewayUrl: string;
+  apiKey: string;
+  sessionKey: string;
+  /** Hard cap on the whole submit+poll classification (ms). */
+  timeoutMs: number;
+}
+
 export interface FeedbackConfig {
   /** Master switch for the whole feature (button + capture). Default ON. */
   enabled: boolean;
@@ -54,6 +63,8 @@ export interface FeedbackConfig {
   rateLimitPerHour: number;
   /** Non-null only when the Composio → Sheet mirror is fully configured. */
   composio: FeedbackComposioConfig | null;
+  /** Non-null when severity should be inferred via Hermes (else heuristic only). */
+  severityLlm: FeedbackSeverityLlmConfig | null;
 }
 
 /** Resolve the environment label: explicit override wins, else NODE_ENV. */
@@ -94,14 +105,40 @@ function resolveComposio(env: NodeJS.ProcessEnv): FeedbackComposioConfig | null 
   };
 }
 
+/**
+ * Severity is inferred via Hermes when the gateway is configured and the feature
+ * isn't explicitly disabled. Treats an empty string as "unset" (docker-compose
+ * passes "" for unmapped/blank vars) so the default stays ON without surprises.
+ */
+function resolveSeverityLlm(env: NodeJS.ProcessEnv): FeedbackSeverityLlmConfig | null {
+  const flag = str(env.FEEDBACK_SEVERITY_LLM_ENABLED);
+  if (flag !== null && !parseFlag(flag)) return null; // explicit off
+
+  const gatewayUrl = str(env.HERMES_GATEWAY_URL);
+  const apiKey = str(env.HERMES_API_SERVER_KEY);
+  if (!gatewayUrl || !apiKey) return null; // no Hermes -> heuristic only
+
+  return {
+    gatewayUrl: gatewayUrl.replace(/\/+$/, ''),
+    apiKey,
+    sessionKey:
+      str(env.HERMES_SEVERITY_SESSION_KEY) ?? str(env.HERMES_SESSION_KEY) ?? 'aries-main',
+    timeoutMs: int(env.FEEDBACK_SEVERITY_TIMEOUT_MS, 6000),
+  };
+}
+
 export function resolveFeedbackConfig(env: NodeJS.ProcessEnv = process.env): FeedbackConfig {
   // Default ON: feature is opt-out, since the button is meant to be everywhere.
-  const enabled = env.FEEDBACK_ENABLED === undefined ? true : parseFlag(env.FEEDBACK_ENABLED);
+  // Empty string counts as unset (docker-compose passes "" for blank vars), so an
+  // unmapped/blank FEEDBACK_ENABLED defaults ON rather than silently hiding it.
+  const enabledFlag = str(env.FEEDBACK_ENABLED);
+  const enabled = enabledFlag === null ? true : parseFlag(enabledFlag);
   return {
     enabled,
     environment: resolveFeedbackEnvironment(env),
     appBaseUrl: str(env.APP_BASE_URL) ?? str(env.NEXTAUTH_URL) ?? str(env.AUTH_URL),
     rateLimitPerHour: int(env.FEEDBACK_RATE_LIMIT_PER_HOUR, 20),
     composio: resolveComposio(env),
+    severityLlm: resolveSeverityLlm(env),
   };
 }

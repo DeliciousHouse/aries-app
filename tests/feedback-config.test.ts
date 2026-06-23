@@ -57,6 +57,30 @@ test('rate limit parses, falling back to 20 on garbage', () => {
   assert.equal(resolveFeedbackConfig({ FEEDBACK_RATE_LIMIT_PER_HOUR: '-3' } as unknown as NodeJS.ProcessEnv).rateLimitPerHour, 20);
 });
 
+test('severityLlm resolves from Hermes config, off when Hermes absent or disabled', () => {
+  // No Hermes vars -> heuristic only.
+  assert.equal(resolveFeedbackConfig({} as unknown as NodeJS.ProcessEnv).severityLlm, null);
+
+  const withHermes = {
+    HERMES_GATEWAY_URL: 'http://hermes:8642/',
+    HERMES_API_SERVER_KEY: 'k',
+    HERMES_SESSION_KEY: 'main',
+  } as unknown as NodeJS.ProcessEnv;
+  const cfg = resolveFeedbackConfig(withHermes).severityLlm;
+  assert.ok(cfg);
+  assert.equal(cfg?.gatewayUrl, 'http://hermes:8642'); // trailing slash trimmed
+  assert.equal(cfg?.sessionKey, 'main');
+  assert.equal(cfg?.timeoutMs, 6000); // default
+
+  // Explicit kill switch wins even with Hermes present.
+  assert.equal(
+    resolveFeedbackConfig({ ...withHermes, FEEDBACK_SEVERITY_LLM_ENABLED: 'false' }).severityLlm,
+    null,
+  );
+  // Empty string counts as unset -> stays enabled.
+  assert.ok(resolveFeedbackConfig({ ...withHermes, FEEDBACK_SEVERITY_LLM_ENABLED: '' }).severityLlm);
+});
+
 test('environment label prefers explicit override, else NODE_ENV', () => {
   assert.equal(resolveFeedbackEnvironment({ FEEDBACK_ENVIRONMENT: 'production' } as unknown as NodeJS.ProcessEnv), 'production');
   assert.equal(resolveFeedbackEnvironment({ NODE_ENV: 'development' } as unknown as NodeJS.ProcessEnv), 'development');
