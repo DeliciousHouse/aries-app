@@ -233,6 +233,21 @@ services:
       COMPOSIO_INSTAGRAM_PUBLISH_POST_ACTION: ${COMPOSIO_INSTAGRAM_PUBLISH_POST_ACTION:-}
       COMPOSIO_FACEBOOK_UPLOAD_MEDIA_ACTION: ${COMPOSIO_FACEBOOK_UPLOAD_MEDIA_ACTION:-}
       COMPOSIO_INSTAGRAM_UPLOAD_MEDIA_ACTION: ${COMPOSIO_INSTAGRAM_UPLOAD_MEDIA_ACTION:-}
+      # In-app feedback button — Google Sheet mirror. The feedback API runs in the
+      # app process, so these live here only. Mirror activates only when
+      # COMPOSIO_ENABLED=true AND all four are set in the prod host .env; otherwise
+      # submissions persist to Postgres with sheet_sync_status='skipped'.
+      COMPOSIO_FEEDBACK_GOOGLE_CONNECTED_ACCOUNT_ID: ${COMPOSIO_FEEDBACK_GOOGLE_CONNECTED_ACCOUNT_ID:-}
+      FEEDBACK_GOOGLE_SHEET_ID: ${FEEDBACK_GOOGLE_SHEET_ID:-}
+      FEEDBACK_GOOGLE_SHEET_TAB: ${FEEDBACK_GOOGLE_SHEET_TAB:-Feedback}
+      COMPOSIO_FEEDBACK_SHEETS_APPEND_ACTION: ${COMPOSIO_FEEDBACK_SHEETS_APPEND_ACTION:-}
+      # Optional feedback knobs. FEEDBACK_ENABLED defaults to true here on purpose:
+      # compose sets an empty string when unset, and the code reads "" as falsey
+      # (only `undefined` defaults on), so an empty default would HIDE the button.
+      # Set FEEDBACK_ENABLED=false in the host .env to use the kill switch.
+      FEEDBACK_ENABLED: ${FEEDBACK_ENABLED:-true}
+      FEEDBACK_RATE_LIMIT_PER_HOUR: ${FEEDBACK_RATE_LIMIT_PER_HOUR:-}
+      FEEDBACK_ENVIRONMENT: ${FEEDBACK_ENVIRONMENT:-}
       # X (Twitter) publish slugs — only consulted when ARIES_X_ENABLED=true and
       # PUBLISH_PROVIDER=composio/auto. Publish executes in the app process (the
       # scheduled-posts-worker only POSTs to the route), so these live here only.
