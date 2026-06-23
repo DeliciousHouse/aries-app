@@ -23,31 +23,35 @@ test('validateSubmission accepts a minimal valid body', () => {
     submissionId: 'fb_0123456789abcdef',
     comment: '  Login button does nothing  ',
     category: 'Login issue',
-    severity: 'Blocker',
   });
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.value.comment, 'Login button does nothing'); // trimmed
   assert.equal(result.value.category, 'Login issue');
-  assert.equal(result.value.severity, 'Blocker');
   assert.equal(result.value.submissionId, 'fb_0123456789abcdef');
   assert.equal(result.value.screenshot, null);
 });
 
+test('validateSubmission ignores any client-sent severity (inferred server-side)', () => {
+  const result = validateSubmission({ comment: 'hi', category: 'Bug', severity: 'Blocker' });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.ok(!('severity' in result.value)); // severity is not part of validated input
+});
+
 test('validateSubmission requires a non-empty comment', () => {
-  const result = validateSubmission({ comment: '   ', category: 'Bug', severity: 'Low' });
+  const result = validateSubmission({ comment: '   ', category: 'Bug' });
   assert.equal(result.ok, false);
   if (result.ok) return;
   assert.ok(result.fieldErrors.comment);
   assert.equal(result.error, 'invalid_input');
 });
 
-test('validateSubmission rejects unknown category/severity', () => {
-  const result = validateSubmission({ comment: 'hi', category: 'Nonsense', severity: 'Critical' });
+test('validateSubmission rejects an unknown category', () => {
+  const result = validateSubmission({ comment: 'hi', category: 'Nonsense' });
   assert.equal(result.ok, false);
   if (result.ok) return;
   assert.ok(result.fieldErrors.category);
-  assert.ok(result.fieldErrors.severity);
 });
 
 test('validateSubmission mints a submission id when the client one is malformed', () => {
@@ -55,7 +59,6 @@ test('validateSubmission mints a submission id when the client one is malformed'
     submissionId: 'not-a-valid-id',
     comment: 'hi',
     category: 'Bug',
-    severity: 'Low',
   });
   assert.equal(result.ok, true);
   if (!result.ok) return;
@@ -66,7 +69,6 @@ test('validateSubmission accepts a valid screenshot data URL', () => {
   const result = validateSubmission({
     comment: 'see attached',
     category: 'Bug',
-    severity: 'Medium',
     screenshot: PNG_DATA_URL,
   });
   assert.equal(result.ok, true);

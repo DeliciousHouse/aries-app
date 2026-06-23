@@ -9,9 +9,7 @@ import {
   FEEDBACK_LIMITS,
   FEEDBACK_SCREENSHOT_MIME_TYPES,
   isFeedbackCategory,
-  isFeedbackSeverity,
   type FeedbackCategory,
-  type FeedbackSeverity,
 } from './options';
 import type { FeedbackClientContext } from './types';
 
@@ -168,7 +166,8 @@ export interface ValidatedSubmissionInput {
   submissionId: string;
   comment: string;
   category: FeedbackCategory;
-  severity: FeedbackSeverity;
+  // severity is NOT collected from the client — it is inferred server-side
+  // (see lib/feedback/severity-classifier.ts).
   context: FeedbackClientContext;
   screenshot: DecodedScreenshot | null;
 }
@@ -186,7 +185,7 @@ export function validateSubmission(body: unknown): ValidationResult {
   if (!comment) fieldErrors.comment = 'A comment is required.';
 
   if (!isFeedbackCategory(obj.category)) fieldErrors.category = 'Choose a category.';
-  if (!isFeedbackSeverity(obj.severity)) fieldErrors.severity = 'Choose a severity.';
+  // severity intentionally not validated — it is inferred server-side, not sent.
 
   const screenshotResult = parseScreenshot(obj.screenshot);
   if (!screenshotResult.ok) fieldErrors.screenshot = screenshotResult.error;
@@ -201,7 +200,6 @@ export function validateSubmission(body: unknown): ValidationResult {
       submissionId: normalizeSubmissionId(obj.submissionId),
       comment: comment as string,
       category: obj.category as FeedbackCategory,
-      severity: obj.severity as FeedbackSeverity,
       context: normalizeClientContext(obj.context),
       screenshot: (screenshotResult as { ok: true; screenshot: DecodedScreenshot | null }).screenshot,
     },

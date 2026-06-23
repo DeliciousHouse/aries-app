@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { resolveFeedbackConfig } from '@/lib/feedback/feedback-config';
 import { syncFeedbackToSheet } from '@/lib/feedback/feedback-sink';
+import { classifySeverity } from '@/lib/feedback/severity-classifier';
 import {
   countRecentSubmissions,
   ensureFeedbackTable,
@@ -118,53 +119,61 @@ export async function POST(req: Request): Promise<NextResponse> {
   const ipHash = hashIp(clientIpFromHeaders(req.headers));
   const { tenantId, authState } = await readAuthState();
 
-  // Build the durable record. Per the meeting decision (spec §11), we capture
-  // tenant identity only — NOT user id / email — so user_id stays null.
-  const record: FeedbackSubmissionRecord = {
-    submissionId: input.submissionId,
-    tenantId,
-    authState,
-    userId: null,
-    category: input.category,
-    severity: input.severity,
-    comment: input.comment,
-    pageUrl: input.context.pageUrl,
-    userAgent: input.context.userAgent ?? req.headers.get('user-agent'),
-    viewport: input.context.viewport,
-    consoleErrors: input.context.consoleErrors,
-    environment: config.environment,
-    screenshot: input.screenshot,
-    ipHash,
-    createdAtIso: new Date().toISOString(),
-  };
-
   // 1) Durable persist FIRST — this is the "never silently drop" guarantee.
   let isNew = true;
   let priorSheetStatus: 'pending' | 'synced' | 'skipped' | 'failed' = 'pending';
+  let record!: FeedbackSubmissionRecord;
   try {
     await ensureFeedbackTable();
 
-    // Throttle abuse on the public endpoint by origin. The current submission's
-    // own row is excluded, so retrying an already-recorded submission is never
-    // blocked (spec §9 "allow retry").
+    // Throttle abuse on the public endpoint by origin BEFORE the LLM call, so
+    // spam can't trigger classification runs. The current submission's own row is
+    // excluded, so retrying an already-recorded submission is never blocked (§9).
     const recent = await countRecentSubmissions(
-      { ipHash, excludeSubmissionId: record.submissionId },
+      { ipHash, excludeSubmissionId: input.submissionId },
       60,
     );
     if (recent >= config.rateLimitPerHour) {
       return NextResponse.json({ status: 'error', error: 'rate_limited' }, { status: 429 });
     }
 
+    // Severity is inferred server-side (users no longer pick it — it confused
+    // people). Bounded + heuristic fallback, so it never blocks long or fails.
+    const { severity } = await classifySeverity(
+      { comment: input.comment, category: input.category },
+      config.severityLlm,
+    );
+
+    // Per the meeting decision (spec §11), capture tenant identity only — NOT
+    // user id / email — so user_id stays null.
+    record = {
+      submissionId: input.submissionId,
+      tenantId,
+      authState,
+      userId: null,
+      category: input.category,
+      severity,
+      comment: input.comment,
+      pageUrl: input.context.pageUrl,
+      userAgent: input.context.userAgent ?? req.headers.get('user-agent'),
+      viewport: input.context.viewport,
+      consoleErrors: input.context.consoleErrors,
+      environment: config.environment,
+      screenshot: input.screenshot,
+      ipHash,
+      createdAtIso: new Date().toISOString(),
+    };
+
     ({ isNew, sheetSyncStatus: priorSheetStatus } = await upsertFeedbackSubmission(record));
   } catch (error) {
     console.error('[feedback]', {
       event: 'persist-failed',
-      submissionId: record.submissionId,
+      submissionId: input.submissionId,
       error: error instanceof Error ? error.message : String(error),
     });
     // Nothing was stored — tell the client to keep the input and retry.
     return NextResponse.json(
-      { status: 'error', error: 'persist_failed', submissionId: record.submissionId, retryable: true },
+      { status: 'error', error: 'persist_failed', submissionId: input.submissionId, retryable: true },
       { status: 503 },
     );
   }
