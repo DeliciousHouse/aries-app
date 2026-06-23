@@ -26,7 +26,7 @@ reported login/post-creation problems with no structured way to report them
 - **Resilient + safe**: per-origin rate limit (fails closed), request-size guard,
   identity columns written once (no cross-origin tamper), unguessable screenshot
   token. The Sheet mirror is gated behind `COMPOSIO_ENABLED` + the feedback vars;
-  with them unset, submissions still persist and are marked `sheet_sync=skipped`.
+  with them unset, submissions still persist with `sheet_sync_status='skipped'`.
 - **Setup**: `npm run setup:feedback-sheet` connects a Google account to Composio
   and provisions the destination sheet + header, printing the env block.
 

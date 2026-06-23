@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import './globals.css';
 import { ARIES_FAVICON_ICO_PATH, ARIES_FAVICON_PNG_PATH, ARIES_LOGO_WEBP_PATH } from '@/lib/brand';
 import FeedbackWidget from '@/frontend/feedback/feedback-widget';
+import { resolveFeedbackConfig } from '@/lib/feedback/feedback-config';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -38,7 +39,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en">
       <body className={`${inter.variable} ${manrope.variable}`}>
         {children}
-        <FeedbackWidget />
+        {/* Server-side FEEDBACK_ENABLED gate so the kill switch hides the button
+            (not just the API). The client NEXT_PUBLIC_FEEDBACK_DISABLED is a
+            build-time override layered on top. */}
+        {resolveFeedbackConfig().enabled ? <FeedbackWidget /> : null}
       </body>
     </html>
   );

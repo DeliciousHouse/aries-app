@@ -33,7 +33,8 @@ export async function GET(
     return NextResponse.json({ error: 'not_found' }, { status: 404 });
   }
 
-  return new Response(new Uint8Array(shot.bytes), {
+  // Buffer is already a Uint8Array — pass it directly (no copy) as the body.
+  return new Response(shot.bytes, {
     status: 200,
     headers: {
       'content-type': shot.mime,

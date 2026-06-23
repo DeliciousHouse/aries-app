@@ -39,7 +39,7 @@ export interface FeedbackComposioConfig {
   /** Target spreadsheet + tab the rows are appended to. */
   spreadsheetId: string;
   sheetTab: string;
-  /** Google Sheets append action slug (e.g. GOOGLESHEETS_BATCH_UPDATE). */
+  /** Google Sheets append action slug (verified: GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND). */
   appendActionSlug: string;
 }
 

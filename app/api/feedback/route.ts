@@ -48,24 +48,60 @@ async function readAuthState(): Promise<{
   return { tenantId: 'unauthenticated', authState: 'unauthenticated' };
 }
 
+const MAX_BODY_BYTES = 8 * 1024 * 1024;
+const OVER_LIMIT = Symbol('over-limit');
+
+/**
+ * Read the request body as text without ever buffering more than `maxBytes`.
+ * Counts the actual stream (so a missing/chunked Content-Length can't bypass the
+ * cap) and aborts mid-read past the limit, returning the OVER_LIMIT sentinel.
+ */
+async function readBodyCapped(req: Request, maxBytes: number): Promise<string | typeof OVER_LIMIT> {
+  // Fast path: an honest oversized Content-Length is rejected before reading.
+  const declared = Number(req.headers.get('content-length') ?? '');
+  if (Number.isFinite(declared) && declared > maxBytes) return OVER_LIMIT;
+
+  const reader = req.body?.getReader();
+  if (!reader) {
+    const text = await req.text();
+    return Buffer.byteLength(text) > maxBytes ? OVER_LIMIT : text;
+  }
+
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        return OVER_LIMIT;
+      }
+      chunks.push(Buffer.from(value));
+    }
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 export async function POST(req: Request): Promise<NextResponse> {
   const config = resolveFeedbackConfig();
   if (!config.enabled) {
     return NextResponse.json({ status: 'error', error: 'feedback_disabled' }, { status: 503 });
   }
 
-  // Reject oversized bodies up front so a malicious payload never gets buffered
-  // into memory by req.json(). Ceiling covers a 5 MB base64 screenshot (~6.7 MB)
-  // plus the small text fields.
-  const MAX_BODY_BYTES = 8 * 1024 * 1024;
-  const contentLength = Number(req.headers.get('content-length') ?? '');
-  if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+  // Read the body with a hard byte cap so a malicious payload never buffers
+  // unbounded into memory. Fails closed: a missing/invalid Content-Length does
+  // NOT bypass the cap (the stream itself is counted), and an over-cap body is
+  // rejected mid-read. Ceiling covers a 5 MB base64 screenshot (~6.7 MB) + fields.
+  const raw = await readBodyCapped(req, MAX_BODY_BYTES);
+  if (raw === OVER_LIMIT) {
     return NextResponse.json({ status: 'error', error: 'payload_too_large' }, { status: 413 });
   }
 
   let body: unknown;
   try {
-    body = await req.json();
+    body = JSON.parse(raw);
   } catch {
     return NextResponse.json({ status: 'error', error: 'invalid_json' }, { status: 400 });
   }

@@ -8,7 +8,7 @@ const FULL_COMPOSIO = {
   COMPOSIO_API_KEY: 'k',
   COMPOSIO_FEEDBACK_GOOGLE_CONNECTED_ACCOUNT_ID: 'ca_google',
   FEEDBACK_GOOGLE_SHEET_ID: 'sheet_1',
-  COMPOSIO_FEEDBACK_SHEETS_APPEND_ACTION: 'GOOGLESHEETS_BATCH_UPDATE',
+  COMPOSIO_FEEDBACK_SHEETS_APPEND_ACTION: 'GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND',
 } as unknown as NodeJS.ProcessEnv;
 
 test('feature is enabled by default (opt-out)', () => {
@@ -42,7 +42,7 @@ test('Composio mirror resolves when fully configured', () => {
   assert.ok(cfg.composio);
   assert.equal(cfg.composio?.connectedAccountId, 'ca_google');
   assert.equal(cfg.composio?.spreadsheetId, 'sheet_1');
-  assert.equal(cfg.composio?.appendActionSlug, 'GOOGLESHEETS_BATCH_UPDATE');
+  assert.equal(cfg.composio?.appendActionSlug, 'GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND');
   assert.equal(cfg.composio?.sheetTab, 'Feedback'); // default tab
 });
 
