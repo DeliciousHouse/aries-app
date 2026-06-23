@@ -33,8 +33,9 @@ export async function GET(
     return NextResponse.json({ error: 'not_found' }, { status: 404 });
   }
 
-  // Buffer is already a Uint8Array — pass it directly (no copy) as the body.
-  return new Response(shot.bytes, {
+  // new Uint8Array(buffer): TS 6's BodyInit rejects a Node Buffer<ArrayBufferLike>; same bytes.
+  // (Matches app/api/public/media + app/api/internal/hermes/media.)
+  return new Response(new Uint8Array(shot.bytes), {
     status: 200,
     headers: {
       'content-type': shot.mime,
