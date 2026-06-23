@@ -1,6 +1,6 @@
 {
   "name": "aries-platform-bootstrap-runtime",
-  "version": "0.1.15.27",
+  "version": "0.1.16.0",
   "description": "Next.js application for weekly social content automation: connect platforms, generate and review a week of content, and publish on a schedule.",
   "license": "Apache-2.0",
   "repository": {
@@ -17,6 +17,7 @@
     "build": "next build",
     "start": "node scripts/start-runtime.mjs",
     "precheck": "node scripts/runtime-precheck.mjs",
+    "setup:feedback-sheet": "tsx scripts/setup-feedback-sheet.ts",
     "workspace:verify": "node scripts/verify-canonical-workspace.mjs",
     "workspace:inventory": "node scripts/inventory-paperclip-workspaces.mjs",
     "typecheck": "NEXT_TELEMETRY_DISABLED=1 next typegen && tsc --noEmit",

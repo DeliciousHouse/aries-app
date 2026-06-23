@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.16.0 — feat(feedback): in-app feedback button on every page
+
+A persistent floating feedback button on every page (including the login/auth
+screens) lets any user — authenticated or not — file a comment with category and
+severity and an optional screenshot. Each submission is captured durably and
+mirrored as one row into a centralized Google Sheet via Composio, so issues are
+tracked in one place with the context needed to triage them. Built because users
+reported login/post-creation problems with no structured way to report them
+(Aries Dev Meeting, 2026-06-19).
+
+- **Floating widget** mounted once in the root layout, so it appears on every
+  route and works for unauthenticated users (tenant recorded as `unauthenticated`).
+  Accessible modal: focus trap + restore, Escape, reduced-motion, scrollable on
+  short viewports; comment (required) + category + severity + optional screenshot.
+- **Silent context capture**: tenant id (or `unauthenticated`), page URL (secrets
+  redacted), auth state, browser/UA, viewport, recent console errors (secrets
+  redacted), screenshot, timestamp, environment, and a unique submission id.
+- **Durable-first delivery** (`POST /api/feedback`, public): persists to the new
+  `feedback_submissions` table first, then mirrors to Google Sheets via the
+  existing Composio seam (`GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND`). Idempotent
+  by submission id; a failed mirror is surfaced as retryable and never drops input.
+- **Resilient + safe**: per-origin rate limit (fails closed), request-size guard,
+  identity columns written once (no cross-origin tamper), unguessable screenshot
+  token. The Sheet mirror is gated behind `COMPOSIO_ENABLED` + the feedback vars;
+  with them unset, submissions still persist with `sheet_sync_status='skipped'`.
+- **Setup**: `npm run setup:feedback-sheet` connects a Google account to Composio
+  and provisions the destination sheet + header, printing the env block.
+
 ## v0.1.15.27 — feat(slack): outbound approval notifications (Phase 4 PR2, default OFF)
 
 Slack Phase 4 PR2: the marketing pipeline now posts a "needs approval" message to a

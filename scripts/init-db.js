@@ -57,6 +57,39 @@ async function initDb() {
       );
     `);
 
+    // In-app feedback button (migrations/20260623000000_feedback_submissions.sql).
+    // tenant_id is TEXT with no FK so unauthenticated users can file feedback.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS feedback_submissions (
+        id BIGSERIAL PRIMARY KEY,
+        submission_id TEXT UNIQUE NOT NULL,
+        tenant_id TEXT NOT NULL DEFAULT 'unauthenticated',
+        auth_state TEXT NOT NULL DEFAULT 'unauthenticated',
+        user_id TEXT,
+        category TEXT NOT NULL,
+        severity TEXT NOT NULL,
+        comment TEXT NOT NULL,
+        page_url TEXT,
+        user_agent TEXT,
+        viewport TEXT,
+        console_errors JSONB NOT NULL DEFAULT '[]'::jsonb,
+        environment TEXT NOT NULL DEFAULT 'unknown',
+        ip_hash TEXT,
+        screenshot_bytes BYTEA,
+        screenshot_mime TEXT,
+        screenshot_link TEXT,
+        sheet_sync_status TEXT NOT NULL DEFAULT 'pending',
+        sheet_sync_error TEXT,
+        sheet_synced_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_feedback_submissions_created_at ON feedback_submissions (created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_feedback_submissions_sync_status ON feedback_submissions (sheet_sync_status);
+      CREATE INDEX IF NOT EXISTS idx_feedback_submissions_tenant ON feedback_submissions (tenant_id);
+      CREATE INDEX IF NOT EXISTS idx_feedback_submissions_ip_hash_created ON feedback_submissions (ip_hash, created_at DESC);
+    `);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS oauth_connections (
         id BIGSERIAL PRIMARY KEY,

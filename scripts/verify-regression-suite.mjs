@@ -51,6 +51,16 @@ const steps = [
     args: ['--test', 'tests/runtime-pages.test.ts'],
   },
   {
+    name: 'in-app feedback button (validation, sink schema, config gating, widget)',
+    args: [
+      '--test',
+      'tests/feedback-submission-validation.test.ts',
+      'tests/feedback-sink.test.ts',
+      'tests/feedback-config.test.ts',
+      'tests/feedback-widget-render.test.ts',
+    ],
+  },
+  {
     name: 'process-concurrent helper',
     args: ['--test', 'tests/process-concurrent.test.ts'],
   },
