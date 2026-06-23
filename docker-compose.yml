@@ -241,10 +241,10 @@ services:
       FEEDBACK_GOOGLE_SHEET_ID: ${FEEDBACK_GOOGLE_SHEET_ID:-}
       FEEDBACK_GOOGLE_SHEET_TAB: ${FEEDBACK_GOOGLE_SHEET_TAB:-Feedback}
       COMPOSIO_FEEDBACK_SHEETS_APPEND_ACTION: ${COMPOSIO_FEEDBACK_SHEETS_APPEND_ACTION:-}
-      # Optional feedback knobs. FEEDBACK_ENABLED defaults to true here on purpose:
-      # compose sets an empty string when unset, and the code reads "" as falsey
-      # (only `undefined` defaults on), so an empty default would HIDE the button.
-      # Set FEEDBACK_ENABLED=false in the host .env to use the kill switch.
+      # Optional feedback knobs. FEEDBACK_ENABLED defaults to true here so the
+      # button stays visible when the var is unset; resolveFeedbackConfig() also
+      # treats an empty string as unset (defaults on), so this is belt-and-
+      # suspenders. Set FEEDBACK_ENABLED=false in the host .env to hide the button.
       FEEDBACK_ENABLED: ${FEEDBACK_ENABLED:-true}
       FEEDBACK_RATE_LIMIT_PER_HOUR: ${FEEDBACK_RATE_LIMIT_PER_HOUR:-}
       FEEDBACK_ENVIRONMENT: ${FEEDBACK_ENVIRONMENT:-}

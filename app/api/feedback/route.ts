@@ -119,7 +119,12 @@ export async function POST(req: Request): Promise<NextResponse> {
   const ipHash = hashIp(clientIpFromHeaders(req.headers));
   const { tenantId, authState } = await readAuthState();
 
-  // 1) Durable persist FIRST — this is the "never silently drop" guarantee.
+  // 1) Persist durably. Order: rate-limit -> classify -> upsert. Classification
+  // sits before the DB write so the row carries an inferred severity, but the
+  // "never silently drop" property still holds: classify is bounded and never
+  // throws (falls back to a heuristic), so the upsert always runs within the
+  // timeout; and if the request dies before the upsert, the client keeps the
+  // input and retries with the same submission_id (idempotent).
   let isNew = true;
   let priorSheetStatus: 'pending' | 'synced' | 'skipped' | 'failed' = 'pending';
   let record!: FeedbackSubmissionRecord;

@@ -21,6 +21,8 @@ test('heuristicSeverity maps category + blocker words', () => {
   assert.equal(heuristicSeverity('cannot log in at all', 'Login issue'), 'Blocker');
   assert.equal(heuristicSeverity('the logo is slightly off', 'Login issue'), 'High');
   assert.equal(heuristicSeverity('app is completely broken', 'Bug'), 'High');
+  assert.equal(heuristicSeverity('I lost all my campaign data', 'Login issue'), 'Blocker');
+  assert.equal(heuristicSeverity('lost my drafts', 'Bug'), 'High');
   assert.equal(heuristicSeverity('minor typo in tooltip', 'Bug'), 'Medium');
   assert.equal(heuristicSeverity('please add dark mode', 'Feature idea'), 'Low');
   assert.equal(heuristicSeverity('copy reads awkwardly', 'Content quality'), 'Medium');

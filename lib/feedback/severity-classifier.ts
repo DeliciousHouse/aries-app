@@ -38,7 +38,7 @@ export interface ClassifyDeps {
 }
 
 const BLOCKER_RE =
-  /\b(can'?t|cannot|can not|unable|won'?t|wont|doesn'?t work|does not work|not working|nothing (?:happens|works)|broken|down|crash(?:ed|ing)?|stuck|locked out|frozen|503|500|white screen|blank screen|data loss|lost (?:my|all) )\b/i;
+  /\b(?:can'?t|cannot|can not|unable|won'?t|wont|doesn'?t work|does not work|not working|nothing (?:happens|works)|broken|down|crash(?:ed|ing)?|stuck|locked out|frozen|503|500|white screen|blank screen|data loss|lost (?:my|all))\b/i;
 
 /** Deterministic fallback when the LLM is unavailable. Never throws. */
 export function heuristicSeverity(comment: string, category: FeedbackCategory): FeedbackSeverity {
