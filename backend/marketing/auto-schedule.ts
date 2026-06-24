@@ -138,6 +138,10 @@ export interface AutoScheduleInputRow {
   surface?: AutoScheduleSurface;
   /** Media type (image|video), mirrored onto scheduled_posts. Default 'image'. */
   mediaType?: 'image' | 'video';
+  /** Per-media video dims mirrored onto scheduled_posts. NULL today. */
+  widthPx?: number | null;
+  heightPx?: number | null;
+  durationSeconds?: number | null;
   /** Hermes's free-form time hint, currently unused — recorded for future override hooks. */
   recommendedTimeWindow?: string | null;
 }
@@ -161,6 +165,10 @@ export interface AutoScheduleSlot {
   surface: AutoScheduleSurface;
   /** Media type carried through to the scheduled_posts upsert. */
   mediaType: 'image' | 'video';
+  /** Per-media video dims carried through to the scheduled_posts upsert. NULL today. */
+  widthPx: number | null;
+  heightPx: number | null;
+  durationSeconds: number | null;
   /** Derived UTC instant ready for `scheduled_posts.scheduled_for`. */
   scheduledFor: Date;
   /** Audit trail: which weekday name we used (e.g. "Monday" or "fallback: first day in window"). */
@@ -263,6 +271,9 @@ export function computeAutoScheduleSlots(input: ComputeAutoScheduleSlotsInput): 
       platform: row.platform,
       surface,
       mediaType,
+      widthPx: row.widthPx ?? null,
+      heightPx: row.heightPx ?? null,
+      durationSeconds: row.durationSeconds ?? null,
       scheduledFor: utc,
       appliedDay,
       appliedWallTime: wallTimeIso,
@@ -393,6 +404,9 @@ export async function autoSchedulePosts(
         platforms: [slot.platform],
         surface: slot.surface,
         mediaType: slot.mediaType,
+        widthPx: slot.widthPx,
+        heightPx: slot.heightPx,
+        durationSeconds: slot.durationSeconds,
         campaignEndDate: input.campaignEnd,
       });
       scheduled += 1;

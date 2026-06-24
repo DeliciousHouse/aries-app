@@ -262,11 +262,32 @@ export type ProductionResumeImagePrompt = {
   targetChannels: string[];
 };
 
+export type ProductionResumeVideoPrompt = {
+  clipIndex: number; // 1-based
+  totalClips: number;
+  prompt: string;
+  aspectRatio: '9:16';
+  targetDurationSeconds: number;
+};
+
 export type ProductionResumeContext = {
   imagePrompts: ProductionResumeImagePrompt[];
+  /** Non-empty only when ARIES_VIDEO_PUBLISH_ENABLED is on and videoClipCount > 0. */
+  videoPrompts?: ProductionResumeVideoPrompt[];
   /** Serialised block ready to append to the Hermes resume `input` string. */
   contextBlock: string;
 };
+
+/**
+ * Gate for video clip production in the resume context. Mirrors the rollout
+ * switch used by synthesize-publish-posts.ts (ARIES_VIDEO_PUBLISH_ENABLED).
+ * Defense-in-depth: ensures video briefs are never emitted when the feature
+ * flag is OFF, even if videoRenderCount was misconfigured as non-zero.
+ */
+function isVideoPublishEnabledForContext(): boolean {
+  const raw = (process.env.ARIES_VIDEO_PUBLISH_ENABLED ?? '').trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+}
 
 /**
  * Builds per-image prompt context for the production-stage resume call.
@@ -373,6 +394,17 @@ export function buildProductionResumeContext(input: {
     MAX_IMAGE_CREATIVE_COUNT,
   );
   const totalImages = Math.max(1, imageCreativeCount);
+
+  // Video clip count: gated by ARIES_VIDEO_PUBLISH_ENABLED (defense-in-depth so
+  // a rendered clip is never left stranded when the gate is OFF). Default is 0
+  // per SOCIAL_CONTENT_DEFAULT_SCOPE, so the flag-OFF path is byte-identical.
+  const videoClipCount = isVideoPublishEnabledForContext()
+    ? clampCount(
+        req.videoRenderCount ?? req.renderVideoCount,
+        SOCIAL_CONTENT_DEFAULT_SCOPE.video_render_count,
+        MAX_VIDEO_RENDER_COUNT,
+      )
+    : 0;
 
   // --- channel aspect-ratio human hint ---
   const aspectHintByChannel: Record<string, string> = {
@@ -507,6 +539,70 @@ export function buildProductionResumeContext(input: {
     });
   }
 
+  // --- per-video-clip prompt construction (gated by ARIES_VIDEO_PUBLISH_ENABLED) ---
+  // When videoClipCount === 0 (default, flag OFF) this block is entirely inert
+  // and produces no output — preserving byte-identical contextBlock behavior.
+  const videoPrompts: ProductionResumeVideoPrompt[] = [];
+  if (videoClipCount > 0) {
+    const videoAspectRatio = resolveSocialContentAspectRatio({ channel: primaryChannel, postType: 'video' });
+    for (let i = 0; i < videoClipCount; i++) {
+      const clipIndex = i + 1;
+      const vlines: string[] = [
+        `Generate a short-form vertical video for social media content.`,
+        `This is video clip ${clipIndex} of ${videoClipCount}, part of the same ${windowDays}-day weekly campaign.`,
+        ``,
+        `Brand: ${brandName}`,
+      ];
+      if (offer) vlines.push(`Offer: ${offer}`);
+      if (effectiveBrandVoice) vlines.push(`Brand voice: ${effectiveBrandVoice.slice(0, 200)}`);
+      if (effectiveStyleVibe) vlines.push(`Style and vibe: ${effectiveStyleVibe}`);
+      if (palette.length > 0) vlines.push(`Brand palette: ${palette.join(', ')}`);
+      if (tasteAudienceLine) vlines.push(tasteAudienceLine);
+      if (brandMode === 'dark') {
+        const bg = brandBackground || '#050505';
+        vlines.push(
+          `CRITICAL BRAND REQUIREMENT — this is a DARK-themed brand. The video MUST have a dark, near-black background (${bg}). Use the brand palette as glowing accents; avoid bright/white/light/studio backgrounds.`,
+        );
+      } else if (brandMode === 'light') {
+        vlines.push(
+          `Brand theme: light. Render on a light background${brandBackground ? ` (${brandBackground})` : ''} consistent with the brand.`,
+        );
+      } else if (brandBackground) {
+        vlines.push(`Brand background: ${brandBackground} — keep backgrounds consistent with this brand color.`);
+      }
+      if (brandLogoUrl) {
+        vlines.push(
+          `Brand logo: ${brandLogoUrl} — use the actual brand logo when a mark is shown; do NOT invent, redraw, or substitute a different logo.`,
+        );
+      }
+      if (effectiveMustAvoid.length > 0) vlines.push(`Must avoid: ${effectiveMustAvoid.join(', ')}`);
+
+      if (researchLines.length > 0) {
+        vlines.push('');
+        vlines.push('Brand and audience research:');
+        vlines.push(...researchLines);
+      }
+
+      if (strategyLines.length > 0) {
+        vlines.push('');
+        vlines.push('Creative strategy:');
+        vlines.push(...strategyLines);
+      }
+
+      vlines.push('');
+      vlines.push(`Aspect ratio: ${videoAspectRatio} (vertical 9:16 — optimised for Reels and Stories).`);
+      vlines.push(`Target duration: ~15 seconds (must be between 3 and 90 seconds).`);
+
+      videoPrompts.push({
+        clipIndex,
+        totalClips: videoClipCount,
+        prompt: vlines.filter((l, i) => l !== '' || vlines[i - 1] !== '').join('\n'),
+        aspectRatio: '9:16',
+        targetDurationSeconds: 15,
+      });
+    }
+  }
+
   // --- serialised context block ---
   const contextLines: string[] = [
     `Production context (${totalImages} image${totalImages === 1 ? '' : 's'} requested):`,
@@ -514,6 +610,12 @@ export function buildProductionResumeContext(input: {
   for (const img of imagePrompts) {
     contextLines.push(`--- Image ${img.imageIndex} of ${img.totalImages} ---`);
     contextLines.push(img.prompt);
+  }
+  // Video clip prompts are emitted inline after image prompts so the agent sees
+  // all context in one block. Empty when videoClipCount === 0 (byte-identical).
+  for (const vp of videoPrompts) {
+    contextLines.push(`--- Video clip ${vp.clipIndex} of ${vp.totalClips} ---`);
+    contextLines.push(vp.prompt);
   }
   contextLines.push('');
   contextLines.push('Return your results in this EXACT JSON shape. You MUST include BOTH content_package[] AND artifacts.creative_assets[]. One without the other is incomplete — content_package carries the post COPY (caption text, hooks, hashtags); creative_assets carries the rendered IMAGES. The Nth creative_asset corresponds to the Nth content_package entry via post_number.');
@@ -551,9 +653,29 @@ export function buildProductionResumeContext(input: {
   contextLines.push('}');
   contextLines.push('');
   contextLines.push('The bridge will also accept `artifacts.images[]` with `{index, status:"generated", filePath, prompt, intendedUse}`, but `creative_assets` is preferred.');
+  // Video return schema — only emitted when videoClipCount > 0 so the
+  // contextBlock is byte-identical to today when video is OFF (default).
+  if (videoClipCount > 0) {
+    contextLines.push('');
+    contextLines.push('Required: when you finish video generation, place each clip in artifacts.creative_assets[] alongside the images, with this shape:');
+    contextLines.push('{');
+    contextLines.push('  "assetId": "vid_1",');
+    contextLines.push('  "type": "generated_video",');
+    contextLines.push('  "media_type": "video",');
+    contextLines.push('  "surface": "reel",');
+    contextLines.push('  "path": "<basename of the localized mp4 in the Hermes image-cache mount — NOT a remote URL>",');
+    contextLines.push('  "width": 1080,');
+    contextLines.push('  "height": 1920,');
+    contextLines.push('  "duration_seconds": 15,');
+    contextLines.push('  "mime": "video/mp4",');
+    contextLines.push('  "aspect_ratio": "9:16"');
+    contextLines.push('}');
+    contextLines.push('MANDATORY: width, height, and duration_seconds must be present and numeric — absent or null fails dispatch. Record failed renders in artifacts.errors[] — never discard a completed clip.');
+  }
 
   return {
     imagePrompts,
+    ...(videoPrompts.length > 0 ? { videoPrompts } : {}),
     contextBlock: contextLines.join('\n'),
   };
 }

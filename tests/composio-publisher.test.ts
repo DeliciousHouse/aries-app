@@ -202,15 +202,219 @@ test('#624 FB publishPost with null external_account_id and no page returned thr
   );
 });
 
-test('#624 IG publishPost sends `caption` (not `message`) and no `page_id`', async () => {
-  const gateway = fakeGateway({ executeResult: { data: { id: 'ig_post_42' }, successful: true, error: null } });
-  const provider = new ComposioPublisherProvider(gateway, fakeConfig({ actions: { publish_post: 'IG_POST' } }), fakeDb());
-  await provider.publishPost({ tenantId, platform: 'instagram', content: 'Hello IG', mediaUrls: ['img.jpg'], approved: true });
+// ── IG two-step publish (container → publish) ───────────────────────────────
+//
+// The legacy single-call IG branch (one executeTool with media_urls+placement)
+// matched no real Composio action and never published live, so it was rewritten
+// to the real two-step: INSTAGRAM_POST_IG_USER_MEDIA (container → creation_id)
+// then INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH (creation_id → ig_media_id).
 
+test('IG feed image publishPost is a two-step container→publish (caption on container, ig_user_id, no page_id)', async () => {
+  const gateway = fakeGateway({ executeResult: { data: { id: 'ig_42' }, successful: true, error: null } });
+  const provider = new ComposioPublisherProvider(
+    gateway,
+    // Both slots configured; fakeDb default external_account_id='ext_1' is the IG
+    // user id, so the INSTAGRAM_GET_USER_INFO resolver is skipped entirely.
+    fakeConfig({ actions: { upload_media: 'IG_CONTAINER', publish_post: 'IG_PUBLISH' } }),
+    fakeDb(),
+  );
+  const result = await provider.publishPost({
+    tenantId,
+    platform: 'instagram',
+    content: 'Hello IG',
+    mediaUrls: ['https://cdn.example.com/img.jpg'],
+    approved: true,
+  });
+
+  assert.equal(gateway.calls.length, 2, 'two-step: container then publish');
+
+  const container = gateway.calls[0];
+  assert.equal(container.slug, 'IG_CONTAINER', 'step 1 uses the upload_media (container) slug');
+  const cArgs = container.options.arguments as Record<string, unknown>;
+  assert.equal(cArgs.caption, 'Hello IG', 'caption rides the container');
+  assert.equal(cArgs.image_url, 'https://cdn.example.com/img.jpg', 'feed image uses image_url');
+  assert.equal(cArgs.ig_user_id, 'ext_1', 'ig_user_id from stored external_account_id');
+  assert.equal(cArgs.video_url,  undefined, 'no video_url for an image');
+  assert.equal(cArgs.media_type, undefined, 'no media_type for a single feed image (IG defaults to IMAGE)');
+  assert.equal(cArgs.page_id,    undefined, 'no page_id for Instagram');
+  assert.equal(cArgs.message,    undefined, 'no message for Instagram');
+  assert.equal(cArgs.media_urls, undefined, 'the broken media_urls array shape is gone');
+
+  const publish = gateway.calls[1];
+  assert.equal(publish.slug, 'IG_PUBLISH', 'step 2 uses the publish_post slug');
+  const pArgs = publish.options.arguments as Record<string, unknown>;
+  assert.equal(pArgs.creation_id, 'ig_42', 'publish references the container creation id');
+  assert.equal(pArgs.ig_user_id, 'ext_1', 'publish carries ig_user_id');
+
+  assert.equal(result.externalPostId, 'ig_42', 'externalPostId is the published media id');
+  assert.equal(result.status, 'published');
+});
+
+test('IG reel video container uses video_url + media_type=REELS', async () => {
+  const gateway = fakeGateway({ executeResult: { data: { id: 'ig_reel_1' }, successful: true, error: null } });
+  const provider = new ComposioPublisherProvider(
+    gateway,
+    fakeConfig({ actions: { upload_media: 'IG_CONTAINER', publish_post: 'IG_PUBLISH' } }),
+    fakeDb(),
+  );
+  await provider.publishPost({
+    tenantId,
+    platform: 'instagram',
+    content: 'reel caption',
+    mediaUrls: ['https://cdn.example.com/reel.mp4'],
+    placement: 'reel',
+    mediaType: 'video',
+    mediaMetadata: [{ widthPx: 1080, heightPx: 1920, durationSeconds: 30 }],
+    approved: true,
+  });
+
+  const cArgs = gateway.calls[0].options.arguments as Record<string, unknown>;
+  assert.equal(cArgs.video_url, 'https://cdn.example.com/reel.mp4', 'reel uses video_url');
+  assert.equal(cArgs.media_type, 'REELS', 'reel container media_type=REELS');
+  assert.equal(cArgs.share_to_feed, undefined, 'a pure reel does not force share_to_feed');
+  assert.equal(cArgs.image_url, undefined, 'no image_url for a video');
+});
+
+test('IG feed video → REELS + share_to_feed=true; story video → STORIES', async () => {
+  const meta = [{ widthPx: 1080, heightPx: 1920, durationSeconds: 20 }];
+
+  const feedGw = fakeGateway({ executeResult: { data: { id: 'x' }, successful: true, error: null } });
+  await new ComposioPublisherProvider(
+    feedGw,
+    fakeConfig({ actions: { upload_media: 'IG_CONTAINER', publish_post: 'IG_PUBLISH' } }),
+    fakeDb(),
+  ).publishPost({
+    tenantId, platform: 'instagram', content: 'feed vid',
+    mediaUrls: ['https://cdn.example.com/v.mp4'], placement: 'feed', mediaType: 'video',
+    mediaMetadata: meta, approved: true,
+  });
+  const feedArgs = feedGw.calls[0].options.arguments as Record<string, unknown>;
+  assert.equal(feedArgs.media_type, 'REELS', 'feed video posts as a Reel');
+  assert.equal(feedArgs.share_to_feed, true, 'feed video also lands in the feed');
+
+  const storyGw = fakeGateway({ executeResult: { data: { id: 'x' }, successful: true, error: null } });
+  await new ComposioPublisherProvider(
+    storyGw,
+    fakeConfig({ actions: { upload_media: 'IG_CONTAINER', publish_post: 'IG_PUBLISH' } }),
+    fakeDb(),
+  ).publishPost({
+    tenantId, platform: 'instagram', content: 'story vid',
+    mediaUrls: ['https://cdn.example.com/v.mp4'], placement: 'story', mediaType: 'video',
+    mediaMetadata: meta, approved: true,
+  });
+  const storyArgs = storyGw.calls[0].options.arguments as Record<string, unknown>;
+  assert.equal(storyArgs.media_type, 'STORIES', 'story video container media_type=STORIES');
+  assert.equal(storyArgs.share_to_feed, undefined, 'story video never forces share_to_feed');
+});
+
+test('IG video with invalid media (bad aspect ratio) is rethrown as ComposioToolError (definitely-never-posted), no executeTool', async () => {
+  const gateway = fakeGateway({ executeResult: { data: { id: 'should_not_be_used' }, successful: true, error: null } });
+  const provider = new ComposioPublisherProvider(
+    gateway,
+    fakeConfig({ actions: { upload_media: 'IG_CONTAINER', publish_post: 'IG_PUBLISH' } }),
+    fakeDb(),
+  );
+  await assert.rejects(
+    () =>
+      provider.publishPost({
+        tenantId,
+        platform: 'instagram',
+        content: 'bad reel',
+        mediaUrls: ['https://cdn.example.com/wide.mp4'],
+        placement: 'reel',
+        mediaType: 'video',
+        // 16:9 — a reel requires 9:16. The validator throws MetaPublishError;
+        // the provider MUST rethrow it as a recognized never-posted error so
+        // dispatchPublish does NOT mis-wrap it as outcome-unknown.
+        mediaMetadata: [{ widthPx: 1920, heightPx: 1080, durationSeconds: 30 }],
+        approved: true,
+      }),
+    ComposioToolError,
+    'a fail-closed media validation error must surface as ComposioToolError (never-posted)',
+  );
+  assert.equal(gateway.calls.length, 0, 'no Graph/Composio call may be made when validation fails closed');
+});
+
+test('IG feed-video is validated as a Reel (9:16): a 16:9 feed clip fails closed (never-posted), no executeTool', async () => {
+  // IG feed video publishes as a REELS container (share_to_feed), which Meta
+  // requires to be vertical 9:16. A 16:9 "feed" video must be rejected at Aries
+  // (against reel constraints), not pass the laxer feed rules then 400 at Meta.
+  const gateway = fakeGateway({ executeResult: { data: { id: 'should_not_be_used' }, successful: true, error: null } });
+  const provider = new ComposioPublisherProvider(
+    gateway,
+    fakeConfig({ actions: { upload_media: 'IG_CONTAINER', publish_post: 'IG_PUBLISH' } }),
+    fakeDb(),
+  );
+  await assert.rejects(
+    () =>
+      provider.publishPost({
+        tenantId,
+        platform: 'instagram',
+        content: 'wide feed video',
+        mediaUrls: ['https://cdn.example.com/wide-feed.mp4'],
+        placement: 'feed',
+        mediaType: 'video',
+        mediaMetadata: [{ widthPx: 1920, heightPx: 1080, durationSeconds: 30 }],
+        approved: true,
+      }),
+    ComposioToolError,
+    'a non-9:16 IG feed video must fail closed against reel constraints (never-posted)',
+  );
+  assert.equal(gateway.calls.length, 0, 'no container is created when feed-video validation fails closed');
+});
+
+test('FB video uses FACEBOOK_CREATE_VIDEO_POST (publish_video slot) with file_url + published=true', async () => {
+  const gateway = fakeGateway({ executeResult: { data: { id: 'fb_vid_1' }, successful: true, error: null } });
+  const provider = new ComposioPublisherProvider(
+    gateway,
+    fakeConfig({ actions: { publish_video: 'FB_VIDEO', publish_post: 'FB_POST', upload_media: 'FB_PHOTO' } }),
+    fakeDb(),
+  );
+  const result = await provider.publishPost({
+    tenantId,
+    platform: 'facebook',
+    content: 'fb video caption',
+    mediaUrls: ['https://cdn.example.com/clip.mp4'],
+    placement: 'feed',
+    mediaType: 'video',
+    mediaMetadata: [{ widthPx: 1080, heightPx: 1080, durationSeconds: 20 }],
+    approved: true,
+  });
+
+  assert.equal(gateway.calls.length, 1, 'FB video is a single Page-video call (no pre-stage)');
+  const call = gateway.calls[0];
+  assert.equal(call.slug, 'FB_VIDEO', 'video routes to the publish_video slug');
+  const args = call.options.arguments as Record<string, unknown>;
+  assert.equal(args.file_url, 'https://cdn.example.com/clip.mp4', 'raw mp4 file_url, posted directly');
+  assert.equal(args.description, 'fb video caption', 'caption rides description');
+  assert.equal(args.page_id, 'ext_1', 'page_id from stored external_account_id');
+  assert.equal(args.published, true, 'an unscheduled FB video publishes immediately');
+  assert.equal(args.scheduled_publish_time, undefined, 'no schedule time on a live publish');
+  assert.equal(result.externalPostId, 'fb_vid_1');
+});
+
+test('FB scheduled video sets published=false AND scheduled_publish_time together', async () => {
+  const gateway = fakeGateway({ executeResult: { data: { id: 'fb_vid_sched' }, successful: true, error: null } });
+  const provider = new ComposioPublisherProvider(
+    gateway,
+    fakeConfig({ actions: { publish_video: 'FB_VIDEO' } }),
+    fakeDb(),
+  );
+  const result = await provider.publishPost({
+    tenantId,
+    platform: 'facebook',
+    content: 'scheduled fb video',
+    mediaUrls: ['https://cdn.example.com/clip.mp4'],
+    placement: 'feed',
+    mediaType: 'video',
+    mediaMetadata: [{ widthPx: 1080, heightPx: 1080, durationSeconds: 20 }],
+    scheduledFor: '1999999999',
+    approved: true,
+  });
   const args = gateway.calls[0].options.arguments as Record<string, unknown>;
-  assert.equal(args.caption, 'Hello IG', 'Instagram must still use `caption`');
-  assert.equal(args.message,  undefined, '`message` must not be set for Instagram');
-  assert.equal(args.page_id,  undefined, '`page_id` must not be set for Instagram');
+  assert.equal(args.published, false, 'a scheduled FB video must NOT publish immediately');
+  assert.equal(args.scheduled_publish_time, '1999999999', 'schedule time is passed through');
+  assert.equal(result.status, 'scheduled');
 });
 
 // ── Regression tests for #627: FB image posts use FACEBOOK_CREATE_PHOTO_POST ─

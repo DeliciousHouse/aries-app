@@ -69,6 +69,7 @@ function buildPool() {
 // we cannot un-call it).
 export const CLAIM_ROW_SQL = `SELECT sp.id, sp.post_id, sp.tenant_id, sp.target_platforms,
             sp.surface, sp.media_type,
+            sp.width_px, sp.height_px, sp.duration_seconds,
             p.caption, p.platform_post_id
      FROM scheduled_posts sp
      LEFT JOIN posts p ON p.id = sp.post_id
@@ -280,6 +281,9 @@ async function dispatchWithRetry(row, baseUrl, secret) {
     // image/video correctly. Default to feed/image for legacy rows.
     surface: typeof row.surface === 'string' ? row.surface : 'feed',
     media_type: typeof row.media_type === 'string' ? row.media_type : 'image',
+    width_px: row.width_px ?? null,
+    height_px: row.height_px ?? null,
+    duration_seconds: row.duration_seconds ?? null,
   });
 
   const headers = {

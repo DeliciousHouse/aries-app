@@ -1029,6 +1029,7 @@ function CreativeReviewSurface(props: {
                   src={asset.fullPreviewUrl || asset.previewUrl}
                   alt={asset.title}
                   contentType={asset.contentType}
+                  poster={asset.posterUrl ?? undefined}
                   className="min-h-[24rem] overflow-hidden rounded-[1.2rem] border border-white/8 bg-black/20"
                   imageClassName="h-full w-full object-contain bg-black/40"
                   emptyLabel="Preview pending"

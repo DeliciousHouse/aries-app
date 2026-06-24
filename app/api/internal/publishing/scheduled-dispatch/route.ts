@@ -20,6 +20,9 @@ type ScheduledDispatchBody = {
   media_urls?: string[];
   surface?: string;
   media_type?: string;
+  width_px?: number | null;
+  height_px?: number | null;
+  duration_seconds?: number | null;
 };
 
 // Minimal queryable surface so route tests can inject a fake DB.
@@ -198,6 +201,18 @@ export async function POST(req: Request): Promise<Response> {
       ? 'video'
       : 'image';
 
+  // Per-media dimensions/duration forwarded from scheduled_posts (populated by a
+  // later ingest/synthesize step; NULL today). Build mediaMetadata ONLY for a
+  // video surface with all three present — never fabricate (the validator fails
+  // closed on missing video metadata, which is the intended behavior).
+  const widthPx = typeof body.width_px === 'number' && Number.isFinite(body.width_px) ? body.width_px : null;
+  const heightPx = typeof body.height_px === 'number' && Number.isFinite(body.height_px) ? body.height_px : null;
+  const durationSeconds = typeof body.duration_seconds === 'number' && Number.isFinite(body.duration_seconds) ? body.duration_seconds : null;
+  const mediaMetadata: Array<{ widthPx: number; heightPx: number; durationSeconds: number }> | undefined =
+    mediaType === 'video' && widthPx !== null && heightPx !== null && durationSeconds !== null
+      ? [{ widthPx, heightPx, durationSeconds }]
+      : undefined;
+
   // Prefer explicit media_urls, otherwise look up creative assets for the tenant
   let rawMediaUrls: string[] = Array.isArray(body.media_urls)
     ? body.media_urls.filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
@@ -281,6 +296,7 @@ export async function POST(req: Request): Promise<Response> {
         mediaUrls: signedMediaUrls,
         placement: surface,
         mediaType,
+        mediaMetadata,
       });
       results.push({ provider: platform, ok: true });
       if (firstPublishedPostId === null && published.platformPostId) {
