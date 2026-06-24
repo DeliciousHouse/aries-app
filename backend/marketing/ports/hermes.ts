@@ -1300,6 +1300,32 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       if (startingStage) {
         promptLines.push(`Starting stage: ${startingStage}`);
       }
+      // IMAGE EDIT (image-to-image): when the regenerate context carries an edit
+      // instruction, pin the content-generator profile to image_generate's edit
+      // endpoint on the existing source image instead of a fresh generation. The
+      // tool routes to its edit endpoint deterministically once given a source
+      // image (use_edit = bool(source_images)); this contract forces the agent to
+      // pass one — mirroring the production stage's "MUST call image_generate"
+      // execution contract. Gated upstream by ARIES_IMAGE_EDIT_ENABLED.
+      if (input.regenerateCreative?.edit_instruction) {
+        const editInstruction = input.regenerateCreative.edit_instruction;
+        const sourceBasename = input.regenerateCreative.source_image_basename;
+        promptLines.push(
+          '',
+          'IMAGE EDIT EXECUTION CONTRACT: This run is an image EDIT, not a fresh generation.',
+          // JSON-encode EVERY operator-controlled value embedded in the contract
+          // (source_creative_id is the URL path param, source_run_id is request
+          // body, edit_instruction is free text). All are URL/JSON-decoded and can
+          // carry quotes/newlines, so raw interpolation would let a crafted value
+          // terminate a line and inject extra "contract" directives.
+          `Source creative: source_creative_id=${JSON.stringify(input.regenerateCreative.source_creative_id)} from run ${JSON.stringify(input.regenerateCreative.source_run_id)}.`,
+          sourceBasename
+            ? `Source image file (in your content-generator image cache): ${JSON.stringify(sourceBasename)}.`
+            : 'Source image: resolve it from the prior run identified above.',
+          `Call the image_generate tool exactly once with that image as the source image (image-to-image edit endpoint) applying ONLY this change: ${JSON.stringify(editInstruction)}.`,
+          'Do NOT generate a new image from scratch — preserve the existing composition, subject, and brand styling, and apply only the requested change. Return the edited image in artifacts.creative_assets[] exactly as a normal production image.',
+        );
+      }
       const prompt = promptLines.join('\n');
       const promptWithMemory = memoryContextSnapshot && memoryContextSnapshot.length > 0
         ? `${prompt}\n\nMemory context (approved brand/policy findings):\n${JSON.stringify(memoryContextSnapshot)}`
@@ -1322,6 +1348,12 @@ export class HermesMarketingPort implements MarketingExecutionPort {
                 regenerate_creative: {
                   source_run_id: input.regenerateCreative.source_run_id,
                   source_creative_id: input.regenerateCreative.source_creative_id,
+                  ...(input.regenerateCreative.edit_instruction
+                    ? { edit_instruction: input.regenerateCreative.edit_instruction }
+                    : {}),
+                  ...(input.regenerateCreative.source_image_basename
+                    ? { source_image_basename: input.regenerateCreative.source_image_basename }
+                    : {}),
                 },
               }
             : {}),

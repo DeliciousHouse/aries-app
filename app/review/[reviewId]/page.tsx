@@ -1,6 +1,7 @@
 import AppShellLayout from '@/frontend/app-shell/layout';
 import AriesReviewItemScreen from '@/frontend/aries-v1/review-item';
 import { handleGetMarketingReviewItem } from '@/app/api/marketing/reviews/[reviewId]/route';
+import { isImageEditEnabled } from '@/backend/marketing/image-edit-env';
 import type { ReviewItemResponse } from '@/lib/api/aries-v1';
 
 type ReviewItemPageLoader = (reviewId: string) => Promise<Response>;
@@ -58,7 +59,11 @@ export default async function ReviewItemPage({
       skipOnboardingGate
       loginRedirectPath={encodedReviewPath}
     >
-      <AriesReviewItemScreen reviewId={decodeReviewIdParam(reviewId)} initialData={initialData} />
+      <AriesReviewItemScreen
+        reviewId={decodeReviewIdParam(reviewId)}
+        initialData={initialData}
+        imageEditEnabled={isImageEditEnabled()}
+      />
     </AppShellLayout>
   );
 }
