@@ -79,6 +79,13 @@ export type SocialContentWeeklyBrandPayload = SocialContentBrandPayload;
 export type SocialContentRegenerateCreativeContext = {
   source_run_id: string;
   source_creative_id: string;
+  /**
+   * Image-edit (image-to-image) instruction. When present, the run edits the
+   * source image rather than regenerating it. See RegenerateCreativeContext.
+   */
+  edit_instruction?: string;
+  /** Source image basename in the Hermes content-generator image cache. */
+  source_image_basename?: string;
 };
 
 export type SocialContentWeeklyRequest = {
@@ -247,6 +254,12 @@ export function buildSocialContentWeeklyRequest(input: {
             regenerate_creative: {
               source_run_id: input.regenerateCreative.source_run_id,
               source_creative_id: input.regenerateCreative.source_creative_id,
+              ...(input.regenerateCreative.edit_instruction
+                ? { edit_instruction: input.regenerateCreative.edit_instruction }
+                : {}),
+              ...(input.regenerateCreative.source_image_basename
+                ? { source_image_basename: input.regenerateCreative.source_image_basename }
+                : {}),
             },
           }
         : {}),

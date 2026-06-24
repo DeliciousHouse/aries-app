@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   LoaderCircle,
+  Pencil,
   RefreshCw,
   ShieldAlert,
   Sparkles,
@@ -109,6 +110,10 @@ export function regenerateCreativeUrl(jobId: string, creativeId: string): string
 
 export function uploadReplaceCreativeUrl(jobId: string, creativeId: string): string {
   return `/api/social-content/jobs/${encodeURIComponent(jobId)}/creatives/${encodeURIComponent(creativeId)}/upload-replace`;
+}
+
+export function editCreativeUrl(jobId: string, creativeId: string): string {
+  return `/api/social-content/jobs/${encodeURIComponent(jobId)}/creatives/${encodeURIComponent(creativeId)}/edit`;
 }
 
 export function creativeVoicePreferenceUrl(jobId: string): string {
@@ -248,6 +253,12 @@ type RegenerateState =
   | { kind: 'submitted'; runId: string | null }
   | { kind: 'error'; message: string };
 
+type EditState =
+  | { kind: 'idle' }
+  | { kind: 'submitting' }
+  | { kind: 'submitted'; runId: string | null }
+  | { kind: 'error'; message: string };
+
 type UploadState =
   | { kind: 'idle' }
   | { kind: 'uploading' }
@@ -261,6 +272,10 @@ export type CreativeActionDrawerProps = {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void | Promise<void>;
+  // Gates the image-edit section. Sourced server-side from ARIES_IMAGE_EDIT_ENABLED
+  // (passed down from the review page). Default false → the section is hidden and
+  // the drawer is byte-identical to today.
+  imageEditEnabled?: boolean;
   // Injectable for tests; defaults to global fetch.
   fetchImpl?: typeof fetch;
 };
@@ -268,6 +283,8 @@ export type CreativeActionDrawerProps = {
 export default function CreativeActionDrawer(props: CreativeActionDrawerProps) {
   const fetcher = props.fetchImpl ?? (typeof fetch === 'function' ? fetch : null);
   const [regen, setRegen] = useState<RegenerateState>({ kind: 'idle' });
+  const [edit, setEdit] = useState<EditState>({ kind: 'idle' });
+  const [editInstruction, setEditInstruction] = useState('');
   const [upload, setUpload] = useState<UploadState>({ kind: 'idle' });
   const [tosChecked, setTosChecked] = useState(false);
   const [voicePref, setVoicePref] = useState<{
@@ -285,6 +302,8 @@ export default function CreativeActionDrawer(props: CreativeActionDrawerProps) {
   useEffect(() => {
     if (!props.isOpen) {
       setRegen({ kind: 'idle' });
+      setEdit({ kind: 'idle' });
+      setEditInstruction('');
       setUpload({ kind: 'idle' });
       setTosChecked(false);
       setVoicePref({ always: false, label: '', loaded: false });
@@ -369,6 +388,45 @@ export default function CreativeActionDrawer(props: CreativeActionDrawerProps) {
       setRegen({ kind: 'error', message });
     }
   }, [fetcher, props.creativeId, props.jobId, triggerSuccessRefresh]);
+
+  const handleEdit = useCallback(async () => {
+    if (!fetcher) {
+      setEdit({ kind: 'error', message: DRAWER_GENERIC_ERROR });
+      return;
+    }
+    const instruction = editInstruction.trim();
+    if (!instruction) {
+      setEdit({ kind: 'error', message: 'Describe the change you want first.' });
+      return;
+    }
+    setEdit({ kind: 'submitting' });
+    try {
+      const response = await fetcher(editCreativeUrl(props.jobId, props.creativeId), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ instruction }),
+      });
+      const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      if (response.status !== 202 || body.status !== 'submitted') {
+        const message = creativeActionSafeErrorMessage(
+          typeof body.error === 'string' ? body.error : null,
+          DRAWER_GENERIC_ERROR,
+        );
+        setEdit({ kind: 'error', message });
+        return;
+      }
+      const runId = typeof body.new_run_id === 'string' ? body.new_run_id : null;
+      setEdit({ kind: 'submitted', runId });
+      setEditInstruction('');
+      await triggerSuccessRefresh();
+    } catch (error) {
+      const message = creativeActionSafeErrorMessage(
+        error instanceof Error ? error.message : null,
+        DRAWER_GENERIC_ERROR,
+      );
+      setEdit({ kind: 'error', message });
+    }
+  }, [fetcher, editInstruction, props.creativeId, props.jobId, triggerSuccessRefresh]);
 
   const submitUpload = useCallback(
     async (file: File, override?: UploadReplaceOverrideInput) => {
@@ -486,6 +544,7 @@ export default function CreativeActionDrawer(props: CreativeActionDrawerProps) {
 
   const uploading = upload.kind === 'uploading';
   const regenerating = regen.kind === 'submitting';
+  const editing = edit.kind === 'submitting';
 
   return (
     <div
@@ -569,6 +628,62 @@ export default function CreativeActionDrawer(props: CreativeActionDrawerProps) {
               </p>
             ) : null}
           </section>
+
+          {props.imageEditEnabled ? (
+            <section
+              className="space-y-3 rounded-[1.25rem] border border-white/10 bg-black/20 px-5 py-5"
+              data-testid="creative-action-edit-section"
+            >
+              <div className="flex items-start gap-3">
+                <Pencil className="mt-0.5 h-4 w-4 text-white/70" />
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-white">Edit this image</p>
+                  <p className="text-xs text-white/60">
+                    Describe the change and we&apos;ll edit the existing image — keeping its
+                    composition and brand styling — instead of generating a new one.
+                  </p>
+                </div>
+              </div>
+              <textarea
+                value={editInstruction}
+                onChange={(event) => setEditInstruction(event.target.value)}
+                disabled={editing}
+                rows={3}
+                maxLength={2000}
+                placeholder="e.g. make the background darker and remove the text in the corner"
+                data-testid="creative-action-edit-instruction"
+                className="block w-full resize-y rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white placeholder:text-white/35 focus:border-white/25 focus:outline-none disabled:opacity-60"
+              />
+              <button
+                type="button"
+                onClick={handleEdit}
+                disabled={editing || editInstruction.trim().length === 0}
+                data-testid="creative-action-edit"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-semibold text-[#11161c] transition disabled:opacity-60"
+              >
+                {editing ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Pencil className="h-4 w-4" />}
+                {editing ? 'Submitting…' : 'Apply this edit'}
+              </button>
+              {edit.kind === 'submitted' ? (
+                <p
+                  className="flex items-center gap-2 text-xs text-emerald-200/90"
+                  data-testid="creative-action-edit-success"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Edit submitted{edit.runId ? ` (run ${edit.runId.slice(0, 12)}…)` : ''}.
+                </p>
+              ) : null}
+              {edit.kind === 'error' ? (
+                <p
+                  className="flex items-center gap-2 text-xs text-rose-200/90"
+                  data-testid="creative-action-edit-error"
+                >
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  {edit.message}
+                </p>
+              ) : null}
+            </section>
+          ) : null}
 
           <section className="space-y-3 rounded-[1.25rem] border border-white/10 bg-black/20 px-5 py-5">
             <div className="flex items-start gap-3">

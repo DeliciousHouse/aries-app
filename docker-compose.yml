@@ -130,6 +130,12 @@ services:
       # Review). The Hermes reconciler + all route handlers run in this container,
       # so only aries-app needs it.
       ARIES_NATIVE_REPLY_ENABLED: ${ARIES_NATIVE_REPLY_ENABLED:-0}
+      # Image edit (image-to-image): when ON, the review drawer's "Edit this image"
+      # control routes an operator's edit instruction + the source image to the
+      # Hermes content-generator edit endpoint instead of a fresh regenerate. When
+      # OFF (default) the edit route 404s (invisible) and the UI section is hidden.
+      # All route handlers run in this container, so only aries-app needs it.
+      ARIES_IMAGE_EDIT_ENABLED: ${ARIES_IMAGE_EDIT_ENABLED:-0}
       # 2026-05-23: flipped ON per TODOS rollout. Narrow first-name-denylist
       # heuristic replaces the legacy /[A-Z][a-z]+\s+[A-Z][a-z]+/ regex in
       # backend/memory/write-events.ts::scrubPreferenceLabelForHoncho. Effect:

@@ -45,6 +45,22 @@ export type HermesWorkflowOutput = {
 export type RegenerateCreativeContext = {
   source_run_id: string;
   source_creative_id: string;
+  /**
+   * When set, this run is an IMAGE EDIT (image-to-image) rather than a fresh
+   * regenerate: the natural-language change the operator asked for. The Hermes
+   * content-generator profile is instructed to call `image_generate` with the
+   * source image as `source_images` (its edit endpoint) instead of generating
+   * from scratch. Gated by ARIES_IMAGE_EDIT_ENABLED. Owned by image-edit-api.
+   */
+  edit_instruction?: string;
+  /**
+   * Basename of the source creative's image in the Hermes content-generator
+   * image cache, so the profile can resolve `<cache_dir>/<basename>` locally and
+   * pass it as the edit source. Resolved from `creative_assets.storage_key`
+   * (runtime_asset only). Omitted when unresolvable — Hermes then falls back to
+   * locating the source via `source_run_id` + `source_creative_id`.
+   */
+  source_image_basename?: string;
 };
 
 export type MarketingPipelineRunInput = {

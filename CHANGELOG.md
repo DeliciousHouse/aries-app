@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.18.0 — feat(marketing): image-edit (image-to-image) API for creatives, flag-gated
+
+Adds an Aries-owned image-edit path so an operator can change an existing creative
+with a natural-language instruction instead of regenerating from scratch. Behind
+`ARIES_IMAGE_EDIT_ENABLED` (default OFF): the route 404s and the review drawer's
+"Edit this image" section is hidden, byte-identical to the route not existing.
+
+- **New route:** `POST /api/social-content/jobs/[jobId]/creatives/[creativeId]/edit`.
+  An edit instruction is routed to Hermes as a new `aries_run` reusing the regenerate
+  submission path (per-stage profile pipeline scoped by `regenerate_creative`), but
+  carrying an `edit_instruction` plus the source image's Hermes-cache basename so the
+  content-generator profile calls `image_generate` on that existing image (its
+  image-to-image edit endpoint) instead of generating fresh. An explicit "IMAGE EDIT
+  EXECUTION CONTRACT" in the submission prompt pins the agent to the edit tool.
+- **Source resolution:** `editCreativeAsImageEdit` resolves the basename from
+  `creative_assets.storage_key` for `runtime_asset` rows only (tenant- and job-scoped
+  SQL, path-traversal + bad-tenant guards); `ingested_asset` rows resolve to null and
+  Hermes falls back to locating the source via `source_run_id` + `source_creative_id`.
+  Resolution is fail-open (any DB/parse error → null → still submits, with a warn log).
+- **Injection-safe:** every operator-controlled value embedded in the prompt contract
+  (`source_creative_id`, `source_run_id`, `edit_instruction`) is JSON-encoded; an
+  explicit body `source_run_id` is validated against the job's own stage run ids.
+- **Protocol:** additive optional `regenerate_creative.edit_instruction` +
+  `source_image_basename` (`PROTOCOL_VERSION` 1.1.1 → 1.2.0; older consumers strip the
+  fields and degrade to a plain regenerate). No Hermes-repo change.
+- The edited image lands as a NEW `creative_assets` row (original preserved), exactly
+  like regenerate. Tenant-isolated, flag-gated taste signal on edit.
+- Wired into the `aries-app` `environment:` block in `docker-compose.yml`. Process-wide;
+  default OFF. **Screenshot-verify a freshly edited + published post on a live tenant
+  before flipping the flag** — the open question is whether the content-generator
+  reliably honors the edit contract; if it ever ignores the source it degrades to a
+  regenerate.
+
 ## v0.1.17.0 — feat(feedback): infer severity (drop the dropdown) + wire Composio env into the container
 
 Follow-ups to the feedback button (v0.1.16.0):
