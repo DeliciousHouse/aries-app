@@ -1424,7 +1424,7 @@ async function autoScheduleApprovedPostsForJob(doc: SocialContentJobRuntimeDocum
   // than collapsing onto its feed sibling's slot. ORDER BY id is added for
   // stable logging output even though the ordinal mapping does not depend on it.
   const postRows = await pool.query<AutoSchedulePostRow>(
-    `SELECT id, platform, idempotency_key, surface, media_type
+    `SELECT id, platform, idempotency_key, surface, media_type, width_px, height_px, duration_seconds
        FROM posts
       WHERE job_id = $1 AND tenant_id = $2
       ORDER BY id`,
@@ -1464,6 +1464,9 @@ export interface AutoSchedulePostRow {
   idempotency_key: string | null;
   surface: string | null;
   media_type: string | null;
+  width_px: number | null;
+  height_px: number | null;
+  duration_seconds: number | null;
 }
 
 /**
@@ -1536,6 +1539,9 @@ export function buildAutoScheduleRows(
         recommendedDay: target?.recommendedDay ?? null,
         surface: normalizeScheduleSurface(row.surface),
         mediaType: normalizeScheduleMediaType(row.media_type),
+        widthPx: row.width_px,
+        heightPx: row.height_px,
+        durationSeconds: row.duration_seconds,
       };
     })
     .filter((r): r is AutoScheduleInputRow => r !== null);

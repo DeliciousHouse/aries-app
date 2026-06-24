@@ -32,7 +32,15 @@ import {
   ComposioToolError,
 } from './errors';
 import { resolveFacebookManagedPage } from './facebook-page-resolver';
+import { resolveInstagramAccount } from './instagram-account-resolver';
 import { synthesizeStillToVideo, type StillToVideoResult } from '../still-to-video';
+import { MetaPublishError } from '../meta-publishing';
+import {
+  validateMediaForSurface,
+  type MediaMetadata,
+  type MediaSurface,
+  type MediaType,
+} from '../meta-media-validation';
 import pool from '@/lib/db';
 
 function pickId(data: unknown, keys: string[]): string | null {
@@ -183,6 +191,58 @@ export class ComposioPublisherProvider implements PublisherProvider {
     return slug;
   }
 
+  /**
+   * Per-surface media validation for a video/Story/Reel publish, run BEFORE any
+   * `gateway.executeTool` so nothing is ever posted on a malformed payload.
+   *
+   * SAFETY (double-post guard): `validateMediaForSurface` throws a
+   * `MetaPublishError`, which is NOT in `publishNeverReachedPlatform`'s recognized
+   * set (publish-outcome.ts). If that raw error escaped `publishPost`,
+   * `dispatchPublish`'s catch would fail the `publishNeverReachedPlatform` check
+   * and re-wrap it as `provider_publish_outcome_unknown` (`outcomeUnknown:true`) —
+   * surfacing a post that PROVABLY never reached the platform as
+   * needs_manual_reconciliation. Since validation runs before any tool call, the
+   * post definitely never posted, so we rethrow as `ComposioToolError` — a
+   * recognized never-posted verdict — exactly as the X/LinkedIn/YouTube
+   * pre-publish staging failures are surfaced. A validation failure is therefore
+   * unambiguously definitely-never-posted (safe to roll back the claim).
+   */
+  private validateMediaSurfaceOrNeverPosted(
+    input: PublishPostInput,
+    surface: MediaSurface,
+    mediaType: MediaType,
+    slug: string,
+  ): void {
+    const media: MediaMetadata[] = input.mediaUrls.map((url, i) => ({
+      url,
+      widthPx: input.mediaMetadata?.[i]?.widthPx ?? null,
+      heightPx: input.mediaMetadata?.[i]?.heightPx ?? null,
+      durationSeconds: input.mediaMetadata?.[i]?.durationSeconds ?? null,
+    }));
+    try {
+      validateMediaForSurface({ media, surface, mediaType, scheduledFor: input.scheduledFor ?? null });
+    } catch (error) {
+      if (error instanceof MetaPublishError) {
+        throw new ComposioToolError(slug, `${error.code}: ${error.message}`);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * The IG user id (numeric) the container/publish actions need as `ig_user_id`.
+   * `connected_accounts.external_account_id` is null for IG (it is not in the
+   * connection metadata), so fall back to the verified INSTAGRAM_GET_USER_INFO
+   * resolver, then to `'me'` (the actions accept the literal `'me'`). The resolver
+   * is a read-only pre-publish call that never creates a post.
+   */
+  private async resolveInstagramUserId(connectedAccountId: string, externalAccountId: string | null): Promise<string> {
+    const stored = externalAccountId?.trim();
+    if (stored) return stored;
+    const resolved = await resolveInstagramAccount(this.gateway, this.config, connectedAccountId);
+    return resolved?.igUserId ?? 'me';
+  }
+
   async publishPost(input: PublishPostInput): Promise<PublishResult> {
     // Dry-run never touches Composio.
     if (input.dryRun) {
@@ -248,26 +308,48 @@ export class ComposioPublisherProvider implements PublisherProvider {
         );
       }
 
-      const hasImage = input.mediaUrls.length > 0;
-      if (hasImage) {
-        // Photo post: FACEBOOK_CREATE_PHOTO_POST via the `upload_media` op slot
-        // (COMPOSIO_FACEBOOK_UPLOAD_MEDIA_ACTION=FACEBOOK_CREATE_PHOTO_POST).
-        // Only the first image is posted; multi-image carousel is a future feature.
-        slug = this.requireSlug(input.platform, 'upload_media', 'publish photo posts');
+      if (input.mediaType === 'video') {
+        // Video post: FACEBOOK_CREATE_VIDEO_POST via the `publish_video` op slot
+        // (COMPOSIO_FACEBOOK_PUBLISH_VIDEO_ACTION). The raw mp4 file_url is posted
+        // directly — no pre-stage. Composio has NO distinct FB Reel/Story video
+        // action, so a reel/story video collapses to a Page (feed) video; validate
+        // it against feed-video constraints accordingly.
+        slug = this.requireSlug(input.platform, 'publish_video', 'publish videos');
+        this.validateMediaSurfaceOrNeverPosted(input, 'feed', 'video', slug);
         toolArgs = {
-          url: input.mediaUrls[0],
-          message: input.content,
           page_id: pageId,
-          ...(input.scheduledFor ? { scheduled_publish_time: input.scheduledFor } : {}),
+          file_url: input.mediaUrls[0],
+          description: input.content,
+          // Scheduling requires `published:false` AND `scheduled_publish_time`
+          // TOGETHER (a `scheduled_publish_time` without `published:false` would
+          // publish immediately — the latent bug in the photo/text branch above
+          // is deliberately NOT copied here).
+          ...(input.scheduledFor
+            ? { published: false, scheduled_publish_time: input.scheduledFor }
+            : { published: true }),
         };
       } else {
-        // Text-only post: FACEBOOK_CREATE_POST via the `publish_post` op slot.
-        slug = this.requireSlug(input.platform, 'publish_post', 'publish posts');
-        toolArgs = {
-          message: input.content,
-          page_id: pageId,
-          ...(input.scheduledFor ? { scheduled_publish_time: input.scheduledFor } : {}),
-        };
+        const hasImage = input.mediaUrls.length > 0;
+        if (hasImage) {
+          // Photo post: FACEBOOK_CREATE_PHOTO_POST via the `upload_media` op slot
+          // (COMPOSIO_FACEBOOK_UPLOAD_MEDIA_ACTION=FACEBOOK_CREATE_PHOTO_POST).
+          // Only the first image is posted; multi-image carousel is a future feature.
+          slug = this.requireSlug(input.platform, 'upload_media', 'publish photo posts');
+          toolArgs = {
+            url: input.mediaUrls[0],
+            message: input.content,
+            page_id: pageId,
+            ...(input.scheduledFor ? { scheduled_publish_time: input.scheduledFor } : {}),
+          };
+        } else {
+          // Text-only post: FACEBOOK_CREATE_POST via the `publish_post` op slot.
+          slug = this.requireSlug(input.platform, 'publish_post', 'publish posts');
+          toolArgs = {
+            message: input.content,
+            page_id: pageId,
+            ...(input.scheduledFor ? { scheduled_publish_time: input.scheduledFor } : {}),
+          };
+        }
       }
     } else if (input.platform === 'x') {
       // X (Twitter): a text post, optionally with a single image. Unlike
@@ -508,15 +590,80 @@ export class ComposioPublisherProvider implements PublisherProvider {
         privacyStatus: youtubePrivacyStatus(),
       };
     } else if (input.platform === 'instagram') {
-      // Instagram: caption + media_urls + placement + media_type (unchanged).
-      slug = this.requireSlug(input.platform, 'publish_post', 'publish posts');
-      toolArgs = {
+      // Instagram: a TWO-STEP publish — create a media container, then publish it.
+      //   1. INSTAGRAM_POST_IG_USER_MEDIA          (`upload_media` op) → creation_id
+      //   2. INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH  (`publish_post` op) → ig_media_id
+      // Image and video share the same container action; the surface selects the
+      // container's media_type. A single clean public URL is posted per call
+      // (multi-image carousel is a future feature). The previous single-call shape
+      // matched no real Composio action and never published live, so this is a
+      // ground-up rewrite, not a regression of working behaviour.
+      if (input.mediaUrls.length === 0) {
+        throw new ComposioCapabilityMissingError('instagram', 'publish a post — an image or video is required');
+      }
+      const surface: MediaSurface = input.placement ?? 'feed';
+      const isVideo = input.mediaType === 'video';
+
+      // Resolve BOTH slugs (capability-missing — definitely-never-posted — when unset).
+      const containerSlug = this.requireSlug(input.platform, 'upload_media', 'create a media container');
+      const publishSlug = this.requireSlug(input.platform, 'publish_post', 'publish posts');
+
+      // Fail-closed media validation BEFORE the container is created — nothing is
+      // posted on a malformed payload and a validation failure is never-posted.
+      // An IG feed VIDEO publishes as a REELS container, which Meta requires to be
+      // vertical 9:16, so validate it against reel constraints (not the laxer feed
+      // rules) — catch a non-9:16 clip at Aries rather than at the Meta container.
+      const validationSurface: MediaSurface = isVideo && surface === 'feed' ? 'reel' : surface;
+      this.validateMediaSurfaceOrNeverPosted(input, validationSurface, isVideo ? 'video' : 'image', containerSlug);
+
+      const igUserId = await this.resolveInstagramUserId(conn.connectedAccountId!, conn.externalAccountId ?? null);
+
+      // ── Step 1: create the media container (single clean public URL) ──────
+      const containerArgs: Record<string, unknown> = {
+        ig_user_id: igUserId,
         caption: input.content,
-        media_urls: input.mediaUrls,
-        placement: input.placement ?? 'feed',
-        media_type: input.mediaType ?? 'image',
-        ...(input.scheduledFor ? { scheduled_publish_time: input.scheduledFor } : {}),
       };
+      if (isVideo) {
+        containerArgs.video_url = input.mediaUrls[0];
+        // surface → IG container media_type. reel → REELS; story → STORIES;
+        // feed video → REELS + share_to_feed (a Reel that also lands in the feed).
+        if (surface === 'story') {
+          containerArgs.media_type = 'STORIES';
+        } else {
+          containerArgs.media_type = 'REELS';
+          if (surface === 'feed') containerArgs.share_to_feed = true;
+        }
+      } else {
+        // Feed image: image_url, no media_type (IG defaults to a single IMAGE).
+        containerArgs.image_url = input.mediaUrls[0];
+      }
+
+      const container = await this.gateway.executeTool(containerSlug, {
+        connectedAccountId: conn.connectedAccountId!,
+        arguments: containerArgs,
+      });
+      if (!container.successful) {
+        // The broker explicitly rejected the container — no container, no post.
+        throw new ComposioToolError(containerSlug, container.error ?? 'media container create reported unsuccessful');
+      }
+      const creationId = pickId(container.data, ['id', 'creation_id']);
+      if (!creationId) {
+        throw new ComposioToolError(containerSlug, 'media container create returned no creation id');
+      }
+
+      // ── Step 2: publish the container (executed by the shared call below) ──
+      // This is the ONLY outcome-unknown boundary for IG: a transport drop after
+      // this call may have published. A failed container above is never-posted.
+      slug = publishSlug;
+      toolArgs = {
+        ig_user_id: igUserId,
+        creation_id: creationId,
+        // Bounded server-side poll for the container to finish processing (<=300).
+        max_wait_seconds: 300,
+        poll_interval_seconds: 5,
+      };
+      // The published media id comes back as ig_media_id (or id).
+      idKeys = ['ig_media_id', 'id', 'media_id'];
     } else {
       // Unknown / unhandled platform — refuse explicitly rather than silently
       // falling through to an Instagram payload on the wrong network.

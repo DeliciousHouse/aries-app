@@ -288,6 +288,9 @@ async function initDb() {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         variant_batch_id TEXT,
         variant_index INTEGER,
+        width_px INTEGER,
+        height_px INTEGER,
+        duration_seconds INTEGER,
         UNIQUE (tenant_id, id),
         CONSTRAINT creative_assets_exact_image_text_generation_check CHECK (media_type <> 'image' OR usable_for_generation = FALSE OR learning_lifecycle <> 'approved_for_generation' OR array_length(exact_image_text, 1) IS NOT NULL),
         CONSTRAINT creative_assets_competitor_not_usable_check CHECK ((source_type <> 'competitor_meta_ad' AND permission_scope <> 'public_ad_library') OR usable_for_generation = FALSE)
@@ -443,6 +446,9 @@ async function initDb() {
       ALTER TABLE creative_assets ADD COLUMN IF NOT EXISTS learning_lifecycle TEXT NOT NULL DEFAULT 'observed';
       ALTER TABLE creative_assets ADD COLUMN IF NOT EXISTS variant_batch_id TEXT;
       ALTER TABLE creative_assets ADD COLUMN IF NOT EXISTS variant_index INTEGER;
+      ALTER TABLE creative_assets ADD COLUMN IF NOT EXISTS width_px INTEGER;
+      ALTER TABLE creative_assets ADD COLUMN IF NOT EXISTS height_px INTEGER;
+      ALTER TABLE creative_assets ADD COLUMN IF NOT EXISTS duration_seconds INTEGER;
       ALTER TABLE prompt_recipes ADD COLUMN IF NOT EXISTS context_pack JSONB NOT NULL DEFAULT '{}'::jsonb;
       ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS creative_asset_id UUID;
       ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS variant_kind TEXT NOT NULL DEFAULT 'memory_assisted';
@@ -562,6 +568,9 @@ async function initDb() {
       -- taste producers. See migrations/20260609000000_marketing_taste_tenant_scoped.sql.
       ALTER TABLE posts ADD COLUMN IF NOT EXISTS style_dimension TEXT;
       ALTER TABLE posts ADD COLUMN IF NOT EXISTS style_value TEXT;
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS width_px INTEGER;
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS height_px INTEGER;
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS duration_seconds INTEGER;
 
       -- Vision QA runs table for brand compliance checks
       CREATE TABLE IF NOT EXISTS vision_qa_runs (
@@ -645,6 +654,9 @@ async function initDb() {
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS media_type TEXT NOT NULL DEFAULT 'image';
       ALTER TABLE scheduled_posts DROP CONSTRAINT IF EXISTS scheduled_posts_media_type_check;
       ALTER TABLE scheduled_posts ADD CONSTRAINT scheduled_posts_media_type_check CHECK (media_type IN ('image','video'));
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS width_px INTEGER;
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS height_px INTEGER;
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS duration_seconds INTEGER;
 
       CREATE INDEX IF NOT EXISTS idx_posts_tenant_created ON posts (tenant_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_vision_qa_runs_tenant_post ON vision_qa_runs (tenant_id, post_id);

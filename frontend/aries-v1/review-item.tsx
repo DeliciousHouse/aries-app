@@ -453,6 +453,7 @@ export default function AriesReviewItemScreen(props: {
                   src={reviewItem.fullPreviewUrl || reviewItem.previewUrl || null}
                   alt={reviewItem.title}
                   contentType={reviewItem.contentType || null}
+                  poster={reviewItem.posterUrl ?? undefined}
                   href={reviewItem.fullPreviewUrl || reviewItem.previewUrl || null}
                   className="min-h-[24rem] overflow-hidden rounded-[1.2rem] border border-white/8 bg-black/20"
                   imageClassName="h-full w-full object-contain bg-black"

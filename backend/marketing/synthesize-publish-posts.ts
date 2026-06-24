@@ -207,7 +207,7 @@ function readRequestedStoryCount(doc: SocialContentJobRuntimeDocument): number {
 }
 
 const SELECT_CREATIVE_ASSETS_SQL = `
-  SELECT id, source_asset_id
+  SELECT id, source_asset_id, width_px, height_px, duration_seconds
     FROM creative_assets
    WHERE tenant_id = $1
      AND source_job_id = $2
@@ -220,15 +220,19 @@ const SELECT_CREATIVE_ASSETS_SQL = `
 // calendar's unscheduled-approved backlog query (`published_status='approved'
 // OR status='approved'`) and are schedulable. See the module header for why
 // approved (not draft) is correct for this autonomous-mode deployment.
+// Params: $1 tenantId, $2 jobId, $3 publishRunId, $4 platform,
+// $5 caption, $6 idempotencyKey, $7 creativeAssetIds,
+// $8 mediaType, $9 surface, $10 styleDimension, $11 styleValue,
+// $12 widthPx, $13 heightPx, $14 durationSeconds
 const INSERT_SYNTHESIZED_POST_SQL = `
   INSERT INTO posts (
     tenant_id, job_id, hermes_run_id, platform, media_type,
     caption, status, published_status, idempotency_key, creative_asset_ids, surface,
-    style_dimension, style_value
+    style_dimension, style_value, width_px, height_px, duration_seconds
   ) VALUES (
     $1, $2, $3, $4, $8,
     $5, 'approved', 'approved', $6, $7, $9,
-    $10, $11
+    $10, $11, $12, $13, $14
   )
   ON CONFLICT (tenant_id, platform, idempotency_key) WHERE idempotency_key IS NOT NULL
   DO NOTHING
@@ -450,17 +454,26 @@ export async function synthesizePublishPostsFromContentPackage(
   // Pull the ingested creative_assets so each post can be linked to its image.
   // post_number N (1-indexed) maps to the Nth creative asset in source_asset_id
   // order — the same ordering ingestProductionCreativeAssetsToDb preserves.
-  let assetIdsByPostNumber = new Map<number, string>();
+  // Dims (width_px/height_px/duration_seconds) are threaded into posts rows so
+  // validateMediaForSurface has real metadata at dispatch time.
+  type AssetInfo = { assetId: string; widthPx: number | null; heightPx: number | null; durationSeconds: number | null };
+  let assetInfoByPostNumber = new Map<number, AssetInfo>();
   try {
     const result = await pool.query(SELECT_CREATIVE_ASSETS_SQL, [tenantId, jobId]);
     const rows = (result.rows ?? []) as Array<Record<string, unknown>>;
-    assetIdsByPostNumber = new Map(
+    assetInfoByPostNumber = new Map(
       rows.map((row, index) => {
         const assetId =
           typeof row.source_asset_id === 'string' && row.source_asset_id.trim()
             ? row.source_asset_id.trim()
             : String(row.id ?? '');
-        return [index + 1, assetId] as const;
+        const widthPx = typeof row.width_px === 'number' && Number.isFinite(row.width_px) ? row.width_px : null;
+        const heightPx = typeof row.height_px === 'number' && Number.isFinite(row.height_px) ? row.height_px : null;
+        const durationSeconds =
+          typeof row.duration_seconds === 'number' && Number.isFinite(row.duration_seconds)
+            ? row.duration_seconds
+            : null;
+        return [index + 1, { assetId, widthPx, heightPx, durationSeconds }] as const;
       }),
     );
   } catch (err) {
@@ -489,7 +502,8 @@ export async function synthesizePublishPostsFromContentPackage(
   let total = 0;
 
   for (const entry of entries) {
-    const assetId = assetIdsByPostNumber.get(entry.postNumber);
+    const assetInfo = assetInfoByPostNumber.get(entry.postNumber);
+    const assetId = assetInfo?.assetId;
     const creativeAssetIds = assetId ? [assetId] : [];
     for (const platform of entry.platforms) {
       // Resolve the publish shape (surface + media_type) for this post/platform
@@ -513,17 +527,20 @@ export async function synthesizePublishPostsFromContentPackage(
       const idempotencyKey = `${jobId}:${entry.postNumber}:${platform}:${shape.surface}`;
       try {
         const result = await pool.query(INSERT_SYNTHESIZED_POST_SQL, [
-          tenantId,
-          jobId,
-          publishRunId,
-          platform,
-          entry.caption,
-          idempotencyKey,
-          creativeAssetIds,
-          shape.mediaType,
-          shape.surface,
-          styleDimension,
-          styleValue,
+          tenantId,           // $1
+          jobId,              // $2
+          publishRunId,       // $3
+          platform,           // $4
+          entry.caption,      // $5
+          idempotencyKey,     // $6
+          creativeAssetIds,   // $7
+          shape.mediaType,    // $8
+          shape.surface,      // $9
+          styleDimension,     // $10
+          styleValue,         // $11
+          assetInfo?.widthPx ?? null,          // $12
+          assetInfo?.heightPx ?? null,         // $13
+          assetInfo?.durationSeconds ?? null,  // $14
         ]);
         if ((result.rowCount ?? 0) > 0) {
           inserted++;
@@ -563,7 +580,8 @@ export async function synthesizePublishPostsFromContentPackage(
   const storyBudget = readRequestedStoryCount(doc);
   if (storyBudget > 0) {
     for (const entry of entries.slice(0, storyBudget)) {
-      const assetId = assetIdsByPostNumber.get(entry.postNumber);
+      const assetInfo = assetInfoByPostNumber.get(entry.postNumber);
+      const assetId = assetInfo?.assetId;
       // A story is single-media with no text fallback. Skip entries with no
       // linked creative rather than emit a media-less story that would fail at
       // publish (publishInstagram requires >= 1 media url).
@@ -590,17 +608,20 @@ export async function synthesizePublishPostsFromContentPackage(
         const idempotencyKey = `${jobId}:${entry.postNumber}:${platform}:story`;
         try {
           const result = await pool.query(INSERT_SYNTHESIZED_POST_SQL, [
-            tenantId,
-            jobId,
-            publishRunId,
-            platform,
-            entry.caption,
-            idempotencyKey,
-            storyAssetIds,
-            'image',
-            'story',
-            styleDimension,
-            styleValue,
+            tenantId,        // $1
+            jobId,           // $2
+            publishRunId,    // $3
+            platform,        // $4
+            entry.caption,   // $5
+            idempotencyKey,  // $6
+            storyAssetIds,   // $7
+            'image',         // $8 media_type (story images are always image type)
+            'story',         // $9 surface
+            styleDimension,  // $10
+            styleValue,      // $11
+            null,            // $12 width_px (composed story image — dims not carried from base asset)
+            null,            // $13 height_px
+            null,            // $14 duration_seconds
           ]);
           if ((result.rowCount ?? 0) > 0) {
             inserted++;
