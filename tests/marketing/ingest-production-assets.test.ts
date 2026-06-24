@@ -310,16 +310,22 @@ test('ingestProductionCreativeAssetsToDb — inserts row with correct SQL shape'
     // 'ingested_asset'); the no-framing default is 'runtime_asset'.
     assert.ok(sql.includes('$8, $4, '), 'storage_kind must be bound as $8 and storage_key as $4');
     assert.ok(sql.includes("'generated'"), 'permission_scope must be generated');
-    assert.ok(sql.includes("'image'"), 'media_type must be image');
-    assert.ok(sql.includes("'4:5'"), 'aspect_ratio must be 4:5');
+    // media_type ($9) and aspect_ratio ($10) are now bound as params, not SQL literals —
+    // they must NOT appear as hardcoded strings in the SQL.
+    assert.ok(!sql.includes("'image'"), 'media_type must be bound as $9, not a hardcoded literal');
+    assert.ok(!sql.includes("'4:5'"), 'aspect_ratio must be bound as $10, not a hardcoded literal');
 
-    // params: [tenantId, jobId, sourceAssetId, storageKey, checksum, batch, index, storageKind]
+    // params: [tenantId, jobId, sourceAssetId, storageKey, checksum, batch, index, storageKind,
+    //          mediaType, aspectRatio, widthPx, heightPx, durationSeconds]
     assert.equal(params[0], 99, 'param $1 must be tenantId');
     assert.equal(params[1], 'mkt_insert_test', 'param $2 must be jobId');
     assert.equal(params[2], 'asset-001', 'param $3 must be sourceAssetId');
     assert.equal(params[3], path.join(mount, basename), 'param $4 must be the readable mount storagePath');
     assert.ok(typeof params[4] === 'string' && (params[4] as string).length === 64, 'param $5 must be a sha256 hex string');
     assert.equal(params[7], 'runtime_asset', 'param $8 must default to runtime_asset (no framing)');
+    // After the video dims PR, $9=mediaType and $10=aspectRatio are params (not literals).
+    assert.equal(params[8], 'image', 'param $9 must be mediaType=image for a generated_image');
+    assert.equal(params[9], '4:5', 'param $10 must be aspectRatio=4:5 for a feed image entry');
   });
 });
 

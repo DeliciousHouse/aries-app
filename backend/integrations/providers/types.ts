@@ -174,6 +174,12 @@ export interface PublishPostInput {
    * live post when this is not true.
    */
   approved?: boolean;
+  /**
+   * Optional positional per-media width/height/duration (provider-agnostic),
+   * aligned to mediaUrls. Mirror of MetaPublishRequest.mediaMetadata; forwarded
+   * to the publisher so video surfaces can be validated. NULL/undefined today.
+   */
+  mediaMetadata?: Array<{ widthPx?: number | null; heightPx?: number | null; durationSeconds?: number | null }>;
 }
 
 export interface PublishAdInput {

@@ -109,6 +109,12 @@ type CreativeAssetEntry = {
   path?: string;
   prompt?: string;
   placement?: string;
+  media_type?: string;
+  surface?: string;
+  width?: number;
+  height?: number;
+  duration_seconds?: number;
+  mime?: string;
   [key: string]: unknown;
 };
 
@@ -117,7 +123,10 @@ type CreativeAssetEntry = {
 // exclude video and story/reel/carousel placements.
 function isFrameEligibleEntry(asset: CreativeAssetEntry): boolean {
   const type = typeof asset.type === 'string' ? asset.type.trim().toLowerCase() : '';
-  if (type === 'video') return false;
+  const mediaType = typeof asset.media_type === 'string' ? asset.media_type.trim().toLowerCase() : '';
+  // Never composite a logo onto video (the new contract emits type
+  // 'generated_video' / media_type 'video'; legacy emitted type 'video').
+  if (type === 'video' || type === 'generated_video' || mediaType === 'video') return false;
   const placement = typeof asset.placement === 'string' ? asset.placement.trim().toLowerCase() : '';
   return placement === '' || placement === 'feed';
 }
@@ -171,20 +180,25 @@ export function resolveHermesAssetReadPath(reportedPath: string): string | null 
 // 0 rows and the existing row keeps its ref — replay stays idempotent. The
 // partial unique index (WHERE checksum IS NOT NULL) is named so null-checksum
 // rows never collide. This mirrors story-composer.ts's INSERT_COMPOSED_ASSET_SQL.
+// Params: $1 tenantId, $2 jobId, $3 sourceAssetId, $4 storageKey, $5 checksum,
+// $6 variantBatchId, $7 variantIndex, $8 storageKind,
+// $9 mediaType, $10 aspectRatio, $11 widthPx, $12 heightPx, $13 durationSeconds
 const INSERT_PRODUCTION_ASSET_SQL = `
   INSERT INTO creative_assets (
     id, tenant_id, source_type, source_job_id, source_asset_id,
     storage_kind, storage_key, media_type,
     aspect_ratio, checksum, permission_scope,
     learning_lifecycle, usable_for_generation,
-    variant_batch_id, variant_index, served_asset_ref
+    variant_batch_id, variant_index, served_asset_ref,
+    width_px, height_px, duration_seconds
   )
   SELECT
     g.id, $1, 'generated_by_aries', $2, $3,
-    $8, $4, 'image',
-    '4:5', $5, 'generated',
+    $8, $4, $9,
+    $10, $5, 'generated',
     'observed', false,
-    $6, $7, '/api/internal/hermes/media/' || g.id::text
+    $6, $7, '/api/internal/hermes/media/' || g.id::text,
+    $11, $12, $13
   FROM (SELECT gen_random_uuid() AS id) g
   ON CONFLICT (tenant_id, checksum) WHERE checksum IS NOT NULL DO NOTHING
   RETURNING id
@@ -321,17 +335,52 @@ export async function ingestProductionCreativeAssetsToDb(
         ? asset.assetId.trim()
         : basename;
 
+      // Derive media type: 'video' when the entry carries video markers.
+      const isVideo =
+        asset.type === 'generated_video' ||
+        (typeof asset.media_type === 'string' && asset.media_type.trim().toLowerCase() === 'video');
+      const mediaType: 'image' | 'video' = isVideo ? 'video' : 'image';
+
+      // Derive aspect ratio from width/height when present; else from surface/placement.
+      const entryWidth = typeof asset.width === 'number' && Number.isFinite(asset.width) ? asset.width : null;
+      const entryHeight = typeof asset.height === 'number' && Number.isFinite(asset.height) ? asset.height : null;
+      const entryDuration =
+        typeof asset.duration_seconds === 'number' && Number.isFinite(asset.duration_seconds)
+          ? asset.duration_seconds
+          : null;
+
+      let aspectRatio: string;
+      if (entryWidth !== null && entryHeight !== null && entryWidth > 0 && entryHeight > 0) {
+        // Reduce to a simplified ratio string; map to nearest known where reasonable.
+        if (entryHeight > entryWidth) {
+          aspectRatio = '9:16';
+        } else {
+          aspectRatio = '4:5';
+        }
+      } else {
+        // Infer from surface / placement.
+        const surface = typeof asset.surface === 'string' ? asset.surface.trim().toLowerCase() : '';
+        const placement = typeof asset.placement === 'string' ? asset.placement.trim().toLowerCase() : '';
+        const isVertical = surface === 'reel' || surface === 'story' || placement === 'reel' || placement === 'story';
+        aspectRatio = isVertical ? '9:16' : '4:5';
+      }
+
       // served_asset_ref is built inside the INSERT from the row's own (subselect-
       // generated) id, so it is not passed as a parameter here.
       const result = await pool.query(INSERT_PRODUCTION_ASSET_SQL, [
-        tenantId,
-        jobId,
-        sourceAssetId,
-        storageKey,
-        checksum,
-        variantBatchId,
-        variantIndex,
-        storageKind,
+        tenantId,      // $1
+        jobId,         // $2
+        sourceAssetId, // $3
+        storageKey,    // $4
+        checksum,      // $5
+        variantBatchId, // $6
+        variantIndex,  // $7
+        storageKind,   // $8
+        mediaType,     // $9
+        aspectRatio,   // $10
+        entryWidth,    // $11
+        entryHeight,   // $12
+        entryDuration, // $13
       ]);
 
       const rowCount = result.rowCount ?? 0;

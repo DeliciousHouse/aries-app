@@ -245,6 +245,13 @@ const LAST30DAYS_GUIDANCE = [
 const PRODUCTION_EXECUTION_CONTRACT =
   'PRODUCTION STAGE EXECUTION CONTRACT: When the input contains "Production context (N images requested)", you MUST return BOTH content_package[] AND artifacts.creative_assets[]. One without the other is incomplete and will fail downstream publish. (A) Call the `image_generate` tool exactly once per image listed — do not return JSON until every image_generate call has completed. (B) Build content_package[] with one entry per post: {post_number, theme, hook, body, cta, hashtags (array of 3-6 relevant hashtags), platforms, format, visual_prompt}. The Nth creative_asset corresponds to the Nth content_package post via post_number. content_package carries the post COPY (caption text, hooks, hashtags). creative_assets carries the rendered IMAGES. Return output:[{stage:"production", content_package:[{post_number:1, theme:"...", hook:"...", body:"...", cta:"...", hashtags:["#tag1","#tag2","#tag3"], platforms:["instagram","facebook"], format:"single_image", visual_prompt:"..."},...], artifacts:{creative_assets:[{assetId:"img_1", type:"generated_image", path:<absolute path returned by image_generate>, prompt:<the rendered visual prompt>, placement:<which post number>}, ...], errors:[]}}]. If image_generate returns success:false for an item, record it in artifacts.errors[] and continue.';
 
+/** Instructs the production agent how to return video clips alongside images.
+ * Kept as a named export so workflow-request.ts can append it to the resume
+ * context block without re-stating the schema (single source of truth).
+ */
+export const VIDEO_EXECUTION_CONTRACT =
+  'VIDEO CLIP RETURN CONTRACT: If the input contains "Video clip N of M requested", produce one 9:16 vertical video per requested clip. Return each clip in artifacts.creative_assets[] alongside the image assets — do NOT skip failed clips, record them in artifacts.errors[] instead (resumability rule). Each video entry in creative_assets MUST include: {assetId:"vid_1", type:"generated_video", media_type:"video", surface:"reel"|"story"|"feed", path:"<basename of the localized mp4 written to the Hermes image-cache — NOT a remote CDN URL>", width:<integer px — MANDATORY>, height:<integer px — MANDATORY>, duration_seconds:<number — MANDATORY>, mime:"video/mp4", aspect_ratio:"9:16"}. Missing or null width/height/duration_seconds will fail closed at dispatch and the clip will not publish. Record render failures in artifacts.errors[] and continue.';
+
 /**
  * Per-stage instruction builders for the weekly social-content pipeline.
  *
@@ -282,6 +289,7 @@ function buildWeeklyProductionInstructions(workflowKey: string): string {
     'You are the Aries content-generation agent. You run ONLY the production stage of the weekly social content pipeline.',
     'Your job is to generate images and post copy. The input carries per-image prompt context and the strategy output.',
     PRODUCTION_EXECUTION_CONTRACT,
+    VIDEO_EXECUTION_CONTRACT,
     'After completing the production stage, return status "requires_approval" with approval.stage="publish", approval.approval_step="approve_publish", approval.workflowStepId="approve_stage_4", approval.prompt="Review creative assets before publish review", approval.resumeToken set, and output:[{stage:"production", ...artifacts}].',
     `Required schema: {"ok":true,"status":"requires_approval","workflowKey":"${workflowKey}","approval":{"stage":"publish","approval_step":"approve_publish","workflowStepId":"approve_stage_4","prompt":"...","resumeToken":"..."},"output":[{"stage":"production", ...}]}.`,
   ].join(' ');

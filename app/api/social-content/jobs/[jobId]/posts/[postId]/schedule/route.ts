@@ -174,7 +174,7 @@ export async function handlePatchScheduleSocialContentPost(
 
   try {
     const lookup = await client.query(
-      'SELECT id, tenant_id, surface, media_type FROM posts WHERE id = $1 AND tenant_id = $2 LIMIT 1',
+      'SELECT id, tenant_id, surface, media_type, width_px, height_px, duration_seconds FROM posts WHERE id = $1 AND tenant_id = $2 LIMIT 1',
       [postIdInt, tenantId],
     );
     if ((lookup.rowCount ?? lookup.rows.length) === 0 || lookup.rows.length === 0) {
@@ -185,15 +185,27 @@ export async function handlePatchScheduleSocialContentPost(
       });
       return NextResponse.json(POST_NOT_FOUND, { status: 404 });
     }
-    // The post's own surface/media_type are authoritative — mirror them onto the
-    // scheduled_posts row so an image story (or reel) dispatches on the right
-    // Meta surface instead of defaulting to 'feed'.
-    const postRow = lookup.rows[0] as { surface?: unknown; media_type?: unknown } | undefined;
+    // The post's own surface/media_type/dims are authoritative — mirror them onto
+    // the scheduled_posts row so an image story (or reel) dispatches on the right
+    // Meta surface instead of defaulting to 'feed', and validateMediaForSurface
+    // has real width/height/duration_seconds at dispatch time.
+    const postRow = lookup.rows[0] as {
+      surface?: unknown;
+      media_type?: unknown;
+      width_px?: unknown;
+      height_px?: unknown;
+      duration_seconds?: unknown;
+    } | undefined;
     const postSurfaceRaw = typeof postRow?.surface === 'string' ? postRow.surface.trim().toLowerCase() : '';
     const postSurface: 'feed' | 'story' | 'reel' =
       postSurfaceRaw === 'story' || postSurfaceRaw === 'reel' ? postSurfaceRaw : 'feed';
     const postMediaType: 'image' | 'video' =
       typeof postRow?.media_type === 'string' && postRow.media_type.trim().toLowerCase() === 'video' ? 'video' : 'image';
+    const toDimPx = (value: unknown): number | null =>
+      typeof value === 'number' && Number.isFinite(value) ? value : null;
+    const postWidthPx = toDimPx(postRow?.width_px);
+    const postHeightPx = toDimPx(postRow?.height_px);
+    const postDurationSeconds = toDimPx(postRow?.duration_seconds);
 
     // Publish-approval gate: a post may only be queued for auto-publish once a
     // human has approved the publish stage. Mirrors the marketing publish path
@@ -225,6 +237,9 @@ export async function handlePatchScheduleSocialContentPost(
       campaignEndDate,
       surface: postSurface,
       mediaType: postMediaType,
+      widthPx: postWidthPx,
+      heightPx: postHeightPx,
+      durationSeconds: postDurationSeconds,
     });
 
     scheduleScheduledPostHonchoWrite({

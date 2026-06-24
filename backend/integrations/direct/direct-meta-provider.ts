@@ -113,6 +113,7 @@ export class DirectMetaProvider
       mediaUrls: input.mediaUrls,
       placement,
       mediaType,
+      mediaMetadata: input.mediaMetadata,
       scheduledFor: input.scheduledFor ?? null,
     });
 
