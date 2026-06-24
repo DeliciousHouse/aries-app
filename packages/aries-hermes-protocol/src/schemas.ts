@@ -5,7 +5,10 @@ import { z } from 'zod';
 // ---------------------------------------------------------------------------
 
 /** Bump when any schema changes. Both Aries and Hermes must agree on this. */
-export const PROTOCOL_VERSION = '1.1.1';
+// 1.2.0: additive — regenerate_creative gained optional edit_instruction +
+// source_image_basename for image-to-image edits (MINOR per semver; older
+// consumers strip the fields and degrade to a plain regenerate).
+export const PROTOCOL_VERSION = '1.2.0';
 
 /** Strict semver pattern: MAJOR.MINOR.PATCH with optional pre-release suffix. */
 const SEMVER_RE = /^\d+\.\d+\.\d+(-[a-zA-Z0-9._-]+)?$/;
@@ -196,6 +199,11 @@ export const CallbackContextSchema = z.object({
   regenerate_creative: z.object({
     source_run_id: z.string(),
     source_creative_id: z.string(),
+    // Image edit (image-to-image): additive + optional, so a plain regenerate is
+    // unchanged. When present, the run edits the existing source image instead of
+    // regenerating it. Carried so the callback echo preserves the edit context.
+    edit_instruction: z.string().optional(),
+    source_image_basename: z.string().optional(),
   }).optional(),
 });
 

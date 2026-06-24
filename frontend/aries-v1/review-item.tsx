@@ -286,7 +286,11 @@ function InlineCopyEditor(props: InlineCopyEditorProps) {
   );
 }
 
-export default function AriesReviewItemScreen(props: { reviewId: string; initialData?: ReviewItemResponse | null }) {
+export default function AriesReviewItemScreen(props: {
+  reviewId: string;
+  initialData?: ReviewItemResponse | null;
+  imageEditEnabled?: boolean;
+}) {
   const review = useRuntimeReviewItem(props.reviewId, { autoLoad: true, initialData: props.initialData });
   const item = review.data?.review ?? props.initialData?.review ?? null;
   const recoveryState = getReviewRecoveryState(review.error);
@@ -727,6 +731,7 @@ export default function AriesReviewItemScreen(props: { reviewId: string; initial
           creativeId={reviewItem.assetId}
           isOpen={imageActionDrawerOpen}
           onClose={() => setImageActionDrawerOpen(false)}
+          imageEditEnabled={props.imageEditEnabled}
           onSuccess={() => {
             void review.load();
           }}
