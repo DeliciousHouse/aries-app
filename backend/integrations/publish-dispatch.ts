@@ -113,6 +113,7 @@ export async function dispatchPublish(
       mediaUrls: request.mediaUrls,
       placement: request.placement,
       mediaType: request.mediaType,
+      mediaMetadata: request.mediaMetadata,
       scheduledFor: request.scheduledFor ?? null,
       // The handlers only dispatch already-approved posts; the seam still enforces
       // its own guard, so make the cleared approval explicit.

@@ -38,6 +38,7 @@ export const TOOLKIT_SLUG: Record<IntegrationPlatform, string> = {
 
 export type ComposioOperation =
   | 'publish_post'
+  | 'publish_video'
   | 'upload_media'
   | 'post_insights'
   | 'ad_insights'

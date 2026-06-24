@@ -365,6 +365,8 @@ export interface MarketingCreativeAssetReviewPayload {
   contentType: string | null;
   previewUrl: string | null;
   fullPreviewUrl: string | null;
+  /** Optional poster/thumbnail URL for video assets. Null for images. */
+  posterUrl?: string | null;
   destinationUrl: string | null;
   notes: string[];
   latestNote: string | null;

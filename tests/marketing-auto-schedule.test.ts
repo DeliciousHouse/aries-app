@@ -517,9 +517,9 @@ const WEEKLY_FEED_ONLY = [
 test('buildAutoScheduleRows: promoted story post keeps surface=story despite a feed-only schedule', () => {
   const postRows: AutoSchedulePostRow[] = [
     // feed sibling for ordinal 1
-    { id: 10, platform: 'instagram', idempotency_key: `${STORY_JOB}:1:instagram:feed`, surface: 'feed', media_type: 'image' },
+    { id: 10, platform: 'instagram', idempotency_key: `${STORY_JOB}:1:instagram:feed`, surface: 'feed', media_type: 'image', width_px: null, height_px: null, duration_seconds: null },
     // auto-promoted image story for the SAME ordinal 1
-    { id: 11, platform: 'instagram', idempotency_key: `${STORY_JOB}:1:instagram:story`, surface: 'story', media_type: 'image' },
+    { id: 11, platform: 'instagram', idempotency_key: `${STORY_JOB}:1:instagram:story`, surface: 'story', media_type: 'image', width_px: null, height_px: null, duration_seconds: null },
   ];
 
   const rows = buildAutoScheduleRows(postRows, WEEKLY_FEED_ONLY, STORY_JOB);
@@ -535,7 +535,7 @@ test('buildAutoScheduleRows: promoted story post keeps surface=story despite a f
 
 test('buildAutoScheduleRows: media_type also comes from the post (video preserved)', () => {
   const postRows: AutoSchedulePostRow[] = [
-    { id: 20, platform: 'facebook', idempotency_key: `${STORY_JOB}:1:facebook:reel`, surface: 'reel', media_type: 'video' },
+    { id: 20, platform: 'facebook', idempotency_key: `${STORY_JOB}:1:facebook:reel`, surface: 'reel', media_type: 'video', width_px: null, height_px: null, duration_seconds: null },
   ];
   const rows = buildAutoScheduleRows(postRows, WEEKLY_FEED_ONLY, STORY_JOB);
   assert.equal(rows[0]?.surface, 'reel');
@@ -544,7 +544,7 @@ test('buildAutoScheduleRows: media_type also comes from the post (video preserve
 
 test('buildAutoScheduleRows: null/legacy surface falls back to feed/image', () => {
   const postRows: AutoSchedulePostRow[] = [
-    { id: 30, platform: 'instagram', idempotency_key: `${STORY_JOB}:1:instagram:feed`, surface: null, media_type: null },
+    { id: 30, platform: 'instagram', idempotency_key: `${STORY_JOB}:1:instagram:feed`, surface: null, media_type: null, width_px: null, height_px: null, duration_seconds: null },
   ];
   const rows = buildAutoScheduleRows(postRows, WEEKLY_FEED_ONLY, STORY_JOB);
   assert.equal(rows[0]?.surface, 'feed');

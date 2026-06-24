@@ -129,6 +129,8 @@ export type RuntimeReviewItem = {
   contentType?: string | null;
   previewUrl?: string | null;
   fullPreviewUrl?: string | null;
+  /** Optional poster/thumbnail URL for video review items. Null for images. */
+  posterUrl?: string | null;
   destinationUrl?: string | null;
   sections: MarketingReviewSection[];
   attachments: MarketingReviewAttachment[];
