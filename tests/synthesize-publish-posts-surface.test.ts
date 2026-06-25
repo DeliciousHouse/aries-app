@@ -211,3 +211,67 @@ test('story composer that returns null falls back to the raw creative', async ()
     assert.deepEqual(story![6], ['img_1'], 'falls back to raw creative when composition fails');
   });
 });
+
+// ---------------------------------------------------------------------------
+// content_package fallback — when the separate publish stage emits no schedule,
+// a reel/video shape stamped by the production skills on the content_package
+// entry still synthesizes a reel post (the publish-stage-regression fix).
+// ---------------------------------------------------------------------------
+
+function makeDocCpPlacement(jobId: string): SocialContentJobRuntimeDocument {
+  return {
+    schema_name: 'marketing_job_state_schema', schema_version: '1.0.0', job_id: jobId,
+    tenant_id: '15', job_type: 'weekly_social_content', state: 'completed', status: 'completed',
+    current_stage: 'publish',
+    stages: {
+      research: stage('research', null),
+      strategy: stage('strategy', null),
+      production: stage('production', {
+        stage: 'production',
+        content_package: [
+          { post_number: 1, hook: 'H1', body: 'B1', cta: 'C1', hashtags: ['#a'], platforms: ['instagram'], placement: 'feed', media_type: 'image' },
+          { post_number: 2, hook: 'H2', body: 'B2', cta: 'C2', hashtags: ['#b'], platforms: ['instagram'], placement: 'reel', media_type: 'video' },
+        ],
+      }),
+      // EMPTY publish schedule — the separate publish-stage regression.
+      publish: stage('publish', { stage: 'publish', schedule: [] }),
+    },
+    approvals: { current: null, history: [] },
+    publish_config: { platforms: [], live_publish_platforms: [], video_render_platforms: [] },
+    brand_kit: null, inputs: { request: {}, brand_url: 'https://example.com' },
+    history: [], errors: [], last_error: null,
+  } as unknown as SocialContentJobRuntimeDocument;
+}
+
+test('content_package fallback (flag ON): reel entry synthesizes a video post when publish schedule is empty', async () => {
+  await withDataRoot(async () => {
+    process.env.ARIES_VIDEO_PUBLISH_ENABLED = '1';
+    const { pool, inserts } = makeFakePoolWithAssets();
+    try {
+      await synthesizePublishPostsFromContentPackage({
+        jobId: 'job_cp_reel', tenantId: 15, doc: makeDocCpPlacement('job_cp_reel'), publishRunId: null, pool,
+      });
+    } finally {
+      delete process.env.ARIES_VIDEO_PUBLISH_ENABLED;
+    }
+    const reel = inserts.find((p) => p[8] === 'reel');
+    assert.ok(reel, 'reel post synthesized from content_package placement (no publish schedule)');
+    assert.equal(reel![7], 'video', 'reel post is video');
+    assert.equal(reel![5], 'job_cp_reel:2:instagram:reel', '4-segment :reel idempotency key');
+    const feed = inserts.find((p) => p[8] === 'feed');
+    assert.ok(feed, 'feed image post still synthesized alongside the reel');
+    assert.equal(feed![7], 'image');
+  });
+});
+
+test('content_package fallback (flag OFF): reel entry is stripped, only the feed image persists', async () => {
+  await withDataRoot(async () => {
+    delete process.env.ARIES_VIDEO_PUBLISH_ENABLED;
+    const { pool, inserts } = makeFakePoolWithAssets();
+    await synthesizePublishPostsFromContentPackage({
+      jobId: 'job_cp_off', tenantId: 15, doc: makeDocCpPlacement('job_cp_off'), publishRunId: null, pool,
+    });
+    assert.ok(!inserts.some((p) => p[8] === 'reel'), 'no reel post when ARIES_VIDEO_PUBLISH_ENABLED is off');
+    assert.ok(inserts.some((p) => p[8] === 'feed'), 'feed image post still persists');
+  });
+});
