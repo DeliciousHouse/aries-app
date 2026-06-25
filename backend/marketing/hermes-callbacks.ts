@@ -37,7 +37,12 @@ import { ingestProductionCreativeAssetsToDb, isVariantBoardJobAwaitingPick } fro
 import { recomputeAndPersistPendingApprovalCount } from './runtime-views';
 import { synthesizePublishPostsFromContentPackage } from './synthesize-publish-posts';
 import { composeStoryAssetForBaseCreative, resolveStoryCtaText } from './story-composer';
-import { autoSchedulePosts, type AutoScheduleInputRow } from './auto-schedule';
+import {
+  autoSchedulePosts,
+  autoDefaultCadenceSchedulePosts,
+  type AutoScheduleInputRow,
+  type DefaultCadenceInputRow,
+} from './auto-schedule';
 import { getBusinessProfile } from '@/backend/tenant/business-profile';
 import { notifyApprovalRequired } from '@/backend/integrations/slack/notifications';
 import { pool } from '@/lib/db';
@@ -1376,6 +1381,21 @@ async function synthesizePublishPostsOnCompletion(
       });
     }
   }
+
+  // Invalidate the dashboard_list_projection after synthesize+ingest have
+  // written posts+creative_assets. The projection freshness gate
+  // (sourceUpdatedAt === runtimeDoc.updated_at) does NOT cover DB-row changes
+  // that happen without bumping the doc. Recomputing here ensures the B1
+  // safety net (empty payload → supplement from DB) sees the freshly-written
+  // rows. Best-effort: a recompute failure must never break synthesis.
+  try {
+    await recomputeAndPersistPendingApprovalCount(doc.job_id, { runtimeDoc: doc });
+  } catch (err) {
+    console.warn('[hermes-callbacks] post-synthesize projection recompute failed — continuing', {
+      jobId: doc.job_id,
+      error: (err as Error)?.message ?? String(err),
+    });
+  }
 }
 
 /**
@@ -1406,10 +1426,6 @@ async function autoScheduleApprovedPostsForJob(doc: SocialContentJobRuntimeDocum
   if (!Number.isFinite(tenantNum) || tenantNum <= 0) return;
 
   const weeklySchedule = readWeeklySchedule(doc);
-  if (weeklySchedule.length === 0) {
-    console.info('[hermes-callbacks] autoSchedulePosts skipped — no weekly_schedule', { jobId: doc.job_id });
-    return;
-  }
 
   const postWindow = readCampaignWindow(doc);
   if (!postWindow) {
@@ -1436,6 +1452,56 @@ async function autoScheduleApprovedPostsForJob(doc: SocialContentJobRuntimeDocum
   }
 
   const tenantTimezone = await readTenantTimezone(tenantNum);
+
+  if (weeklySchedule.length === 0) {
+    // The Hermes publish stage emitted a strategy-shaped placeholder (no
+    // schedule[]). Fall back to absolute day-offset cadence: piece k lands on
+    // baseDate + (k-1) calendar days. IG+FB of the same ordinal share a day
+    // (different platform hours keep them staggered). Ordinals come from the
+    // idempotency_key rather than the missing schedule, so they are always
+    // correct even for packages with uneven platform fan-out.
+    const cadenceRows: DefaultCadenceInputRow[] = [];
+    for (const row of postRows.rows) {
+      const ordinal = parsePostNumberFromIdempotencyKey(row.idempotency_key, doc.job_id);
+      if (ordinal === null) {
+        console.warn(
+          '[hermes-callbacks] autoSchedulePosts (default cadence) skipping row — unparseable idempotency_key',
+          { jobId: doc.job_id, postId: row.id, idempotencyKey: row.idempotency_key },
+        );
+        continue;
+      }
+      cadenceRows.push({
+        postId: row.id,
+        platform: row.platform,
+        ordinal,
+        surface: normalizeScheduleSurface(row.surface),
+        mediaType: normalizeScheduleMediaType(row.media_type),
+        widthPx: row.width_px,
+        heightPx: row.height_px,
+        durationSeconds: row.duration_seconds,
+      });
+    }
+    if (cadenceRows.length === 0) {
+      console.info('[hermes-callbacks] autoSchedulePosts skipped — no parseable cadence rows', { jobId: doc.job_id });
+      return;
+    }
+    const cadenceResult = await autoDefaultCadenceSchedulePosts({
+      jobId: doc.job_id,
+      tenantId: tenantNum,
+      tenantTimezone,
+      campaignStart: postWindow.start,
+      campaignEnd: postWindow.end,
+      rows: cadenceRows,
+      queryable: pool,
+    });
+    console.info('[hermes-callbacks] autoSchedulePosts (default cadence) completed', {
+      jobId: doc.job_id,
+      scheduled: cadenceResult.scheduled,
+      skipped: cadenceResult.skipped,
+      errors: cadenceResult.errors.length,
+    });
+    return;
+  }
 
   const rows = buildAutoScheduleRows(postRows.rows, weeklySchedule, doc.job_id);
 
@@ -1614,7 +1680,7 @@ function readCampaignWindow(doc: SocialContentJobRuntimeDocument): { start: Date
  * Returns null on null/malformed input — the caller logs a warning and skips
  * that row rather than mis-mapping its `recommended_day`.
  */
-function parsePostNumberFromIdempotencyKey(key: string | null, jobId: string): number | null {
+export function parsePostNumberFromIdempotencyKey(key: string | null, jobId: string): number | null {
   if (!key) return null;
   const prefix = `${jobId}:`;
   if (!key.startsWith(prefix)) return null;
