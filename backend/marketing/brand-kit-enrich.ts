@@ -245,7 +245,7 @@ export type OperatorBrandKitOverrides = {
   palette?: string[] | null;
 };
 
-function stripLeadingDanglingArticleFragment(value: string | null | undefined): string | null {
+export function stripLeadingDanglingArticleFragment(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.replace(/\s+/g, ' ').trim();
   if (!trimmed) return null;

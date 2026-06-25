@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 
 import { buildBrandKitPayload } from '../../backend/social-content/brand-kit-payload';
@@ -126,6 +128,20 @@ test('buildBrandKitPayload falls back to request data from the runtime doc when 
   assert.equal(payload.objective.primary_goal, 'Book more consulting calls');
   assert.equal(payload.objective.offer, 'Operator coaching intensives');
   assert.equal(payload.objective.audience, 'Operators building the next layer of systems');
+});
+
+test('buildBrandKitPayload normalizes persisted runtime brand kit voice fragments before reuse', () => {
+  const fixturePath = path.join(__dirname, '..', 'fixtures', 'marketing-runtime-primary-output.json');
+  const doc = JSON.parse(readFileSync(fixturePath, 'utf8')) as SocialContentJobRuntimeDocument;
+  const rawVoice = doc.brand_kit?.brand_voice_summary;
+  assert.equal(typeof rawVoice, 'string');
+  assert.match(rawVoice ?? '', /^A, approval-safe/i);
+
+  const payload = buildBrandKitPayload(doc, doc.brand_kit, null);
+
+  assert.match(payload.brand.voice, /^Approval-safe social content operating system/i);
+  assert.doesNotMatch(payload.brand.voice, /^A,\s/i);
+  assert.doesNotMatch(payload.brand.notes, /^A,\s/i);
 });
 
 test('buildBrandKitPayload carries helper-only defaults without mutating weekly constraints shape', () => {

@@ -1,4 +1,5 @@
 import { repairStaleMarketingOffer } from '@/backend/marketing/brand-kit';
+import { stripLeadingDanglingArticleFragment } from '@/backend/marketing/brand-kit-enrich';
 import type {
   MarketingBrandKitReference,
   SocialContentJobRuntimeDocument,
@@ -43,6 +44,11 @@ const NOTES_FALLBACK_BUDGET = 300;
 
 function stringValue(value: unknown): string {
   return typeof value === 'string' ? redactTokenLikeString(value).trim() : '';
+}
+
+function brandKitStringValue(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return stripLeadingDanglingArticleFragment(redactTokenLikeString(value)) ?? '';
 }
 
 function stringArray(value: unknown): string[] {
@@ -132,8 +138,8 @@ function brandKitFontFamilies(brandKit: MarketingBrandKitReference | null | unde
 }
 
 function resolveBrandVoice(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
-  const summary = stringValue(brandKit?.brand_voice_summary) || '';
-  const tone = stringValue(brandKit?.tone_of_voice) || '';
+  const summary = brandKitStringValue(brandKit?.brand_voice_summary);
+  const tone = brandKitStringValue(brandKit?.tone_of_voice);
   const operatorVoice = stringValue(req.brandVoice);
   const base = summary || operatorVoice;
   if (base && tone) return `${base} Tone: ${tone}.`;
@@ -154,7 +160,7 @@ function resolveNotes(req: UnknownRecord, brandKit: MarketingBrandKitReference |
   if (operatorNotes) return operatorNotes;
   const summary = brandKit?.brand_voice_summary;
   if (typeof summary !== 'string') return '';
-  const trimmed = stringValue(summary);
+  const trimmed = brandKitStringValue(summary);
   if (!trimmed) return '';
   if (trimmed.length <= NOTES_FALLBACK_BUDGET) return trimmed;
   return `${trimmed.slice(0, NOTES_FALLBACK_BUDGET)}…`;
@@ -163,25 +169,25 @@ function resolveNotes(req: UnknownRecord, brandKit: MarketingBrandKitReference |
 function resolveBrandOffer(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
   return (
     repairStaleMarketingOffer({
-      offer: stringValue(req.offer) || brandKit?.offer_summary || null,
+      offer: stringValue(req.offer) || brandKitStringValue(brandKit?.offer_summary) || null,
       brandName: stringValue(req.businessName) || brandKit?.brand_name || null,
       businessType: stringValue(req.businessType) || null,
       primaryGoal: stringValue(req.primaryGoal) || stringValue(req.goal) || null,
-      brandVoice: stringValue(req.brandVoice) || brandKit?.brand_voice_summary || null,
-      positioning: brandKit?.positioning || brandKit?.offer_summary || null,
-      brandKitOfferSummary: brandKit?.offer_summary || null,
+      brandVoice: stringValue(req.brandVoice) || brandKitStringValue(brandKit?.brand_voice_summary) || null,
+      positioning: brandKitStringValue(brandKit?.positioning) || brandKitStringValue(brandKit?.offer_summary) || null,
+      brandKitOfferSummary: brandKitStringValue(brandKit?.offer_summary) || null,
     }) || ''
   );
 }
 
 function resolveBrandStyleVibe(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
-  const enriched = stringValue(brandKit?.style_vibe);
+  const enriched = brandKitStringValue(brandKit?.style_vibe);
   if (enriched) return enriched;
   return stringValue(req.styleVibe) || '';
 }
 
 function resolveBrandAudience(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
-  return stringValue(req.audience) || stringValue(brandKit?.audience ?? '') || '';
+  return stringValue(req.audience) || brandKitStringValue(brandKit?.audience) || '';
 }
 
 function resolveMustAvoidAesthetics(req: UnknownRecord): string[] {
