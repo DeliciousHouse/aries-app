@@ -387,6 +387,16 @@ jobs:
             echo "WARNING: failed to recreate aries-honcho-performance-worker; app deploy is healthy, continuing." >&2
           fi
 
+          # Roll the composio-connection-reconciler-worker sidecar too. It
+          # imports backend code (the account provider + connection store) and
+          # must stay in lockstep with the app. Gated by
+          # ARIES_COMPOSIO_RECONCILER_ENABLED (default OFF) — when off it idles
+          # cleanly (no restart loop), so recreating it every deploy is safe
+          # whether or not the flag is set. Non-fatal, like above.
+          if ! ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always aries-composio-reconciler-worker; then
+            echo "WARNING: failed to recreate aries-composio-reconciler-worker; app deploy is healthy, continuing." >&2
+          fi
+
           # Verify every sidecar actually rolled. The recreate failures above
           # are deliberately non-fatal (workers are best-effort relative to the
           # user-facing app), but a swallowed failure — or a stop->rm->create

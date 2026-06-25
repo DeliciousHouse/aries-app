@@ -639,6 +639,49 @@ services:
     restart: unless-stopped
     networks:
       - docker_stack
+
+  # Composio connection reconciler — sweeps connected_accounts rows with
+  # status='pending' updated within GRACE_MINUTES and calls
+  # refreshConnectionStatus so that a slow Composio INITIALIZING→ACTIVE
+  # transition (real cases took up to ~9 min) is reflected in the DB without
+  # operator intervention. Single replica; talks only to Postgres + Composio.
+  # Gated by ARIES_COMPOSIO_RECONCILER_ENABLED (default OFF) — when off it
+  # idles cleanly (no restart loop). Set the flag and recreate the service to
+  # enable; no dry-run is needed (refreshConnectionStatus is already idempotent
+  # and never writes a 'pending' row back as anything other than the live state).
+  aries-composio-reconciler-worker:
+    image: ${ARIES_APP_IMAGE:-aries-app:local}
+    command: ["node_modules/.bin/tsx", "scripts/automations/composio-connection-reconciler-worker.ts"]
+    depends_on:
+      aries-app:
+        condition: service_healthy
+    environment:
+      HOME: /home/node
+      NODE_ENV: production
+      CODE_ROOT: /app
+      DATA_ROOT: /data
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_POOL_MAX: 3
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      COMPOSIO_ENABLED: ${COMPOSIO_ENABLED:-false}
+      COMPOSIO_API_KEY: ${COMPOSIO_API_KEY:-}
+      COMPOSIO_DEFAULT_AUTH_CONFIG_ID: ${COMPOSIO_DEFAULT_AUTH_CONFIG_ID:-}
+      COMPOSIO_FACEBOOK_AUTH_CONFIG_ID: ${COMPOSIO_FACEBOOK_AUTH_CONFIG_ID:-}
+      COMPOSIO_INSTAGRAM_AUTH_CONFIG_ID: ${COMPOSIO_INSTAGRAM_AUTH_CONFIG_ID:-}
+      COMPOSIO_YOUTUBE_AUTH_CONFIG_ID: ${COMPOSIO_YOUTUBE_AUTH_CONFIG_ID:-}
+      COMPOSIO_LINKEDIN_AUTH_CONFIG_ID: ${COMPOSIO_LINKEDIN_AUTH_CONFIG_ID:-}
+      COMPOSIO_REDDIT_AUTH_CONFIG_ID: ${COMPOSIO_REDDIT_AUTH_CONFIG_ID:-}
+      COMPOSIO_X_AUTH_CONFIG_ID: ${COMPOSIO_X_AUTH_CONFIG_ID:-}
+      COMPOSIO_TOOLKIT_VERSION: ${COMPOSIO_TOOLKIT_VERSION:-latest}
+      ARIES_COMPOSIO_RECONCILER_ENABLED: ${ARIES_COMPOSIO_RECONCILER_ENABLED:-0}
+      ARIES_COMPOSIO_RECONCILER_INTERVAL_MS: ${ARIES_COMPOSIO_RECONCILER_INTERVAL_MS:-60000}
+      ARIES_COMPOSIO_RECONCILER_GRACE_MINUTES: ${ARIES_COMPOSIO_RECONCILER_GRACE_MINUTES:-30}
+    restart: unless-stopped
+    networks:
+      - docker_stack
 networks:
   docker_stack:
     external: true
