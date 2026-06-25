@@ -11,11 +11,14 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-// Bounded eager-reconcile schedule: ~5 attempts, backoff starting ~2s, ~30s
-// total. After returning from OAuth a row can briefly read `pending` until
-// Composio activates the connection; we poll a few times so the card flips to
-// "Connected" without a manual refresh, then stop (#699).
-const RECONCILE_DELAYS_MS = [2000, 4000, 6000, 8000, 10000];
+// Extended backoff schedule covering up to ~5 minutes of post-OAuth polling.
+// Composio can take up to ~9 minutes to activate a connection; we poll at
+// increasing intervals so the card flips to "Connected" automatically rather
+// than leaving the user looking at a stale "pending" state. The schedule stops
+// as soon as no row is pending so healthy/idle behaviour is unchanged.
+//
+// Cumulative times: 2s, 7s, 17s, 37s, 77s, 137s, 217s, 307s (~5 min)
+const RECONCILE_DELAYS_MS = [2000, 5000, 10000, 20000, 40000, 60000, 80000, 90000];
 
 type Capabilities = {
   canPublishOrganic: boolean;
@@ -38,6 +41,9 @@ type Connection = {
   reconcileError?: string | null;
 };
 
+/** Whether we are actively polling after an OAuth return. */
+type PollingPhase = 'idle' | 'active';
+
 type ListResponse = {
   status: string;
   composioEnabled: boolean;
@@ -57,14 +63,26 @@ const PLATFORM_LABEL: Record<string, string> = {
   x: 'X',
 };
 
-function statusText(status: Connection['status'], caps: Capabilities | null): { label: string; tone: string } {
+function statusText(
+  status: Connection['status'],
+  caps: Capabilities | null,
+  pollingPhase: PollingPhase = 'idle',
+): { label: string; tone: string } {
   if (status === 'connected') {
     const missing = caps && caps.missingPermissions.length > 0;
     return missing
       ? { label: 'Connected — some features need attention', tone: 'amber' }
       : { label: 'Connected and ready', tone: 'green' };
   }
-  if (status === 'pending') return { label: 'Waiting for you to finish connecting', tone: 'blue' };
+  if (status === 'pending') {
+    if (pollingPhase === 'active') {
+      return {
+        label: 'Finishing connecting… you can leave this page — we’ll confirm it automatically once the platform finishes',
+        tone: 'blue',
+      };
+    }
+    return { label: 'Waiting for you to finish connecting', tone: 'blue' };
+  }
   if (status === 'reauthorization_required') return { label: 'Please reconnect', tone: 'amber' };
   if (status === 'error') return { label: 'Something went wrong — try reconnecting', tone: 'red' };
   return { label: 'Not connected', tone: 'gray' };
@@ -96,6 +114,8 @@ export default function ComposioConnectionsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // pollingPhase drives the enhanced "Finishing connecting…" copy.
+  const [pollingPhase, setPollingPhase] = useState<PollingPhase>('idle');
   // Bounded retry bookkeeping for the eager reconcile (refs so changing them
   // never re-renders / re-runs the polling effect).
   const reconcileAttemptsRef = useRef(0);
@@ -128,9 +148,12 @@ export default function ComposioConnectionsScreen() {
   }, []);
 
   // Bounded eager reconcile: while any connection is still `pending` (or the
-  // operator just returned from OAuth), re-load a few times so the card flips to
-  // "Connected" on its own. Stops as soon as no row is pending or the budget is
-  // spent, leaving the reconnect affordance + any advisory visible (#699).
+  // operator just returned from OAuth), re-load at increasing intervals so the
+  // card flips to "Connected" on its own. Covers up to ~5 minutes of post-OAuth
+  // polling (see RECONCILE_DELAYS_MS above). Stops as soon as no row is pending
+  // or the budget is spent, leaving the reconnect affordance + any advisory
+  // visible (#699). While polling, sets pollingPhase='active' so the card shows
+  // the "you can leave this page" copy.
   useEffect(() => {
     if (!data) return;
     const hasPending = data.connections.some((c) => c.status === 'pending');
@@ -141,9 +164,15 @@ export default function ComposioConnectionsScreen() {
       // Converged (or nothing to wait on): reset the budget + clear the flag.
       reconcileAttemptsRef.current = 0;
       justReturnedFromOAuthRef.current = false;
+      setPollingPhase('idle');
       return;
     }
-    if (reconcileAttemptsRef.current >= RECONCILE_DELAYS_MS.length) return;
+    if (reconcileAttemptsRef.current >= RECONCILE_DELAYS_MS.length) {
+      // Budget exhausted — the server-side reconciler will catch it; stop.
+      setPollingPhase('idle');
+      return;
+    }
+    setPollingPhase('active');
     const delay = RECONCILE_DELAYS_MS[reconcileAttemptsRef.current];
     reconcileAttemptsRef.current += 1;
     const timer = setTimeout(() => {
@@ -214,7 +243,9 @@ export default function ComposioConnectionsScreen() {
       <div className="space-y-4">
         {data?.connections.map((conn) => {
           const caps = conn.capabilities;
-          const st = statusText(conn.status, caps);
+          // Pass pollingPhase only for this platform's pending card.
+          const cardPhase = conn.status === 'pending' ? pollingPhase : 'idle';
+          const st = statusText(conn.status, caps, cardPhase);
           const isConnected = conn.status === 'connected';
           // A pending / reauthorization_required / error row has an EXISTING
           // connection record that can be cleared. A truly not_connected row has
@@ -235,7 +266,7 @@ export default function ComposioConnectionsScreen() {
                     {st.label}
                   </span>
                 </div>
-                <div className="flex shrink-0 gap-2">
+                <div className="flex shrink-0 flex-wrap gap-2">
                   {isConnected ? (
                     <button
                       type="button"
@@ -256,18 +287,35 @@ export default function ComposioConnectionsScreen() {
                         {busy === conn.platform ? 'Starting…' : 'Connect'}
                       </button>
                       {hasClearableRow && (
-                        // Clear a stuck row via the same disconnect handler (the
-                        // backend deletes unconditionally), so a pending / error /
-                        // reauthorization_required card isn't limited to Connect —
-                        // which would upsert ANOTHER pending row (#703).
-                        <button
-                          type="button"
-                          onClick={() => disconnect(conn.platform)}
-                          disabled={busy === conn.platform}
-                          className="rounded-lg border border-slate-600 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
-                        >
-                          {busy === conn.platform ? '…' : 'Clear'}
-                        </button>
+                        <>
+                          {/* "Check again" — force an immediate re-fetch for
+                              impatient users or the delayed-activation case.
+                              Resets the reconcile budget so polling can resume. */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              reconcileAttemptsRef.current = 0;
+                              justReturnedFromOAuthRef.current = true;
+                              void load();
+                            }}
+                            disabled={loading || busy === conn.platform}
+                            className="rounded-lg border border-sky-600 px-3 py-1.5 text-sm text-sky-300 hover:bg-sky-900/40 disabled:opacity-50"
+                          >
+                            {loading ? 'Checking…' : 'Check again'}
+                          </button>
+                          {/* Clear a stuck row via the same disconnect handler (the
+                              backend deletes unconditionally), so a pending / error /
+                              reauthorization_required card isn't limited to Connect —
+                              which would upsert ANOTHER pending row (#703). */}
+                          <button
+                            type="button"
+                            onClick={() => disconnect(conn.platform)}
+                            disabled={busy === conn.platform}
+                            className="rounded-lg border border-slate-600 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                          >
+                            {busy === conn.platform ? '…' : 'Clear'}
+                          </button>
+                        </>
                       )}
                     </>
                   )}
