@@ -352,6 +352,180 @@ function formatTenantWallTime(
 }
 
 // ---------------------------------------------------------------------------
+// Default-cadence path — used when the publish stage emits no weekly_schedule.
+//
+// Absolute day-offset layout (avoids two traps the weekday-name path has):
+//   (a) ordinal→weekday-name mapping is start-weekday-dependent — ordinal 1
+//       could land after ordinal 3 if the start weekday is mid-week. Day offsets
+//       guarantee ordinal order == calendar order unconditionally.
+//   (b) computeAutoScheduleSlots rejects a slot whose platform hour already
+//       passed today and jumps to the next week. The +10min buffer on baseDate
+//       ensures piece 1 always lands "today at the platform hour" even if now is
+//       a few minutes before that hour — never silently pushed ~7 days out.
+//
+// Layout: baseDate = max(now + 10min, campaignStart), then advanced by 1 day
+// if the earliest platform default hour on baseDate's calendar day is already
+// past (utc < now). piece k → baseDate + (k-1)d.
+// IG+FB of the same ordinal land on the same calendar day (different hours per
+// PLATFORM_POSTING_DEFAULTS). Pieces beyond campaignEnd are skipped + logged.
+
+/**
+ * One row for the default-cadence scheduler. Same shape as AutoScheduleInputRow
+ * but `ordinal` (1-based piece number) replaces `recommendedDay`.
+ */
+export interface DefaultCadenceInputRow {
+  postId: number;
+  platform: string;
+  /** 1-based piece number; IG+FB of the same ordinal share a calendar day. */
+  ordinal: number;
+  surface?: AutoScheduleSurface;
+  mediaType?: 'image' | 'video';
+  widthPx?: number | null;
+  heightPx?: number | null;
+  durationSeconds?: number | null;
+}
+
+export interface ComputeDefaultCadenceSlotsInput {
+  rows: DefaultCadenceInputRow[];
+  tenantTimezone: string | null;
+  campaignStart: Date;
+  campaignEnd: Date;
+  /** Injectable now() for tests. */
+  now?: Date;
+}
+
+/**
+ * Compute scheduling slots for a campaign whose publish stage emitted no
+ * `weekly_schedule[]`. Distributes posts one content-piece per day by ABSOLUTE
+ * day offset — ordinal 1 always lands first regardless of the start weekday.
+ *
+ *   baseDate = max(now + 10min, campaignStart), advanced +1 day when the
+ *             earliest platform default hour on that calendar day is already past
+ *   piece k  → baseDate + (k - 1) calendar days @ platform default hour
+ *
+ * Slots outside [campaignStart, campaignEnd] are collected into `skipped` with
+ * `reason: overflow_beyond_window:<ordinal>`. Pure: no DB, no clock-as-side-
+ * effect (inject `now`). Mirrors computeAutoScheduleSlots.
+ */
+export function computeDefaultCadenceSlots(
+  input: ComputeDefaultCadenceSlotsInput,
+): ComputeAutoScheduleSlotsResult {
+  const tz = input.tenantTimezone || DEFAULT_TENANT_TIMEZONE;
+  const now = input.now ?? new Date();
+  const windowEnd = input.campaignEnd;
+
+  // baseDate: at least 10 minutes from now so the near-miss "platform hour is
+  // in a few minutes" case doesn't strand piece 1. Then check whether the
+  // earliest platform default hour across ALL input rows — at baseDate's
+  // calendar day — is already past (utc < windowStart). If so, advance
+  // baseDate by exactly 1 full day so piece 1 lands tomorrow instead of being
+  // silently dropped. One advance always suffices: tomorrow's platform hour is
+  // guaranteed to be in the future since platform hours are fixed within [0,24h)
+  // and tomorrow is always more than 24h from now-by-definition impossible to
+  // have already passed.
+  const windowStart = input.campaignStart > now ? input.campaignStart : now;
+
+  const tenMinutes = 10 * 60 * 1000;
+  let baseDate = new Date(Math.max(now.getTime() + tenMinutes, input.campaignStart.getTime()));
+
+  // Determine the minimum UTC slot time for ordinal-1 across all unique
+  // (platform, surface) combinations. If the earliest slot is before
+  // windowStart, advance baseDate by 1 day so piece 1 lands tomorrow.
+  {
+    const seenPairs = new Set<string>();
+    let minOrdinal1Utc: Date | null = null;
+    for (const row of input.rows) {
+      const pairKey = `${row.platform}:${row.surface ?? 'feed'}`;
+      if (seenPairs.has(pairKey)) continue;
+      seenPairs.add(pairKey);
+      const platformKey = row.platform.trim().toLowerCase() as AutoSchedulePlatform;
+      const surface: AutoScheduleSurface = row.surface ?? 'feed';
+      const defaults = pickSlotDefault(platformKey, surface);
+      if (!defaults) continue;
+      const wallIso = formatTenantWallTime(baseDate, tz, defaults);
+      const utc = wallTimeToUtc(wallIso, tz);
+      if (!utc) continue;
+      if (minOrdinal1Utc === null || utc < minOrdinal1Utc) {
+        minOrdinal1Utc = utc;
+      }
+    }
+    if (minOrdinal1Utc !== null && minOrdinal1Utc < windowStart) {
+      baseDate = new Date(baseDate.getTime() + 24 * 60 * 60 * 1000);
+    }
+  }
+
+  if (!(windowEnd > windowStart)) {
+    return {
+      slots: [],
+      skipped: input.rows.map((row) => ({
+        row: { ...row, recommendedDay: null },
+        reason: 'campaign_window_closed_or_empty',
+      })),
+    };
+  }
+
+  const slots: AutoScheduleSlot[] = [];
+  const skipped: ComputeAutoScheduleSlotsResult['skipped'] = [];
+
+  for (const row of input.rows) {
+    const platformKey = row.platform.trim().toLowerCase() as AutoSchedulePlatform;
+    const surface: AutoScheduleSurface = row.surface ?? 'feed';
+    const mediaType: 'image' | 'video' = row.mediaType ?? 'image';
+    const defaults = pickSlotDefault(platformKey, surface);
+    if (!defaults) {
+      skipped.push({ row: { ...row, recommendedDay: null }, reason: `unsupported_platform:${row.platform}` });
+      continue;
+    }
+
+    // Piece k → baseDate + (k-1) calendar days. baseDate is already in UTC;
+    // formatTenantWallTime converts the UTC instant to the correct tenant-local
+    // calendar date so DST boundaries are handled correctly.
+    const dayOffset = (row.ordinal - 1) * 24 * 60 * 60 * 1000;
+    const dayInstant = new Date(baseDate.getTime() + dayOffset);
+
+    if (dayInstant > windowEnd) {
+      skipped.push({
+        row: { ...row, recommendedDay: null },
+        reason: `overflow_beyond_window:${row.ordinal}`,
+      });
+      console.info('[auto-schedule] default-cadence slot overflow — skipping', {
+        ordinal: row.ordinal,
+        platform: row.platform,
+        dayInstant: dayInstant.toISOString(),
+        windowEnd: windowEnd.toISOString(),
+      });
+      continue;
+    }
+
+    const wallTimeIso = formatTenantWallTime(dayInstant, tz, defaults);
+    const utc = wallTimeToUtc(wallTimeIso, tz);
+    if (!utc) {
+      skipped.push({ row: { ...row, recommendedDay: null }, reason: `wall_time_to_utc_failed:${wallTimeIso}` });
+      continue;
+    }
+    if (utc < windowStart || utc > windowEnd) {
+      skipped.push({ row: { ...row, recommendedDay: null }, reason: `derived_timestamp_outside_window:${utc.toISOString()}` });
+      continue;
+    }
+
+    slots.push({
+      postId: row.postId,
+      platform: row.platform,
+      surface,
+      mediaType,
+      widthPx: row.widthPx ?? null,
+      heightPx: row.heightPx ?? null,
+      durationSeconds: row.durationSeconds ?? null,
+      scheduledFor: utc,
+      appliedDay: `default-cadence:ordinal-${row.ordinal}`,
+      appliedWallTime: wallTimeIso,
+    });
+  }
+
+  return { slots, skipped };
+}
+
+// ---------------------------------------------------------------------------
 // DB writer — wraps computeAutoScheduleSlots + upsertScheduledPost.
 
 export interface AutoSchedulePostsInput {
@@ -385,6 +559,73 @@ export async function autoSchedulePosts(
   input: AutoSchedulePostsInput,
 ): Promise<AutoSchedulePostsResult> {
   const computed = computeAutoScheduleSlots({
+    rows: input.rows,
+    tenantTimezone: input.tenantTimezone,
+    campaignStart: input.campaignStart,
+    campaignEnd: input.campaignEnd,
+    now: input.now,
+  });
+
+  const errors: AutoSchedulePostsResult['errors'] = [];
+  let scheduled = 0;
+
+  for (const slot of computed.slots) {
+    try {
+      await upsertScheduledPost(input.queryable, {
+        postId: slot.postId,
+        tenantId: input.tenantId,
+        scheduledFor: slot.scheduledFor,
+        platforms: [slot.platform],
+        surface: slot.surface,
+        mediaType: slot.mediaType,
+        widthPx: slot.widthPx,
+        heightPx: slot.heightPx,
+        durationSeconds: slot.durationSeconds,
+        campaignEndDate: input.campaignEnd,
+      });
+      scheduled += 1;
+    } catch (err) {
+      errors.push({
+        postId: slot.postId,
+        platform: slot.platform,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return {
+    scheduled,
+    skipped: computed.skipped.length,
+    details: computed,
+    errors,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// DB writer for the default-cadence path.
+
+export interface AutoDefaultCadenceSchedulePostsInput {
+  jobId: string;
+  tenantId: number;
+  tenantTimezone: string | null;
+  campaignStart: Date;
+  campaignEnd: Date;
+  rows: DefaultCadenceInputRow[];
+  queryable: ScheduledPostQueryable;
+  /** Injectable now() for tests. */
+  now?: Date;
+}
+
+/**
+ * Compute default-cadence slots + write them via `upsertScheduledPost`.
+ * Mirrors `autoSchedulePosts` but calls `computeDefaultCadenceSlots` instead
+ * of `computeAutoScheduleSlots`. Individual upsert failures are collected
+ * and returned so one post never blocks siblings.
+ */
+export async function autoDefaultCadenceSchedulePosts(
+  input: AutoDefaultCadenceSchedulePostsInput,
+): Promise<AutoSchedulePostsResult> {
+  const computed = computeDefaultCadenceSlots({
     rows: input.rows,
     tenantTimezone: input.tenantTimezone,
     campaignStart: input.campaignStart,

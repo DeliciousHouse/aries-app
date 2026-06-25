@@ -52,6 +52,11 @@ import {
 } from './workspace-store';
 import { loadValidatedMarketingProfileDocs, loadValidatedMarketingProfileSnapshot } from './validated-profile-store';
 import { pool } from '@/lib/db';
+import {
+  SELECT_PRODUCTION_CREATIVE_ASSETS_SQL,
+  type ProductionCreativeAssetRow,
+  queryProductionCreativeAssets,
+} from './production-assets-query';
 
 export type SocialContentWorkspaceView = {
   jobId: string;
@@ -1355,62 +1360,9 @@ function syncWorkspaceReviewsFromRuntime(
   return changed;
 }
 
-const SELECT_PRODUCTION_CREATIVE_ASSETS_SQL = `
-  SELECT id, source_asset_id, served_asset_ref, checksum,
-         media_type, aspect_ratio, width_px, height_px, duration_seconds
-    FROM creative_assets
-   WHERE tenant_id = $1
-     AND source_job_id = $2
-     AND source_type = 'generated_by_aries'
-     AND orphaned_at IS NULL
-   ORDER BY created_at ASC
-`;
-
-type ProductionCreativeAssetRow = {
-  id: string;
-  source_asset_id: string | null;
-  served_asset_ref: string | null;
-  checksum: string | null;
-  media_type: string | null;
-  aspect_ratio: string | null;
-  width_px: number | null;
-  height_px: number | null;
-  duration_seconds: number | null;
-};
-
-async function queryProductionCreativeAssets(
-  tenantId: string,
-  jobId: string,
-): Promise<ProductionCreativeAssetRow[]> {
-  const tenantNum = Number(tenantId);
-  if (!Number.isFinite(tenantNum) || tenantNum <= 0) return [];
-  try {
-    const result = await pool.query(SELECT_PRODUCTION_CREATIVE_ASSETS_SQL, [tenantNum, jobId]);
-    return (result.rows ?? []).map((row) => {
-      const r = row as Record<string, unknown>;
-      return {
-        id: String(r.id ?? ''),
-        source_asset_id: typeof r.source_asset_id === 'string' ? r.source_asset_id : null,
-        served_asset_ref: typeof r.served_asset_ref === 'string' ? r.served_asset_ref : null,
-        checksum: typeof r.checksum === 'string' ? r.checksum : null,
-        media_type: typeof r.media_type === 'string' ? r.media_type : null,
-        aspect_ratio: typeof r.aspect_ratio === 'string' ? r.aspect_ratio : null,
-        width_px: typeof r.width_px === 'number' && Number.isFinite(r.width_px) ? r.width_px : null,
-        height_px: typeof r.height_px === 'number' && Number.isFinite(r.height_px) ? r.height_px : null,
-        duration_seconds:
-          typeof r.duration_seconds === 'number' && Number.isFinite(r.duration_seconds)
-            ? r.duration_seconds
-            : null,
-      };
-    });
-  } catch (err) {
-    console.warn('[workspace-views] queryProductionCreativeAssets failed', {
-      jobId,
-      error: (err as Error)?.message ?? String(err),
-    });
-    return [];
-  }
-}
+// SELECT_PRODUCTION_CREATIVE_ASSETS_SQL, ProductionCreativeAssetRow, and
+// queryProductionCreativeAssets are imported from ./production-assets-query
+// (moved there to avoid a circular import with dashboard-content.ts).
 
 export type BuildSocialContentWorkspaceViewOptions = {
   /**
