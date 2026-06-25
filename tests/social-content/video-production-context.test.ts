@@ -100,7 +100,8 @@ test('flag ON + videoRenderCount=1: contextBlock emits 9:16 aspect ratio in vide
       strategyOutput: null,
     });
     assert.match(contextBlock, /Aspect ratio: 9:16/, 'video clip section must declare 9:16 aspect ratio');
-    assert.match(contextBlock, /--- Video clip 1 of 1 ---/, 'video clip header must appear');
+    assert.match(contextBlock, /Video context \(1 video requested\):/, 'video block must announce the count, mirroring the image "Production context (N images requested)" header');
+    assert.match(contextBlock, /--- Video 1 of 1 ---/, 'video clip header must mirror the "--- Image N of M ---" format');
     assert.match(contextBlock, /Target duration:.*15 seconds/, 'target duration must be stated');
   });
 });
@@ -149,8 +150,8 @@ test('flag ON + videoRenderCount=2: clamped to MAX (1) — only 1 clip in this p
       strategyOutput: null,
     });
     // Clamped to 1, so header reads "1 of 1" (not "1 of 2").
-    assert.match(contextBlock, /--- Video clip 1 of 1 ---/, 'clamped to 1 clip');
-    assert.ok(!contextBlock.includes('--- Video clip 2 of'), 'no second clip section');
+    assert.match(contextBlock, /--- Video 1 of 1 ---/, 'clamped to 1 clip');
+    assert.ok(!contextBlock.includes('--- Video 2 of'), 'no second clip section');
     assert.equal(videoPrompts?.length, 1, 'exactly 1 videoPrompt returned (clamped)');
   });
 });
