@@ -9,10 +9,30 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
-import { resolveSocialContentWorkflowState } from '../backend/marketing/workspace-store';
+import {
+  resolveSocialContentWorkflowState,
+  setCreativeAssetDecision,
+  syncSocialContentWorkflowState,
+} from '../backend/marketing/workspace-store';
 import type { SocialContentWorkflowSnapshot, SocialContentWorkspaceRecord } from '../backend/marketing/workspace-store';
 import { workflowStateLabel, workflowStateTone } from '../frontend/aries-v1/post-workspace';
+
+async function withDataRoot<T>(fn: () => Promise<T>): Promise<T> {
+  const dir = await mkdtemp(path.join(tmpdir(), 'workspace-history-label-'));
+  const previous = process.env.DATA_ROOT;
+  process.env.DATA_ROOT = dir;
+  try {
+    return await fn();
+  } finally {
+    if (previous === undefined) delete process.env.DATA_ROOT;
+    else process.env.DATA_ROOT = previous;
+    await rm(dir, { recursive: true, force: true });
+  }
+}
 
 function makeRecord(): SocialContentWorkspaceRecord {
   const ts = '2026-05-26T00:00:00.000Z';
@@ -119,4 +139,44 @@ test('workflowStateTone: completed_no_content uses an attention tone (not defaul
   // Attention tone is rose-class to signal "Needs attention", distinct from
   // the default amber used for in-progress / unknown states.
   assert.match(tone, /rose/);
+});
+
+test('syncSocialContentWorkflowState: creative_review_required history is a stage update, not an approval decision', async () => {
+  await withDataRoot(async () => {
+    const record = makeRecord();
+    record.stage_reviews.brand.status = 'approved';
+    record.stage_reviews.strategy.status = 'approved';
+    const snapshot = makeSnapshot({
+      brandWorkflowReady: true,
+      strategyReviewReady: true,
+      creativeReviewReady: true,
+      creativeAssetIds: ['image_1', 'image_2'],
+    });
+
+    const resolution = syncSocialContentWorkflowState(record, snapshot);
+
+    assert.equal(resolution.workflowState, 'creative_review_required');
+    assert.equal(resolution.creativeApprovedCount, 0);
+    assert.equal(resolution.creativePendingCount, 2);
+    const stateChange = record.status_history.at(-1);
+    assert.equal(stateChange?.type, 'state_changed');
+    assert.equal(stateChange?.workflowState, 'creative_review_required');
+    assert.equal(
+      stateChange?.status,
+      undefined,
+      'workflow state transitions must not display the Approved decision badge while creative assets are still pending',
+    );
+  });
+});
+
+test('setCreativeAssetDecision: real asset approval keeps the approved audit status', () => {
+  const record = makeRecord();
+
+  setCreativeAssetDecision(record, 'image_1', 'approve', 'operator', 'Looks good.');
+
+  const approval = record.status_history.at(-1);
+  assert.equal(approval?.type, 'creative_asset_review');
+  assert.equal(approval?.assetId, 'image_1');
+  assert.equal(approval?.action, 'approve');
+  assert.equal(approval?.status, 'approved');
 });

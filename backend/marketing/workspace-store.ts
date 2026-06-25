@@ -749,7 +749,6 @@ export function syncSocialContentWorkflowState(
       type: 'state_changed',
       workflowState: resolution.workflowState,
       note: `Workflow state changed to ${resolution.workflowState}.`,
-      status: 'approved',
     });
   }
   saveSocialContentWorkspaceRecord(record);
