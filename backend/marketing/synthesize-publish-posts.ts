@@ -140,48 +140,80 @@ function normalizeMediaType(value: unknown): PostMediaType {
  */
 function buildScheduleShapeLookup(doc: SocialContentJobRuntimeDocument): Map<string, ScheduleShape> {
   const lookup = new Map<string, ScheduleShape>();
+
+  const setShape = (ordinal: number, platformRaw: unknown, surface: PostSurface, mediaType: PostMediaType) => {
+    const platform = String(platformRaw ?? '').trim().toLowerCase();
+    if (!platform) return;
+    // A reel is always video; never persist an image reel.
+    const effectiveMediaType = surface === 'reel' ? 'video' : mediaType;
+    lookup.set(`${ordinal}:${platform}`, { surface, mediaType: effectiveMediaType });
+  };
+
+  // 1. Primary source: the strategist/publish-stage weekly schedule.
   const primary = recordValue(doc.stages?.publish?.primary_output);
-  if (!primary) return lookup;
   const rawSchedule =
-    Array.isArray((primary as { schedule?: unknown }).schedule)
+    primary && Array.isArray((primary as { schedule?: unknown }).schedule)
       ? (primary as { schedule?: unknown[] }).schedule
-      : Array.isArray((primary as { weekly_schedule?: unknown }).weekly_schedule)
+      : primary && Array.isArray((primary as { weekly_schedule?: unknown }).weekly_schedule)
         ? (primary as { weekly_schedule?: unknown[] }).weekly_schedule
         : null;
-  if (!Array.isArray(rawSchedule)) return lookup;
-
-  rawSchedule.forEach((rawEntry, idx) => {
-    const entry = recordValue(rawEntry);
-    if (!entry) return;
-    const ordinal =
-      typeof entry.post_number === 'number' && Number.isInteger(entry.post_number) && entry.post_number > 0
-        ? entry.post_number
-        : idx + 1;
-    const entrySurface = normalizeSurface(entry.placement);
-    const entryMediaType = normalizeMediaType(entry.media_type);
-
-    const addPlatform = (platformRaw: unknown, surface: PostSurface, mediaType: PostMediaType) => {
-      const platform = String(platformRaw ?? '').trim().toLowerCase();
-      if (!platform) return;
-      // A reel is always video; never persist an image reel.
-      const effectiveMediaType = surface === 'reel' ? 'video' : mediaType;
-      lookup.set(`${ordinal}:${platform}`, { surface, mediaType: effectiveMediaType });
-    };
-
-    if (Array.isArray(entry.platforms) && entry.platforms.length > 0) {
-      for (const platformRaw of entry.platforms) addPlatform(platformRaw, entrySurface, entryMediaType);
-    } else if (Array.isArray(entry.platform_targets)) {
-      for (const targetRaw of entry.platform_targets) {
-        const target = recordValue(targetRaw);
-        if (!target) continue;
-        addPlatform(
-          target.platform,
-          normalizeSurface(target.placement ?? entry.placement),
-          normalizeMediaType(target.media_type ?? entry.media_type),
-        );
+  if (Array.isArray(rawSchedule)) {
+    rawSchedule.forEach((rawEntry, idx) => {
+      const entry = recordValue(rawEntry);
+      if (!entry) return;
+      const ordinal =
+        typeof entry.post_number === 'number' && Number.isInteger(entry.post_number) && entry.post_number > 0
+          ? entry.post_number
+          : idx + 1;
+      const entrySurface = normalizeSurface(entry.placement);
+      const entryMediaType = normalizeMediaType(entry.media_type);
+      if (Array.isArray(entry.platforms) && entry.platforms.length > 0) {
+        for (const platformRaw of entry.platforms) setShape(ordinal, platformRaw, entrySurface, entryMediaType);
+      } else if (Array.isArray(entry.platform_targets)) {
+        for (const targetRaw of entry.platform_targets) {
+          const target = recordValue(targetRaw);
+          if (!target) continue;
+          setShape(
+            ordinal,
+            target.platform,
+            normalizeSurface(target.placement ?? entry.placement),
+            normalizeMediaType(target.media_type ?? entry.media_type),
+          );
+        }
       }
-    }
-  });
+    });
+  }
+
+  // 2. Fallback: when the separate publish stage emits no schedule (the
+  //    publish-stage regression), honor a reel/story/video shape that the
+  //    production skills (`social-video-creative`) stamped directly on the
+  //    content_package entry, for any (post, platform) the publish schedule did
+  //    NOT already shape. Only the special non-feed-image surfaces are folded in
+  //    — plain feed/image entries keep the existing default feed/image path, so
+  //    image-only jobs are byte-identical. The call-site flag gate still strips
+  //    reel/video when ARIES_VIDEO_PUBLISH_ENABLED is off.
+  const contentPackage = extractContentPackage(doc);
+  if (Array.isArray(contentPackage)) {
+    contentPackage.forEach((rawEntry, idx) => {
+      const entry = recordValue(rawEntry);
+      if (!entry) return;
+      const surface = normalizeSurface(entry.placement);
+      const mediaType = normalizeMediaType(entry.media_type);
+      if (surface === 'feed' && mediaType !== 'video') return; // default path already covers feed images
+      const ordinal =
+        typeof entry.post_number === 'number' && Number.isInteger(entry.post_number) && entry.post_number > 0
+          ? entry.post_number
+          : idx + 1;
+      if (Array.isArray(entry.platforms)) {
+        for (const platformRaw of entry.platforms) {
+          const platform = String(platformRaw ?? '').trim().toLowerCase();
+          if (!platform || lookup.has(`${ordinal}:${platform}`)) continue; // publish schedule wins
+          setShape(ordinal, platform, surface, mediaType);
+        }
+      }
+    });
+  }
+
   return lookup;
 }
 
