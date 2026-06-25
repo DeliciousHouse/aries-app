@@ -110,6 +110,9 @@ test('calendar view-model maps scheduled_posts rows into grid events', () => {
   );
   assert.equal(model.events[0].dispatchStatus, 'pending');
   assert.equal(model.events[1].dispatchStatus, 'dispatched');
+  assert.match(model.events[0].scheduledFor, /Apr 15/);
+  assert.match(model.events[0].scheduledFor, /10:00 AM EDT/);
+  assert.doesNotMatch(model.events[0].scheduledFor, /UTC/);
 });
 
 test('calendar view-model day key is tenant-zone aware (11pm post lands on the tenant day)', () => {

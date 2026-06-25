@@ -50,3 +50,19 @@ test('admin debug panel: formatTenantTime and formatUtcTime both present for sid
   assert.match(src, /formatTenantTime/, 'debug panel must have formatTenantTime for tenant-zone display');
   assert.match(src, /formatUtcTime/, 'debug panel must keep formatUtcTime for UTC display');
 });
+
+test('post workspace publish window uses tenant-zone range helper instead of raw ISO interpolation', () => {
+  const src = readRepoFile('frontend/aries-v1/post-workspace.tsx');
+  assert.match(src, /formatTenantDateRangeLabel/, 'workspace header must format publish windows in the tenant zone');
+  assert.doesNotMatch(
+    src,
+    /\$\{status\.postWindow\.start\}\s*-\s*\$\{status\.postWindow\.end\}/,
+    'workspace header must not expose raw ISO postWindow ranges',
+  );
+});
+
+test('insights active-times copy names the business timezone when audience timezone differs', () => {
+  const src = readRepoFile('frontend/insights/AudienceSection.tsx');
+  assert.match(src, /useTenantTimezone/, 'insights must read the same tenant timezone source as Calendar and Publish Status');
+  assert.match(src, /business timezone is/, 'insights must explain any audience-data timezone difference');
+});
