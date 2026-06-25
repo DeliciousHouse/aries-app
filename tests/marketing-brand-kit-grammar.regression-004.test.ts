@@ -92,3 +92,15 @@ test('normalizeWhitespace cleans inline-tag-strip grammar artifacts (unit)', asy
   const out5 = sanitizeBrandKitSummaryText('Wait... it works');
   assert.equal(out5, 'Wait... it works');
 });
+
+test('sanitizeBrandKitSummaryText removes leading dangling article-comma fragments', async () => {
+  const { sanitizeBrandKitSummaryText } = await import('../backend/marketing/brand-kit');
+
+  const out = sanitizeBrandKitSummaryText('A, approval-safe social content operating system for teams that need reviews before publishing.');
+
+  assert.equal(
+    out,
+    'Approval-safe social content operating system for teams that need reviews before publishing.',
+  );
+  assert.doesNotMatch(out || '', /^[Aa],\s/);
+});
