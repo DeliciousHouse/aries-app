@@ -624,11 +624,19 @@ export function buildProductionResumeContext(input: {
     contextLines.push(`--- Image ${img.imageIndex} of ${img.totalImages} ---`);
     contextLines.push(img.prompt);
   }
-  // Video clip prompts are emitted inline after image prompts so the agent sees
-  // all context in one block. Empty when videoClipCount === 0 (byte-identical).
-  for (const vp of videoPrompts) {
-    contextLines.push(`--- Video clip ${vp.clipIndex} of ${vp.totalClips} ---`);
-    contextLines.push(vp.prompt);
+  // Video clips mirror the image block EXACTLY (header that names the count +
+  // `--- Video N of M ---` per clip) so the agent treats video_generate with the
+  // same must-call reliability as image_generate. The whole block is skipped when
+  // videoClipCount === 0, so the flag-OFF contextBlock is byte-identical.
+  if (videoPrompts.length > 0) {
+    contextLines.push('');
+    contextLines.push(
+      `Video context (${videoPrompts.length} video${videoPrompts.length === 1 ? '' : 's'} requested):`,
+    );
+    for (const vp of videoPrompts) {
+      contextLines.push(`--- Video ${vp.clipIndex} of ${vp.totalClips} ---`);
+      contextLines.push(vp.prompt);
+    }
   }
   contextLines.push('');
   contextLines.push('Return your results in this EXACT JSON shape. You MUST include BOTH content_package[] AND artifacts.creative_assets[]. One without the other is incomplete — content_package carries the post COPY (caption text, hooks, hashtags); creative_assets carries the rendered IMAGES. The Nth creative_asset corresponds to the Nth content_package entry via post_number.');
@@ -670,7 +678,7 @@ export function buildProductionResumeContext(input: {
   // contextBlock is byte-identical to today when video is OFF (default).
   if (videoClipCount > 0) {
     contextLines.push('');
-    contextLines.push('Required: when you finish video generation, place each clip in artifacts.creative_assets[] alongside the images, with this shape:');
+    contextLines.push('Required: when you finish video_generate, place each clip in artifacts.creative_assets[] alongside the images, with this shape:');
     contextLines.push('{');
     contextLines.push('  "assetId": "vid_1",');
     contextLines.push('  "type": "generated_video",');
