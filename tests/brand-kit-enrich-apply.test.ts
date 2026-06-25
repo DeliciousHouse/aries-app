@@ -84,6 +84,27 @@ test('applyBrandKitEnrichment with full enrichment overwrites brand_voice_summar
   assert.equal(result.style_vibe, 'minimalist');
 });
 
+test('applyBrandKitEnrichment sanitizes leading dangling article-comma enrichment fragments', () => {
+  const base = baseKit({ brand_voice_summary: null, offer_summary: null, positioning: null });
+  const enrichment: BrandKitEnrichment = {
+    brandVoiceSummary: 'A, approval-safe social content operating system for teams that need reviews before publishing.',
+    offerSummary: 'An, automated content review workflow for small teams.',
+    positioning: 'The, safest way for teams to approve and publish weekly social posts.',
+    audience: null,
+    toneOfVoice: null,
+    styleVibe: null,
+  };
+
+  const result = applyBrandKitEnrichment(base, enrichment);
+
+  assert.equal(
+    result.brand_voice_summary,
+    'Approval-safe social content operating system for teams that need reviews before publishing.',
+  );
+  assert.equal(result.offer_summary, 'Automated content review workflow for small teams.');
+  assert.equal(result.positioning, 'Safest way for teams to approve and publish weekly social posts.');
+});
+
 test('applyBrandKitEnrichment returns a new object — mutating result does not mutate base', () => {
   const base = baseKit();
   const enrichment: BrandKitEnrichment = {

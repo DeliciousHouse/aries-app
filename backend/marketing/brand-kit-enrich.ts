@@ -245,6 +245,17 @@ export type OperatorBrandKitOverrides = {
   palette?: string[] | null;
 };
 
+function stripLeadingDanglingArticleFragment(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.replace(/\s+/g, ' ').trim();
+  if (!trimmed) return null;
+  const stripped = trimmed.replace(/^\s*(?:a|an|the)\s*,\s+/i, '');
+  if (stripped === trimmed || !stripped) {
+    return trimmed;
+  }
+  return stripped.charAt(0).toUpperCase() + stripped.slice(1);
+}
+
 /**
  * Merge LLM enrichment into the base brand kit.
  *
@@ -273,20 +284,20 @@ export function applyBrandKitEnrichment(
     : null;
 
   // style_vibe: operator > base (existing) > enrichment
-  const styleVibe = opStyleVibe ?? base.style_vibe ?? enrichment.styleVibe ?? null;
+  const styleVibe = stripLeadingDanglingArticleFragment(opStyleVibe ?? base.style_vibe ?? enrichment.styleVibe) ?? null;
 
   // tone_of_voice: operator brandVoice is authoritative for tone — if operator supplied it,
   // preserve the existing base value (or null) and never let enrichment fill it in.
   // The operator's brandVoice string is their explicit tone preference; we must not let
   // LLM-scraped adjectives contradict it.
   const toneOfVoice = opBrandVoice
-    ? (base.tone_of_voice ?? null)
-    : (enrichment.toneOfVoice ?? base.tone_of_voice ?? null);
+    ? (stripLeadingDanglingArticleFragment(base.tone_of_voice) ?? null)
+    : (stripLeadingDanglingArticleFragment(enrichment.toneOfVoice ?? base.tone_of_voice) ?? null);
 
   // brand_voice_summary: operator brandVoice is authoritative — preserve base, never let enrichment overwrite
   const brandVoiceSummary = opBrandVoice
-    ? base.brand_voice_summary
-    : (enrichment.brandVoiceSummary ?? base.brand_voice_summary);
+    ? stripLeadingDanglingArticleFragment(base.brand_voice_summary)
+    : stripLeadingDanglingArticleFragment(enrichment.brandVoiceSummary ?? base.brand_voice_summary);
 
   // Colors: if operator supplied a palette, preserve the base colors (which were set from the operator palette
   // upstream); do not allow enrichment to clobber palette with scraped values.
@@ -297,9 +308,9 @@ export function applyBrandKitEnrichment(
     ...base,
     colors,
     brand_voice_summary: brandVoiceSummary,
-    offer_summary: enrichment.offerSummary ?? base.offer_summary,
-    positioning: enrichment.positioning ?? base.positioning ?? null,
-    audience: enrichment.audience ?? base.audience ?? null,
+    offer_summary: stripLeadingDanglingArticleFragment(enrichment.offerSummary ?? base.offer_summary),
+    positioning: stripLeadingDanglingArticleFragment(enrichment.positioning ?? base.positioning) ?? null,
+    audience: stripLeadingDanglingArticleFragment(enrichment.audience ?? base.audience) ?? null,
     tone_of_voice: toneOfVoice,
     style_vibe: styleVibe,
   };
