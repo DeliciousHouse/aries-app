@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   DEFAULT_TENANT_TIMEZONE,
   formatInTenantZone,
+  formatTenantDateRangeLabel,
   formatTimeInTenantZone,
   isTenantZoneToday,
   isValidTimeZone,
@@ -83,4 +84,21 @@ test('tenantZoneParts normalizes hour 24 to 0 at midnight', () => {
   const parts = tenantZoneParts('2026-01-16T05:00:00.000Z', 'America/New_York');
   assert.equal(parts?.hour, 0);
   assert.equal(parts?.day, 16);
+});
+
+test('formatTenantDateRangeLabel renders UTC publish windows in the tenant timezone', () => {
+  const label = formatTenantDateRangeLabel(
+    '2026-06-03T00:00:00.000Z',
+    '2026-06-09T23:59:59.999Z',
+    'America/New_York',
+  );
+
+  assert.equal(label, 'Jun 2, 8:00 PM EDT to Jun 9, 7:59 PM EDT');
+  assert.doesNotMatch(label, /2026-06-03T00:00:00\.000Z/);
+  assert.doesNotMatch(label, /UTC/);
+});
+
+test('formatTenantDateRangeLabel preserves invalid publish window fallback without inventing dates', () => {
+  assert.equal(formatTenantDateRangeLabel(null, '2026-06-09T23:59:59.999Z', 'America/New_York'), 'Dates not scheduled yet');
+  assert.equal(formatTenantDateRangeLabel('bad-start', 'bad-end', 'America/New_York'), 'bad-start to bad-end');
 });

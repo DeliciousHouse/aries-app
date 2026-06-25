@@ -35,7 +35,7 @@ import {
 import { customerSafeActionErrorMessage, customerSafeUiErrorMessage } from './customer-safe-copy';
 import { ActivityFeed, EmptyStatePanel, SectionLink, ShellPanel, StatusChip } from './components';
 import { useTenantTimezone } from '@/hooks/use-tenant-timezone';
-import { formatInTenantZone, tenantZoneAbbreviation } from '@/lib/format-timestamp';
+import { formatInTenantZone, formatTenantDateRangeLabel, tenantZoneAbbreviation } from '@/lib/format-timestamp';
 
 type DecisionActionKind = 'approve' | 'changes_requested' | 'reject';
 
@@ -233,6 +233,7 @@ export default function AriesPostWorkspace(props: { postId: string; initialView?
   const searchParams = useSearchParams();
   const viewParam = searchParams?.get('view') ?? null;
   const activeView = resolveWorkspaceView(viewParam, props.initialView || 'brand');
+  const tz = useTenantTimezone();
 
   const progressActive = !!(status && deriveGenerationProgressState(status)?.isComplete === false);
 
@@ -299,6 +300,7 @@ export default function AriesPostWorkspace(props: { postId: string; initialView?
   const creativeFallback = deriveGateFallbackState(status, 'creative', props.postId, publishBlockedReason);
   const publishState = derivePublishSurfaceState(status, props.postId, publishBlockedReason);
   const generationProgress = deriveGenerationProgressState(status);
+  const postWindowLabel = formatTenantDateRangeLabel(status.postWindow?.start, status.postWindow?.end, tz);
 
   async function submitReviewDecision(
     reviewId: string,
@@ -372,7 +374,7 @@ export default function AriesPostWorkspace(props: { postId: string; initialView?
               </span>
             ) : null}
             <span className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-white/70">
-              {status.postWindow?.start && status.postWindow?.end ? `${status.postWindow.start} - ${status.postWindow.end}` : 'Dates not scheduled yet'}
+              {postWindowLabel}
             </span>
             <span className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-white/70">
               {stageReadyLabel(activeView)}

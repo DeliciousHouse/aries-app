@@ -11,6 +11,7 @@ import type {
   AudienceScheduleItem,
 } from "@/frontend/insights/types";
 import { useInsight } from "@/frontend/insights/useInsight";
+import { useTenantTimezone } from "@/hooks/use-tenant-timezone";
 import { C, platformLabel } from "@/frontend/insights/tokens";
 import {
   SectionHeader,
@@ -244,6 +245,12 @@ function HeatLegend() {
 export function AudienceSection({ period, platform }: AudienceSectionProps) {
   const { data, loading, error, refetch } =
     useInsight<AudienceData>("audience", period, platform);
+  const tenantTimeZone = useTenantTimezone();
+  const activeTimesZone = data?.activeTimes.timezone || tenantTimeZone;
+  const activeTimesSubtitle =
+    activeTimesZone === tenantTimeZone
+      ? `Activity by day & hour · times in ${tenantTimeZone}`
+      : `Activity by day & hour · audience data in ${activeTimesZone}; business timezone is ${tenantTimeZone}`;
 
   return (
     <section>
@@ -324,7 +331,7 @@ export function AudienceSection({ period, platform }: AudienceSectionProps) {
                 <BlockHeader
                   icon="clock"
                   title="When they're listening"
-                  subtitle={`Activity by day & hour${data?.activeTimes.timezone ? ` · times in ${data.activeTimes.timezone}` : ""}`}
+                  subtitle={activeTimesSubtitle}
                 />
                 {data?.activeTimes.hasData && data.activeTimes.peakWindow && (
                   <span

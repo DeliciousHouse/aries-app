@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { createAriesV1Api, type ScheduledPostsResponse } from '@/lib/api/aries-v1';
 import { useRuntimePosts } from '@/hooks/use-runtime-social-content';
-import { useBusinessProfile } from '@/hooks/use-business-profile';
 import { useTenantTimezone } from '@/hooks/use-tenant-timezone';
 import CalendarPresenter from '@/frontend/aries-v1/presenters/calendar-presenter';
 import {
@@ -44,7 +43,6 @@ export default function AriesCalendarScreen({ allowedPublishPlatforms }: AriesCa
   const range = useMemo(() => defaultRange(), []);
 
   const campaigns = useRuntimePosts({ autoLoad: true });
-  const businessProfile = useBusinessProfile({ autoLoad: true });
 
   const [schedule, setSchedule] = useState<ScheduledPostsResponse | null>(null);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
