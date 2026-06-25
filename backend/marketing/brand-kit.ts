@@ -559,8 +559,16 @@ function htmlToText(html: string): string {
   );
 }
 
+function stripLeadingDanglingArticleFragment(value: string): string {
+  const stripped = value.replace(/^\s*(?:a|an|the)\s*,\s+/i, '');
+  if (stripped === value || !stripped) {
+    return value;
+  }
+  return stripped.charAt(0).toUpperCase() + stripped.slice(1);
+}
+
 function cleanSentenceCandidate(value: string | null | undefined, maxLength = 220): string | null {
-  const normalized = normalizeWhitespace(
+  const normalized = stripLeadingDanglingArticleFragment(normalizeWhitespace(
     (value || '')
       .replace(/<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/gi, ' ')
       .replace(/<style\b[^>]*>[\s\S]*?<\/style\b[^>]*>/gi, ' ')
@@ -571,7 +579,7 @@ function cleanSentenceCandidate(value: string | null | undefined, maxLength = 22
       .replace(PREVIEW_UTILITY_TOKEN_PATTERN, ' ')
       .replace(PREVIEW_CSS_REMNANT_PATTERN, ' ')
       .replace(/[`*_#>{}[\]|]/g, ' '),
-  );
+  ));
   if (!normalized) {
     return null;
   }
