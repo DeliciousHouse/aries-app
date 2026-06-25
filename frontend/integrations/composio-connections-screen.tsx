@@ -288,6 +288,20 @@ export default function ComposioConnectionsScreen() {
                       </button>
                       {hasClearableRow && (
                         <>
+                          {/* Clear a stuck row via the same disconnect handler (the
+                              backend deletes unconditionally), so a pending / error /
+                              reauthorization_required card isn't limited to Connect —
+                              which would upsert ANOTHER pending row (#703). Kept
+                              first so its hasClearableRow gate + disconnect onClick
+                              stay adjacent (the #703 source-proximity test). */}
+                          <button
+                            type="button"
+                            onClick={() => disconnect(conn.platform)}
+                            disabled={busy === conn.platform}
+                            className="rounded-lg border border-slate-600 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                          >
+                            {busy === conn.platform ? '…' : 'Clear'}
+                          </button>
                           {/* "Check again" — force an immediate re-fetch for
                               impatient users or the delayed-activation case.
                               Resets the reconcile budget so polling can resume. */}
@@ -302,18 +316,6 @@ export default function ComposioConnectionsScreen() {
                             className="rounded-lg border border-sky-600 px-3 py-1.5 text-sm text-sky-300 hover:bg-sky-900/40 disabled:opacity-50"
                           >
                             {loading ? 'Checking…' : 'Check again'}
-                          </button>
-                          {/* Clear a stuck row via the same disconnect handler (the
-                              backend deletes unconditionally), so a pending / error /
-                              reauthorization_required card isn't limited to Connect —
-                              which would upsert ANOTHER pending row (#703). */}
-                          <button
-                            type="button"
-                            onClick={() => disconnect(conn.platform)}
-                            disabled={busy === conn.platform}
-                            className="rounded-lg border border-slate-600 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
-                          >
-                            {busy === conn.platform ? '…' : 'Clear'}
                           </button>
                         </>
                       )}
