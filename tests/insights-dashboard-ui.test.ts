@@ -22,6 +22,8 @@ const commentsHook = read('hooks', 'use-insights-comments.ts');
 const apiClient = read('lib', 'api', 'aries-v1.ts');
 const appShellClient = read('components', 'redesign', 'layout', 'app-shell-client.tsx');
 const readApi = read('backend', 'insights', 'read-api.ts');
+const insightsActivitySection = read('frontend', 'insights', 'ActivitySection.tsx');
+const insightsTopPostsSection = read('frontend', 'insights', 'TopPostsSection.tsx');
 
 test('analytics + comments nav routes are registered as reachable utility entries', () => {
   const analytics = getRouteById('analytics');
@@ -149,6 +151,14 @@ test('comments read-api exposes replied state so the inbox can render it', () =>
   assert.match(readApi, /c\.replied_at/);
   assert.match(readApi, /isReplied:/);
   assert.match(readApi, /repliedAt:/);
+});
+
+test('insights empty states label Aries-published scope so they do not contradict the hero account summary', () => {
+  assert.match(insightsActivitySection, /No Aries-published posts in this period\./);
+  assert.match(insightsTopPostsSection, /Top Aries-published content/);
+  assert.match(insightsTopPostsSection, /No Aries-published posts in this period\./);
+  assert.doesNotMatch(insightsActivitySection, /No posts published in this period\./);
+  assert.doesNotMatch(insightsTopPostsSection, /No posts published in this period\./);
 });
 
 // ─── #684 honest analytics "metric unavailable" states ───────────────────────
