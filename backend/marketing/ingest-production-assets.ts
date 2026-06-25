@@ -118,15 +118,21 @@ type CreativeAssetEntry = {
   [key: string]: unknown;
 };
 
+// A creative_asset is video when the new contract marks it `generated_video` /
+// media_type 'video' (legacy emitted type 'video'). Drives both the read-mount
+// selection (video mount) and the durable-copy storage branch below.
+function isVideoEntry(asset: CreativeAssetEntry): boolean {
+  const type = typeof asset.type === 'string' ? asset.type.trim().toLowerCase() : '';
+  const mediaType = typeof asset.media_type === 'string' ? asset.media_type.trim().toLowerCase() : '';
+  return type === 'video' || type === 'generated_video' || mediaType === 'video';
+}
+
 // Logo compositing applies only to single-image FEED creatives. Treat absent
 // type/placement as feed/image (the synthesize-publish-posts default), and
 // exclude video and story/reel/carousel placements.
 function isFrameEligibleEntry(asset: CreativeAssetEntry): boolean {
-  const type = typeof asset.type === 'string' ? asset.type.trim().toLowerCase() : '';
-  const mediaType = typeof asset.media_type === 'string' ? asset.media_type.trim().toLowerCase() : '';
-  // Never composite a logo onto video (the new contract emits type
-  // 'generated_video' / media_type 'video'; legacy emitted type 'video').
-  if (type === 'video' || type === 'generated_video' || mediaType === 'video') return false;
+  // Never composite a logo onto video.
+  if (isVideoEntry(asset)) return false;
   const placement = typeof asset.placement === 'string' ? asset.placement.trim().toLowerCase() : '';
   return placement === '' || placement === 'feed';
 }
@@ -137,8 +143,18 @@ function isFrameEligibleEntry(asset: CreativeAssetEntry): boolean {
  * only `HERMES_IMAGE_CACHE_MOUNT/<basename>` is. Returns null when the mount is
  * unconfigured or the basename is unusable (path traversal / empty).
  */
-export function resolveHermesAssetReadPath(reportedPath: string): string | null {
-  const mount = process.env.HERMES_IMAGE_CACHE_MOUNT?.trim();
+export function resolveHermesAssetReadPath(
+  reportedPath: string,
+  opts?: { video?: boolean },
+): string | null {
+  // Hermes localizes video into a SEPARATE cache dir (`cache/videos`), exposed
+  // to the container through HERMES_VIDEO_CACHE_MOUNT — distinct from the image
+  // mount. Images keep resolving against HERMES_IMAGE_CACHE_MOUNT exactly as
+  // before; only video reads switch to the video mount.
+  const mount = (opts?.video
+    ? process.env.HERMES_VIDEO_CACHE_MOUNT
+    : process.env.HERMES_IMAGE_CACHE_MOUNT
+  )?.trim();
   if (!mount) {
     return null;
   }
@@ -262,15 +278,23 @@ export async function ingestProductionCreativeAssetsToDb(
       continue;
     }
 
-    // Hermes reports a host-side path; the container can only read the image
-    // through the HERMES_IMAGE_CACHE_MOUNT bind-mount keyed by basename.
-    const readPath = resolveHermesAssetReadPath(assetPath);
+    // Hermes reports a host-side path; the container can only read the bytes
+    // through a bind-mount keyed by basename. Image -> HERMES_IMAGE_CACHE_MOUNT,
+    // video -> HERMES_VIDEO_CACHE_MOUNT (Hermes writes video to cache/videos).
+    const entryIsVideo = isVideoEntry(asset);
+    const readPath = resolveHermesAssetReadPath(assetPath, { video: entryIsVideo });
     if (!readPath) {
       console.warn('[ingest-production-assets] unresolvable asset path — skipping', {
         jobId,
         tenantId,
         assetPath,
-        mountConfigured: Boolean(process.env.HERMES_IMAGE_CACHE_MOUNT?.trim()),
+        isVideo: entryIsVideo,
+        mountConfigured: Boolean(
+          (entryIsVideo
+            ? process.env.HERMES_VIDEO_CACHE_MOUNT
+            : process.env.HERMES_IMAGE_CACHE_MOUNT
+          )?.trim(),
+        ),
       });
       skipped++;
       continue;
@@ -285,7 +309,29 @@ export async function ingestProductionCreativeAssetsToDb(
       let bytes: Buffer = rawBytes;
       let storageKind = 'runtime_asset';
       let storageKey = readPath;
-      if (compositeEnabled && args.brandKit && isFrameEligibleEntry(asset)) {
+      // True only when we framed an image and must delete its stale raw twin.
+      // Video is a fresh ingest with no runtime_asset twin, so it stays false.
+      let replacedRawTwin = false;
+      if (entryIsVideo) {
+        // Video bytes live at the read-only Hermes video mount, and the Hermes
+        // cache is GC'd out from under us — so persist a durable copy under
+        // DATA_ROOT and serve it as an ingested_asset (same scheme as framed
+        // images / composed stories). The id media route serves ingested_asset
+        // from DATA_ROOT, and the gc-missing-hermes-assets sweep only ever
+        // touches runtime_asset rows, so a video copy is never orphaned. No
+        // logo composite for video (isFrameEligibleEntry excludes it anyway).
+        const ext = path.extname(readPath).toLowerCase() || '.mp4';
+        const sha = crypto.createHash('sha256').update(rawBytes).digest('hex');
+        storageKey = resolveDataPath(
+          'ingested-assets',
+          String(tenantId),
+          sha.slice(0, 2),
+          `${sha}${ext}`,
+        );
+        await mkdir(path.dirname(storageKey), { recursive: true });
+        await writeFile(storageKey, rawBytes);
+        storageKind = 'ingested_asset';
+      } else if (compositeEnabled && args.brandKit && isFrameEligibleEntry(asset)) {
         try {
           const framed = await applyBrandFrame({
             assetBuffer: rawBytes,
@@ -314,6 +360,7 @@ export async function ingestProductionCreativeAssetsToDb(
             await mkdir(path.dirname(storageKey), { recursive: true });
             await writeFile(storageKey, framed);
             storageKind = 'ingested_asset';
+            replacedRawTwin = true;
           }
         } catch (frameError) {
           // Never block ingest on framing — fall back to the raw bytes/mount.
@@ -336,10 +383,7 @@ export async function ingestProductionCreativeAssetsToDb(
         : basename;
 
       // Derive media type: 'video' when the entry carries video markers.
-      const isVideo =
-        asset.type === 'generated_video' ||
-        (typeof asset.media_type === 'string' && asset.media_type.trim().toLowerCase() === 'video');
-      const mediaType: 'image' | 'video' = isVideo ? 'video' : 'image';
+      const mediaType: 'image' | 'video' = entryIsVideo ? 'video' : 'image';
 
       // Derive aspect ratio from width/height when present; else from surface/placement.
       const entryWidth = typeof asset.width === 'number' && Number.isFinite(asset.width) ? asset.width : null;
@@ -392,8 +436,9 @@ export async function ingestProductionCreativeAssetsToDb(
 
       // The framed row now exists (just inserted or already present via ON
       // CONFLICT); remove any stale raw twin so post->image mapping stays
-      // one-row-per-asset across an OFF->ON flag flip.
-      if (storageKind === 'ingested_asset') {
+      // one-row-per-asset across an OFF->ON flag flip. Video has no raw twin
+      // (fresh ingested_asset), so this only runs for framed images.
+      if (replacedRawTwin) {
         await pool.query(DELETE_RAW_TWIN_SQL, [tenantId, jobId, sourceAssetId]);
       }
     } catch (err) {

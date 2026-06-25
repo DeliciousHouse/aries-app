@@ -7,12 +7,17 @@
  * correct media_type / aspect_ratio (now bound as params $9/$10 rather than
  * hardcoded literals, after the video dims PR).
  *
+ * Topology note: Hermes localizes IMAGE bytes into cache/images (the
+ * HERMES_IMAGE_CACHE_MOUNT bind-mount) and VIDEO bytes into cache/videos
+ * (HERMES_VIDEO_CACHE_MOUNT) — two distinct mounts. Video is then persisted as
+ * a durable DATA_ROOT ingested_asset copy (survives Hermes cache GC).
+ *
  * Run:
  *   APP_BASE_URL=https://aries.example.com \
  *     ./node_modules/.bin/tsx --test tests/marketing/video-ingest-dims.test.ts
  */
 import assert from 'node:assert/strict';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -67,21 +72,53 @@ function makeMockPool(rowCount = 1) {
   return { pool, calls };
 }
 
-async function withHermesMediaMount<T>(
-  fn: (mount: string, hostImagePath: (basename: string) => string) => Promise<T>,
-): Promise<T> {
-  const mount = path.join(tmpdir(), `aries-video-ingest-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  await mkdir(mount, { recursive: true });
-  const prev = process.env.HERMES_IMAGE_CACHE_MOUNT;
-  process.env.HERMES_IMAGE_CACHE_MOUNT = mount;
-  const hostImagePath = (basename: string) =>
-    `/home/node/.hermes/profiles/aries-content-generator/cache/images/${basename}`;
+interface MountCtx {
+  imageMount: string;
+  videoMount: string;
+  dataRoot: string;
+  hostImagePath: (basename: string) => string;
+  hostVideoPath: (basename: string) => string;
+}
+
+async function withHermesMediaMount<T>(fn: (ctx: MountCtx) => Promise<T>): Promise<T> {
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const imageMount = path.join(tmpdir(), `aries-img-${suffix}`);
+  const videoMount = path.join(tmpdir(), `aries-vid-${suffix}`);
+  const dataRoot = path.join(tmpdir(), `aries-data-${suffix}`);
+  await Promise.all([
+    mkdir(imageMount, { recursive: true }),
+    mkdir(videoMount, { recursive: true }),
+    mkdir(dataRoot, { recursive: true }),
+  ]);
+  const prev = {
+    img: process.env.HERMES_IMAGE_CACHE_MOUNT,
+    vid: process.env.HERMES_VIDEO_CACHE_MOUNT,
+    data: process.env.DATA_ROOT,
+  };
+  process.env.HERMES_IMAGE_CACHE_MOUNT = imageMount;
+  process.env.HERMES_VIDEO_CACHE_MOUNT = videoMount;
+  process.env.DATA_ROOT = dataRoot;
+  const restore = (k: 'HERMES_IMAGE_CACHE_MOUNT' | 'HERMES_VIDEO_CACHE_MOUNT' | 'DATA_ROOT', v: string | undefined) => {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  };
   try {
-    return await fn(mount, hostImagePath);
+    return await fn({
+      imageMount,
+      videoMount,
+      dataRoot,
+      hostImagePath: (b) => `/home/node/.hermes/profiles/aries-content-generator/cache/images/${b}`,
+      hostVideoPath: (b) => `/home/node/.hermes/profiles/aries-content-generator/cache/videos/${b}`,
+    });
   } finally {
-    if (prev === undefined) delete process.env.HERMES_IMAGE_CACHE_MOUNT;
-    else process.env.HERMES_IMAGE_CACHE_MOUNT = prev;
-    await rm(mount, { recursive: true, force: true });
+    restore('HERMES_IMAGE_CACHE_MOUNT', prev.img);
+    restore('HERMES_VIDEO_CACHE_MOUNT', prev.vid);
+    restore('DATA_ROOT', prev.data);
+    await Promise.all([
+      rm(imageMount, { recursive: true, force: true }),
+      rm(videoMount, { recursive: true, force: true }),
+      rm(dataRoot, { recursive: true, force: true }),
+    ]);
   }
 }
 
@@ -90,16 +127,14 @@ async function withHermesMediaMount<T>(
 // ---------------------------------------------------------------------------
 
 test('video entry: media_type=video, aspect_ratio=9:16, dims populated in SQL params', async () => {
-  // FAIL BEFORE: params[8]='image', params[9]='4:5', params[10..12]=undefined
-  // PASS AFTER:  params[8]='video', params[9]='9:16', params[10]=1080, [11]=1920, [12]=15
-  await withHermesMediaMount(async (mount, hostImagePath) => {
+  await withHermesMediaMount(async ({ videoMount, hostVideoPath }) => {
     const basename = 'clip_reel_01.mp4';
-    await writeFile(path.join(mount, basename), Buffer.from('fakevideobytes'));
+    await writeFile(path.join(videoMount, basename), Buffer.from('fakevideobytes'));
 
     const doc = makeDoc([{
       assetId: 'vid_1',
       type: 'generated_video',
-      path: hostImagePath(basename),
+      path: hostVideoPath(basename),
       media_type: 'video',
       surface: 'reel',
       width: 1080,
@@ -115,7 +150,6 @@ test('video entry: media_type=video, aspect_ratio=9:16, dims populated in SQL pa
     assert.equal(calls.length, 1, 'exactly one INSERT expected');
 
     const { params } = calls[0];
-    // Param positions (1-based SQL params, 0-based JS array):
     // $9=mediaType (params[8]), $10=aspectRatio (params[9]),
     // $11=widthPx (params[10]), $12=heightPx (params[11]), $13=durationSeconds (params[12])
     assert.equal(params[8], 'video', '$9 mediaType must be "video" for generated_video');
@@ -127,15 +161,15 @@ test('video entry: media_type=video, aspect_ratio=9:16, dims populated in SQL pa
 });
 
 test('video entry via media_type field (not type field): media_type=video', async () => {
-  await withHermesMediaMount(async (mount, hostImagePath) => {
+  await withHermesMediaMount(async ({ videoMount, hostVideoPath }) => {
     const basename = 'story_vid.mp4';
-    await writeFile(path.join(mount, basename), Buffer.from('fakevideobytes'));
+    await writeFile(path.join(videoMount, basename), Buffer.from('fakevideobytes'));
 
     const doc = makeDoc([{
       assetId: 'vid_2',
       type: 'something_else',   // NOT generated_video
       media_type: 'video',       // but explicit media_type=video
-      path: hostImagePath(basename),
+      path: hostVideoPath(basename),
       surface: 'story',
       width: 1080,
       height: 1920,
@@ -155,11 +189,9 @@ test('video entry via media_type field (not type field): media_type=video', asyn
 });
 
 test('image entry: media_type=image as param $9, aspect_ratio=4:5 as param $10, null dims', async () => {
-  // FAIL BEFORE: SQL had hardcoded literals 'image'/'4:5'; after the change they
-  // are params. This test asserts the PARAMS contain the correct values.
-  await withHermesMediaMount(async (mount, hostImagePath) => {
+  await withHermesMediaMount(async ({ imageMount, hostImagePath }) => {
     const basename = 'feed_image.png';
-    await writeFile(path.join(mount, basename), Buffer.from('fakepng'));
+    await writeFile(path.join(imageMount, basename), Buffer.from('fakepng'));
 
     const doc = makeDoc([{
       assetId: 'img_1',
@@ -181,14 +213,14 @@ test('image entry: media_type=image as param $9, aspect_ratio=4:5 as param $10, 
 });
 
 test('video entry without dims: fallback aspect_ratio from reel surface = 9:16, null dims params', async () => {
-  await withHermesMediaMount(async (mount, hostImagePath) => {
+  await withHermesMediaMount(async ({ videoMount, hostVideoPath }) => {
     const basename = 'reel_nodims.mp4';
-    await writeFile(path.join(mount, basename), Buffer.from('fakevideo'));
+    await writeFile(path.join(videoMount, basename), Buffer.from('fakevideo'));
 
     const doc = makeDoc([{
       assetId: 'vid_3',
       type: 'generated_video',
-      path: hostImagePath(basename),
+      path: hostVideoPath(basename),
       surface: 'reel',
       // no width/height/duration_seconds
     }]);
@@ -205,14 +237,14 @@ test('video entry without dims: fallback aspect_ratio from reel surface = 9:16, 
 });
 
 test('landscape video (width > height): aspect_ratio=4:5', async () => {
-  await withHermesMediaMount(async (mount, hostImagePath) => {
+  await withHermesMediaMount(async ({ videoMount, hostVideoPath }) => {
     const basename = 'landscape.mp4';
-    await writeFile(path.join(mount, basename), Buffer.from('fakevideo'));
+    await writeFile(path.join(videoMount, basename), Buffer.from('fakevideo'));
 
     const doc = makeDoc([{
       assetId: 'vid_4',
       type: 'generated_video',
-      path: hostImagePath(basename),
+      path: hostVideoPath(basename),
       width: 1920,
       height: 1080,
       duration_seconds: 60,
@@ -230,15 +262,15 @@ test('landscape video (width > height): aspect_ratio=4:5', async () => {
 });
 
 test('mixed batch: image + video both insert with correct dims', async () => {
-  await withHermesMediaMount(async (mount, hostImagePath) => {
+  await withHermesMediaMount(async ({ imageMount, videoMount, hostImagePath, hostVideoPath }) => {
     const imgBasename = 'feed.png';
     const vidBasename = 'reel.mp4';
-    await writeFile(path.join(mount, imgBasename), Buffer.from('fakepng'));
-    await writeFile(path.join(mount, vidBasename), Buffer.from('fakevideo'));
+    await writeFile(path.join(imageMount, imgBasename), Buffer.from('fakepng'));
+    await writeFile(path.join(videoMount, vidBasename), Buffer.from('fakevideo'));
 
     const doc = makeDoc([
       { assetId: 'img_1', type: 'generated_image', path: hostImagePath(imgBasename) },
-      { assetId: 'vid_1', type: 'generated_video', path: hostImagePath(vidBasename), width: 1080, height: 1920, duration_seconds: 10 },
+      { assetId: 'vid_1', type: 'generated_video', path: hostVideoPath(vidBasename), width: 1080, height: 1920, duration_seconds: 10 },
     ]);
     const { pool, calls } = makeMockPool(1);
     const result = await ingestProductionCreativeAssetsToDb({ jobId: 'mkt_mixed', tenantId: 42, doc, pool });
@@ -247,7 +279,6 @@ test('mixed batch: image + video both insert with correct dims', async () => {
     assert.equal(result.inserted, 2);
     assert.equal(calls.length, 2);
 
-    // First is img (ordered by iteration, not source_asset_id in this test)
     const imgCall = calls.find((c) => c.params[8] === 'image');
     const vidCall = calls.find((c) => c.params[8] === 'video');
     assert.ok(imgCall, 'image INSERT expected');
@@ -265,25 +296,82 @@ test('mixed batch: image + video both insert with correct dims', async () => {
 
 // ---------------------------------------------------------------------------
 // Guard: the SQL now binds media_type and aspect_ratio as params (not literals)
-// Before the PR: INSERT had hardcoded 'image'/'4:5' literals.
-// After the PR: $9/$10 — the values appear in params, not in the SQL text.
 // ---------------------------------------------------------------------------
 
 test('INSERT SQL: media_type and aspect_ratio are bound as params, not SQL literals', async () => {
-  await withHermesMediaMount(async (mount, hostImagePath) => {
+  await withHermesMediaMount(async ({ imageMount, hostImagePath }) => {
     const basename = 'check_sql.png';
-    await writeFile(path.join(mount, basename), Buffer.from('fakepng'));
+    await writeFile(path.join(imageMount, basename), Buffer.from('fakepng'));
     const doc = makeDoc([{ assetId: 'img_sql', type: 'generated_image', path: hostImagePath(basename) }]);
     const { pool, calls } = makeMockPool(1);
     await ingestProductionCreativeAssetsToDb({ jobId: 'mkt_sql_check', tenantId: 42, doc, pool });
 
     const { sql } = calls[0];
-    // The old SQL had hardcoded 'image' and '4:5' literals; the new SQL uses $9/$10.
-    // Asserting these are NOT literals guards against the old implementation.
     assert.ok(!sql.includes("'image'"), "SQL must NOT hardcode 'image' literal (now $9 param)");
     assert.ok(!sql.includes("'4:5'"), "SQL must NOT hardcode '4:5' literal (now $10 param)");
-    // The new params ARE in the params array.
     assert.equal(calls[0].params[8], 'image');
     assert.equal(calls[0].params[9], '4:5');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Slice 1b — video read mount + durable ingested_asset persistence
+//   (the fix: Hermes writes video to cache/videos, NOT the image mount, and the
+//    bytes are copied to DATA_ROOT so they survive Hermes cache eviction.)
+// ---------------------------------------------------------------------------
+
+test('video resolves from the VIDEO mount and persists as a DATA_ROOT ingested_asset', async () => {
+  await withHermesMediaMount(async ({ videoMount, dataRoot, hostVideoPath }) => {
+    const basename = 'durable_reel.mp4';
+    await writeFile(path.join(videoMount, basename), Buffer.from('realvideobytes'));
+
+    const doc = makeDoc([{
+      assetId: 'vid_durable',
+      type: 'generated_video',
+      media_type: 'video',
+      path: hostVideoPath(basename),
+      surface: 'reel',
+      width: 1080, height: 1920, duration_seconds: 12,
+    }]);
+    const { pool, calls } = makeMockPool(1);
+    const result = await ingestProductionCreativeAssetsToDb({ jobId: 'mkt_durable', tenantId: 42, doc, pool });
+
+    assert.equal(result.inserted, 1, 'video read from the video mount and ingested');
+    const { params } = calls[0];
+    // $4=storageKey (params[3]), $8=storageKind (params[7]).
+    assert.equal(params[7], 'ingested_asset', 'video persists as ingested_asset, not runtime_asset');
+    const storageKey = String(params[3]);
+    assert.ok(
+      storageKey.startsWith(path.join(dataRoot, 'ingested-assets')),
+      `storageKey must live under DATA_ROOT/ingested-assets (got ${storageKey})`,
+    );
+    assert.ok(storageKey.endsWith('.mp4'), 'durable copy keeps the .mp4 extension');
+    // The durable copy actually exists on disk.
+    const st = await stat(storageKey);
+    assert.ok(st.isFile() && st.size > 0, 'durable video copy written to disk');
+  });
+});
+
+test('video present ONLY in the image mount is unresolvable -> skipped (mount asymmetry guard)', async () => {
+  await withHermesMediaMount(async ({ imageMount, hostVideoPath }) => {
+    // Simulate the bug topology: file sits in the image mount; the reported path
+    // is a cache/videos path. Video must resolve against the VIDEO mount only,
+    // so this is unresolvable and skipped (never falls back to the image mount).
+    const basename = 'wrong_mount.mp4';
+    await writeFile(path.join(imageMount, basename), Buffer.from('video-in-wrong-place'));
+
+    const doc = makeDoc([{
+      assetId: 'vid_wrong',
+      type: 'generated_video',
+      media_type: 'video',
+      path: hostVideoPath(basename),
+      surface: 'reel',
+    }]);
+    const { pool, calls } = makeMockPool(1);
+    const result = await ingestProductionCreativeAssetsToDb({ jobId: 'mkt_wrong', tenantId: 42, doc, pool });
+
+    assert.equal(result.inserted, 0, 'video not read from the image mount');
+    assert.equal(result.skipped, 1);
+    assert.equal(calls.length, 0, 'no INSERT for an unresolvable video');
   });
 });
