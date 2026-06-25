@@ -349,6 +349,12 @@ services:
       # are unreadable from the container — publish ingestion silently produces
       # zero creative_assets and the operator dashboard shows "No launch items".
       HERMES_IMAGE_CACHE_MOUNT: ${HERMES_IMAGE_CACHE_MOUNT:-/hermes-media}
+      # Hermes localizes generated VIDEO into a sibling profile dir
+      # (<hermes>/profiles/aries-content-generator/cache/videos), NOT cache/images.
+      # Bind it read-only on its own mount so ingest can read generated reels/
+      # stories; ingest copies the bytes into DATA_ROOT (ingested_asset) so they
+      # survive Hermes cache eviction. Only meaningful with ARIES_VIDEO_PUBLISH_ENABLED.
+      HERMES_VIDEO_CACHE_MOUNT: ${HERMES_VIDEO_CACHE_MOUNT:-/hermes-video-media}
     ports:
       - "${PORT:-3000}:${PORT:-3000}"
     extra_hosts:
@@ -357,6 +363,7 @@ services:
       - ${ARIES_SHARED_DATA_ROOT:-/home/node/data}:/data
       - ${ARIES_HOST_ARTIFACT_OUTPUT_DIR:-/home/node/aries-app/hermes/output}:${ARIES_HOST_ARTIFACT_OUTPUT_MOUNT:-/hermes-output}:ro
       - ${HERMES_IMAGE_CACHE_DIR:-/home/node/.hermes/profiles/aries-content-generator/cache/images}:/hermes-media:ro
+      - ${HERMES_VIDEO_CACHE_DIR:-/home/node/.hermes/profiles/aries-content-generator/cache/videos}:/hermes-video-media:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:${PORT:-3000}/ >/dev/null"]
