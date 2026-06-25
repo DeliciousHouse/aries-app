@@ -311,7 +311,8 @@ export async function applyBrandFrameDetailed(
     };
   }
 
-  const composites: sharp.OverlayOptions[] = [];
+  type CompositeInputs = Parameters<ReturnType<typeof sharp>['composite']>[0];
+  const composites: CompositeInputs = [];
   if (drawBorder) {
     composites.push({ input: buildBorderSvg(width, height, borderHex), top: 0, left: 0 });
   }
