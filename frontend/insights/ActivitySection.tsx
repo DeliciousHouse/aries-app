@@ -89,13 +89,13 @@ export function ActivitySection({ period, platform }: ActivitySectionProps) {
       ) : error ? (
         <Panel><ErrorState message={error} onRetry={refetch} /></Panel>
       ) : !data?.meta?.hasData ? (
-        <Panel><EmptyState message="No posts published in this period." /></Panel>
+        <Panel><EmptyState message="No Aries-published posts in this period." /></Panel>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "1.55fr 1fr", gap: 20, alignItems: "stretch" }}>
           {/* ── LEFT panel: metric cards + insight footer ── */}
           <Panel style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <MetricCard icon="post" value={data.strip.postsPublished.toLocaleString()} label="Posts published">
+              <MetricCard icon="post" value={data.strip.postsPublished.toLocaleString()} label="Aries-published posts">
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
                   <span style={{ display: "inline-flex", gap: 3 }}>
                     {platforms.map((p) => <ChannelIcon key={p} platform={p} size={13} />)}
