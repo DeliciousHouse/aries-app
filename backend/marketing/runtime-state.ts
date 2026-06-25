@@ -7,6 +7,7 @@ import { normalizeMetaLocatorUrl, normalizeMetaPageId } from '@/lib/marketing-co
 import { describeSpecResolution, resolveDataPath } from '@/lib/runtime-paths';
 import { ingestRuntimeDocAssets } from './asset-ingest';
 import { loadTenantBrandKit, tenantBrandKitPath, type TenantBrandKit } from './brand-kit';
+import { stripLeadingDanglingArticleFragment } from './brand-kit-enrich';
 import { recordMarketingFailureRuntimeIncident } from './runtime-error-bridge';
 
 const REQUIRED_SCHEMA_FILES = [
@@ -431,11 +432,30 @@ function marketingRuntimeRoot(): string {
   return resolveDataPath('generated', 'draft', 'marketing-jobs');
 }
 
+function normalizeRuntimeBrandKitText(value: string | null | undefined): string | null {
+  return stripLeadingDanglingArticleFragment(value) ?? null;
+}
+
+export function normalizeMarketingBrandKitReference(
+  brandKit: MarketingBrandKitReference | null | undefined,
+): MarketingBrandKitReference | null {
+  if (!brandKit) return null;
+  return {
+    ...brandKit,
+    brand_voice_summary: normalizeRuntimeBrandKitText(brandKit.brand_voice_summary),
+    offer_summary: normalizeRuntimeBrandKitText(brandKit.offer_summary),
+    positioning: normalizeRuntimeBrandKitText(brandKit.positioning),
+    audience: normalizeRuntimeBrandKitText(brandKit.audience),
+    tone_of_voice: normalizeRuntimeBrandKitText(brandKit.tone_of_voice),
+    style_vibe: normalizeRuntimeBrandKitText(brandKit.style_vibe),
+  };
+}
+
 export function marketingBrandKitReferenceFromTenantBrandKit(
   brandKit: TenantBrandKit,
   filePath: string,
 ): MarketingBrandKitReference {
-  return {
+  return normalizeMarketingBrandKitReference({
     path: filePath,
     source_url: brandKit.source_url,
     canonical_url: brandKit.canonical_url,
@@ -459,7 +479,7 @@ export function marketingBrandKitReferenceFromTenantBrandKit(
     audience: brandKit.audience ?? null,
     tone_of_voice: brandKit.tone_of_voice ?? null,
     style_vibe: brandKit.style_vibe ?? null,
-  };
+  }) as MarketingBrandKitReference;
 }
 
 function runtimeBrandKitReferenceFromTenantBrandKit(
@@ -572,6 +592,8 @@ export async function loadSocialContentJobRuntime(jobId: string): Promise<Social
     }
     if (!doc.brand_kit) {
       doc.brand_kit = await recoverLegacyRuntimeBrandKit(doc);
+    } else {
+      doc.brand_kit = normalizeMarketingBrandKitReference(doc.brand_kit);
     }
     return doc;
   } catch (error) {
