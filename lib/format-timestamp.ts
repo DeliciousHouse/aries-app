@@ -145,6 +145,32 @@ export function formatTimeInTenantZone(
 }
 
 /**
+ * Renders a start/end UTC instant pair as an operator-facing publish window in
+ * the tenant business timezone. This keeps dashboard range copy aligned with
+ * the single tenant timezone source instead of exposing raw ISO/UTC strings.
+ */
+export function formatTenantDateRangeLabel(
+  start: string | number | Date | null | undefined,
+  end: string | number | Date | null | undefined,
+  timeZone: string = DEFAULT_TENANT_TIMEZONE,
+): string {
+  if (start === null || start === undefined || end === null || end === undefined) {
+    return 'Dates not scheduled yet';
+  }
+
+  const startDate = toDate(start);
+  const endDate = toDate(end);
+  if (!startDate || !endDate) {
+    return `${typeof start === 'string' ? start : String(start)} to ${typeof end === 'string' ? end : String(end)}`;
+  }
+
+  const zone = resolveTenantTimeZone(timeZone);
+  const startLabel = `${formatInTenantZone(startDate, zone)} ${tenantZoneAbbreviation(startDate, zone)}`;
+  const endLabel = `${formatInTenantZone(endDate, zone)} ${tenantZoneAbbreviation(endDate, zone)}`;
+  return `${startLabel} to ${endLabel}`;
+}
+
+/**
  * Converts a `datetime-local` wall-clock value (no zone) to a UTC instant,
  * interpreting the wall time in the tenant business zone. DST gaps/duplicates
  * are resolved per `DST_POLICY` (date-fns-tz `fromZonedTime` default).
