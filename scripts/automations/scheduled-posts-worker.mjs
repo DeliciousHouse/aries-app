@@ -15,11 +15,18 @@ const REPO_ROOT = path.resolve(__dirname, '../..');
 const INTERVAL_MS = 60 * 1000; // 1 minute
 const BATCH_SIZE = 50;
 const FETCH_TIMEOUT_MS = 30_000;
+// VIDEO publish is a long async two-step (create container -> poll up to ~300s
+// -> publish), run synchronously by the dispatch route. The worker MUST wait
+// past that poll ceiling: at 30s the fetch aborts while the publish completes
+// server-side, the row reverts to 'pending', and the next tick re-dispatches ->
+// a DUPLICATE Reel each cycle (the 8x-IG-reel incident, 2026-06-26). Image rows
+// keep the short timeout so one slow video never stalls the image batch.
+const VIDEO_FETCH_TIMEOUT_MS = 330_000; // > composio IG video max_wait_seconds (300s)
 // A row claimed as 'in_flight' but not driven to a terminal state within this
 // window is assumed to belong to a crashed worker pass and is re-claimable.
-// Comfortably larger than one fetch timeout so a slow-but-live publish is not
-// stolen mid-flight.
-const IN_FLIGHT_RECLAIM_MS = 10 * 60 * 1000; // 10 minutes
+// Comfortably larger than the longest fetch timeout (video) so a slow-but-live
+// publish is not stolen mid-flight and re-dispatched into a duplicate.
+const IN_FLIGHT_RECLAIM_MS = 15 * 60 * 1000; // 15 minutes (> VIDEO_FETCH_TIMEOUT_MS)
 
 let running = false;
 let intervalHandle = null;
@@ -231,15 +238,28 @@ function resolveInternalSecret() {
  * becomes 'dispatched'; a non-retryable failure becomes terminal 'failed'; a
  * retryable failure stays 'pending' so the next worker pass re-claims it.
  * `transportError` covers the case where the whole dispatch call failed (no
- * per-platform breakdown available) — every requested platform stays retryable.
+ * per-platform breakdown available) — every requested platform stays retryable,
+ * EXCEPT video: a transport timeout on a long async video publish means the
+ * outcome is UNKNOWN (the route may have published server-side), so retrying
+ * would re-create the IG container and duplicate the Reel. Video transport
+ * errors are therefore terminal-non-retryable, surfaced for manual check.
  */
-export function planPlatformOutcomes(platforms, results, transportError) {
+export function planPlatformOutcomes(platforms, results, transportError, mediaType) {
   const list = Array.isArray(platforms) ? platforms : [];
+  const isVideo = mediaType === 'video';
   const byProvider = new Map(
     (Array.isArray(results) ? results : []).map((r) => [r.provider, r]),
   );
   return list.map((platform) => {
     if (transportError) {
+      if (isVideo) {
+        return {
+          platform,
+          status: 'failed',
+          error: `video_publish_outcome_unknown (no auto-retry — may already be live): ${transportError}`,
+          retryable: false,
+        };
+      }
       return { platform, status: 'pending', error: transportError, retryable: true };
     }
     const result = byProvider.get(platform);
@@ -270,6 +290,11 @@ async function dispatchWithRetry(row, baseUrl, secret) {
   const content = row.caption || '';
   const tenantId = String(row.tenant_id);
 
+  // Video publishes synchronously poll IG up to ~300s in the route, so the
+  // worker must wait past that ceiling or it aborts mid-publish and duplicates.
+  const isVideoRow = (typeof row.media_type === 'string' ? row.media_type : 'image') === 'video';
+  const fetchTimeoutMs = isVideoRow ? VIDEO_FETCH_TIMEOUT_MS : FETCH_TIMEOUT_MS;
+
   const url = `${baseUrl}/api/internal/publishing/scheduled-dispatch`;
 
   const body = JSON.stringify({
@@ -293,7 +318,7 @@ async function dispatchWithRetry(row, baseUrl, secret) {
 
   async function attempt() {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), fetchTimeoutMs);
     try {
       return await fetch(url, { method: 'POST', headers, body, signal: controller.signal });
     } finally {
@@ -418,7 +443,7 @@ export async function tick(pool) {
       const { results, transportError } = platformsToDispatch.length > 0
         ? await dispatchWithRetry({ ...row, target_platforms: platformsToDispatch }, baseUrl, secret)
         : { results: [], transportError: null };
-      const outcomes = planPlatformOutcomes(platformsToDispatch, results, transportError);
+      const outcomes = planPlatformOutcomes(platformsToDispatch, results, transportError, row.media_type);
 
       const fc = await pool.connect();
       try {
