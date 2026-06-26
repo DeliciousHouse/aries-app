@@ -492,6 +492,33 @@ async function initDb() {
     `);
 
     await client.query(`
+      -- Workspace member invitations. An admin invites a teammate by email +
+      -- role: a pending users row is created (password_hash = 'invited_pending')
+      -- plus a row here holding a hashed, single-use token. The teammate clicks
+      -- the emailed link, sets a password, and accepted_at is stamped. Tokens
+      -- are stored hashed (sha256) like password_resets. ON DELETE CASCADE means
+      -- removing the member clears their outstanding invitations.
+      CREATE TABLE IF NOT EXISTS workspace_invitations (
+        id BIGSERIAL PRIMARY KEY,
+        organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL,
+        token_hash TEXT NOT NULL,
+        invited_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        accepted_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_invitations_token_hash
+        ON workspace_invitations (token_hash);
+
+      CREATE INDEX IF NOT EXISTS idx_workspace_invitations_org_user
+        ON workspace_invitations (organization_id, user_id);
+    `);
+
+    await client.query(`
       -- Posts table columns for weekly social content.
       -- NOTE: 'caption' is the canonical post-body column. Prod's posts table
       -- has 'caption' (NOT NULL) and no 'content' column; init-db.js previously

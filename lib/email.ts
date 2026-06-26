@@ -105,6 +105,21 @@ export interface MetaReconnectWarningEmailParams {
   reconnectUrl: string;
 }
 
+export interface WorkspaceInviteEmailParams {
+  /** Invited teammate's email address */
+  to: string;
+  /** Display name of the person who sent the invite, if known */
+  inviterName?: string | null;
+  /** Workspace / business name the teammate is being added to */
+  workspaceName: string;
+  /** Human-readable role label, e.g. "Editor" */
+  roleLabel: string;
+  /** Tokenized accept URL the teammate clicks to set a password */
+  acceptUrl: string;
+  /** How many days the invite link stays valid */
+  expiresInDays: number;
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -334,6 +349,60 @@ function renderMetaReconnectWarningText(p: MetaReconnectWarningEmailParams): str
     '',
     `Reconnect Meta: ${p.reconnectUrl}`,
   ].join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Workspace invite email
+// ---------------------------------------------------------------------------
+
+function renderWorkspaceInviteHtml(p: WorkspaceInviteEmailParams): string {
+  const inviter = p.inviterName?.trim();
+  const lead = inviter
+    ? `<strong style="color:#ffffff;">${inviter}</strong> invited you to join`
+    : `You've been invited to join`;
+  const body = `
+    <p style="font-size:15px;line-height:1.5;color:rgba(255,255,255,0.7);margin:0 0 8px;">
+      ${lead} <strong style="color:#ffffff;">${p.workspaceName}</strong> on Aries AI as a
+      <strong style="color:#ffffff;">${p.roleLabel}</strong>.
+    </p>
+    <p style="font-size:15px;line-height:1.5;color:rgba(255,255,255,0.7);margin:0 0 24px;">
+      Set your password to view and manage the posting schedule together.
+    </p>
+    ${renderCtaButton('Accept invite', p.acceptUrl)}
+    <p style="font-size:13px;color:rgba(255,255,255,0.4);margin:24px 0 0;">
+      Or copy this link: ${p.acceptUrl}
+    </p>
+    <p style="font-size:13px;color:rgba(255,255,255,0.4);margin:12px 0 0;">
+      This invite expires in ${p.expiresInDays} ${p.expiresInDays === 1 ? 'day' : 'days'}.
+    </p>`;
+  return renderEmailHtml('You’re invited to Aries AI', body);
+}
+
+function renderWorkspaceInviteText(p: WorkspaceInviteEmailParams): string {
+  const inviter = p.inviterName?.trim();
+  const lead = inviter
+    ? `${inviter} invited you to join ${p.workspaceName} on Aries AI`
+    : `You've been invited to join ${p.workspaceName} on Aries AI`;
+  return [
+    'Aries AI — workspace invite',
+    '',
+    `${lead} as a ${p.roleLabel}.`,
+    'Set your password to view and manage the posting schedule together.',
+    '',
+    `Accept invite: ${p.acceptUrl}`,
+    '',
+    `This invite expires in ${p.expiresInDays} ${p.expiresInDays === 1 ? 'day' : 'days'}.`,
+  ].join('\n');
+}
+
+export async function sendWorkspaceInviteEmail(params: WorkspaceInviteEmailParams): Promise<void> {
+  await sendEmail({
+    to: params.to,
+    subject: `You're invited to ${params.workspaceName} on Aries AI`,
+    html: renderWorkspaceInviteHtml(params),
+    text: renderWorkspaceInviteText(params),
+    context: 'workspace-invite',
+  });
 }
 
 export async function sendPasswordResetEmail(email: string, code: string): Promise<void> {

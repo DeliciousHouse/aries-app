@@ -1,11 +1,39 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 import { useIntegrations } from '@/hooks/use-integrations';
 import { useBusinessProfile } from '@/hooks/use-business-profile';
+import { createAriesV1Api } from '@/lib/api/aries-v1';
+
+type WorkspaceRole = 'tenant_admin' | 'tenant_analyst' | 'tenant_viewer';
+
+function workspaceRoleLabel(role: WorkspaceRole): string {
+  if (role === 'tenant_admin') return 'Admin';
+  if (role === 'tenant_analyst') return 'Editor';
+  return 'Viewer';
+}
+
+function memberActionErrorMessage(code: string | undefined): string {
+  switch (code) {
+    case 'already_member':
+      return 'That person is already a member of this workspace.';
+    case 'email_taken':
+      return 'That email already belongs to another Aries account.';
+    case 'missing_required_fields:email':
+      return 'Enter an email address to invite.';
+    case 'invalid_role':
+      return 'Pick a valid role.';
+    case 'already_active':
+      return 'That member has already joined — no invite needed.';
+    case 'forbidden':
+      return 'Only workspace admins can manage members.';
+    default:
+      return 'Something went wrong. Try again.';
+  }
+}
 
 import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './components';
@@ -55,6 +83,87 @@ export default function AriesSettingsScreen() {
       primaryGoal,
       launchApproverUserId: launchApproverUserId || null,
     });
+  }
+
+  const memberApi = useMemo(() => createAriesV1Api(), []);
+  const viewer = business.team.data?.viewer ?? null;
+  const isWorkspaceAdmin = viewer?.role === 'tenant_admin';
+  const viewerUserId = viewer?.userId ?? null;
+
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<WorkspaceRole>('tenant_analyst');
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [rowBusyId, setRowBusyId] = useState<string | null>(null);
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+  const [memberNotice, setMemberNotice] = useState<string | null>(null);
+  const [memberError, setMemberError] = useState<string | null>(null);
+
+  async function handleInviteMember(e: React.FormEvent) {
+    e.preventDefault();
+    if (inviteBusy) return;
+    setMemberError(null);
+    setMemberNotice(null);
+    const email = inviteEmail.trim();
+    if (!email) {
+      setMemberError('Enter an email address to invite.');
+      return;
+    }
+    setInviteBusy(true);
+    try {
+      await memberApi.inviteTenantMember({ email, role: inviteRole });
+      setInviteEmail('');
+      setMemberNotice(`Invite sent to ${email}.`);
+      await business.load();
+    } catch (err) {
+      setMemberError(memberActionErrorMessage((err as { code?: string })?.code));
+    } finally {
+      setInviteBusy(false);
+    }
+  }
+
+  async function handleMemberRoleChange(userId: string, role: WorkspaceRole) {
+    setMemberError(null);
+    setMemberNotice(null);
+    setRowBusyId(userId);
+    try {
+      await memberApi.updateTenantProfile(userId, { role });
+      setMemberNotice('Role updated.');
+      await business.load();
+    } catch (err) {
+      setMemberError(memberActionErrorMessage((err as { code?: string })?.code));
+    } finally {
+      setRowBusyId(null);
+    }
+  }
+
+  async function handleResendInvite(userId: string, email: string) {
+    setMemberError(null);
+    setMemberNotice(null);
+    setRowBusyId(userId);
+    try {
+      await memberApi.resendTenantInvite(userId);
+      setMemberNotice(`Invite resent to ${email}.`);
+    } catch (err) {
+      setMemberError(memberActionErrorMessage((err as { code?: string })?.code));
+    } finally {
+      setRowBusyId(null);
+    }
+  }
+
+  async function handleRemoveMember(userId: string, email: string) {
+    setMemberError(null);
+    setMemberNotice(null);
+    setRowBusyId(userId);
+    try {
+      await memberApi.deleteTenantProfile(userId);
+      setConfirmRemoveId(null);
+      setMemberNotice(`Removed ${email}.`);
+      await business.load();
+    } catch (err) {
+      setMemberError(memberActionErrorMessage((err as { code?: string })?.code));
+    } finally {
+      setRowBusyId(null);
+    }
   }
 
   async function handleIntegrationAction(
@@ -197,33 +306,150 @@ export default function AriesSettingsScreen() {
           )}
         </ShellPanel>
 
-        <ShellPanel eyebrow="Team / Approvals" title="Who signs off before launch">
-          {teamProfiles.length === 0 ? (
-            <EmptyStatePanel compact title="No team members yet" description="Invite teammates or keep the owner as the default approver." />
-          ) : (
-            <div className="space-y-3">
-              <Field label="Launch approver">
-                <select value={launchApproverUserId} onChange={(e) => setLaunchApproverUserId(e.target.value)} className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white">
-                  <option value="" className="bg-black">Owner default</option>
-                  {teamProfiles.map((profileItem) => (
-                    <option key={profileItem.userId} value={profileItem.userId} className="bg-black">
-                      {profileItem.fullName || profileItem.email} · {profileItem.role}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              {teamProfiles.map((row) => (
-                <div key={row.userId} className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4">
-                  <p className="text-sm font-medium text-white">{row.fullName || row.email}</p>
-                  <p className="mt-1 text-sm text-white/70">{row.role}</p>
-                  <p className="mt-2 text-sm leading-6 text-white/55">{row.email}</p>
+        <ShellPanel eyebrow="Team / Approvals" title="Who can view and manage the schedule">
+          <div className="space-y-4">
+            {isWorkspaceAdmin ? (
+              <form onSubmit={handleInviteMember} className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 space-y-3">
+                <p className="text-sm font-medium text-white">Invite a teammate</p>
+                <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                  <input
+                    type="email"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    placeholder="teammate@email.com"
+                    className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white"
+                  />
+                  <select
+                    value={inviteRole}
+                    onChange={(e) => setInviteRole(e.target.value as WorkspaceRole)}
+                    className="rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white"
+                  >
+                    <option value="tenant_admin" className="bg-black">Admin — full control</option>
+                    <option value="tenant_analyst" className="bg-black">Editor — can change the schedule</option>
+                    <option value="tenant_viewer" className="bg-black">Viewer — read only</option>
+                  </select>
                 </div>
-              ))}
-              <button type="button" onClick={() => void saveProfile()} disabled={business.save.isLoading} className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] disabled:opacity-60">
-                {business.save.isLoading ? 'Saving…' : 'Save approval settings'}
-              </button>
-            </div>
-          )}
+                <button
+                  type="submit"
+                  disabled={inviteBusy}
+                  className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] disabled:opacity-60"
+                >
+                  {inviteBusy ? 'Sending…' : 'Send invite'}
+                </button>
+                <p className="text-xs leading-6 text-white/55">
+                  They&apos;ll get an email with a link to set a password and join this workspace.
+                </p>
+              </form>
+            ) : null}
+
+            {memberError ? (
+              <div className="rounded-[1rem] border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-100" role="alert">
+                {memberError}
+              </div>
+            ) : null}
+            {memberNotice ? (
+              <div className="rounded-[1rem] border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-50">
+                {memberNotice}
+              </div>
+            ) : null}
+
+            {teamProfiles.length === 0 ? (
+              <EmptyStatePanel compact title="No team members yet" description="Invite teammates above so more people can view and change the schedule." />
+            ) : (
+              <div className="space-y-3">
+                <Field label="Launch approver">
+                  <select value={launchApproverUserId} onChange={(e) => setLaunchApproverUserId(e.target.value)} className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white">
+                    <option value="" className="bg-black">Owner default</option>
+                    {teamProfiles.map((profileItem) => (
+                      <option key={profileItem.userId} value={profileItem.userId} className="bg-black">
+                        {profileItem.fullName || profileItem.email} · {workspaceRoleLabel(profileItem.role)}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                {teamProfiles.map((row) => {
+                  const isSelf = viewerUserId === row.userId;
+                  const rowBusy = rowBusyId === row.userId;
+                  return (
+                    <div key={row.userId} className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium text-white">
+                            {row.fullName || row.email}
+                            {isSelf ? <span className="text-white/50"> (you)</span> : null}
+                          </p>
+                          <p className="mt-2 text-sm leading-6 text-white/55">{row.email}</p>
+                        </div>
+                        <StatusChip status={row.status === 'invited' ? 'draft' : 'approved'}>
+                          {row.status === 'invited' ? 'Invited' : 'Active'}
+                        </StatusChip>
+                      </div>
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        {isWorkspaceAdmin && !isSelf ? (
+                          <select
+                            value={row.role}
+                            disabled={rowBusy}
+                            onChange={(e) => void handleMemberRoleChange(row.userId, e.target.value as WorkspaceRole)}
+                            className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-white disabled:opacity-60"
+                          >
+                            <option value="tenant_admin" className="bg-black">Admin</option>
+                            <option value="tenant_analyst" className="bg-black">Editor</option>
+                            <option value="tenant_viewer" className="bg-black">Viewer</option>
+                          </select>
+                        ) : (
+                          <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-white/70">
+                            {workspaceRoleLabel(row.role)}
+                          </span>
+                        )}
+                        {isWorkspaceAdmin && row.status === 'invited' ? (
+                          <button
+                            type="button"
+                            disabled={rowBusy}
+                            onClick={() => void handleResendInvite(row.userId, row.email)}
+                            className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10 disabled:opacity-60"
+                          >
+                            {rowBusy ? 'Sending…' : 'Resend invite'}
+                          </button>
+                        ) : null}
+                        {isWorkspaceAdmin && !isSelf ? (
+                          confirmRemoveId === row.userId ? (
+                            <span className="inline-flex items-center gap-2">
+                              <button
+                                type="button"
+                                disabled={rowBusy}
+                                onClick={() => void handleRemoveMember(row.userId, row.email)}
+                                className="inline-flex items-center gap-2 rounded-full border border-red-400/25 bg-red-500/15 px-3 py-1.5 text-xs font-semibold text-red-100 hover:bg-red-500/25 disabled:opacity-60"
+                              >
+                                {rowBusy ? 'Removing…' : 'Confirm remove'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmRemoveId(null)}
+                                className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/20 px-3 py-1.5 text-xs font-semibold text-white/80 hover:bg-black/30"
+                              >
+                                Cancel
+                              </button>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmRemoveId(row.userId)}
+                              className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/20 px-3 py-1.5 text-xs font-semibold text-white/80 hover:bg-black/30"
+                            >
+                              Remove
+                            </button>
+                          )
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+                <button type="button" onClick={() => void saveProfile()} disabled={business.save.isLoading} className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] disabled:opacity-60">
+                  {business.save.isLoading ? 'Saving…' : 'Save approval settings'}
+                </button>
+              </div>
+            )}
+          </div>
         </ShellPanel>
       </div>
     </div>
