@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { auth } from '@/auth';
 import { resolveFeedbackConfig } from '@/lib/feedback/feedback-config';
-import { syncFeedbackToSheet } from '@/lib/feedback/feedback-sink';
+import { syncFeedback } from '@/lib/feedback/feedback-sink';
 import { classifySeverity } from '@/lib/feedback/severity-classifier';
 import {
   countRecentSubmissions,
@@ -183,10 +183,10 @@ export async function POST(req: Request): Promise<NextResponse> {
     );
   }
 
-  // 2) Mirror to the centralized Google Sheet via Composio (resilient).
-  // Idempotency: if this submission's row was already mirrored on a prior attempt,
-  // do NOT append again (the Sheet append itself is not idempotent) — a retry
-  // after a lost ack must not produce a second row (spec §10 "one row per submission").
+  // 2) Mirror to the configured external tracker (JIRA, else Google Sheet).
+  // Idempotency: if this submission was already mirrored on a prior attempt, do
+  // NOT create again (issue/row creation is not idempotent) — a retry after a
+  // lost ack must not produce a second issue (spec §10 "one per submission").
   if (!isNew && priorSheetStatus === 'synced') {
     return NextResponse.json({
       status: 'ok',
@@ -195,11 +195,12 @@ export async function POST(req: Request): Promise<NextResponse> {
     });
   }
 
-  const sync = await syncFeedbackToSheet(record, config);
+  const sync = await syncFeedback(record, config);
   await recordSheetSync(record.submissionId, {
     status: sync.status,
     screenshotLink: sync.screenshotLink,
     error: sync.error,
+    issueKey: sync.issueKey,
   }).catch((error) => {
     console.error('[feedback]', {
       event: 'record-sync-failed',
@@ -208,16 +209,19 @@ export async function POST(req: Request): Promise<NextResponse> {
     });
   });
 
-  // A failed Sheet write is surfaced as retryable (spec §9.6): the durable row is
+  // A failed mirror write is surfaced as retryable (spec §9.6): the durable row is
   // saved, so a retry re-attempts the mirror without duplicating.
   if (sync.status === 'failed') {
     console.error('[feedback]', {
-      event: 'sheet-sync-failed',
+      event: 'mirror-sync-failed',
+      destination: sync.destination ?? 'unknown',
       submissionId: record.submissionId,
       error: sync.error,
     });
     return NextResponse.json(
       {
+        // Keep the historical error code: the widget treats it as a generic
+        // retryable mirror failure (it switches only on rate_limited / status).
         status: 'error',
         error: 'sheet_sync_failed',
         submissionId: record.submissionId,
@@ -231,5 +235,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     status: 'ok',
     submissionId: record.submissionId,
     sheetSync: sync.status,
+    destination: sync.destination ?? null,
+    issueKey: sync.issueKey ?? null,
   });
 }

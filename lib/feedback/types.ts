@@ -9,6 +9,25 @@ export type FeedbackAuthState = 'authenticated' | 'unauthenticated';
 
 export type FeedbackSheetSyncStatus = 'pending' | 'synced' | 'skipped' | 'failed';
 
+/** Which external mirror a submission was sent to (or none). */
+export type FeedbackSyncDestination = 'jira' | 'sheet' | 'none';
+
+/**
+ * Outcome of mirroring one submission to an external tracker. Shared by every
+ * sink (Google Sheet, JIRA) and the dispatcher, so the route records a uniform
+ * result regardless of destination. `status` reuses the sheet-sync vocabulary
+ * (the DB column predates JIRA): 'synced' | 'skipped' | 'failed' | 'pending'.
+ */
+export interface FeedbackSyncResult {
+  status: FeedbackSheetSyncStatus;
+  screenshotLink: string | null;
+  error: string | null;
+  /** Which mirror handled it (for the response + logs). */
+  destination?: FeedbackSyncDestination;
+  /** The created JIRA issue key (e.g. "AA-123"), when destination is 'jira'. */
+  issueKey?: string | null;
+}
+
 /** Context the client captures from the browser (untrusted — validated on input). */
 export interface FeedbackClientContext {
   /** The exact page the feedback was submitted from. */
