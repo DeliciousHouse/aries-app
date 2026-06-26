@@ -2,6 +2,44 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.19.0 — feat(workspace): email-invite workspace membership + member management UI
+
+Lets a tenant admin add teammates to the workspace so multiple people can view and
+change the posting schedule. The `users` ↔ `organizations` schema already supported
+many users per workspace and the admin-only member CRUD already existed
+(`/api/tenant/profiles`); the gaps were a way to invite from the dashboard and a
+login path for an invited person. This closes both with a standard email-invite flow.
+
+- **Invite + member management UI** (`frontend/aries-v1/settings-screen.tsx`, Settings →
+  Team / Approvals): an admin-only "Invite teammate" form (email + role), a per-member
+  role dropdown, Resend invite, and a two-click Remove. Members show an **Active / Invited**
+  status badge. Non-admins see a read-only roster. Role → schedule access: Admin and
+  **Editor** (`tenant_analyst`) can change the schedule; **Viewer** is read-only. The
+  invite form defaults to Editor.
+- **Invitation tokens** (`backend/tenant/workspace-invitations.ts`, new
+  `workspace_invitations` table): a 256-bit token is stored sha256-hashed at rest,
+  single-use, 7-day expiry — modeled on `password_resets`. Issuing a new invite
+  supersedes the user's prior live tokens, and accepting consumes every outstanding
+  token for that user, so a stale link can never re-set a password.
+- **Accept flow:** `POST /api/tenant/profiles` now creates the pending user, mints a
+  token, and emails a "set your password" link (`sendWorkspaceInviteEmail`, via Resend);
+  `POST /api/tenant/profiles/[userId]/resend-invite` re-issues it. The invitee lands on
+  `/invite/accept?token=…`, sets a password (`POST /api/auth/invite/accept`), and signs
+  in. `GET /api/auth/invite/validate` backs the page without consuming the token. Both
+  public routes are token-authenticated and collapse all token-state failures to one
+  message (no enumeration); the accept route is allowlisted in the route auth-gate
+  invariant alongside the other pre-session auth routes.
+- **Tenant isolation:** invite/resend/remove/role-change are `tenant_admin`-gated and
+  route through the existing tenant-scoped helpers; a cross-org email is refused
+  (`email_taken`) and an already-active member is refused (`already_member`).
+- **Email config:** invites use the same `RESEND_API_KEY` + verified `EMAIL_FROM` domain
+  as password reset. Unset → the invitation + token are still created but no mail is sent
+  (logged at ERROR in prod), so configure Resend before relying on this in production.
+- Migration `migrations/20260625000000_workspace_invitations.sql` (+ `scripts/init-db.js`,
+  applied on container start). New unit tests cover the token lifecycle: create / accept /
+  expire / reuse / cross-tenant / supersession. `npm run verify` + `validate:social-content`
+  green; no `aries-hermes-protocol` change.
+
 ## v0.1.18.0 — feat(marketing): image-edit (image-to-image) API for creatives, flag-gated
 
 Adds an Aries-owned image-edit path so an operator can change an existing creative

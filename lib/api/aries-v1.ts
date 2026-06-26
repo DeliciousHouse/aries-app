@@ -293,7 +293,10 @@ export type BusinessProfilePatch = {
   channels?: string[] | null;
   timezone?: string | null;
 };
-export type TenantProfilesResponse = { profiles: TenantUserProfile[] };
+export type TenantProfilesResponse = {
+  profiles: TenantUserProfile[];
+  viewer?: { userId: string; role: 'tenant_admin' | 'tenant_analyst' | 'tenant_viewer' };
+};
 
 // A3 — calendar planner read model.
 export type ScheduledPostDispatchDetail = {
@@ -633,6 +636,22 @@ export function createAriesV1Api(options: ApiClientOptions = {}) {
       return requestJson<{ profile: TenantUserProfile }>(`/api/tenant/profiles/${encodeURIComponent(userId)}`, {
         method: 'PATCH',
         body: JSON.stringify(body),
+      }, options);
+    },
+    inviteTenantMember(body: { email: string; fullName?: string | null; role?: 'tenant_admin' | 'tenant_analyst' | 'tenant_viewer' }) {
+      return requestJson<{ profile: TenantUserProfile; invited: boolean }>('/api/tenant/profiles', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }, options);
+    },
+    resendTenantInvite(userId: string) {
+      return requestJson<{ status: string }>(`/api/tenant/profiles/${encodeURIComponent(userId)}/resend-invite`, {
+        method: 'POST',
+      }, options);
+    },
+    deleteTenantProfile(userId: string) {
+      return requestJson<{ status: string }>(`/api/tenant/profiles/${encodeURIComponent(userId)}`, {
+        method: 'DELETE',
       }, options);
     },
   };
