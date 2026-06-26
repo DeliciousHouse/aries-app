@@ -91,6 +91,11 @@ services:
       # (+ drop the "draw a logo" brief instruction). Default OFF; needs the brand
       # kit's materialized logo_file_path. Screenshot-verify before enabling.
       ARIES_FEED_LOGO_COMPOSITE_ENABLED: ${ARIES_FEED_LOGO_COMPOSITE_ENABLED:-0}
+      # Per-tenant MARKETING LAYER: burn each tenant's own hook/value/CTA copy +
+      # logo + brand colors + a license-safe music bed onto generated reels so
+      # they read as ads, not abstract art. Default OFF (raw video, byte-identical
+      # to today); per-tenant when ON. Screenshot-verify before enabling.
+      ARIES_MARKETING_LAYER_ENABLED: ${ARIES_MARKETING_LAYER_ENABLED:-0}
       # First-post onboarding 3-variant board → taste profile rollout switch.
       # Default OFF: onboarding stays byte-identical to today (single weekly job).
       ARIES_ONBOARDING_VARIANT_BOARD_ENABLED: ${ARIES_ONBOARDING_VARIANT_BOARD_ENABLED:-0}
