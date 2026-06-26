@@ -249,6 +249,17 @@ services:
       FEEDBACK_GOOGLE_SHEET_ID: ${FEEDBACK_GOOGLE_SHEET_ID:-}
       FEEDBACK_GOOGLE_SHEET_TAB: ${FEEDBACK_GOOGLE_SHEET_TAB:-Feedback}
       COMPOSIO_FEEDBACK_SHEETS_APPEND_ACTION: ${COMPOSIO_FEEDBACK_SHEETS_APPEND_ACTION:-}
+      # In-app feedback button — JIRA mirror (preferred over the Sheet when set).
+      # The feedback API runs in the app process, so these live here only. The
+      # mirror activates only when ALL of base URL + email + token + project key
+      # are set in the prod host .env; otherwise it falls back to the Sheet, then
+      # to durable-DB-only (sheet_sync_status='skipped'). JIRA_API_TOKEN is a
+      # secret — set it in the host .env, never commit it.
+      JIRA_BASE_URL: ${JIRA_BASE_URL:-}
+      JIRA_EMAIL: ${JIRA_EMAIL:-}
+      JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
+      JIRA_PROJECT_KEY: ${JIRA_PROJECT_KEY:-}
+      JIRA_FEEDBACK_ISSUE_TYPE: ${JIRA_FEEDBACK_ISSUE_TYPE:-Task}
       # Optional feedback knobs. FEEDBACK_ENABLED defaults to true here so the
       # button stays visible when the var is unset; resolveFeedbackConfig() also
       # treats an empty string as unset (defaults on), so this is belt-and-

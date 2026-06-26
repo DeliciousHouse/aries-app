@@ -43,6 +43,26 @@ export interface FeedbackComposioConfig {
   appendActionSlug: string;
 }
 
+/**
+ * Direct JIRA REST mirror. Non-null only when every piece needed to create an
+ * issue is present: base URL, account email, API token, and project key. The
+ * app authenticates with Basic auth (email:apiToken) against
+ * `${baseUrl}/rest/api/3/issue`. JIRA takes precedence over the Google Sheet
+ * mirror when both are configured.
+ */
+export interface FeedbackJiraConfig {
+  /** e.g. https://sugarandleather.atlassian.net (trailing slash trimmed). */
+  baseUrl: string;
+  /** Atlassian account email the API token belongs to (Basic auth user). */
+  email: string;
+  /** Atlassian API token (secret) — never logged. */
+  apiToken: string;
+  /** Target project key, e.g. "AA" (Aries AI). */
+  projectKey: string;
+  /** Issue type name to create, e.g. "Task". Project AA only has Epic/Sub-task/Task. */
+  issueType: string;
+}
+
 /** Hermes-backed severity classification (severity is inferred, not user-entered). */
 export interface FeedbackSeverityLlmConfig {
   gatewayUrl: string;
@@ -63,6 +83,8 @@ export interface FeedbackConfig {
   rateLimitPerHour: number;
   /** Non-null only when the Composio → Sheet mirror is fully configured. */
   composio: FeedbackComposioConfig | null;
+  /** Non-null only when the direct JIRA mirror is fully configured. Preferred over `composio`. */
+  jira: FeedbackJiraConfig | null;
   /** Non-null when severity should be inferred via Hermes (else heuristic only). */
   severityLlm: FeedbackSeverityLlmConfig | null;
 }
@@ -105,6 +127,30 @@ function resolveComposio(env: NodeJS.ProcessEnv): FeedbackComposioConfig | null 
   };
 }
 
+function resolveJira(env: NodeJS.ProcessEnv): FeedbackJiraConfig | null {
+  const baseUrl = str(env.JIRA_BASE_URL);
+  const email = str(env.JIRA_EMAIL);
+  const apiToken = str(env.JIRA_API_TOKEN);
+  const projectKey = str(env.JIRA_PROJECT_KEY);
+
+  // Every required piece must be present; otherwise the JIRA mirror is "not
+  // configured" and the dispatcher falls back (Sheet, else durable-DB-only).
+  // Never invent a project/token.
+  if (!baseUrl || !email || !apiToken || !projectKey) {
+    return null;
+  }
+
+  return {
+    baseUrl: baseUrl.replace(/\/+$/, ''),
+    email,
+    apiToken,
+    projectKey,
+    // Project AA (Aries AI) is team-managed with only Epic/Sub-task/Task, so
+    // Task is the safe default; override per-deploy if a richer type set exists.
+    issueType: str(env.JIRA_FEEDBACK_ISSUE_TYPE) ?? 'Task',
+  };
+}
+
 /**
  * Severity is inferred via Hermes when the gateway is configured and the feature
  * isn't explicitly disabled. Treats an empty string as "unset" (docker-compose
@@ -139,6 +185,7 @@ export function resolveFeedbackConfig(env: NodeJS.ProcessEnv = process.env): Fee
     appBaseUrl: str(env.APP_BASE_URL) ?? str(env.NEXTAUTH_URL) ?? str(env.AUTH_URL),
     rateLimitPerHour: int(env.FEEDBACK_RATE_LIMIT_PER_HOUR, 20),
     composio: resolveComposio(env),
+    jira: resolveJira(env),
     severityLlm: resolveSeverityLlm(env),
   };
 }

@@ -20,11 +20,17 @@ import {
   type ComposioGateway,
 } from '@/backend/integrations/composio/composio-client';
 import type { FeedbackComposioConfig, FeedbackConfig } from './feedback-config';
+import { appServedScreenshotLink } from './screenshot-link';
+import { syncFeedbackToJira } from './jira-sink';
 import type {
   FeedbackSheetRow,
-  FeedbackSheetSyncStatus,
   FeedbackSubmissionRecord,
+  FeedbackSyncResult,
 } from './types';
+
+// Re-exported so existing importers (and tests) keep their import paths.
+export type { FeedbackSyncResult } from './types';
+export { appServedScreenshotLink } from './screenshot-link';
 
 /** Toolkit slug for the Google Sheets connected account. */
 const GOOGLESHEETS_TOOLKIT = 'googlesheets';
@@ -49,23 +55,6 @@ export const FEEDBACK_SHEET_COLUMNS = [
   'Screenshot link',
   'Environment',
 ] as const;
-
-export interface FeedbackSyncResult {
-  status: FeedbackSheetSyncStatus;
-  screenshotLink: string | null;
-  error: string | null;
-}
-
-/** Build the app-served durable screenshot link (relative if no base URL is set). */
-export function appServedScreenshotLink(
-  config: Pick<FeedbackConfig, 'appBaseUrl'>,
-  submissionId: string,
-): string {
-  const path = `/api/feedback/screenshot/${encodeURIComponent(submissionId)}`;
-  // Prefer an absolute URL so the Sheet cell is clickable; fall back to a relative
-  // path rather than an empty cell when no base URL is configured.
-  return config.appBaseUrl ? `${config.appBaseUrl.replace(/\/+$/, '')}${path}` : path;
-}
 
 /** Flatten the record into the typed Sheet row (screenshot link injected late). */
 export function toFeedbackSheetRow(
@@ -198,8 +187,34 @@ export async function syncFeedbackToSheet(
         error: result.error ?? 'sheet append reported unsuccessful',
       };
     }
-    return { status: 'synced', screenshotLink: screenshotLink || null, error: null };
+    return { status: 'synced', screenshotLink: screenshotLink || null, error: null, destination: 'sheet' };
   } catch (error) {
-    return { status: 'failed', screenshotLink: screenshotLink || null, error: errorText(error) };
+    return { status: 'failed', screenshotLink: screenshotLink || null, error: errorText(error), destination: 'sheet' };
   }
+}
+
+/**
+ * Mirror a submission to the configured external tracker. JIRA takes precedence
+ * over the Google Sheet when both are configured (the migration target); the
+ * Sheet remains as a fallback for deployments still on it, and when neither is
+ * configured the result is 'skipped' (the durable DB row stands in). The route
+ * calls this single entry point and records the uniform result.
+ */
+export async function syncFeedback(
+  record: FeedbackSubmissionRecord,
+  config: FeedbackConfig,
+  overrides?: { gateway?: ComposioGateway; fetchImpl?: typeof fetch },
+): Promise<FeedbackSyncResult> {
+  if (config.jira) {
+    return syncFeedbackToJira(record, config.jira, config.appBaseUrl, overrides?.fetchImpl ?? fetch);
+  }
+  if (config.composio) {
+    return syncFeedbackToSheet(record, config, overrides?.gateway);
+  }
+  return {
+    status: 'skipped',
+    screenshotLink: record.screenshot ? appServedScreenshotLink(config, record.submissionId) : null,
+    error: null,
+    destination: 'none',
+  };
 }

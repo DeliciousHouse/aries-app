@@ -46,10 +46,15 @@ export async function ensureFeedbackTable(): Promise<void> {
       sheet_sync_status TEXT NOT NULL DEFAULT 'pending',
       sheet_sync_error TEXT,
       sheet_synced_at TIMESTAMPTZ,
+      jira_issue_key TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `);
+  // Existing deployments predate the JIRA mirror — CREATE TABLE IF NOT EXISTS is a
+  // no-op there, so add the column explicitly (idempotent) or the issue key write
+  // silently no-ops on a live DB (the is_replied-column incident).
+  await pool.query(`ALTER TABLE feedback_submissions ADD COLUMN IF NOT EXISTS jira_issue_key TEXT`);
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_feedback_submissions_created_at ON feedback_submissions (created_at DESC)`,
   );
@@ -137,13 +142,18 @@ export async function upsertFeedbackSubmission(
   };
 }
 
-/** Record the outcome of the Google Sheet mirror attempt. */
+/**
+ * Record the outcome of the external mirror attempt (JIRA or Google Sheet). The
+ * column names keep the historical `sheet_*` prefix (the mirror status is
+ * destination-agnostic); `jira_issue_key` is set when a JIRA issue was created.
+ */
 export async function recordSheetSync(
   submissionId: string,
   outcome: {
     status: FeedbackSheetSyncStatus;
     screenshotLink?: string | null;
     error?: string | null;
+    issueKey?: string | null;
   },
 ): Promise<void> {
   await pool.query(
@@ -153,10 +163,11 @@ export async function recordSheetSync(
         screenshot_link = COALESCE($3, screenshot_link),
         sheet_sync_error = $4,
         sheet_synced_at = CASE WHEN $2 = 'synced' THEN now() ELSE sheet_synced_at END,
+        jira_issue_key = COALESCE($5, jira_issue_key),
         updated_at = now()
       WHERE submission_id = $1
     `,
-    [submissionId, outcome.status, outcome.screenshotLink ?? null, outcome.error ?? null],
+    [submissionId, outcome.status, outcome.screenshotLink ?? null, outcome.error ?? null, outcome.issueKey ?? null],
   );
 }
 
