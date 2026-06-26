@@ -81,9 +81,14 @@ async function initDb() {
         sheet_sync_status TEXT NOT NULL DEFAULT 'pending',
         sheet_sync_error TEXT,
         sheet_synced_at TIMESTAMPTZ,
+        jira_issue_key TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
+      -- The feedback mirror now targets JIRA; record the created issue key.
+      -- ADD COLUMN IF NOT EXISTS so existing deployments pick it up (the bare
+      -- CREATE TABLE IF NOT EXISTS above is a no-op on an existing table).
+      ALTER TABLE feedback_submissions ADD COLUMN IF NOT EXISTS jira_issue_key TEXT;
       CREATE INDEX IF NOT EXISTS idx_feedback_submissions_created_at ON feedback_submissions (created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_feedback_submissions_sync_status ON feedback_submissions (sheet_sync_status);
       CREATE INDEX IF NOT EXISTS idx_feedback_submissions_tenant ON feedback_submissions (tenant_id);

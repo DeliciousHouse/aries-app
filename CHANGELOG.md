@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.20.0 — feat(feedback): mirror the feedback button to JIRA instead of Google Sheets
+
+Rewires the in-app feedback button so each submission is filed as a JIRA issue
+(project AA, "Aries AI") via the direct JIRA REST API, replacing the Composio →
+Google Sheet mirror. Everything now lands in JIRA for tracking. The capture path
+and durable DB persistence are unchanged — only the external mirror destination
+swapped, and it stays pluggable.
+
+- **Pluggable sink dispatcher** (`lib/feedback/feedback-sink.ts::syncFeedback`):
+  prefers JIRA when configured, falls back to the Google Sheet, then to
+  durable-DB-only (`sheet_sync_status='skipped'`). The route calls one entry point.
+- **Direct JIRA REST mirror** (`lib/feedback/jira-sink.ts`): `POST /rest/api/3/issue`
+  with HTTP Basic auth (`JIRA_EMAIL:JIRA_API_TOKEN`). The token is read from config
+  and never logged or placed in an error string. 10s timeout; never throws (a failed
+  mirror is retryable, the durable row already saved). Project AA is team-managed
+  with only Epic/Sub-task/Task, so every submission is created as the configured
+  issue type (default **Task**), with category + severity carried in the summary,
+  labels (`aries-feedback`, `cat-*`, `sev-*`, `env-*`, `auth-*`), and an ADF body
+  (comment + metadata bullets + console-errors code block). Page URL + screenshot
+  render as links.
+- **Issue-key traceability:** the created key (e.g. `AA-123`) is stored on
+  `feedback_submissions.jira_issue_key` and returned in the API response. Migration
+  `20260626000000_feedback_jira_issue_key.sql` + `init-db.js` (ALTER … ADD COLUMN
+  IF NOT EXISTS so existing DBs pick it up — the inline CREATE-IF-NOT-EXISTS no-op
+  trap).
+- **Config** (`resolveFeedbackConfig`): `JIRA_BASE_URL`, `JIRA_EMAIL`,
+  `JIRA_API_TOKEN`, `JIRA_PROJECT_KEY`, `JIRA_FEEDBACK_ISSUE_TYPE` (default Task).
+  The mirror activates only when all four required vars are set; never invents a
+  project/token. Wired into the `aries-app` service env block + `.env.example`
+  (token is host-`.env`-only, never committed).
+- Verified live end-to-end against the real AA project (issue created + deleted);
+  18 new unit tests for the JIRA sink (labels, ADF validity / no empty text nodes,
+  summary bounds, auth header never leaks the token, dispatcher precedence, config
+  gating). `npm run verify` green.
+
 ## v0.1.19.0 — feat(workspace): email-invite workspace membership + member management UI
 
 Lets a tenant admin add teammates to the workspace so multiple people can view and

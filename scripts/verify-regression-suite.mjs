@@ -56,6 +56,7 @@ const steps = [
       '--test',
       'tests/feedback-submission-validation.test.ts',
       'tests/feedback-sink.test.ts',
+      'tests/feedback-jira-sink.test.ts',
       'tests/feedback-config.test.ts',
       'tests/feedback-severity-classifier.test.ts',
       'tests/feedback-widget-render.test.ts',
