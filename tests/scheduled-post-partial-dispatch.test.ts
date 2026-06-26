@@ -21,6 +21,7 @@ type WorkerModule = {
     platforms: string[],
     results: Array<{ provider: string; ok: boolean; error?: string; retryable?: boolean; kind?: string }>,
     transportError: string | null,
+    mediaType?: string,
   ) => PlatformOutcome[];
 };
 
@@ -80,13 +81,26 @@ test('planPlatformOutcomes: a retryable IG failure stays pending, not failed', a
   assert.equal(rollupParentStatus(outcomes.map((o) => o.status)), 'pending');
 });
 
-test('planPlatformOutcomes: a transport error leaves every platform pending', async () => {
+test('planPlatformOutcomes: a transport error leaves every (image) platform pending', async () => {
   const { planPlatformOutcomes } = await loadWorker();
-  const outcomes = planPlatformOutcomes(['facebook', 'instagram'], [], 'fetch failed after retry');
+  const outcomes = planPlatformOutcomes(['facebook', 'instagram'], [], 'fetch failed after retry', 'image');
   assert.ok(
     outcomes.every((o) => o.status === 'pending' && o.retryable === true),
-    'a whole-call transport failure must not terminally fail any platform',
+    'a whole-call transport failure must not terminally fail any image platform',
   );
+});
+
+test('planPlatformOutcomes: a VIDEO transport error is non-retryable (no duplicate Reel)', async () => {
+  const { planPlatformOutcomes } = await loadWorker();
+  // A transport timeout on a long async video publish = outcome unknown; the
+  // route may have published server-side, so auto-retrying duplicates the Reel
+  // (the 8x-IG incident). Must NOT stay pending/retryable.
+  const outcomes = planPlatformOutcomes(['facebook', 'instagram'], [], 'fetch failed after retry', 'video');
+  assert.ok(
+    outcomes.every((o) => o.status === 'failed' && o.retryable === false),
+    'a video transport failure must be terminal-non-retryable to avoid duplicate Reels',
+  );
+  assert.match(outcomes[0].error ?? '', /outcome_unknown/);
 });
 
 test('worker schema: scheduled_post_dispatches child table exists in init-db.js', () => {
