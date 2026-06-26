@@ -114,6 +114,11 @@ const ALLOWLIST: AllowlistEntry[] = [
     rationale: 'pre-session password reset — no session exists yet',
   },
   {
+    path: 'app/api/auth/invite/accept/route.ts',
+    rationale:
+      'pre-session workspace-invite acceptance — authenticated by the single-use invite token (sha256-hashed at rest), not a session; the invitee has no account password until this call sets it',
+  },
+  {
     path: 'app/api/oauth/[provider]/callback/route.ts',
     rationale: 'OAuth provider callback resolves tenant via state token, not session',
   },

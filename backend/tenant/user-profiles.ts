@@ -1,11 +1,23 @@
 import type { TenantRole } from '@/lib/tenant-context';
 
+/**
+ * Membership status as surfaced to the admin UI. Derived from the user's
+ * password_hash sentinel: a freshly-invited teammate who has not yet set a
+ * password carries `password_hash = 'invited_pending'` and reads as 'invited';
+ * everyone else (credentials users, oauth_managed Google users) reads as
+ * 'active'. There is no separate status column — this is a projection.
+ */
+export type TenantMemberStatus = 'active' | 'invited';
+
+export const INVITED_PENDING_PASSWORD = 'invited_pending';
+
 export type TenantUserProfile = {
   userId: string;
   tenantId: string;
   email: string;
   fullName: string | null;
   role: TenantRole;
+  status: TenantMemberStatus;
   createdAt: string;
 };
 
@@ -15,6 +27,7 @@ type DbRow = {
   email: string;
   full_name: string | null;
   role: TenantRole;
+  password_hash?: string | null;
   created_at: string | Date;
 };
 
@@ -31,6 +44,7 @@ function toTenantUserProfile(row: DbRow): TenantUserProfile {
     email: row.email,
     fullName: row.full_name ?? null,
     role: row.role,
+    status: row.password_hash === INVITED_PENDING_PASSWORD ? 'invited' : 'active',
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
   };
 }
@@ -50,6 +64,7 @@ async function loadUserById(queryable: Queryable, userId: string) {
         u.email,
         u.full_name,
         u.role,
+        u.password_hash,
         u.created_at
       FROM users u
       WHERE u.id = $1
@@ -70,6 +85,7 @@ export async function listTenantUserProfiles(queryable: Queryable, tenantId: str
         u.email,
         u.full_name,
         u.role,
+        u.password_hash,
         u.created_at
       FROM users u
       WHERE u.organization_id = $1
@@ -108,9 +124,10 @@ export async function createTenantUserProfile(
         email,
         full_name,
         role,
+        password_hash,
         created_at
     `,
-    [email, 'invited_pending', input.fullName ?? null, Number(input.tenantId), role]
+    [email, INVITED_PENDING_PASSWORD, input.fullName ?? null, Number(input.tenantId), role]
   );
 
   return toTenantUserProfile(result.rows[0]);
@@ -165,6 +182,7 @@ export async function updateTenantUserProfile(
         email,
         full_name,
         role,
+        password_hash,
         created_at
     `,
     [nextFullName ?? null, nextRole, Number(input.userId), Number(input.tenantId)]
