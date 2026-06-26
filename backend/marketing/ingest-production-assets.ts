@@ -20,7 +20,11 @@
  */
 
 import crypto from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { isMarketingLayerEnabled } from './marketing-layer/marketing-layer-env';
+import { composeReelMarketingLayer } from './marketing-layer/compose-reel';
+import { findContentPackageCopy, resolveReelMarketingInputs } from './marketing-layer/resolve-inputs';
 import path from 'node:path';
 
 import {
@@ -318,10 +322,51 @@ export async function ingestProductionCreativeAssetsToDb(
         // DATA_ROOT and serve it as an ingested_asset (same scheme as framed
         // images / composed stories). The id media route serves ingested_asset
         // from DATA_ROOT, and the gc-missing-hermes-assets sweep only ever
-        // touches runtime_asset rows, so a video copy is never orphaned. No
-        // logo composite for video (isFrameEligibleEntry excludes it anyway).
+        // touches runtime_asset rows, so a video copy is never orphaned.
         const ext = path.extname(readPath).toLowerCase() || '.mp4';
-        const sha = crypto.createHash('sha256').update(rawBytes).digest('hex');
+
+        // MARKETING LAYER (flag-gated, best-effort, per-tenant): burn THIS
+        // tenant's own hook/value/CTA + logo + brand colors + a license-safe
+        // music bed onto the reel before the durable write. OFF (default) keeps
+        // the raw bytes — byte-identical to today. Any failure (no ffmpeg, empty
+        // copy, bad asset) falls back to the raw bytes so publish is never
+        // blocked. Per-tenant: copy from this post's content_package, logo/colors
+        // from this tenant's brand kit — never another tenant's branding.
+        let videoBytes = rawBytes;
+        if (isMarketingLayerEnabled()) {
+          let tmpOut: string | null = null;
+          try {
+            const docInputs = (doc as unknown as { inputs?: { brand_url?: unknown } }).inputs;
+            const fallbackUrl =
+              typeof docInputs?.brand_url === 'string' ? docInputs.brand_url : null;
+            const inputs = resolveReelMarketingInputs({
+              entry: findContentPackageCopy(primaryOutput, asset),
+              brandKit: (args.brandKit ?? null) as Record<string, unknown> | null,
+              fallbackUrl,
+            });
+            tmpOut = path.join(tmpdir(), `mkt-reel-${crypto.randomUUID()}.mp4`);
+            const composed = await composeReelMarketingLayer({
+              videoPath: readPath,
+              outPath: tmpOut,
+              copy: inputs.copy,
+              colors: inputs.colors,
+              logoPath: inputs.logoPath,
+              jobId,
+            });
+            if (composed) videoBytes = await readFile(composed);
+          } catch (mlError) {
+            console.warn('[ingest-production-assets] marketing-layer compose failed — using raw video', {
+              jobId,
+              tenantId,
+              error: (mlError as Error)?.message,
+            });
+          } finally {
+            if (tmpOut) await rm(tmpOut, { force: true }).catch(() => undefined);
+          }
+        }
+
+        bytes = videoBytes; // keep checksum (computed from `bytes`) consistent
+        const sha = crypto.createHash('sha256').update(videoBytes).digest('hex');
         storageKey = resolveDataPath(
           'ingested-assets',
           String(tenantId),
@@ -329,7 +374,7 @@ export async function ingestProductionCreativeAssetsToDb(
           `${sha}${ext}`,
         );
         await mkdir(path.dirname(storageKey), { recursive: true });
-        await writeFile(storageKey, rawBytes);
+        await writeFile(storageKey, videoBytes);
         storageKind = 'ingested_asset';
       } else if (compositeEnabled && args.brandKit && isFrameEligibleEntry(asset)) {
         try {

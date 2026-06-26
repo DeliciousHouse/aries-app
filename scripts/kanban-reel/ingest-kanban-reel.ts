@@ -15,11 +15,25 @@
  *
  * Usage (inside container): tsx ingest-kanban-reel.ts <cacheVideoBasename> <jobId> <tenantId> [scheduleInMinutes]
  */
+import { existsSync, readFileSync } from 'node:fs';
 import { pool } from '@/lib/db';
+import { resolveDataPath } from '@/lib/runtime-paths';
 import { ingestProductionCreativeAssetsToDb } from '@/backend/marketing/ingest-production-assets';
 import { synthesizePublishPostsFromContentPackage } from '@/backend/marketing/synthesize-publish-posts';
 import { upsertScheduledPost } from '@/backend/social-content/scheduled-posts';
 import type { SocialContentJobRuntimeDocument } from '@/backend/marketing/runtime-state';
+
+/** Load the tenant's validated brand kit so the marketing layer (when enabled)
+ *  burns that tenant's OWN colors + logo onto the reel. Null when absent. */
+function loadBrandKit(tenantId: number): Record<string, unknown> | null {
+  try {
+    const p = resolveDataPath('generated', 'validated', String(tenantId), 'brand-kit.json');
+    if (existsSync(p)) return JSON.parse(readFileSync(p, 'utf8')) as Record<string, unknown>;
+  } catch {
+    /* ignore — marketing layer falls back to defaults */
+  }
+  return null;
+}
 
 async function main() {
   const basename = process.argv[2];
@@ -31,6 +45,7 @@ async function main() {
 
   // Dims/duration of the standard reel (the editor normalizes to 1080x1920/15s).
   const width = 1080, height = 1920, durationSeconds = 15;
+  const brandKit = loadBrandKit(tenantId);
 
   const stub = (name: string, status: string, primary: unknown = null) => ({
     stage: name, status, started_at: null, completed_at: null, failed_at: null,
@@ -65,12 +80,20 @@ async function main() {
     },
     approvals: { current: null, history: [] },
     publish_config: { platforms: ['instagram', 'facebook'], live_publish_platforms: ['instagram', 'facebook'], video_render_platforms: [] },
-    brand_kit: null,
+    brand_kit: brandKit,
     inputs: { brand_url: 'https://aries.sugarandleather.com', request: { videoRenderCount: 1, imageCreativeCount: 0, channels: ['instagram', 'facebook'] } },
     history: [], errors: [], last_error: null,
   } as unknown as SocialContentJobRuntimeDocument;
 
-  const ing = await ingestProductionCreativeAssetsToDb({ jobId, tenantId, doc, pool });
+  const ing = await ingestProductionCreativeAssetsToDb({
+    jobId,
+    tenantId,
+    doc,
+    pool,
+    // Per-tenant marketing layer (when ARIES_MARKETING_LAYER_ENABLED): colors +
+    // logo from this tenant's brand kit, copy from the content_package above.
+    brandKit: brandKit as never,
+  });
   console.log('INGEST:', JSON.stringify(ing));
   if (ing.inserted < 1) throw new Error('video creative_asset not ingested (check HERMES_VIDEO_CACHE_MOUNT + basename)');
 
