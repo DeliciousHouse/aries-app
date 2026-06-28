@@ -93,6 +93,7 @@ import {
   markExecutionRunFailed,
   markExecutionRunSubmitted,
 } from '@/backend/execution/run-store';
+import { maybeFireWeeklyReelJob } from '@/backend/marketing/weekly-reel-trigger';
 
 export type StartSocialContentJobRequest = {
   tenantId: string;
@@ -1741,6 +1742,25 @@ export async function startSocialContentJob(input: StartSocialContentJobRequest)
     } else {
       recordFailure(doc, doc.current_stage, error);
     }
+  }
+
+  // Best-effort reel companion: for weekly jobs, fire a standalone one-off
+  // reel job so video/Reel production never blocks the weekly image pipeline's
+  // single production-stage slot. Gated by ARIES_WEEKLY_REEL_ENABLED (and
+  // ARIES_VIDEO_PUBLISH_ENABLED). Idempotent — uses a deterministic
+  // createdBy marker derived from jobId so reconciler re-delivery never
+  // starts a second reel job. Errors are swallowed; the weekly job result is
+  // unaffected regardless of whether the reel companion fires.
+  if (input.jobType === 'weekly_social_content') {
+    // Non-blocking: fired without await so the weekly endpoint is not delayed
+    // by a second Hermes submission. Aries runs as a standing Node cluster so
+    // the voided promise completes normally. Errors are swallowed — the reel
+    // companion is best-effort and must never affect the weekly job result.
+    void maybeFireWeeklyReelJob({
+      tenantId: Number(tenantId),
+      sourceWeeklyJobId: jobId,
+      brandUrl: brandCampaignInput.brandUrl,
+    }).catch(() => {});
   }
 
   return {

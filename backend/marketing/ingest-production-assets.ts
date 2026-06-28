@@ -286,6 +286,13 @@ export async function ingestProductionCreativeAssetsToDb(
     // through a bind-mount keyed by basename. Image -> HERMES_IMAGE_CACHE_MOUNT,
     // video -> HERMES_VIDEO_CACHE_MOUNT (Hermes writes video to cache/videos).
     const entryIsVideo = isVideoEntry(asset);
+    // Read the Hermes-reported duration early so it is available inside the
+    // video branch (marketing-layer compose needs it to place the end-card
+    // correctly without an ffprobe round-trip on the raw clip file).
+    const entryDuration =
+      typeof asset.duration_seconds === 'number' && Number.isFinite(asset.duration_seconds)
+        ? asset.duration_seconds
+        : null;
     const readPath = resolveHermesAssetReadPath(assetPath, { video: entryIsVideo });
     if (!readPath) {
       console.warn('[ingest-production-assets] unresolvable asset path — skipping', {
@@ -352,6 +359,7 @@ export async function ingestProductionCreativeAssetsToDb(
               colors: inputs.colors,
               logoPath: inputs.logoPath,
               jobId,
+              durationSeconds: entryDuration ?? undefined,
             });
             if (composed) videoBytes = await readFile(composed);
           } catch (mlError) {
@@ -433,10 +441,8 @@ export async function ingestProductionCreativeAssetsToDb(
       // Derive aspect ratio from width/height when present; else from surface/placement.
       const entryWidth = typeof asset.width === 'number' && Number.isFinite(asset.width) ? asset.width : null;
       const entryHeight = typeof asset.height === 'number' && Number.isFinite(asset.height) ? asset.height : null;
-      const entryDuration =
-        typeof asset.duration_seconds === 'number' && Number.isFinite(asset.duration_seconds)
-          ? asset.duration_seconds
-          : null;
+      // entryDuration is read earlier (before the video branch) so the compose
+      // call can use it without declaring it twice in the same block.
 
       let aspectRatio: string;
       if (entryWidth !== null && entryHeight !== null && entryWidth > 0 && entryHeight > 0) {

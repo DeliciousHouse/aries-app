@@ -96,6 +96,19 @@ services:
       # they read as ads, not abstract art. Default OFF (raw video, byte-identical
       # to today); per-tenant when ON. Screenshot-verify before enabling.
       ARIES_MARKETING_LAYER_ENABLED: ${ARIES_MARKETING_LAYER_ENABLED:-0}
+      # Weekly REEL companion: when a weekly_social_content job starts, also fire a
+      # standalone one-off video-only reel job (the eng-review separate-job design —
+      # a dedicated job avoids colliding on the weekly job's single production-stage
+      # slot). Default OFF; the clip only renders/publishes when ARIES_VIDEO_PUBLISH_
+      # ENABLED is also on. Idempotent per weekly job.
+      ARIES_WEEKLY_REEL_ENABLED: ${ARIES_WEEKLY_REEL_ENABLED:-0}
+      # ElevenLabs voiceover on reels: when ON (+ ELEVENLABS_API_KEY set), the
+      # marketing layer muxes a TTS voiceover of the hook/value/CTA over a ducked
+      # music bed. Default OFF; best-effort — falls back to the music bed on any
+      # failure (byte-identical to today when off).
+      ARIES_REEL_VOICEOVER_ENABLED: ${ARIES_REEL_VOICEOVER_ENABLED:-0}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
       # First-post onboarding 3-variant board → taste profile rollout switch.
       # Default OFF: onboarding stays byte-identical to today (single weekly job).
       ARIES_ONBOARDING_VARIANT_BOARD_ENABLED: ${ARIES_ONBOARDING_VARIANT_BOARD_ENABLED:-0}
