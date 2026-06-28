@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.20.1 — fix(nav): surface the Settings page (team & member invites) in the sidebar account menu
+
+The workspace member-invite UI shipped in v0.1.19.0 (#735) lives on `/dashboard/settings`
+under the "Team / Approvals" panel, but the page was linked nowhere in the UI — the sidebar's
+hand-curated `utilityItems` omitted the `settings` route and the account menu only linked
+Business profile, Channel integrations, and Review queue. The page was reachable only by typing
+the URL, so admins couldn't find where to add teammates.
+
+- Adds a **"Team & settings"** link (→ `/dashboard/settings`, `Users` icon) to both the desktop
+  and mobile bottom-left account menus in `components/redesign/layout/app-shell-client.tsx`,
+  above "Business profile". No behavior change to any other nav entry.
+- The destination page and its admin gating are unchanged; this only makes the existing
+  member-management UI discoverable.
+
 ## v0.1.20.0 — feat(feedback): mirror the feedback button to JIRA instead of Google Sheets
 
 Rewires the in-app feedback button so each submission is filed as a JIRA issue

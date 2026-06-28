@@ -24,6 +24,7 @@ import {
   Settings,
   Sparkles,
   TrendingUp,
+  Users,
 } from 'lucide-react';
 
 import { AriesMark } from '@/frontend/donor/ui';
@@ -630,6 +631,14 @@ export default function AppShellClient({
                 >
                   <div className="space-y-1 p-2">
                     <Link
+                      href={getRouteById('settings').href}
+                      className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
+                      onClick={() => setIsAccountMenuOpen(false)}
+                    >
+                      <Users className="h-4 w-4 text-white/60" />
+                      Team &amp; settings
+                    </Link>
+                    <Link
                       href={getRouteById('businessProfile').href}
                       className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
                       onClick={() => setIsAccountMenuOpen(false)}
@@ -813,6 +822,17 @@ export default function AppShellClient({
                         className="overflow-hidden"
                       >
                         <div className="mt-2 space-y-1 rounded-2xl border border-white/10 bg-white/[0.06] p-2 shadow-[0_12px_40px_rgba(0,0,0,0.25)] backdrop-blur-xl">
+                          <Link
+                            href={getRouteById('settings').href}
+                            className="flex min-h-[44px] items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-white/80 transition-colors hover:bg-white/[0.06] hover:text-white"
+                            onClick={() => {
+                              setIsMobileMenuOpen(false);
+                              setIsMobileAccountMenuOpen(false);
+                            }}
+                          >
+                            <Users className="h-4 w-4 shrink-0 text-white/60" />
+                            Team &amp; settings
+                          </Link>
                           <Link
                             href={getRouteById('businessProfile').href}
                             className="flex min-h-[44px] items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-white/80 transition-colors hover:bg-white/[0.06] hover:text-white"
