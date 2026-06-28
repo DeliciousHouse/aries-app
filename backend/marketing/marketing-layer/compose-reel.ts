@@ -15,8 +15,15 @@
  */
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { unlink } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { resolveCodeRoot } from '@/lib/runtime-paths';
+import {
+  synthesizeVoiceover,
+  fitCopyToDuration,
+} from '@/backend/integrations/elevenlabs/tts';
+import { isReelVoiceoverEnabled } from '@/backend/integrations/elevenlabs/voiceover-env';
 
 export interface ReelMarketingCopy {
   hook: string;
@@ -37,6 +44,10 @@ export interface ComposeReelArgs {
   logoPath?: string | null;
   jobId: string; // seeds deterministic music-bed choice
   fontPath?: string;
+  /** Caller-supplied clip duration (seconds). When present and positive, skips
+   * the ffprobe call — uses Hermes's reported duration so short clips (e.g.
+   * grok reels at ~5-6 s) place the end-card correctly without a probe. */
+  durationSeconds?: number;
 }
 
 const FONT_CANDIDATES = [
@@ -44,6 +55,7 @@ const FONT_CANDIDATES = [
   '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
 ];
 const BEDS = ['bed-calm.mp3', 'bed-uplift.mp3', 'bed-bold.mp3'];
+const DEFAULT_REEL_SECONDS = 15;
 
 function resolveFont(explicit?: string): string | null {
   if (explicit && existsSync(explicit)) return explicit;
@@ -99,6 +111,28 @@ function wrap(text: string, maxChars: number, maxLines: number): string[] {
   return lines.length ? lines : [''];
 }
 
+/** Probe the actual duration of a video file via ffprobe.
+ * Falls back to DEFAULT_REEL_SECONDS on any failure (no ffprobe, NaN, ≤0)
+ * so behavior is unchanged when probing is unavailable. */
+async function probeDurationSeconds(videoPath: string): Promise<number> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    const p = spawn('ffprobe', [
+      '-v', 'error',
+      '-show_entries', 'format=duration',
+      '-of', 'default=noprint_wrappers=1:nokey=1',
+      videoPath,
+    ], { stdio: ['ignore', 'pipe', 'ignore'] });
+    p.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
+    p.on('error', () => resolve(DEFAULT_REEL_SECONDS));
+    p.on('close', () => {
+      const raw = Buffer.concat(chunks).toString('utf8').trim();
+      const d = parseFloat(raw);
+      resolve(isFinite(d) && d > 0 ? d : DEFAULT_REEL_SECONDS);
+    });
+  });
+}
+
 function drawtext(
   font: string,
   text: string,
@@ -130,6 +164,42 @@ function stack(
   return lines.map((ln, i) => drawtext(font, ln, color, size, `${baseY}+${i * lh}`, t0, t1));
 }
 
+export interface ReelBeats {
+  hookStart: number;
+  hookEnd: number;
+  valueStart: number;
+  valueEnd: number;
+  cardStart: number;
+  ctaStart: number;
+  urlStart: number;
+  end: number;
+}
+
+/**
+ * Pure, deterministic timeline derivation: given a clip duration in seconds,
+ * returns the proportional beat boundaries used by the marketing layer
+ * compositor. hookStart is a small lead-in offset that scales with the clip
+ * (D*0.02) and is capped at 0.3s so it stays brief on longer clips; the
+ * other beats scale linearly with D.
+ *
+ * Exported for unit-testing the proportional-scaling fix (previously the
+ * beats were hardcoded to the 15-second DEFAULT_REEL_SECONDS regardless of
+ * the actual clip duration — this function documents and locks the correct
+ * behaviour).
+ */
+export function computeReelBeats(durationSeconds: number): ReelBeats {
+  const D = durationSeconds;
+  const hookStart  = +(Math.min(0.3, D * 0.02)).toFixed(2);
+  const hookEnd    = +(D * 0.33).toFixed(2);
+  const valueStart = +(D * 0.35).toFixed(2);
+  const valueEnd   = +(D * 0.66).toFixed(2);
+  const cardStart  = +(D * 0.68).toFixed(2);
+  const ctaStart   = +(cardStart + D * 0.04).toFixed(2);
+  const urlStart   = +(cardStart + D * 0.05).toFixed(2);
+  const end        = +D.toFixed(2);
+  return { hookStart, hookEnd, valueStart, valueEnd, cardStart, ctaStart, urlStart, end };
+}
+
 export async function composeReelMarketingLayer(args: ComposeReelArgs): Promise<string | null> {
   const font = resolveFont(args.fontPath);
   if (!font) return null;
@@ -145,13 +215,22 @@ export async function composeReelMarketingLayer(args: ComposeReelArgs): Promise<
   const brand = wrap(args.copy.brandName, 22, 1)[0];
   const url = wrap(args.copy.url, 34, 1)[0];
 
+  const D = typeof args.durationSeconds === 'number' && args.durationSeconds > 0
+    ? args.durationSeconds
+    : await probeDurationSeconds(args.videoPath);
+
+  // Proportional beat timeline — see computeReelBeats() for the formula and
+  // the rationale behind each fraction.
+  const { hookStart, hookEnd, valueStart, valueEnd, cardStart, ctaStart, urlStart, end } =
+    computeReelBeats(D);
+
   // Beats are built purely from THIS tenant's copy — no hardcoded brand flavor.
   const dt: string[] = [
-    ...stack(font, hookLines, WHITE, 56, 'h*0.60', 0.3, 5),
-    ...stack(font, valueLines, WHITE, 64, 'h*0.55', 5.2, 10),
-    drawtext(font, brand, WHITE, 80, 'h*0.37', 10.2, 15),
-    drawtext(font, ctaLine, WHITE, 54, 'h*0.62', 10.6, 15),
-    drawtext(font, url, CTA, 46, 'h*0.62+86', 11.0, 15),
+    ...stack(font, hookLines, WHITE, 56, 'h*0.60', hookStart, hookEnd),
+    ...stack(font, valueLines, WHITE, 64, 'h*0.55', valueStart, valueEnd),
+    drawtext(font, brand, WHITE, 80, 'h*0.37', cardStart, end),
+    drawtext(font, ctaLine, WHITE, 54, 'h*0.62', ctaStart, end),
+    drawtext(font, url, CTA, 46, 'h*0.62+86', urlStart, end),
   ];
   // ACCENT is reserved for future sub-copy; reference to keep it used.
   void ACCENT;
@@ -161,14 +240,36 @@ export async function composeReelMarketingLayer(args: ComposeReelArgs): Promise<
   const logo = args.logoPath && existsSync(args.logoPath) ? args.logoPath : null;
   const music = resolveMusicBed(args.jobId);
 
+  // Attempt voiceover synthesis (best-effort; any failure falls back to music-bed-only,
+  // leaving the output byte-identical to today when the flag is off or the key is absent).
+  let voPath: string | null = null;
+  if (isReelVoiceoverEnabled() && !!process.env.ELEVENLABS_API_KEY) {
+    const voScript = fitCopyToDuration(args.copy, D);
+    const tmpVo = path.join(
+      os.tmpdir(),
+      `aries-reel-vo-${args.jobId}-${Date.now()}.mp3`,
+    );
+    try {
+      voPath = await synthesizeVoiceover({ text: voScript, outPath: tmpVo });
+    } catch {
+      voPath = null;
+    }
+  }
+
   // Build inputs + filter_complex
   const inputs: string[] = ['-i', args.videoPath];
   let audioInIdx = -1;
+  let voInIdx = -1;
   let logoInIdx = -1;
   let nextIdx = 1;
   if (music) {
     inputs.push('-i', music);
     audioInIdx = nextIdx;
+    nextIdx += 1;
+  }
+  if (voPath) {
+    inputs.push('-i', voPath);
+    voInIdx = nextIdx;
     nextIdx += 1;
   }
   if (logo) {
@@ -185,14 +286,27 @@ export async function composeReelMarketingLayer(args: ComposeReelArgs): Promise<
   }
   fc += `${vlabel}${filters}[vt];`;
   if (logo) {
-    fc += `[vt][logosm]overlay=x=(W-w)/2:y=70:enable='between(t,0,10.2)'[v1];`;
-    fc += `[v1][logobig]overlay=x=(W-w)/2:y=H*0.15:enable='between(t,10.2,15)'[v];`;
+    fc += `[vt][logosm]overlay=x=(W-w)/2:y=70:enable='between(t,0,${cardStart})'[v1];`;
+    fc += `[v1][logobig]overlay=x=(W-w)/2:y=H*0.15:enable='between(t,${cardStart},${end})'[v];`;
   } else {
     fc += `[vt]copy[v];`;
   }
 
   const map: string[] = ['-map', '[v]'];
-  if (music) {
+  if (voPath && voInIdx >= 0) {
+    if (music && audioInIdx >= 0) {
+      // VO ────────────────────────────────────────┐
+      // music ──(volume=0.18)──[mus_duck]────────┘ → amix → alimiter → [a]
+      fc += `[${audioInIdx}:a]volume=0.18[mus_duck];`;
+      fc += `[mus_duck][${voInIdx}:a]amix=inputs=2:duration=longest[mixed];`;
+      fc += `[mixed]alimiter=limit=0.99,apad[a]`;
+    } else {
+      // VO only (no music bed on disk)
+      fc += `[${voInIdx}:a]aresample=44100,apad[a]`;
+    }
+    map.push('-map', '[a]', '-c:a', 'aac', '-b:a', '160k');
+  } else if (music && audioInIdx >= 0) {
+    // Fallback: music-bed-only — byte-identical to today when VO is off/absent
     fc += `[${audioInIdx}:a]volume=0.9[a]`;
     map.push('-map', '[a]', '-c:a', 'aac', '-b:a', '160k');
   }
@@ -213,10 +327,16 @@ export async function composeReelMarketingLayer(args: ComposeReelArgs): Promise<
     args.outPath,
   ];
 
-  const ok = await new Promise<boolean>((resolve) => {
-    const p = spawn('ffmpeg', ffArgs, { stdio: ['ignore', 'ignore', 'ignore'] });
-    p.on('error', () => resolve(false));
-    p.on('close', (code) => resolve(code === 0));
-  });
+  let ok: boolean;
+  try {
+    ok = await new Promise<boolean>((resolve) => {
+      const p = spawn('ffmpeg', ffArgs, { stdio: ['ignore', 'ignore', 'ignore'] });
+      p.on('error', () => resolve(false));
+      p.on('close', (code) => resolve(code === 0));
+    });
+  } finally {
+    // Always clean up the temporary VO mp3 (may not exist if synthesis failed)
+    if (voPath) unlink(voPath).catch(() => {});
+  }
   return ok && existsSync(args.outPath) ? args.outPath : null;
 }
