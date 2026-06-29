@@ -57,8 +57,11 @@ export async function synthesizeVoiceover(
     return null;
   }
 
+  // Use || (not ??) so an EMPTY ELEVENLABS_VOICE_ID — which docker-compose
+  // injects as '' via ${ELEVENLABS_VOICE_ID:-} — falls back to the default
+  // voice instead of building /text-to-speech/ (empty id) → HTTP 404.
   const voiceId =
-    args.voiceId ?? process.env.ELEVENLABS_VOICE_ID ?? DEFAULT_VOICE_ID;
+    args.voiceId?.trim() || process.env.ELEVENLABS_VOICE_ID?.trim() || DEFAULT_VOICE_ID;
   const modelId = args.modelId ?? DEFAULT_MODEL_ID;
 
   const controller = new AbortController();
