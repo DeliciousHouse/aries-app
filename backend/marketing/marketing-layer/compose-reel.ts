@@ -297,12 +297,16 @@ export async function composeReelMarketingLayer(args: ComposeReelArgs): Promise<
     if (music && audioInIdx >= 0) {
       // VO ────────────────────────────────────────┐
       // music ──(volume=0.18)──[mus_duck]────────┘ → amix → alimiter → [a]
+      // apad=whole_dur=<D> pads the mixed audio to EXACTLY the clip duration
+      // (finite). A bare apad pads forever, and -shortest cannot bound a
+      // filtered (vs input) stream, so ffmpeg never terminates — the VO-path
+      // hang. whole_dur makes the audio finite and = the video length.
       fc += `[${audioInIdx}:a]volume=0.18[mus_duck];`;
       fc += `[mus_duck][${voInIdx}:a]amix=inputs=2:duration=longest[mixed];`;
-      fc += `[mixed]alimiter=limit=0.99,apad[a]`;
+      fc += `[mixed]alimiter=limit=0.99,apad=whole_dur=${end}[a]`;
     } else {
-      // VO only (no music bed on disk)
-      fc += `[${voInIdx}:a]aresample=44100,apad[a]`;
+      // VO only (no music bed on disk) — same finite-pad to the clip duration.
+      fc += `[${voInIdx}:a]aresample=44100,apad=whole_dur=${end}[a]`;
     }
     map.push('-map', '[a]', '-c:a', 'aac', '-b:a', '160k');
   } else if (music && audioInIdx >= 0) {
