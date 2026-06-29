@@ -10,6 +10,7 @@ import {
   COMPETITOR_URL_INVALID_ERROR,
   COMPETITOR_URL_SOCIAL_ERROR,
 } from '@/lib/marketing-competitor';
+import { parseReelAudioMode } from '@/backend/marketing/reel-audio-mode';
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -123,6 +124,7 @@ export async function PATCH(req: Request) {
     competitorUrl?: string | null;
     channels?: string[] | null;
     timezone?: string | null;
+    reelAudioMode?: string | null;
   } = {};
   try {
     payload = await req.json();
@@ -169,6 +171,12 @@ export async function PATCH(req: Request) {
       competitorUrl: stringOrNull(payload.competitorUrl),
       channels: payload.channels === undefined ? undefined : stringArray(payload.channels),
       timezone: payload.timezone === undefined ? undefined : stringOrNull(payload.timezone),
+      // undefined = no change; a recognized value sets the default; an
+      // unrecognized value resolves to null in the merge (keeps current).
+      reelAudioMode:
+        payload.reelAudioMode === undefined
+          ? undefined
+          : parseReelAudioMode(payload.reelAudioMode),
     });
     console.info('[business-profile]', {
       event: 'write-complete',

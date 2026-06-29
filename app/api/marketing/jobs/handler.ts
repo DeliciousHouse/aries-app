@@ -248,6 +248,10 @@ async function parseCreateJobRequest(req: Request): Promise<{
         imageCreativeCount: coerceFieldValue(formData.get('imageCreativeCount')),
         videoScriptCount: coerceFieldValue(formData.get('videoScriptCount')),
         videoRenderCount: coerceFieldValue(formData.get('videoRenderCount')),
+        // Per-job reel audio override (music | voiceover | both). Normalized +
+        // dropped-if-invalid in normalizeWeeklySocialContentPayload; when absent
+        // the per-tenant Settings default applies at reel ingest time.
+        reelAudioMode: coerceFieldValue(formData.get('reelAudioMode')),
         postWindowDays: coerceFieldValue(formData.get('postWindowDays')),
         staticPostsCount: coerceFieldValue(formData.get('staticPostsCount')),
         storiesCount: coerceFieldValue(formData.get('storiesCount')),

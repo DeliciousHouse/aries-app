@@ -25,6 +25,8 @@ import { tmpdir } from 'node:os';
 import { isMarketingLayerEnabled } from './marketing-layer/marketing-layer-env';
 import { composeReelMarketingLayer } from './marketing-layer/compose-reel';
 import { findContentPackageCopy, resolveReelMarketingInputs } from './marketing-layer/resolve-inputs';
+import { resolveReelAudioMode } from './reel-audio-mode';
+import { loadTenantReelAudioModeOrNull } from '@/backend/tenant/business-profile';
 import path from 'node:path';
 
 import {
@@ -343,13 +345,22 @@ export async function ingestProductionCreativeAssetsToDb(
         if (isMarketingLayerEnabled()) {
           let tmpOut: string | null = null;
           try {
-            const docInputs = (doc as unknown as { inputs?: { brand_url?: unknown } }).inputs;
+            const docInputs = (doc as unknown as {
+              inputs?: { brand_url?: unknown; request?: Record<string, unknown> };
+            }).inputs;
             const fallbackUrl =
               typeof docInputs?.brand_url === 'string' ? docInputs.brand_url : null;
             const inputs = resolveReelMarketingInputs({
               entry: findContentPackageCopy(primaryOutput, asset),
               brandKit: (args.brandKit ?? null) as Record<string, unknown> | null,
               fallbackUrl,
+            });
+            // Resolve the reel audio mode: per-job override (stamped into the
+            // job payload under doc.inputs.request) wins over the per-tenant
+            // Settings default, which wins over the global default ('music').
+            const audioMode = resolveReelAudioMode({
+              jobOverride: docInputs?.request?.reelAudioMode,
+              tenantDefault: loadTenantReelAudioModeOrNull(String(tenantId)),
             });
             tmpOut = path.join(tmpdir(), `mkt-reel-${crypto.randomUUID()}.mp4`);
             const composed = await composeReelMarketingLayer({
@@ -360,6 +371,7 @@ export async function ingestProductionCreativeAssetsToDb(
               logoPath: inputs.logoPath,
               jobId,
               durationSeconds: entryDuration ?? undefined,
+              audioMode,
             });
             if (composed) videoBytes = await readFile(composed);
           } catch (mlError) {

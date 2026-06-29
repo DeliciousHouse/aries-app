@@ -35,6 +35,11 @@ import {
 } from '@/lib/marketing-competitor';
 import { resolveDataPath } from '@/lib/runtime-paths';
 import { DEFAULT_TENANT_TIMEZONE, isValidTimeZone, resolveTenantTimeZone } from '@/lib/format-timestamp';
+import {
+  DEFAULT_REEL_AUDIO_MODE,
+  parseReelAudioMode,
+  type ReelAudioMode,
+} from '@/backend/marketing/reel-audio-mode';
 
 export type BusinessProfileRecord = {
   tenant_id: string;
@@ -54,6 +59,9 @@ export type BusinessProfileRecord = {
   // A4: IANA business timezone (e.g. America/New_York). Null when unset; the
   // calendar planner falls back to DEFAULT_TENANT_TIMEZONE.
   timezone: string | null;
+  // Per-tenant default reel audio mode (music | voiceover | both). Null when
+  // unset; the reel compositor falls back to DEFAULT_REEL_AUDIO_MODE.
+  reel_audio_mode: ReelAudioMode | null;
   updated_at: string;
 };
 
@@ -75,6 +83,9 @@ export type BusinessProfileView = {
   // A4: resolved IANA business timezone. Always a valid zone in the view —
   // an unset/invalid stored value is projected as DEFAULT_TENANT_TIMEZONE.
   timezone: string;
+  // Resolved per-tenant default reel audio mode. Always concrete in the view —
+  // an unset stored value is projected as DEFAULT_REEL_AUDIO_MODE ('music').
+  reelAudioMode: ReelAudioMode;
   brandIdentity: MarketingBrandIdentity | null;
   brandKit: TenantBrandKit | null;
   incomplete: boolean;
@@ -121,6 +132,7 @@ type BusinessProfileUpdateInput = {
   competitorUrl?: string | null;
   channels?: string[] | null;
   timezone?: string | null;
+  reelAudioMode?: ReelAudioMode | null;
 };
 
 type WorkspaceBrandContext = {
@@ -292,6 +304,7 @@ function normalizeBusinessProfileRecord(
     competitor_url: sanitizeLegacyCompetitorUrl(stringOrNull(value.competitor_url)),
     channels: stringArray(value.channels),
     timezone: normalizeStoredTimezone(value.timezone),
+    reel_audio_mode: parseReelAudioMode(value.reel_audio_mode),
     updated_at: stringOrNull(value.updated_at) || nowIso(),
   };
 }
@@ -344,6 +357,18 @@ export function loadTenantTimezoneOrFallback(tenantId: string): string {
   return resolveTenantTimeZone(record?.timezone ?? null);
 }
 
+/**
+ * Synchronous, file-only read of the tenant's stored default reel audio mode,
+ * or null when unset/invalid. Used by the reel ingest path to resolve the
+ * per-tenant default without a database round-trip per asset. The caller folds
+ * this into resolveReelAudioMode (per-job override wins, then this default,
+ * then the global DEFAULT_REEL_AUDIO_MODE).
+ */
+export function loadTenantReelAudioModeOrNull(tenantId: string): ReelAudioMode | null {
+  const record = loadBusinessProfileRecord(tenantId);
+  return parseReelAudioMode(record?.reel_audio_mode ?? null);
+}
+
 function loadBusinessProfileRecord(tenantId: string): BusinessProfileRecord | null {
   const filePath = businessProfilePath(tenantId);
   if (!existsSync(filePath)) {
@@ -374,8 +399,9 @@ function saveBusinessProfileRecordToDb(record: BusinessProfileRecord): void {
     `INSERT INTO business_profiles (
       tenant_id, business_name, tenant_slug, website_url, business_type,
       primary_goal, launch_approver_user_id, launch_approver_name, offer,
-      brand_voice, style_vibe, notes, competitor_url, channels, timezone, updated_at
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,now())
+      brand_voice, style_vibe, notes, competitor_url, channels, timezone,
+      reel_audio_mode, updated_at
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,now())
     ON CONFLICT (tenant_id) DO UPDATE SET
       business_name = EXCLUDED.business_name,
       tenant_slug = EXCLUDED.tenant_slug,
@@ -391,6 +417,7 @@ function saveBusinessProfileRecordToDb(record: BusinessProfileRecord): void {
       competitor_url = EXCLUDED.competitor_url,
       channels = EXCLUDED.channels,
       timezone = EXCLUDED.timezone,
+      reel_audio_mode = EXCLUDED.reel_audio_mode,
       updated_at = now()`,
     [
       numericId, record.business_name, record.tenant_slug,
@@ -398,6 +425,7 @@ function saveBusinessProfileRecordToDb(record: BusinessProfileRecord): void {
       record.launch_approver_user_id, record.launch_approver_name, record.offer,
       record.brand_voice, record.style_vibe, record.notes,
       record.competitor_url, record.channels, record.timezone,
+      record.reel_audio_mode,
     ],
   ).catch((err) => {
     console.error('[business-profile] Failed to persist to database:', err);
@@ -689,6 +717,7 @@ function buildBusinessProfileView(input: {
     competitorUrl: input.validatedProfile.competitorUrl ?? input.record?.competitor_url ?? null,
     channels: effectiveChannels,
     timezone: resolveTenantTimeZone(input.record?.timezone),
+    reelAudioMode: parseReelAudioMode(input.record?.reel_audio_mode) ?? DEFAULT_REEL_AUDIO_MODE,
     brandIdentity: input.validatedProfile.brandIdentity,
     brandKit: input.brandKit,
     incomplete: incompleteProfile({
@@ -802,8 +831,17 @@ export async function updateBusinessProfileWithDiagnostics(
   const nextChannels = mergePersistedStringArrayField(current.profile.channels, input.channels).value;
   // Merge against the STORED timezone (null when unset), not the always-resolved
   // view value, so an unchanged update does not silently persist the fallback.
-  const currentStoredTimezone = loadBusinessProfileRecord(input.tenantId)?.timezone ?? null;
+  const currentStoredRecord = loadBusinessProfileRecord(input.tenantId);
+  const currentStoredTimezone = currentStoredRecord?.timezone ?? null;
   const nextTimezone = mergePersistedTimezoneField(currentStoredTimezone, input.timezone).value;
+  // Merge the reel audio mode against the STORED value (null when unset) so an
+  // unchanged update keeps the operator's choice rather than re-persisting the
+  // resolved default. `undefined` = leave as-is; an explicit unparseable value
+  // is ignored (treated as no change) so a bad submit never clears the choice.
+  const nextReelAudioMode: ReelAudioMode | null =
+    input.reelAudioMode === undefined
+      ? currentStoredRecord?.reel_audio_mode ?? null
+      : parseReelAudioMode(input.reelAudioMode) ?? currentStoredRecord?.reel_audio_mode ?? null;
 
   if (!nextBusinessName?.trim()) {
     throw new Error('missing_required_fields:businessName');
@@ -827,6 +865,7 @@ export async function updateBusinessProfileWithDiagnostics(
     competitor_url: nextCompetitorUrl,
     channels: nextChannels,
     timezone: nextTimezone,
+    reel_audio_mode: nextReelAudioMode,
     updated_at: nowIso(),
   });
 
@@ -937,6 +976,9 @@ export async function updatePublicBusinessProfile(input: Omit<BusinessProfileUpd
       loadBusinessProfileRecord(tenantId)?.timezone ?? null,
       input.timezone,
     ).value,
+    // Public/anonymous update path does not expose the reel audio mode — keep
+    // the tenant's stored choice (null when unset) rather than overwriting it.
+    reel_audio_mode: loadBusinessProfileRecord(tenantId)?.reel_audio_mode ?? null,
     updated_at: nowIso(),
   });
 
@@ -974,6 +1016,7 @@ export function persistBusinessProfileFieldsFromMarketingPayload(
     competitor_url: current?.competitor_url ?? null,
     channels: current?.channels ?? [],
     timezone: current?.timezone ?? null,
+    reel_audio_mode: current?.reel_audio_mode ?? null,
     updated_at: nowIso(),
   };
 
