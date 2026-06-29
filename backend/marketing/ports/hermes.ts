@@ -1309,6 +1309,28 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       if (startingStage) {
         promptLines.push(`Starting stage: ${startingStage}`);
       }
+      // BRAND-RENDER FIX: the auto-advanced production run (submitNextStage →
+      // action:'run' → buildSocialContentWeeklyRequest) must carry the SAME hard
+      // brand-rendering constraint (dark/near-black background, palette, logo,
+      // "NON-NEGOTIABLE: this brand is DARK") + rich per-image prompts that the
+      // approval-resume production path already injects (see the action:'resume'
+      // branch's `stage === 'production'` block). Without it the content-generator
+      // profile drafts "bright/soft white" visual_prompts and renders off-brand
+      // WHITE images — the per-stage-pipeline regression of the #553 hard
+      // constraint, which only patched the resume path. Reuses the exact same
+      // tested builder so the auto-advance and approval-resume production
+      // submissions stay byte-for-byte in lockstep. Scoped to the production
+      // stage and skipped for single-creative regenerate/image-edit (a
+      // stage:'research'-shaped run with its own per-image scope + edit contract).
+      if (input.stage === 'production' && input.doc && !input.regenerateCreative) {
+        const ctx = buildProductionResumeContext({
+          doc: input.doc,
+          researchOutput: (input.doc.stages.research?.primary_output ?? null) as Record<string, unknown> | null,
+          strategyOutput: (input.doc.stages.strategy?.primary_output ?? null) as Record<string, unknown> | null,
+          tasteProjection,
+        });
+        promptLines.push('', ctx.contextBlock);
+      }
       // IMAGE EDIT (image-to-image): when the regenerate context carries an edit
       // instruction, pin the content-generator profile to image_generate's edit
       // endpoint on the existing source image instead of a fresh generation. The
