@@ -102,11 +102,14 @@ services:
       # slot). Default OFF; the clip only renders/publishes when ARIES_VIDEO_PUBLISH_
       # ENABLED is also on. Idempotent per weekly job.
       ARIES_WEEKLY_REEL_ENABLED: ${ARIES_WEEKLY_REEL_ENABLED:-0}
-      # ElevenLabs voiceover on reels: when ON (+ ELEVENLABS_API_KEY set), the
-      # marketing layer muxes a TTS voiceover of the hook/value/CTA over a ducked
-      # music bed. Default OFF; best-effort — falls back to the music bed on any
-      # failure (byte-identical to today when off).
-      ARIES_REEL_VOICEOVER_ENABLED: ${ARIES_REEL_VOICEOVER_ENABLED:-0}
+      # ElevenLabs voiceover CAPABILITY GATE for reels: when ON (+ ELEVENLABS_API_KEY
+      # set), voiceover becomes a selectable reel-audio option. It no longer forces
+      # voiceover — the per-tenant Settings default / per-job override (reel audio
+      # mode: music | voiceover | both) decides what each reel carries. Default ON:
+      # safe because the global default mode is 'music', so no reel changes audio
+      # until a tenant explicitly opts into voiceover; a voiceover choice falls back
+      # to the music bed (never silent) when the key is absent or synthesis fails.
+      ARIES_REEL_VOICEOVER_ENABLED: ${ARIES_REEL_VOICEOVER_ENABLED:-1}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
       # First-post onboarding 3-variant board → taste profile rollout switch.

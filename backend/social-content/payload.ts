@@ -7,6 +7,7 @@ import {
   DEFAULT_SOCIAL_CONTENT_COUNTS,
   DEFAULT_SOCIAL_CONTENT_FORBIDDEN_PATTERNS,
 } from '@/backend/social-content/types';
+import { parseReelAudioMode } from '@/backend/marketing/reel-audio-mode';
 
 const MIN_WEEKLY_WINDOW_DAYS = 1;
 const MAX_WEEKLY_WINDOW_DAYS = 14;
@@ -203,6 +204,16 @@ export function normalizeWeeklySocialContentPayload(payload: Record<string, unkn
   nextPayload.videoRenderCount = Math.min(MAX_VIDEO_RENDER_COUNT, Math.max(0, videoRenderCount));
   nextPayload.channels = normalizedChannels;
   nextPayload.forbiddenVisualPatterns = normalizedForbiddenPatterns;
+
+  // Optional per-job reel audio override (music | voiceover | both). Normalize
+  // to a canonical value so it lands clean in doc.inputs.request.reelAudioMode;
+  // an absent/unrecognized value is dropped so the per-tenant default applies.
+  const reelAudioMode = parseReelAudioMode(nextPayload.reelAudioMode);
+  if (reelAudioMode) {
+    nextPayload.reelAudioMode = reelAudioMode;
+  } else {
+    delete nextPayload.reelAudioMode;
+  }
 
   // Backwards-compatible fields consumed by existing marketing orchestrator.
   nextPayload.staticPostsCount = nextPayload.staticPostCount;
