@@ -24,6 +24,11 @@ import {
   fitCopyToDuration,
 } from '@/backend/integrations/elevenlabs/tts';
 import { isReelVoiceoverEnabled } from '@/backend/integrations/elevenlabs/voiceover-env';
+import {
+  type ReelAudioMode,
+  reelAudioModeWantsVoiceover,
+  resolveReelAudioComposition,
+} from '@/backend/marketing/reel-audio-mode';
 
 export interface ReelMarketingCopy {
   hook: string;
@@ -48,6 +53,11 @@ export interface ComposeReelArgs {
    * the ffprobe call — uses Hermes's reported duration so short clips (e.g.
    * grok reels at ~5-6 s) place the end-card correctly without a probe. */
   durationSeconds?: number;
+  /** Resolved reel audio mode (music | voiceover | both). Decides whether a
+   * voiceover is synthesized and whether the music bed is mixed in. Defaults to
+   * 'both' when omitted so direct callers keep today's VO-over-music behavior;
+   * the ingest call site passes the per-job/per-tenant resolved mode. */
+  audioMode?: ReelAudioMode;
 }
 
 const FONT_CANDIDATES = [
@@ -238,12 +248,21 @@ export async function composeReelMarketingLayer(args: ComposeReelArgs): Promise<
   const filters = dt.filter(Boolean).join(',');
   if (!filters) return null; // nothing to burn — let caller keep the raw video
   const logo = args.logoPath && existsSync(args.logoPath) ? args.logoPath : null;
-  const music = resolveMusicBed(args.jobId);
 
-  // Attempt voiceover synthesis (best-effort; any failure falls back to music-bed-only,
-  // leaving the output byte-identical to today when the flag is off or the key is absent).
+  // Resolve the audio mode (defaults to 'both' so direct callers/tests keep the
+  // historical VO-over-music behavior). Voiceover capability is still gated at
+  // the deployment level by the flag + key; a mode that wants VO without that
+  // capability degrades to the music bed (never a silent reel).
+  const mode: ReelAudioMode = args.audioMode ?? 'both';
+  const voiceoverEnabled = isReelVoiceoverEnabled();
+  const hasVoiceoverKey = !!process.env.ELEVENLABS_API_KEY;
+
+  // Attempt voiceover synthesis only when the mode wants it AND the deployment
+  // gate + key are present (best-effort; any failure falls back per the
+  // composition rule below). Skipping synthesis entirely for mode='music' keeps
+  // the music-only output byte-identical to today.
   let voPath: string | null = null;
-  if (isReelVoiceoverEnabled() && !!process.env.ELEVENLABS_API_KEY) {
+  if (reelAudioModeWantsVoiceover(mode) && voiceoverEnabled && hasVoiceoverKey) {
     const voScript = fitCopyToDuration(args.copy, D);
     const tmpVo = path.join(
       os.tmpdir(),
@@ -256,6 +275,21 @@ export async function composeReelMarketingLayer(args: ComposeReelArgs): Promise<
     }
   }
 
+  // Pure decision: given the mode + runtime facts, what does the final audio
+  // graph contain? See resolveReelAudioComposition for the guarantees.
+  const musicBed = resolveMusicBed(args.jobId);
+  const audio = resolveReelAudioComposition({
+    mode,
+    voiceoverEnabled,
+    hasVoiceoverKey,
+    voiceoverSucceeded: !!voPath,
+    musicBedAvailable: !!musicBed,
+  });
+  const music = audio.useMusic ? musicBed : null;
+  // `voPath` stays the synthesized temp path (cleaned up in finally even when
+  // unused); `useVo` decides whether it is actually muxed into the output.
+  const useVo = audio.useVoiceover && !!voPath;
+
   // Build inputs + filter_complex
   const inputs: string[] = ['-i', args.videoPath];
   let audioInIdx = -1;
@@ -267,7 +301,7 @@ export async function composeReelMarketingLayer(args: ComposeReelArgs): Promise<
     audioInIdx = nextIdx;
     nextIdx += 1;
   }
-  if (voPath) {
+  if (useVo && voPath) {
     inputs.push('-i', voPath);
     voInIdx = nextIdx;
     nextIdx += 1;
@@ -293,14 +327,14 @@ export async function composeReelMarketingLayer(args: ComposeReelArgs): Promise<
   }
 
   const map: string[] = ['-map', '[v]'];
-  if (voPath && voInIdx >= 0) {
+  if (useVo && voInIdx >= 0) {
     if (music && audioInIdx >= 0) {
       // VO ────────────────────────────────────────┐
       // music ──(volume=0.18)──[mus_duck]────────┘ → amix → alimiter → [a]
       // apad=whole_dur=<D> pads the mixed audio to EXACTLY the clip duration
       // (finite). A bare apad pads forever, and -shortest cannot bound a
       // filtered (vs input) stream, so ffmpeg never terminates — the VO-path
-      // hang. whole_dur makes the audio finite and = the video length.
+      // hang. whole_dur makes the audio finite and = the video length (#751).
       fc += `[${audioInIdx}:a]volume=0.18[mus_duck];`;
       fc += `[mus_duck][${voInIdx}:a]amix=inputs=2:duration=longest[mixed];`;
       fc += `[mixed]alimiter=limit=0.99,apad=whole_dur=${end}[a]`;

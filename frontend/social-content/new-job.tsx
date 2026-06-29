@@ -73,6 +73,9 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
   const [imageCreativeCount, setImageCreativeCount] = useState(6);
   const [videoScriptCount, setVideoScriptCount] = useState(1);
   const [renderVideoAfterApproval, setRenderVideoAfterApproval] = useState(false);
+  // Per-job reel audio override. "" = use the account default set in Settings;
+  // an explicit value overrides it for this job only.
+  const [reelAudioMode, setReelAudioMode] = useState("");
   const [postWindowDays, setCampaignWindowDays] = useState(7);
   const [platforms, setPlatforms] = useState<string[]>([...DEFAULT_PLATFORMS]);
 
@@ -153,6 +156,11 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
     formData.set("videoScriptCount", String(Math.max(0, videoScriptCount)));
     formData.set("videoRenderCount", renderVideoAfterApproval ? "1" : "0");
     formData.set("renderVideoAfterApproval", renderVideoAfterApproval ? "true" : "false");
+    // Only send an override when the operator picked one; otherwise the
+    // per-tenant Settings default applies at reel ingest time.
+    if (renderVideoAfterApproval && reelAudioMode) {
+      formData.set("reelAudioMode", reelAudioMode);
+    }
     for (const platform of platforms) {
       formData.append("channels", platform);
     }
@@ -414,6 +422,25 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
                   />
                   Enable rendered video output
                 </label>
+                {renderVideoAfterApproval ? (
+                  <div className="space-y-2 pt-1">
+                    <p className="text-xs uppercase tracking-[0.22em] text-white/70">Reel audio</p>
+                    <select
+                      value={reelAudioMode}
+                      onChange={(event) => setReelAudioMode(event.target.value)}
+                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50"
+                    >
+                      <option value="">Use account default</option>
+                      <option value="music">Music only</option>
+                      <option value="voiceover">Voiceover only</option>
+                      <option value="both">Voiceover + music</option>
+                    </select>
+                    <p className="text-xs text-white/40">
+                      Overrides your Settings default for this job only. Voiceover needs the
+                      account voiceover capability turned on; otherwise it falls back to music.
+                    </p>
+                  </div>
+                ) : null}
               </div>
               <div className="space-y-2">
                 <p className="text-xs uppercase tracking-[0.22em] text-white/70">Platforms</p>

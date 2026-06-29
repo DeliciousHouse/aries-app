@@ -268,6 +268,12 @@ async function initDb() {
       -- timestamp label render and convert in this one zone. Nullable; an
       -- unset value falls back to the fixed default in lib/format-timestamp.ts.
       ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS timezone TEXT;
+
+      -- Per-tenant default reel audio mode (music | voiceover | both). Governs
+      -- every reel for the tenant (automated weekly companion + create-form
+      -- jobs) unless a per-job override is supplied. Nullable; an unset value
+      -- falls back to the fixed default ('music') in reel-audio-mode.ts.
+      ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS reel_audio_mode TEXT;
     `);
 
     await client.query(`

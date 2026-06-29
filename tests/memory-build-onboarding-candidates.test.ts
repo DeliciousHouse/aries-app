@@ -21,6 +21,7 @@ function baseProfile(over: Partial<BusinessProfileView> = {}): BusinessProfileVi
     competitorUrl: null,
     channels: [],
     timezone: 'America/New_York',
+    reelAudioMode: 'music',
     brandIdentity: null,
     brandKit: null,
     incomplete: false,

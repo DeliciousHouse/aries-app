@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.21.0 — feat(video): choose reel audio — voiceover / music / both
+
+Reels previously had no audio choice: a single deployment flag
+(`ARIES_REEL_VOICEOVER_ENABLED`) only flipped between music-only (off) and
+voiceover-over-music (on), with no per-tenant or per-job control. This adds a real
+choice — **music**, **voiceover**, or **both** — surfaced as a per-tenant default in
+Settings and an optional per-job override in the "Create weekly posts" form.
+
+- `backend/marketing/reel-audio-mode.ts`: canonical `ReelAudioMode` plus two pure
+  functions — `resolveReelAudioMode` (precedence: per-job override → per-tenant
+  Settings default → global default `'music'`) and `resolveReelAudioComposition`
+  (decides the ffmpeg audio graph; a `voiceover` choice degrades to the music bed,
+  never a silent reel, when the capability is off / key absent / synthesis fails).
+- `ARIES_REEL_VOICEOVER_ENABLED` is now a **capability gate** (permits voiceover),
+  not a forcer; the resolved mode decides what each reel carries. Default flipped
+  **ON** in `docker-compose.yml` — safe because the global default mode is `'music'`,
+  so no reel's audio changes until a tenant opts in.
+- Per-tenant default persisted in `business_profiles.reel_audio_mode` (init-db ALTER
+  + migration), read at reel ingest via `loadTenantReelAudioModeOrNull`. Per-job
+  override threads create-form select → payload → `doc.inputs.request.reelAudioMode`
+  → ingest. Settings + create-form UI selectors added.
+- Default mode `'music'` keeps reel output byte-identical until a tenant opts into
+  voiceover. Reviewed via an adversarial multi-agent pass (1 confirmed finding fixed,
+  4 refuted); 14 new tests; `npm run verify` green.
+
 ## v0.1.20.1 — fix(nav): surface the Settings page (team & member invites) in the sidebar account menu
 
 The workspace member-invite UI shipped in v0.1.19.0 (#735) lives on `/dashboard/settings`

@@ -101,6 +101,7 @@ function buildProfile(overrides: Partial<BusinessProfileView> = {}): BusinessPro
     competitorUrl: null,
     channels: ['meta', 'instagram'],
     timezone: 'America/New_York',
+    reelAudioMode: 'music',
     brandIdentity: null,
     brandKit: {
       brand_name: 'Acme',

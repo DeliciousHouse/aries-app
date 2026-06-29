@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 
 import { useIntegrations } from '@/hooks/use-integrations';
 import { useBusinessProfile } from '@/hooks/use-business-profile';
-import { createAriesV1Api } from '@/lib/api/aries-v1';
+import { createAriesV1Api, type ReelAudioMode } from '@/lib/api/aries-v1';
 
 type WorkspaceRole = 'tenant_admin' | 'tenant_analyst' | 'tenant_viewer';
 
@@ -48,6 +48,7 @@ export default function AriesSettingsScreen() {
   const [businessType, setBusinessType] = useState('');
   const [primaryGoal, setPrimaryGoal] = useState('');
   const [launchApproverUserId, setLaunchApproverUserId] = useState('');
+  const [reelAudioMode, setReelAudioMode] = useState<ReelAudioMode>('music');
 
   const profile = business.profile.data?.profile ?? null;
   const teamProfiles = business.team.data?.profiles ?? [];
@@ -73,7 +74,8 @@ export default function AriesSettingsScreen() {
     setBusinessType(profile.businessType || '');
     setPrimaryGoal(profile.primaryGoal || '');
     setLaunchApproverUserId(profile.launchApproverUserId || '');
-  }, [profile?.businessName, profile?.websiteUrl, profile?.businessType, profile?.primaryGoal, profile?.launchApproverUserId]);
+    setReelAudioMode(profile.reelAudioMode || 'music');
+  }, [profile?.businessName, profile?.websiteUrl, profile?.businessType, profile?.primaryGoal, profile?.launchApproverUserId, profile?.reelAudioMode]);
 
   async function saveProfile() {
     await business.updateProfile({
@@ -82,6 +84,7 @@ export default function AriesSettingsScreen() {
       businessType,
       primaryGoal,
       launchApproverUserId: launchApproverUserId || null,
+      reelAudioMode,
     });
   }
 
@@ -210,6 +213,21 @@ export default function AriesSettingsScreen() {
               <Field label="Website"><input value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white" /></Field>
               <Field label="Business type"><input value={businessType} onChange={(e) => setBusinessType(e.target.value)} className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white" /></Field>
               <Field label="Primary goal"><input value={primaryGoal} onChange={(e) => setPrimaryGoal(e.target.value)} className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white" /></Field>
+              <Field label="Reel audio">
+                <select
+                  value={reelAudioMode}
+                  onChange={(e) => setReelAudioMode(e.target.value as ReelAudioMode)}
+                  className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white"
+                >
+                  <option value="music">Music only</option>
+                  <option value="voiceover">Voiceover only</option>
+                  <option value="both">Voiceover + music</option>
+                </select>
+                <p className="mt-2 text-xs leading-6 text-white/50">
+                  Default audio for generated reels (weekly + one-off). Voiceover needs the
+                  account voiceover capability turned on; otherwise reels fall back to music.
+                </p>
+              </Field>
             </div>
             <div className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 text-white">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

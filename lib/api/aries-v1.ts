@@ -137,6 +137,11 @@ export type RuntimeReviewItem = {
   history: SocialContentStatusHistoryEntry[];
 };
 
+/** Reel audio mode the operator can choose for generated reels. Mirrors the
+ * backend canonical type in backend/marketing/reel-audio-mode.ts (kept as a
+ * frontend-safe literal union so the client bundle never imports backend code). */
+export type ReelAudioMode = 'music' | 'voiceover' | 'both';
+
 export type BusinessProfileView = {
   tenantId: string;
   businessName: string;
@@ -153,6 +158,8 @@ export type BusinessProfileView = {
   competitorUrl: string | null;
   channels: string[];
   timezone: string;
+  /** Resolved per-tenant default reel audio mode (always concrete; 'music' when unset). */
+  reelAudioMode: ReelAudioMode;
   brandIdentity?: MarketingBrandIdentity | null;
   brandKit: {
     brand_name: string;
@@ -292,6 +299,7 @@ export type BusinessProfilePatch = {
   competitorUrl?: string | null;
   channels?: string[] | null;
   timezone?: string | null;
+  reelAudioMode?: ReelAudioMode | null;
 };
 export type TenantProfilesResponse = {
   profiles: TenantUserProfile[];
