@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.21.1 — fix(marketing): surface a Publish button on weekly content
+
+Weekly `weekly_social_content` jobs complete with `publishingRequested=false`
+and take the publish-skip terminal path, which ingested rendered images into
+`creative_assets` but never synthesized `posts`. The operator was left with
+images, no captions/hashtags, and **no Publish/Approve control anywhere** (the
+publish queue + review queue both read from synthesized posts) — the "generated
+images but nowhere to click to publish" report. The copy was generated and
+stranded in `production.primary_output.content_package`.
+
+- New flag `ARIES_SYNTHESIZE_ON_PUBLISH_SKIP_ENABLED` (default OFF,
+  `backend/marketing/synthesize-on-publish-skip-env.ts`). When ON, the
+  publish-skip path also synthesizes the content_package into `approved` posts
+  so the dashboard surfaces them with a manual "Publish now → Publish to
+  Facebook Page" button.
+- New `autoSchedule` option on `synthesizePublishPostsOnCompletion` is the
+  safety contract: synthesize for REVIEW only, never auto-schedule/auto-publish,
+  even with `ARIES_AUTO_APPROVE_MARKETING_PIPELINE` /
+  `ARIES_AUTOSCHEDULE_ON_APPROVAL` on (both prod-on). The human still clicks.
+- Onboarding variant-board jobs awaiting a pick are skipped so an unpicked
+  variant never becomes a publishable post.
+- When OFF (default) the publish-skip path is byte-identical to today. Regression
+  test covers synthesis-on-ON (sensitive to the autoSchedule guard), variant-board
+  skip, and flag-OFF no-op; wired into `npm run verify`.
+
 ## v0.1.21.0 — feat(video): choose reel audio — voiceover / music / both
 
 Reels previously had no audio choice: a single deployment flag
