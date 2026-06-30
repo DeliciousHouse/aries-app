@@ -36,6 +36,7 @@ import type { ApproveSocialContentJobRequest, ApproveSocialContentJobResponse } 
 import { ingestProductionCreativeAssetsToDb, isVariantBoardJobAwaitingPick } from './ingest-production-assets';
 import { recomputeAndPersistPendingApprovalCount } from './runtime-views';
 import { synthesizePublishPostsFromContentPackage } from './synthesize-publish-posts';
+import { isSynthesizeOnPublishSkipEnabled } from './synthesize-on-publish-skip-env';
 import { composeStoryAssetForBaseCreative, resolveStoryCtaText } from './story-composer';
 import {
   autoSchedulePosts,
@@ -1324,6 +1325,7 @@ function markJobCompleted(doc: SocialContentJobRuntimeDocument, stage: Marketing
 async function synthesizePublishPostsOnCompletion(
   doc: SocialContentJobRuntimeDocument,
   publishRunId: string | null,
+  opts: { autoSchedule?: boolean } = {},
 ): Promise<void> {
   try {
     const tenantNum = Number(doc.tenant_id);
@@ -1371,7 +1373,13 @@ async function synthesizePublishPostsOnCompletion(
   //     approves the publish gate, so human-in-the-loop tenants get
   //     "approve → both platforms scheduled" without the no-review flag.
   // Best-effort — a schedule failure must NOT undo synthesis.
-  if (autoApproveMarketingPipelineEnabled() || autoScheduleOnApprovalEnabled()) {
+  //
+  // `autoSchedule:false` callers (the publish-SKIP path, where the operator did
+  // NOT request live publishing) synthesize posts for REVIEW only — the posts
+  // surface with a manual "Publish now" button but nothing is scheduled or
+  // published until the human chooses to. The projection recompute below still
+  // runs so those reviewable posts show up in the dashboard.
+  if (opts.autoSchedule !== false && (autoApproveMarketingPipelineEnabled() || autoScheduleOnApprovalEnabled())) {
     try {
       await autoScheduleApprovedPostsForJob(doc);
     } catch (err) {
@@ -2086,6 +2094,29 @@ async function applyHermesMarketingCallbackInner(
       // render. doc.stages.production.primary_output is already populated by the
       // markStageCompleted call above, so this reads the rendered image paths.
       await ingestProductionCreativeAssetsOnCompletion(doc);
+      // Publish was NOT requested, so the legacy behaviour leaves the operator
+      // with images but no captions/hashtags and NO publish/approve control —
+      // the publish queue + review queue both read from synthesized `posts`,
+      // and this path never created any (the "nowhere to click to publish"
+      // symptom). When ARIES_SYNTHESIZE_ON_PUBLISH_SKIP_ENABLED is ON, also
+      // synthesize the generated copy into reviewable `posts` so the dashboard
+      // surfaces them with a manual "Publish now → Publish to Facebook Page"
+      // button. `autoSchedule:false` is the safety contract: synthesize for
+      // review only — never auto-schedule/auto-publish (even with the auto-*
+      // flags on), because publishing was not requested. The human still
+      // chooses to publish. Runs AFTER the ingest above so each post can link to
+      // its rendered creative_asset. Best-effort/non-fatal — the helper swallows
+      // its own errors; the job is already terminal.
+      //
+      // Skip variant-board jobs awaiting a pick: a held variant is a board
+      // option, not a final post, so synthesizing `approved` publishable posts
+      // for the 2 variants the user never picked would let the operator publish
+      // an unpicked variant and pollute the review/backlog trays. Mirrors the
+      // same guard on autoScheduleApprovedPostsForJob; the pick endpoint
+      // releases the chosen job, which then completes via the normal path.
+      if (isSynthesizeOnPublishSkipEnabled() && !isVariantBoardJobAwaitingPick(doc)) {
+        await synthesizePublishPostsOnCompletion(doc, null, { autoSchedule: false });
+      }
       saveSocialContentJobRuntime(doc.job_id, doc);
       return;
     }
