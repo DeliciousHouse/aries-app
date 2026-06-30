@@ -150,6 +150,7 @@ const steps = [
       'tests/meta-publishing-video.test.ts',
       'tests/hermes-callback-video-surface.test.ts',
       'tests/synthesize-publish-posts-surface.test.ts',
+      'tests/marketing/publish-skip-synthesize-posts.test.ts',
       'tests/social-content-cancel-schedule.test.ts',
     ],
   },
