@@ -79,6 +79,14 @@ services:
       # the gate (a human still clicks approve). Default OFF — this is the
       # human-in-the-loop alternative to ARIES_AUTO_APPROVE_MARKETING_PIPELINE.
       ARIES_AUTOSCHEDULE_ON_APPROVAL: ${ARIES_AUTOSCHEDULE_ON_APPROVAL:-0}
+      # Synthesize reviewable posts on the publish-SKIP path (weekly jobs that
+      # complete with publishingRequested=false). When ON, such a job's generated
+      # copy lands as `approved` posts that surface in the dashboard with a manual
+      # "Publish now" button — WITHOUT auto-scheduling/auto-publishing (the human
+      # chooses). When OFF (default) the publish-skip path is byte-identical to
+      # today (images ingested, no posts). Fixes "generated images but nowhere to
+      # click to publish."
+      ARIES_SYNTHESIZE_ON_PUBLISH_SKIP_ENABLED: ${ARIES_SYNTHESIZE_ON_PUBLISH_SKIP_ENABLED:-0}
       # Stale-run reaper: how long a job may sit at an approval gate before it is
       # reaped (default 7d). Long because a job awaiting a human is NOT stalled;
       # the short per-stage thresholds would otherwise reap it at 5 min.
