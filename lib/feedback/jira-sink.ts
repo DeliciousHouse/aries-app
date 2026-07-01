@@ -9,13 +9,15 @@
  *    is retryable, not fatal.
  *  - Authenticates with HTTP Basic (email:apiToken). The token is read from
  *    config and NEVER logged or included in an error string.
- *  - The target project (AA / Aries AI) is team-managed with only
- *    Epic/Sub-task/Task issue types — there is no "Bug"/"Story" to map to — so
- *    every submission is created as the configured issue type (default "Task")
- *    with the category + severity carried in the summary, labels, and body.
+ *  - The target project (AA / Aries AI) is team-managed. Every submission is
+ *    created as the configured issue type (default "Task"; "Bug" and "Story"
+ *    also exist and can be selected via JIRA_FEEDBACK_ISSUE_TYPE), with the
+ *    category carried in the summary/labels/body and the JIRA priority driven
+ *    from the classified severity (see SEVERITY_TO_PRIORITY).
  */
 
 import type { FeedbackJiraConfig } from './feedback-config';
+import type { FeedbackSeverity } from './options';
 import { appServedScreenshotLink } from './screenshot-link';
 import type { FeedbackSubmissionRecord, FeedbackSyncResult } from './types';
 
@@ -46,6 +48,30 @@ export function feedbackLabels(record: FeedbackSubmissionRecord): string[] {
   ].filter(Boolean);
   // De-dupe while preserving order.
   return Array.from(new Set(labels));
+}
+
+/**
+ * Feedback severity → JIRA priority NAME, using the priorities that actually
+ * exist on the AA project's create screen (Highest/High/Medium/Low/Lowest).
+ * Before this, the sink sent no priority, so every feedback issue took JIRA's
+ * project default ("Medium") regardless of the classified severity.
+ *
+ * The names MUST match the project's priority scheme exactly — a name the
+ * scheme lacks makes `POST /rest/api/3/issue` reject the `priority` field and
+ * fail the whole create — so the lookup is fail-open: an unmapped severity
+ * yields null and the field is omitted (JIRA then applies its own default),
+ * which keeps issue creation from ever breaking on a priority mismatch.
+ */
+const SEVERITY_TO_PRIORITY: Record<FeedbackSeverity, string> = {
+  Blocker: 'Highest',
+  High: 'High',
+  Medium: 'Medium',
+  Low: 'Low',
+};
+
+/** The JIRA priority name for a submission's severity, or null when unmapped. */
+export function feedbackPriorityName(record: FeedbackSubmissionRecord): string | null {
+  return SEVERITY_TO_PRIORITY[record.severity] ?? null;
 }
 
 /** One-line, length-bounded issue summary: "[Feedback] <Category> — <comment>". */
@@ -131,12 +157,17 @@ export function buildJiraIssueFields(
   record: FeedbackSubmissionRecord,
   screenshotLink: string | null,
 ): Record<string, unknown> {
+  const priorityName = feedbackPriorityName(record);
   return {
     project: { key: config.projectKey },
     issuetype: { name: config.issueType },
     summary: buildJiraSummary(record),
     description: buildAdfDescription(record, screenshotLink),
     labels: feedbackLabels(record),
+    // Drive JIRA priority from the classified severity, else JIRA stamps its
+    // project default (which made every feedback issue "Medium"). Omitted when
+    // unmapped so a scheme mismatch can never fail issue creation.
+    ...(priorityName ? { priority: { name: priorityName } } : {}),
   };
 }
 

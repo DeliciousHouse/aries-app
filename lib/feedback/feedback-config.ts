@@ -59,7 +59,7 @@ export interface FeedbackJiraConfig {
   apiToken: string;
   /** Target project key, e.g. "AA" (Aries AI). */
   projectKey: string;
-  /** Issue type name to create, e.g. "Task". Project AA only has Epic/Sub-task/Task. */
+  /** Issue type name to create, e.g. "Task". Project AA has Task/Bug/Story/Epic/Sub-task. */
   issueType: string;
 }
 
@@ -145,8 +145,9 @@ function resolveJira(env: NodeJS.ProcessEnv): FeedbackJiraConfig | null {
     email,
     apiToken,
     projectKey,
-    // Project AA (Aries AI) is team-managed with only Epic/Sub-task/Task, so
-    // Task is the safe default; override per-deploy if a richer type set exists.
+    // Project AA (Aries AI) is team-managed with Task/Bug/Story/Epic/Sub-task;
+    // "Task" is the safe default. Override per-deploy (e.g. "Bug") via
+    // JIRA_FEEDBACK_ISSUE_TYPE — the name must exist on the target project.
     issueType: str(env.JIRA_FEEDBACK_ISSUE_TYPE) ?? 'Task',
   };
 }

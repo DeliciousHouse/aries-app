@@ -6,6 +6,7 @@ import {
   buildJiraIssueFields,
   buildJiraSummary,
   feedbackLabels,
+  feedbackPriorityName,
   syncFeedbackToJira,
   toLabel,
 } from '@/lib/feedback/jira-sink';
@@ -13,6 +14,7 @@ import { syncFeedback } from '@/lib/feedback/feedback-sink';
 import { resolveFeedbackConfig } from '@/lib/feedback/feedback-config';
 import type { FeedbackJiraConfig } from '@/lib/feedback/feedback-config';
 import type { FeedbackConfig } from '@/lib/feedback/feedback-config';
+import type { FeedbackSeverity } from '@/lib/feedback/options';
 import type { FeedbackSubmissionRecord } from '@/lib/feedback/types';
 
 const TOKEN = 'super-secret-token-value';
@@ -118,6 +120,34 @@ test('buildJiraIssueFields targets the configured project + issue type', () => {
   assert.match(fields.summary, /^\[Feedback\] Login issue — /);
   assert.equal(fields.description.type, 'doc');
   assert.ok(Array.isArray(fields.labels));
+  // Priority is driven from severity — the record() default is 'High'.
+  assert.equal(fields.priority.name, 'High');
+});
+
+test('buildJiraIssueFields maps each severity onto a real AA priority name', () => {
+  // Names must EXACTLY match the AA project's priority scheme
+  // (Highest/High/Medium/Low/Lowest); before this the sink sent no priority so
+  // every issue defaulted to Medium.
+  const cases: Array<[FeedbackSeverity, string]> = [
+    ['Blocker', 'Highest'],
+    ['High', 'High'],
+    ['Medium', 'Medium'],
+    ['Low', 'Low'],
+  ];
+  for (const [severity, priority] of cases) {
+    assert.equal(feedbackPriorityName(record({ severity })), priority, `${severity} name`);
+    const fields = buildJiraIssueFields(jiraConfig(), record({ severity }), null) as any;
+    assert.equal(fields.priority.name, priority, `${severity} -> ${priority}`);
+  }
+});
+
+test('priority is fail-open: an unmapped severity omits the field (JIRA default applies)', () => {
+  // Guards the "never fail issue creation on a priority the scheme lacks"
+  // contract — an unknown severity must drop the field, not send a bad name.
+  const rogue = record({ severity: 'Nope' as FeedbackSeverity });
+  assert.equal(feedbackPriorityName(rogue), null);
+  const fields = buildJiraIssueFields(jiraConfig(), rogue, null) as any;
+  assert.equal('priority' in fields, false);
 });
 
 // ── network behavior (fake fetch) ───────────────────────────────────────────
@@ -153,6 +183,8 @@ test('syncFeedbackToJira posts to /rest/api/3/issue with Basic auth and returns 
   assert.ok(!headers.Authorization.includes(TOKEN));
   const sent = JSON.parse(String(calls[0].init.body));
   assert.equal(sent.fields.project.key, 'AA');
+  // The classified severity ('High') rides the wire as a JIRA priority name.
+  assert.equal(sent.fields.priority.name, 'High');
 });
 
 test('syncFeedbackToJira reports failure on non-2xx WITHOUT leaking the token', async () => {
