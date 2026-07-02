@@ -8,9 +8,8 @@ export const metadata = {
 // Renders the Composio account-connections surface INSIDE the dashboard shell so
 // operators connect Facebook/Instagram (and the other toolkits) from the
 // existing "Channel Integrations" nav entry instead of a separate /connections
-// page. The legacy direct-Meta OAuth screen (AriesChannelIntegrationsScreen) and
-// its /oauth/connect routes are retained but are no longer the primary connect
-// surface now that Composio brokers connections.
+// page. The /oauth/connect route handlers remain available as the direct-OAuth
+// fallback, but Composio brokers all primary connections.
 export default function DashboardChannelIntegrationsPage() {
   return (
     <AppShellLayout currentRouteId="channelIntegrations">

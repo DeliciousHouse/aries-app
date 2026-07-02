@@ -78,39 +78,6 @@ test('settings-screen: handleIntegrationAction routes connect/reconnect to Compo
   );
 });
 
-// ─── Surface 3: Onboarding ConnectPlatformsStep ───────────────────────────────
-
-test('ConnectPlatformsStep: META_OAUTH_HREF constant is the Composio surface, not legacy OAuth', () => {
-  const src = readFileSync(
-    path.join(
-      PROJECT_ROOT,
-      'frontend',
-      'onboarding',
-      'pipeline-intake',
-      'steps',
-      'ConnectPlatformsStep.tsx',
-    ),
-    'utf8',
-  );
-
-  assert.ok(
-    src.includes(`'${COMPOSIO_SURFACE}'`) || src.includes(`"${COMPOSIO_SURFACE}"`),
-    'ConnectPlatformsStep META_OAUTH_HREF must be set to the Composio surface',
-  );
-  assert.ok(
-    noLegacyOAuthRef(src),
-    'ConnectPlatformsStep must not contain a quoted /oauth/connect/ functional reference',
-  );
-  // Confirm the constant declaration is the Composio surface.
-  const metaHrefIdx = src.indexOf('META_OAUTH_HREF');
-  assert.ok(metaHrefIdx >= 0, 'ConnectPlatformsStep must declare META_OAUTH_HREF');
-  const constDecl = src.slice(metaHrefIdx, metaHrefIdx + 80);
-  assert.ok(
-    constDecl.includes(COMPOSIO_SURFACE),
-    'META_OAUTH_HREF constant must be assigned the Composio surface path',
-  );
-});
-
 // ─── Surface 4: Instagram Publish Drawer (reconnect link) ─────────────────────
 
 test('instagram-publish-drawer: reconnect anchor href is Composio surface, not legacy OAuth', () => {

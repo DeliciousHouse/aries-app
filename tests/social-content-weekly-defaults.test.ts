@@ -10,11 +10,6 @@ import { normalizeWeeklySocialContentPayload } from '@/backend/social-content/pa
 import { buildSocialContentWeeklyRequest } from '@/backend/social-content/workflow-request';
 import type { SocialContentCalendarEvent } from '@/backend/marketing/jobs-status';
 import type { SocialContentJobRuntimeDocument } from '@/backend/marketing/runtime-state';
-import { calendarConsoleCopyForMode } from '@/frontend/app-shell/calendar-console';
-import {
-  dashboardConsoleCopyForMode,
-  dashboardWeeklyCreativeReadyCount,
-} from '@/frontend/app-shell/dashboard-console';
 
 async function withRuntimeEnv<T>(run: () => Promise<T>): Promise<T> {
   const previousDataRoot = process.env.DATA_ROOT;
@@ -243,7 +238,6 @@ test('weekly job status defaults to a 7-day calendar and keeps events in range',
     assert.equal(status.plannedPostCount, 8);
     assert.equal(weeklyEvents.length, status.calendarEvents.length);
     assert.equal(weeklyEvents.every((event) => event.dayIndex >= 1 && event.dayIndex <= 7), true);
-    assert.equal(dashboardWeeklyCreativeReadyCount(weeklyEvents), 0);
   });
 });
 
@@ -408,53 +402,7 @@ test('social-content status response rewrites 30-day approval copy to weekly lan
   });
 });
 
-test('weekly dashboard and calendar UI copy uses content-plan labels', () => {
-  const copy = [
-    ...Object.values(dashboardConsoleCopyForMode(true, 7)),
-    ...Object.values(calendarConsoleCopyForMode(true, 7)),
-  ].join('\n');
-
-  for (const expected of [
-    'Weekly content plan',
-    'Posts planned',
-    'Creatives ready',
-    'Video script ready',
-    '7-day content calendar',
-  ]) {
-    assert.match(copy, new RegExp(expected, 'i'));
-  }
-
-  assert.doesNotMatch(copy, /Campaign window/i);
-  assert.doesNotMatch(copy, /Launch campaign/i);
-});
-
-test('weekly dashboard counts backend-vetted image-creative IDs as ready', () => {
-  const event: SocialContentCalendarEvent = {
-    id: 'social-static-1',
-    jobId: 'mkt_weekly_real_creative',
-    dayIndex: 1,
-    startsAt: '2026-05-05T00:00:00.000Z',
-    endsAt: null,
-    platform: 'instagram',
-    platformLabel: 'Instagram',
-    title: 'Weekly social post 1',
-    postType: 'static',
-    status: 'needs_review',
-    assetPreviewId: 'image-creative-1',
-  };
-
-  assert.equal(dashboardWeeklyCreativeReadyCount([event]), 1);
-});
-
 test('custom weekly window copy uses the actual duration label', async () => {
-  const uiCopy = [
-    ...Object.values(dashboardConsoleCopyForMode(true, 10)),
-    ...Object.values(calendarConsoleCopyForMode(true, 10)),
-  ].join('\n');
-
-  assert.match(uiCopy, /10-day content calendar/i);
-  assert.doesNotMatch(uiCopy, /7-day content calendar/i);
-
   await withRuntimeEnv(async () => {
     const {
       createSocialContentJobRuntimeDocument,

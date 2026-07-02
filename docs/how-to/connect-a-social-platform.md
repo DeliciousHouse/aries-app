@@ -67,7 +67,7 @@ Note on Meta: Meta is env-managed, not user-OAuth-brokered. Its long-lived Page 
 
 ## Reconnecting an expired channel
 
-When a token expires or access is revoked, the connection status becomes `token_expired`, `revoked`, or `permission_denied`. The card then shows `connection_state: 'reauth_required'` with `available_actions` `['reconnect', 'view_permissions']`. A proactive refresh sweeper (`backend/integrations/refresh-sweeper.ts`) also tries to renew tokens before they lapse.
+When a token expires or access is revoked, the connection status becomes `token_expired`, `revoked`, or `permission_denied`. The card then shows `connection_state: 'reauth_required'` with `available_actions` `['reconnect', 'view_permissions']`. Tokens can also be renewed on demand via `POST /api/oauth/[provider]/refresh`.
 
 To reconnect:
 
