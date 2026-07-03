@@ -29,7 +29,11 @@ export const DEFAULT_PRIORITY = 'P2 - High';
 
 /** Authoritative server-side mapping; unknown values fall back to P2. */
 export function priorityForImpact(impact: string): string {
-  return (IMPACT_PRIORITY as Record<string, string>)[impact] ?? DEFAULT_PRIORITY;
+  // Own-property check so prototype names ('constructor', '__proto__') can
+  // never leak an Object.prototype value through the record lookup.
+  return Object.prototype.hasOwnProperty.call(IMPACT_PRIORITY, impact)
+    ? IMPACT_PRIORITY[impact as keyof typeof IMPACT_PRIORITY]
+    : DEFAULT_PRIORITY;
 }
 
 /** Short label token per impact ("impact-p0" .. "impact-p4"). */
