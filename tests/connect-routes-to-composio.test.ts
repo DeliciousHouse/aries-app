@@ -78,7 +78,7 @@ test('settings-screen: handleIntegrationAction routes connect/reconnect to Compo
   );
 });
 
-// ─── Surface 4: Instagram Publish Drawer (reconnect link) ─────────────────────
+// ─── Surface 3: Instagram Publish Drawer (reconnect link) ─────────────────────
 
 test('instagram-publish-drawer: reconnect anchor href is Composio surface, not legacy OAuth', () => {
   const src = readFileSync(

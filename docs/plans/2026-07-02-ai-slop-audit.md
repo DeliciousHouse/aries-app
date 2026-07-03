@@ -39,7 +39,10 @@ tenant-auth helper at 83% adoption, internal-secret auth at 100%), and defensive
   - `backend/video/` (dead March "Veo lane" scaffold; the live video feature ships through
     `ARIES_VIDEO_PUBLISH_ENABLED` paths in marketing/integrations)
   - `backend/creative-memory/{analysis,artifactIngestion,marketPatternNotes}.ts`,
-    `backend/marketing/jobs-start.ts`, `lib/api-service.ts` (test-only or zero-reference)
+    `backend/marketing/jobs-start.ts`, `lib/api-service.ts` (test-only or zero-reference). The two
+    descriptive spec files that named `jobs-start.ts#startMarketingJob` (`marketing_api_contract.v1.json`,
+    `marketing_job_contract_spec.v1.json` — loaded by nothing) were re-pointed at the live
+    `orchestrator.ts#startSocialContentJob`.
   - OAuth refresh sweeper (`scripts/oauth-refresh-sweep.ts` + `backend/integrations/refresh-sweeper.ts`):
     scheduled by nothing, never ran in prod; on-demand refresh via `/api/oauth/[provider]/refresh` is the
     live path and prod publishing is Composio-managed. Docs corrected. `sendMetaReconnectWarningEmail`

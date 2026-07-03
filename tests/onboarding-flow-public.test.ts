@@ -15,21 +15,18 @@ const startPageSource = readFileSync(
   path.join(PROJECT_ROOT, 'app', 'onboarding', 'start', 'page.tsx'),
   'utf8',
 );
-const startScreenSource = readFileSync(
-  path.join(PROJECT_ROOT, 'frontend', 'onboarding', 'start.tsx'),
-  'utf8',
-);
 
 test('public onboarding boundary serves the premium intake at /onboarding/start and removes the raw tenant-onboarding copy', () => {
   assert.doesNotMatch(startPageSource, /redirect\('\/onboarding\/pipeline-intake'\)/);
   assert.match(startPageSource, /AriesOnboardingFlow/);
-  assert.doesNotMatch(startScreenSource, /Start Onboarding/);
-  assert.doesNotMatch(startScreenSource, /Collect required onboarding start fields/);
-  assert.doesNotMatch(startScreenSource, /Tenant ID/);
-  assert.doesNotMatch(startScreenSource, /Proposed Slug/);
-  assert.doesNotMatch(startScreenSource, /Tenant Type/);
-  assert.doesNotMatch(startScreenSource, /Signup Event ID/);
-  assert.match(startScreenSource, /Tenant onboarding tooling moved off the public path/);
+  // The legacy public tenant-onboarding stub screen (frontend/onboarding/start.tsx)
+  // was removed in the AI-slop cleanup; /onboarding/start now renders the premium
+  // AriesOnboardingFlow directly, so the raw tenant-onboarding fields cannot resurface
+  // on this route.
+  assert.doesNotMatch(startPageSource, /Tenant ID/);
+  assert.doesNotMatch(startPageSource, /Proposed Slug/);
+  assert.doesNotMatch(startPageSource, /Tenant Type/);
+  assert.doesNotMatch(startPageSource, /Signup Event ID/);
 });
 
 test('onboarding flow asks for the goal first so every downstream step is built around it', () => {
