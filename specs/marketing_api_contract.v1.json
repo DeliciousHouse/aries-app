@@ -5,7 +5,7 @@
   "artifact_type": "backend_contract_spec",
   "schema_version": "1.0.0",
   "frozen_from": {
-    "start_handler": "./backend/marketing/jobs-start.ts#startMarketingJob",
+    "start_handler": "./backend/marketing/orchestrator.ts#startSocialContentJob",
     "status_handler": "./backend/marketing/jobs-status.ts#getMarketingJobStatus",
     "approve_handler": "./backend/marketing/jobs-approve.ts#approveMarketingJob"
   },
