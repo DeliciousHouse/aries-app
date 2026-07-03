@@ -66,29 +66,36 @@ function captureContext(): {
 
 const isDisabled = process.env.NEXT_PUBLIC_FEEDBACK_DISABLED === 'true' || process.env.NEXT_PUBLIC_FEEDBACK_DISABLED === '1';
 
-// Session probe for choosing which dialog to show. Cached per page load; a
-// failed/slow probe falls back to the legacy public form (which also works for
-// signed-in users), so auth detection can never block feedback.
-let cachedAuthed: boolean | null = null;
+// Session probe for choosing which dialog to show. Cached with a short TTL so
+// a login/logout during the same page load (e.g. another tab) can't pin a
+// stale dialog choice for the rest of the session; a failed/slow probe falls
+// back to the legacy public form (which also works for signed-in users), so
+// auth detection can never block feedback.
+const AUTH_PROBE_TTL_MS = 60_000;
+let cachedAuthed: { value: boolean; atMs: number } | null = null;
 async function resolveAuthed(): Promise<boolean> {
-  if (cachedAuthed !== null) return cachedAuthed;
+  if (cachedAuthed !== null && Date.now() - cachedAuthed.atMs < AUTH_PROBE_TTL_MS) {
+    return cachedAuthed.value;
+  }
+  let value = false;
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 2000);
     try {
       const response = await fetch('/api/auth/session', { signal: controller.signal });
       const data = response.ok ? ((await response.json()) as { user?: unknown } | null) : null;
-      cachedAuthed = Boolean(data && typeof data === 'object' && data.user);
+      value = Boolean(data && typeof data === 'object' && data.user);
     } finally {
       clearTimeout(timer);
     }
   } catch {
-    cachedAuthed = false;
+    value = false;
   }
-  return cachedAuthed;
+  cachedAuthed = { value, atMs: Date.now() };
+  return value;
 }
 
-/** Test seam: clear the per-page session probe cache. */
+/** Test seam: clear the session probe cache. */
 export function resetFeedbackAuthProbeForTests(): void {
   cachedAuthed = null;
 }
