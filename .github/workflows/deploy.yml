@@ -397,6 +397,15 @@ jobs:
             echo "WARNING: failed to recreate aries-composio-reconciler-worker; app deploy is healthy, continuing." >&2
           fi
 
+          # Roll the feedback-retry-worker sidecar too. It imports backend code
+          # (the SC-70 retry sweep) and must stay in lockstep with the app.
+          # Default ON but inherently dormant without JIRA_* config (idles with
+          # one info line), so recreating it every deploy is safe either way.
+          # Non-fatal, like above.
+          if ! ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always aries-feedback-retry-worker; then
+            echo "WARNING: failed to recreate aries-feedback-retry-worker; app deploy is healthy, continuing." >&2
+          fi
+
           # Verify every sidecar actually rolled. The recreate failures above
           # are deliberately non-fatal (workers are best-effort relative to the
           # user-facing app), but a swallowed failure — or a stop->rm->create
