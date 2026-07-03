@@ -79,6 +79,10 @@ const steps = [
     ],
   },
   {
+    name: 'headless QA sandbox session tooling (pinned identity, TTL clamp, cookie shape)',
+    args: ['--test', 'tests/qa-session-lib.test.ts'],
+  },
+  {
     name: 'process-concurrent helper',
     args: ['--test', 'tests/process-concurrent.test.ts'],
   },

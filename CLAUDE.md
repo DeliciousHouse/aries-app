@@ -95,6 +95,7 @@ npm run precheck
 - `npm run test:concurrent` runs the full TypeScript test set with `--test-concurrency=8`; use it before shipping work that changes routes, backend services, process management, or shared helpers.
 - `npm run validate:execution-provider` is the focused Hermes callback/execution-port gate.
 - `npm run validate:social-content` is the focused weekly social-content gate.
+- **Headless rendered-UI QA**: `scripts/qa/seed-qa-tenant.ts` + `scripts/qa/mint-qa-session.ts` mint a real Auth.js session for the passwordless `aries-qa-sandbox` bot (pinned identity, 12h TTL cap) so gstack `/browse` can screenshot/drive the live authenticated app from this host — see `docs/qa/headless-qa-sandbox.md`.
 
 ## Active operational guardrails
 
