@@ -164,6 +164,40 @@ test('feedback_reports store: limits, claim, boundary, and sync against real Pos
     assert.equal(synced.rows[0].screenshot_bytes, null);
     assert.equal(synced.rows[0].screenshot_mime, null);
     assert.equal(synced.rows[0].last_error, null);
+
+    // --- attach-fail keeps screenshot bytes (the sweep re-attaches from these
+    // columns): a row with a stored ticket key + screenshot bytes that then
+    // fails (the attach step, specifically) must retain BOTH columns — the
+    // recordReportFailure UPDATE only ever touches status/attempts/last_error,
+    // never screenshot_bytes/screenshot_mime. ---
+    await insertReportWithLimits(
+      pool,
+      record('r7', {
+        submitterId: 'u3', // fresh bucket — u1/u2 are already at/near the test's rate-limit cap
+        screenshot: { bytes: Buffer.from('attach-me-bytes'), mime: 'image/jpeg' },
+      }),
+      limits,
+    );
+    await markReportTicketKey(pool, 'r7', 'AA-456');
+    await recordReportFailure(pool, 'r7', {
+      error: 'jira attach failed (HTTP 500)',
+      bumpAttempts: true,
+      maxAttempts: 5,
+    });
+    const attachFailed = await pool.query(
+      `SELECT status, attempts, jira_ticket_key, screenshot_bytes, screenshot_mime, last_error
+         FROM feedback_reports WHERE id = 'r7'`,
+    );
+    assert.equal(attachFailed.rows[0].status, 'pending_retry');
+    assert.equal(attachFailed.rows[0].attempts, 1);
+    assert.equal(attachFailed.rows[0].jira_ticket_key, 'AA-456');
+    assert.deepEqual(
+      Buffer.from(attachFailed.rows[0].screenshot_bytes),
+      Buffer.from('attach-me-bytes'),
+      'screenshot bytes must survive an attach failure so the sweep can retry the attach',
+    );
+    assert.equal(attachFailed.rows[0].screenshot_mime, 'image/jpeg');
+    assert.equal(attachFailed.rows[0].last_error, 'jira attach failed (HTTP 500)');
   } finally {
     resetFeedbackReportsEnsuredForTests();
     await pool.end().catch(() => {});

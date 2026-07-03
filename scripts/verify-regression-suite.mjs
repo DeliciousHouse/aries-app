@@ -75,6 +75,7 @@ const steps = [
       'tests/feedback-report-submit.test.ts',
       'tests/feedback-report-sweep.test.ts',
       'tests/feedback-report-form.test.ts',
+      'tests/feedback-report-dialog.test.ts',
     ],
   },
   {
