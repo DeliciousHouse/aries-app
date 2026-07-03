@@ -14,7 +14,7 @@
  * rejected (see jira-report-client.ts callers).
  */
 
-import type { FeedbackImpact } from './report-options';
+import type { FeedbackImpact } from '@/lib/feedback/report-options';
 
 /** SC-71 instance-wide priority names, keyed by impact. */
 const IMPACT_PRIORITY: Record<FeedbackImpact, string> = {

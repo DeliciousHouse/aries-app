@@ -10,7 +10,7 @@
  * guard). Only payloads under the cap are ever decoded.
  */
 
-import { FEEDBACK_REPORT_SCREENSHOT_MIMES } from './report-options';
+import { FEEDBACK_REPORT_SCREENSHOT_MIMES } from '@/lib/feedback/report-options';
 
 export type ScreenshotDiscardReason =
   | 'too_large'

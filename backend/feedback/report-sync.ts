@@ -30,7 +30,7 @@ import {
   getJiraReportClient,
   type JiraReportTransport,
 } from './jira-report-client';
-import { FEEDBACK_IMPACT_OPTIONS } from './report-options';
+import { FEEDBACK_IMPACT_OPTIONS } from '@/lib/feedback/report-options';
 import { screenshotFilename } from './report-screenshot';
 import {
   markReportSynced,

@@ -10,7 +10,7 @@
 
 import type { Pool, PoolClient } from 'pg';
 
-import type { FeedbackImpact, FeedbackReportCategory } from './report-options';
+import type { FeedbackImpact, FeedbackReportCategory } from '@/lib/feedback/report-options';
 
 export type FeedbackReportStatus = 'pending' | 'synced' | 'pending_retry' | 'failed';
 

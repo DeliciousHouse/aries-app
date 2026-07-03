@@ -24,6 +24,7 @@ import {
 } from '@/lib/feedback/options';
 import { cn } from '../donor/lib/utils';
 import { getRecentConsoleErrors, installConsoleCapture } from './console-capture';
+import ReportModal from './report-dialog';
 
 type Phase = 'idle' | 'submitting' | 'success' | 'error';
 
@@ -65,13 +66,48 @@ function captureContext(): {
 
 const isDisabled = process.env.NEXT_PUBLIC_FEEDBACK_DISABLED === 'true' || process.env.NEXT_PUBLIC_FEEDBACK_DISABLED === '1';
 
+// Session probe for choosing which dialog to show. Cached per page load; a
+// failed/slow probe falls back to the legacy public form (which also works for
+// signed-in users), so auth detection can never block feedback.
+let cachedAuthed: boolean | null = null;
+async function resolveAuthed(): Promise<boolean> {
+  if (cachedAuthed !== null) return cachedAuthed;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2000);
+    try {
+      const response = await fetch('/api/auth/session', { signal: controller.signal });
+      const data = response.ok ? ((await response.json()) as { user?: unknown } | null) : null;
+      cachedAuthed = Boolean(data && typeof data === 'object' && data.user);
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    cachedAuthed = false;
+  }
+  return cachedAuthed;
+}
+
+/** Test seam: clear the per-page session probe cache. */
+export function resetFeedbackAuthProbeForTests(): void {
+  cachedAuthed = null;
+}
+
 export default function FeedbackWidget(): React.ReactElement | null {
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
+  // null = probe in flight; signed-in users get the incident report dialog
+  // (SC-70), everyone else keeps the legacy public feedback form.
+  const [authed, setAuthed] = useState<boolean | null>(null);
 
   useEffect(() => {
     setMounted(true);
     installConsoleCapture();
+  }, []);
+
+  const openDialog = useCallback(() => {
+    setOpen(true);
+    void resolveAuthed().then(setAuthed);
   }, []);
 
   if (isDisabled) return null;
@@ -82,7 +118,7 @@ export default function FeedbackWidget(): React.ReactElement | null {
           focus can return to it when the modal closes. */}
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={openDialog}
         aria-haspopup="dialog"
         aria-label="Send feedback"
         aria-hidden={open}
@@ -107,7 +143,13 @@ export default function FeedbackWidget(): React.ReactElement | null {
         typeof document !== 'undefined' &&
         createPortal(
           <AnimatePresence>
-            {open && <FeedbackModal onClose={() => setOpen(false)} />}
+            {open && authed !== null && (
+              authed ? (
+                <ReportModal onClose={() => setOpen(false)} />
+              ) : (
+                <FeedbackModal onClose={() => setOpen(false)} />
+              )
+            )}
           </AnimatePresence>,
           document.body,
         )}

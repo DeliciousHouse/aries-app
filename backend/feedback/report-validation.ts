@@ -13,7 +13,7 @@ import {
   isFeedbackReportCategory,
   type FeedbackImpact,
   type FeedbackReportCategory,
-} from './report-options';
+} from '@/lib/feedback/report-options';
 
 export interface ValidatedReportRequest {
   category: FeedbackReportCategory;
