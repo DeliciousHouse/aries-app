@@ -2,6 +2,46 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.22.0 — feat(feedback): customer incident report button (SC-70 port, AA-51)
+
+Port of the Sequence CRM SC-70 feedback/incident framework. Signed-in users
+get an impact-first "Report an issue" dialog behind the existing floating
+Feedback button (the legacy public form stays for anonymous visitors); reports
+persist durably FIRST and then file a Jira **Bug** into project AA with a
+server-mapped priority, sanitized labels, a contact block, and the optional
+screenshot as a real Jira attachment.
+
+- New auth-gated `POST /api/feedback/submit`: identity from the session only
+  (body identity/tenant/priority fields are ignored), transactional per
+  user+tenant rate limit (10/hr) + 60s duplicate window, persist-first commit
+  before any Jira I/O, uniform `{submission_id, jira_ticket_key, status,
+  screenshot_discarded}` 201/202 contract. A bad/oversized screenshot is
+  discarded with a reason — it never sinks the report.
+- New `feedback_reports` table (init-db + migration): status lifecycle
+  `pending|synced|pending_retry|failed`, attempts counter, scrubbed
+  `last_error`; screenshot bytes NULLed once synced.
+- Jira delivery with idempotency: single create call-site behind a stored-key
+  check + JQL search of the product-unique `aries-sub-<id>` label
+  (search-before-create), token + basic-credential scrubbing BEFORE truncation,
+  JQL label guard (`^[a-z0-9-]+$`, zero HTTP on reject), issue-key validation,
+  15s timeouts. Impact→priority mapped server-side (P0 Crit Sit … P4
+  Informational); AA's Bug screen has no priority field today, so a
+  priority-field rejection degrades once per process and the impact always
+  rides as an `impact-<pX>` label.
+- New `aries-feedback-retry-worker` sidecar (compose + deploy force-recreate,
+  parity green): atomic `FOR UPDATE SKIP LOCKED` claims, stale-`pending` crash
+  recovery, attach-only completion, terminal `failed` exactly at max attempts.
+  Default ON but inherently dormant without `JIRA_*` config — parked reports
+  heal the moment config lands (dark-by-default boots clean).
+- Dialog: impact question first (no default), screen capture via
+  `getDisplayMedia` (file-picker fallback), 2 MB client cap from base64
+  length, pinned `https://sugarandleather.atlassian.net/browse/<key>` success
+  link, 429/network errors keep the dialog open with values intact,
+  double-submit guarded.
+- 79 new tests (invariant suite + live-Postgres `feedback_reports` store proof
+  in a throwaway schema) wired into `npm run verify` and the requires-infra
+  index.
+
 ## v0.1.21.1 — fix(marketing): surface a Publish button on weekly content
 
 Weekly `weekly_social_content` jobs complete with `publishingRequested=false`

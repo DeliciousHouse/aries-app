@@ -95,6 +95,44 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_feedback_submissions_ip_hash_created ON feedback_submissions (ip_hash, created_at DESC);
     `);
 
+    // Customer incident reports — SC-70 port, AA-51
+    // (migrations/20260703000000_feedback_reports.sql). Auth-gated, impact-rated
+    // reports that file a Jira Bug with retry/idempotency semantics; distinct
+    // from the legacy public feedback_submissions capture above. Screenshot
+    // bytes are held only until the Jira sync completes, then NULLed.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS feedback_reports (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        submitter_id TEXT NOT NULL,
+        submitter_email TEXT,
+        submitter_name TEXT,
+        customer_slug TEXT NOT NULL DEFAULT 'unknown',
+        category TEXT NOT NULL CHECK (category IN ('bug','question','other')),
+        impact TEXT NOT NULL CHECK (impact IN (
+          'p0_system_blocked','p1_account_blocked','p2_feature_degraded',
+          'p3_minor_glitch','p4_question'
+        )),
+        title VARCHAR(255) NOT NULL,
+        description TEXT NOT NULL,
+        screenshot_bytes BYTEA,
+        screenshot_mime VARCHAR(64),
+        jira_ticket_key VARCHAR(50),
+        status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (status IN ('pending','synced','pending_retry','failed')),
+        attempts INT NOT NULL DEFAULT 0,
+        last_error TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_feedback_reports_status_updated
+        ON feedback_reports (status, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_feedback_reports_tenant_submitter_created
+        ON feedback_reports (tenant_id, submitter_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_feedback_reports_ticket_key
+        ON feedback_reports (jira_ticket_key);
+    `);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS oauth_connections (
         id BIGSERIAL PRIMARY KEY,
