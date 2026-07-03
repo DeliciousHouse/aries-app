@@ -296,6 +296,17 @@ services:
       FEEDBACK_ENABLED: ${FEEDBACK_ENABLED:-true}
       FEEDBACK_RATE_LIMIT_PER_HOUR: ${FEEDBACK_RATE_LIMIT_PER_HOUR:-}
       FEEDBACK_ENVIRONMENT: ${FEEDBACK_ENVIRONMENT:-}
+      # Customer incident reports (SC-70 port, AA-51) — the auth-gated
+      # /api/feedback/submit pipeline. Shares the JIRA_* connection above but
+      # files issue type "Bug" (project AA has it; the legacy path keeps Task).
+      # All optional: unset ⇒ reports park as pending_retry and the retry
+      # sweep sidecar heals them once JIRA_* lands.
+      JIRA_INCIDENT_ISSUE_TYPE: ${JIRA_INCIDENT_ISSUE_TYPE:-Bug}
+      FEEDBACK_MAX_IMAGE_BYTES: ${FEEDBACK_MAX_IMAGE_BYTES:-2000000}
+      FEEDBACK_USER_RATE_LIMIT_PER_HOUR: ${FEEDBACK_USER_RATE_LIMIT_PER_HOUR:-10}
+      FEEDBACK_DEDUP_WINDOW_SECONDS: ${FEEDBACK_DEDUP_WINDOW_SECONDS:-60}
+      FEEDBACK_RETRY_MAX_ATTEMPTS: ${FEEDBACK_RETRY_MAX_ATTEMPTS:-5}
+      FEEDBACK_STALE_PENDING_MINUTES: ${FEEDBACK_STALE_PENDING_MINUTES:-15}
       # X (Twitter) publish slugs — only consulted when ARIES_X_ENABLED=true and
       # PUBLISH_PROVIDER=composio/auto. Publish executes in the app process (the
       # scheduled-posts-worker only POSTs to the route), so these live here only.
@@ -546,6 +557,44 @@ services:
       ARIES_HERMES_GC_MAX_AGE_DAYS: ${ARIES_HERMES_GC_MAX_AGE_DAYS:-7}
     volumes:
       - ${HERMES_IMAGE_CACHE_DIR:-/home/node/.hermes/profiles/aries-content-generator/cache/images}:/hermes-media:ro
+    restart: unless-stopped
+    networks:
+      - docker_stack
+
+  # Long-lived sidecar that heals customer incident reports (SC-70 port) whose
+  # Jira delivery is incomplete: parked pending_retry rows, attach-only
+  # completions, and stale 'pending' rows stranded by a crash. Atomic
+  # FOR UPDATE SKIP LOCKED claims make concurrent sweeps safe. Default ON —
+  # without JIRA_* config it idles with one info line and touches nothing, and
+  # default-on is what lets parked reports heal the moment config lands. Set
+  # ARIES_FEEDBACK_RETRY_ENABLED=0 to idle it explicitly.
+  aries-feedback-retry-worker:
+    image: ${ARIES_APP_IMAGE:-aries-app:local}
+    command: ["node_modules/.bin/tsx", "scripts/automations/feedback-retry-sweep-worker.ts"]
+    depends_on:
+      aries-app:
+        condition: service_healthy
+    environment:
+      HOME: /home/node
+      NODE_ENV: production
+      CODE_ROOT: /app
+      DATA_ROOT: /data
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_POOL_MAX: 3
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      ARIES_FEEDBACK_RETRY_ENABLED: ${ARIES_FEEDBACK_RETRY_ENABLED:-1}
+      JIRA_BASE_URL: ${JIRA_BASE_URL:-}
+      JIRA_EMAIL: ${JIRA_EMAIL:-}
+      JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
+      JIRA_PROJECT_KEY: ${JIRA_PROJECT_KEY:-}
+      JIRA_INCIDENT_ISSUE_TYPE: ${JIRA_INCIDENT_ISSUE_TYPE:-Bug}
+      FEEDBACK_RETRY_INTERVAL_MINUTES: ${FEEDBACK_RETRY_INTERVAL_MINUTES:-5}
+      FEEDBACK_RETRY_BATCH_LIMIT: ${FEEDBACK_RETRY_BATCH_LIMIT:-10}
+      FEEDBACK_RETRY_MAX_ATTEMPTS: ${FEEDBACK_RETRY_MAX_ATTEMPTS:-5}
+      FEEDBACK_STALE_PENDING_MINUTES: ${FEEDBACK_STALE_PENDING_MINUTES:-15}
     restart: unless-stopped
     networks:
       - docker_stack

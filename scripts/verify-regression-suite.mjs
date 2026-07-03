@@ -63,6 +63,21 @@ const steps = [
     ],
   },
   {
+    name: 'customer incident reports (SC-70 port: impact map, ADF, Jira client, sync, sweep, dialog logic)',
+    args: [
+      '--test',
+      'tests/feedback-report-impact.test.ts',
+      'tests/feedback-report-screenshot.test.ts',
+      'tests/feedback-report-adf.test.ts',
+      'tests/feedback-report-jira-client.test.ts',
+      'tests/feedback-report-validation.test.ts',
+      'tests/feedback-report-sync.test.ts',
+      'tests/feedback-report-submit.test.ts',
+      'tests/feedback-report-sweep.test.ts',
+      'tests/feedback-report-form.test.ts',
+    ],
+  },
+  {
     name: 'process-concurrent helper',
     args: ['--test', 'tests/process-concurrent.test.ts'],
   },
