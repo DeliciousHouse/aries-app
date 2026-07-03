@@ -101,7 +101,7 @@ test('INVARIANT: body-supplied identity/tenant/priority fields are ignored entir
 });
 
 test('config is dark by default: no JIRA_* env ⇒ jira null, knobs at plan defaults', () => {
-  const config = resolveFeedbackReportConfig({} as NodeJS.ProcessEnv);
+  const config = resolveFeedbackReportConfig({} as unknown as NodeJS.ProcessEnv);
   assert.equal(config.jira, null);
   assert.equal(config.maxImageBytes, 2_000_000);
   assert.equal(config.userRateLimitPerHour, 10);
@@ -118,7 +118,7 @@ test('config: JIRA_ISSUE_TOKEN is accepted as the token alias; issue type defaul
     JIRA_EMAIL: 'bot@example.com',
     JIRA_ISSUE_TOKEN: 'alias-token',
     JIRA_PROJECT_KEY: 'AA',
-  } as NodeJS.ProcessEnv;
+  } as unknown as NodeJS.ProcessEnv;
   const config = resolveFeedbackReportConfig(env);
   assert.ok(config.jira);
   assert.equal(config.jira?.apiToken, 'alias-token');
@@ -128,7 +128,7 @@ test('config: JIRA_ISSUE_TOKEN is accepted as the token alias; issue type defaul
   const primary = resolveFeedbackReportConfig({
     ...env,
     JIRA_API_TOKEN: 'primary-token',
-  } as NodeJS.ProcessEnv);
+  } as unknown as NodeJS.ProcessEnv);
   assert.equal(primary.jira?.apiToken, 'primary-token');
 });
 
@@ -137,7 +137,7 @@ test('config: a partial JIRA_* set stays unconfigured (never invent a piece)', (
     JIRA_BASE_URL: 'https://example.atlassian.net',
     JIRA_EMAIL: 'bot@example.com',
     // token + project key missing
-  } as NodeJS.ProcessEnv);
+  } as unknown as NodeJS.ProcessEnv);
   assert.equal(config.jira, null);
 });
 
@@ -146,7 +146,7 @@ test('config: garbage knob values fall back to defaults', () => {
     FEEDBACK_MAX_IMAGE_BYTES: 'garbage',
     FEEDBACK_USER_RATE_LIMIT_PER_HOUR: '-5',
     FEEDBACK_RETRY_MAX_ATTEMPTS: '0',
-  } as NodeJS.ProcessEnv);
+  } as unknown as NodeJS.ProcessEnv);
   assert.equal(config.maxImageBytes, 2_000_000);
   assert.equal(config.userRateLimitPerHour, 10);
   assert.equal(config.retryMaxAttempts, 5);

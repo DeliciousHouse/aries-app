@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { auth } from '@/auth';
+import { getTenantContext } from '@/lib/tenant-context';
 import { resolveFeedbackConfig } from '@/lib/feedback/feedback-config';
 import { OVER_LIMIT, readBodyCapped } from '@/lib/http/read-body-capped';
 import { resolveFeedbackReportConfig } from '@/backend/feedback/report-config';
@@ -47,6 +48,22 @@ export async function POST(req: Request): Promise<NextResponse> {
   }
   if (!submitter) {
     return NextResponse.json({ status: 'error', error: 'unauthorized' }, { status: 401 });
+  }
+
+  // Authoritative tenant resolution (session claims, then DB fallback) per the
+  // repo rule that authenticated routes resolve tenant context server-side. A
+  // TenantContextError (e.g. mid-onboarding, no membership yet) keeps the
+  // session-only identity above — a tenantless user can still file a report.
+  try {
+    const tenantContext = await getTenantContext();
+    submitter = {
+      ...submitter,
+      userId: tenantContext.userId,
+      tenantId: tenantContext.tenantId,
+      tenantSlug: tenantContext.tenantSlug,
+    };
+  } catch {
+    // keep session-only identity
   }
 
   const raw = await readBodyCapped(req, MAX_BODY_BYTES);
