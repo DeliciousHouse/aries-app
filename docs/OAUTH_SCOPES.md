@@ -191,7 +191,7 @@ https://<APP_BASE_URL>/api/auth/oauth/reddit/callback
 
 ## Token storage
 
-All Aries-brokered OAuth tokens are encrypted with `OAUTH_TOKEN_ENCRYPTION_KEY` before being written to the `oauth_tokens` table in PostgreSQL. Access tokens and refresh tokens are stored separately with expiry metadata. The refresh sweeper (`backend/integrations/refresh-sweeper.ts`) proactively refreshes tokens that are close to expiry.
+All Aries-brokered OAuth tokens are encrypted with `OAUTH_TOKEN_ENCRYPTION_KEY` before being written to the `oauth_tokens` table in PostgreSQL. Access tokens and refresh tokens are stored separately with expiry metadata. Token refresh happens on demand via `POST /api/oauth/[provider]/refresh` (there is no scheduled background refresh sweep).
 
 ## Graph API version
 

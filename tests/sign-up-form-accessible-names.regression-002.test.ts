@@ -47,7 +47,7 @@ test('signup password visibility toggle has updating accessible name and pressed
 test('signup organization input is associated with its visible label', () => {
   assert.match(
     source,
-    /<label htmlFor="signup-organization"[^>]*>Organization \{!invitationData && "\(Optional\)"\}<\/label>/,
+    /<label htmlFor="signup-organization"[^>]*>Organization \(Optional\)<\/label>/,
     'Organization (Optional) should be rendered as a label bound to the organization input',
   );
   assert.match(

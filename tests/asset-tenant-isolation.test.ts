@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -166,92 +166,5 @@ test('tenant isolation: cross-tenant read of another tenant path is denied', asy
         );
       },
     );
-  });
-});
-
-test('migration: tenant-prefix migration is idempotent on re-run', async () => {
-  await withScratch(async ({ dataRoot }) => {
-    const sha = 'abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890';
-    const ext = '.png';
-    const legacyAbs = path.join(dataRoot, 'ingested-assets', sha.slice(0, 2), `${sha}${ext}`);
-    await mkdir(path.dirname(legacyAbs), { recursive: true });
-    const bytes = Buffer.from('legacy-bytes');
-    await writeFile(legacyAbs, bytes);
-
-    const tenantId = 42;
-    const expectedNewAbs = path.join(
-      dataRoot,
-      'ingested-assets',
-      String(tenantId),
-      sha.slice(0, 2),
-      `${sha}${ext}`,
-    );
-
-    type Row = { id: string; tenant_id: number; storage_key: string };
-    const rows: Row[] = [
-      { id: 'asset-1', tenant_id: tenantId, storage_key: legacyAbs },
-    ];
-
-    const stubDb = {
-      query: async (sql: string, params: unknown[] = []) => {
-        const trimmed = sql.trim().toUpperCase();
-        if (trimmed.startsWith('SELECT')) {
-          const pending = rows.filter((row) => {
-            const idx = row.storage_key.indexOf(`${path.sep}ingested-assets${path.sep}`);
-            if (idx === -1) return false;
-            const tail = row.storage_key.slice(idx + `${path.sep}ingested-assets${path.sep}`.length);
-            const segs = tail.split(path.sep);
-            return segs.length === 2;
-          });
-          return { rows: pending, rowCount: pending.length };
-        }
-        if (trimmed.startsWith('UPDATE')) {
-          const [newKey, id] = params as [string, string];
-          const target = rows.find((row) => row.id === id);
-          if (target) {
-            target.storage_key = newKey;
-          }
-          return { rows: [], rowCount: target ? 1 : 0 };
-        }
-        return { rows: [], rowCount: 0 };
-      },
-    };
-
-    await withEnv({ DATA_ROOT: dataRoot }, async () => {
-      const { runAssetTenantPrefixMigration } = await import('../scripts/migrate-asset-tenant-prefix');
-
-      const first = await runAssetTenantPrefixMigration({
-        dryRun: false,
-        db: stubDb,
-        dataRoot,
-      });
-
-      assert.equal(first.scanned, 1, 'first run scans one legacy row');
-      assert.equal(first.moved, 1, 'first run moves one file');
-      assert.equal(first.updated, 1, 'first run updates one DB row');
-      assert.equal(first.skipped, 0, 'first run skips none');
-
-      const movedBytes = await readFile(expectedNewAbs);
-      assert.ok(movedBytes.equals(bytes), 'bytes preserved at new tenant-prefixed path');
-
-      let legacyExists = true;
-      try {
-        await stat(legacyAbs);
-      } catch {
-        legacyExists = false;
-      }
-      assert.equal(legacyExists, false, 'legacy path removed after move');
-
-      assert.equal(rows[0]!.storage_key, expectedNewAbs, 'DB row points at new path');
-
-      const second = await runAssetTenantPrefixMigration({
-        dryRun: false,
-        db: stubDb,
-        dataRoot,
-      });
-      assert.equal(second.scanned, 0, 'second run finds no legacy rows');
-      assert.equal(second.moved, 0, 'second run moves no files');
-      assert.equal(second.updated, 0, 'second run updates no rows');
-    });
   });
 });

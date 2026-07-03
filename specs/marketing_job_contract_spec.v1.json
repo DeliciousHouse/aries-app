@@ -8,7 +8,7 @@
   },
   "contract": {
     "start_endpoint": {
-      "function": "startMarketingJob",
+      "function": "startSocialContentJob",
       "request": {
         "type": "object",
         "required": [
