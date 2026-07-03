@@ -256,3 +256,25 @@ And ship as its own PR.
 
 **Priority:** P3 (after Phase 1 flag flip lands)
 **Source:** Surfaced 2026-05-23 during /goal P6 investigation.
+
+## Multi-workspace membership (deferred from 2026-07-03 plan review)
+
+### Per-workspace notification preferences
+
+**What:** Let a user configure notification settings (e.g. Slack approval pings, email digests) per workspace membership rather than globally per account.
+
+**Why:** Once one account can belong to N workspaces (docs/plans/2026-07-03-multi-workspace-membership.md), a consultant in 3 client workspaces will want different notification behavior per client. No notification-preference surface exists today, so this needs its own design, not a column bolted onto `organization_memberships`.
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** Multi-workspace membership Phases 0–3 shipped and flag-ON.
+
+### Org-deletion self-service UI
+
+**What:** Operator-facing UI to delete/archive a workspace (today deletion is `backend/tenant/organization-lifecycle.ts` invoked manually).
+
+**Why:** The multi-workspace plan's Phase 4 makes org deletion SAFE (membership cascade + active-pointer repair) but ships no UI for it. Abandoned orphan workspaces accumulate as identity cruft (orgs 8/58/59 from the 2026-07-03 incident are examples).
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** Multi-workspace membership Phase 4 (lifecycle repair) shipped.
