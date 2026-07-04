@@ -288,6 +288,23 @@ test('flag ON: zero-membership NEVER falls back to stale session claims (ghost-c
   );
 });
 
+test('flag ON: API routes surface 403 tenant_membership_missing for the zero-membership state (eng finding 9)', async () => {
+  const { loadTenantContextOrResponse } = await import('../../lib/tenant-context-http');
+
+  const outcome = await loadTenantContextOrResponse(async () => {
+    throw new TenantContextError(
+      'tenant_membership_missing',
+      'No active workspace membership found for authenticated user.',
+    );
+  });
+
+  assert.ok('response' in outcome);
+  assert.equal(outcome.response.status, 403);
+  const body = (await outcome.response.json()) as { status: string; reason: string };
+  assert.equal(body.status, 'error');
+  assert.equal(body.reason, 'tenant_membership_missing');
+});
+
 // ---------------------------------------------------------------------------
 // ensureTenantAccessForUser — flag ON (Decision 7)
 // ---------------------------------------------------------------------------
