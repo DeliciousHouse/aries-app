@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { useIntegrations } from '@/hooks/use-integrations';
 import { useBusinessProfile } from '@/hooks/use-business-profile';
 import { createAriesV1Api, type ReelAudioMode } from '@/lib/api/aries-v1';
+import { fetchWorkspaceSwitcherData } from '@/lib/api/workspace';
 
 type WorkspaceRole = 'tenant_admin' | 'tenant_analyst' | 'tenant_viewer';
 
@@ -102,6 +103,47 @@ export default function AriesSettingsScreen() {
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [memberNotice, setMemberNotice] = useState<string | null>(null);
   const [memberError, setMemberError] = useState<string | null>(null);
+
+  // E6 self-service leave (multi-workspace Phase 3). Only offered when the
+  // account actually has another workspace to land in — i.e. the switcher list
+  // (flag-gated 404 when OFF) reports >1 active workspace. Guards against the
+  // flag-OFF account-delete path and against stranding a single-workspace user.
+  const [activeWorkspaceCount, setActiveWorkspaceCount] = useState(0);
+  const [confirmLeave, setConfirmLeave] = useState(false);
+  const [leaveBusy, setLeaveBusy] = useState(false);
+  const canLeaveWorkspace = activeWorkspaceCount > 1;
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchWorkspaceSwitcherData()
+      .then((data) => {
+        if (!cancelled) setActiveWorkspaceCount(data.workspaces.length);
+      })
+      .catch(() => {
+        // 404 (flag OFF) / error → treat as single-workspace: leave not offered.
+        if (!cancelled) setActiveWorkspaceCount(0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleLeaveWorkspace() {
+    if (!viewerUserId || leaveBusy) return;
+    setMemberError(null);
+    setMemberNotice(null);
+    setLeaveBusy(true);
+    try {
+      await memberApi.deleteTenantProfile(viewerUserId);
+      // The resolver repoints the active pointer to another membership in the
+      // same transaction; hard-navigate so the shell re-boots in that workspace.
+      window.location.href = '/dashboard';
+    } catch (err) {
+      setMemberError(memberActionErrorMessage((err as { code?: string })?.code));
+      setLeaveBusy(false);
+      setConfirmLeave(false);
+    }
+  }
 
   async function handleInviteMember(e: React.FormEvent) {
     e.preventDefault();
@@ -463,6 +505,36 @@ export default function AriesSettingsScreen() {
                               className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/20 px-3 py-1.5 text-xs font-semibold text-white/80 hover:bg-black/30"
                             >
                               Remove
+                            </button>
+                          )
+                        ) : null}
+                        {isSelf && canLeaveWorkspace ? (
+                          confirmLeave ? (
+                            <span className="inline-flex items-center gap-2">
+                              <button
+                                type="button"
+                                disabled={leaveBusy}
+                                onClick={() => void handleLeaveWorkspace()}
+                                className="inline-flex min-h-[36px] items-center gap-2 rounded-full border border-red-400/25 bg-red-500/15 px-3 py-1.5 text-xs font-semibold text-red-100 hover:bg-red-500/25 disabled:opacity-60"
+                              >
+                                {leaveBusy ? 'Leaving…' : 'Confirm leave'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={leaveBusy}
+                                onClick={() => setConfirmLeave(false)}
+                                className="inline-flex min-h-[36px] items-center gap-2 rounded-full border border-white/15 bg-black/20 px-3 py-1.5 text-xs font-semibold text-white/80 hover:bg-black/30 disabled:opacity-60"
+                              >
+                                Cancel
+                              </button>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmLeave(true)}
+                              className="inline-flex min-h-[36px] items-center gap-2 rounded-full border border-white/15 bg-black/20 px-3 py-1.5 text-xs font-semibold text-white/80 hover:bg-black/30"
+                            >
+                              Leave workspace
                             </button>
                           )
                         ) : null}

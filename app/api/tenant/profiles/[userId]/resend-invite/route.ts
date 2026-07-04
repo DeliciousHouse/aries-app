@@ -1,5 +1,6 @@
 import pool from '@/lib/db';
 import { getTenantContext } from '@/lib/tenant-context';
+import { workspaceMismatchResponse } from '@/lib/tenant-context-http';
 import { resendWorkspaceInvitation } from '@/backend/tenant/workspace-invitations';
 import { sendWorkspaceInviteEmail } from '@/lib/email';
 import { buildInviteAcceptUrl, roleLabel, INVITE_EXPIRES_IN_DAYS } from '@/backend/tenant/invite-presentation';
@@ -23,6 +24,8 @@ export async function POST(_req: Request, { params }: { params: Promise<{ userId
   try {
     tenantContext = await getTenantContext();
   } catch (error) {
+    const mismatch = workspaceMismatchResponse(error);
+    if (mismatch) return mismatch;
     return json({ error: 'Authentication required.' }, 403);
   }
 

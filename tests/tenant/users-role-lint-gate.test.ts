@@ -50,6 +50,12 @@ const SCAN_EXTENSIONS = new Set(['.ts', '.tsx']);
  *    and write users.role; converted to membership rows in Phase 2).
  *  - backend/tenant/workspace-invitations.ts — absorb repoint (pointer + role
  *    mirror in one statement) and the accept-path user-row locks.
+ *  - backend/tenant/workspace-switch.ts — the Phase 3 switch repoint: pointer +
+ *    legacy role mirror move together in ONE statement (CEO hardening 3, closes
+ *    the skew window). The role written is the target MEMBERSHIP's role (read
+ *    from organization_memberships), not a fresh users.role read — so it is a
+ *    mirror sync, not a users.role-as-source-of-truth read. Removed with the
+ *    mirror in Phase 5.
  *  - scripts/qa/seed-qa-tenant.ts — QA sandbox seed (pinned identity).
  */
 const ALLOWLIST = new Set<string>([
@@ -57,6 +63,7 @@ const ALLOWLIST = new Set<string>([
   'lib/auth-tenant-membership.ts',
   'backend/tenant/user-profiles.ts',
   'backend/tenant/workspace-invitations.ts',
+  'backend/tenant/workspace-switch.ts',
   'scripts/qa/seed-qa-tenant.ts',
 ]);
 

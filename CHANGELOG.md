@@ -2,6 +2,50 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.27.0 — feat(tenant): multi-workspace phase 3 — workspace switcher, switch endpoint, mutation guard + interlock (flag-gated, default OFF)
+
+Phase 3 of the multi-workspace membership program
+(docs/plans/2026-07-03-multi-workspace-membership.md). Adds the workspace
+switch surface + the wrong-workspace-write mutation guard behind
+`ARIES_MULTI_WORKSPACE_ENABLED` (default OFF — ships dark; flag OFF
+byte-identical to the single-pointer model, golden-pinned).
+
+- Mutation guard (Decision 2a + Eng finding S0 — the security core): the
+  wrong-workspace-publish class guard lives INSIDE `getTenantContext()`, not the
+  `loadTenantContextOrResponse` wrapper, because ~9 mutating routes call
+  getTenantContext() directly. A state-changing request pins the tab's booted
+  workspace id via the `x-aries-workspace-id` header (attached to
+  POST/PUT/PATCH/DELETE only — never GET reads, never the switch endpoint); a
+  pinned id that is no longer the account's active workspace throws a typed
+  `WorkspaceMismatchError` → `409 workspace_mismatch` (single shared body in
+  `lib/tenant-context-http.ts`), so the mutation never runs. Claims-fallback
+  (DB blip) fails closed for mutations (Eng finding 12). The booted-id pin is
+  set-once on the client — a sibling-tab repoint cannot re-pin it, so the guard
+  cannot be defeated.
+- Switch endpoint (`POST /api/tenant/workspace/switch`, Decision 2 + CEO
+  hardening 3): server-side membership validation only (never trusts the client
+  id); `status='active'` memberships only; pointer + legacy role mirror move in
+  ONE transaction under `FOR UPDATE` (no skew window); flag-OFF 404.
+- Switcher list endpoint (`GET /api/tenant/workspace/memberships`): flag-gated
+  404, session-authed, one indexed query, frontend-safe, tenant-isolated to the
+  caller's own memberships (active MRU + pending invites).
+- Workspace switcher UI (app-shell rail + mobile header): renders ONLY flag ON
+  AND workspaceCount>1; MRU order; current + role badge; pending-invite rows
+  (E2, Accept → chooser); no "Create workspace"; roving focus / Esc / aria-live
+  / 44px targets / dark-safe contrast.
+- Stale-workspace interlock: single shell-level `role="alertdialog"` (focus
+  trap, non-dismissible), routed from every 409 mismatch; NEVER auto-navigates
+  (drafts survive); "Reload into <active>" / "Switch back to <booted>". Plus a
+  window-focus stale-READ detector (GET, no guard header).
+- E6 self-service leave: the profile DELETE self-exception is flag-gated and
+  bounded to the acting user (a non-admin can only delete THEIR OWN membership
+  row; admin-removing-others stays admin-gated); last-admin self-leave blocked;
+  flag OFF byte-identical (self-leave not offered).
+- Anti-rot coverage: inv-01b learns `workspaceMismatchResponse`; the 7
+  high-blast-radius publish/schedule/approve routes are explicitly pinned to a
+  409-mapping gate; inv-04 + users-role-lint allowlists document the switch's
+  validated-resource-selection and role-mirror-sync.
+
 ## v0.1.26.0 — feat(tenant): multi-workspace phase 2 — membership invite/accept/remove semantics (flag-gated, default OFF)
 
 Phase 2 of the multi-workspace membership program
