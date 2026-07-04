@@ -269,12 +269,26 @@ export async function ensureOrganizationForUser(
   return orgId;
 }
 
-export async function findTenantClaimsByUserId(
-  client: QueryClient,
-  userId: number | string,
-): Promise<TenantClaimsRow | null> {
-  const result = await client.query(
-    `
+/**
+ * Lookup key for the ONE consolidated membership-claims helper. The same
+ * users ⋈ organizations join used to be triplicated across
+ * findTenantClaimsByUserId / findTenantClaimsByEmail (this module) and
+ * loadTenantContextForUser (lib/tenant-context.ts); Phase 1 of the
+ * multi-workspace plan consolidates all three onto resolveTenantClaimsRow so
+ * the membership join exists in exactly one place (plan eng findings 5 + 14).
+ */
+export type TenantClaimsLookup =
+  | { by: 'userId'; userId: number | string }
+  | { by: 'email'; email: string };
+
+/**
+ * The legacy (single-pointer) claims query. The generated SQL is pinned
+ * byte-for-byte by tests/auth/tenant-resolution-flag-off-golden.test.ts —
+ * do not reformat: with ARIES_MULTI_WORKSPACE_ENABLED off this must stay
+ * byte-identical to the pre-Phase-1 queries.
+ */
+function legacyClaimsSql(whereClause: string): string {
+  return `
       SELECT
         u.id AS user_id,
         u.organization_id,
@@ -286,11 +300,27 @@ export async function findTenantClaimsByUserId(
         u.role
       FROM users u
       LEFT JOIN organizations o ON o.id = u.organization_id
-      WHERE u.id = $1
+      ${whereClause}
       LIMIT 1
-    `,
-    [Number(userId)],
-  );
+    `;
+}
+
+function claimsLookupPredicate(lookup: TenantClaimsLookup): { whereClause: string; params: unknown[] } {
+  return lookup.by === 'userId'
+    ? { whereClause: 'WHERE u.id = $1', params: [Number(lookup.userId)] }
+    : { whereClause: 'WHERE LOWER(u.email) = LOWER($1)', params: [lookup.email] };
+}
+
+/**
+ * THE membership-claims helper — every tenant claims/context resolution path
+ * (jwt hydrate, sign-in guard, getTenantContext) flows through here.
+ */
+export async function resolveTenantClaimsRow(
+  client: QueryClient,
+  lookup: TenantClaimsLookup,
+): Promise<TenantClaimsRow | null> {
+  const { whereClause, params } = claimsLookupPredicate(lookup);
+  const result = await client.query(legacyClaimsSql(whereClause), params);
 
   if ((result.rowCount ?? 0) === 0 || result.rows.length === 0) {
     return null;
@@ -299,34 +329,18 @@ export async function findTenantClaimsByUserId(
   return result.rows[0] as TenantClaimsRow;
 }
 
+export async function findTenantClaimsByUserId(
+  client: QueryClient,
+  userId: number | string,
+): Promise<TenantClaimsRow | null> {
+  return resolveTenantClaimsRow(client, { by: 'userId', userId });
+}
+
 export async function findTenantClaimsByEmail(
   client: QueryClient,
   email: string,
 ): Promise<TenantClaimsRow | null> {
-  const result = await client.query(
-    `
-      SELECT
-        u.id AS user_id,
-        u.organization_id,
-        o.id AS tenant_id,
-        CASE
-          WHEN o.id IS NULL THEN NULL
-          ELSE COALESCE(NULLIF(o.slug, ''), 'org-' || o.id::text)
-        END AS tenant_slug,
-        u.role
-      FROM users u
-      LEFT JOIN organizations o ON o.id = u.organization_id
-      WHERE LOWER(u.email) = LOWER($1)
-      LIMIT 1
-    `,
-    [email],
-  );
-
-  if ((result.rowCount ?? 0) === 0 || result.rows.length === 0) {
-    return null;
-  }
-
-  return result.rows[0] as TenantClaimsRow;
+  return resolveTenantClaimsRow(client, { by: 'email', email });
 }
 
 export async function ensureTenantAccessForUser(

@@ -1,7 +1,11 @@
 import { auth } from '@/auth';
 import pool from '@/lib/db';
 import type { Session } from 'next-auth';
-import { isTenantRole, missingTenantClaims } from '@/lib/auth-tenant-membership';
+import {
+  isTenantRole,
+  missingTenantClaims,
+  resolveTenantClaimsRow,
+} from '@/lib/auth-tenant-membership';
 
 export type TenantRole = 'tenant_admin' | 'tenant_analyst' | 'tenant_viewer';
 
@@ -60,33 +64,21 @@ function normalizeContextRow(row: {
 }
 
 export async function loadTenantContextForUser(queryable: Queryable, userId: string): Promise<TenantContext> {
-  const result = await queryable.query(
-    `
-      SELECT
-        u.id AS user_id,
-        u.organization_id,
-        o.id AS tenant_id,
-        CASE
-          WHEN o.id IS NULL THEN NULL
-          ELSE COALESCE(NULLIF(o.slug, ''), 'org-' || o.id::text)
-        END AS tenant_slug,
-        u.role
-      FROM users u
-      LEFT JOIN organizations o ON o.id = u.organization_id
-      WHERE u.id = $1
-      LIMIT 1
-    `,
-    [Number(userId)]
+  // Claims resolution is consolidated onto the ONE membership-claims helper
+  // (multi-workspace plan eng findings 5 + 14); this function owns only the
+  // row → TenantContext / TenantContextError mapping.
+  const row = await resolveTenantClaimsRow(
+    queryable as unknown as Parameters<typeof resolveTenantClaimsRow>[0],
+    { by: 'userId', userId },
   );
 
-  if ((result.rowCount ?? 0) === 0 || result.rows.length === 0) {
+  if (!row) {
     throw new TenantContextError(
       'tenant_membership_missing',
       'No tenant membership found for authenticated user.',
     );
   }
 
-  const row = result.rows[0];
   const missingClaims = missingTenantClaims(row);
   if (missingClaims.length > 0) {
     throw new TenantContextError(
