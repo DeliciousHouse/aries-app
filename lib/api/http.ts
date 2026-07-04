@@ -1,4 +1,21 @@
 import { buildApiError } from './types';
+import {
+  WORKSPACE_ID_HEADER,
+  getBootedWorkspaceId,
+  isStateChangingMethod,
+  isWorkspaceGuardActive,
+  readWorkspaceMismatchBody,
+  reportWorkspaceMismatch,
+} from './workspace-guard';
+
+/**
+ * The workspace switch endpoint must NEVER carry the mutation-guard header: the
+ * tab is, by definition, pinned to the OLD workspace, so a header would 409 the
+ * very switch it is performing (plan Decision 2a). The switcher calls the
+ * endpoint via a dedicated fetch that bypasses this wrapper, but guard the path
+ * here too so a future caller routing through requestJson can't break switching.
+ */
+const WORKSPACE_SWITCH_PATH = '/api/tenant/workspace/switch';
 
 export class ApiRequestError extends Error {
   readonly status: number;
@@ -126,6 +143,24 @@ export async function requestJson<TResponse>(
     normalizedHeaders.set('content-type', 'application/json');
   }
 
+  // Multi-workspace mutation guard (plan Decision 2a): pin the tab's booted
+  // workspace id on state-changing requests ONLY. Never on GET reads (a read
+  // may be one render stale) and never on the switch endpoint itself. The
+  // header is only attached when the guard was armed at app load (flag ON +
+  // multi-workspace tab); server-side (no arm) and single-workspace tabs send
+  // nothing, so behavior is byte-identical there.
+  if (
+    isWorkspaceGuardActive() &&
+    isStateChangingMethod(init.method) &&
+    !normalizedHeaders.has(WORKSPACE_ID_HEADER) &&
+    !path.startsWith(WORKSPACE_SWITCH_PATH)
+  ) {
+    const bootedId = getBootedWorkspaceId();
+    if (bootedId) {
+      normalizedHeaders.set(WORKSPACE_ID_HEADER, bootedId);
+    }
+  }
+
   // Bounded request timeout: a hung GET must surface as a retryable error, not
   // an infinite spinner. Default (timeoutMs undefined) keeps the old behavior.
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
@@ -160,6 +195,18 @@ export async function requestJson<TResponse>(
   }
 
   const body = await readJsonBody(response);
+
+  // Stale-workspace interlock trigger (plan Decision 2a): ANY `409
+  // workspace_mismatch` response — from the ~43 wrapper routes or the ~9 raw
+  // getTenantContext() mutating routes — routes into the single shell-level
+  // interlock, never a toast. We still throw below so the caller's own error
+  // handling is unchanged; the interlock is an out-of-band shell overlay.
+  if (response.status === 409) {
+    const mismatch = readWorkspaceMismatchBody(body);
+    if (mismatch) {
+      reportWorkspaceMismatch(mismatch);
+    }
+  }
 
   if (!response.ok) {
     throw new ApiRequestError(

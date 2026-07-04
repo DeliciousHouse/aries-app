@@ -10,6 +10,7 @@ import {
   TenantContextError,
   type TenantContext,
 } from '@/lib/tenant-context';
+import { workspaceMismatchResponse } from '@/lib/tenant-context-http';
 
 type StoredPickerPayload = {
   pages?: Array<{
@@ -79,6 +80,8 @@ export async function handleMetaSelectPageHttp(
     const loader = options.tenantContextLoader ?? getTenantContext;
     tenantContext = await loader();
   } catch (error) {
+    const mismatch = workspaceMismatchResponse(error);
+    if (mismatch) return mismatch;
     const reason = error instanceof TenantContextError ? error.reason : 'tenant_context_required';
     console.warn('Meta page selection request missing tenant context', error);
     return jsonResponse(

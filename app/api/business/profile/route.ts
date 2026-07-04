@@ -1,5 +1,6 @@
 import pool from '@/lib/db';
 import { getTenantContext } from '@/lib/tenant-context';
+import { workspaceMismatchResponse } from '@/lib/tenant-context-http';
 import {
   getBusinessProfileWithDiagnostics,
   updateBusinessProfileWithDiagnostics,
@@ -140,6 +141,8 @@ export async function PATCH(req: Request) {
   try {
     tenantContext = await getTenantContext();
   } catch (error) {
+    const mismatch = workspaceMismatchResponse(error);
+    if (mismatch) return mismatch;
     return json({ error: 'Authentication required.' }, 403);
   }
 

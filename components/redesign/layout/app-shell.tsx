@@ -10,6 +10,11 @@ import pool from '@/lib/db';
 import { shouldRequireOnboarding, getUserJourneyRow, isTenantOnboardingComplete } from '@/lib/auth-user-journey';
 import { evaluateOnboardingGate, type OnboardingAdvisory } from '@/lib/onboarding-gate';
 import { loadTenantContextForUser } from '@/lib/tenant-context';
+import { isMultiWorkspaceEnabled } from '@/backend/tenant/multi-workspace-env';
+import {
+  loadWorkspaceSwitcherData,
+  type WorkspaceSwitcherData,
+} from '@/backend/tenant/workspace-switcher';
 
 import AppShellClient from './app-shell-client';
 
@@ -155,6 +160,31 @@ export default async function RedesignAppShell({
     }
   }
 
+  // Multi-workspace switcher seed (plan Phase 3). The switcher + stale-workspace
+  // guard render ONLY when the flag is ON and the account has >1 active
+  // membership; when either is false the shell is byte-identical to today (no
+  // switcher, no interlock, no mutation-guard header attached). workspaceCount
+  // rides the session from Phase 1 — no extra query to decide whether to render.
+  const multiWorkspaceEnabled = isMultiWorkspaceEnabled();
+  const sessionWorkspaceCount =
+    typeof session.user.workspaceCount === 'number' ? session.user.workspaceCount : 0;
+  const showWorkspaceSwitcher = multiWorkspaceEnabled && sessionWorkspaceCount > 1 && Boolean(liveTenantId);
+  let workspaceSwitcher: WorkspaceSwitcherData | null = null;
+  if (showWorkspaceSwitcher) {
+    const client = await pool.connect();
+    try {
+      workspaceSwitcher = await loadWorkspaceSwitcherData(client, session.user.id, liveTenantId);
+    } catch (error) {
+      console.warn('[app-shell] Unable to seed workspace switcher.', {
+        tenantId: liveTenantId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      workspaceSwitcher = null;
+    } finally {
+      client.release();
+    }
+  }
+
   async function logoutAction(_formData: FormData) {
     'use server';
     await signOut({ redirectTo: '/' });
@@ -163,6 +193,8 @@ export default async function RedesignAppShell({
   return (
     <AppShellClient
       currentRouteId={currentRouteId}
+      multiWorkspaceEnabled={showWorkspaceSwitcher}
+      workspaceSwitcher={workspaceSwitcher}
       title={title ?? currentRoute?.title ?? 'Aries'}
       subtitle={
         subtitle ??

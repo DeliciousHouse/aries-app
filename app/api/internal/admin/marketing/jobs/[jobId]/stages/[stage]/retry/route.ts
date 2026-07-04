@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { getTenantContext } from '@/lib/tenant-context';
+import { workspaceMismatchResponse } from '@/lib/tenant-context-http';
 import { loadSocialContentJobRuntime } from '@/backend/marketing/runtime-state';
 import type { MarketingStage } from '@/backend/marketing/runtime-state';
 import { getMarketingExecutionPort } from '@/backend/marketing/execution-port';
@@ -19,7 +20,9 @@ export async function POST(
   let tenantContext;
   try {
     tenantContext = await getTenantContext();
-  } catch {
+  } catch (error) {
+    const mismatch = workspaceMismatchResponse(error);
+    if (mismatch) return mismatch;
     return NextResponse.json({ status: 'error', reason: 'unauthenticated' }, { status: 401 });
   }
 

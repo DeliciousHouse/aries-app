@@ -1,6 +1,7 @@
 import { mapAriesExecutionError, runAriesWorkflow } from '@/backend/execution';
 import { ARIES_WORKFLOWS, type AriesWorkflowKey } from '@/backend/execution/workflow-catalog';
 import { getTenantContext } from '@/lib/tenant-context';
+import { workspaceMismatchResponse } from '@/lib/tenant-context-http';
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -11,6 +12,8 @@ export async function POST(req: Request, context: { params: Promise<{ workflowId
   try {
     tenantContext = await getTenantContext();
   } catch (error) {
+    const mismatch = workspaceMismatchResponse(error);
+    if (mismatch) return mismatch;
     return json({ error: 'Authentication required.' }, 403);
   }
 

@@ -1,5 +1,6 @@
 import pool from '@/lib/db';
 import { getTenantContext, type TenantRole } from '@/lib/tenant-context';
+import { workspaceMismatchResponse } from '@/lib/tenant-context-http';
 import { listTenantUserProfiles } from '@/backend/tenant/user-profiles';
 import { inviteWorkspaceMember } from '@/backend/tenant/workspace-invitations';
 import { sendWorkspaceInviteEmail } from '@/lib/email';
@@ -38,6 +39,8 @@ export async function POST(req: Request) {
   try {
     tenantContext = await getTenantContext();
   } catch (error) {
+    const mismatch = workspaceMismatchResponse(error);
+    if (mismatch) return mismatch;
     return json({ error: 'Authentication required.' }, 403);
   }
 

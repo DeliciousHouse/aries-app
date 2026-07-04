@@ -30,8 +30,11 @@ import {
 import { AriesMark } from '@/frontend/donor/ui';
 import { getRouteById, type AppRouteId } from '@/frontend/app-shell/routes';
 import type { OnboardingAdvisory } from '@/lib/onboarding-gate';
+import type { WorkspaceSwitcherData } from '@/backend/tenant/workspace-switcher';
 
 import OnboardingNudgeBanner from './onboarding-nudge-banner';
+import WorkspaceSwitcher from './workspace-switcher';
+import WorkspaceGuard from './workspace-guard';
 
 const ICONS: Record<AppRouteId, typeof LayoutDashboard> = {
   home: LayoutDashboard,
@@ -71,6 +74,14 @@ interface AppShellClientProps {
   logoutAction: (formData: FormData) => void | Promise<void>;
   onboardingAdvisories?: ReadonlyArray<OnboardingAdvisory>;
   tenantId?: string | null;
+  /**
+   * True only when the multi-workspace flag is ON AND the account has >1 active
+   * membership (the server shell decides). Gates the workspace switcher + the
+   * stale-workspace guard/interlock + the mutation-guard header. When false the
+   * shell is byte-identical to the single-workspace model.
+   */
+  multiWorkspaceEnabled?: boolean;
+  workspaceSwitcher?: WorkspaceSwitcherData | null;
 }
 
 export default function AppShellClient({
@@ -82,6 +93,8 @@ export default function AppShellClient({
   logoutAction,
   onboardingAdvisories,
   tenantId,
+  multiWorkspaceEnabled = false,
+  workspaceSwitcher = null,
 }: AppShellClientProps) {
   const pathname = usePathname();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -89,6 +102,7 @@ export default function AppShellClient({
   const [isMobileReviewMenuOpen, setIsMobileReviewMenuOpen] = useState(false);
   const [isMobileAccountMenuOpen, setIsMobileAccountMenuOpen] = useState(false);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
+  const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const reviewCloseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -129,7 +143,9 @@ export default function AppShellClient({
   const isReviewSectionActive = Boolean(
     currentRouteId && ['brandReview', 'strategyReview', 'creativeReview'].includes(currentRouteId),
   );
-  const keepSidebarExpanded = isReviewMenuOpen || isAccountMenuOpen;
+  const keepSidebarExpanded = isReviewMenuOpen || isAccountMenuOpen || isWorkspaceMenuOpen;
+  const showWorkspaceSwitcher = multiWorkspaceEnabled && workspaceSwitcher != null;
+  const workspaceSettingsHref = getRouteById('settings').href;
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -171,6 +187,7 @@ export default function AppShellClient({
     setIsMobileReviewMenuOpen(false);
     setIsMobileAccountMenuOpen(false);
     setIsAccountMenuOpen(false);
+    setIsWorkspaceMenuOpen(false);
     if (reviewCloseTimeoutRef.current) {
       clearTimeout(reviewCloseTimeoutRef.current);
       reviewCloseTimeoutRef.current = null;
@@ -540,6 +557,12 @@ export default function AppShellClient({
 
   return (
     <div className="min-h-screen bg-[#050505] text-white selection:bg-primary/30">
+      {/* Mutation guard + stale-workspace interlock. Rendered first so it arms the
+          guard (pins the booted workspace id) before any child hook can fire a
+          state-changing request. Inert unless flag ON && >1 workspace. */}
+      {multiWorkspaceEnabled && tenantId ? (
+        <WorkspaceGuard bootedWorkspaceId={tenantId} enabled />
+      ) : null}
       <div className="fixed inset-0 bg-[radial-gradient(circle_at_20%_18%,rgba(124,58,237,0.16),transparent_28%),radial-gradient(circle_at_82%_10%,rgba(255,255,255,0.08),transparent_18%),linear-gradient(180deg,#050505_0%,#090910_100%)]" />
 
       {/* flex-col: mobile header must stack above main; default flex-row squeezed main beside the header */}
@@ -566,6 +589,19 @@ export default function AppShellClient({
               <div className="text-[10px] font-medium text-white/70">Marketing OS</div>
             </div>
           </Link>
+
+          {showWorkspaceSwitcher && workspaceSwitcher ? (
+            <div className="px-2 pb-1">
+              <WorkspaceSwitcher
+                variant="rail"
+                railExpanded={keepSidebarExpanded}
+                open={isWorkspaceMenuOpen}
+                onOpenChange={setIsWorkspaceMenuOpen}
+                initialData={workspaceSwitcher}
+                settingsHref={workspaceSettingsHref}
+              />
+            </div>
+          ) : null}
 
           <div className="px-2 pb-2">
             <div className="h-px bg-white/8" />
@@ -686,13 +722,30 @@ export default function AppShellClient({
 
         {/* Mobile top bar */}
         <header className="sticky top-0 z-[65] flex h-16 w-full shrink-0 items-center justify-between border-b border-white/[0.06] bg-[#050505]/70 px-4 backdrop-blur-xl lg:hidden">
-          <Link href="/dashboard" className="flex items-center gap-3">
-            <AriesMark sizeClassName="h-9 w-9" />
-            <div className="flex flex-col leading-none">
-              <span className="text-sm font-bold uppercase tracking-[0.15em] text-white">Aries AI</span>
-              <span className="mt-1 text-[10px] font-medium text-white/70">Marketing OS</span>
+          {showWorkspaceSwitcher && workspaceSwitcher ? (
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <Link href="/dashboard" aria-label="Aries home" className="shrink-0">
+                <AriesMark sizeClassName="h-9 w-9" />
+              </Link>
+              <div className="min-w-0 max-w-[62vw]">
+                <WorkspaceSwitcher
+                  variant="mobile"
+                  open={isWorkspaceMenuOpen}
+                  onOpenChange={setIsWorkspaceMenuOpen}
+                  initialData={workspaceSwitcher}
+                  settingsHref={workspaceSettingsHref}
+                />
+              </div>
             </div>
-          </Link>
+          ) : (
+            <Link href="/dashboard" className="flex items-center gap-3">
+              <AriesMark sizeClassName="h-9 w-9" />
+              <div className="flex flex-col leading-none">
+                <span className="text-sm font-bold uppercase tracking-[0.15em] text-white">Aries AI</span>
+                <span className="mt-1 text-[10px] font-medium text-white/70">Marketing OS</span>
+              </div>
+            </Link>
+          )}
           <button
             type="button"
             onClick={() => {

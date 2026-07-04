@@ -29,6 +29,13 @@ const AUTH_GATE_PATTERNS = [
   // `?? getTenantContext` fallback so the 1-hop scanner recognizes this
   // form without needing to follow the loader through a second indirection.
   /\?\?\s*getTenantContext\b/,
+  // Multi-workspace mutation guard helper (plan Phase 3, Decision 2a). A route
+  // that maps the getTenantContext() workspace-mismatch throw to `409
+  // workspace_mismatch` references workspaceMismatchResponse in its catch — it
+  // gates on getTenantContext too (so it already matches above), but this
+  // pattern makes the structural test explicitly "learn" the guard helper so
+  // it can never silently rot out of the recognized set.
+  /\bworkspaceMismatchResponse\s*\(/,
 ];
 
 function hasAuthGate(source: string): boolean {
@@ -129,6 +136,11 @@ const ALLOWLIST: AllowlistEntry[] = [
       'join-as-existing-account consent accept (multi-workspace Phase 2, flag-gated 404 when OFF) — gated on auth() session + in-transaction session-is-the-invited-account verification; getTenantContext would resolve the invitee’s CURRENT workspace, not the one they are consenting to join',
   },
   {
+    path: 'app/api/tenant/workspace/switch/route.ts',
+    rationale:
+      'workspace switch (multi-workspace Phase 3, flag-gated 404 when OFF) — gated on auth() session + server-side membership validation inside switchActiveWorkspace’s transaction (the target must be an ACTIVE membership of the caller). It deliberately does NOT gate on getTenantContext(): this is the ONE mutation that moves the account’s active-workspace pointer, so the WORKSPACE_ID_HEADER mismatch guard inside getTenantContext() would 409 the very switch it is performing (the tab is pinned to the OLD workspace by definition).',
+  },
+  {
     path: 'app/api/oauth/[provider]/callback/route.ts',
     rationale: 'OAuth provider callback resolves tenant via state token, not session',
   },
@@ -195,6 +207,51 @@ test('state-mutating routes scan finds >=30 routes (regression guard on scanner)
     mutating.length >= 30,
     `Expected >=30 state-mutating routes; found ${mutating.length}. ` +
       `The scanner regex may have regressed.`,
+  );
+});
+
+test('getTenantContext() enforces the multi-workspace mutation guard (guard cannot silently rot)', () => {
+  // Multi-workspace plan Phase 3, Decision 2a + Eng finding S0: the workspace-
+  // mismatch guard MUST live inside getTenantContext() itself (not the
+  // loadTenantContextOrResponse wrapper), because ~12 mutating routes call
+  // getTenantContext() directly and bypass the wrapper. This structural check
+  // fails loudly if the guard is ever removed or moved out of getTenantContext.
+  const source = readFileSync(repoPath('lib/tenant-context.ts'), 'utf8');
+
+  // The guard exists and throws the typed error the HTTP layer maps to 409.
+  assert.match(
+    source,
+    /class WorkspaceMismatchError/,
+    'WorkspaceMismatchError must exist in lib/tenant-context.ts',
+  );
+  assert.match(
+    source,
+    /function assertActiveWorkspaceMatch/,
+    'The workspace-mismatch guard (assertActiveWorkspaceMatch) must exist in lib/tenant-context.ts',
+  );
+
+  // getTenantContext must actually CALL the guard — assert the call appears in
+  // the getTenantContext function body (between its declaration and the return).
+  const fnStart = source.indexOf('export async function getTenantContext');
+  assert.ok(fnStart >= 0, 'getTenantContext must be defined in lib/tenant-context.ts');
+  const fnBody = source.slice(fnStart);
+  assert.match(
+    fnBody.slice(0, fnBody.indexOf('\n}')),
+    /assertActiveWorkspaceMatch\s*\(/,
+    'getTenantContext() must invoke assertActiveWorkspaceMatch — the mutation guard was removed or bypassed',
+  );
+
+  // The HTTP layer maps the typed error to a 409 response in exactly one place.
+  const httpSource = readFileSync(repoPath('lib/tenant-context-http.ts'), 'utf8');
+  assert.match(
+    httpSource,
+    /WorkspaceMismatchError/,
+    'lib/tenant-context-http.ts must map WorkspaceMismatchError → 409',
+  );
+  assert.match(
+    httpSource,
+    /status:\s*409|409,/,
+    'workspaceMismatchResponse must return HTTP 409',
   );
 });
 

@@ -2,6 +2,7 @@ import { brokerError, isAllowedProvider, type OAuthBrokerError } from './connect
 import { dbAuditEvent, dbGetConnectionById, dbUpsertConnection } from './oauth-db';
 import { dbRevokeTokensForConnection } from './oauth-tokens-db';
 import { getTenantContext } from '@/lib/tenant-context';
+import { workspaceMismatchResponse } from '@/lib/tenant-context-http';
 
 type OAuthDisconnectRequest = {
   connection_id?: string;
@@ -82,7 +83,9 @@ export async function handleOauthDisconnectHttp(req: Request, providerFromPath?:
   let tenantContext;
   try {
     tenantContext = await getTenantContext();
-  } catch {
+  } catch (error) {
+    const mismatch = workspaceMismatchResponse(error);
+    if (mismatch) return mismatch;
     return new Response(
       JSON.stringify({ broker_status: 'error', reason: 'authentication_required' }),
       { status: 403, headers: { 'content-type': 'application/json' } },
