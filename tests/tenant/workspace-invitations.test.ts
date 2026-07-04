@@ -244,9 +244,19 @@ test('inviteWorkspaceMember rejects an empty email and an invalid role', async (
 });
 
 function acceptRoutes(invitation: Record<string, unknown> | null): Array<[RegExp, Handler]> {
+  const userId = (invitation as { user_id?: unknown } | null)?.user_id;
   return [
     [/from workspace_invitations\s+where token_hash/, () => ({ rows: invitation ? [invitation] : [], rowCount: invitation ? 1 : 0 })],
     ...PASSTHROUGH,
+    // The set-password accept path is pending-sentinel-only (security fix,
+    // post-Phase-0.5 review): it re-loads + locks the user row inside the txn
+    // and refuses unless password_hash is still the INVITED_PENDING_PASSWORD
+    // sentinel. These `acceptRoutes`-backed tests exercise the legacy
+    // brand-new-teammate flow, so the seeded user is always pending.
+    [
+      /from users\s+where id = \$1\s+limit 1\s+for update/,
+      () => ({ rows: userId === undefined ? [] : [{ id: userId, password_hash: 'invited_pending' }] }),
+    ],
     [/update users set password_hash/, () => ({ rows: [] })],
     [/update workspace_invitations set accepted_at/, () => ({ rows: [] })],
   ];

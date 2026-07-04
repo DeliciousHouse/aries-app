@@ -427,6 +427,22 @@ export async function describeInvitationByToken(
  * Consume an invitation: set the teammate's password and mark the invitation
  * accepted, atomically. The token is single-use — a second accept reports
  * 'already_accepted'. The user can then sign in with email + the new password.
+ *
+ * PENDING-SENTINEL ONLY (security fix, post-Phase-0.5 review). This is the
+ * legacy brand-new-teammate flow and is gated on token possession alone (see
+ * the inv-01b allowlist rationale) — it must never be reachable for an
+ * account that already has real credentials, because it unconditionally
+ * overwrites password_hash. Phase 0.5's absorb-orphan relief mints a live
+ * invitation token whose user_id points at an EXISTING ACTIVE account (see
+ * `inviteWorkspaceMember`'s orphan branch); without this guard, anyone who
+ * obtained that token (e.g. a forwarded absorb-consent link) could hit THIS
+ * route and unconditionally reset that active account's password — an
+ * account-takeover class bug. The two accept paths are mutually exclusive on
+ * the `INVITED_PENDING_PASSWORD` sentinel: an absorb-type invitation must go
+ * through `acceptAbsorbInvitation`, which requires a signed-in, email-matched
+ * session and never touches password_hash. The user row is loaded and its
+ * sentinel re-checked INSIDE this same transaction (not before BEGIN) so a
+ * concurrent absorb-accept or credential change can't race past the check.
  */
 export async function acceptWorkspaceInvitation(
   queryable: Queryable,
@@ -451,6 +467,20 @@ export async function acceptWorkspaceInvitation(
 
   await queryable.query('BEGIN', []);
   try {
+    const userResult = await queryable.query(
+      `SELECT id, password_hash FROM users WHERE id = $1 LIMIT 1 FOR UPDATE`,
+      [Number(invitation.user_id)],
+    );
+    const user = userResult.rows[0] as { id: string | number; password_hash: string | null } | undefined;
+    if (!user || user.password_hash !== INVITED_PENDING_PASSWORD) {
+      // Not a pending-sentinel account — this is an absorb-type invitation (or
+      // some other already-credentialed account). Collapse to the same
+      // non-disclosing 'invalid' the route already returns for a dead token;
+      // never run the password write.
+      await queryable.query('ROLLBACK', []);
+      return { status: 'invalid' };
+    }
+
     await queryable.query(`UPDATE users SET password_hash = $1 WHERE id = $2`, [
       passwordHash,
       Number(invitation.user_id),

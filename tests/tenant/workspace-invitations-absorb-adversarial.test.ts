@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import {
   acceptAbsorbInvitation,
+  acceptWorkspaceInvitation,
   declineAbsorbInvitation,
   hashInviteToken,
 } from '../../backend/tenant/workspace-invitations';
@@ -463,4 +464,106 @@ test('declineAbsorbInvitation by a wrong account expires nothing', async () => {
   });
   assert.deepEqual(byId, { status: 'email_mismatch' });
   assert.ok(!calls.some((c) => /update/i.test(c.sql)), 'a wrong-account decline must not expire the token');
+});
+
+// ── 10. CROSS-FLOW account-takeover regression (P1 blocker, review fix) ───────
+//
+// inviteWorkspaceMember's orphan branch mints a live invitation token whose
+// user_id points at an EXISTING ACTIVE account (not a pending-sentinel one).
+// That token is structurally indistinguishable, at the DB row level, from a
+// legacy brand-new-teammate invitation — so before the fix, the SAME token was
+// also valid against the public, session-less legacy route
+// (app/api/auth/invite/accept -> acceptWorkspaceInvitation), which
+// unconditionally ran `UPDATE users SET password_hash = <caller-chosen>`.
+// Anyone holding a forwarded absorb-consent link could therefore overwrite the
+// active account's password and sign in as them, entirely bypassing the
+// signed-in/email-matched consent gate acceptAbsorbInvitation enforces.
+//
+// Fix: acceptWorkspaceInvitation now loads + locks (FOR UPDATE) the target
+// user row INSIDE the same transaction as the password write and refuses
+// unless password_hash is still the INVITED_PENDING_PASSWORD sentinel,
+// collapsing to the same non-disclosing 'invalid' the route already returns
+// for a dead token. The two accept paths are mutually exclusive on that
+// sentinel: an absorb-type invitation can ONLY be consumed by
+// acceptAbsorbInvitation.
+
+function absorbTypeInvitationFixture() {
+  // Mirrors exactly what inviteWorkspaceMember's orphan branch persists: an
+  // invitation row whose user_id is an EXISTING ACTIVE account (bcrypt hash,
+  // not the pending sentinel).
+  return {
+    id: 7,
+    user_id: 42,
+    organization_id: 11,
+    role: 'tenant_analyst',
+    email: 'orphan@acme.com',
+    expires_at: new Date(Date.now() + 60_000),
+    accepted_at: null,
+  };
+}
+
+test('acceptWorkspaceInvitation (the legacy PUBLIC set-password route) refuses an absorb-type invitation and writes no password', async () => {
+  const invitation = absorbTypeInvitationFixture();
+  const { queryable, calls } = makeFakeDb([
+    [/from workspace_invitations\s+where token_hash/, () => ({ rows: [invitation], rowCount: 1 })],
+    ...PASSTHROUGH,
+    // The target is an EXISTING ACTIVE account — a real bcrypt hash, not the
+    // pending sentinel. This is exactly the row inviteWorkspaceMember's orphan
+    // branch points the token at.
+    [
+      /from users\s+where id = \$1\s+limit 1\s+for update/,
+      () => ({ rows: [{ id: 42, password_hash: ACTIVE_HASH }] }),
+    ],
+    // If the guard regresses, these routes would let the takeover "succeed" —
+    // present them so a regression is caught by the assertions below, not
+    // masked by an unmatched-route empty-rows fallback.
+    [/update users set password_hash/, () => ({ rows: [] })],
+    [/update workspace_invitations set accepted_at/, () => ({ rows: [] })],
+  ]);
+
+  const result = await acceptWorkspaceInvitation(queryable, {
+    rawToken: 'tok',
+    password: 'AttackerChosen1!',
+  });
+
+  // Non-disclosing: collapses to the same 'invalid' a dead/unknown token
+  // returns — never a distinct "this account can't be set-password'd" signal.
+  assert.deepEqual(result, { status: 'invalid' });
+
+  // The account-takeover-class assertion: NO password write, under any name.
+  assert.ok(
+    !calls.some((c) => /^\s*update[\s\S]*password_hash/i.test(c.sql)),
+    'the legacy set-password route must NEVER write password_hash for an absorb-type (non-pending) invitation',
+  );
+  // Nor is the invitation silently consumed — a legitimate absorb accept must
+  // still be able to run against this same live token afterward.
+  assert.ok(
+    !calls.some((c) => /update workspace_invitations set accepted_at/i.test(c.sql)),
+    'the token must not be consumed by the rejected legacy route',
+  );
+  // And it must roll back, not commit a half-applied state.
+  assert.ok(calls.some((c) => /^\s*rollback/i.test(c.sql)), 'the refusal must roll back the transaction');
+  assert.ok(!calls.some((c) => /^\s*commit/i.test(c.sql)), 'the refusal must never commit');
+});
+
+test('acceptWorkspaceInvitation still accepts a genuine pending-sentinel invitation (no regression)', async () => {
+  const invitation = { ...absorbTypeInvitationFixture(), role: 'tenant_viewer' };
+  const { queryable, calls } = makeFakeDb([
+    [/from workspace_invitations\s+where token_hash/, () => ({ rows: [invitation], rowCount: 1 })],
+    ...PASSTHROUGH,
+    [
+      /from users\s+where id = \$1\s+limit 1\s+for update/,
+      () => ({ rows: [{ id: 42, password_hash: 'invited_pending' }] }),
+    ],
+    [/update users set password_hash/, () => ({ rows: [] })],
+    [/update workspace_invitations set accepted_at/, () => ({ rows: [] })],
+  ]);
+
+  const result = await acceptWorkspaceInvitation(queryable, {
+    rawToken: 'tok',
+    password: 'Aa1!aaaa',
+  });
+  assert.deepEqual(result, { status: 'ok', email: 'orphan@acme.com' });
+  assert.ok(calls.some((c) => /^\s*update[\s\S]*password_hash/i.test(c.sql)), 'the legitimate flow still sets a password');
+  assert.ok(calls.some((c) => /^\s*commit/i.test(c.sql)));
 });
