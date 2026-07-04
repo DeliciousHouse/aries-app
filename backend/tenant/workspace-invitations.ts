@@ -8,6 +8,7 @@ import {
 } from '@/lib/auth-tenant-membership';
 import { isMultiWorkspaceEnabled } from '@/backend/tenant/multi-workspace-env';
 import { assertMultiWorkspaceEntitlement } from '@/backend/tenant/entitlements';
+import { withDeadlockRetry } from '@/backend/tenant/txn-retry';
 import {
   INVITED_PENDING_PASSWORD,
   createTenantUserProfile,
@@ -1132,6 +1133,22 @@ export async function acceptJoinInvitation(
     return { status: 'invalid' };
   }
 
+  // Bounded 40P01 retry (Phase 4 hardening): a concurrent accept + admin revoke
+  // lock users / memberships / invitations in opposing order and can deadlock
+  // one arm before either reaches a graceful terminal status. Retrying the whole
+  // txn (the connection is already rolled back + clean when the abort propagates)
+  // lets the accept re-read committed state and resolve to a visible status
+  // (not_join / already_accepted / ok convergence) instead of a retriable 500.
+  return withDeadlockRetry(
+    () => acceptJoinInvitationTxn(queryable, input),
+    { label: 'accept-join-invitation' },
+  );
+}
+
+async function acceptJoinInvitationTxn(
+  queryable: Queryable,
+  input: { rawToken: string; sessionUserId: string; sessionEmail?: string | null },
+): Promise<AcceptJoinResult> {
   await queryable.query('BEGIN', []);
   try {
     const invResult = await queryable.query(

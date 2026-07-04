@@ -4,6 +4,7 @@ import {
   upsertOrganizationMembership,
 } from '@/lib/auth-tenant-membership';
 import { isMultiWorkspaceEnabled } from '@/backend/tenant/multi-workspace-env';
+import { withDeadlockRetry } from '@/backend/tenant/txn-retry';
 
 /**
  * Membership status as surfaced to the admin UI.
@@ -311,10 +312,15 @@ export type FindOrCreateInvitedProfileResult = {
 /**
  * Find-or-create the invited user + membership (multi-workspace Phase 2,
  * eng finding 6 — cross-org concurrent FIRST invite). User creation is
- * create-or-select via `ON CONFLICT (email) DO NOTHING`: two admins in
- * different orgs inviting the same brand-new email race the users.email
- * UNIQUE constraint, and the loser attaches a membership to the winner's user
- * row instead of 500ing. The membership upsert is itself conflict-safe
+ * create-or-select via `ON CONFLICT (LOWER(email)) DO NOTHING`: two admins in
+ * different orgs inviting the same brand-new email race the users' email
+ * uniqueness, and the loser attaches a membership to the winner's user row
+ * instead of 500ing. The arbiter targets the `idx_users_email_lower_unique`
+ * functional index (Phase 4 hardening, PR #764 follow-up) rather than the
+ * column-level UNIQUE, so a same-instant CASE-VARIANT collision (`Foo@x.com`
+ * vs `foo@x.com`) also reaches the clean loser-attaches path instead of a raw
+ * 23505 — the functional index is the one that actually protects
+ * one-email-one-account. The membership upsert is itself conflict-safe
  * (concurrent duplicate invite in the SAME org → idempotent).
  *
  * Flag-ON only; runs inside the caller's invite transaction. Never touches an
@@ -340,7 +346,7 @@ export async function findOrCreateInvitedTenantUserProfile(
     `
       INSERT INTO users (email, password_hash, full_name, organization_id, role)
       VALUES ($1, $2, $3, $4, $5)
-      ON CONFLICT (email) DO NOTHING
+      ON CONFLICT (LOWER(email)) DO NOTHING
       RETURNING
         id,
         organization_id,
@@ -454,7 +460,16 @@ export async function updateTenantUserProfile(
   { status: 'ok'; profile: TenantUserProfile } | { status: 'not_found' | 'tenant_mismatch' | 'last_admin' }
 > {
   if (isMultiWorkspaceEnabled(env)) {
-    return updateTenantUserProfileWithMemberships(queryable, input);
+    // Bounded 40P01 retry (Phase 4 hardening): symmetric concurrent demotes take
+    // cross-table locks (memberships + the FK share locks of the role_changed
+    // audit insert) in opposing order → Postgres deadlocks one arm before the E4
+    // guard's FOR UPDATE can return the graceful `last_admin`. Retrying the whole
+    // txn lets the loser re-read committed state under fresh locks and reach that
+    // graceful path instead of surfacing a retriable 500.
+    return withDeadlockRetry(
+      () => updateTenantUserProfileWithMemberships(queryable, input),
+      { label: 'update-member-role' },
+    );
   }
 
   const current = await loadUserById(queryable, input.userId);
@@ -652,7 +667,15 @@ export async function deleteTenantUserProfile(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<{ status: 'deleted' | 'not_found' | 'tenant_mismatch' | 'last_admin' }> {
   if (isMultiWorkspaceEnabled(env)) {
-    return deleteTenantUserProfileWithMemberships(queryable, input);
+    // Bounded 40P01 retry (Phase 4 hardening): the accept-vs-revoke race locks
+    // users / memberships / invitations (+ the removed-event FK share locks) in
+    // opposing order to acceptJoinInvitation, so a concurrent accept + revoke can
+    // deadlock this arm. Retrying the whole txn reaches the graceful outcome
+    // (clean removal, or a no-op if the row is already gone) instead of a 500.
+    return withDeadlockRetry(
+      () => deleteTenantUserProfileWithMemberships(queryable, input),
+      { label: 'remove-member' },
+    );
   }
 
   const current = await loadUserById(queryable, input.userId);
