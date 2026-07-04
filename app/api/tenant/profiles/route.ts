@@ -62,7 +62,11 @@ export async function POST(req: Request) {
       invitedByUserId: tenantContext.userId,
     });
 
-    if (result.status !== 'invited' && result.status !== 'reinvited') {
+    if (
+      result.status !== 'invited' &&
+      result.status !== 'reinvited' &&
+      result.status !== 'invited_existing_orphan'
+    ) {
       if (result.status === 'missing_email') {
         return json({ error: 'missing_required_fields:email' }, 400);
       }
@@ -97,6 +101,22 @@ export async function POST(req: Request) {
         tenantId: tenantContext.tenantId,
         error: lookupError instanceof Error ? lookupError.message : String(lookupError),
       });
+    }
+
+    if (result.status === 'invited_existing_orphan') {
+      // Phase 0.5 absorb relief: the email backs an existing account whose
+      // workspace is an orphan. The invitee stays OUT of this org's member
+      // list until they consent on the accept page — so no profile here.
+      await sendWorkspaceInviteEmail({
+        to: result.email,
+        inviterName: emailContext.inviterName,
+        workspaceName: emailContext.orgName || 'your Aries AI workspace',
+        roleLabel: roleLabel(result.role),
+        acceptUrl: buildInviteAcceptUrl(result.rawToken),
+        expiresInDays: INVITE_EXPIRES_IN_DAYS,
+        variant: 'absorb',
+      });
+      return json({ invited: true, absorb: true, email: result.email }, 201);
     }
 
     await sendWorkspaceInviteEmail({

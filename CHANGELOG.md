@@ -2,6 +2,57 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.24.0 — feat(tenant): multi-workspace phase 0.5 — absorb-orphan invite relief
+
+Phase 0.5 of the multi-workspace membership program
+(docs/plans/2026-07-03-multi-workspace-membership.md). Narrow, consent-gated
+interim relief that ships UNFLAGGED (the one deliberate exception to the dark
+rollout): productizes this year's manual-prod-SQL support class so an admin can
+invite an email whose existing account sits in an ORPHAN workspace, instead of
+the account being un-invitable (`email_taken`).
+
+- Orphan predicate (`evaluateOrphanWorkspace`): the invitee's current workspace
+  is sole-member (no other users row / membership row), never onboarded (no
+  `business_profiles` row, invitee never completed onboarding), and zero
+  activity (no posts / connected accounts / creative assets). One round-trip,
+  no fan-out; fails CLOSED to today's `email_taken`.
+- Invite path: when the other workspace is an orphan (and NOT a pending-sentinel
+  account, which can't sign in), `inviteWorkspaceMember` mints an invitation for
+  the existing account and the admin sees an "asked to fold their unused
+  workspace in" success state. No membership in the inviting org until accept.
+- Absorb-consent accept page: not-signed-in / wrong-account / consent / declined
+  / workspace-in-use states; decline is a real action (expires the token);
+  copy discloses that admins will see the invitee's name and email.
+- `acceptAbsorbInvitation` — one transaction: lock the invitation + user rows
+  `FOR UPDATE`, re-check the FULL orphan predicate INSIDE the txn (invite-time
+  check is advisory; a workspace gone non-orphan terminates the token LOUDLY as
+  workspace-in-use), verify a signed-in session that IS the invited account
+  (user id + email; token possession alone never absorbs), repoint
+  `users.organization_id` with the ADMIN-CHOSEN role (never the carried-over
+  source `tenant_admin`) and NO password write, move the membership row in the
+  same txn, write the `absorbed` audit event, consume every outstanding token.
+  No entitlement/paywall check — absorb REPLACES a workspace, it does not add
+  one (Decision 13c).
+- Security fix folded in during review: the legacy public set-password accept
+  route (`acceptWorkspaceInvitation`) is now pending-sentinel-only. It re-loads
+  + locks the target user row inside its transaction and refuses (non-disclosing
+  `invalid`, rollback) unless `password_hash` is still the `invited_pending`
+  sentinel — so an absorb-type token (which points at an existing active
+  account) can never be redirected to the session-less legacy route to overwrite
+  that account's password. The two accept paths are mutually exclusive on the
+  sentinel.
+- `describeInvitationAcceptContext` resolves set_password vs absorb mode +
+  disclosure context for the accept page without consuming the token; the
+  validate route only ever echoes the caller's OWN session email back.
+- Guard relaxation scoped to exactly the absorb read/move: the Phase-0
+  no-membership-reads grep drops `workspace-invitations.ts` (now a legitimate
+  membership writer); the tenant-resolution modules stay guarded.
+- Adversarial + gate coverage: in-txn orphan re-check, no-password-write,
+  admin-chosen-role-never-carried, consent-auth, decline-kills-the-token,
+  idempotent double-accept, the cross-flow account-takeover regression (red
+  pre-fix), and the inv-01b state-mutating-route auth-gate allowlist entry.
+  Added to `npm run verify` (previously CI full-suite only).
+
 ## v0.1.23.0 — feat(tenant): multi-workspace phase 0 — dark membership schema, backfill, dual-writes
 
 Phase 0 of the multi-workspace membership program
