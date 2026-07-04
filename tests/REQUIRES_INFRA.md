@@ -49,6 +49,7 @@ All files below gate on the **superset** `DB_HOST` + `DB_PORT` + `DB_USER` + `DB
 | `tests/onboarding/variant-board-requires-infra.test.ts` | `creative_assets` variant_batch_id/variant_index columns + the board grouping query against the live schema (rolled back) | — |
 | `tests/insights-endpoints.test.ts` | Insights endpoints Sections 2–9 against live schema + seed data; wires `aries_post_id` via a temp post insert, rolled back after | seed: `npm run db:seed-insights` |
 | `tests/draft-expiry-sweep.requires-infra.test.ts` | the draft-expiry sweep's four statements plan against the real `posts`/`scheduled_posts` schema, the `'expired'` value is accepted by the `published_status`/`status` CHECK constraints, and the scheduled-row + too-recent guards hold (rolled back) | — |
+| `tests/tenant/membership-backfill.requires-infra.test.ts` | the multi-workspace Phase 0 backfill `INSERT…SELECT` + membership/entitlement DDL from `scripts/init-db.js`: one membership per user-with-org, sentinel `password_hash='invited_pending'`→`status='invited'`, org-less exclusion, idempotent re-run (0 rows), `idx_users_email_lower_unique` rejects a case-variant email, `users.plan` default `'free'` (throwaway schema, created + dropped) | — |
 
 A file joins this list the moment it calls `requireDbEnvOrSkip(t)`; keep this table in sync
 (the report script will show the count drift if you forget).

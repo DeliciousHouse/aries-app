@@ -59,6 +59,30 @@ async function main(): Promise<void> {
        RETURNING id`,
       [QA_USER_EMAIL, unusable, QA_USER_NAME, tenantId],
     );
+    const userId = user.rows[0].id;
+
+    // Dual-write the membership row (multi-workspace Phase 0). The seed must work
+    // in both worlds — with the membership tables present (post-Phase-0) it upserts
+    // the QA bot's single 'active' membership; where the table does not yet exist
+    // (older DB) it is a tolerated no-op so the seed still succeeds. Idempotent.
+    try {
+      await pool.query(
+        `INSERT INTO organization_memberships
+           (user_id, organization_id, role, status, accepted_at, last_active_at, created_at, updated_at)
+         VALUES ($1, $2, 'tenant_admin', 'active', now(), now(), now(), now())
+         ON CONFLICT (user_id, organization_id) DO UPDATE SET
+           role = 'tenant_admin',
+           status = 'active',
+           updated_at = now()`,
+        [userId, tenantId],
+      );
+    } catch (error) {
+      const code = (error as { code?: string } | null)?.code;
+      // 42P01 = undefined_table: membership schema not applied yet (pre-Phase-0).
+      if (code !== '42P01') {
+        throw error;
+      }
+    }
 
     console.log(
       JSON.stringify({

@@ -119,8 +119,15 @@ test('deleteTenantUserProfile denies cross-tenant deletes', async () => {
 });
 
 test('createTenantUserProfile creates user in the current tenant', async () => {
+  const calls: Array<{ sql: string; params: unknown[] }> = [];
   const queryable = {
     async query(sql: string, params: unknown[]) {
+      calls.push({ sql, params });
+      // Membership dual-write (multi-workspace Phase 0): the invited user gets an
+      // 'invited' membership row alongside the users INSERT. Route by statement.
+      if (/insert into organization_memberships/i.test(sql)) {
+        return { rows: [] };
+      }
       assert.match(sql, /insert into users/i);
       assert.deepEqual(params, ['new@acme.com', 'invited_pending', 'New User', 11, 'tenant_analyst']);
       return {
@@ -147,4 +154,9 @@ test('createTenantUserProfile creates user in the current tenant', async () => {
 
   assert.equal(profile.tenantId, '11');
   assert.equal(profile.userId, '88');
+
+  // The membership row is written as 'invited' with the invite role.
+  const membershipCall = calls.find((c) => /insert into organization_memberships/i.test(c.sql));
+  assert.ok(membershipCall, 'expected an organization_memberships dual-write');
+  assert.deepEqual(membershipCall.params.slice(0, 4), [88, 11, 'tenant_analyst', 'invited']);
 });

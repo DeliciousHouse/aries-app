@@ -1,4 +1,5 @@
 import type { TenantRole } from '@/lib/tenant-context';
+import { upsertOrganizationMembership } from '@/lib/auth-tenant-membership';
 
 /**
  * Membership status as surfaced to the admin UI. Derived from the user's
@@ -130,7 +131,20 @@ export async function createTenantUserProfile(
     [email, INVITED_PENDING_PASSWORD, input.fullName ?? null, Number(input.tenantId), role]
   );
 
-  return toTenantUserProfile(result.rows[0]);
+  const profile = toTenantUserProfile(result.rows[0]);
+
+  // Dual-write the membership row as 'invited' (multi-workspace Phase 0, Eng
+  // findings 1a + 2). An invite-created user carries the pending-password
+  // sentinel, so the membership is 'invited' until acceptWorkspaceInvitation
+  // flips it to 'active'. Additive — nothing reads it yet.
+  await upsertOrganizationMembership(queryable as never, {
+    userId: profile.userId,
+    organizationId: profile.tenantId,
+    role: profile.role,
+    status: 'invited',
+  });
+
+  return profile;
 }
 
 export async function getTenantUserProfileById(
