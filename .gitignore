@@ -119,6 +119,7 @@ state/
 .eslintcache
 .stylelintcache
 .npm
+.npm-cache/
 .tmp/
 .clawhub/
 .gstack/

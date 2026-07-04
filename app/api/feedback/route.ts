@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { auth } from '@/auth';
+import { OVER_LIMIT, readBodyCapped } from '@/lib/http/read-body-capped';
 import { resolveFeedbackConfig } from '@/lib/feedback/feedback-config';
 import { syncFeedback } from '@/lib/feedback/feedback-sink';
 import { classifySeverity } from '@/lib/feedback/severity-classifier';
@@ -50,40 +51,6 @@ async function readAuthState(): Promise<{
 }
 
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
-const OVER_LIMIT = Symbol('over-limit');
-
-/**
- * Read the request body as text without ever buffering more than `maxBytes`.
- * Counts the actual stream (so a missing/chunked Content-Length can't bypass the
- * cap) and aborts mid-read past the limit, returning the OVER_LIMIT sentinel.
- */
-async function readBodyCapped(req: Request, maxBytes: number): Promise<string | typeof OVER_LIMIT> {
-  // Fast path: an honest oversized Content-Length is rejected before reading.
-  const declared = Number(req.headers.get('content-length') ?? '');
-  if (Number.isFinite(declared) && declared > maxBytes) return OVER_LIMIT;
-
-  const reader = req.body?.getReader();
-  if (!reader) {
-    const text = await req.text();
-    return Buffer.byteLength(text) > maxBytes ? OVER_LIMIT : text;
-  }
-
-  const chunks: Buffer[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value) {
-      total += value.byteLength;
-      if (total > maxBytes) {
-        await reader.cancel().catch(() => undefined);
-        return OVER_LIMIT;
-      }
-      chunks.push(Buffer.from(value));
-    }
-  }
-  return Buffer.concat(chunks).toString('utf8');
-}
 
 export async function POST(req: Request): Promise<NextResponse> {
   const config = resolveFeedbackConfig();

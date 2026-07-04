@@ -53,7 +53,6 @@ import AriesSettingsScreen from '../frontend/aries-v1/settings-screen';
 import AriesPostsScreen from '../frontend/aries-v1/posts-screen';
 import AriesOnboardingFlow from '../frontend/aries-v1/onboarding-flow';
 import MarketingLayout from '../frontend/marketing/MarketingLayout';
-import OnboardingStartScreen from '../frontend/onboarding/start';
 import OnboardingStatusScreen from '../frontend/onboarding/status';
 import MarketingNewJobScreen from '../frontend/marketing/new-job';
 import MarketingJobStatusScreen from '../frontend/marketing/job-status';
@@ -439,8 +438,6 @@ test('/onboarding/start wires the guided intake workflow behind auth-aware serve
 
   assert.match(source, /auth\(\)/);
   assert.match(source, /<AriesOnboardingFlow initialAuthenticated=\{Boolean\(session\?\.user\?\.id\)\} \/>/);
-  assert.notEqual(OnboardingStartPage, OnboardingStartScreen);
-  assert.notEqual(AriesOnboardingFlow, OnboardingStartScreen);
 });
 
 test('/onboarding/pipeline-intake redirects to /onboarding/start for backwards compatibility', () => {

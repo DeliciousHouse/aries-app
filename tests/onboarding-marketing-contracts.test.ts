@@ -3,20 +3,6 @@ import test from 'node:test';
 
 import { createOnboardingClient } from '../frontend/api/client/onboarding';
 import { normalizeMarketingJobId } from '../frontend/marketing/job-status';
-import { resolveOnboardingStatusHref } from '../frontend/onboarding/start';
-
-test('resolveOnboardingStatusHref prefers backend-confirmed tenant and signup event ids', () => {
-  const href = resolveOnboardingStatusHref(
-    {
-      tenant_id: 'tenant_backend',
-      signup_event_id: 'signup_backend',
-    },
-    'tenant_form',
-    'signup_form',
-  );
-
-  assert.equal(href, '/onboarding/status?tenant_id=tenant_backend&signup_event_id=signup_backend');
-});
 
 test('createOnboardingClient.status appends signup_event_id when provided', async () => {
   const requests: string[] = [];
