@@ -124,6 +124,11 @@ const ALLOWLIST: AllowlistEntry[] = [
       'absorb-orphan consent accept (multi-workspace Phase 0.5) — gated on auth() session + in-transaction session-is-the-invited-account verification; getTenantContext would resolve the invitee’s OLD workspace, which is exactly the org this call moves them out of',
   },
   {
+    path: 'app/api/auth/invite/join/route.ts',
+    rationale:
+      'join-as-existing-account consent accept (multi-workspace Phase 2, flag-gated 404 when OFF) — gated on auth() session + in-transaction session-is-the-invited-account verification; getTenantContext would resolve the invitee’s CURRENT workspace, not the one they are consenting to join',
+  },
+  {
     path: 'app/api/oauth/[provider]/callback/route.ts',
     rationale: 'OAuth provider callback resolves tenant via state token, not session',
   },

@@ -164,6 +164,40 @@ export async function upsertOrganizationMembership(
   );
 }
 
+/**
+ * Append a row to the organization_membership_events audit table (multi-
+ * workspace plan Decision 1 / CEO E3). Event types are documented values only
+ * ('invited' | 'accepted' | 'role_changed' | 'removed' | 'absorbed'); actor is
+ * the user who performed the mutation (the invitee for accepts, the admin for
+ * invites/role changes/removals). Callers write the event in the SAME
+ * transaction as the membership mutation it records.
+ */
+export async function recordOrganizationMembershipEvent(
+  client: QueryClient,
+  input: {
+    organizationId: number | string;
+    userId: number | string;
+    actorUserId: number | string | null;
+    eventType: 'invited' | 'accepted' | 'role_changed' | 'removed' | 'absorbed';
+    metadata?: Record<string, unknown>;
+  },
+): Promise<void> {
+  await client.query(
+    `
+      INSERT INTO organization_membership_events
+        (organization_id, user_id, actor_user_id, event_type, metadata)
+      VALUES ($1, $2, $3, $4, $5::jsonb)
+    `,
+    [
+      Number(input.organizationId),
+      Number(input.userId),
+      input.actorUserId === null || input.actorUserId === undefined ? null : Number(input.actorUserId),
+      input.eventType,
+      JSON.stringify(input.metadata ?? {}),
+    ],
+  );
+}
+
 export async function assignUserToOrganization(
   client: QueryClient,
   input: {

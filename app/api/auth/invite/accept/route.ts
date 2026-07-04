@@ -38,6 +38,16 @@ export async function POST(req: Request) {
           'Password must be at least 8 characters and include an uppercase letter, a number, and a special character.',
         );
       }
+      if (result.status === 'not_pending') {
+        // Multi-workspace flag ON only (eng finding 5): the account gained a
+        // password between invite and accept — e.g. it just accepted a
+        // sibling workspace's invite. VISIBLE guidance instead of a silent
+        // dead link; reloading the invite link shows the join consent.
+        return errorResponse(
+          'This account already has a password. Sign in with it, then open this invite link again to accept.',
+          409,
+        );
+      }
       // Collapse all token-state failures to one client message so we never
       // disclose whether an email is invited, expired, or already accepted.
       return errorResponse('This invite link is invalid or has expired.');

@@ -28,6 +28,8 @@ function memberActionErrorMessage(code: string | undefined): string {
       return 'Pick a valid role.';
     case 'already_active':
       return 'That member has already joined — no invite needed.';
+    case 'last_admin':
+      return 'A workspace needs at least one admin — assign another admin first.';
     case 'forbidden':
       return 'Only workspace admins can manage members.';
     default:
@@ -118,7 +120,9 @@ export default function AriesSettingsScreen() {
       setMemberNotice(
         result.absorb
           ? `Invite sent to ${email} — they already have an Aries account, so they'll be asked to fold their unused workspace into this one. They'll appear here once they accept.`
-          : `Invite sent to ${email}.`,
+          : result.existingAccount
+            ? `Added ${email} — pending their acceptance. They already have an Aries account and will sign in with their existing credentials (no password step).`
+            : `Invite sent to ${email}.`,
       );
       await business.load();
     } catch (err) {

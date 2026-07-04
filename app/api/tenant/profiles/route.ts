@@ -65,7 +65,8 @@ export async function POST(req: Request) {
     if (
       result.status !== 'invited' &&
       result.status !== 'reinvited' &&
-      result.status !== 'invited_existing_orphan'
+      result.status !== 'invited_existing_orphan' &&
+      result.status !== 'invited_existing_account'
     ) {
       if (result.status === 'missing_email') {
         return json({ error: 'missing_required_fields:email' }, 400);
@@ -117,6 +118,24 @@ export async function POST(req: Request) {
         variant: 'absorb',
       });
       return json({ invited: true, absorb: true, email: result.email }, 201);
+    }
+
+    if (result.status === 'invited_existing_account') {
+      // Multi-workspace Phase 2 (flag ON): the email backs an existing ACTIVE
+      // account elsewhere. A status='invited' membership was created — the
+      // team list shows them pending — and accepting adds this workspace to
+      // their account. They sign in with their EXISTING credentials; there is
+      // no password step, so the email copy says exactly that.
+      await sendWorkspaceInviteEmail({
+        to: result.email,
+        inviterName: emailContext.inviterName,
+        workspaceName: emailContext.orgName || 'your Aries AI workspace',
+        roleLabel: roleLabel(result.role),
+        acceptUrl: buildInviteAcceptUrl(result.rawToken),
+        expiresInDays: INVITE_EXPIRES_IN_DAYS,
+        variant: 'existing_account',
+      });
+      return json({ invited: true, existingAccount: true, email: result.email }, 201);
     }
 
     await sendWorkspaceInviteEmail({
