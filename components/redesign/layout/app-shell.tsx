@@ -194,6 +194,7 @@ export default async function RedesignAppShell({
     <AppShellClient
       currentRouteId={currentRouteId}
       multiWorkspaceEnabled={showWorkspaceSwitcher}
+      multiWorkspaceFlagEnabled={multiWorkspaceEnabled}
       workspaceSwitcher={workspaceSwitcher}
       title={title ?? currentRoute?.title ?? 'Aries'}
       subtitle={

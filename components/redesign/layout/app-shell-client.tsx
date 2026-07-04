@@ -19,6 +19,7 @@ import {
   MessageCircle,
   LogOut,
   PenSquare,
+  Plus,
   Send,
   Rocket,
   Settings,
@@ -81,6 +82,14 @@ interface AppShellClientProps {
    * shell is byte-identical to the single-workspace model.
    */
   multiWorkspaceEnabled?: boolean;
+  /**
+   * True whenever the multi-workspace flag is ON, INDEPENDENT of workspace count
+   * (the switcher requires >1; this does not). Gates the account-menu "Create
+   * new workspace" entry so single-workspace users — who never see the switcher —
+   * can still start a second workspace (design decision: create lives in the
+   * account menu, not the switcher). Flag OFF the entry is absent (byte-identical).
+   */
+  multiWorkspaceFlagEnabled?: boolean;
   workspaceSwitcher?: WorkspaceSwitcherData | null;
 }
 
@@ -94,6 +103,7 @@ export default function AppShellClient({
   onboardingAdvisories,
   tenantId,
   multiWorkspaceEnabled = false,
+  multiWorkspaceFlagEnabled = false,
   workspaceSwitcher = null,
 }: AppShellClientProps) {
   const pathname = usePathname();
@@ -703,6 +713,22 @@ export default function AppShellClient({
                         {reviewCount}
                       </span>
                     </Link>
+                    {multiWorkspaceFlagEnabled ? (
+                      // Create-workspace lives in the ACCOUNT MENU, not the
+                      // switcher (design decision): the switcher only renders at
+                      // >1 membership, so a switcher-hosted create would be
+                      // unreachable for the single-workspace users who need it.
+                      // Routes into the onboarding create flow, which enforces
+                      // the Decision-13 second-workspace entitlement gate.
+                      <Link
+                        href="/onboarding/start?new=1"
+                        className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
+                        onClick={() => setIsAccountMenuOpen(false)}
+                      >
+                        <Plus className="h-4 w-4 text-white/60" />
+                        Create new workspace
+                      </Link>
+                    ) : null}
                     <div className="my-1 h-px bg-white/8" />
                     <form action={logoutAction}>
                       <button
@@ -924,6 +950,19 @@ export default function AppShellClient({
                               {reviewCount}
                             </span>
                           </Link>
+                          {multiWorkspaceFlagEnabled ? (
+                            <Link
+                              href="/onboarding/start?new=1"
+                              className="flex min-h-[44px] items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-white/80 transition-colors hover:bg-white/[0.06] hover:text-white"
+                              onClick={() => {
+                                setIsMobileMenuOpen(false);
+                                setIsMobileAccountMenuOpen(false);
+                              }}
+                            >
+                              <Plus className="h-4 w-4 shrink-0 text-white/60" />
+                              Create new workspace
+                            </Link>
+                          ) : null}
                           <div className="my-1 h-px bg-white/8" />
                           <form action={logoutAction}>
                             <button
