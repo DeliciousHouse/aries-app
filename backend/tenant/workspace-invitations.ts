@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 
 import type { TenantRole } from '@/lib/tenant-context';
+import { upsertOrganizationMembership } from '@/lib/auth-tenant-membership';
 import {
   INVITED_PENDING_PASSWORD,
   createTenantUserProfile,
@@ -236,7 +237,9 @@ export async function resendWorkspaceInvitation(
 type InvitationRow = {
   id: string | number;
   user_id: string | number;
+  organization_id: string | number;
   email: string;
+  role: TenantRole;
   expires_at: string | Date;
   accepted_at: string | Date | null;
 };
@@ -244,7 +247,7 @@ type InvitationRow = {
 async function loadInvitationByToken(queryable: Queryable, rawToken: string): Promise<InvitationRow | null> {
   const result = await queryable.query(
     `
-      SELECT id, user_id, email, expires_at, accepted_at
+      SELECT id, user_id, organization_id, email, role, expires_at, accepted_at
       FROM workspace_invitations
       WHERE token_hash = $1
       LIMIT 1
@@ -321,6 +324,17 @@ export async function acceptWorkspaceInvitation(
       `UPDATE workspace_invitations SET accepted_at = now() WHERE user_id = $1 AND accepted_at IS NULL`,
       [Number(invitation.user_id)],
     );
+    // Dual-write: flip the membership row to 'active' with accepted_at=now()
+    // (multi-workspace Phase 0, Eng finding 1a). The row was created 'invited' by
+    // createTenantUserProfile; this promotes it in the same transaction as the
+    // credential + invitation writes. Additive — nothing reads it yet, and this
+    // does NOT otherwise change accept semantics (that is Phase 2).
+    await upsertOrganizationMembership(queryable as never, {
+      userId: invitation.user_id,
+      organizationId: invitation.organization_id,
+      role: invitation.role,
+      status: 'active',
+    });
     await queryable.query('COMMIT', []);
   } catch (error) {
     await queryable.query('ROLLBACK', []);

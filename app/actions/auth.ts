@@ -5,6 +5,7 @@ import bcrypt from 'bcryptjs';
 
 import { enqueuePartnerAttribution } from '@/backend/partners/outbox';
 import { ensureUserJourneySchema } from '@/lib/auth-user-journey';
+import { normalizeEmail, upsertOrganizationMembership } from '@/lib/auth-tenant-membership';
 import pool from '@/lib/db';
 import { partnerAttributionEnabled } from '@/lib/partner-attribution-env';
 import { PARTNER_REF_COOKIE_NAME, parsePartnerRefCookie } from '@/lib/partner-ref-cookie';
@@ -26,7 +27,12 @@ export async function userExists(email: string): Promise<boolean> {
 }
 
 export async function registerUserAction(formData: any) {
-  const { email, password, fullName, orgName } = formData;
+  const { email: rawEmail, password, fullName, orgName } = formData;
+
+  // Normalize email on write (Eng finding 7): every lookup uses LOWER(email) and
+  // the new lowercase-unique index is load-bearing under multi-membership, so
+  // signup must persist the normalized form rather than whatever case was typed.
+  const email = typeof rawEmail === 'string' ? normalizeEmail(rawEmail) : rawEmail;
 
   const cookieStore = await cookies();
   const rawRef = cookieStore.get(PARTNER_REF_COOKIE_NAME)?.value;
@@ -72,6 +78,21 @@ export async function registerUserAction(formData: any) {
       );
 
       const userId = String(userResult.rows[0].id);
+
+      // Dual-write the membership row (multi-workspace Phase 0, Eng finding 1a).
+      // A credentials signup that creates an org lands as its tenant_admin
+      // (users.role DEFAULT 'tenant_admin' — this INSERT never sets role). No org
+      // (orgId null) means no membership yet; the sign-in auto-provision path
+      // creates one when a workspace is minted. Additive — nothing reads it yet.
+      if (orgId !== null) {
+        await upsertOrganizationMembership(client, {
+          userId,
+          organizationId: orgId,
+          role: 'tenant_admin',
+          status: 'active',
+        });
+      }
+
       const emailDomain = typeof email === 'string' && email.includes('@') ? email.split('@')[1] : null;
 
       if (partnerRef && partnerAttributionEnabled()) {

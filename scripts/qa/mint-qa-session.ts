@@ -87,6 +87,30 @@ async function main(): Promise<void> {
       process.exit(1);
     }
 
+    // Dual-write the membership row (multi-workspace Phase 0). The mint script must
+    // work in both worlds: with the membership tables present it self-heals the QA
+    // bot's single 'active' membership so a minted session always resolves through
+    // the membership join once later phases read it; where the table does not yet
+    // exist (older DB) it is a tolerated no-op. Idempotent + QA-scoped only.
+    try {
+      await pool.query(
+        `INSERT INTO organization_memberships
+           (user_id, organization_id, role, status, accepted_at, last_active_at, created_at, updated_at)
+         VALUES ($1, $2, 'tenant_admin', 'active', now(), now(), now(), now())
+         ON CONFLICT (user_id, organization_id) DO UPDATE SET
+           role = 'tenant_admin',
+           status = 'active',
+           updated_at = now()`,
+        [Number(row.user_id), Number(row.tenant_id)],
+      );
+    } catch (error) {
+      const code = (error as { code?: string } | null)?.code;
+      // 42P01 = undefined_table: membership schema not applied yet (pre-Phase-0).
+      if (code !== '42P01') {
+        throw error;
+      }
+    }
+
     const cookieName = sessionCookieNameForBaseUrl(baseUrl);
     const token = await encode({
       token: buildQaTokenClaims(row),
