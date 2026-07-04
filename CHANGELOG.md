@@ -38,6 +38,17 @@ users.organization_id / users.role columns.
   (throwaway schema) with a drift guard pinning the test SQL to the shipped
   init-db source.
 
+## v0.1.22.1 — fix(feedback): drive JIRA priority from severity (legacy feedback path)
+
+The legacy public Feedback button's Jira sink now maps the classified severity
+onto a real Jira priority (Blocker→Highest, High→High, Medium→Medium,
+Low→Low) instead of letting every ticket default to Medium (AA-51 slice).
+Hardened beyond the original draft: live createmeta showed AA's Task screens
+carry the priority field but Bug/Story do NOT, so the sink now degrades like
+the incident-report path — a create rejected over the priority field is
+retried once without it and the rejection memoized, guaranteeing a screen or
+scheme change can only ever cost the priority, never the ticket.
+
 ## v0.1.22.0 — feat(feedback): customer incident report button (SC-70 port, AA-51)
 
 Port of the Sequence CRM SC-70 feedback/incident framework. Signed-in users

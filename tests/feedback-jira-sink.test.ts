@@ -6,6 +6,8 @@ import {
   buildJiraIssueFields,
   buildJiraSummary,
   feedbackLabels,
+  feedbackPriorityName,
+  resetPriorityFieldSupportForTests,
   syncFeedbackToJira,
   toLabel,
 } from '@/lib/feedback/jira-sink';
@@ -13,6 +15,7 @@ import { syncFeedback } from '@/lib/feedback/feedback-sink';
 import { resolveFeedbackConfig } from '@/lib/feedback/feedback-config';
 import type { FeedbackJiraConfig } from '@/lib/feedback/feedback-config';
 import type { FeedbackConfig } from '@/lib/feedback/feedback-config';
+import type { FeedbackSeverity } from '@/lib/feedback/options';
 import type { FeedbackSubmissionRecord } from '@/lib/feedback/types';
 
 const TOKEN = 'super-secret-token-value';
@@ -118,6 +121,34 @@ test('buildJiraIssueFields targets the configured project + issue type', () => {
   assert.match(fields.summary, /^\[Feedback\] Login issue — /);
   assert.equal(fields.description.type, 'doc');
   assert.ok(Array.isArray(fields.labels));
+  // Priority is driven from severity — the record() default is 'High'.
+  assert.equal(fields.priority.name, 'High');
+});
+
+test('buildJiraIssueFields maps each severity onto a real AA priority name', () => {
+  // Names must EXACTLY match the AA project's priority scheme
+  // (Highest/High/Medium/Low/Lowest); before this the sink sent no priority so
+  // every issue defaulted to Medium.
+  const cases: Array<[FeedbackSeverity, string]> = [
+    ['Blocker', 'Highest'],
+    ['High', 'High'],
+    ['Medium', 'Medium'],
+    ['Low', 'Low'],
+  ];
+  for (const [severity, priority] of cases) {
+    assert.equal(feedbackPriorityName(record({ severity })), priority, `${severity} name`);
+    const fields = buildJiraIssueFields(jiraConfig(), record({ severity }), null) as any;
+    assert.equal(fields.priority.name, priority, `${severity} -> ${priority}`);
+  }
+});
+
+test('priority is fail-open: an unmapped severity omits the field (JIRA default applies)', () => {
+  // Guards the "never fail issue creation on a priority the scheme lacks"
+  // contract — an unknown severity must drop the field, not send a bad name.
+  const rogue = record({ severity: 'Nope' as FeedbackSeverity });
+  assert.equal(feedbackPriorityName(rogue), null);
+  const fields = buildJiraIssueFields(jiraConfig(), rogue, null) as any;
+  assert.equal('priority' in fields, false);
 });
 
 // ── network behavior (fake fetch) ───────────────────────────────────────────
@@ -153,6 +184,8 @@ test('syncFeedbackToJira posts to /rest/api/3/issue with Basic auth and returns 
   assert.ok(!headers.Authorization.includes(TOKEN));
   const sent = JSON.parse(String(calls[0].init.body));
   assert.equal(sent.fields.project.key, 'AA');
+  // The classified severity ('High') rides the wire as a JIRA priority name.
+  assert.equal(sent.fields.priority.name, 'High');
 });
 
 test('syncFeedbackToJira reports failure on non-2xx WITHOUT leaking the token', async () => {
@@ -168,6 +201,58 @@ test('syncFeedbackToJira reports failure on non-2xx WITHOUT leaking the token', 
   assert.match(result.error ?? '', /HTTP 400/);
   assert.match(result.error ?? '', /summary: Field required/);
   assert.ok(!(result.error ?? '').includes(TOKEN), 'error must not contain the token');
+});
+
+test('priority degrade: a 400 priority-field rejection retries once without priority and memoizes', async (t) => {
+  // The real prod scenario: AA's Bug/Story create screens lack the priority
+  // field (live createmeta, 2026-07-04) — the ticket must survive anyway.
+  resetPriorityFieldSupportForTests();
+  t.after(() => resetPriorityFieldSupportForTests());
+
+  const { fn, calls } = fakeFetch((_url, init) => {
+    const sent = JSON.parse(String(init.body));
+    if (sent.fields.priority) {
+      return {
+        ok: false,
+        status: 400,
+        body: {
+          errors: {
+            priority: "Field 'priority' cannot be set. It is not on the appropriate screen, or unknown.",
+          },
+        },
+      };
+    }
+    return { ok: true, status: 201, body: { key: 'AA-77' } };
+  });
+
+  const result = await syncFeedbackToJira(record(), jiraConfig({ issueType: 'Bug' }), null, fn);
+  assert.equal(result.status, 'synced');
+  assert.equal(result.issueKey, 'AA-77');
+  assert.equal(calls.length, 2, 'one rejected attempt, one degraded retry');
+  const first = JSON.parse(String(calls[0].init.body));
+  const second = JSON.parse(String(calls[1].init.body));
+  assert.equal(first.fields.priority.name, 'High');
+  assert.equal('priority' in second.fields, false, 'retry must omit priority');
+
+  // The rejection is memoized: the next sync skips priority up front.
+  const next = await syncFeedbackToJira(record(), jiraConfig({ issueType: 'Bug' }), null, fn);
+  assert.equal(next.status, 'synced');
+  assert.equal(calls.length, 3, 'memoized: no doomed first attempt');
+  assert.equal('priority' in JSON.parse(String(calls[2].init.body)).fields, false);
+});
+
+test('priority degrade: a NON-priority 400 fails without a retry', async (t) => {
+  resetPriorityFieldSupportForTests();
+  t.after(() => resetPriorityFieldSupportForTests());
+
+  const { fn, calls } = fakeFetch(() => ({
+    ok: false,
+    status: 400,
+    body: { errors: { summary: 'Field required' } },
+  }));
+  const result = await syncFeedbackToJira(record(), jiraConfig(), null, fn);
+  assert.equal(result.status, 'failed');
+  assert.equal(calls.length, 1, 'no blind retry on unrelated 400s');
 });
 
 // ── dispatcher precedence ───────────────────────────────────────────────────
