@@ -113,9 +113,13 @@ export default function AriesSettingsScreen() {
     }
     setInviteBusy(true);
     try {
-      await memberApi.inviteTenantMember({ email, role: inviteRole });
+      const result = await memberApi.inviteTenantMember({ email, role: inviteRole });
       setInviteEmail('');
-      setMemberNotice(`Invite sent to ${email}.`);
+      setMemberNotice(
+        result.absorb
+          ? `Invite sent to ${email} — they already have an Aries account, so they'll be asked to fold their unused workspace into this one. They'll appear here once they accept.`
+          : `Invite sent to ${email}.`,
+      );
       await business.load();
     } catch (err) {
       setMemberError(memberActionErrorMessage((err as { code?: string })?.code));

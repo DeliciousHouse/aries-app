@@ -647,7 +647,10 @@ export function createAriesV1Api(options: ApiClientOptions = {}) {
       }, options);
     },
     inviteTenantMember(body: { email: string; fullName?: string | null; role?: 'tenant_admin' | 'tenant_analyst' | 'tenant_viewer' }) {
-      return requestJson<{ profile: TenantUserProfile; invited: boolean }>('/api/tenant/profiles', {
+      // `absorb: true` (Phase 0.5) = the email backs an existing account whose
+      // unused workspace will be folded in on THEIR accept click; no profile is
+      // returned because they are not a member of this workspace yet.
+      return requestJson<{ profile?: TenantUserProfile; invited: boolean; absorb?: boolean }>('/api/tenant/profiles', {
         method: 'POST',
         body: JSON.stringify(body),
       }, options);

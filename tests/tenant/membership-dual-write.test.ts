@@ -145,6 +145,16 @@ test('acceptWorkspaceInvitation flips the membership to active inside the accept
   const { queryable, calls } = makeFakeDb([
     [/from workspace_invitations\s+where token_hash/, () => ({ rows: [invitation], rowCount: 1 })],
     ...PASSTHROUGH,
+    // The set-password accept path is pending-sentinel-only (security fix,
+    // e0aec3ea): it re-loads + locks the user row inside the txn and refuses
+    // unless password_hash is still the INVITED_PENDING_PASSWORD sentinel.
+    // Seed the locked user SELECT with a pending row so this legacy
+    // brand-new-teammate accept reaches the membership flip (mirrors
+    // acceptRoutes in tests/tenant/workspace-invitations.test.ts).
+    [
+      /from users\s+where id = \$1\s+limit 1\s+for update/,
+      () => ({ rows: [{ id: invitation.user_id, password_hash: 'invited_pending' }] }),
+    ],
     [/update users set password_hash/, () => ({ rows: [] })],
     [/update workspace_invitations set accepted_at/, () => ({ rows: [] })],
   ]);
