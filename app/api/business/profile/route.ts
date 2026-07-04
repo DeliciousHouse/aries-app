@@ -51,6 +51,11 @@ function classifyClientError(message: string): { error: string; status: number }
   if (message === 'invalid_website_url') {
     return { error: 'invalid_website_url', status: 400 };
   }
+  if (message === 'invalid_launch_approver') {
+    // The submitted launch approver is not a member of this workspace
+    // (multi-workspace Phase 4). Frontend-safe: no id echoed back.
+    return { error: 'invalid_launch_approver', status: 400 };
+  }
   if (message === COMPETITOR_URL_SOCIAL_ERROR) {
     return { error: COMPETITOR_URL_SOCIAL_ERROR, status: 400 };
   }

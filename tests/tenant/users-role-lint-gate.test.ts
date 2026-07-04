@@ -56,6 +56,11 @@ const SCAN_EXTENSIONS = new Set(['.ts', '.tsx']);
  *    from organization_memberships), not a fresh users.role read — so it is a
  *    mirror sync, not a users.role-as-source-of-truth read. Removed with the
  *    mirror in Phase 5.
+ *  - backend/tenant/organization-lifecycle.ts — the Phase 4 org-deletion pointer
+ *    repair: when a deleted org was a member's active pointer, repoint them to
+ *    their next membership and move the legacy role mirror in the SAME statement
+ *    (same mirror-sync shape as the switch/remove repoints — the role written is
+ *    the next MEMBERSHIP's role, not a users.role read). Removed in Phase 5.
  *  - scripts/qa/seed-qa-tenant.ts — QA sandbox seed (pinned identity).
  */
 const ALLOWLIST = new Set<string>([
@@ -64,6 +69,7 @@ const ALLOWLIST = new Set<string>([
   'backend/tenant/user-profiles.ts',
   'backend/tenant/workspace-invitations.ts',
   'backend/tenant/workspace-switch.ts',
+  'backend/tenant/organization-lifecycle.ts',
   'scripts/qa/seed-qa-tenant.ts',
 ]);
 

@@ -262,8 +262,8 @@ test('flag ON: brand-new email is create-or-select (ON CONFLICT) so cross-org fi
   const userInsert = calls.find((c) => /insert into users/i.test(c.sql));
   assert.match(
     userInsert!.sql.toLowerCase(),
-    /on conflict \(email\) do nothing/,
-    'user creation must be create-or-select (eng finding 6)',
+    /on conflict \(lower\(email\)\) do nothing/,
+    'user creation must be create-or-select targeting the LOWER(email) functional index (eng finding 6 + Phase 4 hardening)',
   );
   const membershipUpsert = calls.find((c) => /insert into organization_memberships/i.test(c.sql));
   assert.deepEqual(membershipUpsert!.params, [88, 11, 'tenant_analyst', 3]);

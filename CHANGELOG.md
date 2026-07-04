@@ -2,6 +2,69 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.28.0 — feat(tenant): multi-workspace phase 4 — second-workspace creation, lifecycle repair, entitlement CLI (flag-gated, default OFF)
+
+Phase 4 (final in-scope phase) of the multi-workspace membership program
+(docs/plans/2026-07-03-multi-workspace-membership.md). Adds second-workspace
+creation, org-deletion pointer repair, the launch-approver membership assertion,
+the paid-entitlement seam + grant CLI, and two deferred Phase-2 hardening
+follow-ups (PR #764). Behind `ARIES_MULTI_WORKSPACE_ENABLED` (default OFF — ships
+dark; flag OFF byte-identical to the single-pointer model).
+
+- Second-workspace onboarding (Decision 8a/8b): flag ON, "onboard a business"
+  ALWAYS creates a new org + admin membership + sets it active — it never reuses
+  or repoints an existing org, so the legacy self-escalation-to-admin wart only
+  ever lands on the just-created org. The Phase-4 create path is gated by the
+  Decision-13 entitlement check (a free account's SECOND workspace is denied with
+  NO partial write — no org/membership row on denial — and routed to
+  `/workspace/upgrade`). Flag OFF the create path is byte-identical (the legacy
+  reuse-branch is retained verbatim). "Create new workspace" lives in the account
+  menu (not the switcher, which only renders at >1 membership).
+- Org-deletion pointer repair (Decision 11): `repairPointersForDeletedOrganization`
+  runs inside the caller's delete transaction — deletes the org's memberships +
+  events and repoints every stranded active pointer to their MRU next active
+  membership (role mirror moves in the same statement) or NULL → chooser. Never
+  deletes a users row; prevents the claims-incomplete login hard-fail. Flag OFF =
+  bare-cascade byte-identical (pointer cleared to NULL, no membership repoint).
+- launch_approver membership assertion (`business-profile.ts`): a launch approver
+  write validates the approver actually belongs to the workspace (active
+  membership OR legacy active pointer, drift-tolerant), only on set/change to a
+  new non-null approver — an unchanged update never re-validates, so no stored
+  profile breaks. Maps to `400 invalid_launch_approver` (frontend-safe, no id
+  echoed), never a 500.
+- Paid-entitlement seam (Decision 13): `assertMultiWorkspaceEntitlement` (the
+  single server-side helper) + `users.plan` grant CLI
+  (`scripts/billing/set-user-plan.ts` — the sole v1 writer of users.plan;
+  validated, audited via plan_granted_at/by + a structured log line, idempotent).
+  Denial is `402 multi_workspace_requires_pro`; the invited membership + invite
+  always persist (accept-after-upgrade). Absorb and first-membership invites never
+  hit the paywall.
+- Phase-2 hardening follow-ups (PR #764): (1) `withDeadlockRetry`
+  (backend/tenant/txn-retry.ts) — a bounded (5 attempts + jittered backoff),
+  40P01/40001-only retry wrapping the demote / accept / remove membership
+  transactions, so a symmetric cross-table-lock deadlock re-runs and reaches the
+  graceful `last_admin`/`not_join` result instead of surfacing a retriable 500
+  (the flipped concurrency sentinel now asserts that graceful contract). Any other
+  error propagates on the first attempt — a real bug is never masked. (2) the
+  invited-user find-or-create arbiter now targets the `LOWER(email)` functional
+  index so a same-instant case-variant collision reaches the clean loser-attaches
+  path instead of a raw 23505.
+- Review-time fix (zero-membership concurrent-create TOCTOU): the Phase-4 create
+  path takes a create-path-local `SELECT id FROM users WHERE id=$1 FOR UPDATE`
+  before the entitlement count — the shared entitlement helper's own FOR UPDATE
+  locks nothing when the account has zero active memberships, so two simultaneous
+  create-second-workspace requests from a brand-new free account could otherwise
+  both pass as "first workspace" and mint two free workspaces. The lock is local
+  to the create txn (NOT the shared helper — the Phase-2 accept path already locks
+  the user row before the count). Red-proofed against throwaway Postgres 16 (fails
+  without the lock, passes with it).
+- Ships the read-only `scripts/tenant/audit-org-display-names.ts` audit tool
+  (flags auto-provisioned personal-org names before the switcher makes them
+  user-visible; --fix gated, sign-off-required for prod).
+
+Flag OFF byte-identical (golden-pinned); verify + test:concurrent + full suite +
+requires-infra concurrency/lifecycle green.
+
 ## v0.1.27.0 — feat(tenant): multi-workspace phase 3 — workspace switcher, switch endpoint, mutation guard + interlock (flag-gated, default OFF)
 
 Phase 3 of the multi-workspace membership program

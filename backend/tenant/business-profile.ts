@@ -437,6 +437,41 @@ function saveBusinessProfileRecord(record: BusinessProfileRecord): void {
   saveBusinessProfileRecordToDb(record);
 }
 
+/**
+ * True when the given user belongs to the tenant as an ACTIVE member (or, as a
+ * dark-period drift fallback, holds the tenant as their active pointer). Used to
+ * validate a launch_approver_user_id write (multi-workspace Phase 4) so an
+ * approver can only be someone who is actually in the workspace. Sequential
+ * single query (no fan-out).
+ */
+async function approverBelongsToTenant(
+  client: PoolClient,
+  input: { approverUserId: string; tenantId: string },
+): Promise<boolean> {
+  const approverId = Number(input.approverUserId);
+  const tenantId = Number(input.tenantId);
+  if (!Number.isFinite(approverId) || !Number.isFinite(tenantId)) {
+    return false;
+  }
+  const result = await client.query(
+    `
+      SELECT 1
+      FROM users u
+      WHERE u.id = $1
+        AND (
+          EXISTS (
+            SELECT 1 FROM organization_memberships m
+            WHERE m.user_id = u.id AND m.organization_id = $2 AND m.status = 'active'
+          )
+          OR u.organization_id = $2
+        )
+      LIMIT 1
+    `,
+    [approverId, tenantId],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
 async function launchApproverName(client: PoolClient, approverUserId: string | null): Promise<string | null> {
   if (!approverUserId) return null;
   const result = await client.query(
@@ -812,10 +847,30 @@ export async function updateBusinessProfileWithDiagnostics(
   ).value;
   const nextBusinessType = mergePersistedStringField(current.profile.businessType, input.businessType).value;
   const nextPrimaryGoal = mergePersistedStringField(current.profile.primaryGoal, input.primaryGoal).value;
-  const nextApproverUserId = mergePersistedStringField(
+  const approverMerge = mergePersistedStringField(
     current.profile.launchApproverUserId,
     input.launchApproverUserId,
-  ).value;
+  );
+  const nextApproverUserId = approverMerge.value;
+  // Membership assertion (multi-workspace Phase 4): the launch approver must
+  // actually belong to THIS workspace. Historically the id was trusted in-tenant
+  // with no membership check — under multi-workspace an admin could otherwise
+  // pin a user who is a member of a DIFFERENT workspace as this tenant's
+  // approver. We validate ONLY when the approver is being newly set/changed to a
+  // non-null value (an unchanged update never re-validates, so no stored profile
+  // can be broken by drift), and we accept EITHER an active membership OR the
+  // legacy active pointer (users.organization_id) — the Phase-0 backfill created
+  // an active membership for every current member, so every valid existing
+  // approver passes, and the pointer fallback tolerates dark-period drift.
+  if (approverMerge.changed && nextApproverUserId) {
+    const belongs = await approverBelongsToTenant(client, {
+      approverUserId: nextApproverUserId,
+      tenantId: input.tenantId,
+    });
+    if (!belongs) {
+      throw new Error('invalid_launch_approver');
+    }
+  }
   const nextApproverName = mergePersistedStringField(
     current.profile.launchApproverName,
     input.launchApproverName,
