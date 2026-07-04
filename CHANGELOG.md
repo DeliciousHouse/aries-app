@@ -2,6 +2,45 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.26.0 — feat(tenant): multi-workspace phase 2 — membership invite/accept/remove semantics (flag-gated, default OFF)
+
+Phase 2 of the multi-workspace membership program
+(docs/plans/2026-07-03-multi-workspace-membership.md). Adds membership-aware
+invite/accept/remove behind `ARIES_MULTI_WORKSPACE_ENABLED` (default OFF —
+ships dark; flag OFF byte-identical to the single-pointer model). This is the
+phase that removes the two masked P1 security classes (accept-path password
+overwrite; global-role cross-org escalation).
+
+- Consent-accept split (Decision 4): a second-workspace invite to an existing
+  ACTIVE account creates a `status='invited'` membership; `acceptJoinInvitation`
+  (`POST /api/auth/invite/join`) activates it — activation ONLY, no password
+  write ever, signed-in + email-matched consent required, org-scoped token
+  consume. Legacy `acceptWorkspaceInvitation` re-checks the pending sentinel
+  INSIDE the txn under `FOR UPDATE` so the password write is unreachable for any
+  credentialed account (F6 permutation sweep + live-Postgres TOCTOU race).
+- Membership-only remove (Decision 5) + same-txn pointer repoint (MRU, else
+  NULL) + invitation-token kill; role edits target the membership with an
+  ACTIVE-pointer-scoped `users.role` mirror (eng finding 10).
+- Last-admin guard (CEO E4 / eng finding 4): role downgrade + remove refuse the
+  org's only active `tenant_admin` under per-org `FOR UPDATE` serialization.
+- Entitlement seam (Decision 13): second active membership needs `plan='pro'`;
+  denial is `402 { code: 'multi_workspace_requires_pro' }` with the invited
+  membership + invitation PRESERVED; checked inside the accept txn (`FOR UPDATE`
+  count).
+- Membership audit events (CEO E3): invited/accepted/role_changed/removed rows.
+- Resend gate moves to `membership.status`; new "added existing account" +
+  upgrade-required consent-page variants; existing-account invite email copy.
+
+Reviewed as the account-takeover phase. Independently re-verified at the gate:
+`npm run verify` green, `guardrails:agent` clean, and the six live-Postgres
+concurrency races (accept-vs-signin TOCTOU, duplicate invite, cross-org first
+invite, symmetric admin demote, free-limit double-accept, accept-vs-revoke)
+green against a throwaway postgres:16. Three rare-race gracefulness follow-ups
+recorded (all SAFE — invariants hold, retriable 500s, flag OFF in prod): the
+last-admin symmetric-demote deadlock (graceful 409 unreachable under true
+overlap), the `ON CONFLICT (email)` vs `LOWER(email)` arbiter edge, and the
+accept-vs-revoke deadlock — each pinned by a loud test.
+
 ## v0.1.25.0 — feat(tenant): multi-workspace phase 1 — membership-aware resolution (flag-gated, default OFF)
 
 Phase 1 of the multi-workspace membership program
