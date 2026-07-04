@@ -118,6 +118,13 @@ export interface WorkspaceInviteEmailParams {
   acceptUrl: string;
   /** How many days the invite link stays valid */
   expiresInDays: number;
+  /**
+   * Copy variant. 'set_password' (default) is the brand-new teammate flow;
+   * 'absorb' is the Phase 0.5 absorb-orphan flow — the email belongs to an
+   * existing account, so the copy asks them to review moving their unused
+   * workspace in instead of telling them to set a password.
+   */
+  variant?: 'set_password' | 'absorb';
 }
 
 // ---------------------------------------------------------------------------
@@ -357,18 +364,22 @@ function renderMetaReconnectWarningText(p: MetaReconnectWarningEmailParams): str
 
 function renderWorkspaceInviteHtml(p: WorkspaceInviteEmailParams): string {
   const inviter = p.inviterName?.trim();
+  const absorb = p.variant === 'absorb';
   const lead = inviter
     ? `<strong style="color:#ffffff;">${inviter}</strong> invited you to join`
     : `You've been invited to join`;
+  const secondLine = absorb
+    ? `You already have an Aries AI account under this email. Accepting moves your account into ${p.workspaceName} — your current, unused workspace will be left behind.`
+    : `Set your password to view and manage the posting schedule together.`;
   const body = `
     <p style="font-size:15px;line-height:1.5;color:rgba(255,255,255,0.7);margin:0 0 8px;">
       ${lead} <strong style="color:#ffffff;">${p.workspaceName}</strong> on Aries AI as a
       <strong style="color:#ffffff;">${p.roleLabel}</strong>.
     </p>
     <p style="font-size:15px;line-height:1.5;color:rgba(255,255,255,0.7);margin:0 0 24px;">
-      Set your password to view and manage the posting schedule together.
+      ${secondLine}
     </p>
-    ${renderCtaButton('Accept invite', p.acceptUrl)}
+    ${renderCtaButton(absorb ? 'Review invitation' : 'Accept invite', p.acceptUrl)}
     <p style="font-size:13px;color:rgba(255,255,255,0.4);margin:24px 0 0;">
       Or copy this link: ${p.acceptUrl}
     </p>
@@ -380,16 +391,20 @@ function renderWorkspaceInviteHtml(p: WorkspaceInviteEmailParams): string {
 
 function renderWorkspaceInviteText(p: WorkspaceInviteEmailParams): string {
   const inviter = p.inviterName?.trim();
+  const absorb = p.variant === 'absorb';
   const lead = inviter
     ? `${inviter} invited you to join ${p.workspaceName} on Aries AI`
     : `You've been invited to join ${p.workspaceName} on Aries AI`;
+  const secondLine = absorb
+    ? `You already have an Aries AI account under this email. Accepting moves your account into ${p.workspaceName} — your current, unused workspace will be left behind.`
+    : 'Set your password to view and manage the posting schedule together.';
   return [
     'Aries AI — workspace invite',
     '',
     `${lead} as a ${p.roleLabel}.`,
-    'Set your password to view and manage the posting schedule together.',
+    secondLine,
     '',
-    `Accept invite: ${p.acceptUrl}`,
+    `${absorb ? 'Review invitation' : 'Accept invite'}: ${p.acceptUrl}`,
     '',
     `This invite expires in ${p.expiresInDays} ${p.expiresInDays === 1 ? 'day' : 'days'}.`,
   ].join('\n');

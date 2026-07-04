@@ -119,6 +119,11 @@ const ALLOWLIST: AllowlistEntry[] = [
       'pre-session workspace-invite acceptance — authenticated by the single-use invite token (sha256-hashed at rest), not a session; the invitee has no account password until this call sets it',
   },
   {
+    path: 'app/api/auth/invite/absorb/route.ts',
+    rationale:
+      'absorb-orphan consent accept (multi-workspace Phase 0.5) — gated on auth() session + in-transaction session-is-the-invited-account verification; getTenantContext would resolve the invitee’s OLD workspace, which is exactly the org this call moves them out of',
+  },
+  {
     path: 'app/api/oauth/[provider]/callback/route.ts',
     rationale: 'OAuth provider callback resolves tenant via state token, not session',
   },

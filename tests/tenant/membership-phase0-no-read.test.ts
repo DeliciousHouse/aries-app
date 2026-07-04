@@ -72,11 +72,17 @@ test('no runtime module outside the membership WRITE helper reads organization_m
   // helper (lib/auth-tenant-membership.ts) and the DDL/migration/backfill. If a
   // reader shows up in lib/backend/app source, Phase 0's "nothing reads it yet"
   // invariant is broken and this catches it.
+  //
+  // Phase 0.5 exception: backend/tenant/workspace-invitations.ts now carries the
+  // absorb-orphan flow, whose orphan predicate COUNTS membership rows and whose
+  // accept transaction MOVES the membership row alongside the pointer repoint
+  // (plan eng finding 3b). That is a bounded absorb-flow read, not tenant
+  // resolution — the resolution modules below stay membership-free until the
+  // Phase 1 flag-gated READ path lands.
   const grepTargets = [
     'lib/tenant-context.ts',
     'lib/auth-user-journey.ts',
     'backend/tenant/user-profiles.ts',
-    'backend/tenant/workspace-invitations.ts',
     'app/actions/auth.ts',
   ];
   for (const rel of grepTargets) {
