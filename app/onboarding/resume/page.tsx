@@ -1,3 +1,4 @@
+import type { PoolClient } from 'pg';
 import { redirect } from 'next/navigation';
 
 import { auth } from '@/auth';
@@ -8,6 +9,9 @@ import {
   findTenantClaimsByUserId,
   slugFromIdentity,
 } from '@/lib/auth-tenant-membership';
+import { isMultiWorkspaceEnabled } from '@/backend/tenant/multi-workspace-env';
+import { assertMultiWorkspaceEntitlement } from '@/backend/tenant/entitlements';
+import { WORKSPACE_UPGRADE_PATH } from '@/backend/tenant/workspace-upgrade';
 import {
   claimOnboardingDraftMaterialization,
   updateOnboardingDraft,
@@ -52,14 +56,27 @@ async function tenantIsReusable(tenantId: string): Promise<boolean> {
   return reviews.length === 0;
 }
 
+type ResolveTenantResult =
+  | { status: 'ok'; tenantId: string }
+  // Decision 13: a free account trying to create a SECOND workspace. Nothing is
+  // created — the caller sends the user to the upgrade-required screen.
+  | { status: 'requires_pro' };
+
 async function resolveTenantForDraft(input: {
   userId: string;
   email: string;
   businessName: string;
   websiteUrl: string;
-}): Promise<string> {
+}): Promise<ResolveTenantResult> {
   const client = await pool.connect();
   try {
+    if (isMultiWorkspaceEnabled()) {
+      return await resolveTenantForDraftWithMemberships(client, input);
+    }
+
+    // Flag OFF: byte-identical to the pre-Phase-4 single-pointer behavior —
+    // reuse the current org when it looks empty (repointing the pointer + role),
+    // else create a new org and repoint.
     const currentClaims = await findTenantClaimsByUserId(client, input.userId);
     const currentTenantId = currentClaims?.tenant_id ? String(currentClaims.tenant_id) : null;
 
@@ -69,7 +86,7 @@ async function resolveTenantForDraft(input: {
         organizationId: currentTenantId,
         role: 'tenant_admin',
       });
-      return currentTenantId;
+      return { status: 'ok', tenantId: currentTenantId };
     }
 
     const created = await createOrganizationWithUniqueSlug(client, {
@@ -81,9 +98,70 @@ async function resolveTenantForDraft(input: {
       organizationId: created.id,
       role: 'tenant_admin',
     });
-    return String(created.id);
+    return { status: 'ok', tenantId: String(created.id) };
   } finally {
     client.release();
+  }
+}
+
+/**
+ * Flag-ON tenant resolution for onboarding (multi-workspace plan Decision 8a/8b
+ * + Decision 13). "Onboard a business" ALWAYS creates a NEW org + a NEW admin
+ * membership + sets it active — it NEVER reuses/repoints an existing org (8a).
+ * The `role:'tenant_admin'` force-set therefore only ever applies to the org the
+ * user just created, never an existing org they merely belong to (8b — the
+ * self-escalation hole in the legacy reuse branch is gone because the branch is
+ * gone). Because creating a workspace while the account already holds ≥1 active
+ * membership is a SECOND-workspace attach, the Decision-13 entitlement check
+ * gates it (this RSC mutates on render and is out of the Phase-3 header guard by
+ * design, so the check is explicit here). It runs INSIDE the transaction that
+ * creates the org + membership, counting active memberships FOR UPDATE, so a
+ * free account's second workspace is denied (nothing created) and the caller
+ * routes to the upgrade screen; the first workspace / a zero-membership account
+ * stays free (the helper encodes "0 active memberships OR pro").
+ */
+async function resolveTenantForDraftWithMemberships(
+  client: PoolClient,
+  input: { userId: string; email: string; businessName: string; websiteUrl: string },
+): Promise<ResolveTenantResult> {
+  await client.query('BEGIN', []);
+  try {
+    // Serialize concurrent second-workspace creates for THIS account on the user
+    // row BEFORE the entitlement count (Phase 4 review — zero-membership create
+    // TOCTOU): assertMultiWorkspaceEntitlement's FOR UPDATE locks NOTHING when
+    // the account has zero active memberships, so two simultaneous create
+    // requests from a brand-new free account could otherwise both pass as "first
+    // workspace" and mint two free workspaces. This create-path-local user-row
+    // lock (deliberately NOT in the shared helper — the Phase-2 accept path
+    // already locks the user row before the count) makes the second create block
+    // until the first commits its membership, then correctly see 1 active
+    // membership and be denied (free) / allowed (pro). Cheap: one indexed lock
+    // on the account's own row, inside the txn that was already open.
+    await client.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [Number(input.userId)]);
+
+    const entitlement = await assertMultiWorkspaceEntitlement(client, input.userId);
+    if (!entitlement.allowed) {
+      await client.query('ROLLBACK', []);
+      return { status: 'requires_pro' };
+    }
+
+    const created = await createOrganizationWithUniqueSlug(client, {
+      name: input.businessName.trim() || input.email,
+      slugBase: businessSlugBase(input),
+    });
+    // assignUserToOrganization repoints the active pointer + role mirror AND
+    // dual-writes an 'active' admin membership for the just-created org. The
+    // tenant_admin role is applied ONLY to this newly-created org.
+    await assignUserToOrganization(client, {
+      userId: input.userId,
+      organizationId: created.id,
+      role: 'tenant_admin',
+    });
+    await client.query('COMMIT', []);
+    return { status: 'ok', tenantId: String(created.id) };
+  } catch (error) {
+    await client.query('ROLLBACK', []);
+    throw error;
   }
 }
 
@@ -123,12 +201,23 @@ export default async function OnboardingResumePage(
   let variantBatchStarted = false;
 
   try {
-    const tenantId = await resolveTenantForDraft({
+    const resolved = await resolveTenantForDraft({
       userId: session.user.id,
       email: session.user.email,
       businessName: claim.draft.businessName,
       websiteUrl: claim.draft.websiteUrl,
     });
+
+    if (resolved.status === 'requires_pro') {
+      // Decision 13: a free account tried to create a second workspace. No org
+      // was created and the draft is left ready_for_auth (via the catch below is
+      // not reached — reset explicitly here) so the user can resume after
+      // upgrading. Route to the upgrade-required screen.
+      await updateOnboardingDraft(draftId, { status: 'ready_for_auth' });
+      redirect(WORKSPACE_UPGRADE_PATH);
+    }
+
+    const tenantId = resolved.tenantId;
 
     const client = await pool.connect();
     try {

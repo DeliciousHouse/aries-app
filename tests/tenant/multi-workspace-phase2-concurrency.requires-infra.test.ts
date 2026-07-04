@@ -572,34 +572,27 @@ test('concurrency: symmetric demotes (A demotes B while B demotes A) never produ
   // the second reaches its critical section, so it does NOT reliably overlap.
   // Looping warm forces genuine simultaneity every round.
   //
-  // ⚠️ FRESH-EYES FINDING — the E4 guard's FOR UPDATE is NOT what makes this
-  // race safe. Investigated exhaustively (see the harness-fix report): under
+  // GRACEFUL CONTRACT (Phase 4 hardening — the deadlock-retry fix landed). Under
   // genuine overlap the two demotes lock the users / organization_memberships
   // rows AND take FK share-locks (the `organization_membership_events` insert
   // references BOTH user_id and actor_user_id → each demote needs a share lock
   // on the OTHER admin's users row, which the other txn holds exclusive) in
-  // OPPOSING order. Postgres therefore resolves the race by DEADLOCK (40P01)
-  // and aborts one arm — EVERY round, ~100% at perfect overlap — long before
-  // either txn reaches the last-admin count. So:
-  //   • The zero-admins invariant IS preserved (the deadlock rolls one arm
-  //     back), which is why this test is green.
-  //   • But it is preserved by the DEADLOCK, not by `otherActiveAdminExists`'s
-  //     FOR UPDATE — stripping that FOR UPDATE leaves the race STILL green
-  //     (still deadlocks, still one admin), so the guard's lock canNOT be
-  //     red-proofed here. Its serialization claim is unverified by this path.
-  //   • The graceful `last_admin` 409 the guard is meant to return is
-  //     essentially UNREACHABLE under true simultaneity — a real concurrent
-  //     double-demote surfaces to the admin as a 500 they retry, not a clean
-  //     "can't remove the last admin". A bounded 40P01 retry (or a consistent
-  //     lock order) in updateTenantUserProfileWithMemberships would fix that.
-  // This test asserts the true SAFE contract (invariant + no silent
-  // double-success) and documents the deadlock, rather than asserting a
-  // graceful-status contract the implementation does not deliver. Reviewer:
-  // the last-admin guard needs a deadlock-retry / lock-ordering pass.
+  // OPPOSING order, so Postgres aborts one arm with a deadlock (40P01) before
+  // the E4 last-admin count runs. `updateTenantUserProfile` now wraps the whole
+  // membership txn in `withDeadlockRetry` (backend/tenant/txn-retry.ts): the
+  // aborted arm's connection is already rolled back + clean, so it re-runs, and
+  // on the retry it re-reads the winner's now-committed demotion under fresh
+  // FOR UPDATE locks — sees zero OTHER active admins — and returns the graceful
+  // `last_admin` 409 instead of surfacing a retriable 500. So the contract is
+  // now the crisp one:
+  //   • the zero-admins invariant holds every round (unchanged);
+  //   • exactly one arm commits 'ok', the loser resolves to 'last_admin' (the
+  //     graceful guard result) — a raw deadlock abort no longer leaks out;
+  //   • the guard's FOR UPDATE serialization is what does the work on the retry.
   const ROUNDS = 25;
   await withHarness(async (h) => {
     let sawGraceful = false;
-    let sawDeadlock = false;
+    let sawUnretriedDeadlock = false;
     for (let round = 0; round < ROUNDS; round++) {
       await h.reset();
       const org = await h.org('OrgAdmins');
@@ -633,30 +626,34 @@ test('concurrency: symmetric demotes (A demotes B while B demotes A) never produ
       );
 
       // Every arm resolves to a KNOWN safe shape — a typed status
-      // (ok / last_admin) or a safe serialization/deadlock abort — never an
-      // unhandled error.
+      // (ok / last_admin). The bounded retry catches the deadlock internally, so
+      // under normal overlap NO raw serialization abort should leak out; a leaked
+      // abort is only tolerated in the vanishingly-rare case the whole retry
+      // budget deadlocks (tracked via sawUnretriedDeadlock, asserted absent
+      // across the run below), never as an unhandled error.
       for (const r of [rAB, rBA]) {
         const known =
           (r.ok && (r.value.status === 'ok' || r.value.status === 'last_admin')) || isSerializationAbort(r);
         assert.ok(
           known,
-          `round ${round}: each demote resolves to ok/last_admin or a safe abort, never an unhandled error (got ${statusOf(r)})`,
+          `round ${round}: each demote resolves to ok/last_admin or a (retry-exhausted) safe abort, never an unhandled error (got ${statusOf(r)})`,
         );
       }
 
       const statuses = [statusOf(rAB), statusOf(rBA)].sort().join(',');
       if (statuses === ['last_admin', 'ok'].sort().join(',')) sawGraceful = true;
-      if ([rAB, rBA].some((r) => isSerializationAbort(r))) sawDeadlock = true;
+      if ([rAB, rBA].some((r) => isSerializationAbort(r))) sawUnretriedDeadlock = true;
     }
-    // Pin the finding so a future implementation change is NOTICED: the race is
-    // observed to serialize via deadlock (not graceful last_admin) under real
-    // overlap. If a deadlock-retry / lock-order fix ever lands, `sawGraceful`
-    // starts flipping true and `sawDeadlock` false — this assertion then fails
-    // LOUDLY, prompting the reviewer to update the finding + tighten the
-    // contract (that is the intended signal, not a flake).
+    // GRACEFUL CONTRACT (Phase 4 hardening): with the deadlock-retry in place the
+    // symmetric demote now serializes to a clean last_admin/ok split — the loser
+    // gets the graceful `last_admin` 409, not a retriable 500. We require that
+    // graceful outcome to be OBSERVED (sawGraceful) and that NO raw deadlock
+    // leaks past the bounded retry (sawUnretriedDeadlock stays false) across all
+    // rounds. If this ever regresses (retry removed / lock order broken), one of
+    // these flips and the assertion fails LOUDLY.
     assert.ok(
-      sawDeadlock && !sawGraceful,
-      `documented finding drift: expected the symmetric demote to serialize via deadlock (never graceful last_admin) under overlap — sawDeadlock=${sawDeadlock} sawGraceful=${sawGraceful}. If a deadlock-retry/lock-order fix landed, update this test + the finding.`,
+      sawGraceful && !sawUnretriedDeadlock,
+      `expected the symmetric demote to resolve gracefully (last_admin/ok) with NO deadlock leaking past the bounded retry — sawGraceful=${sawGraceful} sawUnretriedDeadlock=${sawUnretriedDeadlock}.`,
     );
   });
 });
@@ -769,12 +766,11 @@ test('concurrency: accept-vs-revoke — a join accepted as the admin removes the
     // The accept and the revoke lock the users / organization_memberships /
     // workspace_invitations rows in OPPOSING order, so genuine overlap resolves
     // one of three coherent, VISIBLE ways — never a silent 0-row success and
-    // never a torn half-join. FRESH-EYES FINDING (filed with this suite): the
-    // dominant outcome under perfect overlap is (c) — the accept DEADLOCK-aborts
-    // (40P01, ~28/30) rather than reaching a graceful not_join, so a real
-    // simultaneous accept-vs-revoke surfaces to the invitee as a 500 they retry,
-    // not a clean "this invite is no longer valid". Safe, but a bounded 40P01
-    // retry in acceptJoinInvitation would make it graceful. Three legal shapes:
+    // never a torn half-join. Phase 4 hardening: acceptJoinInvitation now wraps
+    // its txn in withDeadlockRetry, so a deadlock-aborted accept re-runs and
+    // re-reads committed state — the graceful (b) not_join outcome is now the
+    // expected resolution rather than a leaked 40P01 500; (c) remains a legal
+    // fallback only if the whole retry budget deadlocks. Three legal shapes:
     //
     //  (a) accept='ok' (accept committed first) → the revoke then removed the
     //      now-active membership → removed-while-active convergence (CEO
