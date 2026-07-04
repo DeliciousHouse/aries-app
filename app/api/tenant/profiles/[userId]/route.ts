@@ -1,6 +1,7 @@
 import pool from '@/lib/db';
 import { getTenantContext } from '@/lib/tenant-context';
 import { workspaceMismatchResponse } from '@/lib/tenant-context-http';
+import { isMultiWorkspaceEnabled } from '@/backend/tenant/multi-workspace-env';
 import { deleteTenantUserProfile, getTenantUserProfileById, updateTenantUserProfile } from '@/backend/tenant/user-profiles';
 
 function json(body: unknown, status = 200) {
@@ -120,7 +121,17 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ user
     return json({ error: 'Authentication required.' }, 403);
   }
 
-  if (tenantContext.role !== 'tenant_admin') {
+  // E6 self-service leave (multi-workspace Phase 3, flag ON): a member may
+  // remove THEMSELVES from a workspace regardless of role (leaving = deleting
+  // your own membership row; the flag-ON delete path is membership-only and
+  // repoints your active pointer in the same txn). The last-admin guard inside
+  // deleteTenantUserProfile still blocks a sole admin from orphaning the
+  // workspace. Admin-removing-someone-else stays admin-gated, and flag OFF this
+  // is byte-identical (self-leave not offered; the OFF delete path is the
+  // legacy account-level DELETE, never reached for self here).
+  const isSelfLeave =
+    isMultiWorkspaceEnabled() && String(userId) === String(tenantContext.userId);
+  if (!isSelfLeave && tenantContext.role !== 'tenant_admin') {
     return json({ error: 'forbidden' }, 403);
   }
 
