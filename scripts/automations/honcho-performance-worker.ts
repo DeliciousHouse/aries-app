@@ -153,7 +153,11 @@ export async function runTick(
           const tenantCtx = {
             tenantId: tenantIdStr,
             tenantSlug: doc.tenant_id ? `tenant-${tenantIdStr}` : 'tenant-unknown',
-            userId: tenantIdStr,
+            // SYNTHETIC context: never the tenantId-as-userId (a user N in
+            // tenant N would collide in pseudonymForUser under
+            // multi-workspace; plan Taste/Honcho verification hardening).
+            // recordPerformanceEvent never reads ctx.userId.
+            userId: 'system',
             role: 'tenant_admin' as TenantRole,
           };
           // published_at_ymd is YYYY-MM-DD from the builder; recordPerformanceEvent
