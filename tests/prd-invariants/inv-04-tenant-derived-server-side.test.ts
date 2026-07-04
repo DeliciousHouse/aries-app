@@ -35,6 +35,14 @@ const ALLOWLIST = new Set<string>([
   // (INTERNAL_API_SECRET); the only legitimate caller is the trusted server-side
   // weekly-job-trigger worker, and the secret-bearer is the tenant authority.
   'app/api/internal/marketing/weekly-trigger/route.ts',
+  // Workspace switch (multi-workspace plan Phase 3).  The body-supplied
+  // organizationId is the SWITCH TARGET, not the acting tenant: the request
+  // acts as the session user, and switchActiveWorkspace validates the target
+  // against the caller's own organization_memberships (status='active') inside
+  // its transaction — a non-member gets 403, so the client cannot decide tenant
+  // access.  This is resource selection by id (validated server-side), not
+  // tenant derivation from client input.  Endpoint 404s flag-OFF.
+  'app/api/tenant/workspace/switch/route.ts',
 ]);
 
 test('no app/api route reads tenant id directly from the request body', () => {

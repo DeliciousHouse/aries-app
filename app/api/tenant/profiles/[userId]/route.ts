@@ -1,5 +1,6 @@
 import pool from '@/lib/db';
 import { getTenantContext } from '@/lib/tenant-context';
+import { workspaceMismatchResponse } from '@/lib/tenant-context-http';
 import { deleteTenantUserProfile, getTenantUserProfileById, updateTenantUserProfile } from '@/backend/tenant/user-profiles';
 
 function json(body: unknown, status = 200) {
@@ -48,6 +49,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ userId
   try {
     tenantContext = await getTenantContext();
   } catch (error) {
+    const mismatch = workspaceMismatchResponse(error);
+    if (mismatch) return mismatch;
     return json({ error: 'Authentication required.' }, 403);
   }
 
@@ -112,6 +115,8 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ user
   try {
     tenantContext = await getTenantContext();
   } catch (error) {
+    const mismatch = workspaceMismatchResponse(error);
+    if (mismatch) return mismatch;
     return json({ error: 'Authentication required.' }, 403);
   }
 

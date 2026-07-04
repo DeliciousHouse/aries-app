@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { oauthRefresh } from '@/backend/integrations/refresh';
 import { getTenantContext } from '@/lib/tenant-context';
+import { workspaceMismatchResponse } from '@/lib/tenant-context-http';
 
 // PRD §20 invariant 4: tenant IDs are derived server-side; clients and
 // callbacks do not decide tenant access. Prior to this gate the route
@@ -21,7 +22,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
   let tenantContext;
   try {
     tenantContext = await getTenantContext();
-  } catch {
+  } catch (error) {
+    const mismatch = workspaceMismatchResponse(error);
+    if (mismatch) return mismatch;
     return NextResponse.json({ error: 'Authentication required.' }, { status: 403 });
   }
 
