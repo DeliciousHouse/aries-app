@@ -51,16 +51,20 @@ export function feedbackLabels(record: FeedbackSubmissionRecord): string[] {
 }
 
 /**
- * Feedback severity → JIRA priority NAME, using the priorities that actually
- * exist on the AA project's create screen (Highest/High/Medium/Low/Lowest).
- * Before this, the sink sent no priority, so every feedback issue took JIRA's
- * project default ("Medium") regardless of the classified severity.
+ * Feedback severity → JIRA priority NAME. Live createmeta check (2026-07-04):
+ * on project AA the Task/Sub-task/Epic create screens carry the priority field
+ * (Highest/High/Medium/Low/Lowest all exist), but the Bug and Story screens do
+ * NOT — a create that sends `priority` for those issue types is rejected with
+ * an HTTP 400 naming the field. Before this map, the sink sent no priority, so
+ * every feedback issue took JIRA's project default ("Medium") regardless of
+ * the classified severity.
  *
- * The names MUST match the project's priority scheme exactly — a name the
- * scheme lacks makes `POST /rest/api/3/issue` reject the `priority` field and
- * fail the whole create — so the lookup is fail-open: an unmapped severity
- * yields null and the field is omitted (JIRA then applies its own default),
- * which keeps issue creation from ever breaking on a priority mismatch.
+ * Two layers keep issue creation from ever breaking on priority:
+ *  - an unmapped severity yields null and the field is omitted; and
+ *  - a create rejected over the priority field is retried once without it and
+ *    the rejection memoized (see syncFeedbackToJira), mirroring
+ *    backend/feedback/report-sync.ts — a screen/scheme change can only ever
+ *    cost the priority, never the ticket.
  */
 const SEVERITY_TO_PRIORITY: Record<FeedbackSeverity, string> = {
   Blocker: 'Highest',
@@ -72,6 +76,19 @@ const SEVERITY_TO_PRIORITY: Record<FeedbackSeverity, string> = {
 /** The JIRA priority name for a submission's severity, or null when unmapped. */
 export function feedbackPriorityName(record: FeedbackSubmissionRecord): string | null {
   return SEVERITY_TO_PRIORITY[record.severity] ?? null;
+}
+
+/**
+ * Memo: the target project rejected the `priority` field (not on its create
+ * screen). Later creates skip the field up front instead of re-paying a doomed
+ * first attempt on every submission. Process-wide, matching the equivalent
+ * memo in backend/feedback/report-sync.ts.
+ */
+let priorityFieldUnsupported = false;
+
+/** Test seam: forget a memoized priority-field rejection. */
+export function resetPriorityFieldSupportForTests(): void {
+  priorityFieldUnsupported = false;
 }
 
 /** One-line, length-bounded issue summary: "[Feedback] <Category> — <comment>". */
@@ -156,8 +173,9 @@ export function buildJiraIssueFields(
   config: FeedbackJiraConfig,
   record: FeedbackSubmissionRecord,
   screenshotLink: string | null,
+  withPriority = true,
 ): Record<string, unknown> {
-  const priorityName = feedbackPriorityName(record);
+  const priorityName = withPriority ? feedbackPriorityName(record) : null;
   return {
     project: { key: config.projectKey },
     issuetype: { name: config.issueType },
@@ -179,21 +197,18 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/**
- * Create one JIRA issue for a submission. Optionally accepts a fetch impl (tests
- * inject a fake). Returns a uniform FeedbackSyncResult; never throws. The token
- * is never placed in the returned error.
- */
-export async function syncFeedbackToJira(
+type JiraCreateAttempt =
+  | { ok: true; issueKey: string | null }
+  | { ok: false; status: number | null; error: string; detail: string };
+
+/** One POST /rest/api/3/issue attempt with its own timeout; never throws. */
+async function attemptJiraCreate(
   record: FeedbackSubmissionRecord,
   config: FeedbackJiraConfig,
-  appBaseUrl: string | null,
-  fetchImpl: typeof fetch = fetch,
-): Promise<FeedbackSyncResult> {
-  const screenshotLink = record.screenshot
-    ? appServedScreenshotLink({ appBaseUrl }, record.submissionId)
-    : null;
-
+  screenshotLink: string | null,
+  withPriority: boolean,
+  fetchImpl: typeof fetch,
+): Promise<JiraCreateAttempt> {
   const url = `${config.baseUrl}/rest/api/3/issue`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), JIRA_TIMEOUT_MS);
@@ -205,7 +220,9 @@ export async function syncFeedbackToJira(
         'Content-Type': 'application/json',
         Accept: 'application/json',
       },
-      body: JSON.stringify({ fields: buildJiraIssueFields(config, record, screenshotLink) }),
+      body: JSON.stringify({
+        fields: buildJiraIssueFields(config, record, screenshotLink, withPriority),
+      }),
       signal: controller.signal,
     });
 
@@ -225,32 +242,62 @@ export async function syncFeedbackToJira(
         detail = '';
       }
       return {
-        status: 'failed',
-        screenshotLink,
+        ok: false,
+        status: response.status,
         error: `jira create failed (HTTP ${response.status})${detail ? `: ${detail}` : ''}`,
-        destination: 'jira',
-        issueKey: null,
+        detail,
       };
     }
 
     const created = (await response.json().catch(() => ({}))) as { key?: string };
-    return {
-      status: 'synced',
-      screenshotLink,
-      error: null,
-      destination: 'jira',
-      issueKey: typeof created.key === 'string' ? created.key : null,
-    };
+    return { ok: true, issueKey: typeof created.key === 'string' ? created.key : null };
   } catch (error) {
     const aborted = error instanceof Error && error.name === 'AbortError';
     return {
-      status: 'failed',
-      screenshotLink,
+      ok: false,
+      status: null,
       error: aborted ? `jira create timed out after ${JIRA_TIMEOUT_MS}ms` : errorText(error),
-      destination: 'jira',
-      issueKey: null,
+      detail: '',
     };
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** True when JIRA rejected the create over the priority field itself. */
+function isPriorityFieldRejection(attempt: JiraCreateAttempt): boolean {
+  return !attempt.ok && attempt.status === 400 && /priorit/i.test(attempt.detail);
+}
+
+/**
+ * Create one JIRA issue for a submission. Optionally accepts a fetch impl (tests
+ * inject a fake). Returns a uniform FeedbackSyncResult; never throws. The token
+ * is never placed in the returned error.
+ *
+ * Priority degrade: when the target create screen rejects the `priority` field
+ * (HTTP 400 naming it — AA's Bug/Story screens do this today), the create is
+ * retried once without the field and the rejection memoized, so a screen or
+ * scheme change can only ever cost the priority, never the ticket.
+ */
+export async function syncFeedbackToJira(
+  record: FeedbackSubmissionRecord,
+  config: FeedbackJiraConfig,
+  appBaseUrl: string | null,
+  fetchImpl: typeof fetch = fetch,
+): Promise<FeedbackSyncResult> {
+  const screenshotLink = record.screenshot
+    ? appServedScreenshotLink({ appBaseUrl }, record.submissionId)
+    : null;
+
+  const withPriority = !priorityFieldUnsupported;
+  let attempt = await attemptJiraCreate(record, config, screenshotLink, withPriority, fetchImpl);
+  if (withPriority && isPriorityFieldRejection(attempt)) {
+    priorityFieldUnsupported = true;
+    attempt = await attemptJiraCreate(record, config, screenshotLink, false, fetchImpl);
+  }
+
+  if (!attempt.ok) {
+    return { status: 'failed', screenshotLink, error: attempt.error, destination: 'jira', issueKey: null };
+  }
+  return { status: 'synced', screenshotLink, error: null, destination: 'jira', issueKey: attempt.issueKey };
 }

@@ -7,6 +7,7 @@ import {
   buildJiraSummary,
   feedbackLabels,
   feedbackPriorityName,
+  resetPriorityFieldSupportForTests,
   syncFeedbackToJira,
   toLabel,
 } from '@/lib/feedback/jira-sink';
@@ -200,6 +201,58 @@ test('syncFeedbackToJira reports failure on non-2xx WITHOUT leaking the token', 
   assert.match(result.error ?? '', /HTTP 400/);
   assert.match(result.error ?? '', /summary: Field required/);
   assert.ok(!(result.error ?? '').includes(TOKEN), 'error must not contain the token');
+});
+
+test('priority degrade: a 400 priority-field rejection retries once without priority and memoizes', async (t) => {
+  // The real prod scenario: AA's Bug/Story create screens lack the priority
+  // field (live createmeta, 2026-07-04) — the ticket must survive anyway.
+  resetPriorityFieldSupportForTests();
+  t.after(() => resetPriorityFieldSupportForTests());
+
+  const { fn, calls } = fakeFetch((_url, init) => {
+    const sent = JSON.parse(String(init.body));
+    if (sent.fields.priority) {
+      return {
+        ok: false,
+        status: 400,
+        body: {
+          errors: {
+            priority: "Field 'priority' cannot be set. It is not on the appropriate screen, or unknown.",
+          },
+        },
+      };
+    }
+    return { ok: true, status: 201, body: { key: 'AA-77' } };
+  });
+
+  const result = await syncFeedbackToJira(record(), jiraConfig({ issueType: 'Bug' }), null, fn);
+  assert.equal(result.status, 'synced');
+  assert.equal(result.issueKey, 'AA-77');
+  assert.equal(calls.length, 2, 'one rejected attempt, one degraded retry');
+  const first = JSON.parse(String(calls[0].init.body));
+  const second = JSON.parse(String(calls[1].init.body));
+  assert.equal(first.fields.priority.name, 'High');
+  assert.equal('priority' in second.fields, false, 'retry must omit priority');
+
+  // The rejection is memoized: the next sync skips priority up front.
+  const next = await syncFeedbackToJira(record(), jiraConfig({ issueType: 'Bug' }), null, fn);
+  assert.equal(next.status, 'synced');
+  assert.equal(calls.length, 3, 'memoized: no doomed first attempt');
+  assert.equal('priority' in JSON.parse(String(calls[2].init.body)).fields, false);
+});
+
+test('priority degrade: a NON-priority 400 fails without a retry', async (t) => {
+  resetPriorityFieldSupportForTests();
+  t.after(() => resetPriorityFieldSupportForTests());
+
+  const { fn, calls } = fakeFetch(() => ({
+    ok: false,
+    status: 400,
+    body: { errors: { summary: 'Field required' } },
+  }));
+  const result = await syncFeedbackToJira(record(), jiraConfig(), null, fn);
+  assert.equal(result.status, 'failed');
+  assert.equal(calls.length, 1, 'no blind retry on unrelated 400s');
 });
 
 // ── dispatcher precedence ───────────────────────────────────────────────────

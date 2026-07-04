@@ -148,6 +148,8 @@ function resolveJira(env: NodeJS.ProcessEnv): FeedbackJiraConfig | null {
     // Project AA (Aries AI) is team-managed with Task/Bug/Story/Epic/Sub-task;
     // "Task" is the safe default. Override per-deploy (e.g. "Bug") via
     // JIRA_FEEDBACK_ISSUE_TYPE — the name must exist on the target project.
+    // AA's Bug/Story create screens lack the priority field; the sink degrades
+    // by retrying without priority on rejection, so any type here is safe.
     issueType: str(env.JIRA_FEEDBACK_ISSUE_TYPE) ?? 'Task',
   };
 }
