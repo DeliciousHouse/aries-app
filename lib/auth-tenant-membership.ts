@@ -1,5 +1,6 @@
 import type { PoolClient } from "pg";
 
+import { isMultiWorkspaceEnabled } from "@/backend/tenant/multi-workspace-env";
 import type { TenantRole } from "@/lib/tenant-context";
 
 export type TenantClaimsRow = {
@@ -8,6 +9,12 @@ export type TenantClaimsRow = {
   tenant_id?: string | number | null;
   tenant_slug?: string | null;
   role?: string | null;
+  /**
+   * Count of the user's ACTIVE organization memberships. Present ONLY when the
+   * row was resolved through the multi-workspace membership join (flag ON) —
+   * it rides the same single query (plan eng finding 13, no second aggregate).
+   */
+  workspace_count?: number | null;
 };
 
 export const LOCAL_DEV_DEFAULT_TENANT_ROLE: TenantRole = "tenant_admin";
@@ -269,12 +276,26 @@ export async function ensureOrganizationForUser(
   return orgId;
 }
 
-export async function findTenantClaimsByUserId(
-  client: QueryClient,
-  userId: number | string,
-): Promise<TenantClaimsRow | null> {
-  const result = await client.query(
-    `
+/**
+ * Lookup key for the ONE consolidated membership-claims helper. The same
+ * users ⋈ organizations join used to be triplicated across
+ * findTenantClaimsByUserId / findTenantClaimsByEmail (this module) and
+ * loadTenantContextForUser (lib/tenant-context.ts); Phase 1 of the
+ * multi-workspace plan consolidates all three onto resolveTenantClaimsRow so
+ * the membership join exists in exactly one place (plan eng findings 5 + 14).
+ */
+export type TenantClaimsLookup =
+  | { by: 'userId'; userId: number | string }
+  | { by: 'email'; email: string };
+
+/**
+ * The legacy (single-pointer) claims query. The generated SQL is pinned
+ * byte-for-byte by tests/auth/tenant-resolution-flag-off-golden.test.ts —
+ * do not reformat: with ARIES_MULTI_WORKSPACE_ENABLED off this must stay
+ * byte-identical to the pre-Phase-1 queries.
+ */
+function legacyClaimsSql(whereClause: string): string {
+  return `
       SELECT
         u.id AS user_id,
         u.organization_id,
@@ -286,11 +307,163 @@ export async function findTenantClaimsByUserId(
         u.role
       FROM users u
       LEFT JOIN organizations o ON o.id = u.organization_id
-      WHERE u.id = $1
+      ${whereClause}
       LIMIT 1
-    `,
-    [Number(userId)],
-  );
+    `;
+}
+
+function claimsLookupPredicate(lookup: TenantClaimsLookup): { whereClause: string; params: unknown[] } {
+  return lookup.by === 'userId'
+    ? { whereClause: 'WHERE u.id = $1', params: [Number(lookup.userId)] }
+    : { whereClause: 'WHERE LOWER(u.email) = LOWER($1)', params: [lookup.email] };
+}
+
+/**
+ * The flag-ON claims query (multi-workspace Phase 1): ONE indexed join
+ * users ⋈ organization_memberships ⋈ organizations (CEO hardening 4 — hot path
+ * on every authenticated request). The pointer is only honored when an ACTIVE
+ * membership backs it, role comes from the MEMBERSHIP row (Decision 3), and
+ * workspace_count (active memberships) rides the same statement via an indexed
+ * scalar subquery — no second aggregate round-trip (eng finding 13).
+ */
+function membershipClaimsSql(whereClause: string): string {
+  return `
+      SELECT
+        u.id AS user_id,
+        u.organization_id AS pointer_organization_id,
+        u.role AS pointer_role,
+        o.id AS org_id,
+        CASE
+          WHEN o.id IS NULL THEN NULL
+          ELSE COALESCE(NULLIF(o.slug, ''), 'org-' || o.id::text)
+        END AS org_slug,
+        m.role AS membership_role,
+        m.status AS membership_status,
+        (
+          SELECT COUNT(*)::int
+          FROM organization_memberships am
+          WHERE am.user_id = u.id AND am.status = 'active'
+        ) AS workspace_count
+      FROM users u
+      LEFT JOIN organizations o ON o.id = u.organization_id
+      LEFT JOIN organization_memberships m
+        ON m.user_id = u.id AND m.organization_id = u.organization_id
+      ${whereClause}
+      LIMIT 1
+    `;
+}
+
+type MembershipClaimsRawRow = {
+  user_id: string | number;
+  pointer_organization_id: string | number | null;
+  pointer_role: string | null;
+  org_id: string | number | null;
+  org_slug: string | null;
+  membership_role: string | null;
+  membership_status: string | null;
+  workspace_count: number | string | null;
+};
+
+/**
+ * Resolver self-heal (plan eng finding 1b): a pointer to an EXISTING org with
+ * NO membership row at all gets one 'active' membership derived from the
+ * pointer + users.role — trusting the pointer once is exactly today's trust
+ * model, and it converges dark-period drift (users provisioned before the
+ * dual-write, or with live 30-day JWTs that never re-enter sign-in).
+ * ON CONFLICT DO NOTHING so a concurrent insert (or a racing invite that
+ * created an 'invited' row) is never overwritten — self-heal must NEVER flip
+ * an 'invited' membership to 'active'.
+ */
+const SELF_HEAL_MEMBERSHIP_INSERT_SQL = `
+      INSERT INTO organization_memberships
+        (user_id, organization_id, role, status, accepted_at, last_active_at, created_at, updated_at)
+      VALUES ($1, $2, $3, 'active', now(), now(), now(), now())
+      ON CONFLICT (user_id, organization_id) DO NOTHING
+    `;
+
+function zeroMembershipClaims(raw: MembershipClaimsRawRow, workspaceCount: number): TenantClaimsRow {
+  return {
+    user_id: raw.user_id,
+    organization_id: null,
+    tenant_id: null,
+    tenant_slug: null,
+    role: null,
+    workspace_count: workspaceCount,
+  };
+}
+
+async function resolveMembershipClaimsRow(
+  client: QueryClient,
+  lookup: TenantClaimsLookup,
+  allowSelfHeal: boolean,
+): Promise<TenantClaimsRow | null> {
+  const { whereClause, params } = claimsLookupPredicate(lookup);
+  const result = await client.query(membershipClaimsSql(whereClause), params);
+
+  if ((result.rowCount ?? 0) === 0 || result.rows.length === 0) {
+    return null;
+  }
+
+  const raw = result.rows[0] as MembershipClaimsRawRow;
+  const workspaceCount = Number(raw.workspace_count ?? 0);
+  const pointerOrgExists = raw.org_id !== null && raw.org_id !== undefined;
+
+  if (pointerOrgExists && raw.membership_status === "active") {
+    return {
+      user_id: raw.user_id,
+      organization_id: raw.pointer_organization_id,
+      tenant_id: raw.org_id,
+      tenant_slug: raw.org_slug,
+      role: raw.membership_role,
+      workspace_count: workspaceCount,
+    };
+  }
+
+  if (
+    allowSelfHeal &&
+    pointerOrgExists &&
+    (raw.membership_status === null || raw.membership_status === undefined) &&
+    isTenantRole(raw.pointer_role)
+  ) {
+    await client.query(SELF_HEAL_MEMBERSHIP_INSERT_SQL, [
+      Number(raw.user_id),
+      Number(raw.org_id),
+      raw.pointer_role,
+    ]);
+    console.warn("[tenant-claims] self-healed missing membership row from active pointer", {
+      userId: String(raw.user_id),
+      organizationId: String(raw.org_id),
+      role: raw.pointer_role,
+    });
+    // Re-resolve once (self-heal is the rare path; the hot path stays one
+    // query). A lost ON CONFLICT race resolves whatever row won — never loops.
+    return resolveMembershipClaimsRow(client, lookup, false);
+  }
+
+  // Pointer NULL, pointer → deleted org, or pointer → org without an ACTIVE
+  // membership ('invited' included): resolves like NULL (plan Phase 1). The
+  // caller distinguishes the typed zero-membership state via workspace_count.
+  return zeroMembershipClaims(raw, workspaceCount);
+}
+
+/**
+ * THE membership-claims helper — every tenant claims/context resolution path
+ * (jwt hydrate, sign-in guard, getTenantContext) flows through here.
+ *
+ * Flag OFF (default): today's single-pointer query, byte-identical (golden-
+ * tested). Flag ON: membership-validated single-query resolution + self-heal.
+ */
+export async function resolveTenantClaimsRow(
+  client: QueryClient,
+  lookup: TenantClaimsLookup,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<TenantClaimsRow | null> {
+  if (isMultiWorkspaceEnabled(env)) {
+    return resolveMembershipClaimsRow(client, lookup, true);
+  }
+
+  const { whereClause, params } = claimsLookupPredicate(lookup);
+  const result = await client.query(legacyClaimsSql(whereClause), params);
 
   if ((result.rowCount ?? 0) === 0 || result.rows.length === 0) {
     return null;
@@ -299,34 +472,90 @@ export async function findTenantClaimsByUserId(
   return result.rows[0] as TenantClaimsRow;
 }
 
+export async function findTenantClaimsByUserId(
+  client: QueryClient,
+  userId: number | string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<TenantClaimsRow | null> {
+  return resolveTenantClaimsRow(client, { by: 'userId', userId }, env);
+}
+
 export async function findTenantClaimsByEmail(
   client: QueryClient,
   email: string,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<TenantClaimsRow | null> {
-  const result = await client.query(
-    `
-      SELECT
-        u.id AS user_id,
-        u.organization_id,
-        o.id AS tenant_id,
-        CASE
-          WHEN o.id IS NULL THEN NULL
-          ELSE COALESCE(NULLIF(o.slug, ''), 'org-' || o.id::text)
-        END AS tenant_slug,
-        u.role
-      FROM users u
-      LEFT JOIN organizations o ON o.id = u.organization_id
-      WHERE LOWER(u.email) = LOWER($1)
-      LIMIT 1
-    `,
-    [email],
-  );
+  return resolveTenantClaimsRow(client, { by: 'email', email }, env);
+}
 
-  if ((result.rowCount ?? 0) === 0 || result.rows.length === 0) {
-    return null;
+/**
+ * Deterministic default workspace (plan Decision 7 / E1): the most recently
+ * used active membership (last_active_at DESC), falling back to the oldest
+ * membership; organization_id is the stable final tiebreak.
+ */
+const DEFAULT_ACTIVE_MEMBERSHIP_SQL = `
+      SELECT organization_id, role
+      FROM organization_memberships
+      WHERE user_id = $1 AND status = 'active'
+      ORDER BY last_active_at DESC NULLS LAST, created_at ASC, organization_id ASC
+      LIMIT 1
+    `;
+
+/**
+ * Flag-ON sign-in guard (Decision 7): validate the pointer against an active
+ * membership (self-healing a missing row from the pointer, eng finding 1b);
+ * repoint a NULL/invalid pointer to the deterministic default when the user
+ * has N≥1 active memberships; and — the load-bearing change — mint NOTHING
+ * for a zero-membership account. Resolution then surfaces the typed
+ * zero-membership state and the workspace chooser owns the UX.
+ */
+async function ensureTenantAccessForUserWithMemberships(
+  client: QueryClient,
+  input: { userId: number | string },
+  env: NodeJS.ProcessEnv,
+): Promise<void> {
+  const userId = Number(input.userId);
+
+  const claims = await resolveTenantClaimsRow(client, { by: "userId", userId }, env);
+  if (claims && missingTenantClaims(claims).length === 0) {
+    // Pointer backed by an active membership (possibly just self-healed).
+    return;
   }
 
-  return result.rows[0] as TenantClaimsRow;
+  const workspaceCount = Number(claims?.workspace_count ?? 0);
+  if (!claims || workspaceCount < 1) {
+    // ZERO active memberships: no personal org is minted (Decision 7 kills the
+    // orphan-workspace class at the source). Sign-in proceeds claims-less; the
+    // post-login journey / onboarding gate route to the chooser.
+    return;
+  }
+
+  const result = await client.query(DEFAULT_ACTIVE_MEMBERSHIP_SQL, [userId]);
+  const target = result.rows[0] as { organization_id: string | number; role: string } | undefined;
+  if (!target) {
+    return;
+  }
+
+  // Pointer and legacy users.role mirror move together in ONE atomic statement
+  // (CEO hardening 3 — no skew window where org-B tenantId carries org-A role).
+  await client.query("UPDATE users SET organization_id = $1, role = $2 WHERE id = $3", [
+    Number(target.organization_id),
+    target.role,
+    userId,
+  ]);
+  // last_active_at is written on sign-in resolution and switch ONLY — never
+  // per-request (Decision 1 / E1 write-amplification rule).
+  await client.query(
+    `UPDATE organization_memberships
+        SET last_active_at = now(), updated_at = now()
+      WHERE user_id = $1 AND organization_id = $2`,
+    [userId, Number(target.organization_id)],
+  );
+  console.warn("[tenant-access] repointed invalid active-workspace pointer to deterministic default", {
+    userId: String(userId),
+    organizationId: String(target.organization_id),
+    role: target.role,
+  });
 }
 
 export async function ensureTenantAccessForUser(
@@ -340,6 +569,11 @@ export async function ensureTenantAccessForUser(
   },
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
+  if (isMultiWorkspaceEnabled(env)) {
+    await ensureTenantAccessForUserWithMemberships(client, input, env);
+    return;
+  }
+
   const userId = Number(input.userId);
 
   if (!input.organizationId) {

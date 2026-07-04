@@ -165,6 +165,15 @@ services:
       # OFF (default) the edit route 404s (invisible) and the UI section is hidden.
       # All route handlers run in this container, so only aries-app needs it.
       ARIES_IMAGE_EDIT_ENABLED: ${ARIES_IMAGE_EDIT_ENABLED:-0}
+      # Multi-workspace membership-aware auth resolution (Phase 1). When ON, the
+      # active-workspace pointer is validated against an ACTIVE
+      # organization_memberships row (role from the membership; workspaceCount on
+      # the session), sign-in stops minting personal orgs for zero-membership
+      # accounts (chooser instead), and the jwt hydrate clears stale tenant
+      # claims. Default OFF: resolution is byte-identical to the single-pointer
+      # model (golden-tested). Leave OFF until the full program's rendered-UI
+      # verification; all route handlers run in this container.
+      ARIES_MULTI_WORKSPACE_ENABLED: ${ARIES_MULTI_WORKSPACE_ENABLED:-0}
       # 2026-05-23: flipped ON per TODOS rollout. Narrow first-name-denylist
       # heuristic replaces the legacy /[A-Z][a-z]+\s+[A-Z][a-z]+/ regex in
       # backend/memory/write-events.ts::scrubPreferenceLabelForHoncho. Effect:

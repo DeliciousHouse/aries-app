@@ -2,6 +2,75 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.25.0 — feat(tenant): multi-workspace phase 1 — membership-aware resolution (flag-gated, default OFF)
+
+Phase 1 of the multi-workspace membership program
+(docs/plans/2026-07-03-multi-workspace-membership.md). Forks the auth
+resolution path behind `ARIES_MULTI_WORKSPACE_ENABLED` (default OFF — ships
+dark; flag OFF is byte-identical to the single-pointer model, pinned by a
+16-test golden suite captured against the pre-refactor code).
+
+- Claims consolidation (eng findings 5/14, Phase-1 precondition): the
+  triplicated users ⋈ organizations claims query (`findTenantClaimsByUserId`,
+  `findTenantClaimsByEmail`, `loadTenantContextForUser`) now delegates to ONE
+  helper — `resolveTenantClaimsRow` in `lib/auth-tenant-membership.ts` — so the
+  membership join exists in exactly one place. Structural guard updated to its
+  Phase-1 form.
+- Flag ON resolution (Decisions 2/3, CEO hardening 4): ONE indexed query
+  users ⋈ organization_memberships ⋈ organizations. The active-workspace
+  pointer is honored ONLY when an ACTIVE membership backs it; the role comes
+  from the MEMBERSHIP row (`users.role` becomes a legacy mirror — Risk 2
+  cross-org escalation designed away); `workspace_count` rides the same
+  statement via an indexed scalar subquery (no second aggregate — eng
+  finding 13, `auth()` runs several times per render).
+- Resolver self-heal (eng finding 1b): a pointer to an existing org with NO
+  membership row inserts one `active` membership derived from pointer +
+  `users.role` (valid tenant role required), `ON CONFLICT DO NOTHING` — never
+  flips an `invited` row, never runs flag OFF, converges dark-period drift.
+- Typed zero-membership state (Decision 7 / eng finding 9): resolves-like-NULL
+  rows surface `TenantContextError('tenant_membership_missing')` → 403 with
+  that reason on API routes via the existing mapping; `tenant_claims_incomplete`
+  stays reserved for corrupt rows. `resolveTenantContextForSession` rethrows
+  TenantContextError — stale session claims can never mask the state (the
+  claims fallback remains for TRANSIENT DB errors only, both flag states).
+- `ensureTenantAccessForUser` split (Decision 7): flag OFF byte-identical
+  auto-provision; flag ON repoints a NULL/invalid pointer to the deterministic
+  default (`last_active_at` DESC, else oldest) updating pointer + role mirror
+  in one atomic statement (CEO hardening 3), and mints NOTHING at zero
+  memberships — the orphan-workspace incident class dies at the source.
+- jwt hydrate CLEARS stale tenant claims when membership resolution returns
+  none (eng finding 8 — no ghost claims feeding the DB-outage fallback) and
+  stamps `workspaceCount` from the same row; session exposes `workspaceCount`
+  (`types/next-auth.d.ts` augment) so the shell can gate a switcher without an
+  extra fetch.
+- Zero-membership chooser (`/workspace/choose`, OUTSIDE the gated dashboard
+  layout): invite-aware — pending `status='invited'` memberships render an
+  "Accept invite" primary action (re-issues the caller's OWN invitation via the
+  session-guarded resend path; tokens are stored hashed so the chooser cannot
+  link the emailed token); an invite-less account gets "Create a workspace" +
+  the waiting-for-an-invite explainer. `enforceOnboardingGate` and the
+  post-login journey route the zero-membership state here (flag ON), so the
+  org-minting onboarding resume page can never resurrect auto-provisioning.
+  KNOWN Phase-1 limitation (pinned by test): the chooser Accept is a safe
+  dead-end for a cross-org zero-membership invitee until Phase 2 re-scopes the
+  resend gate to `membership.status` — it never mints a token it shouldn't.
+- `users.role` lint gate (Risk 2 / eng finding 10, active Phase 1 onward):
+  structural tripwire over runtime SQL touching the users table's role column;
+  fails on any file outside the seeded 5-file allowlist AND when an allowlisted
+  site stops matching (Phase 2/5 conversions must shrink it).
+- QA sandbox (CEO hardening 10): `assertQaScoped` + `mint-qa-session.ts` resolve
+  through the membership join with an EXACTLY-ONE-active-membership guard — the
+  passwordless QA bot can never resolve or switch into a real tenant.
+- Taste/Honcho hardening (plan verification section): synthetic performance
+  contexts pass `userId:'system'` instead of tenantId-as-userId (pseudonym
+  domain-separation pinned by test); system actors bypass membership checks by
+  construction (Decision 10).
+- Benchmark (guardrail #1, eng finding 13): flag ON vs OFF on the full
+  endpoint — p50 +~1.3ms on a ~13ms authenticated endpoint, p99 within noise;
+  query-level A/B (500 samples + EXPLAIN ANALYZE) confirms the single-join
+  plan. No new pool fan-out (one statement replaces one statement).
+
+
 ## v0.1.24.0 — feat(tenant): multi-workspace phase 0.5 — absorb-orphan invite relief
 
 Phase 0.5 of the multi-workspace membership program
