@@ -120,3 +120,57 @@ test('does NOT re-validate when the approver is not being set (unchanged update 
     );
   });
 });
+
+test('the rejection is a TYPED error (route → 400 invalid_launch_approver), never an uncaught 500', async () => {
+  await withTempDataRoot(async () => {
+    const { client } = makeClient([
+      [ORG_SELECT_RE, () => ({ rows: [{ id: 11, name: 'Acme', slug: 'org-11' }], rowCount: 1 })],
+      [APPROVER_CHECK_RE, () => ({ rows: [], rowCount: 0 })],
+      [ORG_UPDATE_RE, () => ({ rows: [], rowCount: 1 })],
+    ]);
+
+    // The failure must be the exact typed message the route maps to a 400 — so
+    // the caller can distinguish it from a database/500 fault.
+    await assert.rejects(
+      () =>
+        updateBusinessProfileWithDiagnostics(client as never, {
+          tenantId: '11',
+          businessName: 'Acme',
+          launchApproverUserId: '999',
+        }),
+      (err: unknown) => {
+        assert.ok(err instanceof Error);
+        assert.equal((err as Error).message, 'invalid_launch_approver', 'exact typed error, not a raw 500');
+        return true;
+      },
+    );
+  });
+});
+
+test('the membership assertion accepts EITHER an active membership OR the legacy active pointer (drift tolerance)', async () => {
+  await withTempDataRoot(async () => {
+    // Assert the assertion query itself encodes BOTH acceptance branches: an
+    // active organization_memberships row OR the legacy users.organization_id
+    // pointer. This pins the dark-period drift tolerance the plan requires (a
+    // backfilled member OR a pre-backfill pointer-only member both pass) without
+    // needing to distinguish the OR arms at the mock level.
+    const { client, calls } = makeClient([
+      [ORG_SELECT_RE, () => ({ rows: [{ id: 11, name: 'Acme', slug: 'org-11' }], rowCount: 1 })],
+      [APPROVER_CHECK_RE, () => ({ rows: [{ '?column?': 1 }], rowCount: 1 })],
+      [ORG_UPDATE_RE, () => ({ rows: [], rowCount: 1 })],
+    ]);
+
+    await updateBusinessProfileWithDiagnostics(client as never, {
+      tenantId: '11',
+      businessName: 'Acme',
+      launchApproverUserId: '42',
+    });
+
+    const check = calls.find((c) => APPROVER_CHECK_RE.test(c.sql.toLowerCase()));
+    assert.ok(check, 'the membership assertion query ran');
+    const sql = check!.sql.toLowerCase();
+    assert.match(sql, /from organization_memberships m/, 'checks an active membership');
+    assert.match(sql, /m\.status = 'active'/, 'the membership branch requires status active');
+    assert.match(sql, /or u\.organization_id = \$2/, 'the legacy active-pointer fallback branch is present (drift tolerance)');
+  });
+});
