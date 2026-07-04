@@ -1227,6 +1227,111 @@ async function initDb() {
     `);
     // ─── End insights module ─────────────────────────────────────────────────
 
+    // ─── Multi-workspace membership (Phase 0 dark schema + backfill) ─────────────
+    // Plan: docs/plans/2026-07-03-multi-workspace-membership.md (Decision 1, 13;
+    // Phase 0; Eng findings 1 dual-write, 2 sentinel mapping, 7 lowercase email
+    // index, 11 no role default; CEO hardening finding 8 indexes).
+    // Mirrored in migrations/20260704000000_organization_memberships.sql.
+    //
+    // ADDITIVE + ZERO behavior change: nothing reads these tables/columns yet.
+    // This lays the membership seam so later phases join (active org, role) from a
+    // membership row instead of the single global users.organization_id/role.
+    // Runs after the users/organizations/workspace_invitations tables exist so the
+    // backfill INSERT…SELECT can reference all three. Idempotent (IF NOT EXISTS +
+    // ON CONFLICT DO NOTHING) so it re-runs safely on every container start.
+    await client.query(`
+      -- One row per (user, organization) the user belongs to. role has NO DEFAULT
+      -- (Eng finding 11 — users.role's DEFAULT 'tenant_admin' is a prod landmine we
+      -- do not replicate; every insert sets role explicitly). status is
+      -- 'invited' | 'active'. last_active_at drives the most-recently-used default
+      -- workspace (written on switch/sign-in only, backfilled here). PK
+      -- (user_id, organization_id) is also the concurrent-duplicate-invite
+      -- ON CONFLICT target and the pointer-validation join key.
+      CREATE TABLE IF NOT EXISTS organization_memberships (
+        user_id              INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        organization_id      INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        role                 TEXT NOT NULL,
+        status               TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('invited','active')),
+        invited_by_user_id   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        invited_at           TIMESTAMPTZ,
+        accepted_at          TIMESTAMPTZ,
+        last_active_at       TIMESTAMPTZ,
+        created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (user_id, organization_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_organization_memberships_user
+        ON organization_memberships (user_id);
+      CREATE INDEX IF NOT EXISTS idx_organization_memberships_org_status
+        ON organization_memberships (organization_id, status);
+
+      -- Append-only audit of membership MUTATIONS (invited/accepted/removed/
+      -- role_changed/absorbed). No CHECK on event_type — documented values only,
+      -- matching the users.role convention. No event rows are written in Phase 0
+      -- (schema only); writers land in Phase 0.5 (absorb) and Phase 2.
+      CREATE TABLE IF NOT EXISTS organization_membership_events (
+        id               BIGSERIAL PRIMARY KEY,
+        organization_id  INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        user_id          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        actor_user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        event_type       TEXT NOT NULL,
+        metadata         JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_organization_membership_events_org_created
+        ON organization_membership_events (organization_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_organization_membership_events_user_created
+        ON organization_membership_events (user_id, created_at DESC);
+
+      -- Entitlement columns (Decision 13): multi-workspace is a PAID account-level
+      -- entitlement. plan is 'free' | 'pro' for v1 — no CHECK, matching the
+      -- users.role convention. plan_granted_at/plan_granted_by are audit columns
+      -- the grant CLI (Phase 4) writes. Nothing reads users.plan in Phase 0.
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'free';
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_granted_at TIMESTAMPTZ;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_granted_by TEXT;
+
+      -- Case-insensitive email uniqueness (Eng finding 7). Every lookup uses
+      -- LOWER(email) while the column is only TEXT UNIQUE; one-email-one-account is
+      -- load-bearing under multi-membership. Added after the Phase-0 read-only
+      -- dedupe audit found ZERO duplicate LOWER(email) groups in prod; a future dup
+      -- would fail this CREATE loudly rather than corrupt silently.
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower_unique
+        ON users (LOWER(email));
+    `);
+
+    // Idempotent backfill: one membership per user that has an org pointer today
+    // (Eng findings 1c + 2). status from the pending sentinel; role from the
+    // current global users.role; last_active_at from the (user,org) invitation's
+    // accepted_at when present, else users.created_at. ON CONFLICT DO NOTHING makes
+    // re-runs (and the pre-flip re-run in Phase 1) a no-op on rows the dual-write
+    // already created.
+    await client.query(`
+      INSERT INTO organization_memberships
+        (user_id, organization_id, role, status, invited_at, accepted_at, last_active_at, created_at, updated_at)
+      SELECT
+        u.id,
+        u.organization_id,
+        u.role,
+        CASE WHEN u.password_hash = 'invited_pending' THEN 'invited' ELSE 'active' END,
+        inv.created_at,
+        CASE WHEN u.password_hash = 'invited_pending' THEN NULL ELSE COALESCE(inv.accepted_at, u.created_at) END,
+        COALESCE(inv.accepted_at, u.created_at),
+        u.created_at,
+        u.created_at
+      FROM users u
+      LEFT JOIN LATERAL (
+        SELECT wi.created_at, wi.accepted_at
+        FROM workspace_invitations wi
+        WHERE wi.user_id = u.id AND wi.organization_id = u.organization_id
+        ORDER BY wi.created_at DESC
+        LIMIT 1
+      ) inv ON TRUE
+      WHERE u.organization_id IS NOT NULL
+      ON CONFLICT (user_id, organization_id) DO NOTHING;
+    `);
+    // ─── End multi-workspace membership ──────────────────────────────────────────
+
     console.log('Database initialized successfully.');
   } catch (err) {
     console.error('Error initializing database:', err);
