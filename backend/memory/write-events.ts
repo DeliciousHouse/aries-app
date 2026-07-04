@@ -729,7 +729,14 @@ export function scheduleHermesPublishPerformanceHonchoWrite(input: {
         const tenantCtx: MinimalTenantCtx = {
           tenantId,
           tenantSlug: slug,
-          userId: tenantId,
+          // SYNTHETIC context: this scheduled performance write has no human
+          // actor. Never pass the tenantId as userId — pseudonymForUser("15")
+          // cannot distinguish tenant 15 from user 15, so under
+          // multi-workspace a future refactor could merge a synthetic peer
+          // with a real person's (plan Taste/Honcho verification hardening).
+          // recordPerformanceEvent never reads ctx.userId today; the sentinel
+          // keeps that safe by construction.
+          userId: 'system',
           role: 'tenant_admin',
         };
         await recordPerformanceEvent({

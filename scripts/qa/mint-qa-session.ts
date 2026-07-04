@@ -63,12 +63,54 @@ async function main(): Promise<void> {
   });
 
   try {
-    const result = await pool.query(
-      `SELECT u.id AS user_id, u.email, u.full_name, u.role,
-              o.id AS tenant_id,
-              COALESCE(NULLIF(o.slug, ''), 'org-' || o.id::text) AS tenant_slug
+    // Locate the pinned identity first (email only — the membership join below
+    // is the authority on tenant/role).
+    const identity = await pool.query(
+      `SELECT u.id AS user_id, u.organization_id
          FROM users u
-         LEFT JOIN organizations o ON o.id = u.organization_id
+        WHERE u.email = $1
+        LIMIT 1`,
+      [QA_USER_EMAIL],
+    );
+    const identityRow = identity.rows[0] as
+      | { user_id: string | number; organization_id: string | number | null }
+      | undefined;
+    if (!identityRow || identityRow.organization_id === null) {
+      console.error(
+        `[mint-qa-session] QA user ${QA_USER_EMAIL} not found/assigned — run scripts/qa/seed-qa-tenant.ts first`,
+      );
+      process.exit(1);
+    }
+
+    // Self-heal the QA bot's single 'active' membership (idempotent, QA-scoped
+    // only) BEFORE resolving through the join, so a fresh seed always mints.
+    await pool.query(
+      `INSERT INTO organization_memberships
+         (user_id, organization_id, role, status, accepted_at, last_active_at, created_at, updated_at)
+       VALUES ($1, $2, 'tenant_admin', 'active', now(), now(), now(), now())
+       ON CONFLICT (user_id, organization_id) DO UPDATE SET
+         role = 'tenant_admin',
+         status = 'active',
+         updated_at = now()`,
+      [Number(identityRow.user_id), Number(identityRow.organization_id)],
+    );
+
+    // Resolve identity through the MEMBERSHIP join (multi-workspace plan, CEO
+    // hardening 10): role comes from the bot's active membership on its
+    // pointer org, and active_membership_count feeds the exactly-one guard in
+    // assertQaScoped — the bot can never resolve into a real tenant.
+    const result = await pool.query(
+      `SELECT u.id AS user_id, u.email, u.full_name,
+              m.role,
+              o.id AS tenant_id,
+              COALESCE(NULLIF(o.slug, ''), 'org-' || o.id::text) AS tenant_slug,
+              (SELECT COUNT(*)::int
+                 FROM organization_memberships am
+                WHERE am.user_id = u.id AND am.status = 'active') AS active_membership_count
+         FROM users u
+         JOIN organization_memberships m
+           ON m.user_id = u.id AND m.organization_id = u.organization_id AND m.status = 'active'
+         JOIN organizations o ON o.id = m.organization_id
         WHERE u.email = $1
         LIMIT 1`,
       [QA_USER_EMAIL],
@@ -76,7 +118,7 @@ async function main(): Promise<void> {
     const row = result.rows[0];
     if (!row) {
       console.error(
-        `[mint-qa-session] QA user ${QA_USER_EMAIL} not found — run scripts/qa/seed-qa-tenant.ts first`,
+        `[mint-qa-session] QA user ${QA_USER_EMAIL} has no active sandbox membership — run scripts/qa/seed-qa-tenant.ts first`,
       );
       process.exit(1);
     }
@@ -85,30 +127,6 @@ async function main(): Promise<void> {
     if (!scoped.ok) {
       console.error(`[mint-qa-session] ${scoped.reason}`);
       process.exit(1);
-    }
-
-    // Dual-write the membership row (multi-workspace Phase 0). The mint script must
-    // work in both worlds: with the membership tables present it self-heals the QA
-    // bot's single 'active' membership so a minted session always resolves through
-    // the membership join once later phases read it; where the table does not yet
-    // exist (older DB) it is a tolerated no-op. Idempotent + QA-scoped only.
-    try {
-      await pool.query(
-        `INSERT INTO organization_memberships
-           (user_id, organization_id, role, status, accepted_at, last_active_at, created_at, updated_at)
-         VALUES ($1, $2, 'tenant_admin', 'active', now(), now(), now(), now())
-         ON CONFLICT (user_id, organization_id) DO UPDATE SET
-           role = 'tenant_admin',
-           status = 'active',
-           updated_at = now()`,
-        [Number(row.user_id), Number(row.tenant_id)],
-      );
-    } catch (error) {
-      const code = (error as { code?: string } | null)?.code;
-      // 42P01 = undefined_table: membership schema not applied yet (pre-Phase-0).
-      if (code !== '42P01') {
-        throw error;
-      }
     }
 
     const cookieName = sessionCookieNameForBaseUrl(baseUrl);

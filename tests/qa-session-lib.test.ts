@@ -20,6 +20,7 @@ const QA_ROW = {
   tenant_id: 99,
   tenant_slug: QA_TENANT_SLUG,
   role: 'tenant_admin',
+  active_membership_count: 1,
 };
 
 test('INVARIANT: minting is pinned to the sandbox identity — everything else fails closed', () => {
@@ -30,6 +31,16 @@ test('INVARIANT: minting is pinned to the sandbox identity — everything else f
   assert.equal(assertQaScoped({ ...QA_ROW, tenant_slug: 'sugar-leather' }).ok, false);
   assert.equal(assertQaScoped({ ...QA_ROW, tenant_slug: null }).ok, false);
   assert.equal(assertQaScoped({ ...QA_ROW, tenant_id: null }).ok, false);
+});
+
+test('INVARIANT: the QA bot must hold EXACTLY ONE active membership (multi-workspace CEO hardening 10)', () => {
+  // A second membership would let the bot switch/resolve into a real tenant
+  // once the multi-workspace flag is on — fail closed.
+  assert.equal(assertQaScoped({ ...QA_ROW, active_membership_count: 2 }).ok, false);
+  assert.equal(assertQaScoped({ ...QA_ROW, active_membership_count: 0 }).ok, false);
+  // pg may surface COUNT as a string on some paths; the guard normalizes.
+  assert.deepEqual(assertQaScoped({ ...QA_ROW, active_membership_count: '1' }), { ok: true });
+  assert.equal(assertQaScoped({ ...QA_ROW, active_membership_count: '3' }).ok, false);
 });
 
 test('TTL clamps: garbage/zero → default, oversize → 12h ceiling', () => {

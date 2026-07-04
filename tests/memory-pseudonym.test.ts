@@ -49,6 +49,45 @@ test('pseudonymForUser uses a separate domain from tenant pseudonyms', () => {
   });
 });
 
+test('pseudonym domain separation: a synthetic tenant-id-as-user can never collide with a real user peer', () => {
+  // Multi-workspace plan, Taste/Honcho verification hardening: two synthetic
+  // contexts used to pass userId: tenantId. pseudonymForUser("15") cannot
+  // distinguish tenant 15 from user 15 — under multi-workspace a
+  // (user N ∈ tenant N) pair is possible, so synthetic actors must use the
+  // 'system' sentinel instead. Pins: (a) the user domain is HMAC'd with the
+  // 'aries-user:' prefix, so no user pseudonym ever equals a tenant
+  // pseudonym for any id; (b) the 'system' sentinel maps to its own peer,
+  // distinct from every numeric user id it could otherwise shadow.
+  withSalt('test-salt-1234567890abcdef', () => {
+    for (const id of ['15', '42', 'system']) {
+      assert.notEqual(pseudonymForUser(id), pseudonymForTenant(id), `domain collision for id=${id}`);
+    }
+    assert.notEqual(pseudonymForUser('system'), pseudonymForUser('15'));
+    assert.notEqual(pseudonymForUser('system'), pseudonymForUser('42'));
+    // Determinism: the sentinel is a stable synthetic peer, not a random one.
+    assert.equal(pseudonymForUser('system'), pseudonymForUser('system'));
+  });
+});
+
+test('synthetic contexts pass the system sentinel, never tenantId-as-userId (structural pin)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const path = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+  for (const rel of ['backend/memory/write-events.ts', 'scripts/automations/honcho-performance-worker.ts']) {
+    const src = readFileSync(path.join(repoRoot, rel), 'utf8');
+    assert.ok(
+      !/userId:\s*tenantId(Str)?\b/.test(src),
+      `${rel} must not pass the tenant id as a userId (use the 'system' sentinel)`,
+    );
+    assert.ok(
+      /userId:\s*'system'/.test(src),
+      `${rel} synthetic context must carry the 'system' sentinel`,
+    );
+  }
+});
+
 test('workspaceIdForTenant lives under the aries-tenant-* namespace', () => {
   withSalt('test-salt-1234567890abcdef', () => {
     const wsid = workspaceIdForTenant('tenant-1');

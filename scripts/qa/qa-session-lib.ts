@@ -27,12 +27,22 @@ export interface QaClaimsRow {
   tenant_id: string | number | null;
   tenant_slug: string | null;
   role: string | null;
+  /**
+   * Count of the QA user's ACTIVE organization_memberships rows (multi-
+   * workspace plan, CEO hardening 10). The mint query resolves identity
+   * through the membership join, and the bot must have EXACTLY ONE active
+   * membership — the sandbox — so it can never resolve or switch into a real
+   * tenant.
+   */
+  active_membership_count: number | string;
 }
 
 /**
  * INVARIANT: sessions are minted ONLY for the pinned sandbox identity — the
- * email must be the QA bot's and the tenant slug must be the sandbox's. A
- * drifted row (renamed org, reassigned user) fails closed with a reason.
+ * email must be the QA bot's, the tenant slug must be the sandbox's, and the
+ * account must hold exactly one ACTIVE membership (the sandbox one, via the
+ * membership join). A drifted row (renamed org, reassigned user, extra
+ * membership) fails closed with a reason.
  */
 export function assertQaScoped(row: QaClaimsRow): { ok: true } | { ok: false; reason: string } {
   if (row.email !== QA_USER_EMAIL) {
@@ -46,6 +56,14 @@ export function assertQaScoped(row: QaClaimsRow): { ok: true } | { ok: false; re
   }
   if (row.tenant_id === null || row.tenant_id === undefined) {
     return { ok: false, reason: 'refusing to mint: QA user has no tenant id' };
+  }
+  if (Number(row.active_membership_count) !== 1) {
+    return {
+      ok: false,
+      reason: `refusing to mint: QA user must have exactly one active membership (found ${String(
+        row.active_membership_count,
+      )})`,
+    };
   }
   return { ok: true };
 }

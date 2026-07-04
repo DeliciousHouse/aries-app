@@ -1,7 +1,12 @@
 import { auth } from '@/auth';
 import pool from '@/lib/db';
 import type { Session } from 'next-auth';
-import { isTenantRole, missingTenantClaims } from '@/lib/auth-tenant-membership';
+import { isMultiWorkspaceEnabled } from '@/backend/tenant/multi-workspace-env';
+import {
+  isTenantRole,
+  missingTenantClaims,
+  resolveTenantClaimsRow,
+} from '@/lib/auth-tenant-membership';
 
 export type TenantRole = 'tenant_admin' | 'tenant_analyst' | 'tenant_viewer';
 
@@ -60,35 +65,36 @@ function normalizeContextRow(row: {
 }
 
 export async function loadTenantContextForUser(queryable: Queryable, userId: string): Promise<TenantContext> {
-  const result = await queryable.query(
-    `
-      SELECT
-        u.id AS user_id,
-        u.organization_id,
-        o.id AS tenant_id,
-        CASE
-          WHEN o.id IS NULL THEN NULL
-          ELSE COALESCE(NULLIF(o.slug, ''), 'org-' || o.id::text)
-        END AS tenant_slug,
-        u.role
-      FROM users u
-      LEFT JOIN organizations o ON o.id = u.organization_id
-      WHERE u.id = $1
-      LIMIT 1
-    `,
-    [Number(userId)]
+  // Claims resolution is consolidated onto the ONE membership-claims helper
+  // (multi-workspace plan eng findings 5 + 14); this function owns only the
+  // row → TenantContext / TenantContextError mapping.
+  const row = await resolveTenantClaimsRow(
+    queryable as unknown as Parameters<typeof resolveTenantClaimsRow>[0],
+    { by: 'userId', userId },
   );
 
-  if ((result.rowCount ?? 0) === 0 || result.rows.length === 0) {
+  if (!row) {
     throw new TenantContextError(
       'tenant_membership_missing',
       'No tenant membership found for authenticated user.',
     );
   }
 
-  const row = result.rows[0];
   const missingClaims = missingTenantClaims(row);
   if (missingClaims.length > 0) {
+    // Flag ON, the resolver returns a typed zero-membership shape (all tenant
+    // fields NULL) for an account with no active workspace — a pointer to a
+    // non-membership org resolves like NULL (plan Decision 7 / eng finding 9).
+    // That state is 'tenant_membership_missing' (chooser / 403), NOT the
+    // claims-incomplete hard-fail, which stays reserved for genuinely corrupt
+    // rows. Flag OFF this branch is unreachable-by-flag and behavior is
+    // byte-identical to today (golden-tested).
+    if (isMultiWorkspaceEnabled() && !row.organization_id) {
+      throw new TenantContextError(
+        'tenant_membership_missing',
+        'No active workspace membership found for authenticated user.',
+      );
+    }
     throw new TenantContextError(
       'tenant_claims_incomplete',
       `Authenticated user is missing required tenant claims: ${missingClaims.join(', ')}.`,
