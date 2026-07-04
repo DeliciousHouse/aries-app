@@ -3,8 +3,9 @@
 /**
  * Customer incident report dialog (SC-70 port) — the authenticated variant of
  * the feedback modal. Impact is asked FIRST (required, no default), then
- * category, title, description, and an optional screenshot via screen capture
- * (getDisplayMedia, when the browser exposes it) or a file picker.
+ * category, title, description, and an optional screenshot via an in-page
+ * capture of the current page (see capture-screenshot.ts — AA-77) or a file
+ * picker.
  *
  * Outcome UX (SC-70): 201 → success with the Jira ticket link (plus
  * "attachment still syncing" / screenshot-discarded notes); 202 → "received —
@@ -32,6 +33,7 @@ import {
   type ReportOutcome,
   type ReportScreenshotPayload,
 } from './report-form';
+import { CAPTURE_IGNORE_ATTR, capturePageScreenshot, pageCaptureSupported } from './capture-screenshot';
 import { cn } from '../donor/lib/utils';
 
 type Phase = 'idle' | 'submitting' | 'success';
@@ -49,43 +51,6 @@ function readFileAsDataUrl(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error ?? new Error('read_failed'));
     reader.readAsDataURL(file);
   });
-}
-
-/** True when the screen-capture path can be offered at all. */
-function displayCaptureAvailable(): boolean {
-  return (
-    typeof navigator !== 'undefined' &&
-    typeof navigator.mediaDevices?.getDisplayMedia === 'function'
-  );
-}
-
-/**
- * Grab one frame of the user's screen as a PNG data URL. Tracks are stopped in
- * `finally`; a denial (or any failure) resolves null so the caller degrades to
- * the file picker without an error.
- */
-async function captureScreenDataUrl(): Promise<string | null> {
-  if (!displayCaptureAvailable()) return null;
-  let stream: MediaStream | null = null;
-  try {
-    stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-    const video = document.createElement('video');
-    video.srcObject = stream;
-    video.muted = true;
-    await video.play();
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-    const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth || 1280;
-    canvas.height = video.videoHeight || 720;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL('image/png');
-  } catch {
-    return null;
-  } finally {
-    stream?.getTracks().forEach((track) => track.stop());
-  }
 }
 
 interface ScreenshotState {
@@ -183,10 +148,16 @@ export default function ReportModal({ onClose }: { onClose: () => void }): React
 
   const onCaptureScreen = useCallback(async () => {
     setCapturing(true);
+    setScreenshotError(null);
     try {
-      const dataUrl = await captureScreenDataUrl();
-      // Denial/failure degrades silently to the file-picker path.
-      if (dataUrl) attachDataUrl(dataUrl, 'Screen capture');
+      const dataUrl = await capturePageScreenshot();
+      if (dataUrl) {
+        attachDataUrl(dataUrl, 'Page capture');
+      } else {
+        // No picker/denial anymore, so a null is a genuine failure — point the
+        // user at the always-available file picker rather than failing silently.
+        setScreenshotError("We couldn't capture the page automatically — attach an image instead.");
+      }
     } finally {
       setCapturing(false);
     }
@@ -254,6 +225,9 @@ export default function ReportModal({ onClose }: { onClose: () => void }): React
   return (
     <div
       role="presentation"
+      // Exclude the whole modal (backdrop + dialog) from an in-page capture so a
+      // "Capture page" shot shows the page behind the dialog, not our own UI.
+      {...{ [CAPTURE_IGNORE_ATTR]: '' }}
       className="fixed inset-0 z-[200] flex items-end justify-center overflow-y-auto p-4 sm:items-center"
     >
       <motion.div
@@ -422,7 +396,7 @@ export default function ReportModal({ onClose }: { onClose: () => void }): React
               </div>
             ) : (
               <div className="flex flex-col gap-2 sm:flex-row">
-                {displayCaptureAvailable() ? (
+                {pageCaptureSupported() ? (
                   <button
                     type="button"
                     onClick={() => void onCaptureScreen()}
@@ -438,7 +412,7 @@ export default function ReportModal({ onClose }: { onClose: () => void }): React
                     ) : (
                       <Camera className="h-4 w-4" aria-hidden="true" />
                     )}
-                    Capture screen
+                    {capturing ? 'Capturing…' : 'Capture page'}
                   </button>
                 ) : null}
                 <label

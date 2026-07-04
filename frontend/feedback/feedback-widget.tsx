@@ -23,6 +23,7 @@ import {
   type FeedbackCategory,
 } from '@/lib/feedback/options';
 import { cn } from '../donor/lib/utils';
+import { CAPTURE_IGNORE_ATTR } from './capture-screenshot';
 import { getRecentConsoleErrors, installConsoleCapture } from './console-capture';
 import ReportModal from './report-dialog';
 
@@ -131,6 +132,9 @@ export default function FeedbackWidget(): React.ReactElement | null {
         aria-hidden={open}
         tabIndex={open ? -1 : 0}
         data-testid="feedback-button"
+        // Kept out of an in-page "Capture page" shot (it's still in the DOM,
+        // just visually hidden, while the report modal is open).
+        {...{ [CAPTURE_IGNORE_ATTR]: '' }}
         className={cn(
           'fixed bottom-4 right-4 z-[120] flex items-center gap-2 rounded-full',
           'bg-aries-crimson px-4 py-3 text-sm font-semibold text-white shadow-lg',

@@ -27,7 +27,9 @@ the operator runbook.
   parity test green). Default ON, inherently dormant without `JIRA_*` config.
 - Dialog: the existing floating Feedback button now probes
   `/api/auth/session` once per page load — signed-in users get the impact-first
-  report dialog (screen capture via `getDisplayMedia` + file picker, 2 MB
+  report dialog (in-page "Capture page" rasterization via `html-to-image`,
+  excluding the feedback UI — replaced the original `getDisplayMedia`
+  screen-share per AA-77 — plus a file picker, 2 MB
   client cap computed from base64 length, pinned
   `https://sugarandleather.atlassian.net/browse/<key>` success link); everyone
   else keeps the legacy public feedback form unchanged.
