@@ -76,6 +76,11 @@ export async function POST(_req: Request, { params }: { params: Promise<{ userId
       roleLabel: roleLabel(result.role),
       acceptUrl: buildInviteAcceptUrl(result.rawToken),
       expiresInDays: INVITE_EXPIRES_IN_DAYS,
+      // Flag ON, resending to an existing ACTIVE account invited to an
+      // additional workspace: the copy must say "sign in with your existing
+      // credentials", not "set your password". Flag OFF emailVariant is absent
+      // and the default set-password copy applies (byte-identical).
+      variant: result.emailVariant === 'existing_account' ? 'existing_account' : undefined,
     });
 
     return json({ status: 'sent' });

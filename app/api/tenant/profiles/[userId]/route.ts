@@ -69,12 +69,18 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ userId
       userId,
       fullName: payload.fullName,
       role: payload.role,
+      actorUserId: tenantContext.userId,
     });
 
     if (result.status === 'ok') {
       return json({ profile: result.profile });
     }
 
+    if (result.status === 'last_admin') {
+      // Multi-workspace flag ON (E4): refusing to demote the org's only
+      // active admin — the workspace would become unadministrable.
+      return json({ error: 'last_admin' }, 409);
+    }
     return json({ error: result.status }, result.status === 'tenant_mismatch' ? 403 : 404);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -115,11 +121,20 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ user
 
   const client = await pool.connect();
   try {
-    const result = await deleteTenantUserProfile(client, { tenantId: tenantContext.tenantId, userId });
+    const result = await deleteTenantUserProfile(client, {
+      tenantId: tenantContext.tenantId,
+      userId,
+      actorUserId: tenantContext.userId,
+    });
     if (result.status === 'deleted') {
       return json({ status: 'deleted' });
     }
 
+    if (result.status === 'last_admin') {
+      // Multi-workspace flag ON (E4): refusing to remove the org's only
+      // active admin — assign another admin first.
+      return json({ error: 'last_admin' }, 409);
+    }
     return json({ error: result.status }, result.status === 'tenant_mismatch' ? 403 : 404);
   } finally {
     client.release();
