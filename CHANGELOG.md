@@ -2,6 +2,42 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.23.0 — feat(tenant): multi-workspace phase 0 — dark membership schema, backfill, dual-writes
+
+Phase 0 of the multi-workspace membership program
+(docs/plans/2026-07-03-multi-workspace-membership.md). ADDITIVE and
+zero-behavior-change: nothing reads the new tables/columns yet (structurally
+tested); the membership seam ships dark so later phases can resolve
+(active org, role) from a membership row instead of the single global
+users.organization_id / users.role columns.
+
+- New `organization_memberships` table (PK `(user_id, organization_id)`,
+  `role` with NO default — every insert sets it explicitly, hot-path indexes
+  on `user_id` and `(organization_id, status)`) + append-only
+  `organization_membership_events` audit table, in init-db + migration.
+- Entitlement columns (Decision 13): `users.plan` (default `'free'`) +
+  `plan_granted_at` / `plan_granted_by`. Unread in Phase 0.
+- Case-insensitive email uniqueness: `CREATE UNIQUE INDEX ON users
+  (LOWER(email))` after a live prod dedupe audit (19 users, 0 case-variant
+  duplicate groups, 0 mixed-case emails), plus normalize-on-write in the
+  credentials signup action.
+- Idempotent backfill (runs on every container start, `ON CONFLICT DO
+  NOTHING`): one membership per user-with-org; `password_hash =
+  'invited_pending'` sentinel maps to `status='invited'` so never-accepted
+  invitees do not backfill as joined members; `last_active_at` /
+  `accepted_at` derived from the matching invitation when present.
+- Dual-writes in every legacy provisioning path (Google sign-in
+  auto-provision + onboarding via the `assignUserToOrganization` chokepoint,
+  credentials signup, invite `createTenantUserProfile` as `'invited'`,
+  `acceptWorkspaceInvitation` flips to `'active'` inside the existing accept
+  transaction) so the dark tables never drift from the pointer between
+  backfill and flag-flip. QA seed/mint scripts upsert the QA bot's single
+  membership and tolerate a pre-Phase-0 DB.
+- Tests: mock-level dual-write coverage per path, a Phase-0 "no reads"
+  structural guard, and a requires-infra live-Postgres backfill test
+  (throwaway schema) with a drift guard pinning the test SQL to the shipped
+  init-db source.
+
 ## v0.1.22.0 — feat(feedback): customer incident report button (SC-70 port, AA-51)
 
 Port of the Sequence CRM SC-70 feedback/incident framework. Signed-in users

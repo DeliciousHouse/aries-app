@@ -218,7 +218,7 @@ test('issuing an invitation supersedes the user\'s prior live tokens', async () 
 
 test('accepting an invitation consumes every outstanding token for that user', async () => {
   const { queryable, calls } = makeFakeDb(
-    acceptRoutes({ id: 7, user_id: 42, email: 'invitee@acme.com', expires_at: new Date(Date.now() + 60_000), accepted_at: null }),
+    acceptRoutes({ id: 7, user_id: 42, organization_id: 11, role: 'tenant_viewer', email: 'invitee@acme.com', expires_at: new Date(Date.now() + 60_000), accepted_at: null }),
   );
 
   await acceptWorkspaceInvitation(queryable, { rawToken: 'tok', password: STRONG_PASSWORD });
@@ -253,6 +253,8 @@ test('acceptWorkspaceInvitation sets the password and consumes a live invitation
     acceptRoutes({
       id: 7,
       user_id: 42,
+      organization_id: 11,
+      role: 'tenant_viewer',
       email: 'invitee@acme.com',
       expires_at: new Date(Date.now() + 60_000),
       accepted_at: null,
