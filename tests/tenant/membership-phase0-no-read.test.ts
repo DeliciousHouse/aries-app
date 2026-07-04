@@ -71,10 +71,12 @@ test('the claims join lives ONLY in the consolidated helper — tenant-context d
 
 test('no runtime module outside the membership seam reads organization_memberships', () => {
   // A repo-wide guard: outside lib/auth-tenant-membership.ts (the consolidated
-  // resolution seam) and backend/tenant/workspace-invitations.ts (the bounded
-  // Phase 0.5 absorb-flow read), no runtime module may SELECT/JOIN the
-  // membership table. WRITE paths (upsertOrganizationMembership callers) are
-  // fine — what must stay centralized is the READ.
+  // resolution seam), backend/tenant/workspace-invitations.ts (the bounded
+  // Phase 0.5 absorb-flow read), and the Phase 1 zero-membership chooser seam
+  // (backend/tenant/workspace-chooser.ts + app/workspace/choose/actions.ts),
+  // no runtime module may SELECT/JOIN the membership table. WRITE paths
+  // (upsertOrganizationMembership callers) are fine — what must stay
+  // centralized is the READ.
   const grepTargets = [
     'lib/tenant-context.ts',
     'lib/auth-user-journey.ts',
