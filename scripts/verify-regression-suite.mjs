@@ -278,6 +278,21 @@ const steps = [
     name: 'insights dashboard UI source assertions (#648, #684)',
     args: ['--test', 'tests/insights-dashboard-ui.test.ts'],
   },
+  {
+    // Multi-workspace membership Phase 0.5 (absorb-orphan invite relief). These
+    // are security-invariant unit tests (in-txn orphan re-check, no-password-write
+    // on absorb, admin-chosen-role-never-carried-over, consent-auth, decline kills
+    // the token, idempotent double-accept). Fully in-memory SQL-routing fakes — no
+    // DB, no DATA_ROOT — so they are safe under --test-concurrency=1. Previously
+    // these tenant unit tests rode CI's full-suite only; gate them in verify too so
+    // an absorb-flow regression is caught pre-push, not just at the merge gate.
+    name: 'tenant workspace-invitations + absorb-orphan (Phase 0.5)',
+    args: [
+      '--test',
+      'tests/tenant/workspace-invitations.test.ts',
+      'tests/tenant/workspace-invitations-absorb-adversarial.test.ts',
+    ],
+  },
 ];
 
 for (const [index, step] of steps.entries()) {
