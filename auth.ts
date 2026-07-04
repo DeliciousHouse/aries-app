@@ -23,6 +23,7 @@ import {
   tenantClaimsErrorRedirect,
 } from "./lib/auth-tenant-membership";
 import { loadTenantTimezoneOrFallback } from "./backend/tenant/business-profile";
+import { isMultiWorkspaceEnabled } from "./backend/tenant/multi-workspace-env";
 import { partnerAttributionEnabled } from "./lib/partner-attribution-env";
 import { PARTNER_REF_COOKIE_NAME, parsePartnerRefCookie } from "./lib/partner-ref-cookie";
 
@@ -238,6 +239,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         );
         const missingClaims = missingTenantClaims(tenantClaims);
         if (missingClaims.length > 0) {
+          // Multi-workspace (flag ON): a zero-membership account is a TYPED
+          // state, not a corrupt one (plan Decision 7). Sign-in proceeds with
+          // no tenant claims; the post-login journey / onboarding gate route
+          // to the workspace chooser instead of minting a personal org. The
+          // TenantClaimsIncomplete hard-fail below stays reserved for
+          // genuinely corrupt rows (and is the only flag-OFF behavior).
+          if (isMultiWorkspaceEnabled() && tenantClaims && !tenantClaims.organization_id) {
+            return true;
+          }
           console.error("Authenticated user is missing required tenant claims after sign-in.", {
             provider: account.provider,
             email: normalizedEmail,
@@ -261,6 +271,21 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         try {
           const row = await findTenantClaimsByUserId(client, userId);
           if (!row || missingTenantClaims(row).length > 0) {
+            // Multi-workspace (flag ON): the hydrate must CLEAR tenant claims
+            // when membership resolution returns none (plan eng finding 8) —
+            // a set-only hydrate would leave ghost tenantId/tenantRole in the
+            // token indefinitely and feed the DB-outage claims fallback after
+            // a removal. workspaceCount rides the same resolution row (no
+            // extra query). Flag OFF (no workspace_count on the row) this
+            // stays byte-identical to today's set-only behavior.
+            if (isMultiWorkspaceEnabled()) {
+              delete token.tenantId;
+              delete token.tenantSlug;
+              delete token.tenantRole;
+              delete token.timezone;
+              token.workspaceCount =
+                typeof row?.workspace_count === "number" ? row.workspace_count : 0;
+            }
             return;
           }
 
@@ -268,6 +293,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           token.tenantSlug = row.tenant_slug as string;
           token.tenantRole = row.role as TenantRole;
           token.timezone = loadTenantTimezoneOrFallback(String(row.tenant_id));
+          if (typeof row.workspace_count === "number") {
+            token.workspaceCount = row.workspace_count;
+          }
         } finally {
           client.release();
         }
@@ -311,6 +339,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       }
       if (session.user && token.timezone) {
         session.user.timezone = String(token.timezone);
+      }
+      // Multi-workspace: only ever present when the membership-aware
+      // resolution (flag ON) stamped it on the token; lets the shell decide
+      // whether to render a switcher without an extra fetch (plan Phase 1).
+      if (session.user && typeof token.workspaceCount === "number") {
+        session.user.workspaceCount = token.workspaceCount;
       }
 
       return session;

@@ -9,6 +9,14 @@ declare module 'next-auth' {
       tenantSlug?: string;
       role?: TenantRole;
       timezone?: string;
+      /**
+       * Count of the user's ACTIVE workspace memberships. Present only when
+       * multi-workspace membership resolution is enabled
+       * (ARIES_MULTI_WORKSPACE_ENABLED); rides the same claims query — the
+       * shell uses it to decide whether a switcher renders without an extra
+       * fetch (multi-workspace plan, Phase 1).
+       */
+      workspaceCount?: number;
     };
   }
 }
@@ -20,5 +28,7 @@ declare module 'next-auth/jwt' {
     tenantSlug?: string;
     tenantRole?: TenantRole;
     timezone?: string;
+    /** See Session.user.workspaceCount — stamped by the jwt hydrate (flag ON). */
+    workspaceCount?: number;
   }
 }

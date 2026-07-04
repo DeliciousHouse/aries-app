@@ -1,6 +1,7 @@
 import { auth } from '@/auth';
 import pool from '@/lib/db';
 import type { Session } from 'next-auth';
+import { isMultiWorkspaceEnabled } from '@/backend/tenant/multi-workspace-env';
 import {
   isTenantRole,
   missingTenantClaims,
@@ -81,6 +82,19 @@ export async function loadTenantContextForUser(queryable: Queryable, userId: str
 
   const missingClaims = missingTenantClaims(row);
   if (missingClaims.length > 0) {
+    // Flag ON, the resolver returns a typed zero-membership shape (all tenant
+    // fields NULL) for an account with no active workspace — a pointer to a
+    // non-membership org resolves like NULL (plan Decision 7 / eng finding 9).
+    // That state is 'tenant_membership_missing' (chooser / 403), NOT the
+    // claims-incomplete hard-fail, which stays reserved for genuinely corrupt
+    // rows. Flag OFF this branch is unreachable-by-flag and behavior is
+    // byte-identical to today (golden-tested).
+    if (isMultiWorkspaceEnabled() && !row.organization_id) {
+      throw new TenantContextError(
+        'tenant_membership_missing',
+        'No active workspace membership found for authenticated user.',
+      );
+    }
     throw new TenantContextError(
       'tenant_claims_incomplete',
       `Authenticated user is missing required tenant claims: ${missingClaims.join(', ')}.`,
