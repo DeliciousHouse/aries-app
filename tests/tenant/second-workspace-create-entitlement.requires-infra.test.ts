@@ -80,8 +80,9 @@ type PoolLike = pg.Pool;
 
 /**
  * The create-path body, replaying app/onboarding/resume/page.tsx's
- * resolveTenantForDraftWithMemberships: entitlement gate INSIDE the txn, ROLLBACK
- * on denial (nothing created), else create org + assign (role force-set) + COMMIT.
+ * resolveTenantForDraftWithMemberships: user-row FOR UPDATE lock → entitlement gate
+ * INSIDE the txn, ROLLBACK on denial (nothing created), else create org + assign
+ * (role force-set) + COMMIT.
  */
 async function runCreateSecondWorkspace(
   client: pg.PoolClient,
@@ -89,6 +90,11 @@ async function runCreateSecondWorkspace(
 ): Promise<{ status: 'ok'; tenantId: string } | { status: 'requires_pro' }> {
   await client.query('BEGIN', []);
   try {
+    // Mirror the real create path (resolveTenantForDraftWithMemberships): take
+    // the create-path-local user-row FOR UPDATE lock BEFORE the entitlement count
+    // so two simultaneous zero-membership creates serialize (the entitlement
+    // helper's own FOR UPDATE locks nothing when there are zero active rows).
+    await client.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [Number(input.userId)]);
     const entitlement = await assertMultiWorkspaceEntitlement(client, input.userId);
     if (!entitlement.allowed) {
       await client.query('ROLLBACK', []);
@@ -323,5 +329,109 @@ test('create (requires-infra): self-escalation guard — creating a new workspac
     // ever landed on the freshly-created org (the 8b self-escalation hole is gone).
     assert.equal(orgAMembership!.role, 'tenant_viewer', 'the existing-org membership role is NOT elevated by creating a new workspace');
     assert.equal(newMembership!.role, 'tenant_admin', 'admin only on the newly-created org');
+  });
+});
+
+// ── 5. CONCURRENT double-create TOCTOU (Phase 4 review finding) ──────────────
+
+type RaceOutcome<T> = { ok: true; value: T } | { ok: false; error: { code?: string; message: string } };
+
+/**
+ * Fire two create transactions on their OWN pre-warmed backends behind a shared
+ * barrier so their critical sections (entitlement count → membership insert)
+ * genuinely overlap — the same overlap-forcing discipline as
+ * multi-workspace-phase2-concurrency.requires-infra.test.ts. A naive
+ * Promise.all without pre-warm + barrier lets the first txn commit before the
+ * second's BEGIN lands (a false green that never exercises the lock window).
+ */
+async function race2Create(
+  pool: PoolLike,
+  userId: number,
+  round: number,
+): Promise<[RaceOutcome<{ status: string }>, RaceOutcome<{ status: string }>]> {
+  const clientA = await pool.connect();
+  const clientB = await pool.connect();
+  await Promise.all([clientA.query('SELECT 1'), clientB.query('SELECT 1')]);
+  let release!: () => void;
+  const barrier = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const wrap = (p: Promise<{ status: string }>): Promise<RaceOutcome<{ status: string }>> =>
+    p.then(
+      (value): RaceOutcome<{ status: string }> => ({ ok: true, value }),
+      (error): RaceOutcome<{ status: string }> => ({
+        ok: false,
+        error: {
+          code: (error as { code?: string } | null)?.code,
+          message: error instanceof Error ? error.message : String(error),
+        },
+      }),
+    );
+  const runA = wrap(
+    barrier.then(() =>
+      runCreateSecondWorkspace(clientA, { userId, businessName: `Race a r${round}`, slugBase: `race-a-r${round}` }),
+    ),
+  );
+  const runB = wrap(
+    barrier.then(() =>
+      runCreateSecondWorkspace(clientB, { userId, businessName: `Race b r${round}`, slugBase: `race-b-r${round}` }),
+    ),
+  );
+  release();
+  try {
+    return await Promise.all([runA, runB]);
+  } finally {
+    clientA.release();
+    clientB.release();
+  }
+}
+
+test('create (requires-infra): two SIMULTANEOUS creates from a zero-membership FREE account mint exactly ONE workspace (no free-second-workspace slip)', async (t) => {
+  if (!requireDbEnvOrSkip(t)) return;
+  // Warm loop: force genuine overlap MANY times in one warm process. Without the
+  // create-path user-row FOR UPDATE lock, assertMultiWorkspaceEntitlement's
+  // FOR UPDATE locks nothing (zero active membership rows), so two concurrent
+  // creates could BOTH pass as "first workspace" and both commit — two free
+  // workspaces. The lock serializes them: the loser blocks until the winner
+  // commits its membership, then sees 1 active membership and is denied (free).
+  const ROUNDS = 25;
+  await withHarness(async (h) => {
+    for (let round = 0; round < ROUNDS; round++) {
+      // Fresh brand-new free account each round: NO memberships, NULL pointer.
+      const userId = await h.user({
+        email: `race-${round}@acme.com`,
+        organizationId: null,
+        role: 'tenant_admin',
+        plan: 'free',
+      });
+      const orgsBefore = await h.orgCount();
+
+      const [rA, rB] = await race2Create(h.pool, userId, round);
+
+      // Every arm resolves to a KNOWN safe shape — a typed status or a safe
+      // serialization/deadlock abort — never an unhandled error.
+      for (const r of [rA, rB]) {
+        const known =
+          (r.ok && (r.value.status === 'ok' || r.value.status === 'requires_pro')) ||
+          (!r.ok && (r.error.code === '40P01' || r.error.code === '40001'));
+        assert.ok(
+          known,
+          `round ${round}: each create resolves to ok/requires_pro or a safe abort (got ${JSON.stringify(r)})`,
+        );
+      }
+
+      // The load-bearing invariant: NEVER two active memberships / two orgs for
+      // the same free account, regardless of which arm won or whether one aborted.
+      const memberships = await h.membershipRows(userId);
+      const active = memberships.filter((m) => m.status === 'active');
+      assert.ok(
+        active.length <= 1,
+        `round ${round}: at most one active membership after concurrent creates — no free second workspace slipped (got ${active.length})`,
+      );
+      assert.ok(
+        (await h.orgCount()) <= orgsBefore + 1,
+        `round ${round}: at most one org created across both concurrent attempts`,
+      );
+    }
   });
 });
