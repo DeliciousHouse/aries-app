@@ -7,6 +7,17 @@ import {
   resolveTenantContextForSession,
 } from '../../lib/tenant-context';
 
+// These fixtures use the LEGACY single-pointer row shape (organization_id /
+// tenant_id / tenant_slug / role), which is what resolution reads with the
+// multi-workspace flag OFF. Pin the flag OFF so the file is honest about the
+// world it tests (matching tenant-resolution-flag-off-golden.test.ts) and is
+// deterministic regardless of ambient env — otherwise it fails spuriously when
+// the suite is run with ARIES_MULTI_WORKSPACE_ENABLED=1, since the flag-ON
+// membership query returns a different raw shape these legacy fixtures do not
+// supply. Flag-ON resolution is covered behaviorally by
+// tests/tenant/multi-workspace-resolution*.test.ts. No assertion here changes.
+process.env.ARIES_MULTI_WORKSPACE_ENABLED = '0';
+
 test('loadTenantContextForUser returns tenant context from Postgres membership row', async () => {
   const queryable = {
     async query(sql: string, params: unknown[]) {
