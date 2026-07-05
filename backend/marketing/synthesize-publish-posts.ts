@@ -56,6 +56,12 @@ import {
 import { isPostEditTasteLearningEnabled } from './post-edit-taste-learning-env';
 import type { SocialContentJobRuntimeDocument } from './runtime-state';
 import { visualStyleLens } from './taste-profile-store';
+import {
+  adaptCaptionForPlatform,
+  isWeeklyCrosspostEnabled,
+  resolveCrosspostPlatforms,
+  type CrosspostPlatform,
+} from './weekly-crosspost';
 
 export interface SynthesizePublishPostsArgs {
   jobId: string;
@@ -98,6 +104,8 @@ type ContentPackageEntry = {
   caption: string;
   /** The post hook — used as the story headline when composing story images. */
   headline: string;
+  /** Cleaned hashtag tokens — used to compose the X crosspost caption. */
+  hashtags: string[];
   platforms: string[];
 };
 
@@ -333,7 +341,13 @@ function parseContentPackage(raw: unknown): ContentPackageEntry[] {
     const hook = typeof record.hook === 'string' ? record.hook.trim() : '';
     const body = typeof record.body === 'string' ? record.body.trim() : '';
     const headline = hook || body || caption.split('\n')[0] || '';
-    entries.push({ postNumber, caption, headline, platforms: Array.from(new Set(platforms)) });
+    const hashtags = Array.isArray(record.hashtags)
+      ? record.hashtags
+          .filter((tag): tag is string => typeof tag === 'string')
+          .map((tag) => tag.trim())
+          .filter((tag) => tag.length > 0)
+      : [];
+    entries.push({ postNumber, caption, headline, hashtags, platforms: Array.from(new Set(platforms)) });
   });
   return entries;
 }
@@ -529,6 +543,26 @@ export async function synthesizePublishPostsFromContentPackage(
   const styleDimension = styleLens?.dimension ?? null;
   const styleValue = styleLens?.value ?? null;
 
+  // Weekly cross-post fan-out (producer side). Resolve the eligible extra
+  // platforms (x/linkedin/reddit) ONCE per synthesis call, not per entry. The
+  // whole lookup is best-effort: a failure here must never break FB/IG
+  // synthesis, so resolveCrosspostPlatforms fails open to [] and this is
+  // additionally wrapped. Flag OFF (default) => empty list => byte-identical
+  // synthesis output (no extra rows). Feed image posts only — never story/reel.
+  let crosspostPlatforms: CrosspostPlatform[] = [];
+  if (isWeeklyCrosspostEnabled()) {
+    try {
+      crosspostPlatforms = await resolveCrosspostPlatforms(tenantId, pool);
+    } catch (err) {
+      console.warn('[synthesize-publish-posts] crosspost resolution failed — no fan-out', {
+        jobId,
+        tenantId,
+        error: (err as Error)?.message ?? String(err),
+      });
+      crosspostPlatforms = [];
+    }
+  }
+
   let inserted = 0;
   let skipped = 0;
   let total = 0;
@@ -537,6 +571,9 @@ export async function synthesizePublishPostsFromContentPackage(
     const assetInfo = assetInfoByPostNumber.get(entry.postNumber);
     const assetId = assetInfo?.assetId;
     const creativeAssetIds = assetId ? [assetId] : [];
+    // Track whether this entry produced at least one FB/IG FEED IMAGE row, so
+    // the crosspost fan-out only mirrors real feed images (never a story/reel).
+    let entryHasFeedImage = false;
     for (const platform of entry.platforms) {
       // Resolve the publish shape (surface + media_type) for this post/platform
       // from the strategist schedule; absent => feed/image (backward compat).
@@ -550,6 +587,8 @@ export async function synthesizePublishPostsFromContentPackage(
         skipped++;
         continue;
       }
+
+      if (shape.surface === 'feed' && shape.mediaType === 'image') entryHasFeedImage = true;
 
       total++;
       // 4-segment idempotency key so a feed + reel on the same post number and
@@ -589,6 +628,54 @@ export async function synthesizePublishPostsFromContentPackage(
           error: (err as Error)?.message ?? String(err),
         });
         skipped++;
+      }
+    }
+
+    // Weekly cross-post fan-out. When enabled AND this entry produced a real
+    // FB/IG feed image, mirror it to each eligible extra platform
+    // (x/linkedin/reddit) with a platform-adapted caption and the SAME image
+    // linkage. Feed/image surface ONLY (entryHasFeedImage gates this). The whole
+    // block is wrapped so any fan-out error degrades to no-crosspost — the FB/IG
+    // rows above are already persisted and unaffected. The idempotency key
+    // carries the platform, so a reconciler re-delivery hits ON CONFLICT DO
+    // NOTHING and never duplicates.
+    if (entryHasFeedImage && crosspostPlatforms.length > 0) {
+      for (const platform of crosspostPlatforms) {
+        total++;
+        const idempotencyKey = `${jobId}:${entry.postNumber}:${platform}:feed`;
+        try {
+          const adaptedCaption = adaptCaptionForPlatform(platform, entry.caption, entry.hashtags);
+          const result = await pool.query(INSERT_SYNTHESIZED_POST_SQL, [
+            tenantId,           // $1
+            jobId,              // $2
+            publishRunId,       // $3
+            platform,           // $4
+            adaptedCaption,     // $5
+            idempotencyKey,     // $6
+            creativeAssetIds,   // $7 — same rendered feed image as FB/IG
+            'image',            // $8 media_type
+            'feed',             // $9 surface
+            styleDimension,     // $10
+            styleValue,         // $11
+            assetInfo?.widthPx ?? null,          // $12
+            assetInfo?.heightPx ?? null,         // $13
+            assetInfo?.durationSeconds ?? null,  // $14
+          ]);
+          if ((result.rowCount ?? 0) > 0) {
+            inserted++;
+          } else {
+            skipped++;
+          }
+        } catch (err) {
+          console.warn('[synthesize-publish-posts] crosspost row insert failed — skipping', {
+            jobId,
+            tenantId,
+            platform,
+            postNumber: entry.postNumber,
+            error: (err as Error)?.message ?? String(err),
+          });
+          skipped++;
+        }
       }
     }
   }

@@ -87,6 +87,12 @@ services:
       # today (images ingested, no posts). Fixes "generated images but nowhere to
       # click to publish."
       ARIES_SYNTHESIZE_ON_PUBLISH_SKIP_ENABLED: ${ARIES_SYNTHESIZE_ON_PUBLISH_SKIP_ENABLED:-0}
+      # Weekly cross-post fan-out: additionally synthesize x/linkedin/reddit posts
+      # (platform-adapted captions, same feed image) for each FB/IG feed image,
+      # per platform whose flag is ON and that the tenant has connected. Default
+      # OFF => synthesis is byte-identical (FB/IG only). Go-live also needs the
+      # per-platform ARIES_<P>_ENABLED + COMPOSIO_<P>_PUBLISH_POST_ACTION slugs.
+      ARIES_WEEKLY_CROSSPOST_ENABLED: ${ARIES_WEEKLY_CROSSPOST_ENABLED:-0}
       # Stale-run reaper: how long a job may sit at an approval gate before it is
       # reaped (default 7d). Long because a job awaiting a human is NOT stalled;
       # the short per-stage thresholds would otherwise reap it at 5 min.
