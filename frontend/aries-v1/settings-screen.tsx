@@ -294,6 +294,8 @@ export default function AriesSettingsScreen() {
               </div>
               <p className="mt-3 text-xs leading-6 text-white/70">
                 Newly connected media portals update this Business Profile summary automatically.
+                Weekly content is currently generated and published to Facebook and Instagram — other
+                connected platforms aren&apos;t used for automatic weekly posts yet.
               </p>
             </div>
             <button type="button" onClick={() => void saveProfile()} disabled={business.save.isLoading} className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] disabled:opacity-60">
