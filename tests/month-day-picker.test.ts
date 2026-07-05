@@ -221,6 +221,48 @@ test('incoming value "2026-06-14" populates month=6 (June), day=14', async () =>
   assert.equal(daySelect!.props.value, 14, 'Day should be 14');
 });
 
+// --- AA-50 regression: option labels must be legible on the dark theme ---
+// The native <option> children need an opaque dark background + explicit text
+// color, else Chrome paints them near-white on the translucent bg-white/5 and
+// Month/Day/Year read as invisible until a hover highlight restores contrast.
+
+test('AA-50: every select styles its <option> children with an opaque dark bg + white text', async () => {
+  const { act, create } = await import('react-test-renderer');
+
+  for (const invalid of [false, true]) {
+    let root!: import('react-test-renderer').ReactTestRenderer;
+    await act(async () => {
+      root = create(
+        React.createElement(MonthDayPicker, {
+          value: '',
+          onChange: () => {},
+          ariaLabel: 'Test date',
+          invalid,
+          // Force the year selector to render too, so all three selects are covered.
+          _today: new Date(`${new Date().getFullYear()}-12-15T12:00:00`),
+        }),
+      );
+      await flushMicrotasks();
+    });
+
+    const selects = root.root.findAllByType('select');
+    assert.ok(selects.length >= 2, 'expected Month/Day (and Year) selects');
+    for (const select of selects) {
+      const className = String(select.props.className);
+      assert.match(
+        className,
+        /\[&>option\]:bg-\[#050505\]/,
+        `select (invalid=${invalid}) must give options an opaque dark background`,
+      );
+      assert.match(
+        className,
+        /\[&>option\]:text-white/,
+        `select (invalid=${invalid}) must give options explicit white text`,
+      );
+    }
+  }
+});
+
 test('emitted date string zero-pads month and day ("2026-06-04" not "2026-6-4")', async () => {
   const { act, create } = await import('react-test-renderer');
 

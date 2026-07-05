@@ -225,10 +225,19 @@ export function nowIso(): string {
 }
 
 export function defaultPublishConfig(input: Partial<MarketingPublishConfig> = {}): MarketingPublishConfig {
+  // Defaults must reflect what the weekly pipeline actually does for a job
+  // created without an explicit publish config: generate image posts for
+  // Facebook + Instagram, and render NO video (video is opt-in via
+  // videoRenderCount / renderVideoAfterApproval). The old `tiktok` defaults
+  // surfaced a platform the tenant never chose plus a phantom "Video render:
+  // tiktok" and a planned-video count on the dashboard (AA-76).
+  // `live_publish_platforms` stays meta-ads only — it is read by the real FB/IG
+  // publish handlers, so its default is deliberately conservative to avoid any
+  // auto-publish surprise.
   return {
-    platforms: normalizePlatformList(input.platforms, ['meta-ads', 'tiktok']),
+    platforms: normalizePlatformList(input.platforms, ['meta-ads', 'instagram']),
     live_publish_platforms: normalizePlatformList(input.live_publish_platforms, ['meta-ads']),
-    video_render_platforms: normalizePlatformList(input.video_render_platforms, ['tiktok']),
+    video_render_platforms: normalizePlatformList(input.video_render_platforms, []),
   };
 }
 

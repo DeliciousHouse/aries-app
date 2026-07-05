@@ -42,10 +42,16 @@ function parseValue(value: string): { month: number; day: number; year: number }
   return { year, month, day };
 }
 
+// The <select> control is text-white, but the native <option> children must
+// also carry an opaque dark background + explicit text color — otherwise Chrome
+// paints the collapsed selected-value label and the option list near-white on
+// the translucent bg-white/5, so Month/Day/Year read as invisible until a hover
+// highlight restores contrast (AA-50). `[&>option]` styles them directly.
+const optionClassName = '[&>option]:bg-[#050505] [&>option]:text-white';
 const selectClassName =
-  'rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50';
+  `rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50 ${optionClassName}`;
 const selectInvalidClassName =
-  'rounded-2xl border border-red-500/50 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-red-500/70';
+  `rounded-2xl border border-red-500/50 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-red-500/70 ${optionClassName}`;
 
 export function MonthDayPicker({ value, onChange, ariaLabel, invalid, _today }: MonthDayPickerProps) {
   const today = _today ?? new Date();
