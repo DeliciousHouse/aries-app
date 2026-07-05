@@ -1142,7 +1142,12 @@ function PublishStatusSurface(props: {
               const lastFailure = publishFailures[item.id] ?? null;
               const isInstagram = item.platform === 'instagram';
               const isFacebook = item.platform === 'facebook';
-              const isPublishable = (isInstagram || isFacebook) && (item.status === 'ready_to_publish' || item.status === 'approved');
+              // Non-IG/FB platforms (x/reddit/linkedin) are auto-scheduled in v1:
+              // no manual publish button, and the "View on <network>" label must
+              // not hardcode Facebook/Instagram. They render as a labelled status
+              // row (platformLabel + status chip) only.
+              const isMeta = isInstagram || isFacebook;
+              const isPublishable = isMeta && (item.status === 'ready_to_publish' || item.status === 'approved');
 
               const itemBody = (
                 <div className="space-y-3">
@@ -1165,7 +1170,7 @@ function PublishStatusSurface(props: {
                       onClick={(e) => e.stopPropagation()}
                       className="inline-flex items-center gap-2 rounded-full border border-white/12 px-3 py-1.5 text-xs font-medium text-white/80 transition hover:border-white/20 hover:text-white"
                     >
-                      {isFacebook ? 'View on Facebook' : 'View on Instagram'}
+                      {isFacebook ? 'View on Facebook' : isInstagram ? 'View on Instagram' : `View on ${item.platformLabel}`}
                       <ArrowUpRight className="h-3 w-3" />
                     </a>
                   ) : isPublishable && isInstagram ? (

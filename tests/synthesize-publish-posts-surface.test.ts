@@ -275,3 +275,175 @@ test('content_package fallback (flag OFF): reel entry is stripped, only the feed
     assert.ok(inserts.some((p) => p[8] === 'feed'), 'feed image post still persists');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Weekly cross-post fan-out (producer side). When enabled, each FB/IG feed
+// image also produces x/linkedin/reddit rows with adapted captions; story/reel
+// entries never fan out; flag OFF is byte-identical.
+// ---------------------------------------------------------------------------
+
+// Fake pool that ALSO answers the connected_accounts crosspost query so the
+// resolver can return connected platforms. `connectedPlatforms` controls which
+// rows come back for that SELECT.
+function makeFakePoolWithCrosspost(connectedPlatforms: string[]) {
+  const inserts: unknown[][] = [];
+  return {
+    inserts,
+    pool: {
+      async query(sql: string, params: unknown[] = []) {
+        if (/INSERT INTO posts/i.test(sql)) {
+          inserts.push(params);
+          return { rows: [{ id: inserts.length }], rowCount: 1 };
+        }
+        if (/FROM creative_assets/i.test(sql)) {
+          return { rows: [{ id: 'uuid-1', source_asset_id: 'img_1' }, { id: 'uuid-2', source_asset_id: 'img_2' }], rowCount: 2 };
+        }
+        if (/FROM connected_accounts/i.test(sql)) {
+          // $2 is the flag-enabled platform allowlist; intersect with connected.
+          const allowlist = (params[1] as string[]) ?? [];
+          const rows = connectedPlatforms
+            .filter((p) => allowlist.includes(p))
+            .map((platform) => ({ platform }));
+          return { rows, rowCount: rows.length };
+        }
+        return { rows: [], rowCount: 0 };
+      },
+    },
+  };
+}
+
+const CROSSPOST_FLAGS = ['ARIES_WEEKLY_CROSSPOST_ENABLED', 'ARIES_X_ENABLED', 'ARIES_LINKEDIN_ENABLED', 'ARIES_REDDIT_ENABLED'] as const;
+
+function withCrosspostFlagsOn(fn: () => Promise<void>): () => Promise<void> {
+  return async () => {
+    const prev = CROSSPOST_FLAGS.map((k) => [k, process.env[k]] as const);
+    for (const k of CROSSPOST_FLAGS) process.env[k] = '1';
+    try {
+      await fn();
+    } finally {
+      for (const [k, v] of prev) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  };
+}
+
+// A feed-only content_package where post 1 targets instagram (feed image).
+function makeDocFeed(jobId: string): SocialContentJobRuntimeDocument {
+  return {
+    schema_name: 'marketing_job_state_schema', schema_version: '1.0.0', job_id: jobId,
+    tenant_id: '15', job_type: 'weekly_social_content', state: 'completed', status: 'completed',
+    current_stage: 'publish',
+    stages: {
+      research: stage('research', null),
+      strategy: stage('strategy', null),
+      production: stage('production', {
+        stage: 'production',
+        content_package: [
+          { post_number: 1, hook: 'Big news today.', body: 'The full body copy here.', cta: 'Shop now.', hashtags: ['#one', '#two', '#three'], platforms: ['instagram'] },
+        ],
+      }),
+      publish: stage('publish', {
+        stage: 'publish',
+        schedule: [{ post_number: 1, platforms: ['instagram'], placement: 'feed', media_type: 'image' }],
+      }),
+    },
+    approvals: { current: null, history: [] },
+    publish_config: { platforms: [], live_publish_platforms: [], video_render_platforms: [] },
+    brand_kit: null, inputs: { request: {}, brand_url: 'https://example.com' },
+    history: [], errors: [], last_error: null,
+  } as unknown as SocialContentJobRuntimeDocument;
+}
+
+test('crosspost ON: a feed image fans out x/linkedin/reddit rows with adapted captions + :feed keys', withCrosspostFlagsOn(async () => {
+  await withDataRoot(async () => {
+    delete process.env.ARIES_VIDEO_PUBLISH_ENABLED;
+    const { pool, inserts } = makeFakePoolWithCrosspost(['x', 'linkedin', 'reddit']);
+    await synthesizePublishPostsFromContentPackage({
+      jobId: 'job_xp', tenantId: 15, doc: makeDocFeed('job_xp'), publishRunId: null, pool,
+    });
+    // 1 IG feed row + 3 crosspost rows.
+    assert.equal(inserts.length, 4);
+    const byPlatform = new Map(inserts.map((p) => [p[3] as string, p]));
+    assert.ok(byPlatform.has('instagram'), 'IG feed row exists');
+    for (const platform of ['x', 'linkedin', 'reddit']) {
+      const row = byPlatform.get(platform);
+      assert.ok(row, `${platform} crosspost row exists`);
+      assert.equal(row![5], `job_xp:1:${platform}:feed`, `${platform} 4-segment :feed idempotency key`);
+      assert.equal(row![8], 'feed', `${platform} surface feed`);
+      assert.equal(row![7], 'image', `${platform} media_type image`);
+      assert.deepEqual(row![6], ['img_1'], `${platform} reuses the same feed image`);
+    }
+    // X caption is adapted (hook + up to 2 hashtags), distinct from the IG caption.
+    assert.equal(byPlatform.get('x')![5 - 0], 'job_xp:1:x:feed');
+    assert.ok((byPlatform.get('x')![4] as string).includes('Big news today.'), 'x caption keeps the hook');
+    assert.ok((byPlatform.get('x')![4] as string).includes('#one'), 'x caption keeps a hashtag');
+    // Reddit caption serializes a clean first-line title.
+    assert.equal((byPlatform.get('reddit')![4] as string).split('\n')[0], 'Big news today.');
+  });
+}));
+
+test('crosspost ON but only reddit connected: only the reddit row is added', withCrosspostFlagsOn(async () => {
+  await withDataRoot(async () => {
+    delete process.env.ARIES_VIDEO_PUBLISH_ENABLED;
+    const { pool, inserts } = makeFakePoolWithCrosspost(['reddit']);
+    await synthesizePublishPostsFromContentPackage({
+      jobId: 'job_xp1', tenantId: 15, doc: makeDocFeed('job_xp1'), publishRunId: null, pool,
+    });
+    // 1 IG feed + 1 reddit crosspost.
+    assert.equal(inserts.length, 2);
+    const platforms = inserts.map((p) => p[3]);
+    assert.deepEqual(platforms.sort(), ['instagram', 'reddit']);
+  });
+}));
+
+test('crosspost ON: story/reel entries produce NO crosspost rows', withCrosspostFlagsOn(async () => {
+  await withDataRoot(async () => {
+    process.env.ARIES_VIDEO_PUBLISH_ENABLED = '1';
+    const { pool, inserts } = makeFakePoolWithCrosspost(['x', 'linkedin', 'reddit']);
+    try {
+      // makeDocCpPlacement: post 2 is a reel (video). Post 1 is feed image.
+      await synthesizePublishPostsFromContentPackage({
+        jobId: 'job_xp_reel', tenantId: 15, doc: makeDocCpPlacement('job_xp_reel'), publishRunId: null, pool,
+      });
+    } finally {
+      delete process.env.ARIES_VIDEO_PUBLISH_ENABLED;
+    }
+    // Crosspost rows only for the feed image (post 1), never the reel (post 2).
+    const crosspostRows = inserts.filter((p) => ['x', 'linkedin', 'reddit'].includes(p[3] as string));
+    assert.ok(crosspostRows.length > 0, 'feed image fans out');
+    assert.ok(crosspostRows.every((p) => p[5]?.toString().startsWith('job_xp_reel:1:')), 'only post 1 (feed image) fans out, never the reel post 2');
+    assert.ok(crosspostRows.every((p) => p[8] === 'feed'), 'all crosspost rows are feed surface');
+  });
+}));
+
+test('crosspost OFF (flag unset): synthesis is byte-identical — FB/IG rows only (golden)', async () => {
+  await withDataRoot(async () => {
+    delete process.env.ARIES_VIDEO_PUBLISH_ENABLED;
+    // Even with per-platform flags on + accounts connected, the master flag OFF
+    // means no fan-out and no connected_accounts query.
+    for (const k of ['ARIES_X_ENABLED', 'ARIES_LINKEDIN_ENABLED', 'ARIES_REDDIT_ENABLED']) process.env[k] = '1';
+    delete process.env.ARIES_WEEKLY_CROSSPOST_ENABLED;
+    let connectedAccountsQueried = false;
+    const inserts: unknown[][] = [];
+    const pool = {
+      async query(sql: string, params: unknown[] = []) {
+        if (/FROM connected_accounts/i.test(sql)) connectedAccountsQueried = true;
+        if (/INSERT INTO posts/i.test(sql)) { inserts.push(params); return { rows: [{ id: inserts.length }], rowCount: 1 }; }
+        if (/FROM creative_assets/i.test(sql)) return { rows: [{ id: 'uuid-1', source_asset_id: 'img_1' }], rowCount: 1 };
+        return { rows: [], rowCount: 0 };
+      },
+    };
+    try {
+      await synthesizePublishPostsFromContentPackage({
+        jobId: 'job_xp_off', tenantId: 15, doc: makeDocFeed('job_xp_off'), publishRunId: null, pool,
+      });
+    } finally {
+      for (const k of ['ARIES_X_ENABLED', 'ARIES_LINKEDIN_ENABLED', 'ARIES_REDDIT_ENABLED']) delete process.env[k];
+    }
+    assert.equal(inserts.length, 1, 'only the IG feed row — no crosspost fan-out');
+    assert.equal(inserts[0][3], 'instagram');
+    assert.equal(connectedAccountsQueried, false, 'no connected_accounts query when the master flag is OFF');
+  });
+});
