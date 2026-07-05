@@ -324,7 +324,11 @@ export default function AriesPostWorkspace(props: { postId: string; initialView?
         throw new Error(payload.error || 'Failed to save review decision.');
       }
       setNotesByReviewId((current) => ({ ...current, [reviewId]: '' }));
-      await job.load(props.postId, { quiet: false });
+      // Quiet refetch: reconcile to server truth WITHOUT flipping job.isLoading,
+      // which would trip the top-level "Loading post…" gate and blank the entire
+      // workspace on every Authorize/Reject. Per-item feedback already comes from
+      // busyByReviewId, so this updates the review in place (AA-73).
+      await job.load(props.postId, { quiet: true });
     } catch (error) {
       window.alert(
         customerSafeActionErrorMessage(
@@ -354,7 +358,10 @@ export default function AriesPostWorkspace(props: { postId: string; initialView?
         );
       }
 
-      await job.load(props.postId, { quiet: false });
+      // Quiet refetch (same rationale as the review-decision path, AA-73): the
+      // BrandBriefCard already surfaces its own `saving` state, so update the
+      // brief in place instead of blanking the workspace via the loading gate.
+      await job.load(props.postId, { quiet: true });
     } finally {
       setBriefSaving(false);
     }
@@ -1430,7 +1437,11 @@ function RuntimeStatusSurface(props: {
             <div className="grid gap-1 text-sm text-white/70">
               <span>Platforms: {status.publishConfig.platforms.join(', ') || 'none selected'}</span>
               <span>Live draft publish: {status.publishConfig.livePublishPlatforms.join(', ') || 'not requested'}</span>
-              <span>Video render: {status.publishConfig.videoRenderPlatforms.join(', ') || 'not requested'}</span>
+              {/* Only surface video when it was actually requested — else the panel
+                  reads as if a (never-produced) video is planned (AA-76). */}
+              {status.publishConfig.videoRenderPlatforms.length > 0 ? (
+                <span>Video render: {status.publishConfig.videoRenderPlatforms.join(', ')}</span>
+              ) : null}
             </div>
           </div>
         ) : null}
