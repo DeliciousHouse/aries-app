@@ -5,7 +5,7 @@
  * All queries are sequential (DB_POOL_MAX guardrail — no Promise.all on DB calls).
  *
  * Activity strip:
- *   - postsPublished   — Aries-generated posts published in the period
+ *   - postsPublished   — all posts published on connected channels in the period
  *   - commentsReceived — comments received on those posts
  *   - highPerformers   — posts that hit ≥2x the period average reach (same
  *                        baseline logic as the Section 3 opportunity card)
@@ -73,7 +73,6 @@ export async function buildActivitySnapshot(
   try {
 
     // ── Posts published + platform count ─────────────────────────────────────
-    // Only Aries-generated posts (aries_post_id IS NOT NULL).
     const postsRes = await client.query<{
       post_count:     string;
       platform_count: string;
@@ -86,7 +85,6 @@ export async function buildActivitySnapshot(
        FROM insights_posts
        WHERE tenant_id      = $1
          AND published_at   >= $2
-         AND aries_post_id  IS NOT NULL
          AND ($3::text IS NULL OR platform = $3)`,
       [tenantId, fromDate, platformFilter],
     );
@@ -104,7 +102,6 @@ export async function buildActivitySnapshot(
        JOIN insights_posts p ON p.id = c.post_id
        WHERE c.tenant_id     = $1
          AND c.received_at   >= $2
-         AND p.aries_post_id IS NOT NULL
          AND ($3::text IS NULL OR c.platform = $3)`,
       [tenantId, fromDate, platformFilter],
     );
@@ -128,7 +125,6 @@ export async function buildActivitySnapshot(
                   ON m.post_id = p.id AND m.tenant_id = p.tenant_id
            WHERE p.tenant_id    = $1
              AND p.published_at >= $2
-             AND p.aries_post_id IS NOT NULL
              AND ($3::text IS NULL OR p.platform = $3)
            GROUP BY p.id
          ),
@@ -155,7 +151,6 @@ export async function buildActivitySnapshot(
        FROM insights_posts
        WHERE tenant_id     = $1
          AND published_at  >= $2
-         AND aries_post_id IS NOT NULL
          AND ($3::text IS NULL OR platform = $3)
        GROUP BY COALESCE(content_type, 'uncategorized')
        ORDER BY cnt DESC`,
@@ -173,13 +168,12 @@ export async function buildActivitySnapshot(
       };
     });
 
-    // How many Aries posts are still awaiting classification
+    // How many posts are still awaiting content-type classification
     const pendingRes = await client.query<{ count: string }>(
       `SELECT COUNT(*) AS count
        FROM insights_posts
        WHERE tenant_id     = $1
          AND published_at  >= $2
-         AND aries_post_id IS NOT NULL
          AND content_type  IS NULL
          AND ($3::text IS NULL OR platform = $3)`,
       [tenantId, fromDate, platformFilter],
