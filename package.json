@@ -68,7 +68,7 @@
     "pg": "^8.22.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "recharts": "^3.9.0",
+    "recharts": "^3.9.2",
     "resend": "^6.16.0",
     "sharp": "^0.35.3",
     "tailwind-merge": "^3.6.0",
