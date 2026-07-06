@@ -107,6 +107,29 @@ export const PLATFORM_POSTING_DEFAULTS = {
     story: { hour: 10, minute: 0, staggerMinutes: 5 },
     reel: { hour: 14, minute: 0, staggerMinutes: 5 },
   },
+  // Weekly cross-post targets (ARIES_WEEKLY_CROSSPOST_ENABLED). Without posting
+  // defaults here, computeAutoScheduleSlots skips these platforms as
+  // `unsupported_platform`, so synthesized x/linkedin/reddit rows are never
+  // scheduled and never publish. They fan out the FEED image only; the
+  // story/reel slots exist to satisfy the surface map (never hit for
+  // crossposts). Distinct hours so a post crossposted to every platform does
+  // not land minute-for-minute across all of them. Actual publishing stays
+  // gated by ARIES_<PLATFORM>_ENABLED at the scheduled-dispatch admission gate.
+  linkedin: {
+    feed: { hour: 9, minute: 30, staggerMinutes: 10 },
+    story: { hour: 8, minute: 30, staggerMinutes: 10 },
+    reel: { hour: 10, minute: 30, staggerMinutes: 10 },
+  },
+  x: {
+    feed: { hour: 12, minute: 30, staggerMinutes: 15 },
+    story: { hour: 9, minute: 30, staggerMinutes: 15 },
+    reel: { hour: 13, minute: 30, staggerMinutes: 15 },
+  },
+  reddit: {
+    feed: { hour: 14, minute: 30, staggerMinutes: 20 },
+    story: { hour: 11, minute: 30, staggerMinutes: 20 },
+    reel: { hour: 15, minute: 30, staggerMinutes: 20 },
+  },
 } as const satisfies Record<string, Record<'feed' | 'story' | 'reel', SurfaceSlotDefault>>;
 
 export type AutoSchedulePlatform = keyof typeof PLATFORM_POSTING_DEFAULTS;

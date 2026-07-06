@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   PLATFORM_POSTING_DEFAULTS,
   computeAutoScheduleSlots,
+  computeDefaultCadenceSlots,
   autoSchedulePosts,
   type AutoScheduleInputRow,
 } from '../backend/marketing/auto-schedule';
@@ -43,6 +44,46 @@ test('PLATFORM_POSTING_DEFAULTS pins Instagram 11:00 and Facebook 13:05 tenant-l
   // burst posting flagged by Meta's spam heuristics. Effective time = 13:05.
   assert.equal(PLATFORM_POSTING_DEFAULTS.facebook.feed.staggerMinutes, 5);
 });
+
+// --- Cross-post delivery regression -------------------------------------------
+// Weekly cross-post (ARIES_WEEKLY_CROSSPOST_ENABLED) synthesizes x/linkedin/
+// reddit `posts` rows, but the scheduler had posting defaults for FB/IG only —
+// so those rows were dropped as `unsupported_platform` and NEVER published
+// (found by live verification). Both scheduling paths (weekly-schedule and the
+// default-cadence path one-off campaigns use) must now schedule them.
+
+for (const platform of ['x', 'linkedin', 'reddit'] as const) {
+  test(`crosspost: ${platform} has a feed posting default`, () => {
+    assert.ok(PLATFORM_POSTING_DEFAULTS[platform]?.feed, `${platform} needs a feed window`);
+    assert.equal(typeof PLATFORM_POSTING_DEFAULTS[platform].feed.hour, 'number');
+  });
+
+  test(`crosspost: computeAutoScheduleSlots schedules a ${platform} row (not unsupported_platform)`, () => {
+    const result = computeAutoScheduleSlots({
+      rows: rowsForPlatform(1, platform, 'Monday'),
+      tenantTimezone: TZ_NY,
+      campaignStart: CAMPAIGN_START,
+      campaignEnd: CAMPAIGN_END,
+      now: NOW,
+    });
+    assert.equal(result.skipped.length, 0, `skipped: ${JSON.stringify(result.skipped)}`);
+    assert.equal(result.slots.length, 1);
+    assert.equal(result.slots[0].platform, platform);
+  });
+
+  test(`crosspost: computeDefaultCadenceSlots (one-off path) schedules a ${platform} row`, () => {
+    const result = computeDefaultCadenceSlots({
+      rows: [{ postId: 1, platform, ordinal: 1 }],
+      tenantTimezone: TZ_NY,
+      campaignStart: CAMPAIGN_START,
+      campaignEnd: CAMPAIGN_END,
+      now: NOW,
+    });
+    assert.equal(result.skipped.length, 0, `skipped: ${JSON.stringify(result.skipped)}`);
+    assert.equal(result.slots.length, 1);
+    assert.equal(result.slots[0].platform, platform);
+  });
+}
 
 // --- Per-platform timing ------------------------------------------------------
 
@@ -237,7 +278,10 @@ test('Closed-or-empty campaign window returns all rows as skipped', () => {
 test('Unsupported platform is skipped with a typed reason, NOT silently dropped', () => {
   const result = computeAutoScheduleSlots({
     rows: [
-      { postId: 1, platform: 'linkedin', recommendedDay: 'Monday' },
+      // pinterest is not an Aries publish target (no posting defaults) — a truly
+      // unsupported platform. (linkedin/x/reddit are now supported crosspost
+      // targets and would schedule.)
+      { postId: 1, platform: 'pinterest', recommendedDay: 'Monday' },
       { postId: 2, platform: 'instagram', recommendedDay: 'Monday' },
     ],
     tenantTimezone: TZ_NY,
@@ -247,7 +291,7 @@ test('Unsupported platform is skipped with a typed reason, NOT silently dropped'
   });
   assert.equal(result.slots.length, 1, 'instagram must still schedule');
   assert.equal(result.skipped.length, 1);
-  assert.match(result.skipped[0]!.reason, /^unsupported_platform:linkedin$/);
+  assert.match(result.skipped[0]!.reason, /^unsupported_platform:pinterest$/);
 });
 
 // --- DB writer (in-memory queryable stub) ------------------------------------
