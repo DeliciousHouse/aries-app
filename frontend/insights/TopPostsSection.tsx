@@ -337,7 +337,7 @@ export function TopPostsSection({ period, platform }: TopPostsSectionProps) {
     <section>
       {/* Header row: title on the left, sort select on the right */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
-        <SectionHeader title="Top Aries-published content" />
+        <SectionHeader title="Top performing content" />
         <select
           value={sort}
           onChange={(e) => setSort(e.target.value as SortKey)}
@@ -367,7 +367,7 @@ export function TopPostsSection({ period, platform }: TopPostsSectionProps) {
         ) : error ? (
           <ErrorState message={error} onRetry={refetch} />
         ) : empty || !data ? (
-          <EmptyState message="No Aries-published posts in this period." />
+          <EmptyState message="No published posts in this period." />
         ) : (
           <>
             <div
@@ -389,7 +389,7 @@ export function TopPostsSection({ period, platform }: TopPostsSectionProps) {
                     marginBottom:  6,
                   }}
                 >
-                  Your top 5 Aries-published posts
+                  Your top 5 posts
                 </div>
                 <div style={{ display: "flex", flexDirection: "column" }}>
                   {data.posts.map((post, i) => (

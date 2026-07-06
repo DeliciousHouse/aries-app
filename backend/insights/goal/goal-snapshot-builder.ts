@@ -58,6 +58,30 @@ function categoryLabel(contentType: string): string {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
+// `business_profiles.primary_goal` is a FREE-FORM string (set at onboarding /
+// written by Hermes brand-enrichment as natural language like "Generate more
+// leads"), NOT one of the four canonical GoalType keys. A blind
+// `rawGoal as GoalType` therefore produced an unmapped goal → empty goalLabel,
+// empty metricLabel and an empty Aries narrative, while the metric silently fell
+// through to brand awareness. Normalise any stored vocabulary to a canonical
+// goal by keyword, defaulting to brand_awareness (the most universal metric) so
+// the label + narrative are never blank.
+function normalizeGoal(raw: string): GoalType {
+  const s = raw.trim().toLowerCase();
+  if (!s) return 'brand_awareness';
+  // Exact canonical match wins.
+  if (s === 'lead_generation') return 'lead_generation';
+  if (s === 'content_growth')  return 'content_growth';
+  if (s === 'product_sales')   return 'product_sales';
+  if (s === 'brand_awareness') return 'brand_awareness';
+  // Keyword match on free-form text (most specific intent first).
+  if (/\blead|inquir|enquir|contact|sign[- ]?up|booking|appointment\b/.test(s)) return 'lead_generation';
+  if (/\bsale|sell|revenue|purchase|buy|checkout|conversion|order|product|shop|ecommerce\b/.test(s)) return 'product_sales';
+  if (/\bfollow|grow|audience|subscriber|community|reach more|build.*following\b/.test(s)) return 'content_growth';
+  if (/\baware|reach|visib|impression|discover|exposure|brand\b/.test(s)) return 'brand_awareness';
+  return 'brand_awareness';
+}
+
 function goalLabel(goal: GoalType): string {
   const labels: Record<GoalType, string> = {
     lead_generation: 'Lead Generation',
@@ -391,7 +415,7 @@ export async function buildGoalSnapshot(
     const rawGoal = profileRes.rows[0]?.primary_goal ?? null;
     if (!rawGoal) return null;
 
-    const goal = rawGoal as GoalType;
+    const goal = normalizeGoal(rawGoal);
 
     // Fetch metric for current + previous period
     let current: number;

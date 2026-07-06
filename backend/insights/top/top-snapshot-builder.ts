@@ -134,7 +134,6 @@ export async function buildTopSnapshot(
                 ON m.post_id = p.id AND m.tenant_id = p.tenant_id
          WHERE p.tenant_id     = $1
            AND p.published_at  >= $2
-           AND p.aries_post_id IS NOT NULL
            AND ($3::text IS NULL OR p.platform = $3)
          GROUP BY p.id
        )
@@ -184,7 +183,6 @@ export async function buildTopSnapshot(
                 ON m.post_id = p.id AND m.tenant_id = p.tenant_id
          WHERE p.tenant_id     = $1
            AND p.published_at  >= $2
-           AND p.aries_post_id IS NOT NULL
            AND ($3::text IS NULL OR p.platform = $3)
          GROUP BY p.id, p.platform, p.title, p.caption, p.permalink,
                   p.published_at, p.content_type, p.media_type, p.platform_data

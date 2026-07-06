@@ -20,7 +20,7 @@ import { buildActivitySnapshot } from './activity-snapshot-builder';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 import crypto from 'crypto';
 
-const TEMPLATE_VERSION = 'activity-v2';
+const TEMPLATE_VERSION = 'activity-v3';
 const CACHE_TTL_MS     = 60 * 60 * 1000; // 1 hour
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);

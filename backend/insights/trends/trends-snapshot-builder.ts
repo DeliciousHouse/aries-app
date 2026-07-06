@@ -134,6 +134,19 @@ function fillSeries(
   return buckets.map(b => map.get(b.key) ?? 0);
 }
 
+// node-pg returns a `::date` column as a JS Date pinned to LOCAL midnight (not a
+// string). Comparing that to a 'YYYY-MM-DD' string coerces to NaN, and using it
+// as a Map key never matches buildBuckets()'s keys. Normalise to 'YYYY-MM-DD'
+// from the LOCAL components — toISOString() would shift the date across the UTC
+// boundary (a UTC-5 host turns 04-27 into 04-26).
+function normalizeBucketKey(bucket: string | Date): string {
+  if (typeof bucket === 'string') return bucket.slice(0, 10);
+  const d = bucket as Date;
+  const m   = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
 // ── Main builder ──────────────────────────────────────────────────────────────
 
 export async function buildTrendsSnapshot(
@@ -176,9 +189,15 @@ export async function buildTrendsSnapshot(
          SUM(COALESCE(followers_delta, 0))                                  AS followers,
          SUM(COALESCE(profile_visits, 0))                                   AS visits,
          SUM(COALESCE(comments_count, 0))                                   AS comments,
+         -- Prefer the authoritative aggregate engagement column (Facebook's
+         -- page_post_engagements); fall back to the like/comment/save/share sum
+         -- for platforms that report those instead. Mirrors read-api.ts — the
+         -- per-column values are 0 for Facebook, so summing them alone yielded a
+         -- 0% engagement rate despite real engagement.
          SUM(
-           COALESCE(likes,0) + COALESCE(comments_count,0) +
-           COALESCE(saves,0) + COALESCE(shares,0)
+           COALESCE(engagement,
+                    COALESCE(likes,0) + COALESCE(comments_count,0) +
+                    COALESCE(saves,0) + COALESCE(shares,0))
          )                                                                   AS interactions,
          SUM(COALESCE(reach, views, 0))                                     AS base_reach
        FROM insights_account_metrics_daily
@@ -198,21 +217,7 @@ export async function buildTrendsSnapshot(
     const currentStartStr = currentStart.toISOString().slice(0, 10);
 
     for (const row of acctRes.rows) {
-      // node-pg returns a `::date` column as a JS Date object pinned to LOCAL
-      // midnight (not a string). Two bugs followed: comparing that Date to the
-      // `currentStartStr` string coerces to NaN (always false), and using it as
-      // a Map key never matches buildBuckets()'s 'YYYY-MM-DD' keys — so every
-      // bucket was routed into the prior period and the current series stayed
-      // empty (reach headline 0 despite real data). Normalise to a 'YYYY-MM-DD'
-      // string from the LOCAL components — toISOString() would shift the date
-      // across the UTC boundary (e.g. a UTC-5 host turns 04-27 into 04-26).
-      const bucketKey = ((): string => {
-        if (typeof row.bucket === 'string') return row.bucket.slice(0, 10);
-        const d = row.bucket as unknown as Date;
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        return `${d.getFullYear()}-${m}-${day}`;
-      })();
+      const bucketKey = normalizeBucketKey(row.bucket);
       const isCurrent = bucketKey >= currentStartStr;
       const m = isCurrent ? curMap : priMap;
       m.reach.set(bucketKey,        Number(row.reach));
@@ -221,6 +226,31 @@ export async function buildTrendsSnapshot(
       m.comments.set(bucketKey,     Number(row.comments));
       m.interactions.set(bucketKey, Number(row.interactions));
       m.baseReach.set(bucketKey,    Number(row.reach));
+    }
+
+    // ── 1b. Comments series — from insights_comments (the real per-comment rows) ─
+    // NOT insights_account_metrics_daily.comments_count, which Facebook reports as
+    // 0 (page-level insights expose no daily comment count). Sourcing the Comments
+    // trend from the account column left it empty despite unreplied comments
+    // existing — so read the actual comment rows, bucketed by received_at.
+    const commentBucketExpr = weekly
+      ? `DATE_TRUNC('week', received_at AT TIME ZONE 'UTC')::date`
+      : `(received_at AT TIME ZONE 'UTC')::date`;
+    const commentsSeriesRes = await client.query<{ bucket: string; comments: string }>(
+      `SELECT ${commentBucketExpr} AS bucket, COUNT(*) AS comments
+         FROM insights_comments
+        WHERE tenant_id    = $1
+          AND received_at >= $2
+          AND received_at <  $3
+          AND ($4::text IS NULL OR platform = $4)
+        GROUP BY ${commentBucketExpr}`,
+      [tenantId, priorStart, currentEnd, platformFilter],
+    );
+    const curCommentsMap = new Map<string, number>();
+    const priCommentsMap = new Map<string, number>();
+    for (const row of commentsSeriesRes.rows) {
+      const key = normalizeBucketKey(row.bucket);
+      (key >= currentStartStr ? curCommentsMap : priCommentsMap).set(key, Number(row.comments));
     }
 
     // Build per-bucket engagement rate: interactions / reach * 100
@@ -248,8 +278,8 @@ export async function buildTrendsSnapshot(
     const priFollow   = sumPri(priMap.followers);
     const curVisits   = sumCur(curMap.visits);
     const priVisits   = sumPri(priMap.visits);
-    const curComments = sumCur(curMap.comments);
-    const priComments = sumPri(priMap.comments);
+    const curComments = sumCur(curCommentsMap);
+    const priComments = sumPri(priCommentsMap);
 
     const curIntTotal = sumCur(curMap.interactions);
     const priIntTotal = sumPri(priMap.interactions);
@@ -257,8 +287,14 @@ export async function buildTrendsSnapshot(
     const priEngRate  = priReach > 0 ? Math.round((priIntTotal / priReach) * 1000) / 10 : 0;
 
     const pctDelta = (cur: number, pri: number): number | null => {
-      if (pri === 0) return null;
-      return Math.round(((cur - pri) / pri) * 100);
+      // No meaningful comparison without a real prior baseline — a freshly
+      // connected account has ~no data in the prior window. Also suppress the
+      // absurd magnitudes a near-zero baseline produces (e.g. 1 → 33 = +3200%),
+      // which read as broken; the template then falls back to the absolute value.
+      if (pri <= 0) return null;
+      const d = ((cur - pri) / pri) * 100;
+      if (!Number.isFinite(d) || Math.abs(d) > 999) return null;
+      return Math.round(d);
     };
 
     // Visits available if any profile_visits data exists for this selection
@@ -280,7 +316,7 @@ export async function buildTrendsSnapshot(
          SUM(COALESCE(followers_delta,0)) AS followers,
          SUM(COALESCE(profile_visits,0))  AS visits,
          SUM(COALESCE(comments_count,0))  AS comments,
-         SUM(COALESCE(likes,0)+COALESCE(comments_count,0)+COALESCE(saves,0)+COALESCE(shares,0)) AS interactions,
+         SUM(COALESCE(engagement, COALESCE(likes,0)+COALESCE(comments_count,0)+COALESCE(saves,0)+COALESCE(shares,0))) AS interactions,
          SUM(COALESCE(reach, views, 0))   AS base_reach
        FROM insights_account_metrics_daily
        WHERE tenant_id = $1
@@ -304,11 +340,31 @@ export async function buildTrendsSnapshot(
       }));
     }
 
+    // Per-platform comment counts from insights_comments (same reason as the
+    // comments series: the account column is 0 for Facebook). Powers the
+    // "Where comments came from" breakdown.
+    const commentsByPlatformRes = await client.query<{ platform: string; comments: string }>(
+      `SELECT platform, COUNT(*) AS comments
+         FROM insights_comments
+        WHERE tenant_id    = $1
+          AND received_at >= $2
+          AND received_at <  $3
+          AND ($4::text IS NULL OR platform = $4)
+        GROUP BY platform
+        ORDER BY comments DESC`,
+      [tenantId, currentStart, currentEnd, platformFilter],
+    );
+    const commentSlices: PlatformSlice[] = (() => {
+      const vals = commentsByPlatformRes.rows.map(r => ({ platform: r.platform, value: Number(r.comments) }));
+      const total = vals.reduce((s, v) => s + v.value, 0);
+      return vals.map(v => ({ ...v, pct: total > 0 ? Math.round((v.value / total) * 1000) / 10 : 0 }));
+    })();
+
     const breakdown = {
       reach:      toSlices(platRes.rows, r => Number(r.reach)),
       followers:  toSlices(platRes.rows, r => Number(r.followers)),
       visits:     visitsAvailable ? toSlices(platRes.rows, r => Number(r.visits)) : null,
-      comments:   toSlices(platRes.rows, r => Number(r.comments)),
+      comments:   commentSlices,
       engagement: toSlices(platRes.rows, r => {
         const int = Number(r.interactions);
         const rch = Number(r.base_reach);
@@ -322,7 +378,6 @@ export async function buildTrendsSnapshot(
        FROM insights_posts
        WHERE tenant_id     = $1
          AND published_at  >= $2
-         AND aries_post_id IS NOT NULL
          AND ($3::text IS NULL OR platform = $3)`,
       [tenantId, currentStart, platformFilter],
     );
@@ -371,7 +426,6 @@ export async function buildTrendsSnapshot(
               ON m.post_id = p.id AND m.tenant_id = p.tenant_id
        WHERE p.tenant_id     = $1
          AND p.published_at  >= $2
-         AND p.aries_post_id IS NOT NULL
          AND ($3::text IS NULL OR p.platform = $3)
        GROUP BY p.id, p.title
        ORDER BY SUM(COALESCE(m.reach, m.views, 0)) DESC
@@ -387,7 +441,7 @@ export async function buildTrendsSnapshot(
       const baselineStart = utcDayStart(90);
       const blRes = await client.query<{ interactions: string; base_reach: string }>(
         `SELECT
-           SUM(COALESCE(likes,0)+COALESCE(comments_count,0)+COALESCE(saves,0)+COALESCE(shares,0)) AS interactions,
+           SUM(COALESCE(engagement, COALESCE(likes,0)+COALESCE(comments_count,0)+COALESCE(saves,0)+COALESCE(shares,0))) AS interactions,
            SUM(COALESCE(reach, views, 0)) AS base_reach
          FROM insights_account_metrics_daily
          WHERE tenant_id = $1
@@ -450,8 +504,8 @@ export async function buildTrendsSnapshot(
           labels,
         },
         comments: {
-          current: fillSeries(currentBuckets, curMap.comments),
-          prior:   fillSeries(priorBuckets,   priMap.comments),
+          current: fillSeries(currentBuckets, curCommentsMap),
+          prior:   fillSeries(priorBuckets,   priCommentsMap),
           labels,
         },
         visits: visitsAvailable ? {
