@@ -16,7 +16,6 @@
 import { NextResponse } from 'next/server';
 import pool, { type PoolClient } from '@/lib/db';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
-import { oauthStatusAsync } from '@/backend/integrations/status';
 import { isSupportedPlatform } from '@/backend/insights/platforms/registry';
 import { buildNarrativeSnapshot, type NarrativePeriod } from './snapshot-builder';
 import { buildNarrativeText } from './template-builder';
@@ -34,9 +33,25 @@ function isValidPeriod(p: string | null): p is NarrativePeriod {
 
 async function isPlatformConnected(platform: string, tenantId: string): Promise<boolean> {
   try {
-    const status = await oauthStatusAsync(platform, tenantId);
-    if ('broker_status' in status) return false;
-    return status.connection_status === 'connected';
+    // A platform counts as "connected" for the hero when EITHER there is a live
+    // connection for it (connected_accounts, the Composio source of truth) OR we
+    // already hold synced insights data for it (account metrics / posts — the
+    // very tables the other sections render from). Gating this way — rather than
+    // on the legacy oauthStatusAsync, which is blind to Composio connections —
+    // guarantees the hero can never show "connect <platform>" while the rest of
+    // the dashboard is showing that platform's real metrics.
+    const res = await pool.query<{ connected: boolean }>(
+      `SELECT (
+         EXISTS(SELECT 1 FROM connected_accounts
+                 WHERE tenant_id = $1 AND platform = $2 AND status = 'connected')
+         OR EXISTS(SELECT 1 FROM insights_account_metrics_daily
+                    WHERE tenant_id = $1 AND platform = $2)
+         OR EXISTS(SELECT 1 FROM insights_posts
+                    WHERE tenant_id = $1 AND platform = $2)
+       ) AS connected`,
+      [Number(tenantId), platform],
+    );
+    return res.rows[0]?.connected === true;
   } catch {
     return false;
   }
