@@ -20,7 +20,10 @@ import { buildGoalText } from './goal-template-builder';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 import crypto from 'crypto';
 
-const TEMPLATE_VERSION = 'goal-template-v2';
+// v3: normalize free-form primary_goal → canonical GoalType, so the goal label
+// and Aries narrative are no longer blank when onboarding stored natural-language
+// goal text. Bump invalidates stale v2 rows that cached the empty label.
+const TEMPLATE_VERSION = 'goal-template-v3';
 const CACHE_TTL_MS     = 60 * 60 * 1000;
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);
