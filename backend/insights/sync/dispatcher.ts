@@ -28,6 +28,7 @@
 import pool from '@/lib/db';
 import { isSupportedPlatform, type Platform } from '../platforms/registry';
 import { getAdapter } from './adapter-factory';
+import { classifyCommentsWithHermes, isCommentClassificationEnabled, MAX_CLASSIFY_BATCH } from './classify-comments';
 import type { DateRange, InsightsAdapter, InsightsAdapterContext } from '../adapters/_adapter.types';
 import type { SyncTrigger, SyncStatus } from '../types';
 import { getConnectionRow } from '@/backend/integrations/composio/connection-store';
@@ -348,6 +349,53 @@ export async function syncAccountForTenant(
         legErrors.push(
           `fetchComments(${post.external_post_id}): ${err instanceof Error ? err.message : String(err)}`,
         );
+      }
+    }
+
+    // ── 6b. Classify newly-seen comments (sentiment / lead / category) ──────
+    // Best-effort + gated. A batch of unclassified comments for this account is
+    // sent to a raw Hermes run; results land in insights_comment_classifications
+    // (which powers Conversations sentiment/lead-quality + the goal lead count).
+    // Bounded to one batch per account per tick, so it converges over ticks
+    // without extending the tick unboundedly. A failure is isolated to legErrors.
+    if (isCommentClassificationEnabled(process.env)) {
+      try {
+        const unclassified = await client.query<{ id: number; body_text: string }>(
+          `SELECT c.id, c.body_text
+             FROM insights_comments c
+             JOIN insights_posts p
+               ON p.id = c.post_id AND p.tenant_id = c.tenant_id
+             LEFT JOIN insights_comment_classifications cl ON cl.comment_id = c.id
+            WHERE c.tenant_id  = $1
+              AND p.account_id = $2
+              AND cl.comment_id IS NULL
+              AND c.received_at > now() - INTERVAL '30 days'
+            ORDER BY c.received_at DESC
+            LIMIT $3`,
+          [tenantId, accountId, MAX_CLASSIFY_BATCH],
+        );
+
+        if (unclassified.rows.length > 0) {
+          const result = await classifyCommentsWithHermes({
+            comments: unclassified.rows.map((r) => ({ id: Number(r.id), text: r.body_text })),
+          });
+          if (result.ok) {
+            apiUnitsUsed++;
+            for (const [commentId, label] of result.labels) {
+              await client.query(
+                `INSERT INTO insights_comment_classifications
+                   (comment_id, tenant_id, sentiment, is_lead, category, classifier_version, cost_cents)
+                 VALUES ($1, $2, $3, $4, $5, 'hermes-comment-v1', 0)
+                 ON CONFLICT (comment_id) DO NOTHING`,
+                [commentId, tenantId, label.sentiment, label.isLead, label.category],
+              );
+            }
+          } else if (result.reason !== 'disabled' && result.reason !== 'empty_input') {
+            legErrors.push(`classifyComments: ${result.reason}${result.detail ? ` (${result.detail})` : ''}`);
+          }
+        }
+      } catch (err) {
+        legErrors.push(`classifyComments: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
