@@ -378,7 +378,6 @@ export async function buildTrendsSnapshot(
        FROM insights_posts
        WHERE tenant_id     = $1
          AND published_at  >= $2
-         AND aries_post_id IS NOT NULL
          AND ($3::text IS NULL OR platform = $3)`,
       [tenantId, currentStart, platformFilter],
     );
@@ -427,7 +426,6 @@ export async function buildTrendsSnapshot(
               ON m.post_id = p.id AND m.tenant_id = p.tenant_id
        WHERE p.tenant_id     = $1
          AND p.published_at  >= $2
-         AND p.aries_post_id IS NOT NULL
          AND ($3::text IS NULL OR p.platform = $3)
        GROUP BY p.id, p.title
        ORDER BY SUM(COALESCE(m.reach, m.views, 0)) DESC
