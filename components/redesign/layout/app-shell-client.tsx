@@ -580,8 +580,12 @@ export default function AppShellClient({
         {/* Desktop sidebar */}
         <aside
           className={[
-            'group/sidebar fixed left-4 top-4 bottom-4 z-[70] hidden flex-col overflow-visible rounded-[2rem] border border-white/10 bg-white/[0.06] shadow-[0_28px_90px_rgba(0,0,0,0.38)] backdrop-blur-xl lg:flex',
-            keepSidebarExpanded ? 'w-[280px]' : 'w-[72px] hover:w-[280px]',
+            'group/sidebar peer/sidebar fixed left-4 top-4 bottom-4 z-[70] hidden flex-col overflow-visible rounded-[2rem] border border-white/10 bg-white/[0.06] shadow-[0_28px_90px_rgba(0,0,0,0.38)] backdrop-blur-xl lg:flex',
+            // hover:delay-150 = hover intent: an incidental pointer graze never
+            // starts the expand (nothing moves until 150ms of sustained hover);
+            // collapse keeps delay 0. Must stay mirrored with <main>'s
+            // peer-hover delay below or rail and content desync.
+            keepSidebarExpanded ? 'w-[280px]' : 'w-[72px] hover:w-[280px] hover:delay-150',
             'transition-[width] duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)]',
           ].join(' ')}
         >
@@ -987,7 +991,21 @@ export default function AppShellClient({
           ) : null}
         </AnimatePresence>
 
-        <main className="relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden lg:min-h-screen lg:pl-[104px]">
+        {/* Rail is position:fixed, so "expanded" must be compensated here: the
+            collapsed rail gets 104px (16 edge + 72 rail + 16 gap); an expanded
+            rail (hover via peer/sidebar, or pinned while a menu is open) pushes
+            content to 312px (16 + 280 + 16) instead of overlaying it (AA-78).
+            The padding transition mirrors the rail's own width transition so
+            the two animate as one. */}
+        <main
+          className={[
+            'relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden lg:min-h-screen',
+            'lg:transition-[padding-left] lg:duration-[420ms] lg:ease-[cubic-bezier(0.22,1,0.36,1)] lg:motion-reduce:transition-none',
+            keepSidebarExpanded
+              ? 'lg:pl-[312px]'
+              : 'lg:pl-[104px] lg:peer-hover/sidebar:pl-[312px] lg:peer-hover/sidebar:delay-150',
+          ].join(' ')}
+        >
           {/* Single per-route page heading (visually hidden): satisfies WCAG 2.4.2/1.3.1
               so every dashboard route exposes exactly one descriptive <h1> from its
               route-config title. Visible section headings inside screens are <h2>+. */}
