@@ -51,10 +51,22 @@ export class ComposioCapabilityMissingError extends ComposioError {
   }
 }
 
-/** A Composio tool execution returned an error / unsuccessful result. */
+/**
+ * A Composio tool execution returned an error / unsuccessful result.
+ *
+ * Retryable by default (the standing worker re-claims the row): most broker
+ * `successful:false` verdicts are transient (rate-limit, gateway blip). Pass
+ * `{ terminal: true }` for a PERMANENT broker verdict (e.g. a Reddit
+ * `SUBREDDIT_NOEXIST` — the target community does not exist, so a retry can only
+ * ever fail the same way) so the failure self-terminates instead of the worker
+ * re-failing every tick forever. Still `publishNeverReachedPlatform` either way.
+ */
 export class ComposioToolError extends ComposioError {
-  constructor(slug: string, message: string) {
-    super('composio_tool_error', `Composio tool ${slug} failed: ${message}`, { status: 502, retryable: true });
+  constructor(slug: string, message: string, options?: { terminal?: boolean }) {
+    super('composio_tool_error', `Composio tool ${slug} failed: ${message}`, {
+      status: 502,
+      retryable: options?.terminal ? false : true,
+    });
     this.name = 'ComposioToolError';
   }
 }
