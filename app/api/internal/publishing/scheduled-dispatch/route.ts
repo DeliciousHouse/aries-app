@@ -168,6 +168,29 @@ export function planPostStatusUpdate(
   return anyRetryable ? null : 'failed';
 }
 
+// Derive the per-platform `retryable` flag from a caught publish error.
+//   - A MetaPublishError carries its own retryable flag (outcome-unknown video
+//     timeouts, auth, etc.).
+//   - Any other error that EXPLICITLY carries `retryable === false` (the
+//     IntegrationError family: a permanent Composio broker verdict such as a
+//     Reddit SUBREDDIT_NOEXIST, or a capability/guard error) is honored as
+//     terminal, so it self-terminates instead of the worker re-claiming and
+//     re-failing it every tick.
+//   - Everything else (a raw network throw, an unrecognized error) DEFAULTS TO
+//     RETRYABLE (fail-safe): only an explicit `false` buries a failure.
+export function deriveDispatchRetryable(error: unknown): boolean {
+  if (error instanceof MetaPublishError) return error.retryable;
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'retryable' in error &&
+    (error as { retryable?: unknown }).retryable === false
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export async function POST(req: Request): Promise<Response> {
   const authResult = verifyInternalCallbackRequest(req);
   if (!authResult.ok) {
@@ -306,9 +329,7 @@ export async function POST(req: Request): Promise<Response> {
       const errMsg = error instanceof MetaPublishError
         ? `${error.code}: ${error.message}`
         : String((error as Error).message || error);
-      // A non-Meta error (e.g. a transient network throw) is treated as
-      // retryable; a MetaPublishError carries its own retryable flag.
-      const retryable = error instanceof MetaPublishError ? error.retryable : true;
+      const retryable = deriveDispatchRetryable(error);
       // Derive the failure taxonomy for surfacing only. A raw non-Meta throw is
       // 'permanent' per the classifier, but the route still treats it as
       // retryable above (network blips re-claim) — the two are independent.
