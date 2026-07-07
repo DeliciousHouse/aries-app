@@ -175,10 +175,20 @@ export default function AppShellClient({
       }
     }
 
-    document.addEventListener('mousedown', handleClickOutside);
+    // 'click', not 'mousedown': closing the account menu un-pins the rail
+    // (keepSidebarExpanded) and slides <main> 312->104px. On mousedown that
+    // slide started BEFORE mouseup, so a click aimed at content could straddle
+    // the moving target and never fire (AA-78 follow-up). On click, the aimed
+    // click completes first; the collapse starts after. (The mobile-drawer leg
+    // moves no content; it shares the event type so there is one close model.)
+    // NOTE: the drawer's hamburger trigger sits OUTSIDE mobileMenuRef, so the
+    // opening click not self-closing relies on React 18+ deferring the discrete
+    // state flush past this native dispatch — the drawer isn't mounted (ref
+    // null) when this listener sees that click.
+    document.addEventListener('click', handleClickOutside);
     document.addEventListener('keydown', handleKeyDown);
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('click', handleClickOutside);
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, []);

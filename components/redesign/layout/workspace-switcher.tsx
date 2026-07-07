@@ -177,16 +177,19 @@ export default function WorkspaceSwitcher({
     }
   }, [open]);
 
-  // Close on outside pointer down.
+  // Close on outside click — 'click', not 'mousedown': this menu pins the rail
+  // expanded (keepSidebarExpanded), and a mousedown-close starts the 312->104px
+  // content slide before mouseup, so the click the user aimed at content could
+  // straddle the moving target and never fire (AA-78 follow-up).
   useEffect(() => {
     if (!open) return;
-    function onPointerDown(event: MouseEvent) {
+    function onOutsideClick(event: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
         onOpenChange(false);
       }
     }
-    document.addEventListener('mousedown', onPointerDown);
-    return () => document.removeEventListener('mousedown', onPointerDown);
+    document.addEventListener('click', onOutsideClick);
+    return () => document.removeEventListener('click', onOutsideClick);
   }, [open, onOpenChange]);
 
   const announce = useCallback((message: string) => setAnnouncement(message), []);
