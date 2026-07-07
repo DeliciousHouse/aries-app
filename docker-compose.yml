@@ -651,6 +651,13 @@ services:
       ANALYTICS_PROVIDER: ${ANALYTICS_PROVIDER:-composio}
       COMPOSIO_ENABLED: ${COMPOSIO_ENABLED:-false}
       COMPOSIO_API_KEY: ${COMPOSIO_API_KEY:-}
+      # Comment sentiment/lead/category classification via a raw Hermes run
+      # (backend/insights/sync/classify-comments.ts). Default OFF; needs the
+      # Hermes gateway creds below. Best-effort — never breaks the sync tick.
+      ARIES_COMMENT_CLASSIFICATION_ENABLED: ${ARIES_COMMENT_CLASSIFICATION_ENABLED:-0}
+      HERMES_GATEWAY_URL: ${HERMES_GATEWAY_URL:-}
+      HERMES_API_SERVER_KEY: ${HERMES_API_SERVER_KEY:-}
+      HERMES_COMMENT_CLASSIFY_MODEL: ${HERMES_COMMENT_CLASSIFY_MODEL:-}
       # Toolkit version for manual Composio tool execution (see aries-app above).
       COMPOSIO_TOOLKIT_VERSION: ${COMPOSIO_TOOLKIT_VERSION:-latest}
       COMPOSIO_FACEBOOK_AUTH_CONFIG_ID: ${COMPOSIO_FACEBOOK_AUTH_CONFIG_ID:-}

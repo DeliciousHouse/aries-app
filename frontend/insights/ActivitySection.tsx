@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // ActivitySection.tsx
-// "What Aries did" — activity metrics (left panel) + content mix donut (right panel)
+// "Your activity" — channel activity metrics (left panel) + content mix donut (right panel)
 // API: GET /api/insights/activity?period=…&platform=…
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -18,9 +18,9 @@ interface ActivitySectionProps {
 }
 
 const PERIOD_TITLE: Record<Period, string> = {
-  week:    "What Aries did this week",
-  "30day": "What Aries did this month",
-  "90day": "What Aries did over 90 days",
+  week:    "Your activity this week",
+  "30day": "Your activity this month",
+  "90day": "Your activity over 90 days",
 };
 
 const PERIOD_DAYS: Record<Period, number> = { week: 7, "30day": 30, "90day": 90 };
@@ -89,13 +89,13 @@ export function ActivitySection({ period, platform }: ActivitySectionProps) {
       ) : error ? (
         <Panel><ErrorState message={error} onRetry={refetch} /></Panel>
       ) : !data?.meta?.hasData ? (
-        <Panel><EmptyState message="No Aries-published posts in this period." /></Panel>
+        <Panel><EmptyState message="No posts published on your channels in this period." /></Panel>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "1.55fr 1fr", gap: 20, alignItems: "stretch" }}>
           {/* ── LEFT panel: metric cards + insight footer ── */}
           <Panel style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <MetricCard icon="post" value={data.strip.postsPublished.toLocaleString()} label="Aries-published posts">
+              <MetricCard icon="post" value={data.strip.postsPublished.toLocaleString()} label="Posts published">
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
                   <span style={{ display: "inline-flex", gap: 3 }}>
                     {platforms.map((p) => <ChannelIcon key={p} platform={p} size={13} />)}

@@ -153,12 +153,12 @@ test('comments read-api exposes replied state so the inbox can render it', () =>
   assert.match(readApi, /repliedAt:/);
 });
 
-test('insights empty states label Aries-published scope so they do not contradict the hero account summary', () => {
-  assert.match(insightsActivitySection, /No Aries-published posts in this period\./);
-  assert.match(insightsTopPostsSection, /Top Aries-published content/);
-  assert.match(insightsTopPostsSection, /No Aries-published posts in this period\./);
-  assert.doesNotMatch(insightsActivitySection, /No posts published in this period\./);
-  assert.doesNotMatch(insightsTopPostsSection, /No posts published in this period\./);
+test('insights sections use all-channel copy — no Aries-published misattribution (#785)', () => {
+  assert.match(insightsActivitySection, /No posts published on your channels in this period\./);
+  assert.match(insightsTopPostsSection, /Top performing content/);
+  assert.match(insightsTopPostsSection, /No published posts in this period\./);
+  assert.doesNotMatch(insightsActivitySection, /Aries-published/);
+  assert.doesNotMatch(insightsTopPostsSection, /Aries-published/);
 });
 
 // ─── #684 honest analytics "metric unavailable" states ───────────────────────

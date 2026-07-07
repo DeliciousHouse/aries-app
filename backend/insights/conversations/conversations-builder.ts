@@ -194,11 +194,18 @@ export async function buildConversationsSnapshot(
 
     const conversations: ConversationItem[] = feedRes.rows.map((row) => {
       const tagResult = deriveTag(row.is_lead, row.category, row.sentiment);
-      const handle    = row.author_handle || 'unknown';
+      // Facebook's Graph API withholds the commenter identity (`from`) on public
+      // Page comments unless advanced permissions are held, so author_handle is
+      // often null. Show a platform-appropriate label instead of "@unknown".
+      const rawHandle  = row.author_handle?.trim() || null;
+      const platformName = row.platform.charAt(0).toUpperCase() + row.platform.slice(1);
+      const author     = rawHandle
+        ? (rawHandle.startsWith('@') ? rawHandle : `@${rawHandle}`)
+        : `${platformName} user`;
       return {
         id:         row.id,
-        author:     handle.startsWith('@') ? handle : `@${handle}`,
-        avatar:     avatarInitials(handle),
+        author,
+        avatar:     avatarInitials(rawHandle || row.platform),
         text:       row.body_text,
         postRef:    row.post_title || 'a post',
         platform:   row.platform,

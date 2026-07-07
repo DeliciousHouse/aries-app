@@ -7,13 +7,18 @@
  *     with {subreddit, title, kind:'link', url}; externalPostId = t3_ name from
  *     nested json.data.name.
  *  2. Text-only post: kind='self', text=content (no url field).
- *  3. Subreddit resolution: env set → that subreddit; env unset + externalAccountName
- *     → u_<name>; both unset → ComposioCapabilityMissingError (never-posted).
+ *  3. Subreddit resolution: env REQUIRED (r//​/r/ prefix stripped to the bare
+ *     community name). Env unset → ComposioCapabilityMissingError (never-posted,
+ *     non-retryable); the old u_<username> profile fallback is REMOVED (#786 —
+ *     Reddit `sr` resolves community names only, so a profile target always
+ *     SUBREDDIT_NOEXISTs).
  *  4. Title derivation: multi-line → first non-empty line; >300 chars → truncated
  *     with ellipsis; empty content → 'New post'.
  *  5. Slug unset → ComposioCapabilityMissingError. Dry-run → no gateway calls.
  *     Not-approved → PublishGuardError. executeTool successful:false →
- *     ComposioToolError (never-posted).
+ *     ComposioToolError (never-posted); an unrecognized error stays retryable, a
+ *     PERMANENT Reddit token (SUBREDDIT_NOEXIST/NOTALLOWED/REQUIRED/NO_SELFS/
+ *     NO_LINKS) is non-retryable so it self-terminates (#786, no retry spam).
  *  6. normalizeTargetPlatforms: flag OFF → ['reddit'] returns null; flag ON →
  *     ['reddit'] accepted.
  *  7. Dispatch-guard predicate: isMetaProvider('reddit') false; combined guard
@@ -181,7 +186,7 @@ test('#641 Reddit image post: single REDDIT_CREATE_REDDIT_POST call with {subred
       assert.equal(call.slug, 'REDDIT_CREATE_REDDIT_POST', 'must call the reddit publish action slug');
 
       const args = call.options.arguments as Record<string, unknown>;
-      assert.equal(args.subreddit, 'r/testcommunity', 'subreddit must come from COMPOSIO_REDDIT_TARGET_SUBREDDIT');
+      assert.equal(args.subreddit, 'testcommunity', 'subreddit must come from COMPOSIO_REDDIT_TARGET_SUBREDDIT (r/ prefix stripped)');
       assert.equal(args.title, 'Hello', 'title must be the first non-empty line of content');
       assert.equal(args.kind, 'link', 'image post must use kind=link');
       assert.equal(args.url, 'https://img.example.com/photo.png', 'url must be the first mediaUrl');
@@ -233,7 +238,7 @@ test('#641 Reddit text-only post: kind=self, text=content, no url field', async 
       assert.equal(args.kind, 'self', 'text-only post must use kind=self');
       assert.equal(args.text, 'Just text, no image at all', 'text must be the full content');
       assert.equal(args.url, undefined, 'url must NOT be present for a text (self-kind) post');
-      assert.equal(args.subreddit, 'r/testcommunity');
+      assert.equal(args.subreddit, 'testcommunity');
       assert.equal(args.title, 'Just text, no image at all', 'title should be the first line');
 
       assert.equal(result.status, 'published');
@@ -268,12 +273,17 @@ test('#641 subreddit: env set → uses COMPOSIO_REDDIT_TARGET_SUBREDDIT', async 
       });
 
       const args = gateway.calls[0].options.arguments as Record<string, unknown>;
-      assert.equal(args.subreddit, 'r/mysubreddit', 'env value must take precedence over username fallback');
+      assert.equal(args.subreddit, 'mysubreddit', 'env value must take precedence (r/ prefix stripped)');
     },
   );
 });
 
-test('#641 subreddit: env unset + externalAccountName → u_<name>', async () => {
+test('#641 subreddit: env UNSET must throw ComposioCapabilityMissingError (no u_<name> fallback)', async () => {
+  // INVERTED: the old `u_<username>` profile fallback is REMOVED — Reddit's `sr`
+  // field resolves community names only, so a user-profile target is not
+  // addressable and deterministically fails SUBREDDIT_NOEXIST. Env-unset must now
+  // refuse up-front with a never-posted, non-retryable capability error — even
+  // when a connected externalAccountName is present.
   await withEnv(
     { COMPOSIO_REDDIT_TARGET_SUBREDDIT: undefined, ARIES_REDDIT_ENABLED: '1' },
     async () => {
@@ -286,25 +296,40 @@ test('#641 subreddit: env unset + externalAccountName → u_<name>', async () =>
         redditDb({ externalAccountName: 'someuser' }),
       );
 
-      await provider.publishPost({
-        tenantId,
-        platform: 'reddit',
-        content: 'profile post',
-        mediaUrls: [],
-        approved: true,
-      });
+      let caught: unknown;
+      try {
+        await provider.publishPost({
+          tenantId,
+          platform: 'reddit',
+          content: 'profile post',
+          mediaUrls: [],
+          approved: true,
+        });
+        assert.fail('expected rejection');
+      } catch (e) {
+        caught = e;
+      }
 
-      const args = gateway.calls[0].options.arguments as Record<string, unknown>;
-      assert.equal(
-        args.subreddit,
-        'u_someuser',
-        'should fall back to u_<externalAccountName> when env is unset',
+      assert.ok(
+        caught instanceof ComposioCapabilityMissingError,
+        'env-unset subreddit must throw ComposioCapabilityMissingError (no u_<name> fallback)',
       );
+      assert.equal(
+        publishNeverReachedPlatform(caught),
+        true,
+        'subreddit-missing error must be classified as definitely-never-posted (safe rollback)',
+      );
+      assert.ok(
+        !(caught as { retryable?: boolean }).retryable,
+        'capability-missing must be non-retryable (terminal, no worker re-claim spam)',
+      );
+      // No executeTool call, and NO u_<name> was ever sent.
+      assert.equal(gateway.calls.length, 0, 'executeTool must not be called when subreddit is missing');
     },
   );
 });
 
-test('#641 subreddit: both unset → ComposioCapabilityMissingError AND publishNeverReachedPlatform=true', async () => {
+test('#641 subreddit: both env AND externalAccountName unset → ComposioCapabilityMissingError, never-posted, non-retryable', async () => {
   await withEnv(
     { COMPOSIO_REDDIT_TARGET_SUBREDDIT: undefined, ARIES_REDDIT_ENABLED: '1' },
     async () => {
@@ -338,8 +363,93 @@ test('#641 subreddit: both unset → ComposioCapabilityMissingError AND publishN
         true,
         'subreddit-missing error must be classified as definitely-never-posted (safe rollback)',
       );
+      assert.ok(
+        !(caught as { retryable?: boolean }).retryable,
+        'capability-missing must be non-retryable',
+      );
       // No executeTool call was made
       assert.equal(gateway.calls.length, 0, 'executeTool must not be called when subreddit is missing');
+    },
+  );
+});
+
+test('#641 subreddit: r/-prefixed env value is normalized to the bare community name', async () => {
+  await withEnv(
+    { COMPOSIO_REDDIT_TARGET_SUBREDDIT: 'r/testcommunity', ARIES_REDDIT_ENABLED: '1' },
+    async () => {
+      const gateway = makeRedditGateway({
+        defaultResult: { data: { json: { data: { name: 't3_norm' } } }, successful: true, error: null },
+      });
+      const provider = new ComposioPublisherProvider(
+        gateway,
+        fakeConfig({ actions: REDDIT_ACTIONS }),
+        redditDb(),
+      );
+
+      await provider.publishPost({
+        tenantId,
+        platform: 'reddit',
+        content: 'normalize prefix',
+        mediaUrls: [],
+        approved: true,
+      });
+
+      const args = gateway.calls[0].options.arguments as Record<string, unknown>;
+      assert.equal(args.subreddit, 'testcommunity', 'leading r/ must be stripped before sending');
+    },
+  );
+});
+
+test('#641 subreddit: /r/-prefixed env value is normalized to the bare community name', async () => {
+  await withEnv(
+    { COMPOSIO_REDDIT_TARGET_SUBREDDIT: '/r/testcommunity', ARIES_REDDIT_ENABLED: '1' },
+    async () => {
+      const gateway = makeRedditGateway({
+        defaultResult: { data: { json: { data: { name: 't3_norm2' } } }, successful: true, error: null },
+      });
+      const provider = new ComposioPublisherProvider(
+        gateway,
+        fakeConfig({ actions: REDDIT_ACTIONS }),
+        redditDb(),
+      );
+
+      await provider.publishPost({
+        tenantId,
+        platform: 'reddit',
+        content: 'normalize prefix 2',
+        mediaUrls: [],
+        approved: true,
+      });
+
+      const args = gateway.calls[0].options.arguments as Record<string, unknown>;
+      assert.equal(args.subreddit, 'testcommunity', 'leading /r/ must be stripped before sending');
+    },
+  );
+});
+
+test('#641 subreddit: a bare community name passes through unchanged', async () => {
+  await withEnv(
+    { COMPOSIO_REDDIT_TARGET_SUBREDDIT: 'testcommunity', ARIES_REDDIT_ENABLED: '1' },
+    async () => {
+      const gateway = makeRedditGateway({
+        defaultResult: { data: { json: { data: { name: 't3_bare' } } }, successful: true, error: null },
+      });
+      const provider = new ComposioPublisherProvider(
+        gateway,
+        fakeConfig({ actions: REDDIT_ACTIONS }),
+        redditDb(),
+      );
+
+      await provider.publishPost({
+        tenantId,
+        platform: 'reddit',
+        content: 'bare name',
+        mediaUrls: [],
+        approved: true,
+      });
+
+      const args = gateway.calls[0].options.arguments as Record<string, unknown>;
+      assert.equal(args.subreddit, 'testcommunity', 'a bare name must not be altered');
     },
   );
 });
@@ -529,8 +639,9 @@ test('#641 Reddit executeTool successful:false → ComposioToolError (never-post
   await withEnv(
     { COMPOSIO_REDDIT_TARGET_SUBREDDIT: 'r/test', ARIES_REDDIT_ENABLED: '1' },
     async () => {
+      // A generic (unrecognized) failure string must stay RETRYABLE (fail-safe).
       const gateway = makeRedditGateway({
-        defaultResult: { data: null, successful: false, error: 'SUBREDDIT_NOEXIST' },
+        defaultResult: { data: null, successful: false, error: 'RATELIMIT: try again later' },
       });
       const provider = new ComposioPublisherProvider(
         gateway,
@@ -558,8 +669,100 @@ test('#641 Reddit executeTool successful:false → ComposioToolError (never-post
         true,
         'tool-unsuccessful must be classified as definitely-never-posted (safe to roll back)',
       );
+      assert.equal(
+        (caught as { retryable?: boolean }).retryable,
+        true,
+        'an unrecognized broker error must stay retryable (fail-safe: retried, never wrongly buried)',
+      );
     },
   );
+});
+
+test('#786 Reddit SUBREDDIT_NOEXIST verdict → ComposioToolError non-retryable + never-posted (self-terminates, no retry spam)', async () => {
+  await withEnv(
+    { COMPOSIO_REDDIT_TARGET_SUBREDDIT: 'r/test', ARIES_REDDIT_ENABLED: '1' },
+    async () => {
+      // The exact wire shape Reddit returns through Composio: a nested tuple.
+      const gateway = makeRedditGateway({
+        defaultResult: {
+          data: null,
+          successful: false,
+          error: 'Reddit API error: [[\'SUBREDDIT_NOEXIST\', "Hmm, that community doesn\'t exist...", \'sr\']]',
+        },
+      });
+      const provider = new ComposioPublisherProvider(
+        gateway,
+        fakeConfig({ actions: REDDIT_ACTIONS }),
+        redditDb(),
+      );
+
+      let caught: unknown;
+      try {
+        await provider.publishPost({
+          tenantId,
+          platform: 'reddit',
+          content: 'fail permanently',
+          mediaUrls: [],
+          approved: true,
+        });
+        assert.fail('expected rejection');
+      } catch (e) {
+        caught = e;
+      }
+
+      assert.ok(caught instanceof ComposioToolError, 'permanent verdict must still be a ComposioToolError');
+      assert.equal(
+        (caught as { retryable?: boolean }).retryable,
+        false,
+        'a permanent Reddit error token must be classified non-retryable (terminal, no worker re-claim)',
+      );
+      assert.equal(
+        publishNeverReachedPlatform(caught),
+        true,
+        'a permanent broker verdict is still definitely-never-posted (safe rollback)',
+      );
+    },
+  );
+});
+
+test('#786 Reddit permanent tokens (NOTALLOWED/REQUIRED/NO_SELFS/NO_LINKS) all classify non-retryable', async () => {
+  const tokens = ['SUBREDDIT_NOTALLOWED', 'SUBREDDIT_REQUIRED', 'NO_SELFS', 'NO_LINKS'];
+  for (const token of tokens) {
+    await withEnv(
+      { COMPOSIO_REDDIT_TARGET_SUBREDDIT: 'r/test', ARIES_REDDIT_ENABLED: '1' },
+      async () => {
+        const gateway = makeRedditGateway({
+          defaultResult: { data: null, successful: false, error: `Reddit API error: [['${token}', 'msg', 'sr']]` },
+        });
+        const provider = new ComposioPublisherProvider(
+          gateway,
+          fakeConfig({ actions: REDDIT_ACTIONS }),
+          redditDb(),
+        );
+
+        let caught: unknown;
+        try {
+          await provider.publishPost({
+            tenantId,
+            platform: 'reddit',
+            content: 'fail',
+            mediaUrls: [],
+            approved: true,
+          });
+          assert.fail('expected rejection');
+        } catch (e) {
+          caught = e;
+        }
+
+        assert.ok(caught instanceof ComposioToolError, `${token} must throw ComposioToolError`);
+        assert.equal(
+          (caught as { retryable?: boolean }).retryable,
+          false,
+          `${token} must be non-retryable`,
+        );
+      },
+    );
+  }
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════

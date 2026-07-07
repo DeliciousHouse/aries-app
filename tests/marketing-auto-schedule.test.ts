@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   PLATFORM_POSTING_DEFAULTS,
   computeAutoScheduleSlots,
+  computeDefaultCadenceSlots,
   autoSchedulePosts,
   type AutoScheduleInputRow,
 } from '../backend/marketing/auto-schedule';
@@ -42,6 +43,245 @@ test('PLATFORM_POSTING_DEFAULTS pins Instagram 11:00 and Facebook 13:05 tenant-l
   // Facebook is offset 5 minutes from Instagram to avoid duplicate-minute
   // burst posting flagged by Meta's spam heuristics. Effective time = 13:05.
   assert.equal(PLATFORM_POSTING_DEFAULTS.facebook.feed.staggerMinutes, 5);
+});
+
+// --- Cross-post delivery regression -------------------------------------------
+// Weekly cross-post (ARIES_WEEKLY_CROSSPOST_ENABLED) synthesizes x/linkedin/
+// reddit `posts` rows, but the scheduler had posting defaults for FB/IG only —
+// so those rows were dropped as `unsupported_platform` and NEVER published
+// (found by live verification). Both scheduling paths (weekly-schedule and the
+// default-cadence path one-off campaigns use) must now schedule them.
+
+for (const platform of ['x', 'linkedin', 'reddit'] as const) {
+  test(`crosspost: ${platform} has a feed posting default`, () => {
+    assert.ok(PLATFORM_POSTING_DEFAULTS[platform]?.feed, `${platform} needs a feed window`);
+    assert.equal(typeof PLATFORM_POSTING_DEFAULTS[platform].feed.hour, 'number');
+  });
+
+  test(`crosspost: computeAutoScheduleSlots schedules a ${platform} row (not unsupported_platform)`, () => {
+    const result = computeAutoScheduleSlots({
+      rows: rowsForPlatform(1, platform, 'Monday'),
+      tenantTimezone: TZ_NY,
+      campaignStart: CAMPAIGN_START,
+      campaignEnd: CAMPAIGN_END,
+      now: NOW,
+    });
+    assert.equal(result.skipped.length, 0, `skipped: ${JSON.stringify(result.skipped)}`);
+    assert.equal(result.slots.length, 1);
+    assert.equal(result.slots[0].platform, platform);
+  });
+
+  test(`crosspost: computeDefaultCadenceSlots (one-off path) schedules a ${platform} row`, () => {
+    const result = computeDefaultCadenceSlots({
+      rows: [{ postId: 1, platform, ordinal: 1 }],
+      tenantTimezone: TZ_NY,
+      campaignStart: CAMPAIGN_START,
+      campaignEnd: CAMPAIGN_END,
+      now: NOW,
+    });
+    assert.equal(result.skipped.length, 0, `skipped: ${JSON.stringify(result.skipped)}`);
+    assert.equal(result.slots.length, 1);
+    assert.equal(result.slots[0].platform, platform);
+  });
+}
+
+// --- Default-cadence per-row roll-forward -------------------------------------
+// The default-cadence scheduler decided its "+1 day" advance from a global
+// pre-scan of only the MINIMUM ordinal-1 slot, then materialized each row at ITS
+// OWN platform hour. When `now`/windowStart fell BETWEEN two platform hours, the
+// later-hour platforms whose hour was already past were dropped as
+// `derived_timestamp_outside_window` (live: a ~19:55Z run scheduled only
+// facebook+reddit and dropped linkedin/instagram/x). The fix rolls each past-hour
+// row forward one day on its own; earlier-hour rows that can still post today stay.
+
+test('default-cadence: run past ALL platform hours schedules every platform (no drop)', () => {
+  // 2026-07-06 is EDT (UTC-4). Local feed hours in UTC on that day:
+  //   linkedin 9:30→13:30Z, instagram 11:00→15:00Z, x 12:30→16:30Z,
+  //   facebook 13:05→17:05Z, reddit 14:30→18:30Z.
+  // With now at 19:55Z, ALL five have already passed → every row must roll
+  // forward exactly one day, and none may be dropped.
+  const now = new Date('2026-07-06T19:55:00.000Z');
+  const campaignStart = new Date('2026-07-06T19:58:00.000Z'); // a few min in the future
+  const campaignEnd = new Date('2026-07-13T19:58:00.000Z'); // +7d
+  const platforms = ['facebook', 'instagram', 'x', 'linkedin', 'reddit'] as const;
+
+  const result = computeDefaultCadenceSlots({
+    rows: platforms.map((platform, i) => ({ postId: i + 1, platform, ordinal: 1 })),
+    tenantTimezone: TZ_NY,
+    campaignStart,
+    campaignEnd,
+    now,
+  });
+
+  assert.equal(result.skipped.length, 0, `skipped: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.slots.length, 5, 'all five platforms must be scheduled');
+  for (const platform of platforms) {
+    assert.ok(
+      result.slots.some((s) => s.platform === platform),
+      `platform ${platform} must be present (was silently dropped before the fix)`,
+    );
+  }
+  // Every rolled slot lands the next day and inside the window.
+  for (const slot of result.slots) {
+    assert.ok(slot.scheduledFor >= campaignStart, `${slot.platform} must be >= campaignStart`);
+    assert.ok(slot.scheduledFor <= campaignEnd, `${slot.platform} must be <= campaignEnd`);
+    // Rolled to 2026-07-07 (all July-6 platform hours were in the past).
+    assert.equal(
+      slot.scheduledFor.toISOString().slice(0, 10),
+      '2026-07-07',
+      `${slot.platform} must roll forward one day to 2026-07-07`,
+    );
+  }
+});
+
+test('default-cadence: run BEFORE all platform hours keeps every platform on the same day (no over-advance)', () => {
+  // now at 09:00Z (05:00 EDT) is before EVERY platform's local hour on 2026-07-06,
+  // so no row should be advanced — all land the SAME day, hour ordering preserved.
+  const now = new Date('2026-07-06T09:00:00.000Z');
+  const campaignStart = new Date('2026-07-06T00:00:00.000Z');
+  const campaignEnd = new Date('2026-07-13T23:59:59.000Z');
+  const platforms = ['facebook', 'instagram', 'x', 'linkedin', 'reddit'] as const;
+
+  const result = computeDefaultCadenceSlots({
+    rows: platforms.map((platform, i) => ({ postId: i + 1, platform, ordinal: 1 })),
+    tenantTimezone: TZ_NY,
+    campaignStart,
+    campaignEnd,
+    now,
+  });
+
+  assert.equal(result.skipped.length, 0, `skipped: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.slots.length, 5);
+  const dayOf = (d: Date) => d.toISOString().slice(0, 10);
+  for (const slot of result.slots) {
+    // No over-advancing: each slot stays on 2026-07-06 and is < 24h from now.
+    assert.equal(dayOf(slot.scheduledFor), '2026-07-06', `${slot.platform} must stay on today (no over-advance)`);
+    assert.ok(
+      slot.scheduledFor.getTime() - now.getTime() < 24 * 60 * 60 * 1000,
+      `${slot.platform} must be < 24h from now`,
+    );
+  }
+  // Per-platform hour ordering preserved: linkedin(9:30) < instagram(11:00) <
+  // x(12:30) < facebook(13:05) < reddit(14:30).
+  const byPlatform = new Map(result.slots.map((s) => [s.platform, s.scheduledFor.getTime()]));
+  assert.ok((byPlatform.get('linkedin') ?? 0) < (byPlatform.get('instagram') ?? 0), 'linkedin before instagram');
+  assert.ok((byPlatform.get('instagram') ?? 0) < (byPlatform.get('x') ?? 0), 'instagram before x');
+  assert.ok((byPlatform.get('x') ?? 0) < (byPlatform.get('facebook') ?? 0), 'x before facebook');
+  assert.ok((byPlatform.get('facebook') ?? 0) < (byPlatform.get('reddit') ?? 0), 'facebook before reddit');
+});
+
+test('default-cadence: a high-ordinal row beyond campaignEnd still skips with overflow_beyond_window', () => {
+  // ordinal 30 → baseDate + 29 days, well beyond a 7-day window → overflow skip.
+  const now = new Date('2026-07-06T09:00:00.000Z');
+  const campaignStart = new Date('2026-07-06T00:00:00.000Z');
+  const campaignEnd = new Date('2026-07-13T23:59:59.000Z');
+
+  const result = computeDefaultCadenceSlots({
+    rows: [{ postId: 1, platform: 'instagram', ordinal: 30 }],
+    tenantTimezone: TZ_NY,
+    campaignStart,
+    campaignEnd,
+    now,
+  });
+
+  assert.equal(result.slots.length, 0, 'the overflowing row must not be scheduled');
+  assert.equal(result.skipped.length, 1);
+  assert.match(
+    result.skipped[0].reason,
+    /^overflow_beyond_window:30$/,
+    `expected overflow_beyond_window:30, got ${result.skipped[0].reason}`,
+  );
+});
+
+test('default-cadence: multi-ordinal run past all hours keeps the one-per-day ladder (no same-instant collision)', () => {
+  // The roll-forward must shift EVERY ordinal of a (platform, surface) pair
+  // together. A per-row roll would advance only ordinal 1 (its slot passed) and
+  // leave ordinal 2 (tomorrow, still future) where it is — landing both on the
+  // SAME instant and double-booking the platform on day 1.
+  const now = new Date('2026-07-06T19:55:00.000Z'); // past all five platform hours
+  const campaignStart = new Date('2026-07-06T19:58:00.000Z');
+  const campaignEnd = new Date('2026-07-16T19:58:00.000Z'); // +10d
+  const platforms = ['facebook', 'instagram', 'x', 'linkedin', 'reddit'] as const;
+  const ordinals = [1, 2, 3] as const;
+
+  const result = computeDefaultCadenceSlots({
+    rows: platforms.flatMap((platform, p) =>
+      ordinals.map((ordinal) => ({ postId: p * 10 + ordinal, platform, ordinal })),
+    ),
+    tenantTimezone: TZ_NY,
+    campaignStart,
+    campaignEnd,
+    now,
+  });
+
+  assert.equal(result.skipped.length, 0, `skipped: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.slots.length, platforms.length * ordinals.length);
+  for (const platform of platforms) {
+    const times = result.slots
+      .filter((s) => s.platform === platform)
+      .sort((a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime())
+      .map((s) => s.scheduledFor);
+    assert.equal(times.length, ordinals.length, `${platform} must schedule every ordinal`);
+    assert.equal(
+      new Set(times.map((t) => t.getTime())).size,
+      ordinals.length,
+      `${platform} ordinals must not collide on the same instant`,
+    );
+    // All ordinals shifted together: day 1, 2, 3 (2026-07-07..09), exactly 24h apart.
+    for (let i = 0; i < times.length; i += 1) {
+      assert.equal(
+        times[i].toISOString().slice(0, 10),
+        `2026-07-0${7 + i}`,
+        `${platform} ordinal ${i + 1} must land on day ${i + 1} of the shifted ladder`,
+      );
+    }
+  }
+});
+
+test('default-cadence: run BETWEEN platform hours shifts only past-hour pairs, whole ladder per pair', () => {
+  // 15:30Z on 2026-07-06 is 11:30 EDT: linkedin(9:30) + instagram(11:00) have
+  // passed → their whole ladders shift +1 day; x(12:30)/facebook(13:05)/
+  // reddit(14:30) are still ahead → their ladders stay. Nothing is dropped
+  // (the live bug), and no pair double-books a day (the per-row-roll bug).
+  const now = new Date('2026-07-06T15:30:00.000Z');
+  const campaignStart = new Date('2026-07-06T00:00:00.000Z');
+  const campaignEnd = new Date('2026-07-16T23:59:59.000Z');
+  const platforms = ['facebook', 'instagram', 'x', 'linkedin', 'reddit'] as const;
+  const ordinals = [1, 2] as const;
+
+  const result = computeDefaultCadenceSlots({
+    rows: platforms.flatMap((platform, p) =>
+      ordinals.map((ordinal) => ({ postId: p * 10 + ordinal, platform, ordinal })),
+    ),
+    tenantTimezone: TZ_NY,
+    campaignStart,
+    campaignEnd,
+    now,
+  });
+
+  assert.equal(result.skipped.length, 0, `skipped: ${JSON.stringify(result.skipped)}`);
+  assert.equal(result.slots.length, platforms.length * ordinals.length);
+  const firstDay = (platform: string) =>
+    result.slots
+      .filter((s) => s.platform === platform)
+      .sort((a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime())[0]
+      .scheduledFor.toISOString()
+      .slice(0, 10);
+  // Past-hour pairs start tomorrow; still-ahead pairs start today.
+  assert.equal(firstDay('linkedin'), '2026-07-07', 'linkedin (9:30, passed) starts tomorrow');
+  assert.equal(firstDay('instagram'), '2026-07-07', 'instagram (11:00, passed) starts tomorrow');
+  assert.equal(firstDay('x'), '2026-07-06', 'x (12:30, ahead) stays today');
+  assert.equal(firstDay('facebook'), '2026-07-06', 'facebook (13:05, ahead) stays today');
+  assert.equal(firstDay('reddit'), '2026-07-06', 'reddit (14:30, ahead) stays today');
+  // Every pair keeps one-per-day spacing with no collisions.
+  for (const platform of platforms) {
+    const times = result.slots
+      .filter((s) => s.platform === platform)
+      .sort((a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime())
+      .map((s) => s.scheduledFor.getTime());
+    assert.equal(new Set(times).size, times.length, `${platform} must not double-book an instant`);
+    assert.equal(times[1] - times[0], 24 * 60 * 60 * 1000, `${platform} ordinals must sit exactly one day apart`);
+  }
 });
 
 // --- Per-platform timing ------------------------------------------------------
@@ -237,7 +477,10 @@ test('Closed-or-empty campaign window returns all rows as skipped', () => {
 test('Unsupported platform is skipped with a typed reason, NOT silently dropped', () => {
   const result = computeAutoScheduleSlots({
     rows: [
-      { postId: 1, platform: 'linkedin', recommendedDay: 'Monday' },
+      // pinterest is not an Aries publish target (no posting defaults) — a truly
+      // unsupported platform. (linkedin/x/reddit are now supported crosspost
+      // targets and would schedule.)
+      { postId: 1, platform: 'pinterest', recommendedDay: 'Monday' },
       { postId: 2, platform: 'instagram', recommendedDay: 'Monday' },
     ],
     tenantTimezone: TZ_NY,
@@ -247,7 +490,7 @@ test('Unsupported platform is skipped with a typed reason, NOT silently dropped'
   });
   assert.equal(result.slots.length, 1, 'instagram must still schedule');
   assert.equal(result.skipped.length, 1);
-  assert.match(result.skipped[0]!.reason, /^unsupported_platform:linkedin$/);
+  assert.match(result.skipped[0]!.reason, /^unsupported_platform:pinterest$/);
 });
 
 // --- DB writer (in-memory queryable stub) ------------------------------------

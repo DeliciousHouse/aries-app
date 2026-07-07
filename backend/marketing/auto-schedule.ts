@@ -107,6 +107,29 @@ export const PLATFORM_POSTING_DEFAULTS = {
     story: { hour: 10, minute: 0, staggerMinutes: 5 },
     reel: { hour: 14, minute: 0, staggerMinutes: 5 },
   },
+  // Weekly cross-post targets (ARIES_WEEKLY_CROSSPOST_ENABLED). Without posting
+  // defaults here, computeAutoScheduleSlots skips these platforms as
+  // `unsupported_platform`, so synthesized x/linkedin/reddit rows are never
+  // scheduled and never publish. They fan out the FEED image only; the
+  // story/reel slots exist to satisfy the surface map (never hit for
+  // crossposts). Distinct hours so a post crossposted to every platform does
+  // not land minute-for-minute across all of them. Actual publishing stays
+  // gated by ARIES_<PLATFORM>_ENABLED at the scheduled-dispatch admission gate.
+  linkedin: {
+    feed: { hour: 9, minute: 30, staggerMinutes: 10 },
+    story: { hour: 8, minute: 30, staggerMinutes: 10 },
+    reel: { hour: 10, minute: 30, staggerMinutes: 10 },
+  },
+  x: {
+    feed: { hour: 12, minute: 30, staggerMinutes: 15 },
+    story: { hour: 9, minute: 30, staggerMinutes: 15 },
+    reel: { hour: 13, minute: 30, staggerMinutes: 15 },
+  },
+  reddit: {
+    feed: { hour: 14, minute: 30, staggerMinutes: 20 },
+    story: { hour: 11, minute: 30, staggerMinutes: 20 },
+    reel: { hour: 15, minute: 30, staggerMinutes: 20 },
+  },
 } as const satisfies Record<string, Record<'feed' | 'story' | 'reel', SurfaceSlotDefault>>;
 
 export type AutoSchedulePlatform = keyof typeof PLATFORM_POSTING_DEFAULTS;
@@ -363,11 +386,17 @@ function formatTenantWallTime(
 //       ensures piece 1 always lands "today at the platform hour" even if now is
 //       a few minutes before that hour — never silently pushed ~7 days out.
 //
-// Layout: baseDate = max(now + 10min, campaignStart), then advanced by 1 day
-// if the earliest platform default hour on baseDate's calendar day is already
-// past (utc < now). piece k → baseDate + (k-1)d.
-// IG+FB of the same ordinal land on the same calendar day (different hours per
-// PLATFORM_POSTING_DEFAULTS). Pieces beyond campaignEnd are skipped + logged.
+// Layout: baseDate = max(now + 10min, campaignStart). Each (platform, surface)
+// pair gets a day shift of 0 or 1 decided ONCE from that pair's own platform
+// hour on baseDate's calendar day — 1 when the hour has already passed (utc <
+// windowStart), else 0 — and piece k → baseDate + (k-1+shift)d @ the pair's
+// hour. Deciding per pair (not globally from the earliest hour) means a run
+// whose `now` sits between two platform hours no longer drops the past-hour
+// platforms; applying the SAME shift to every ordinal of the pair preserves the
+// one-piece-per-day ladder (a per-row roll would land ordinal 1 and ordinal 2 on
+// the same instant). IG+FB of the same ordinal land on the same calendar day
+// (different hours per PLATFORM_POSTING_DEFAULTS). Pieces beyond campaignEnd
+// are skipped + logged.
 
 /**
  * One row for the default-cadence scheduler. Same shape as AutoScheduleInputRow
@@ -399,9 +428,13 @@ export interface ComputeDefaultCadenceSlotsInput {
  * `weekly_schedule[]`. Distributes posts one content-piece per day by ABSOLUTE
  * day offset — ordinal 1 always lands first regardless of the start weekday.
  *
- *   baseDate = max(now + 10min, campaignStart), advanced +1 day when the
- *             earliest platform default hour on that calendar day is already past
- *   piece k  → baseDate + (k - 1) calendar days @ platform default hour
+ *   baseDate = max(now + 10min, campaignStart)
+ *   shift    = per (platform, surface): 1 when that pair's platform hour on
+ *              baseDate's calendar day has already passed (utc < windowStart),
+ *              else 0 — earlier-hour platforms that can still post today stay
+ *              today; only the past-hour pairs advance, and every ordinal of a
+ *              pair shifts together so the one-piece-per-day ladder holds.
+ *   piece k  → baseDate + (k - 1 + shift) calendar days @ the pair's hour.
  *
  * Slots outside [campaignStart, campaignEnd] are collected into `skipped` with
  * `reason: overflow_beyond_window:<ordinal>`. Pure: no DB, no clock-as-side-
@@ -415,44 +448,23 @@ export function computeDefaultCadenceSlots(
   const windowEnd = input.campaignEnd;
 
   // baseDate: at least 10 minutes from now so the near-miss "platform hour is
-  // in a few minutes" case doesn't strand piece 1. Then check whether the
-  // earliest platform default hour across ALL input rows — at baseDate's
-  // calendar day — is already past (utc < windowStart). If so, advance
-  // baseDate by exactly 1 full day so piece 1 lands tomorrow instead of being
-  // silently dropped. One advance always suffices: tomorrow's platform hour is
-  // guaranteed to be in the future since platform hours are fixed within [0,24h)
-  // and tomorrow is always more than 24h from now-by-definition impossible to
-  // have already passed.
+  // in a few minutes" case doesn't strand piece 1. Each (platform, surface) pair
+  // then decides its day shift ONCE (below) from ITS OWN platform hour on
+  // baseDate's calendar day — not from a single global-min pre-scan. The old
+  // global pre-scan advanced the shared baseDate only when the EARLIEST platform
+  // hour was past — so when `windowStart` fell between two platform hours, the
+  // later-hour platforms whose hour had already passed on baseDate's day were
+  // left before `windowStart` and silently dropped as
+  // `derived_timestamp_outside_window` (live: a ~19:55Z run scheduled only
+  // facebook(13:00)/reddit(14:30) and dropped linkedin(9:30)/instagram(11:00)/
+  // x(12:30)). The shift is per PAIR, not per row: a per-row roll would land a
+  // rolled ordinal 1 and an unrolled ordinal 2 on the SAME instant (double-
+  // booking the platform); shifting every ordinal of the pair together keeps
+  // the one-piece-per-day ladder intact.
   const windowStart = input.campaignStart > now ? input.campaignStart : now;
 
   const tenMinutes = 10 * 60 * 1000;
-  let baseDate = new Date(Math.max(now.getTime() + tenMinutes, input.campaignStart.getTime()));
-
-  // Determine the minimum UTC slot time for ordinal-1 across all unique
-  // (platform, surface) combinations. If the earliest slot is before
-  // windowStart, advance baseDate by 1 day so piece 1 lands tomorrow.
-  {
-    const seenPairs = new Set<string>();
-    let minOrdinal1Utc: Date | null = null;
-    for (const row of input.rows) {
-      const pairKey = `${row.platform}:${row.surface ?? 'feed'}`;
-      if (seenPairs.has(pairKey)) continue;
-      seenPairs.add(pairKey);
-      const platformKey = row.platform.trim().toLowerCase() as AutoSchedulePlatform;
-      const surface: AutoScheduleSurface = row.surface ?? 'feed';
-      const defaults = pickSlotDefault(platformKey, surface);
-      if (!defaults) continue;
-      const wallIso = formatTenantWallTime(baseDate, tz, defaults);
-      const utc = wallTimeToUtc(wallIso, tz);
-      if (!utc) continue;
-      if (minOrdinal1Utc === null || utc < minOrdinal1Utc) {
-        minOrdinal1Utc = utc;
-      }
-    }
-    if (minOrdinal1Utc !== null && minOrdinal1Utc < windowStart) {
-      baseDate = new Date(baseDate.getTime() + 24 * 60 * 60 * 1000);
-    }
-  }
+  const baseDate = new Date(Math.max(now.getTime() + tenMinutes, input.campaignStart.getTime()));
 
   if (!(windowEnd > windowStart)) {
     return {
@@ -462,6 +474,27 @@ export function computeDefaultCadenceSlots(
         reason: 'campaign_window_closed_or_empty',
       })),
     };
+  }
+
+  // Per-(platform, surface) day shift: 1 when the pair's slot at baseDate's
+  // calendar day has already passed (utc < windowStart), else 0. One day always
+  // suffices — tomorrow's fixed platform hour is guaranteed to be ahead of
+  // windowStart. Pairs whose wall-time conversion fails here fall back to shift
+  // 0; the per-row conversion below hits the same failure and skips the row
+  // with a `wall_time_to_utc_failed` reason.
+  const pairShiftMs = new Map<string, number>();
+  const oneDayMs = 24 * 60 * 60 * 1000;
+  for (const row of input.rows) {
+    const platformKey = row.platform.trim().toLowerCase() as AutoSchedulePlatform;
+    const surface: AutoScheduleSurface = row.surface ?? 'feed';
+    const pairKey = `${platformKey}:${surface}`;
+    if (pairShiftMs.has(pairKey)) continue;
+    const defaults = pickSlotDefault(platformKey, surface);
+    if (!defaults) continue;
+    const wallIso = formatTenantWallTime(baseDate, tz, defaults);
+    const utc = wallTimeToUtc(wallIso, tz);
+    if (!utc) continue;
+    pairShiftMs.set(pairKey, utc < windowStart ? oneDayMs : 0);
   }
 
   const slots: AutoScheduleSlot[] = [];
@@ -477,12 +510,20 @@ export function computeDefaultCadenceSlots(
       continue;
     }
 
-    // Piece k → baseDate + (k-1) calendar days. baseDate is already in UTC;
-    // formatTenantWallTime converts the UTC instant to the correct tenant-local
-    // calendar date so DST boundaries are handled correctly.
-    const dayOffset = (row.ordinal - 1) * 24 * 60 * 60 * 1000;
+    // Piece k → baseDate + (k-1) calendar days + the pair's shift. baseDate is
+    // already in UTC; formatTenantWallTime converts the UTC instant to the
+    // correct tenant-local calendar date so DST boundaries are handled correctly.
+    const dayOffset = (row.ordinal - 1) * oneDayMs + (pairShiftMs.get(`${platformKey}:${surface}`) ?? 0);
     const dayInstant = new Date(baseDate.getTime() + dayOffset);
 
+    const wallTimeIso = formatTenantWallTime(dayInstant, tz, defaults);
+    const utc = wallTimeToUtc(wallTimeIso, tz);
+    if (!utc) {
+      skipped.push({ row: { ...row, recommendedDay: null }, reason: `wall_time_to_utc_failed:${wallTimeIso}` });
+      continue;
+    }
+
+    // Overflow guard runs against the FINAL (shift-applied) instant.
     if (dayInstant > windowEnd) {
       skipped.push({
         row: { ...row, recommendedDay: null },
@@ -497,12 +538,9 @@ export function computeDefaultCadenceSlots(
       continue;
     }
 
-    const wallTimeIso = formatTenantWallTime(dayInstant, tz, defaults);
-    const utc = wallTimeToUtc(wallTimeIso, tz);
-    if (!utc) {
-      skipped.push({ row: { ...row, recommendedDay: null }, reason: `wall_time_to_utc_failed:${wallTimeIso}` });
-      continue;
-    }
+    // A row still before windowStart after the pair shift (or past windowEnd)
+    // is a genuine dead window — skip it (never emit a past-or-out-of-window
+    // slot).
     if (utc < windowStart || utc > windowEnd) {
       skipped.push({ row: { ...row, recommendedDay: null }, reason: `derived_timestamp_outside_window:${utc.toISOString()}` });
       continue;

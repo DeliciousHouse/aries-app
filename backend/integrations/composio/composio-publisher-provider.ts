@@ -91,6 +91,30 @@ function redditTitleFromContent(content: string): string {
   return `${collapsed.slice(0, REDDIT_TITLE_MAX - 1)}…`;
 }
 
+/**
+ * Stable, permanent Reddit broker-error code tokens. A `successful:false`
+ * verdict whose error string contains one of these can ONLY ever fail the same
+ * way on a retry (the community does not exist / is not allowed / the post kind
+ * is forbidden), so the failure must self-terminate rather than have the standing
+ * worker re-claim and re-fail it every tick forever. Anything NOT matched here
+ * DEFAULTS TO RETRYABLE (fail-safe: an unrecognized/transient error is retried,
+ * never wrongly buried). Matched case-insensitively as a substring so the exact
+ * Reddit tuple wrapping (`[['SUBREDDIT_NOEXIST', "...", 'sr']]`) still classifies.
+ */
+const PERMANENT_REDDIT_ERROR_TOKENS = [
+  'SUBREDDIT_NOEXIST',
+  'SUBREDDIT_NOTALLOWED',
+  'SUBREDDIT_REQUIRED',
+  'NO_SELFS',
+  'NO_LINKS',
+] as const;
+
+function isPermanentBrokerError(error: string | null | undefined): boolean {
+  if (!error) return false;
+  const upper = error.toUpperCase();
+  return PERMANENT_REDDIT_ERROR_TOKENS.some((token) => upper.includes(token));
+}
+
 const LINKEDIN_COMMENTARY_MAX = 3000;
 
 /**
@@ -420,18 +444,22 @@ export class ComposioPublisherProvider implements PublisherProvider {
       // never-posted and the standing worker re-claims the row.
       //
       // Subreddit target (never guessed): an explicit
-      // COMPOSIO_REDDIT_TARGET_SUBREDDIT, else the connected user's own profile
-      // (`u_<username>` self-post), else refuse with a capability error.
-      let subreddit = redditTargetSubreddit();
-      if (!subreddit && conn.externalAccountName) {
-        subreddit = `u_${conn.externalAccountName}`;
-      }
-      if (!subreddit) {
+      // COMPOSIO_REDDIT_TARGET_SUBREDDIT is REQUIRED. There is NO `u_<username>`
+      // profile fallback — Reddit's `sr` field resolves COMMUNITY names only, so
+      // a user-profile target (`u_<name>` in any prefix form) is not addressable
+      // this way and deterministically fails with SUBREDDIT_NOEXIST. When the env
+      // is unset, refuse up-front with a capability error (never-posted AND
+      // non-retryable → fails terminal + clean, no retry-spam). Normalize the env
+      // value: strip a leading `r/` or `/r/` so the bare community name is sent
+      // (Reddit's `sr` wants the bare name, not the `r/` display prefix).
+      const rawSubreddit = redditTargetSubreddit();
+      if (!rawSubreddit) {
         throw new ComposioCapabilityMissingError(
           'reddit',
-          'configure a target subreddit (COMPOSIO_REDDIT_TARGET_SUBREDDIT) or reconnect Reddit',
+          'publish requires a target subreddit — set COMPOSIO_REDDIT_TARGET_SUBREDDIT to a community name',
         );
       }
+      const subreddit = rawSubreddit.replace(/^\/?r\//i, '');
 
       slug = this.requireSlug(input.platform, 'publish_post', 'publish posts');
       // Reddit returns a fullname id (`t3_<base36>`) at data.json.data.name — NOT
@@ -679,7 +707,16 @@ export class ComposioPublisherProvider implements PublisherProvider {
     });
 
     if (!result.successful) {
-      throw new ComposioToolError(slug, result.error ?? 'tool reported unsuccessful');
+      // Classify the broker verdict: a PERMANENT Reddit error code (e.g.
+      // SUBREDDIT_NOEXIST/NOTALLOWED) can only ever fail the same way, so mark it
+      // terminal (non-retryable) — the row fails clean instead of the worker
+      // re-claiming and re-failing it every tick. Scoped to reddit: the token
+      // list is Reddit's API vocabulary, and a generic-looking token appearing in
+      // another broker's error text must not bury a retryable post. Anything
+      // unrecognized defaults to retryable (fail-safe).
+      throw new ComposioToolError(slug, result.error ?? 'tool reported unsuccessful', {
+        terminal: input.platform === 'reddit' && isPermanentBrokerError(result.error),
+      });
     }
 
     return {
