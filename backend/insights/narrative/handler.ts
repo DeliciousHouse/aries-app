@@ -31,7 +31,9 @@ function isValidPeriod(p: string | null): p is NarrativePeriod {
   return p != null && VALID_PERIODS.has(p);
 }
 
-async function isPlatformConnected(platform: string, tenantId: string): Promise<boolean> {
+type PlatformConnectionState = 'connected' | 'not_connected' | 'error';
+
+async function checkPlatformConnection(platform: string, tenantId: string): Promise<PlatformConnectionState> {
   try {
     // A platform counts as "connected" for the hero when EITHER there is a live
     // connection for it (connected_accounts, the Composio source of truth) OR we
@@ -51,9 +53,15 @@ async function isPlatformConnected(platform: string, tenantId: string): Promise<
        ) AS connected`,
       [Number(tenantId), platform],
     );
-    return res.rows[0]?.connected === true;
-  } catch {
-    return false;
+    return res.rows[0]?.connected === true ? 'connected' : 'not_connected';
+  } catch (err) {
+    // A DB/query failure is NOT a "not connected" signal. Surfacing it as such
+    // makes the UI say "connect <platform>" during a backend outage (S1-4/AA-83).
+    // Return a distinct error state so the caller can respond retryably.
+    console.error('[insights/narrative] platform connection check failed', {
+      platform, tenantId, error: err instanceof Error ? err.message : String(err),
+    });
+    return 'error';
   }
 }
 
@@ -147,8 +155,16 @@ export async function handleGetInsightsNarrative(
 
   // ── Connection check (skip for 'all') ────────────────────────────────────
   if (platform !== 'all' && isSupportedPlatform(platform)) {
-    const connected = await isPlatformConnected(platform, tenantIdStr);
-    if (!connected) {
+    const connection = await checkPlatformConnection(platform, tenantIdStr);
+    if (connection === 'error') {
+      // Retryable backend error — NOT a connect prompt. 503 so the client shows
+      // its retry state instead of "connect <platform>" (S1-4/AA-83).
+      return NextResponse.json(
+        { status: 'error', error: 'connection_check_failed', retryable: true, platform },
+        { status: 503 },
+      );
+    }
+    if (connection === 'not_connected') {
       return NextResponse.json({
         status:      'not_connected',
         platform,
