@@ -1,12 +1,14 @@
 # Analytics Page Roadmap & Sprint Plan
 
 **Date:** 2026-07-07
+**Owner:** Hammad Latif (@HammadLatif-codes) — owns the analytics workstream end to end: all sprints, tickets, and flag-flip ops rows in this plan default to him unless a ticket is explicitly reassigned.
 **Scope:** The analytics surface — the 9-section `/insights` dashboard (`app/insights/page.tsx` → `frontend/insights/`), the legacy `/dashboard/analytics` screen (`frontend/aries-v1/analytics-screen.tsx`), the 14 `app/api/insights/*` read routes + flag-gated reply route, the `backend/insights/**` builders and sync pipeline, and the `aries-insights-sync-worker` sidecar.
 **Method:** 14 parallel code-recon passes over UI, API, sync, data model, flags, tests, issues, and prior plans; every claimed gap adversarially verified against the code (87 confirmed, 0 refuted). The resulting plan was then reviewed by a four-lens engineering panel (technical accuracy, sequencing/estimates, product value, repo conventions) and revised; see the appendix. File:line citations are as of `e5f7a7c`.
 
 ## Changelog
 
 - 2026-07-07 — Initial plan (post gap-verification + four-lens review). Decisions ratified per S1-10 get recorded here.
+- 2026-07-07 — Analytics workstream assigned to Hammad Latif (@HammadLatif-codes).
 
 ---
 
@@ -143,7 +145,7 @@ Sequencing rationale (deliberate, not accidental): prod serves one tenant today,
 
 ## 5. Sprint plan
 
-Assumes ~1 engineer + review support, 2-week sprints (~10 eng-days). Effort scale: **XS = 0.5d · S = 1d · M = 2.5d · L = 5d**; every sprint below is budgeted to ≤ ~10.5 tagged days and names a **designated cut-line ticket** — the one that slips first, so a squeeze never silently drops a load-bearing ticket. Every code ticket lands via the standard gate: regression test that fails before/passes after → `npm run verify` → focused gate (`test:insights` / `validate:social-content` where relevant) → review → PR. Any ticket that changes a cached builder/template's output **must bump that section's `TEMPLATE_VERSION`** (this bit #783 and #785; it is an acceptance criterion, not a reminder).
+Assumes ~1 engineer (Hammad, per the ownership line above) + review support, 2-week sprints (~10 eng-days). Effort scale: **XS = 0.5d · S = 1d · M = 2.5d · L = 5d**; every sprint below is budgeted to ≤ ~10.5 tagged days and names a **designated cut-line ticket** — the one that slips first, so a squeeze never silently drops a load-bearing ticket. Every code ticket lands via the standard gate: regression test that fails before/passes after → `npm run verify` → focused gate (`test:insights` / `validate:social-content` where relevant) → review → PR. Any ticket that changes a cached builder/template's output **must bump that section's `TEMPLATE_VERSION`** (this bit #783 and #785; it is an acceptance criterion, not a reminder).
 
 ### Sprint 1 — Trust quick wins & honest UI (budget 10.0d · cut line: S1-7)
 
