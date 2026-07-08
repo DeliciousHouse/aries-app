@@ -26,7 +26,7 @@ const QA_ROW = {
 test('INVARIANT: minting is pinned to the sandbox identity — everything else fails closed', () => {
   assert.deepEqual(assertQaScoped(QA_ROW), { ok: true });
   // A real user's email can never mint.
-  assert.equal(assertQaScoped({ ...QA_ROW, email: 'brendan3394@gmail.com' }).ok, false);
+  assert.equal(assertQaScoped({ ...QA_ROW, email: 'operator@example.com' }).ok, false);
   // The QA user reassigned onto a REAL tenant can never mint.
   assert.equal(assertQaScoped({ ...QA_ROW, tenant_slug: 'sugar-leather' }).ok, false);
   assert.equal(assertQaScoped({ ...QA_ROW, tenant_slug: null }).ok, false);

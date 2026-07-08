@@ -86,9 +86,14 @@ test('docs distinguish external Postgres Compose config and social-content check
   const setup = readRepoFile('SETUP.md');
   const compose = readRepoFile('docker-compose.yml');
 
-  assert.match(readme, /Compose expects an external PostgreSQL database/i);
-  assert.match(readme, /does \*\*not\*\* provision PostgreSQL or pgAdmin/i);
-  assert.match(readme, /external `DB_\*` values/i);
+  // The BASE compose file stays external-Postgres/external-Hermes (prod
+  // layout); bundled services live only in the docker-compose.selfhost.yml
+  // overlay driven by install.sh.
+  assert.match(readme, /\*\*external\*\* PostgreSQL and Hermes services/i);
+  assert.match(readme, /base compose file does \*\*not\*\* provision PostgreSQL or Hermes/i);
+  assert.match(readme, /`DB_\*` values/i);
+  assert.match(readme, /install\.sh \| bash/);
+  assert.match(readme, /docker-compose\.selfhost\.yml/);
   assert.doesNotMatch(readme, /DB_HOST=postgres/i);
   assert.match(readme, /For weekly social content media generation, Hermes owns ChatGPT\/OpenAI auth/i);
   assert.match(readme, /Text-only weekly planning can (still )?run when media generation is disabled/i);

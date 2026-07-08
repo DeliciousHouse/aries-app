@@ -1,0 +1,76 @@
+# docker-compose.selfhost.yml
+#
+# Self-host overlay used by install.sh (the one-line open-source install).
+# Adds the services the base docker-compose.yml deliberately leaves external:
+#
+#   - postgres: the application database. The base file assumes an external
+#     PostgreSQL (prod runs it on the host); self-hosters get a bundled one.
+#   - hermes:   the Hermes execution gateway (nousresearch/hermes-agent),
+#     behind the `hermes` compose profile so `--no-hermes` installs skip it.
+#
+# NEVER used by the production Deploy workflow. Keeping these services out of
+# the base docker-compose.yml is load-bearing: tests/deploy-manifest-parity.test.ts
+# requires every base-compose service to have a force-recreate block in
+# .github/workflows/deploy.yml, and these two must not be deployed to prod.
+#
+# Invocation (install.sh does this for you):
+#   docker compose --env-file .env \
+#     -f docker-compose.yml -f docker-compose.selfhost.yml \
+#     [--profile hermes] up -d
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - aries-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks:
+      - docker_stack
+
+  # Single-gateway Hermes. The app reaches it in-network at http://hermes:8642;
+  # the port is intentionally NOT published to the host. The installer points
+  # HERMES_GATEWAY_URL + the per-profile HERMES_*_GATEWAY_URL vars here (the
+  # base compose defaults those to host.docker.internal ports that do not
+  # exist in this stack).
+  #
+  # /opt/data is a HOST BIND (not a named volume) because the base compose
+  # bind-mounts subpaths of it read-only into aries-app
+  # (HERMES_IMAGE_CACHE_DIR / HERMES_VIDEO_CACHE_DIR) for media ingest.
+  hermes:
+    image: ${HERMES_IMAGE:-nousresearch/hermes-agent:latest}
+    profiles: ["hermes"]
+    environment:
+      API_SERVER_ENABLED: "true"
+      API_SERVER_HOST: 0.0.0.0
+      API_SERVER_PORT: "8642"
+      API_SERVER_KEY: ${HERMES_API_SERVER_KEY}
+      # LLM provider credentials — set exactly one (install.sh writes the one
+      # you chose via --llm-provider).
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    volumes:
+      - ${HERMES_DATA_DIR:-./hermes-data}:/opt/data
+    restart: unless-stopped
+    networks:
+      - docker_stack
+
+  # Overlay additions to the base aries-app service (merged, not replaced):
+  # wait for the bundled database before start-runtime.mjs runs init-db.
+  aries-app:
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  aries-pgdata:
