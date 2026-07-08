@@ -49,6 +49,22 @@ test('push geometry and timing mirror the rail itself (AA-78)', () => {
   assert.match(shell, /lg:transition-\[padding-left\] lg:duration-\[420ms\]/);
 });
 
+test('rail-pinning menus close on click, never mousedown (AA-78 follow-up)', () => {
+  // Closing the account menu or the workspace switcher un-pins the rail
+  // (keepSidebarExpanded) and slides <main> 312->104px. A mousedown-close
+  // starts that slide BEFORE mouseup, so the click the user aimed at content
+  // straddles a moving target and never fires. Both outside-close listeners
+  // must therefore be 'click' (fires after the aimed click completes).
+  const switcher = readFileSync(
+    path.join(PROJECT_ROOT, 'components', 'redesign', 'layout', 'workspace-switcher.tsx'),
+    'utf8',
+  );
+  assert.match(shell, /document\.addEventListener\('click', handleClickOutside\)/);
+  assert.match(switcher, /document\.addEventListener\('click', onOutsideClick\)/);
+  assert.doesNotMatch(shell, /addEventListener\('mousedown'/);
+  assert.doesNotMatch(switcher, /addEventListener\('mousedown'/);
+});
+
 test('hover-intent delay is mirrored on rail and main (AA-78)', () => {
   // 150ms expansion delay: an incidental pointer graze over the rail moves
   // nothing. The delay must exist on BOTH the rail width (hover:) and the main

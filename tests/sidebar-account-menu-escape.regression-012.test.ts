@@ -20,10 +20,13 @@ test('desktop sidebar account menu keeps click-outside close behavior', () => {
   assert.match(
     appShellSource,
     /if \(accountMenuRef\.current && !accountMenuRef\.current\.contains\(event\.target as Node\)\) \{\s*setIsAccountMenuOpen\(false\);\s*\}/,
-    'account menu should still close when a mousedown lands outside accountMenuRef',
+    'account menu should still close when a click lands outside accountMenuRef',
   );
-  assert.match(appShellSource, /document\.addEventListener\('mousedown', handleClickOutside\);/);
-  assert.match(appShellSource, /document\.removeEventListener\('mousedown', handleClickOutside\);/);
+  // 'click', NOT 'mousedown': closing un-pins the rail and slides the content,
+  // so a mousedown-close starts the slide before mouseup and swallows the click
+  // the user aimed at content (AA-78 follow-up).
+  assert.match(appShellSource, /document\.addEventListener\('click', handleClickOutside\);/);
+  assert.match(appShellSource, /document\.removeEventListener\('click', handleClickOutside\);/);
 });
 
 test('desktop sidebar account menu closes on Escape via a document keydown handler', () => {
