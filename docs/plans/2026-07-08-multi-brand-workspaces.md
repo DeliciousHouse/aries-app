@@ -6,7 +6,7 @@ Status: DRAFT — for review (autoplan-equivalent scoping pass)
 
 ## Problem / why
 
-Tenant 15 (brendan@sugarandleather.com) runs Aries with **Aries AI** branding on its connected social platforms. The parent company, Sugar and Leather, has more products that need their own brand presence and social posting — at minimum **Sequence CRM** and **Sugar and Leather** (the company brand itself). The ask:
+Tenant 15 (the Sugar and Leather owner account) runs Aries with **Aries AI** branding on its connected social platforms. The parent company, Sugar and Leather, has more products that need their own brand presence and social posting — at minimum **Sequence CRM** and **Sugar and Leather** (the company brand itself). The ask:
 
 1. Add additional brands to one Aries account,
 2. with **zero context pollution** between brands — the Aries AI brand kit, taste profile, creative memory, connected socials, and analytics must never bleed into Sequence CRM content or vice versa,
@@ -89,7 +89,7 @@ Effort: M (1a/1b are the substance; 1c/1d are trivial).
 
 1. Flip `ARIES_MULTI_WORKSPACE_ENABLED=1` in the prod host `.env` (already wired in `docker-compose.yml` per the two-place rule) and deploy.
 2. Rendered-UI verify on prod with Brendan's account **before** any new brand is created: existing tenant 15 behavior unchanged, no switcher rendered (workspaceCount=1), dashboard byte-identical.
-3. Grant pro: `tsx scripts/billing/set-user-plan.ts --email brendan3394@gmail.com --plan pro` (audited; confirm the exact account email that owns tenant 15 first — prod sign-in is brendan@sugarandleather.com per the incident narrative).
+3. Grant pro: `tsx scripts/billing/set-user-plan.ts --email <owner-account-email> --plan pro` (audited; confirm the exact account email that owns tenant 15 first — the owner's prod sign-in, per the 2026-07-03 plan's incident narrative).
 4. Create the two new brand workspaces via the in-app flow (account menu → Create new workspace): **Sequence CRM** (website URL → fresh brand-kit scrape) and **Sugar and Leather**. Verify each 402-then-succeeds sequence behaves (free-plan denial screenshot taken in Phase 0; prod goes straight through on pro).
 5. Per new workspace: connect its own Instagram/Facebook via channel-integrations (each brand needs its own IG/FB assets — one account per platform per tenant), confirm the auto-provisioned cadence row, run one weekly job end-to-end, and screenshot the produced creative to confirm the brand kit that drove it is the *new* brand's (logo, palette, voice) with zero Aries AI leakage.
 6. Isolation spot-check on prod data: `marketing_taste_profile`, `posts`, `creative_assets`, `insights_*` rows for the new tenant ids contain only their own brand's artifacts; Honcho workspace ids differ per tenant.
