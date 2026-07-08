@@ -579,7 +579,14 @@ export function StatusBadge({
 
 // ── Empty state ───────────────────────────────────────────────────────────────
 
-export function EmptyState({ message }: { message: string }) {
+export function EmptyState({
+  message,
+  action,
+}: {
+  message: string;
+  /** Optional call-to-action link rendered under the message. */
+  action?: { label: string; href: string };
+}) {
   return (
     <div
       style={{
@@ -590,6 +597,21 @@ export function EmptyState({ message }: { message: string }) {
       }}
     >
       {message}
+      {action && (
+        <div style={{ marginTop: 12 }}>
+          <a
+            href={action.href}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              fontSize: 12.5, fontWeight: 600, color: C.accentB,
+              background: `${C.accentB}1c`, border: `1px solid ${C.accentB}55`,
+              borderRadius: 99, padding: "6px 14px", textDecoration: "none",
+            }}
+          >
+            {action.label}
+          </a>
+        </div>
+      )}
     </div>
   );
 }
