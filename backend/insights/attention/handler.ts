@@ -18,7 +18,9 @@ import crypto from 'crypto';
 
 // v2: fix the unreplied-card CTA link (/conversations 404 → /dashboard/comments,
 // S1-1/AA-80). Bump regenerates cached attention snapshots holding the bad link.
-const TEMPLATE_VERSION = 'attention-v2';
+// v3: escape the untrusted post title in the opportunity-card HTML (stored XSS,
+// S1-2/AA-81). Bump flushes cached cards holding the unescaped title.
+const TEMPLATE_VERSION = 'attention-v3';
 const CACHE_TTL_MS     = 15 * 60 * 1000; // 15 minutes
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);

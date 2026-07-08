@@ -7,6 +7,7 @@
 
 import type { TopPost, TopSnapshot } from './top-snapshot-builder';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
+import { escapeHtml } from '../escape-html';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -140,11 +141,11 @@ export function buildPatternCard(snap: TopSnapshot): PatternCard {
   if (leadCount >= Math.ceil(total * 0.6)) {
     const label = leadType.charAt(0).toUpperCase() + leadType.slice(1);
     title    = `${label} posts leading your top ${total}`;
-    takeaway = `<strong>${label}</strong> content dominates your top performers — Aries will keep leaning in.`;
+    takeaway = `<strong>${escapeHtml(label)}</strong> content dominates your top performers — Aries will keep leaning in.`;
   } else if (sorted.length === 1) {
     const label = leadType.charAt(0).toUpperCase() + leadType.slice(1);
     title    = `All top posts are ${label}`;
-    takeaway = `Your top posts are all <strong>${label.toLowerCase()}</strong> — typical for this channel.`;
+    takeaway = `Your top posts are all <strong>${escapeHtml(label.toLowerCase())}</strong> — typical for this channel.`;
   } else {
     title    = `Mixed top performers`;
     takeaway = `Your audience responds to several formats — Aries is rotating to find the highest-leverage mix.`;
