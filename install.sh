@@ -104,6 +104,8 @@ if [ -d "$INSTALL_DIR/.git" ]; then
   git -C "$INSTALL_DIR" pull --ff-only origin "$GIT_REF" || warn "pull --ff-only failed (local commits?); continuing with the current checkout."
 elif [ -f "$INSTALL_DIR/docker-compose.selfhost.yml" ]; then
   log "Existing non-git install found in $INSTALL_DIR — reusing it as-is."
+elif [ -d "$INSTALL_DIR" ] && [ -n "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]; then
+  die "$INSTALL_DIR exists, is not empty, and is not an Aries install (no .git or docker-compose.selfhost.yml). Pick a different --dir or clear it out first."
 elif command -v git >/dev/null 2>&1; then
   log "Cloning $REPO_SLUG ($GIT_REF) into $INSTALL_DIR."
   git clone --depth 1 --branch "$GIT_REF" "https://github.com/$REPO_SLUG.git" "$INSTALL_DIR"
@@ -116,6 +118,9 @@ fi
 
 cd "$INSTALL_DIR"
 INSTALL_DIR="$(pwd)" # absolute from here on (compose bind mounts need it)
+case "$INSTALL_DIR" in
+  *[[:space:]]*) die "install path '$INSTALL_DIR' contains whitespace, which breaks the compose bind-mount paths written to .env. Re-run with a whitespace-free --dir." ;;
+esac
 
 # ---------------------------------------------------------------------------
 # 3. Prompts (TTY only) + Hermes degrade
@@ -145,8 +150,30 @@ fi
 # ---------------------------------------------------------------------------
 # 4. Generate .env (only when absent — re-runs keep your config)
 # ---------------------------------------------------------------------------
+# Upsert NAME=VALUE in .env (used to persist an explicit --llm-key on re-run).
+set_env_var() {
+  local name="$1" value="$2"
+  if grep -qE "^${name}=" .env; then
+    awk -v n="$name" -v v="$value" 'index($0, n"=") == 1 { print n "=" v; next } { print }' .env > .env.tmp \
+      && mv .env.tmp .env && chmod 600 .env
+  else
+    printf '%s=%s\n' "$name" "$value" >> .env
+  fi
+}
+
 if [ -f .env ]; then
   log "Keeping existing .env (delete it to regenerate)."
+  # An explicit --llm-key on a re-run must land in the preserved .env, or the
+  # hermes profile would start with the stale (possibly empty) credentials —
+  # this is exactly the "enable Hermes later" path the docs advertise.
+  if [ -n "$LLM_KEY" ] && [ "$LLM_KEY" != "from-env-file" ]; then
+    case "$LLM_PROVIDER" in
+      openrouter) set_env_var OPENROUTER_API_KEY "$LLM_KEY" ;;
+      anthropic)  set_env_var ANTHROPIC_API_KEY "$LLM_KEY" ;;
+      openai)     set_env_var OPENAI_API_KEY "$LLM_KEY" ;;
+    esac
+    log "Updated ${LLM_PROVIDER} API key in .env."
+  fi
 else
   log "Generating .env with fresh random secrets."
   if [ "$BUILD_LOCAL" -eq 1 ]; then
