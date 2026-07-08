@@ -73,7 +73,7 @@ function buildUnrepliedCard(snap: AttentionSnapshot): AttentionCard {
     icon:   'message-circle',
     title:  `<em>${unreplied} comment${unreplied === 1 ? '' : 's'}</em> waiting for your reply`,
     body,
-    ctaPrimary:   { label: 'Open Conversations', href: '/conversations' },
+    ctaPrimary:   { label: 'Open Conversations', href: '/dashboard/comments' },
     ctaSecondary: { label: 'Mark as read', toast: 'Marked as read' },
   };
 }
