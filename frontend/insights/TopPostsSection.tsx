@@ -235,21 +235,24 @@ function PostRow({
                 Open on {platformLabel[post.platform] ?? post.platform}
               </a>
             )}
-            <button
-              onClick={() => alert("Ad promotion coming soon")}
+            <a
+              href="/campaigns"
               style={{
-                background:   C.accent,
-                color:        "#fff",
-                border:       "none",
-                borderRadius: 8,
-                padding:      "6px 12px",
-                fontSize:     12,
-                fontWeight:   600,
-                cursor:       "pointer",
+                background:     C.accent,
+                color:          "#fff",
+                border:         "none",
+                borderRadius:   8,
+                padding:        "6px 12px",
+                fontSize:       12,
+                fontWeight:     600,
+                cursor:         "pointer",
+                textDecoration: "none",
+                display:        "inline-flex",
+                alignItems:     "center",
               }}
             >
               Promote as ad
-            </button>
+            </a>
           </div>
         </div>
       )}
@@ -334,7 +337,8 @@ export function TopPostsSection({ period, platform }: TopPostsSectionProps) {
   const empty = !data?.meta?.hasData || !data?.posts?.length;
 
   return (
-    <section>
+    // Anchor target for the Attention "View details" CTA (in-page scroll).
+    <section id="top-performing">
       {/* Header row: title on the left, sort select on the right */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
         <SectionHeader title="Top performing content" />

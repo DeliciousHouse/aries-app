@@ -59,14 +59,10 @@ function PrimaryCta({ cta }: { cta: AttentionCta }) {
       </a>
     );
   }
+  // No real destination yet — show it disabled (planned, not broken) rather
+  // than firing a placeholder popup. S5-* wires these for real.
   return (
-    <button
-      type="button"
-      style={baseStyle}
-      onClick={() => {
-        if (cta.toast) alert(cta.toast);
-      }}
-    >
+    <button type="button" disabled title="Coming soon" style={{ ...baseStyle, opacity: 0.5, cursor: "not-allowed" }}>
       {cta.label}
     </button>
   );
@@ -93,14 +89,9 @@ function SecondaryCta({ cta }: { cta: AttentionCta }) {
       </a>
     );
   }
+  // No real destination yet — disabled (planned, not broken), no placeholder popup.
   return (
-    <button
-      type="button"
-      style={baseStyle}
-      onClick={() => {
-        if (cta.toast) alert(cta.toast);
-      }}
-    >
+    <button type="button" disabled title="Coming soon" style={{ ...baseStyle, opacity: 0.5, cursor: "not-allowed" }}>
       {cta.label}
     </button>
   );
@@ -108,6 +99,16 @@ function SecondaryCta({ cta }: { cta: AttentionCta }) {
 
 function AttentionCardView({ card }: { card: AttentionCard }) {
   const tint = toneColor(card.tone);
+
+  // "View details" on the opportunity card points at the Top Performing Content
+  // section, which is rendered on this same page — so wire it as an in-page
+  // anchor rather than a placeholder. Keyed on card.type (structural), so no
+  // cached-builder change and no TEMPLATE_VERSION bump. Other no-href CTAs (e.g.
+  // "Mark as read") have no real target yet and fall through to disabled.
+  const secondaryCta =
+    card.ctaSecondary && !card.ctaSecondary.href && card.type === "opportunity"
+      ? { ...card.ctaSecondary, href: "#top-performing" }
+      : card.ctaSecondary;
 
   return (
     <div
@@ -156,7 +157,7 @@ function AttentionCardView({ card }: { card: AttentionCard }) {
       {(card.ctaPrimary || card.ctaSecondary) && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
           {card.ctaPrimary && <PrimaryCta cta={card.ctaPrimary} />}
-          {card.ctaSecondary && <SecondaryCta cta={card.ctaSecondary} />}
+          {secondaryCta && <SecondaryCta cta={secondaryCta} />}
         </div>
       )}
     </div>
