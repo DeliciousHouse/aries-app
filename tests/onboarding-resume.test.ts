@@ -31,3 +31,16 @@ test('onboarding resume claims materialization once and falls back to a pending 
   assert.doesNotMatch(source, /updateOnboardingDraft\(draftId, \{ status: 'materializing' \}\)/);
   assert.doesNotMatch(source, /const draft = await requireOnboardingDraft/);
 });
+
+test('onboarding resume auto-provisions a default marketing_schedule row, flag-independently (multi-brand workspaces Phase 1a)', () => {
+  assert.match(source, /provisionDefaultMarketingSchedule/);
+
+  // Must NOT be gated behind isMultiWorkspaceEnabled(): the schedule hook is
+  // common to both the flag-ON and flag-OFF tenant-resolution branches, so it
+  // must not be nested inside an `if (isMultiWorkspaceEnabled())` block.
+  const multiWorkspaceBlockMatch = source.match(
+    /if \(isMultiWorkspaceEnabled\(\)\) \{([\s\S]*?)\n\s*\}/,
+  );
+  assert.ok(multiWorkspaceBlockMatch, 'expected to find the isMultiWorkspaceEnabled() branch');
+  assert.doesNotMatch(multiWorkspaceBlockMatch![1], /provisionDefaultMarketingSchedule/);
+});

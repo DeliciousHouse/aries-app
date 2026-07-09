@@ -17,9 +17,11 @@ import {
   updateOnboardingDraft,
 } from '@/backend/onboarding/draft-store';
 import {
+  loadTenantTimezoneOrFallback,
   tenantHasStoredBusinessProfileState,
   updateBusinessProfileWithDiagnostics,
 } from '@/backend/tenant/business-profile';
+import { provisionDefaultMarketingSchedule } from '@/backend/marketing/schedule-store';
 import { listSocialContentJobIdsForTenant } from '@/backend/marketing/runtime-state';
 import { listMarketingReviewItemsForTenant } from '@/backend/marketing/runtime-views';
 import { startSocialContentJob } from '@/backend/marketing/orchestrator';
@@ -232,6 +234,25 @@ export default async function OnboardingResumePage(
         competitorUrl: claim.draft.competitorUrl || null,
         channels: claim.draft.channels,
       });
+
+      // Multi-brand workspaces Phase 1a: seed a default weekly cadence row for
+      // every newly-materialized tenant so a cadence-settings card (1b) and the
+      // weekly trigger worker have something to read/pick up. Best-effort and
+      // NEVER blocks onboarding — flag-independent (runs for all onboarding
+      // completions; the multi-workspace flag split lives upstream in
+      // resolveTenantForDraft, not here). ON CONFLICT DO NOTHING makes this
+      // safe to call unconditionally, including for a reused tenant.
+      try {
+        await provisionDefaultMarketingSchedule(client, {
+          tenantId: Number(tenantId),
+          timezone: loadTenantTimezoneOrFallback(tenantId),
+        });
+      } catch (scheduleError) {
+        console.warn(
+          `[onboarding-resume] provisionDefaultMarketingSchedule failed for tenant ${tenantId}:`,
+          scheduleError,
+        );
+      }
     } finally {
       client.release();
     }
