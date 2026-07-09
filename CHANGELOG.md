@@ -2,6 +2,53 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.29.0 — feat(marketing): AI-derived per-platform posting times (flag-gated, default OFF)
+
+Posting times are no longer a fixed set time. Behind `ARIES_AI_POSTING_TIMES_ENABLED`
+(default OFF — flag OFF is byte-identical to today), every content-generation
+start re-derives WHEN each platform's posts publish, and the settings hub
+separates "when content is generated" from "when posts go live".
+
+### Added
+
+- **AI posting-time advisor** (`backend/marketing/posting-time-advisor.ts`):
+  per platform (FB+IG always, plus connected flag-ON crosspost platforms),
+  the best posting hour + ranked days come from the tenant's OWN insights
+  engagement once >= 8 posts have metrics (`source=analytics` — latest-snapshot
+  per post, tenant-local day×hour buckets, feed-equivalent media only, zero
+  engagement never counts as signal), and until then from ONE Hermes research
+  run over the business profile's competitor (`source=competitor` — per-tenant
+  session isolation, strict range-validated output, URL-stripped rationale).
+  Fired fire-and-forget from `startSocialContentJob`, covering every generate
+  entry point (create forms, generate-this-week button, weekly trigger,
+  onboarding, reel companion). New `marketing_posting_times` table.
+- **Derived times feed real scheduling**: the auto-schedule paths prefer the
+  derived feed hour/minute over the hardcoded `PLATFORM_POSTING_DEFAULTS`
+  (stagger preserved; story/reel keep platform windows), and honor derived
+  preferred days on the default-cadence path only when that can never drop
+  post volume. Fail-open at every seam — a missing/failed derivation falls
+  back to today's defaults and never blocks scheduling.
+- **Settings hub "Posting times" panel**: shows each platform's derived time,
+  best days, and source badge ("Your analytics (n posts)" vs "Competitor
+  analysis"), with an admin **Update times now** button
+  (`POST /api/marketing/posting-times/derive`, 202 + bounded auto-refresh
+  polling). The cadence card is reframed as the weekly GENERATION schedule so
+  the two schedules are never conflated.
+
+### Changed
+
+- Derivation dedupe is cross-process safe: a `marketing_posting_time_claims`
+  atomic claim row (auto-scaled window, honored even under force) collapses
+  concurrent derivations across cluster workers, doubles as failure backoff on
+  transient competitor-run failures (independent of other platforms succeeding
+  via analytics), and a 2-minute cooldown floor bounds repeated force clicks.
+  TTL freshness is per-platform and evaluated on the DB clock.
+- Flag-off `POST /derive` returns a real 404 for every role (the flag-off
+  endpoint invisibility precedent); 409 stays reserved for the workspace
+  mismatch interlock.
+- Cadence/schedule copy now says "generation schedule" everywhere it meant
+  content generation (settings card, client error copy, invite email).
+
 ## v0.1.28.0 — feat(tenant): multi-workspace phase 4 — second-workspace creation, lifecycle repair, entitlement CLI (flag-gated, default OFF)
 
 Phase 4 (final in-scope phase) of the multi-workspace membership program
