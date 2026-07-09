@@ -208,6 +208,62 @@ test('#808: Composio ON + a connected_accounts row with status=connected -> oaut
   });
 });
 
+test('#808: Composio ON + a connected_accounts row with status=pending -> oauthStatusAsync does NOT report connected (in-flight handshake)', async (t) => {
+  await withComposioEnabledEnv(async () => {
+    resetOauthStore();
+    const connRow: ConnectedAccountRowFixture = {
+      id: '502',
+      tenant_id: '21',
+      external_user_id: 'tenant-21',
+      platform: 'instagram',
+      provider: 'composio',
+      connected_account_id: 'ca_pending123',
+      auth_config_id: 'ac_xyz789',
+      external_account_id: null,
+      external_account_name: null,
+      status: 'pending',
+      capabilities_json: null,
+      last_capability_check_at: null,
+      created_at: '2026-07-09T00:00:00.000Z',
+      updated_at: '2026-07-09T00:00:00.000Z',
+    };
+    t.mock.method(pool, 'query', makeQueryMock({ connectedAccounts: [connRow] }) as typeof pool.query);
+
+    const status = await oauthStatusAsync('instagram', '21');
+    assert.ok(!('broker_status' in status), 'expected a status shape, not a broker error');
+    assert.equal(status.connection_status, 'disconnected');
+    assert.equal(status.status_reason, 'connection_not_found');
+  });
+});
+
+test('#808: Composio ON + a connected_accounts row with status=error -> oauthStatusAsync does NOT report connected (failed handshake)', async (t) => {
+  await withComposioEnabledEnv(async () => {
+    resetOauthStore();
+    const connRow: ConnectedAccountRowFixture = {
+      id: '503',
+      tenant_id: '22',
+      external_user_id: 'tenant-22',
+      platform: 'instagram',
+      provider: 'composio',
+      connected_account_id: 'ca_error123',
+      auth_config_id: 'ac_xyz789',
+      external_account_id: null,
+      external_account_name: null,
+      status: 'error',
+      capabilities_json: null,
+      last_capability_check_at: null,
+      created_at: '2026-07-09T00:00:00.000Z',
+      updated_at: '2026-07-09T00:00:00.000Z',
+    };
+    t.mock.method(pool, 'query', makeQueryMock({ connectedAccounts: [connRow] }) as typeof pool.query);
+
+    const status = await oauthStatusAsync('instagram', '22');
+    assert.ok(!('broker_status' in status), 'expected a status shape, not a broker error');
+    assert.equal(status.connection_status, 'disconnected');
+    assert.equal(status.status_reason, 'connection_not_found');
+  });
+});
+
 test('#808: Composio OFF -> Instagram env-managed branch stays unconditionally connected (legacy behavior unchanged)', async (t) => {
   await withComposioDisabledEnv(async () => {
     resetOauthStore();
