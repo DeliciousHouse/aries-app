@@ -32,6 +32,30 @@ function parseIntParam(value: string | null, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+// S1-8 / AA-87: currentFollowers = SUM of each platform's LATEST follower count.
+// NOT MAX across platforms (which shows only the largest single platform — a
+// multi-platform tenant with FB 10k + IG 6k wrongly saw 10k) and NOT SUM across
+// dates (which multiplies by the number of daily snapshots). DISTINCT ON
+// (platform) ORDER BY platform, date DESC takes the most recent non-null
+// follower row per platform; the outer SUM adds those per-platform latest
+// values. Uncorrelated scalar subquery (uses only $1/$2/$3), so it composes
+// with the other SUM aggregates in the summary query. Exported standalone so
+// the requires-infra test proves the exact expression against the real schema.
+const LATEST_FOLLOWERS_PER_PLATFORM_SUBQUERY = `
+      SELECT COALESCE(SUM(latest.followers), 0)
+      FROM (
+        SELECT DISTINCT ON (platform) followers
+        FROM insights_account_metrics_daily
+        WHERE tenant_id = $1
+          AND date >= $2
+          AND ($3::text IS NULL OR platform = $3)
+          AND followers IS NOT NULL
+        ORDER BY platform, date DESC
+      ) latest`;
+
+export const CURRENT_FOLLOWERS_SUM_SQL =
+  `SELECT (${LATEST_FOLLOWERS_PER_PLATFORM_SUBQUERY}) AS current_followers`;
+
 // ── Summary ───────────────────────────────────────────────────────────────────
 
 /**
@@ -69,7 +93,7 @@ export async function handleGetInsightsSummary(
     }>(
       `SELECT
          COALESCE(SUM(views), 0)              AS total_views,
-         COALESCE(MAX(followers), 0)          AS current_followers,
+         (${LATEST_FOLLOWERS_PER_PLATFORM_SUBQUERY}) AS current_followers,
          COALESCE(SUM(followers_delta), 0)    AS followers_gained,
          COALESCE(SUM(likes), 0)              AS total_likes,
          COALESCE(SUM(comments_count), 0)     AS total_comments,
