@@ -33,6 +33,7 @@ import {
   sanitizeLegacyCompetitorUrl,
   validateCanonicalCompetitorUrl,
 } from '@/lib/marketing-competitor';
+import { invalidateGoalNarrativeCache } from '@/backend/insights/goal/cache-invalidation';
 import { resolveDataPath } from '@/lib/runtime-paths';
 import { DEFAULT_TENANT_TIMEZONE, isValidTimeZone, resolveTenantTimeZone } from '@/lib/format-timestamp';
 import {
@@ -923,6 +924,13 @@ export async function updateBusinessProfileWithDiagnostics(
     reel_audio_mode: nextReelAudioMode,
     updated_at: nowIso(),
   });
+
+  // S1-6 / AA-85: drop the cached goal section so the next /insights load
+  // rebuilds from the just-saved primary_goal — completing the S1-5 "Goal
+  // inferred — confirm in Settings" loop (otherwise a goal edit appears to do
+  // nothing for up to the 1h goal cache TTL). Runs AFTER the save (already
+  // persisted) and never throws, so a cache miss can't fail the user's save.
+  await invalidateGoalNarrativeCache(client, input.tenantId);
 
   await persistBrandKitIfNeeded(input.tenantId, nextWebsiteUrl, current.profile.websiteUrl);
   return getBusinessProfileWithDiagnostics(client, input.tenantId);
