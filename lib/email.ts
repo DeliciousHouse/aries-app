@@ -10,17 +10,19 @@
 //                    skip the send; the caller still resolves successfully so
 //                    routes don't leak "email not configured" as an oracle.
 //   EMAIL_FROM       Fully-qualified "From" header, e.g.
-//                    `Aries AI <noreply@sugarandleather.com>`. The
+//                    `Aries AI <noreply@your-domain.com>`. The
 //                    domain portion MUST be verified at
 //                    https://resend.com/domains before Resend will accept the
 //                    send — otherwise Resend returns a 4xx that we only log.
-//                    Falls back to the DEFAULT_FROM below when unset.
-//                    For local/sandbox testing use `onboarding@resend.dev`
-//                    (Resend's shared verified sender).
+//                    Falls back to the DEFAULT_FROM below when unset —
+//                    `onboarding@resend.dev`, Resend's shared verified sandbox
+//                    sender, so self-hosted installs can send without a
+//                    verified domain. Production deployments should set
+//                    EMAIL_FROM to an address on their own verified domain.
 
 import { Resend } from 'resend';
 
-const DEFAULT_FROM = 'Aries AI <noreply@sugarandleather.com>';
+const DEFAULT_FROM = 'Aries AI <onboarding@resend.dev>';
 
 function renderHtml(code: string): string {
   return `<!doctype html>

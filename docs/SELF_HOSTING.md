@@ -1,5 +1,48 @@
 # Aries AI — Self-Hosting Guide
 
+## One-line install (Docker) — recommended
+
+If you just want a running instance, use the installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DeliciousHouse/aries-app/master/install.sh | bash
+```
+
+It checks for Docker/Compose v2, fetches the repo, generates a `.env` with
+random secrets, and brings up the full stack via the
+`docker-compose.selfhost.yml` overlay: the app + its background workers, a
+bundled PostgreSQL, and — when you provide an LLM API key — a bundled
+[Hermes](https://github.com/NousResearch/hermes-agent) execution gateway
+(`--profile hermes`). When it finishes, open `/signup`; creating an account
+auto-provisions your workspace.
+
+Flags (pass after `bash -s --`): `--dir`, `--ref`, `--domain URL`,
+`--llm-provider openrouter|anthropic|openai`, `--llm-key KEY`, `--no-hermes`,
+`--build` (local image build instead of the GHCR pull), `-y` (non-interactive).
+
+Notes:
+
+- **Without an LLM key** (or with `--no-hermes`) the install still succeeds:
+  dashboard, auth, and scheduling all work; content generation stays off until
+  you add a provider key to `.env` and start the `hermes` profile.
+- **Re-running is safe**: the installer updates the checkout, preserves your
+  `.env`, and rolls the stack onto the new image.
+- **Hermes model setup**: the gateway ships headless with your provider key. If
+  generation runs fail, finish its model configuration interactively:
+
+  ```bash
+  cd <install-dir>
+  docker compose --env-file .env -f docker-compose.yml -f docker-compose.selfhost.yml \
+    --profile hermes run --rm -it hermes setup
+  docker compose --env-file .env -f docker-compose.yml -f docker-compose.selfhost.yml \
+    --profile hermes restart hermes
+  ```
+
+- **Skills**: the installer seeds this repo's `skills/` into the Hermes data
+  dir (`<install-dir>/hermes-data/skills`) on first run.
+
+The rest of this guide covers the manual/local-development path.
+
 ## Prerequisites
 
 - **Node.js** 18 or later

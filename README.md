@@ -9,6 +9,42 @@ on a schedule. Long-running generation is handed off to an execution service
 > **License:** Apache-2.0. The Aries AI and Sugar & Leather names and logos are
 > trademarks — see [TRADEMARKS.md](TRADEMARKS.md).
 
+## One-line install (Docker)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DeliciousHouse/aries-app/master/install.sh | bash
+```
+
+This brings up the full self-host stack — the app, its background workers, a
+bundled PostgreSQL, and (when you provide an LLM API key) a bundled
+[Hermes](https://github.com/NousResearch/hermes-agent) execution gateway for
+content generation. When it finishes, open `http://localhost:3000/signup`;
+creating an account auto-provisions your workspace. Prerequisites: Docker with
+Compose v2, `curl`, and `openssl`.
+
+Useful flags (pass after `bash -s --`):
+
+| Flag | What it does |
+|------|--------------|
+| `--dir DIR` | Install directory (default `./aries-app`) |
+| `--domain URL` | Public origin (default `http://localhost:3000`) |
+| `--llm-provider P` / `--llm-key KEY` | LLM credentials for Hermes (`openrouter`, `anthropic`, or `openai`) |
+| `--no-hermes` | Skip the Hermes gateway (dashboard/auth/scheduling only) |
+| `--build` | Build the image locally instead of pulling from GHCR |
+| `-y` | Non-interactive (no prompts) |
+
+Example with flags:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DeliciousHouse/aries-app/master/install.sh \
+  | bash -s -- --llm-provider openrouter --llm-key sk-or-... -y
+```
+
+Re-running the installer in the same directory is safe: it updates the
+checkout, keeps your `.env`, and rolls the stack onto the new image. Without an
+LLM key the install still succeeds in a degraded mode — everything except
+content generation works. Details in [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md).
+
 ## What's in this repository
 
 - **Public marketing pages** — homepage, features, documentation, API docs.
@@ -76,15 +112,23 @@ environment variable and a demo-friendly mode, is in
 
 ## Quickstart (Docker)
 
+The [one-line install](#one-line-install-docker) above is the recommended
+Docker path — it generates `.env`, provisions PostgreSQL (and optionally
+Hermes) via the `docker-compose.selfhost.yml` overlay, and waits for health.
+
+To run compose by hand against **external** PostgreSQL and Hermes services
+(the production layout), use the base file alone:
+
 ```bash
 cp .env.example .env          # fill in DB_* and HERMES_* values
 docker network create docker-stack || true
 docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml up --build -d aries-app
 ```
 
-Compose expects an external PostgreSQL database and an external Hermes service:
-it does **not** provision PostgreSQL or pgAdmin. Point the external `DB_*` values
-in `.env` at a database the container can reach. See
+The base compose file does **not** provision PostgreSQL or Hermes — point the
+`DB_*` values in `.env` at a database the container can reach, or add the
+self-host overlay (`-f docker-compose.selfhost.yml`, with `--profile hermes`
+for the bundled gateway) to run them in the same stack. See
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for production deployment.
 
 ## Documentation

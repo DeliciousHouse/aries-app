@@ -3,7 +3,7 @@ export function metadataSiteOrigin(): string {
     process.env.APP_BASE_URL ||
     process.env.NEXTAUTH_URL ||
     process.env.AUTH_URL ||
-    'https://aries.sugarandleather.com'
+    'http://localhost:3000'
   ).replace(/\/+$/, '');
 
   try {
