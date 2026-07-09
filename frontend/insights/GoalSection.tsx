@@ -14,6 +14,8 @@ import { C, platformLabel } from "@/frontend/insights/tokens";
 import {
   SectionHeader, Panel, ChannelIcon, Icon, ErrorState, EmptyState, LoadingRows,
 } from "@/frontend/insights/ui";
+// S1-9-PROVISIONAL-DISCLOSURE — REMOVE IN S2-1 (Gap A1 fix).
+import { ProvisionalMetricNote } from "@/frontend/insights/ProvisionalMetricNote";
 
 interface GoalSectionProps {
   period:   Period;
@@ -150,8 +152,15 @@ export function GoalSection({ period, platform }: GoalSectionProps) {
 
             {/* ── RIGHT: what contributed ── */}
             <div style={{ borderLeft: `1px solid ${C.border}`, paddingLeft: 28 }}>
-              <div style={{ fontSize: 10.5, fontWeight: 700, color: C.t3, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 14 }}>
-                What contributed
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 10.5, fontWeight: 700, color: C.t3, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+                  What contributed
+                </span>
+                {/* S1-9-PROVISIONAL-DISCLOSURE — REMOVE IN S2-1 (Gap A1 fix):
+                    contributor/category values are per-post lifetime-SUM reach/
+                    saves (over-count). The goal headline metric is account-level
+                    and is NOT labelled here. */}
+                <ProvisionalMetricNote />
               </div>
 
               <div style={{ display: "flex", flexDirection: "column" }}>
