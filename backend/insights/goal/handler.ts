@@ -23,7 +23,9 @@ import crypto from 'crypto';
 // v3: normalize free-form primary_goal → canonical GoalType, so the goal label
 // and Aries narrative are no longer blank when onboarding stored natural-language
 // goal text. Bump invalidates stale v2 rows that cached the empty label.
-const TEMPLATE_VERSION = 'goal-template-v3';
+// v4: cached body now carries `goalInferred` (S1-5 / AA-84) — the body shape
+// changed, so bump to invalidate v3 rows that lack the flag.
+const TEMPLATE_VERSION = 'goal-template-v4';
 const CACHE_TTL_MS     = 60 * 60 * 1000;
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);
@@ -152,6 +154,7 @@ export async function handleGetInsightsGoal(
       contributors:    snapshot.contributors,
       categories:      snapshot.categories,
       hasData:         snapshot.hasData,
+      goalInferred:    snapshot.goalInferred,
     };
 
     await upsert(client, tenantId, period, platform, body, hash);

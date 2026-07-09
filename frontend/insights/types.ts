@@ -83,6 +83,7 @@ export interface GoalData extends ApiBase {
   contributors:    GoalContributor[];   // top posts — used for the this-week view
   categories:      GoalCategory[];      // grouped by content type — used for 30/90-day
   hasData:         boolean;             // ← top-level for this section
+  goalInferred?:   boolean;             // Aries guessed the goal — show "confirm in Settings" chip (S1-5)
 }
 
 // § Attention — backend/insights/attention/handler.ts

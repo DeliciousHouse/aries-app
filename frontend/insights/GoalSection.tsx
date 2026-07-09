@@ -42,6 +42,10 @@ const GOAL_VERB: Record<string, string> = {
   brand_awareness: "Build awareness",
 };
 
+// Verified route: the goal (business_profiles.primary_goal) is edited on the
+// business-profile settings page (frontend/app-shell/routes.ts).
+const SETTINGS_GOAL_HREF = "/dashboard/settings/business-profile";
+
 function titleCase(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
@@ -101,7 +105,10 @@ export function GoalSection({ period, platform }: GoalSectionProps) {
         ) : error ? (
           <ErrorState message={error} onRetry={refetch} />
         ) : !data || data.status === "no_goal" ? (
-          <EmptyState message="No primary goal set. Go to Settings to configure your goal." />
+          <EmptyState
+            message="No primary goal set."
+            action={{ label: "Set your goal in Settings", href: SETTINGS_GOAL_HREF }}
+          />
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 28 }}>
             {/* ── LEFT: the headline metric ── */}
@@ -110,6 +117,20 @@ export function GoalSection({ period, platform }: GoalSectionProps) {
                 <span style={{ color: C.t3 }}>YOUR GOAL</span>
                 <span style={{ color: C.t3 }}>{"  ·  "}</span>
                 <span style={{ color: C.accentB, textTransform: "uppercase" }}>{goalVerb}</span>
+                {data.goalInferred && (
+                  <a
+                    href={SETTINGS_GOAL_HREF}
+                    title="Aries inferred this goal from your profile text. Click to confirm or change it in Settings."
+                    style={{
+                      marginLeft: 10, fontSize: 10.5, fontWeight: 600, color: C.amber,
+                      background: `${C.amber}1c`, border: `1px solid ${C.amber}55`,
+                      borderRadius: 99, padding: "2px 8px", textDecoration: "none",
+                      textTransform: "none", letterSpacing: "normal",
+                    }}
+                  >
+                    Goal inferred — confirm
+                  </a>
+                )}
               </div>
 
               <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>

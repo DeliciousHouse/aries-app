@@ -49,6 +49,13 @@ export interface GoalSnapshot {
   contributors: GoalContributor[];   // top posts (used for the week view)
   categories: GoalCategory[];        // grouped by content type (used for 30/90-day)
   hasData: boolean;
+  /**
+   * True when `normalizeGoal` could not confidently map the stored free-text
+   * goal and fell back to the default bucket — i.e. Aries is GUESSING. The UI
+   * renders a "Goal inferred — confirm in Settings" chip so the user can fix a
+   * misclassification (S1-5 / AA-84).
+   */
+  goalInferred: boolean;
 }
 
 function categoryLabel(contentType: string): string {
@@ -66,20 +73,31 @@ function categoryLabel(contentType: string): string {
 // through to brand awareness. Normalise any stored vocabulary to a canonical
 // goal by keyword, defaulting to brand_awareness (the most universal metric) so
 // the label + narrative are never blank.
-function normalizeGoal(raw: string): GoalType {
+//
+// Returns { goal, inferred }. `inferred` is true ONLY on the terminal
+// fallthrough — when neither an exact canonical key nor any keyword matched, so
+// the default is a GUESS, not a confident mapping. Exact and keyword matches are
+// inferred:false. On a guess we also log the original free text so an unmatched
+// onboarding preset (e.g. "Increase social media presence") is visible to us,
+// instead of silently landing on brand_awareness (S1-5 / AA-84). Exported for
+// direct unit testing.
+export function normalizeGoal(raw: string): { goal: GoalType; inferred: boolean } {
   const s = raw.trim().toLowerCase();
-  if (!s) return 'brand_awareness';
+  if (!s) return { goal: 'brand_awareness', inferred: true };
   // Exact canonical match wins.
-  if (s === 'lead_generation') return 'lead_generation';
-  if (s === 'content_growth')  return 'content_growth';
-  if (s === 'product_sales')   return 'product_sales';
-  if (s === 'brand_awareness') return 'brand_awareness';
+  if (s === 'lead_generation') return { goal: 'lead_generation', inferred: false };
+  if (s === 'content_growth')  return { goal: 'content_growth',  inferred: false };
+  if (s === 'product_sales')   return { goal: 'product_sales',   inferred: false };
+  if (s === 'brand_awareness') return { goal: 'brand_awareness', inferred: false };
   // Keyword match on free-form text (most specific intent first).
-  if (/\blead|inquir|enquir|contact|sign[- ]?up|booking|appointment\b/.test(s)) return 'lead_generation';
-  if (/\bsale|sell|revenue|purchase|buy|checkout|conversion|order|product|shop|ecommerce\b/.test(s)) return 'product_sales';
-  if (/\bfollow|grow|audience|subscriber|community|reach more|build.*following\b/.test(s)) return 'content_growth';
-  if (/\baware|reach|visib|impression|discover|exposure|brand\b/.test(s)) return 'brand_awareness';
-  return 'brand_awareness';
+  if (/\blead|inquir|enquir|contact|sign[- ]?up|booking|appointment\b/.test(s)) return { goal: 'lead_generation', inferred: false };
+  if (/\bsale|sell|revenue|purchase|buy|checkout|conversion|order|product|shop|ecommerce\b/.test(s)) return { goal: 'product_sales', inferred: false };
+  if (/\bfollow|grow|audience|subscriber|community|reach more|build.*following\b/.test(s)) return { goal: 'content_growth', inferred: false };
+  if (/\baware|reach|visib|impression|discover|exposure|brand\b/.test(s)) return { goal: 'brand_awareness', inferred: false };
+  // No keyword matched — we are GUESSING. Log the original text for our
+  // visibility and mark the result inferred so the UI asks the user to confirm.
+  console.warn(`[insights.goal] unmatched primary_goal ${JSON.stringify(raw)} → defaulting to brand_awareness (inferred)`);
+  return { goal: 'brand_awareness', inferred: true };
 }
 
 function goalLabel(goal: GoalType): string {
@@ -415,7 +433,7 @@ export async function buildGoalSnapshot(
     const rawGoal = profileRes.rows[0]?.primary_goal ?? null;
     if (!rawGoal) return null;
 
-    const goal = normalizeGoal(rawGoal);
+    const { goal, inferred: goalInferred } = normalizeGoal(rawGoal);
 
     // Fetch metric for current + previous period
     let current: number;
@@ -449,6 +467,7 @@ export async function buildGoalSnapshot(
       contributors,
       categories,
       hasData:        current > 0 || prev > 0,
+      goalInferred,
     };
   } finally {
     client.release();
