@@ -44,6 +44,7 @@ import {
   type AutoScheduleInputRow,
   type DefaultCadenceInputRow,
 } from './auto-schedule';
+import { loadPostingTimeOverrides } from './posting-time-advisor';
 import { getBusinessProfile } from '@/backend/tenant/business-profile';
 import { notifyApprovalRequired } from '@/backend/integrations/slack/notifications';
 import { pool } from '@/lib/db';
@@ -1461,6 +1462,11 @@ async function autoScheduleApprovedPostsForJob(doc: SocialContentJobRuntimeDocum
 
   const tenantTimezone = await readTenantTimezone(tenantNum);
 
+  // AI-derived posting-time overrides (ARIES_AI_POSTING_TIMES_ENABLED).
+  // Fail-open: flag off / no rows / read error → null → the compute paths use
+  // PLATFORM_POSTING_DEFAULTS exactly as before.
+  const slotOverrides = (await loadPostingTimeOverrides(tenantNum, pool)) ?? undefined;
+
   if (weeklySchedule.length === 0) {
     // The Hermes publish stage emitted a strategy-shaped placeholder (no
     // schedule[]). Fall back to absolute day-offset cadence: piece k lands on
@@ -1501,6 +1507,7 @@ async function autoScheduleApprovedPostsForJob(doc: SocialContentJobRuntimeDocum
       campaignEnd: postWindow.end,
       rows: cadenceRows,
       queryable: pool,
+      slotOverrides,
     });
     console.info('[hermes-callbacks] autoSchedulePosts (default cadence) completed', {
       jobId: doc.job_id,
@@ -1521,6 +1528,7 @@ async function autoScheduleApprovedPostsForJob(doc: SocialContentJobRuntimeDocum
     campaignEnd: postWindow.end,
     rows,
     queryable: pool,
+    slotOverrides,
   });
 
   console.info('[hermes-callbacks] autoSchedulePosts completed', {

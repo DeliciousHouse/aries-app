@@ -165,6 +165,7 @@ const steps = [
       'tests/marketing/strategy-review-summary-no-objective-fallback.test.ts',
       'tests/marketing-job-retry-research.test.ts',
       'tests/marketing-auto-schedule.test.ts',
+      'tests/auto-schedule-posting-overrides.test.ts',
       'tests/marketing/draft-expiry-sweep.test.ts',
       'tests/meta-media-validation.test.ts',
       'tests/meta-publishing-video.test.ts',
@@ -188,6 +189,21 @@ const steps = [
       'tests/runtime-pages.test.ts',
       'tests/docs-social-content-guidance.test.ts',
       'tests/social-content-public-copy.test.ts',
+    ],
+  },
+  {
+    // AI-derived per-platform posting times (ARIES_AI_POSTING_TIMES_ENABLED):
+    // env flag, advisor derivation (analytics threshold + competitor Hermes
+    // leg, all fail-open), and the settings GET/derive routes. Fully
+    // in-memory; the slot-override compute tests ride the execution-provider
+    // step above with the other auto-schedule tests.
+    name: 'AI posting-time advisor',
+    args: [
+      '--test',
+      'tests/posting-times-env.test.ts',
+      'tests/posting-time-advisor.test.ts',
+      'tests/posting-times-route.test.ts',
+      'tests/settings-screen.test.ts',
     ],
   },
   {

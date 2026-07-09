@@ -13,6 +13,11 @@ import {
   updateMarketingSchedule,
   type MarketingScheduleRow,
 } from '@/lib/api/marketing-schedule';
+import {
+  fetchPostingTimes,
+  derivePostingTimesNow,
+  type PostingTimeView,
+} from '@/lib/api/posting-times';
 
 type WorkspaceRole = 'tenant_admin' | 'tenant_analyst' | 'tenant_viewer';
 
@@ -58,6 +63,34 @@ function formatScheduleHourLabel(hour: number): string {
   const period = normalized < 12 ? 'AM' : 'PM';
   const displayHour = normalized % 12 === 0 ? 12 : normalized % 12;
   return `${displayHour}:00 ${period}`;
+}
+
+// Posting-times card (AI-derived per-platform posting times). days: 0=Sunday.
+const DAY_ABBREVIATIONS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function formatPostingTimeLabel(hour: number, minute: number): string {
+  const normalized = ((hour % 24) + 24) % 24;
+  const period = normalized < 12 ? 'AM' : 'PM';
+  const displayHour = normalized % 12 === 0 ? 12 : normalized % 12;
+  const safeMinute = Number.isInteger(minute) && minute >= 0 && minute <= 59 ? minute : 0;
+  return `${displayHour}:${String(safeMinute).padStart(2, '0')} ${period}`;
+}
+
+function postingPlatformLabel(platform: string): string {
+  switch (platform) {
+    case 'instagram':
+      return 'Instagram';
+    case 'facebook':
+      return 'Facebook';
+    case 'x':
+      return 'X';
+    case 'linkedin':
+      return 'LinkedIn';
+    case 'reddit':
+      return 'Reddit';
+    default:
+      return platform ? platform.charAt(0).toUpperCase() + platform.slice(1) : platform;
+  }
 }
 
 export default function AriesSettingsScreen() {
@@ -163,11 +196,72 @@ export default function AriesSettingsScreen() {
     });
     if (result.status === 'ok') {
       setSchedule(result.schedule);
-      setScheduleSaveNotice('Posting schedule saved.');
+      setScheduleSaveNotice('Generation schedule saved.');
     } else {
       setScheduleSaveError(result.message);
     }
     setScheduleSaving(false);
+  }
+
+  // Posting-times card (AI-derived per-platform posting times,
+  // ARIES_AI_POSTING_TIMES_ENABLED). Loaded independently of the `ready` gate,
+  // same as the cadence card above.
+  const [postingTimes, setPostingTimes] = useState<PostingTimeView[]>([]);
+  const [postingTimesEnabled, setPostingTimesEnabled] = useState(false);
+  const [postingTimesLoaded, setPostingTimesLoaded] = useState(false);
+  const [postingTimesLoadError, setPostingTimesLoadError] = useState<string | null>(null);
+  const [postingTimesDeriving, setPostingTimesDeriving] = useState(false);
+  const [postingTimesNotice, setPostingTimesNotice] = useState<string | null>(null);
+  const [postingTimesError, setPostingTimesError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchPostingTimes().then((result) => {
+      if (cancelled) return;
+      if (result.status === 'ok') {
+        setPostingTimesEnabled(result.enabled);
+        setPostingTimes(result.postingTimes);
+      } else {
+        setPostingTimesLoadError(result.message);
+      }
+      setPostingTimesLoaded(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function refreshPostingTimes() {
+    const result = await fetchPostingTimes();
+    if (result.status === 'ok') {
+      setPostingTimesEnabled(result.enabled);
+      setPostingTimes(result.postingTimes);
+      setPostingTimesLoadError(null);
+    }
+  }
+
+  async function handleDerivePostingTimes() {
+    if (postingTimesDeriving) return;
+    setPostingTimesError(null);
+    setPostingTimesNotice(null);
+    setPostingTimesDeriving(true);
+    const result = await derivePostingTimesNow();
+    if (result.status === 'ok') {
+      setPostingTimesNotice('Derivation started — competitor analysis can take a minute. This card refreshes automatically.');
+      // The derive route returns 202 immediately (the research run finishes in
+      // the background) — refetch on a short and a long horizon, then re-arm.
+      window.setTimeout(() => {
+        void refreshPostingTimes();
+      }, 10_000);
+      window.setTimeout(() => {
+        void refreshPostingTimes();
+        setPostingTimesDeriving(false);
+        setPostingTimesNotice(null);
+      }, 45_000);
+    } else {
+      setPostingTimesError(result.message);
+      setPostingTimesDeriving(false);
+    }
   }
 
   const memberApi = useMemo(() => createAriesV1Api(), []);
@@ -632,10 +726,10 @@ export default function AriesSettingsScreen() {
         </ShellPanel>
       </div>
 
-      <ShellPanel eyebrow="Cadence" title="When Aries posts each week">
+      <ShellPanel eyebrow="Cadence" title="When Aries generates content each week">
         <div className="space-y-4">
           {!scheduleLoaded ? (
-            <p className="text-sm text-white/60">Loading posting schedule…</p>
+            <p className="text-sm text-white/60">Loading generation schedule…</p>
           ) : scheduleLoadError ? (
             <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
               {scheduleLoadError}
@@ -645,7 +739,7 @@ export default function AriesSettingsScreen() {
               <div className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 text-white">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <p className="text-sm font-medium">Weekly posting cadence</p>
+                    <p className="text-sm font-medium">Weekly generation schedule</p>
                     <p className="mt-2 text-sm leading-7 text-white/58">
                       {DAY_OF_WEEK_NAMES[schedule?.day_of_week ?? DEFAULT_SCHEDULE_DAY]} at{' '}
                       {formatScheduleHourLabel(schedule?.hour ?? DEFAULT_SCHEDULE_HOUR)},{' '}
@@ -656,6 +750,10 @@ export default function AriesSettingsScreen() {
                           : 'Business timezone'}
                       .
                     </p>
+                    <p className="mt-1 text-xs leading-6 text-white/50">
+                      This is when the week&apos;s content is created — the time each post
+                      goes live is derived per platform below.
+                    </p>
                   </div>
                   <StatusChip status={schedule?.enabled ? 'approved' : 'draft'}>
                     {schedule?.enabled ? 'Enabled' : 'Disabled'}
@@ -665,7 +763,7 @@ export default function AriesSettingsScreen() {
                   <p className="mt-3 text-xs leading-6 text-white/50">
                     {isWorkspaceAdmin
                       ? "Not scheduled yet — save to set this workspace's cadence."
-                      : 'This workspace has not set a posting schedule yet.'}
+                      : 'This workspace has not set a generation schedule yet.'}
                   </p>
                 ) : null}
               </div>
@@ -720,8 +818,8 @@ export default function AriesSettingsScreen() {
                         />
                         <span className="text-sm">
                           {scheduleEnabledDraft
-                            ? 'Enabled — Aries posts automatically'
-                            : 'Disabled — no automatic weekly post'}
+                            ? 'Enabled — Aries generates content automatically'
+                            : 'Disabled — no automatic weekly generation'}
                         </span>
                       </label>
                     </Field>
@@ -747,9 +845,95 @@ export default function AriesSettingsScreen() {
                     disabled={scheduleSaving}
                     className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] disabled:opacity-60"
                   >
-                    {scheduleSaving ? 'Saving…' : 'Save posting schedule'}
+                    {scheduleSaving ? 'Saving…' : 'Save generation schedule'}
                   </button>
                 </div>
+              ) : null}
+            </>
+          )}
+        </div>
+      </ShellPanel>
+
+      <ShellPanel eyebrow="Posting times" title="When your posts go live">
+        <div className="space-y-4">
+          {!postingTimesLoaded ? (
+            <p className="text-sm text-white/60">Loading posting times…</p>
+          ) : postingTimesLoadError ? (
+            <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
+              {postingTimesLoadError}
+            </div>
+          ) : !postingTimesEnabled ? (
+            <p className="text-sm leading-7 text-white/58">
+              AI-derived posting times are not enabled on this deployment yet. Posts are
+              scheduled on per-platform best-practice windows instead.
+            </p>
+          ) : (
+            <>
+              <p className="text-sm leading-7 text-white/58">
+                Aries re-derives the best time to post on each platform every time content is
+                generated — modeled on your competitor&apos;s posting habits until your own
+                analytics have enough data, then switched to your real engagement.
+              </p>
+              {postingTimes.length === 0 ? (
+                <p className="text-sm text-white/60">
+                  No derived times yet — they&apos;ll appear after the next content generation
+                  {isWorkspaceAdmin ? ', or derive them now below' : ''}.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {postingTimes.map((entry) => (
+                    <div
+                      key={entry.platform}
+                      className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 text-white"
+                    >
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="text-sm font-medium">{postingPlatformLabel(entry.platform)}</p>
+                          <p className="mt-1 text-sm leading-7 text-white/58">
+                            {formatPostingTimeLabel(entry.hour, entry.minute)} local
+                            {entry.days.length > 0
+                              ? ` · best days ${entry.days
+                                  .map((day) => DAY_ABBREVIATIONS[day] ?? '')
+                                  .filter(Boolean)
+                                  .join(', ')}`
+                              : ''}
+                          </p>
+                          {entry.rationale ? (
+                            <p className="mt-1 text-xs leading-6 text-white/50">{entry.rationale}</p>
+                          ) : null}
+                        </div>
+                        <StatusChip status={entry.source === 'analytics' ? 'approved' : 'draft'}>
+                          {entry.source === 'analytics'
+                            ? `Your analytics${entry.sampleSize ? ` (${entry.sampleSize} posts)` : ''}`
+                            : 'Competitor analysis'}
+                        </StatusChip>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {postingTimesError ? (
+                <div
+                  className="rounded-[1rem] border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-100"
+                  role="alert"
+                >
+                  {postingTimesError}
+                </div>
+              ) : null}
+              {postingTimesNotice ? (
+                <div className="rounded-[1rem] border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-50">
+                  {postingTimesNotice}
+                </div>
+              ) : null}
+              {isWorkspaceAdmin ? (
+                <button
+                  type="button"
+                  onClick={() => void handleDerivePostingTimes()}
+                  disabled={postingTimesDeriving}
+                  className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] disabled:opacity-60"
+                >
+                  {postingTimesDeriving ? 'Deriving…' : 'Derive now'}
+                </button>
               ) : null}
             </>
           )}

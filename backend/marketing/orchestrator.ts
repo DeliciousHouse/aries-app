@@ -94,6 +94,7 @@ import {
   markExecutionRunSubmitted,
 } from '@/backend/execution/run-store';
 import { maybeFireWeeklyReelJob } from '@/backend/marketing/weekly-reel-trigger';
+import { deriveAndPersistPostingTimes } from '@/backend/marketing/posting-time-advisor';
 
 export type StartSocialContentJobRequest = {
   tenantId: string;
@@ -1762,6 +1763,20 @@ export async function startSocialContentJob(input: StartSocialContentJobRequest)
       brandUrl: brandCampaignInput.brandUrl,
     }).catch(() => {});
   }
+
+  // Best-effort AI posting-time derivation (ARIES_AI_POSTING_TIMES_ENABLED):
+  // every content-generation start refreshes the tenant's per-platform
+  // posting-time rows (own analytics once enough posts have metrics, else a
+  // competitor research run), so auto-scheduling consumes fresh timing instead
+  // of the fixed PLATFORM_POSTING_DEFAULTS. Non-blocking and never throws; the
+  // advisor's TTL + in-flight guards collapse rapid repeat clicks (and the
+  // weekly→reel companion's second startSocialContentJob) into one derivation.
+  void deriveAndPersistPostingTimes({
+    tenantId: Number(tenantId),
+    competitorUrl: doc.inputs.competitor_url ?? null,
+    competitorBrand: doc.inputs.competitor_brand ?? null,
+    brandUrl: brandCampaignInput.brandUrl,
+  }).catch(() => {});
 
   return {
     status: 'accepted',
