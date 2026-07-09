@@ -47,6 +47,9 @@ This manifest lists the supported direct route contract for the current Aries ru
 | `POST` | `/api/marketing/jobs` | Start the canonical marketing flow |
 | `GET` | `/api/marketing/jobs/:jobId` | Read job status |
 | `POST` | `/api/marketing/jobs/:jobId/approve` | Resume an approval-gated job |
+| `GET`, `PATCH` | `/api/marketing/schedule` | Read and update the weekly content-generation cadence (settings card) |
+| `GET` | `/api/marketing/posting-times` | Read AI-derived per-platform posting times (settings card) |
+| `POST` | `/api/marketing/posting-times/derive` | Force a fresh posting-time derivation (tenant admin; 404 when `ARIES_AI_POSTING_TIMES_ENABLED` is off) |
 | `GET` | `/api/integrations` | Read integrations page data |
 | `POST` | `/api/integrations/connect` | Start a platform connection |
 | `POST` | `/api/integrations/disconnect` | Disconnect a platform |

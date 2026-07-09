@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 ## v0.1.29.0 — feat(marketing): AI-derived per-platform posting times (flag-gated, default OFF)
 
 Posting times are no longer a fixed set time. Behind `ARIES_AI_POSTING_TIMES_ENABLED`
-(default OFF — flag OFF is byte-identical to today), every content-generation
+(default OFF — flag OFF keeps scheduling byte-identical to today), every content-generation
 start re-derives WHEN each platform's posts publish, and the settings hub
 separates "when content is generated" from "when posts go live".
 
