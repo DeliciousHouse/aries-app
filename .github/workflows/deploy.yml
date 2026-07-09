@@ -299,6 +299,18 @@ jobs:
           git -C "${repo_path}" clean -fd --exclude=.deploy-backups
 
           cd "${repo_path}"
+
+          # --- EMAIL_FROM guard: lib/email.ts's code fallback is the neutral
+          # OSS sandbox sender (onboarding@resend.dev). Production must keep
+          # the branded sender, which lives only in the host .env — append it
+          # if the operator's .env predates the variable. Idempotent: a set
+          # (even empty) EMAIL_FROM line is never touched.
+          if [[ -f .env ]] && ! grep -qE '^EMAIL_FROM=' .env; then
+            printf '\n# Added by deploy EMAIL_FROM guard: keep the branded sender now that\n# the code default is the neutral OSS sandbox sender.\nEMAIL_FROM=Aries AI <noreply@sugarandleather.com>\n' >> .env
+            echo "::notice ::EMAIL_FROM was missing from the host .env; appended the branded default (Aries AI <noreply@sugarandleather.com>)."
+          fi
+          # --- End EMAIL_FROM guard ---
+
           ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose pull "${SERVICE_NAME}"
           ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always "${SERVICE_NAME}"
 
