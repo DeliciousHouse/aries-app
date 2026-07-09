@@ -208,6 +208,59 @@ test('day/hour accept numeric JSON forms in addition to strings (CLI parity)', a
   assert.equal(hour, 14);
 });
 
+test('PATCH {} (no fields at all) is a full no-op: every upsert param is null/false, still 200', async () => {
+  const seed = new Map<number, ScheduleRow>([
+    [12, { tenant_id: 12, cadence: 'weekly', day_of_week: 4, hour: 18, timezone: 'America/Chicago', enabled: true }],
+  ]);
+  const { db, calls } = makeFakeScheduleDb(seed);
+  const res = await handlePatchMarketingSchedule(patchRequest({}), {
+    db,
+    tenantContextLoader: tenantLoader(12, 'tenant_admin'),
+  });
+  assert.equal(res.status, 200);
+  const [tenantId, dayOfWeek, hour, timezone, enabled, timezoneProvided] = insertCallParams(calls);
+  assert.equal(tenantId, 12);
+  assert.equal(dayOfWeek, null);
+  assert.equal(hour, null);
+  assert.equal(timezone, null);
+  assert.equal(enabled, null);
+  assert.equal(timezoneProvided, false);
+  // Preserved end-to-end through the fake upsert: the existing row is untouched.
+  const body = await res.json();
+  assert.deepEqual(body.schedule, {
+    tenant_id: 12,
+    cadence: 'weekly',
+    day_of_week: 4,
+    hour: 18,
+    timezone: 'America/Chicago',
+    enabled: true,
+  });
+});
+
+test('PATCH with a malformed JSON body is treated as an empty body (200 no-op), not rejected', async () => {
+  // Documents the current readPatchBody() catch-and-fall-back-to-{} behavior:
+  // unlike the sibling schedule-social-content-post PATCH route (which returns
+  // 400 invalid_request_body on malformed JSON), this route silently no-ops.
+  // Pinned here so any change to that behavior is a deliberate, reviewed diff.
+  const { db, calls } = makeFakeScheduleDb();
+  const req = new Request('http://localhost/api/marketing/schedule', {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: '{not json',
+  });
+  const res = await handlePatchMarketingSchedule(req, {
+    db,
+    tenantContextLoader: tenantLoader(12, 'tenant_admin'),
+  });
+  assert.equal(res.status, 200);
+  const [, dayOfWeek, hour, timezone, enabled, timezoneProvided] = insertCallParams(calls);
+  assert.equal(dayOfWeek, null);
+  assert.equal(hour, null);
+  assert.equal(timezone, null);
+  assert.equal(enabled, null);
+  assert.equal(timezoneProvided, false);
+});
+
 // ── 4. Workspace-mismatch interlock ─────────────────────────────────────────
 
 test('loader throwing WorkspaceMismatchError maps PATCH to 409, no DB write', async () => {
