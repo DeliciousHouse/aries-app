@@ -602,7 +602,14 @@ export function computeDefaultCadenceSlots(
         if (!utc) continue;
         if (utc > windowEnd) break;
         if (utc < windowStart) continue;
-        if (daySet.has(tenantLocalDayIndex(utc, tz))) candidates.push(wallIso);
+        // DST fall-back guard: across the autumn transition two consecutive
+        // 24h-UTC probes can land on the SAME tenant-local calendar date, which
+        // would double-book two ordinals at the identical instant. Duplicates
+        // are always adjacent (probes are chronological), so comparing against
+        // the last collected candidate is sufficient.
+        if (daySet.has(tenantLocalDayIndex(utc, tz)) && candidates[candidates.length - 1] !== wallIso) {
+          candidates.push(wallIso);
+        }
       }
       if (candidates.length < ordinals.length) continue; // ladder fallback — never drop volume
       const byOrdinal = new Map<number, string>();

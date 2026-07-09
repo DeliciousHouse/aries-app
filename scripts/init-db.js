@@ -1010,6 +1010,19 @@ async function initDb() {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         PRIMARY KEY (tenant_id, platform)
       );
+
+      -- Cross-process derivation claim (mirrors the marketing_schedule
+      -- conditional-claim idiom): one row per tenant, atomically claimed via
+      -- INSERT ... ON CONFLICT DO UPDATE ... WHERE claimed_at is older than the
+      -- claim window, so concurrent derivations across cluster workers collapse
+      -- to one. Released (DELETE) only when a derivation produced rows or was
+      -- TTL-skipped; a derivation that produced nothing retains the claim as a
+      -- failure backoff (a Hermes outage cannot re-fire a doomed research run
+      -- on every generate click).
+      CREATE TABLE IF NOT EXISTS marketing_posting_time_claims (
+        tenant_id INTEGER PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+        claimed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
     `);
 
     // ─── Insights module ────────────────────────────────────────────────────────

@@ -109,8 +109,12 @@ services:
       # "Derive now" button always bypasses it.
       ARIES_POSTING_TIMES_TTL_MINUTES: ${ARIES_POSTING_TIMES_TTL_MINUTES:-60}
       # Optional model hint override for the competitor research run (default
-      # gemini/gemini-3-flash-preview, same as the other raw Hermes runs).
+      # gemini/gemini-3-flash-preview, same as the other raw Hermes runs), plus
+      # its submit+poll session-key and timeout-ms overrides (default 90000) —
+      # mirrors the HERMES_BRAND_ANALYSIS_* wiring for the same idiom.
       HERMES_POSTING_TIMES_MODEL: ${HERMES_POSTING_TIMES_MODEL:-}
+      HERMES_POSTING_TIMES_SESSION_KEY: ${HERMES_POSTING_TIMES_SESSION_KEY:-}
+      HERMES_POSTING_TIMES_TIMEOUT_MS: ${HERMES_POSTING_TIMES_TIMEOUT_MS:-}
       # Stale-run reaper: how long a job may sit at an approval gate before it is
       # reaped (default 7d). Long because a job awaiting a human is NOT stalled;
       # the short per-stage thresholds would otherwise reap it at 5 min.

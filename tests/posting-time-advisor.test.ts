@@ -34,17 +34,26 @@ type FakeCall = { sql: string; params: unknown[] };
 /**
  * Fake queryable routed by SQL shape. `analyticsBucketsByPlatform` feeds the
  * WITH per_post query per platform ($2); `latestDerivedAt` feeds the TTL
- * freshness SELECT; upserts are recorded in `calls`.
+ * freshness SELECT; `claimGranted` drives the cross-process claim INSERT;
+ * upserts + claim releases are recorded in `calls`.
  */
 function makeFakeDb(options: {
   latestDerivedAt?: Date | null;
   analyticsBucketsByPlatform?: Record<string, AnalyticsBucket[]>;
+  claimGranted?: boolean;
 } = {}) {
   const calls: FakeCall[] = [];
   const queryable: PostingTimeQueryable = {
     query: async (sql: string, params: unknown[] = []) => {
       calls.push({ sql, params });
       const norm = sql.replace(/\s+/g, ' ').trim();
+      if (norm.startsWith('INSERT INTO marketing_posting_time_claims')) {
+        const granted = options.claimGranted !== false;
+        return { rows: granted ? [{ tenant_id: params[0] }] : [], rowCount: granted ? 1 : 0 };
+      }
+      if (norm.startsWith('DELETE FROM marketing_posting_time_claims')) {
+        return { rows: [], rowCount: 1 };
+      }
       if (norm.startsWith('SELECT MAX(derived_at)')) {
         return { rows: [{ derived_at: options.latestDerivedAt ?? null }], rowCount: 1 };
       }
@@ -65,7 +74,11 @@ function makeFakeDb(options: {
 }
 
 function upsertCalls(calls: FakeCall[]): FakeCall[] {
-  return calls.filter((c) => c.sql.replace(/\s+/g, ' ').trim().startsWith('INSERT INTO marketing_posting_times'));
+  return calls.filter((c) => c.sql.replace(/\s+/g, ' ').trim().startsWith('INSERT INTO marketing_posting_times ('));
+}
+
+function claimReleaseCalls(calls: FakeCall[]): FakeCall[] {
+  return calls.filter((c) => c.sql.replace(/\s+/g, ' ').trim().startsWith('DELETE FROM marketing_posting_time_claims'));
 }
 
 /** Fake Hermes: submit returns a run id; poll returns a completed run whose output is `outputText`. */
@@ -378,7 +391,10 @@ test('derive: a second concurrent call for the same tenant returns in_flight', a
     releaseFreshness = resolve;
   });
   const queryable: PostingTimeQueryable = {
-    query: async (sql: string) => {
+    query: async (sql: string, params: unknown[] = []) => {
+      if (sql.includes('marketing_posting_time_claims')) {
+        return { rows: [{ tenant_id: params[0] }], rowCount: 1 };
+      }
       if (sql.includes('MAX(derived_at)')) {
         await gate; // hold the first call open
         return { rows: [{ derived_at: new Date() }], rowCount: 1 };
@@ -392,4 +408,75 @@ test('derive: a second concurrent call for the same tenant returns in_flight', a
   releaseFreshness!();
   const firstResult = await first;
   assert.deepEqual(firstResult, { status: 'skipped_recent' });
+});
+
+test('derive: a denied cross-process claim returns in_flight — even under force', async () => {
+  // Simulates the other cluster worker holding the claim: the conditional
+  // INSERT ... ON CONFLICT ... WHERE claim-is-stale returns zero rows.
+  const { queryable, calls } = makeFakeDb({ claimGranted: false });
+  const result = await deriveAndPersistPostingTimes({
+    tenantId: 15,
+    env: FLAG_ON,
+    queryable,
+    force: true,
+  });
+  assert.deepEqual(result, { status: 'in_flight' });
+  assert.equal(upsertCalls(calls).length, 0);
+  assert.equal(
+    calls.some((c) => c.sql.includes('WITH per_post')),
+    false,
+    'a denied claim must stop the derivation before any analytics scan',
+  );
+});
+
+test('derive: claim lifecycle — released when rows were produced, retained as backoff when nothing derived', async () => {
+  const buckets: AnalyticsBucket[] = [
+    { day_of_week: 2, hour_of_day: 19, post_count: 6, avg_engagement: 40 },
+    { day_of_week: 4, hour_of_day: 9, post_count: 4, avg_engagement: 10 },
+  ];
+  {
+    // Analytics produced rows → the claim is released for the next derivation.
+    const { queryable, calls } = makeFakeDb({
+      analyticsBucketsByPlatform: { instagram: buckets, facebook: buckets },
+    });
+    const result = await deriveAndPersistPostingTimes({
+      tenantId: 15,
+      env: FLAG_ON,
+      queryable,
+      competitorUrl: null,
+      brandUrl: null,
+    });
+    assert.equal(result.status, 'done');
+    assert.equal(claimReleaseCalls(calls).length, 1, 'a productive derivation releases its claim');
+  }
+  {
+    // Competitor run failed on a cold-start tenant → NO rows → the claim is
+    // retained so the next generate click backs off instead of re-firing a
+    // doomed Hermes research run.
+    const { queryable, calls } = makeFakeDb();
+    const { fetchImpl } = makeFakeHermes('', 'failed');
+    const result = await deriveAndPersistPostingTimes({
+      tenantId: 15,
+      env: HERMES_ENV,
+      queryable,
+      fetchImpl,
+      sleep: noSleep,
+      competitorUrl: 'https://competitor.example.com',
+      brandUrl: 'https://aries.sugarandleather.com',
+    });
+    assert.equal(result.status, 'done');
+    assert.equal(claimReleaseCalls(calls).length, 0, 'a produced-nothing derivation retains its claim as failure backoff');
+  }
+  {
+    // TTL-skipped → claim released immediately (no work was attempted).
+    const { queryable, calls } = makeFakeDb({ latestDerivedAt: new Date('2026-07-09T11:30:00Z') });
+    const result = await deriveAndPersistPostingTimes({
+      tenantId: 15,
+      env: FLAG_ON,
+      queryable,
+      now: new Date('2026-07-09T12:00:00Z'),
+    });
+    assert.deepEqual(result, { status: 'skipped_recent' });
+    assert.equal(claimReleaseCalls(calls).length, 1);
+  }
 });

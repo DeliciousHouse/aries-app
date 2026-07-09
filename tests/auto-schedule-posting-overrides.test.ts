@@ -192,6 +192,29 @@ test('default cadence: preferred days NEVER drop volume — insufficient matches
   }
 });
 
+test('default cadence: DST fall-back never double-books two ordinals at the same instant (preferred days)', () => {
+  // 2026-11-01 is the US fall-back Sunday. now = 00:05 EDT on that day: probes
+  // i=0 and i=1 both land on local calendar date Nov 1 (24h UTC later is 23:05
+  // EST, same date). Without dedup the preferred-days scan would schedule both
+  // ordinals at the identical instant.
+  const now = new Date('2026-11-01T04:05:00Z');
+  const result = computeDefaultCadenceSlots({
+    rows: cadenceRows(2),
+    tenantTimezone: TZ,
+    campaignStart: now,
+    campaignEnd: new Date('2026-11-15T04:05:00Z'),
+    now,
+    slotOverrides: { instagram: { hour: 11, minute: 0, days: [0] } }, // Sundays
+  });
+  assert.equal(result.slots.length, 2);
+  const instants = result.slots.map((s) => s.scheduledFor.getTime());
+  assert.notEqual(instants[0], instants[1], 'two ordinals must never share an exact instant');
+  for (const slot of result.slots) {
+    assert.equal(localDayAndTime(slot.scheduledFor).day, 0, 'both pieces still land on the preferred Sunday');
+    assert.match(slot.appliedDay, /^preferred-day:/);
+  }
+});
+
 test('default cadence: no overrides is byte-identical to omitting the parameter', () => {
   const rows = [
     ...cadenceRows(3, 'instagram'),

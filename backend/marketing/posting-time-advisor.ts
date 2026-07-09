@@ -609,10 +609,48 @@ function analyticsRationale(platform: string, rec: AnalyticsRecommendation): str
   return `Derived from your last ${rec.sampleSize} measured ${platform} posts${dayText} around ${String(rec.hour).padStart(2, '0')}:00.`;
 }
 
-// In-process in-flight guard: one derivation per tenant at a time. Fire-and-
-// forget callers (every generate click, plus the weekly→reel companion's
-// second startSocialContentJob) collapse onto the running derivation.
+// In-process in-flight guard: one derivation per tenant at a time within this
+// worker — the cheap fast path. Fire-and-forget callers (every generate click,
+// plus the weekly→reel companion's second startSocialContentJob) collapse onto
+// the running derivation.
 const inFlightTenants = new Set<number>();
+
+/**
+ * Cross-process claim window (minutes). Prod runs a Node cluster
+ * (ARIES_WEB_CONCURRENCY workers), so the in-process Set alone cannot dedupe
+ * two derivations landing on different workers — the DB claim below can. It is
+ * sized to comfortably exceed the competitor run's worst case (~2x the 90s
+ * submit+poll timeout) so a crashed process's stale claim self-expires.
+ */
+export const DERIVE_CLAIM_WINDOW_MINUTES = 10;
+
+// Atomic claim, mirroring the marketing_schedule conditional-claim idiom: the
+// INSERT wins on a fresh tenant; the conditional DO UPDATE wins only when the
+// existing claim is older than the window; otherwise zero rows return and the
+// caller backs off. This is also the failure backoff — a derivation that
+// produced no rows RETAINS its claim, so a doomed competitor run (Hermes
+// outage, persistent non-JSON output) cannot re-fire on every generate click.
+const CLAIM_SQL = `
+  INSERT INTO marketing_posting_time_claims (tenant_id, claimed_at)
+  VALUES ($1, now())
+  ON CONFLICT (tenant_id) DO UPDATE SET claimed_at = now()
+  WHERE marketing_posting_time_claims.claimed_at < now() - ($2 || ' minutes')::interval
+  RETURNING tenant_id
+`;
+
+const RELEASE_CLAIM_SQL = 'DELETE FROM marketing_posting_time_claims WHERE tenant_id = $1';
+
+/** Best-effort claim release — a release failure must not flip the result. */
+async function releaseClaim(queryable: PostingTimeQueryable, tenantId: number): Promise<void> {
+  try {
+    await queryable.query(RELEASE_CLAIM_SQL, [tenantId]);
+  } catch (err) {
+    console.warn('[posting-time-advisor] claim release failed — claim will self-expire', {
+      tenantId,
+      error: (err as Error)?.message ?? String(err),
+    });
+  }
+}
 
 /**
  * Derive + persist posting times for every platform this tenant publishes to.
@@ -637,6 +675,12 @@ export async function deriveAndPersistPostingTimes(
     const queryable = input.queryable ?? pool;
     const now = input.now ?? new Date();
 
+    // Cross-process claim (atomic, honored even under force — two simultaneous
+    // "Derive now" clicks on different cluster workers collapse to one run).
+    const claim = await queryable.query(CLAIM_SQL, [tenantId, String(DERIVE_CLAIM_WINDOW_MINUTES)]);
+    const claimGranted = (claim.rowCount ?? (claim.rows?.length ?? 0)) > 0;
+    if (!claimGranted) return { status: 'in_flight' };
+
     // TTL guard: a fresh-enough derivation short-circuits (force bypasses —
     // the settings "Derive now" button always re-derives).
     const ttlMinutes = readEnvInt(env, 'ARIES_POSTING_TIMES_TTL_MINUTES', DERIVE_TTL_MINUTES_DEFAULT);
@@ -648,6 +692,7 @@ export async function deriveAndPersistPostingTimes(
       const raw = (freshness.rows?.[0] as Record<string, unknown> | undefined)?.derived_at;
       const latest = raw instanceof Date ? raw : typeof raw === 'string' ? new Date(raw) : null;
       if (latest && Number.isFinite(latest.getTime()) && now.getTime() - latest.getTime() < ttlMinutes * 60_000) {
+        await releaseClaim(queryable, tenantId);
         return { status: 'skipped_recent' };
       }
     }
@@ -745,9 +790,27 @@ export async function deriveAndPersistPostingTimes(
       }
     }
 
+    // Release the claim only when the attempt actually produced rows: a
+    // derivation where EVERY platform fell through to defaults (no competitor
+    // configured, or the research run failed) retains its claim so the next
+    // attempt backs off for the claim window instead of re-firing a doomed
+    // Hermes run on every generate click. derived_at rows arm the normal TTL
+    // for the successful case.
+    const producedRows = Object.values(sources).some((s) => s === 'analytics' || s === 'competitor');
+    if (producedRows) {
+      await releaseClaim(queryable, tenantId);
+    } else {
+      console.info('[posting-time-advisor] derivation produced no rows — retaining claim as backoff', {
+        tenantId,
+        backoffMinutes: DERIVE_CLAIM_WINDOW_MINUTES,
+      });
+    }
+
     console.info('[posting-time-advisor] derivation completed', { tenantId, sources });
     return { status: 'done', platforms: sources };
   } catch (err) {
+    // The claim is deliberately NOT released here — it doubles as the failure
+    // backoff and self-expires after DERIVE_CLAIM_WINDOW_MINUTES.
     console.warn('[posting-time-advisor] derivation failed', {
       tenantId,
       error: (err as Error)?.message ?? String(err),
