@@ -12,6 +12,7 @@
 
 import type { AttentionSnapshot, ContentPattern } from './attention-snapshot-builder';
 import { fmtMilestone } from './attention-snapshot-builder';
+import { escapeHtml } from '../escape-html';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 
 export type CardTone = 'urgent' | 'positive' | 'celebrate' | 'neutral';
@@ -89,7 +90,10 @@ function buildOpportunityCard(snap: AttentionSnapshot): AttentionCard {
     tone:   'positive',
     badge:  'OPPORTUNITY',
     icon:   'trending-up',
-    title:  `Your <em>"${hp.title}"</em> hit ${hp.multiplier}x your ${platLabel} average`,
+    // hp.title is insights_posts.title — an attacker-controllable platform post
+    // title. Escape before interpolating into this dangerouslySetInnerHTML
+    // string (stored XSS, S1-2/AA-81); the <em> emphasis still renders.
+    title:  `Your <em>"${escapeHtml(hp.title)}"</em> hit ${hp.multiplier}x your ${platLabel} average`,
     body:   'Aries can put $50–$200 behind it as a paid ad to extend reach to similar audiences.',
     ctaPrimary:   { label: 'Promote as ad', href: '/campaigns' },
     ctaSecondary: { label: 'View details',  toast: 'Post details available in Top Performing Content below' },
