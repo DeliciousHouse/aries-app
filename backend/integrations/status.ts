@@ -1,7 +1,10 @@
 import { isAllowedProvider } from './connect';
 import { resolveTokenHealth } from './connection-schema';
+import { getConnectionRow } from './composio/connection-store';
 import { dbGetConnection } from './oauth-db';
 import { getProviderOAuthAvailability } from './oauth-provider-runtime';
+import { getAccountConnectionProvider } from './providers/provider-factory';
+import type { IntegrationPlatform } from './providers/types';
 
 type PlatformConnectionStatus =
   | 'disconnected'
@@ -174,6 +177,55 @@ export async function oauthStatusAsync(provider: string, tenantId?: string): Pro
     return buildMisconfiguredStatus(provider, normalizedTenantId, new Date().toISOString(), availability.message, availability.missingEnv);
   }
   if (!availability.connectable) {
+    // Env-managed providers (Instagram, via META_PAGE_ID/META_ACCESS_TOKEN) have
+    // no per-tenant OAuth record in oauth_connections by design. When Composio is
+    // the active account-connection provider, per-tenant state DOES exist
+    // (connected_accounts) and must be consulted — otherwise every tenant on a
+    // process with Meta env vars set reads as "connected" regardless of whether
+    // that specific tenant ever connected anything (#808). When Composio is
+    // disabled there is no per-tenant record to check at all, so the legacy
+    // unconditional "connected" behavior is preserved byte-identically.
+    //
+    // NOTE: the deprecated sync `oauthStatus` twin below intentionally keeps its
+    // legacy unconditional env-managed behavior even when Composio is enabled —
+    // a known limitation, not fixed here (out of scope; no remaining callers rely
+    // on it for env-managed correctness).
+    const now = new Date().toISOString();
+    const accountConnectionProvider = getAccountConnectionProvider(process.env);
+    if (accountConnectionProvider !== null) {
+      const row = await getConnectionRow(normalizedTenantId, provider as IntegrationPlatform);
+      if (row?.status === 'connected') {
+        return {
+          schema_name: 'platform_connection_status_schema',
+          schema_version: '1.0.0',
+          tenant_id: normalizedTenantId,
+          integration_id: undefined,
+          platform: provider,
+          connection_status: 'connected',
+          status_reason: 'env_managed',
+          health: 'unknown',
+          updated_at: now,
+          capabilities: [],
+          metadata: {},
+          external_account_id: row.externalAccountId ?? undefined,
+          external_account_name: row.externalAccountName ?? undefined,
+        };
+      }
+      return {
+        schema_name: 'platform_connection_status_schema',
+        schema_version: '1.0.0',
+        tenant_id: normalizedTenantId,
+        integration_id: undefined,
+        platform: provider,
+        connection_status: 'disconnected',
+        status_reason: 'connection_not_found',
+        health: 'unknown',
+        updated_at: now,
+        capabilities: [],
+        metadata: {},
+      };
+    }
+
     return {
       schema_name: 'platform_connection_status_schema',
       schema_version: '1.0.0',
@@ -183,7 +235,7 @@ export async function oauthStatusAsync(provider: string, tenantId?: string): Pro
       connection_status: 'connected',
       status_reason: 'env_managed',
       health: 'unknown',
-      updated_at: new Date().toISOString(),
+      updated_at: now,
       capabilities: [],
       metadata: {},
     };
