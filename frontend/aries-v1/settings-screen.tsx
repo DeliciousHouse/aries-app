@@ -8,6 +8,11 @@ import { useIntegrations } from '@/hooks/use-integrations';
 import { useBusinessProfile } from '@/hooks/use-business-profile';
 import { createAriesV1Api, type ReelAudioMode } from '@/lib/api/aries-v1';
 import { fetchWorkspaceSwitcherData } from '@/lib/api/workspace';
+import {
+  fetchMarketingSchedule,
+  updateMarketingSchedule,
+  type MarketingScheduleRow,
+} from '@/lib/api/marketing-schedule';
 
 type WorkspaceRole = 'tenant_admin' | 'tenant_analyst' | 'tenant_viewer';
 
@@ -41,6 +46,19 @@ function memberActionErrorMessage(code: string | undefined): string {
 import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './components';
 import { connectedProfileLabel } from './connected-profile-labels';
+
+// Cadence card (multi-brand workspaces Phase 1b, #803). day_of_week: 0=Sunday.
+const DAY_OF_WEEK_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const DEFAULT_SCHEDULE_DAY = 1; // Monday
+const DEFAULT_SCHEDULE_HOUR = 9; // 9:00 AM local
+const SCHEDULE_HOURS = Array.from({ length: 24 }, (_, hour) => hour);
+
+function formatScheduleHourLabel(hour: number): string {
+  const normalized = ((hour % 24) + 24) % 24;
+  const period = normalized < 12 ? 'AM' : 'PM';
+  const displayHour = normalized % 12 === 0 ? 12 : normalized % 12;
+  return `${displayHour}:00 ${period}`;
+}
 
 export default function AriesSettingsScreen() {
   const router = useRouter();
@@ -89,6 +107,67 @@ export default function AriesSettingsScreen() {
       launchApproverUserId: launchApproverUserId || null,
       reelAudioMode,
     });
+  }
+
+  // Cadence card (multi-brand workspaces Phase 1b, #803). Loaded independently
+  // of the `ready` gate above (a slow/erroring cadence fetch should not block
+  // the rest of Settings from rendering) — the card shows its own brief
+  // loading state and swaps in once resolved.
+  const [schedule, setSchedule] = useState<MarketingScheduleRow | null>(null);
+  const [scheduleLoaded, setScheduleLoaded] = useState(false);
+  const [scheduleLoadError, setScheduleLoadError] = useState<string | null>(null);
+  const [scheduleDayDraft, setScheduleDayDraft] = useState(DEFAULT_SCHEDULE_DAY);
+  const [scheduleHourDraft, setScheduleHourDraft] = useState(DEFAULT_SCHEDULE_HOUR);
+  const [scheduleTimezoneDraft, setScheduleTimezoneDraft] = useState('');
+  const [scheduleEnabledDraft, setScheduleEnabledDraft] = useState(false);
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+  const [scheduleSaveError, setScheduleSaveError] = useState<string | null>(null);
+  const [scheduleSaveNotice, setScheduleSaveNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchMarketingSchedule().then((result) => {
+      if (cancelled) return;
+      if (result.status === 'ok') {
+        setSchedule(result.schedule);
+      } else {
+        setScheduleLoadError(result.message);
+      }
+      setScheduleLoaded(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Reset the editable draft from server truth on initial load and after every
+  // successful save (setSchedule below feeds back into this same effect).
+  useEffect(() => {
+    setScheduleDayDraft(schedule?.day_of_week ?? DEFAULT_SCHEDULE_DAY);
+    setScheduleHourDraft(schedule?.hour ?? DEFAULT_SCHEDULE_HOUR);
+    setScheduleTimezoneDraft(schedule?.timezone ?? '');
+    setScheduleEnabledDraft(schedule?.enabled ?? false);
+  }, [schedule?.day_of_week, schedule?.hour, schedule?.timezone, schedule?.enabled]);
+
+  async function handleSaveSchedule() {
+    if (scheduleSaving) return;
+    setScheduleSaveError(null);
+    setScheduleSaveNotice(null);
+    setScheduleSaving(true);
+    const timezoneTrimmed = scheduleTimezoneDraft.trim();
+    const result = await updateMarketingSchedule({
+      day: scheduleDayDraft,
+      hour: scheduleHourDraft,
+      timezone: timezoneTrimmed ? timezoneTrimmed : null,
+      enabled: scheduleEnabledDraft,
+    });
+    if (result.status === 'ok') {
+      setSchedule(result.schedule);
+      setScheduleSaveNotice('Posting schedule saved.');
+    } else {
+      setScheduleSaveError(result.message);
+    }
+    setScheduleSaving(false);
   }
 
   const memberApi = useMemo(() => createAriesV1Api(), []);
@@ -552,6 +631,130 @@ export default function AriesSettingsScreen() {
           </div>
         </ShellPanel>
       </div>
+
+      <ShellPanel eyebrow="Cadence" title="When Aries posts each week">
+        <div className="space-y-4">
+          {!scheduleLoaded ? (
+            <p className="text-sm text-white/60">Loading posting schedule…</p>
+          ) : scheduleLoadError ? (
+            <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
+              {scheduleLoadError}
+            </div>
+          ) : (
+            <>
+              <div className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 text-white">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Weekly posting cadence</p>
+                    <p className="mt-2 text-sm leading-7 text-white/58">
+                      {DAY_OF_WEEK_NAMES[schedule?.day_of_week ?? DEFAULT_SCHEDULE_DAY]} at{' '}
+                      {formatScheduleHourLabel(schedule?.hour ?? DEFAULT_SCHEDULE_HOUR)},{' '}
+                      {schedule?.timezone
+                        ? schedule.timezone
+                        : profile?.timezone
+                          ? `Business timezone (${profile.timezone})`
+                          : 'Business timezone'}
+                      .
+                    </p>
+                  </div>
+                  <StatusChip status={schedule?.enabled ? 'approved' : 'draft'}>
+                    {schedule?.enabled ? 'Enabled' : 'Disabled'}
+                  </StatusChip>
+                </div>
+                {!schedule ? (
+                  <p className="mt-3 text-xs leading-6 text-white/50">
+                    {isWorkspaceAdmin
+                      ? "Not scheduled yet — save to set this workspace's cadence."
+                      : 'This workspace has not set a posting schedule yet.'}
+                  </p>
+                ) : null}
+              </div>
+
+              {isWorkspaceAdmin ? (
+                <div className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Field label="Day of week">
+                      <select
+                        value={scheduleDayDraft}
+                        onChange={(e) => setScheduleDayDraft(Number(e.target.value))}
+                        className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white"
+                      >
+                        {DAY_OF_WEEK_NAMES.map((name, index) => (
+                          <option key={name} value={index} className="bg-black">
+                            {name}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Hour (local time)">
+                      <select
+                        value={scheduleHourDraft}
+                        onChange={(e) => setScheduleHourDraft(Number(e.target.value))}
+                        className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white"
+                      >
+                        {SCHEDULE_HOURS.map((hour) => (
+                          <option key={hour} value={hour} className="bg-black">
+                            {formatScheduleHourLabel(hour)}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Timezone">
+                      <input
+                        value={scheduleTimezoneDraft}
+                        onChange={(e) => setScheduleTimezoneDraft(e.target.value)}
+                        placeholder={profile?.timezone || 'America/New_York'}
+                        className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white"
+                      />
+                      <p className="mt-2 text-xs leading-6 text-white/50">
+                        Leave blank to use the business timezone{profile?.timezone ? ` (${profile.timezone})` : ''}.
+                      </p>
+                    </Field>
+                    <Field label="Cadence status">
+                      <label className="flex items-center gap-3 rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white">
+                        <input
+                          type="checkbox"
+                          checked={scheduleEnabledDraft}
+                          onChange={(e) => setScheduleEnabledDraft(e.target.checked)}
+                          className="h-4 w-4 rounded border-white/30 bg-black/30"
+                        />
+                        <span className="text-sm">
+                          {scheduleEnabledDraft
+                            ? 'Enabled — Aries posts automatically'
+                            : 'Disabled — no automatic weekly post'}
+                        </span>
+                      </label>
+                    </Field>
+                  </div>
+
+                  {scheduleSaveError ? (
+                    <div
+                      className="rounded-[1rem] border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-100"
+                      role="alert"
+                    >
+                      {scheduleSaveError}
+                    </div>
+                  ) : null}
+                  {scheduleSaveNotice ? (
+                    <div className="rounded-[1rem] border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-50">
+                      {scheduleSaveNotice}
+                    </div>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    onClick={() => void handleSaveSchedule()}
+                    disabled={scheduleSaving}
+                    className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] disabled:opacity-60"
+                  >
+                    {scheduleSaving ? 'Saving…' : 'Save posting schedule'}
+                  </button>
+                </div>
+              ) : null}
+            </>
+          )}
+        </div>
+      </ShellPanel>
     </div>
   );
 }
