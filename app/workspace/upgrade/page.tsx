@@ -6,7 +6,7 @@ import { WORKSPACE_UPGRADE_PATH } from '@/backend/tenant/workspace-upgrade';
 import AuthLayout from '@/frontend/auth/auth-layout';
 
 export const metadata = {
-  title: 'Upgrade to add a workspace — Aries AI',
+  title: 'Add a brand workspace — Aries AI',
 };
 
 /**
@@ -33,21 +33,23 @@ export default async function WorkspaceUpgradePage() {
   return (
     <AuthLayout>
       <div className="mx-auto max-w-md rounded-2xl border border-white/10 bg-white/5 px-6 py-10 text-left text-white/80 space-y-4">
-        <p className="text-lg font-semibold text-white">Adding a workspace needs Aries Pro.</p>
+        <p className="text-lg font-semibold text-white">
+          Additional brand workspaces are a Pro feature.
+        </p>
         <div className="space-y-2 text-sm text-white/70">
           <p>
             {email ? (
               <>
                 Your account (<span className="font-semibold text-white">{email}</span>) is on the
-                free plan, which includes one workspace.
+                free plan, which includes one brand workspace.
               </>
             ) : (
-              <>Your account is on the free plan, which includes one workspace.</>
+              <>Your account is on the free plan, which includes one brand workspace.</>
             )}
           </p>
           <p>
-            Creating a second business for the same account needs Aries Pro. Contact the Aries team
-            about upgrading your account, then start onboarding your new business again.
+            Adding more brand workspaces needs Aries Pro. Contact the Aries team to upgrade your
+            account, then start onboarding your new brand again.
           </p>
         </div>
         <a
