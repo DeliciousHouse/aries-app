@@ -6,6 +6,7 @@ import { C } from "@/frontend/insights/tokens";
 import type { Period, Platform } from "@/frontend/insights/types";
 
 import { InsightsFilters }      from "@/frontend/insights/InsightsFilters";
+import { FreshnessStamp }        from "@/frontend/insights/FreshnessStamp";
 import { HeroSection }          from "@/frontend/insights/HeroSection";
 import { GoalSection }          from "@/frontend/insights/GoalSection";
 import { AttentionSection }     from "@/frontend/insights/AttentionSection";
@@ -42,13 +43,17 @@ export function InsightsDashboard() {
           {/* 1 — Hero band */}
           <HeroSection period={period} platform={platform} />
 
-          {/* Filters sit directly UNDER the hero (matches the mock) */}
-          <InsightsFilters
-            period={period}
-            platform={platform}
-            onPeriodChange={setPeriod}
-            onPlatformChange={setPlatform}
-          />
+          {/* Filters sit directly UNDER the hero (matches the mock); the
+              data-freshness stamp is right-aligned on the same control row. */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+            <InsightsFilters
+              period={period}
+              platform={platform}
+              onPeriodChange={setPeriod}
+              onPlatformChange={setPlatform}
+            />
+            <FreshnessStamp />
+          </div>
 
           {/* 2 — Goal */}
           <GoalSection period={period} platform={platform} />
