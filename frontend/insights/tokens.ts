@@ -43,5 +43,6 @@ export const platformLabel: Record<string, string> = {
   x:         "X",
   youtube:   "YouTube",
   tiktok:    "TikTok",
+  reddit:    "Reddit",
   all:       "All channels",
 };

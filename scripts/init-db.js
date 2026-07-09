@@ -984,6 +984,48 @@ async function initDb() {
         ON marketing_schedule (enabled) WHERE enabled;
     `);
 
+    // ─── AI-derived posting times ────────────────────────────────────────────────
+    // One row per (tenant, platform): the AI-derived time-of-day (and ranked
+    // days-of-week) that tenant's posts should go live on that platform.
+    // Written by backend/marketing/posting-time-advisor.ts every time content
+    // generation starts (ARIES_AI_POSTING_TIMES_ENABLED): from the tenant's own
+    // insights engagement once enough posts have metrics (source='analytics'),
+    // else from a Hermes research run over the business profile's competitor
+    // (source='competitor'). Read fail-open by the auto-schedule slot
+    // computation, which falls back to PLATFORM_POSTING_DEFAULTS when a row is
+    // absent. This complements marketing_schedule (WHEN weekly content is
+    // GENERATED); this table is WHEN individual posts PUBLISH.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS marketing_posting_times (
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        platform TEXT NOT NULL,
+        hour INTEGER NOT NULL CHECK (hour BETWEEN 0 AND 23),
+        minute INTEGER NOT NULL DEFAULT 0 CHECK (minute BETWEEN 0 AND 59),
+        days JSONB NOT NULL DEFAULT '[]',
+        source TEXT NOT NULL CHECK (source IN ('analytics', 'competitor')),
+        sample_size INTEGER,
+        rationale TEXT,
+        derived_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (tenant_id, platform)
+      );
+
+      -- Cross-process derivation claim (mirrors the marketing_schedule
+      -- conditional-claim idiom): one row per tenant, atomically claimed via
+      -- INSERT ... ON CONFLICT DO UPDATE ... WHERE claimed_at is older than the
+      -- claim window, so concurrent derivations across cluster workers collapse
+      -- to one. Released (DELETE) unless the competitor research leg failed
+      -- transiently — then the claim is retained as a failure backoff (a
+      -- Hermes outage cannot re-fire a doomed research run on every generate
+      -- click, even when other platforms succeeded via analytics).
+      -- TTL-skipped attempts never touch this table.
+      CREATE TABLE IF NOT EXISTS marketing_posting_time_claims (
+        tenant_id INTEGER PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+        claimed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+
     // ─── Insights module ────────────────────────────────────────────────────────
     // Platform-agnostic analytics tables. Every table is prefixed insights_ so
     // ownership is obvious at a glance and future features can't collide.

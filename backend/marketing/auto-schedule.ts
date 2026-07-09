@@ -146,6 +146,60 @@ export function pickSlotDefault(
 }
 
 /**
+ * AI-derived per-platform posting-time override (ARIES_AI_POSTING_TIMES_ENABLED;
+ * rows from marketing_posting_times via posting-time-advisor.ts). `days` are
+ * ranked days-of-week (0=Sunday, best first) — consumed only by the
+ * default-cadence path, and only when honoring them never drops post volume.
+ */
+export interface PostingTimeSlotOverride {
+  hour: number;
+  minute: number;
+  days?: number[];
+}
+
+/** Keyed by lowercase platform name (e.g. 'instagram'). */
+export type PostingTimeSlotOverrides = Partial<Record<string, PostingTimeSlotOverride>>;
+
+/**
+ * Resolve the effective slot for a (platform, surface) pair: the AI-derived
+ * override when present, else the hardcoded platform default. v1 contract:
+ * the override applies to the FEED surface only — story/reel keep their
+ * platform-default windows (an ephemeral morning-tray story should not follow
+ * the feed's evening peak). The platform's staggerMinutes is preserved so
+ * multi-platform posts still never share an exact minute, and the override
+ * minute is clamped so minute+stagger stays a valid wall-clock minute.
+ * No override map (or no entry for the platform) → byte-identical to
+ * pickSlotDefault.
+ */
+export function resolveSlotDefault(
+  platform: AutoSchedulePlatform,
+  surface: AutoScheduleSurface,
+  overrides?: PostingTimeSlotOverrides,
+): SurfaceSlotDefault | null {
+  const base = pickSlotDefault(platform, surface);
+  if (!base) return null;
+  if (surface !== 'feed') return base;
+  const override = overrides?.[platform];
+  if (!override) return base;
+  const hour = Number.isInteger(override.hour) && override.hour >= 0 && override.hour <= 23 ? override.hour : base.hour;
+  const rawMinute = Number.isInteger(override.minute) && override.minute >= 0 && override.minute <= 59 ? override.minute : 0;
+  const minute = Math.min(rawMinute, 59 - base.staggerMinutes);
+  return { hour, minute, staggerMinutes: base.staggerMinutes };
+}
+
+/** Ranked override days for a (platform, surface) pair; [] when not applicable. */
+function overrideDaysFor(
+  platform: AutoSchedulePlatform,
+  surface: AutoScheduleSurface,
+  overrides?: PostingTimeSlotOverrides,
+): number[] {
+  if (surface !== 'feed') return [];
+  const days = overrides?.[platform]?.days;
+  if (!Array.isArray(days)) return [];
+  return days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
+}
+
+/**
  * One row of work: a (post_id, platform) pair that needs a scheduled_for
  * timestamp. The caller (auto-schedule entry point) builds these from the
  * synthesized `posts` rows (one per post×platform) joined against the
@@ -179,6 +233,12 @@ export interface ComputeAutoScheduleSlotsInput {
   campaignEnd: Date;
   /** "Now" — anchors the "no past timestamps" rule. Injectable for tests. */
   now?: Date;
+  /**
+   * AI-derived posting-time overrides (feed hour/minute per platform). The
+   * strategist's recommended DAY still wins on this path — only the
+   * time-of-day is overridden. Absent → PLATFORM_POSTING_DEFAULTS.
+   */
+  slotOverrides?: PostingTimeSlotOverrides;
 }
 
 export interface AutoScheduleSlot {
@@ -249,7 +309,7 @@ export function computeAutoScheduleSlots(input: ComputeAutoScheduleSlotsInput): 
     const platformKey = row.platform.trim().toLowerCase() as AutoSchedulePlatform;
     const surface: AutoScheduleSurface = row.surface ?? 'feed';
     const mediaType: 'image' | 'video' = row.mediaType ?? 'image';
-    const defaults = pickSlotDefault(platformKey, surface);
+    const defaults = resolveSlotDefault(platformKey, surface, input.slotOverrides);
     if (!defaults) {
       skipped.push({ row, reason: `unsupported_platform:${row.platform}` });
       continue;
@@ -421,6 +481,15 @@ export interface ComputeDefaultCadenceSlotsInput {
   campaignEnd: Date;
   /** Injectable now() for tests. */
   now?: Date;
+  /**
+   * AI-derived posting-time overrides. Hour/minute replace the platform's
+   * feed default; ranked `days` additionally re-anchor a pair's pieces onto
+   * the preferred days-of-week — but ONLY when every piece of the pair fits
+   * on a preferred day inside the window (otherwise honoring the preference
+   * would drop posts, so the pair falls back to the consecutive-day ladder
+   * with the derived hour).
+   */
+  slotOverrides?: PostingTimeSlotOverrides;
 }
 
 /**
@@ -489,12 +558,66 @@ export function computeDefaultCadenceSlots(
     const surface: AutoScheduleSurface = row.surface ?? 'feed';
     const pairKey = `${platformKey}:${surface}`;
     if (pairShiftMs.has(pairKey)) continue;
-    const defaults = pickSlotDefault(platformKey, surface);
+    const defaults = resolveSlotDefault(platformKey, surface, input.slotOverrides);
     if (!defaults) continue;
     const wallIso = formatTenantWallTime(baseDate, tz, defaults);
     const utc = wallTimeToUtc(wallIso, tz);
     if (!utc) continue;
     pairShiftMs.set(pairKey, utc < windowStart ? oneDayMs : 0);
+  }
+
+  // AI-derived preferred-days re-anchoring (per pair). For a pair whose
+  // override carries ranked days, scan tenant-local calendar days forward from
+  // baseDate and collect the instants landing on a preferred day inside the
+  // window. Only when EVERY piece of the pair fits (candidates >= pieces) does
+  // the pair adopt them — a partial fit would silently drop posts, so it falls
+  // back to the consecutive-day ladder (derived hour still applies). Piece
+  // order follows ordinal order onto chronological candidates, preserving the
+  // ordinal-order == calendar-order invariant.
+  const pairPreferredWall = new Map<string, Map<number, string>>();
+  {
+    const pairOrdinals = new Map<string, Set<number>>();
+    for (const row of input.rows) {
+      const platformKey = row.platform.trim().toLowerCase() as AutoSchedulePlatform;
+      const surface: AutoScheduleSurface = row.surface ?? 'feed';
+      const pairKey = `${platformKey}:${surface}`;
+      const set = pairOrdinals.get(pairKey) ?? new Set<number>();
+      set.add(row.ordinal);
+      pairOrdinals.set(pairKey, set);
+    }
+    for (const [pairKey, ordinalSet] of pairOrdinals) {
+      const [platformKey, surface] = pairKey.split(':') as [AutoSchedulePlatform, AutoScheduleSurface];
+      const preferredDays = overrideDaysFor(platformKey, surface, input.slotOverrides);
+      if (preferredDays.length === 0) continue;
+      const defaults = resolveSlotDefault(platformKey, surface, input.slotOverrides);
+      if (!defaults) continue;
+      const daySet = new Set(preferredDays);
+      const ordinals = [...ordinalSet].sort((a, b) => a - b);
+      const candidates: string[] = [];
+      // The scan exits at windowEnd (break below), so the constant is only a
+      // runaway backstop — sized to a full year so a long campaign window can
+      // never false-fallback to the ladder while valid preferred days remain.
+      for (let i = 0; i < 366 && candidates.length < ordinals.length; i += 1) {
+        const probe = new Date(baseDate.getTime() + i * oneDayMs);
+        const wallIso = formatTenantWallTime(probe, tz, defaults);
+        const utc = wallTimeToUtc(wallIso, tz);
+        if (!utc) continue;
+        if (utc > windowEnd) break;
+        if (utc < windowStart) continue;
+        // DST fall-back guard: across the autumn transition two consecutive
+        // 24h-UTC probes can land on the SAME tenant-local calendar date, which
+        // would double-book two ordinals at the identical instant. Duplicates
+        // are always adjacent (probes are chronological), so comparing against
+        // the last collected candidate is sufficient.
+        if (daySet.has(tenantLocalDayIndex(utc, tz)) && candidates[candidates.length - 1] !== wallIso) {
+          candidates.push(wallIso);
+        }
+      }
+      if (candidates.length < ordinals.length) continue; // ladder fallback — never drop volume
+      const byOrdinal = new Map<number, string>();
+      ordinals.forEach((ordinal, index) => byOrdinal.set(ordinal, candidates[index]));
+      pairPreferredWall.set(pairKey, byOrdinal);
+    }
   }
 
   const slots: AutoScheduleSlot[] = [];
@@ -504,27 +627,32 @@ export function computeDefaultCadenceSlots(
     const platformKey = row.platform.trim().toLowerCase() as AutoSchedulePlatform;
     const surface: AutoScheduleSurface = row.surface ?? 'feed';
     const mediaType: 'image' | 'video' = row.mediaType ?? 'image';
-    const defaults = pickSlotDefault(platformKey, surface);
+    const defaults = resolveSlotDefault(platformKey, surface, input.slotOverrides);
     if (!defaults) {
       skipped.push({ row: { ...row, recommendedDay: null }, reason: `unsupported_platform:${row.platform}` });
       continue;
     }
 
+    const pairKey = `${platformKey}:${surface}`;
+    const preferredWall = pairPreferredWall.get(pairKey)?.get(row.ordinal) ?? null;
+
     // Piece k → baseDate + (k-1) calendar days + the pair's shift. baseDate is
     // already in UTC; formatTenantWallTime converts the UTC instant to the
     // correct tenant-local calendar date so DST boundaries are handled correctly.
-    const dayOffset = (row.ordinal - 1) * oneDayMs + (pairShiftMs.get(`${platformKey}:${surface}`) ?? 0);
+    const dayOffset = (row.ordinal - 1) * oneDayMs + (pairShiftMs.get(pairKey) ?? 0);
     const dayInstant = new Date(baseDate.getTime() + dayOffset);
 
-    const wallTimeIso = formatTenantWallTime(dayInstant, tz, defaults);
+    const wallTimeIso = preferredWall ?? formatTenantWallTime(dayInstant, tz, defaults);
     const utc = wallTimeToUtc(wallTimeIso, tz);
     if (!utc) {
       skipped.push({ row: { ...row, recommendedDay: null }, reason: `wall_time_to_utc_failed:${wallTimeIso}` });
       continue;
     }
 
-    // Overflow guard runs against the FINAL (shift-applied) instant.
-    if (dayInstant > windowEnd) {
+    // Overflow guard runs against the FINAL (shift-applied) instant. A
+    // preferred-day row is exempt — its candidates were collected strictly
+    // inside the window; the ladder's dayInstant is meaningless for it.
+    if (!preferredWall && dayInstant > windowEnd) {
       skipped.push({
         row: { ...row, recommendedDay: null },
         reason: `overflow_beyond_window:${row.ordinal}`,
@@ -555,7 +683,9 @@ export function computeDefaultCadenceSlots(
       heightPx: row.heightPx ?? null,
       durationSeconds: row.durationSeconds ?? null,
       scheduledFor: utc,
-      appliedDay: `default-cadence:ordinal-${row.ordinal}`,
+      appliedDay: preferredWall
+        ? `preferred-day:ordinal-${row.ordinal}`
+        : `default-cadence:ordinal-${row.ordinal}`,
       appliedWallTime: wallTimeIso,
     });
   }
@@ -578,6 +708,8 @@ export interface AutoSchedulePostsInput {
   queryable: ScheduledPostQueryable;
   /** Injectable now() for tests. */
   now?: Date;
+  /** AI-derived posting-time overrides; absent → platform defaults. */
+  slotOverrides?: PostingTimeSlotOverrides;
 }
 
 export interface AutoSchedulePostsResult {
@@ -602,6 +734,7 @@ export async function autoSchedulePosts(
     campaignStart: input.campaignStart,
     campaignEnd: input.campaignEnd,
     now: input.now,
+    slotOverrides: input.slotOverrides,
   });
 
   const errors: AutoSchedulePostsResult['errors'] = [];
@@ -652,6 +785,8 @@ export interface AutoDefaultCadenceSchedulePostsInput {
   queryable: ScheduledPostQueryable;
   /** Injectable now() for tests. */
   now?: Date;
+  /** AI-derived posting-time overrides; absent → platform defaults. */
+  slotOverrides?: PostingTimeSlotOverrides;
 }
 
 /**
@@ -669,6 +804,7 @@ export async function autoDefaultCadenceSchedulePosts(
     campaignStart: input.campaignStart,
     campaignEnd: input.campaignEnd,
     now: input.now,
+    slotOverrides: input.slotOverrides,
   });
 
   const errors: AutoSchedulePostsResult['errors'] = [];

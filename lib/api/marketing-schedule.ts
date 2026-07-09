@@ -53,7 +53,7 @@ export function scheduleErrorMessage(code: string, fallback?: string): string {
     case 'invalid_enabled':
       return 'That toggle value was not recognized — try again.';
     case 'forbidden':
-      return 'Only workspace admins can change the posting schedule.';
+      return 'Only workspace admins can change the generation schedule.';
     case 'sign_in_required':
     case 'authentication_required':
     case 'unauthorized':
@@ -63,7 +63,7 @@ export function scheduleErrorMessage(code: string, fallback?: string): string {
     default:
       return fallback && fallback.trim() && fallback.length < 160
         ? fallback
-        : 'Could not save the posting schedule. Try again.';
+        : 'Could not save the generation schedule. Try again.';
   }
 }
 

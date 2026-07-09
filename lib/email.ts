@@ -379,7 +379,7 @@ function renderWorkspaceInviteHtml(p: WorkspaceInviteEmailParams): string {
     ? `You already have an Aries AI account under this email. Accepting moves your account into ${p.workspaceName} — your current, unused workspace will be left behind.`
     : existingAccount
       ? `You've been added with your existing Aries AI account — sign in with your usual credentials or Google to review and accept. Your account, password, and other workspaces stay exactly as they are.`
-      : `Set your password to view and manage the posting schedule together.`;
+      : `Set your password to view and manage the content schedule together.`;
   const body = `
     <p style="font-size:15px;line-height:1.5;color:rgba(255,255,255,0.7);margin:0 0 8px;">
       ${lead} <strong style="color:#ffffff;">${p.workspaceName}</strong> on Aries AI as a
@@ -409,7 +409,7 @@ function renderWorkspaceInviteText(p: WorkspaceInviteEmailParams): string {
     ? `You already have an Aries AI account under this email. Accepting moves your account into ${p.workspaceName} — your current, unused workspace will be left behind.`
     : existingAccount
       ? `You've been added with your existing Aries AI account — sign in with your usual credentials or Google to review and accept. Your account, password, and other workspaces stay exactly as they are.`
-      : 'Set your password to view and manage the posting schedule together.';
+      : 'Set your password to view and manage the content schedule together.';
   return [
     'Aries AI — workspace invite',
     '',

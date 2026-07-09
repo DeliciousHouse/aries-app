@@ -98,14 +98,13 @@ function cadencePanelSlice(): string {
   assert.ok(cadencePanelStart >= 0, 'Settings should render a Cadence panel');
   const teamPanelStart = source.indexOf('eyebrow="Team / Approvals"');
   assert.ok(teamPanelStart >= 0 && teamPanelStart < cadencePanelStart, 'Cadence should render after Team / Approvals');
-  // The Cadence ShellPanel is the last panel in the component; the module-level
-  // `Field` helper's declaration is the next anchor after it closes.
-  const fieldHelperStart = source.indexOf('function Field(props');
-  assert.ok(fieldHelperStart > cadencePanelStart, 'Cadence panel should close before the Field helper is declared');
-  return source.slice(cadencePanelStart, fieldHelperStart);
+  // The Posting times ShellPanel is the next panel after Cadence closes.
+  const postingTimesPanelStart = source.indexOf('eyebrow="Posting times"');
+  assert.ok(postingTimesPanelStart > cadencePanelStart, 'Cadence panel should close before the Posting times panel opens');
+  return source.slice(cadencePanelStart, postingTimesPanelStart);
 }
 
-test('settings Cadence panel renders the weekly-posting title and copy', () => {
+test('settings Cadence panel is framed as the GENERATION schedule, not posting times', () => {
   const cadencePanelSource = cadencePanelSlice();
   assert.equal(
     cadencePanelSource.startsWith('eyebrow="Cadence"'),
@@ -113,14 +112,19 @@ test('settings Cadence panel renders the weekly-posting title and copy', () => {
     'The Cadence panel should carry the eyebrow="Cadence" label',
   );
   assert.equal(
-    source.includes('<ShellPanel eyebrow="Cadence" title="When Aries posts each week">'),
+    source.includes('<ShellPanel eyebrow="Cadence" title="When Aries generates content each week">'),
     true,
-    'The Cadence panel should be titled "When Aries posts each week"',
+    'The Cadence panel must be titled around content GENERATION — posting times are AI-derived per platform, not a fixed set time',
   );
   assert.equal(
-    cadencePanelSource.includes('Weekly posting cadence'),
+    cadencePanelSource.includes('Weekly generation schedule'),
     true,
-    'The Cadence panel should summarize the current weekly posting cadence',
+    'The Cadence panel should summarize the current weekly generation schedule',
+  );
+  assert.equal(
+    cadencePanelSource.includes('derived per platform'),
+    true,
+    'The Cadence panel should point at the per-platform derived posting times so the two schedules are not conflated',
   );
 });
 
@@ -132,7 +136,7 @@ test('settings Cadence panel shows role-aware copy when no schedule row exists y
     'Admins should see the "Not scheduled yet" prompt when the tenant has no cadence row',
   );
   assert.equal(
-    cadencePanelSource.includes('This workspace has not set a posting schedule yet.'),
+    cadencePanelSource.includes('This workspace has not set a generation schedule yet.'),
     true,
     'Non-admins should see a read-only explanation when the tenant has no cadence row',
   );
@@ -153,7 +157,7 @@ test('settings Cadence panel only renders the editable schedule form for workspa
   assert.ok(adminGateIndex >= 0, 'The Cadence form should be gated behind an isWorkspaceAdmin check, matching the other panels\' admin-only sections');
 
   const dayFieldIndex = cadencePanelSource.indexOf('Field label="Day of week"');
-  const saveButtonIndex = cadencePanelSource.indexOf('Save posting schedule');
+  const saveButtonIndex = cadencePanelSource.indexOf('Save generation schedule');
   assert.ok(dayFieldIndex > adminGateIndex, 'The day-of-week selector must live inside the isWorkspaceAdmin-gated block');
   assert.ok(saveButtonIndex > adminGateIndex, 'The save button must live inside the isWorkspaceAdmin-gated block');
 
@@ -162,9 +166,84 @@ test('settings Cadence panel only renders the editable schedule form for workspa
   // and only after the gate.
   const beforeGate = cadencePanelSource.slice(0, adminGateIndex);
   assert.equal(
-    beforeGate.includes('Save posting schedule'),
+    beforeGate.includes('Save generation schedule'),
     false,
     'The save button must not render outside the isWorkspaceAdmin gate',
+  );
+});
+
+// ── Posting times card (AI-derived per-platform posting times) ─────────────
+
+function postingTimesPanelSlice(): string {
+  const panelStart = source.indexOf('eyebrow="Posting times"');
+  assert.ok(panelStart >= 0, 'Settings should render a Posting times panel');
+  const fieldHelperStart = source.indexOf('function Field(props');
+  assert.ok(fieldHelperStart > panelStart, 'Posting times panel should close before the Field helper is declared');
+  return source.slice(panelStart, fieldHelperStart);
+}
+
+test('settings Posting times panel renders derived per-platform times with a source badge', () => {
+  const panelSource = postingTimesPanelSlice();
+  assert.equal(
+    source.includes('<ShellPanel eyebrow="Posting times" title="When your posts go live">'),
+    true,
+    'The Posting times panel should be titled "When your posts go live"',
+  );
+  assert.equal(
+    panelSource.includes("entry.source === 'analytics'"),
+    true,
+    'Each derived row must badge its source (your analytics vs competitor analysis)',
+  );
+  assert.equal(
+    panelSource.includes('Competitor analysis'),
+    true,
+    'The competitor-derived source badge copy should be present',
+  );
+  assert.equal(
+    panelSource.includes('postingTimesEnabled'),
+    true,
+    'The panel must branch on the feature flag so a flag-off deployment shows the defaults explanation',
+  );
+});
+
+test('settings Posting times update button is admin-gated', () => {
+  const panelSource = postingTimesPanelSlice();
+  const deriveButtonIndex = panelSource.indexOf('Update times now');
+  assert.ok(deriveButtonIndex >= 0, 'The panel should offer an "Update times now" button');
+  const adminGateIndex = panelSource.indexOf('{isWorkspaceAdmin ? (');
+  assert.ok(
+    adminGateIndex >= 0 && deriveButtonIndex > adminGateIndex,
+    'The "Update times now" button must live inside an isWorkspaceAdmin-gated block',
+  );
+});
+
+test('settings Posting times derive polling cleans up its timer on unmount', () => {
+  assert.equal(
+    source.includes('derivePollTimer'),
+    true,
+    'The derive flow should track its poll timer in a ref',
+  );
+  assert.equal(
+    source.includes('window.clearInterval(derivePollTimer.current)'),
+    true,
+    'The poll timer must be cleared (unmount cleanup + re-arm) so navigation never leaves stray fetch/setState timers',
+  );
+});
+
+test('lib/api/posting-times.ts routes reads and the derive trigger through requestJson, not a bare fetch', () => {
+  const postingTimesClientSource = readFileSync(
+    path.join(PROJECT_ROOT, 'lib', 'api', 'posting-times.ts'),
+    'utf8',
+  );
+  assert.match(
+    postingTimesClientSource,
+    /import \{ ApiRequestError, requestJson \} from '\.\/http';/,
+    'The posting-times client should import requestJson from lib/api/http.ts',
+  );
+  assert.equal(
+    /\bfetch\(/.test(postingTimesClientSource),
+    false,
+    'The posting-times client must not bypass requestJson with a bare fetch() call',
   );
 });
 
