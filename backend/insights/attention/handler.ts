@@ -16,7 +16,9 @@ import { buildAttentionCards } from './attention-card-builder';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 import crypto from 'crypto';
 
-const TEMPLATE_VERSION = 'attention-v1';
+// v2: fix the unreplied-card CTA link (/conversations 404 → /dashboard/comments,
+// S1-1/AA-80). Bump regenerates cached attention snapshots holding the bad link.
+const TEMPLATE_VERSION = 'attention-v2';
 const CACHE_TTL_MS     = 15 * 60 * 1000; // 15 minutes
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);
