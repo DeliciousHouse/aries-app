@@ -40,8 +40,6 @@ function tagIcon(tag: string | null): IconName {
   }
 }
 
-const comingSoon = () => alert("Opens in the Conversations workspace (coming soon).");
-
 // Compact tag (smaller than the shared Pill).
 function MiniTag({ label, color }: { label: string; color: string }) {
   return (
@@ -57,14 +55,26 @@ function MiniTag({ label, color }: { label: string; color: string }) {
   );
 }
 
-function ActionButton({ icon, label, onClick }: { icon: IconName; label: string; onClick: () => void }) {
+function ActionButton({
+  icon, label, onClick, disabled, title,
+}: {
+  icon: IconName;
+  label: string;
+  onClick?: () => void;
+  disabled?: boolean;
+  title?: string;
+}) {
   return (
     <button
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      title={title}
       style={{
         display: "inline-flex", alignItems: "center", gap: 5,
         background: "transparent", border: `1px solid ${C.border}`, color: C.t2,
-        borderRadius: 7, padding: "4px 10px", fontSize: 11.5, fontWeight: 500, cursor: "pointer",
+        borderRadius: 7, padding: "4px 10px", fontSize: 11.5, fontWeight: 500,
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.5 : 1,
       }}
     >
       <Icon name={icon} size={12} color={C.t2} />
@@ -97,8 +107,12 @@ function ConversationRow({ item, last }: { item: ConversationItem; last: boolean
         <div style={{ fontSize: 13, color: C.t2, marginTop: 5, lineHeight: 1.5 }}>{item.text}</div>
         <div style={{ fontSize: 11, color: C.t3, marginTop: 6 }}>on “{item.postRef}”</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 9 }}>
-          <ActionButton icon="reply" label="Reply" onClick={comingSoon} />
-          {item.tag === "lead" && <ActionButton icon="send" label="Send to Sequences" onClick={comingSoon} />}
+          {/* Reply is intentionally kept VISIBLE but disabled — S5-2 wires it
+              up for real (just flips `disabled` off). Do not remove. */}
+          <ActionButton icon="reply" label="Reply" disabled title="Reply ships soon" />
+          {item.tag === "lead" && (
+            <ActionButton icon="send" label="Send to Sequences" disabled title="Coming soon" />
+          )}
         </div>
       </div>
     </div>
@@ -161,8 +175,9 @@ export function ConversationsSection({ period, platform }: ConversationsSectionP
               {/* View all + channel hint */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
                 <button
-                  onClick={comingSoon}
-                  style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: C.accentB, padding: 0 }}
+                  disabled
+                  title="Coming soon"
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "not-allowed", opacity: 0.5, fontSize: 12.5, fontWeight: 600, color: C.accentB, padding: 0 }}
                 >
                   View all {data.meta.needsReply} replies needed →
                 </button>

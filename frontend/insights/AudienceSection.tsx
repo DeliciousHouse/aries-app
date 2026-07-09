@@ -293,7 +293,7 @@ export function AudienceSection({ period, platform }: AudienceSectionProps) {
                     )}
                   </div>
                 ) : (
-                  <StubLine message="Demographics coming soon — connect Instagram/Facebook business accounts to unlock audience insights." />
+                  <StubLine message="Audience demographics coming soon — we're still building this insight." />
                 )}
               </div>
 
