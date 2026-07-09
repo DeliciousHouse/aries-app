@@ -33,7 +33,7 @@ export function postingTimesErrorMessage(code: string, fallback?: string): strin
     case 'forbidden':
       return 'Only workspace admins can trigger a new derivation.';
     case 'posting_times_disabled':
-      return 'AI posting times are not enabled for this deployment.';
+      return "AI posting times aren't available for your workspace yet.";
     case 'sign_in_required':
     case 'authentication_required':
     case 'unauthorized':

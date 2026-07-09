@@ -192,6 +192,29 @@ test('default cadence: preferred days NEVER drop volume — insufficient matches
   }
 });
 
+test('default cadence: multiple preferred days assign chronologically (rank does not reorder the calendar)', () => {
+  // days [5, 1] = Friday ranked above Monday. Pinned semantics: candidates are
+  // collected chronologically across ALL preferred days — from the Monday
+  // Jul 6 start the first matches are Mon Jul 6 then Fri Jul 10, so ordinal 1
+  // → Monday and ordinal 2 → Friday. Rank never reorders the calendar; the
+  // ordinal==calendar-order invariant wins.
+  const result = computeDefaultCadenceSlots({
+    rows: cadenceRows(2),
+    tenantTimezone: TZ,
+    campaignStart: WINDOW_START,
+    campaignEnd: WINDOW_END,
+    now: NOW,
+    slotOverrides: { instagram: { hour: 18, minute: 0, days: [5, 1] } },
+  });
+  assert.equal(result.slots.length, 2);
+  const sorted = [...result.slots].sort((a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime());
+  assert.equal(sorted[0].postId, 1, 'ordinal order == calendar order');
+  assert.equal(sorted[1].postId, 2);
+  assert.equal(localDayAndTime(sorted[0].scheduledFor).day, 1, 'first chronological preferred day is Monday');
+  assert.equal(localDayAndTime(sorted[1].scheduledFor).day, 5, 'second chronological preferred day is Friday');
+  for (const slot of sorted) assert.match(slot.appliedDay, /^preferred-day:/);
+});
+
 test('default cadence: DST fall-back never double-books two ordinals at the same instant (preferred days)', () => {
   // 2026-11-01 is the US fall-back Sunday. now = 00:05 EDT on that day: probes
   // i=0 and i=1 both land on local calendar date Nov 1 (24h UTC later is 23:05

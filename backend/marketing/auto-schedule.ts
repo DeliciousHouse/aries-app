@@ -594,8 +594,10 @@ export function computeDefaultCadenceSlots(
       const daySet = new Set(preferredDays);
       const ordinals = [...ordinalSet].sort((a, b) => a - b);
       const candidates: string[] = [];
-      // Bounded scan: window is at most weeks long; 31 days covers it.
-      for (let i = 0; i < 31 && candidates.length < ordinals.length; i += 1) {
+      // The scan exits at windowEnd (break below), so the constant is only a
+      // runaway backstop — sized to a full year so a long campaign window can
+      // never false-fallback to the ladder while valid preferred days remain.
+      for (let i = 0; i < 366 && candidates.length < ordinals.length; i += 1) {
         const probe = new Date(baseDate.getTime() + i * oneDayMs);
         const wallIso = formatTenantWallTime(probe, tz, defaults);
         const utc = wallTimeToUtc(wallIso, tz);

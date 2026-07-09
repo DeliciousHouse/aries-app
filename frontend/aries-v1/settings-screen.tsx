@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
@@ -18,6 +18,7 @@ import {
   derivePostingTimesNow,
   type PostingTimeView,
 } from '@/lib/api/posting-times';
+import { platformLabel } from '@/frontend/insights/tokens';
 
 type WorkspaceRole = 'tenant_admin' | 'tenant_analyst' | 'tenant_viewer';
 
@@ -58,15 +59,12 @@ const DEFAULT_SCHEDULE_DAY = 1; // Monday
 const DEFAULT_SCHEDULE_HOUR = 9; // 9:00 AM local
 const SCHEDULE_HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 
-function formatScheduleHourLabel(hour: number): string {
-  const normalized = ((hour % 24) + 24) % 24;
-  const period = normalized < 12 ? 'AM' : 'PM';
-  const displayHour = normalized % 12 === 0 ? 12 : normalized % 12;
-  return `${displayHour}:00 ${period}`;
-}
-
 // Posting-times card (AI-derived per-platform posting times). days: 0=Sunday.
 const DAY_ABBREVIATIONS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+// Post-derive polling: the competitor research run typically lands within a
+// couple of minutes; poll until the rows change or the budget runs out.
+const DERIVE_POLL_INTERVAL_MS = 15_000;
+const DERIVE_POLL_MAX_ATTEMPTS = 12; // 3 minutes
 
 function formatPostingTimeLabel(hour: number, minute: number): string {
   const normalized = ((hour % 24) + 24) % 24;
@@ -76,21 +74,25 @@ function formatPostingTimeLabel(hour: number, minute: number): string {
   return `${displayHour}:${String(safeMinute).padStart(2, '0')} ${period}`;
 }
 
+function formatScheduleHourLabel(hour: number): string {
+  return formatPostingTimeLabel(hour, 0);
+}
+
 function postingPlatformLabel(platform: string): string {
-  switch (platform) {
-    case 'instagram':
-      return 'Instagram';
-    case 'facebook':
-      return 'Facebook';
-    case 'x':
-      return 'X';
-    case 'linkedin':
-      return 'LinkedIn';
-    case 'reddit':
-      return 'Reddit';
-    default:
-      return platform ? platform.charAt(0).toUpperCase() + platform.slice(1) : platform;
+  return (
+    platformLabel[platform] ??
+    (platform ? platform.charAt(0).toUpperCase() + platform.slice(1) : platform)
+  );
+}
+
+/** Newest derived_at across the rows — the signal that a derivation landed. */
+function latestDerivedAt(rows: PostingTimeView[]): number {
+  let latest = 0;
+  for (const row of rows) {
+    const t = row.derivedAt ? Date.parse(row.derivedAt) : Number.NaN;
+    if (Number.isFinite(t) && t > latest) latest = t;
   }
+  return latest;
 }
 
 export default function AriesSettingsScreen() {
@@ -231,13 +233,22 @@ export default function AriesSettingsScreen() {
     };
   }, []);
 
-  async function refreshPostingTimes() {
+  // Post-derive poll timer, cleared on unmount and on every re-arm so
+  // navigating away never leaves timers firing fetches/setState.
+  const derivePollTimer = useRef<number | null>(null);
+  useEffect(() => {
+    return () => {
+      if (derivePollTimer.current !== null) window.clearInterval(derivePollTimer.current);
+    };
+  }, []);
+
+  async function refreshPostingTimes(): Promise<PostingTimeView[] | null> {
     const result = await fetchPostingTimes();
-    if (result.status === 'ok') {
-      setPostingTimesEnabled(result.enabled);
-      setPostingTimes(result.postingTimes);
-      setPostingTimesLoadError(null);
-    }
+    if (result.status !== 'ok') return null;
+    setPostingTimesEnabled(result.enabled);
+    setPostingTimes(result.postingTimes);
+    setPostingTimesLoadError(null);
+    return result.postingTimes;
   }
 
   async function handleDerivePostingTimes() {
@@ -245,23 +256,36 @@ export default function AriesSettingsScreen() {
     setPostingTimesError(null);
     setPostingTimesNotice(null);
     setPostingTimesDeriving(true);
+    const baseline = latestDerivedAt(postingTimes);
     const result = await derivePostingTimesNow();
-    if (result.status === 'ok') {
-      setPostingTimesNotice('Derivation started — competitor analysis can take a minute. This card refreshes automatically.');
-      // The derive route returns 202 immediately (the research run finishes in
-      // the background) — refetch on a short and a long horizon, then re-arm.
-      window.setTimeout(() => {
-        void refreshPostingTimes();
-      }, 10_000);
-      window.setTimeout(() => {
-        void refreshPostingTimes();
-        setPostingTimesDeriving(false);
-        setPostingTimesNotice(null);
-      }, 45_000);
-    } else {
+    if (result.status !== 'ok') {
       setPostingTimesError(result.message);
       setPostingTimesDeriving(false);
+      return;
     }
+    setPostingTimesNotice('Analysis started — this can take a couple of minutes. This card updates automatically.');
+    // The route returns 202 immediately (the research run finishes in the
+    // background) — poll until the rows carry a newer derived_at or the
+    // budget runs out, then land on an explicit terminal state.
+    if (derivePollTimer.current !== null) window.clearInterval(derivePollTimer.current);
+    let attempts = 0;
+    derivePollTimer.current = window.setInterval(() => {
+      attempts += 1;
+      void refreshPostingTimes().then((rows) => {
+        const updated = rows !== null && latestDerivedAt(rows) > baseline;
+        if (!updated && attempts < DERIVE_POLL_MAX_ATTEMPTS) return;
+        if (derivePollTimer.current !== null) {
+          window.clearInterval(derivePollTimer.current);
+          derivePollTimer.current = null;
+        }
+        setPostingTimesDeriving(false);
+        setPostingTimesNotice(
+          updated
+            ? 'Posting times updated.'
+            : 'No new times yet — the analysis may still be running, or nothing needed updating. Check back later.',
+        );
+      });
+    }, DERIVE_POLL_INTERVAL_MS);
   }
 
   const memberApi = useMemo(() => createAriesV1Api(), []);
@@ -751,8 +775,9 @@ export default function AriesSettingsScreen() {
                       .
                     </p>
                     <p className="mt-1 text-xs leading-6 text-white/50">
-                      This is when the week&apos;s content is created — the time each post
-                      goes live is derived per platform below.
+                      {postingTimesEnabled
+                        ? "This is when the week's content is created — the time each post goes live is derived per platform below."
+                        : "This is when the week's content is created — posts go live on per-platform best-practice windows."}
                     </p>
                   </div>
                   <StatusChip status={schedule?.enabled ? 'approved' : 'draft'}>
@@ -864,20 +889,20 @@ export default function AriesSettingsScreen() {
             </div>
           ) : !postingTimesEnabled ? (
             <p className="text-sm leading-7 text-white/58">
-              AI-derived posting times are not enabled on this deployment yet. Posts are
+              AI-derived posting times aren&apos;t available for your workspace yet. Posts are
               scheduled on per-platform best-practice windows instead.
             </p>
           ) : (
             <>
               <p className="text-sm leading-7 text-white/58">
-                Aries re-derives the best time to post on each platform every time content is
-                generated — modeled on your competitor&apos;s posting habits until your own
-                analytics have enough data, then switched to your real engagement.
+                Aries re-derives the best time to post on each platform whenever content is
+                generated. Times start from your competitors&apos; posting habits, then switch
+                to your own engagement data once there&apos;s enough of it.
               </p>
               {postingTimes.length === 0 ? (
                 <p className="text-sm text-white/60">
                   No derived times yet — they&apos;ll appear after the next content generation
-                  {isWorkspaceAdmin ? ', or derive them now below' : ''}.
+                  {isWorkspaceAdmin ? ', or update them now below' : ''}.
                 </p>
               ) : (
                 <div className="space-y-3">
@@ -902,7 +927,7 @@ export default function AriesSettingsScreen() {
                             <p className="mt-1 text-xs leading-6 text-white/50">{entry.rationale}</p>
                           ) : null}
                         </div>
-                        <StatusChip status={entry.source === 'analytics' ? 'approved' : 'draft'}>
+                        <StatusChip status={entry.source === 'analytics' ? 'approved' : 'scheduled'}>
                           {entry.source === 'analytics'
                             ? `Your analytics${entry.sampleSize ? ` (${entry.sampleSize} posts)` : ''}`
                             : 'Competitor analysis'}
@@ -921,7 +946,10 @@ export default function AriesSettingsScreen() {
                 </div>
               ) : null}
               {postingTimesNotice ? (
-                <div className="rounded-[1rem] border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-50">
+                <div
+                  className="rounded-[1rem] border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-50"
+                  role="status"
+                >
                   {postingTimesNotice}
                 </div>
               ) : null}
@@ -932,7 +960,7 @@ export default function AriesSettingsScreen() {
                   disabled={postingTimesDeriving}
                   className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] disabled:opacity-60"
                 >
-                  {postingTimesDeriving ? 'Deriving…' : 'Derive now'}
+                  {postingTimesDeriving ? 'Updating…' : 'Update times now'}
                 </button>
               ) : null}
             </>

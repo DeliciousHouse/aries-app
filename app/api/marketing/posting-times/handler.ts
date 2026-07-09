@@ -62,11 +62,15 @@ export async function handleDerivePostingTimes(
   }
   const { tenantContext } = tenantResult;
 
+  // Flag check BEFORE the role check: a flag-off endpoint is invisible to
+  // every role (the ARIES_NATIVE_REPLY_ENABLED / ARIES_IMAGE_EDIT_ENABLED
+  // precedent) — a 403 for analysts would reveal it exists. 409 is reserved
+  // for the shared workspace-mismatch interlock in requestJson.
+  if (!isAiPostingTimesEnabled(deps.env ?? process.env)) {
+    return json({ error: 'posting_times_disabled' }, 404);
+  }
   if (tenantContext.role !== 'tenant_admin') {
     return json({ error: 'forbidden' }, 403);
-  }
-  if (!isAiPostingTimesEnabled(deps.env ?? process.env)) {
-    return json({ error: 'posting_times_disabled' }, 409);
   }
 
   // Tenant id ONLY from tenantContext — never from the body.

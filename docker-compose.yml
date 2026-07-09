@@ -105,8 +105,9 @@ services:
       # replaces the competitor source (default 8).
       ARIES_POSTING_TIMES_MIN_ANALYTICS_POSTS: ${ARIES_POSTING_TIMES_MIN_ANALYTICS_POSTS:-8}
       # Freshness window (minutes) that collapses rapid repeat generate-clicks
-      # onto one derivation; 0 = derive on every click. The settings-card
-      # "Derive now" button always bypasses it.
+      # onto one derivation; 0 = derive on every click (also disables the
+      # 2-minute cooldown floor the settings-card "Update times now" button
+      # otherwise honors).
       ARIES_POSTING_TIMES_TTL_MINUTES: ${ARIES_POSTING_TIMES_TTL_MINUTES:-60}
       # Optional model hint override for the competitor research run (default
       # gemini/gemini-3-flash-preview, same as the other raw Hermes runs), plus

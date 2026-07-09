@@ -101,7 +101,7 @@ test('POST derive requires tenant_admin', async () => {
   assert.equal(res.status, 403);
 });
 
-test('POST derive with the flag off returns 409 posting_times_disabled', async () => {
+test('POST derive with the flag off returns a real 404 (flag-off endpoint precedent)', async () => {
   let called = false;
   const res = await handleDerivePostingTimes(deriveRequest(), {
     tenantContextLoader: tenantLoader(15),
@@ -111,10 +111,21 @@ test('POST derive with the flag off returns 409 posting_times_disabled', async (
       return { status: 'done', platforms: {} };
     },
   });
-  assert.equal(res.status, 409);
+  // 404 matches ARIES_NATIVE_REPLY_ENABLED / ARIES_IMAGE_EDIT_ENABLED; 409 is
+  // reserved for the shared workspace-mismatch interlock in requestJson.
+  assert.equal(res.status, 404);
   const body = (await res.json()) as { error: string };
   assert.equal(body.error, 'posting_times_disabled');
   assert.equal(called, false);
+});
+
+test('POST derive with the flag off is invisible to EVERY role — non-admins get 404, not 403', async () => {
+  const res = await handleDerivePostingTimes(deriveRequest(), {
+    tenantContextLoader: tenantLoader(15, 'tenant_analyst'),
+    env: {},
+    derive: async () => ({ status: 'done', platforms: {} }),
+  });
+  assert.equal(res.status, 404, 'a 403 for analysts would reveal the flag-off endpoint exists');
 });
 
 test('POST derive fires a forced derivation for the session tenant and returns 202', async () => {

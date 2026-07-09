@@ -58,6 +58,12 @@ export const POSTING_TIME_BASE_PLATFORMS = ['instagram', 'facebook'] as const;
 export const MIN_ANALYTICS_POSTS_DEFAULT = 8;
 export const ANALYTICS_LOOKBACK_DAYS = 90;
 export const DERIVE_TTL_MINUTES_DEFAULT = 60;
+/**
+ * Cooldown floor that even force (the settings "update times now" button)
+ * honors — bounds an admin looping the endpoint to one Hermes research run
+ * per window instead of unmetered back-to-back runs.
+ */
+export const FORCE_COOLDOWN_MINUTES = 2;
 /** A bucket (or hour/day aggregate) needs at least this many posts to count. */
 const MIN_BUCKET_POSTS = 2;
 const MAX_RATIONALE_CHARS = 400;
@@ -111,8 +117,6 @@ export interface DerivePostingTimesInput {
   fetchImpl?: FetchImpl;
   sleep?: SleepFn;
   queryable?: PostingTimeQueryable;
-  /** Injectable now() for tests. */
-  now?: Date;
 }
 
 function readEnv(env: Env, key: string): string {
@@ -190,6 +194,10 @@ const ANALYTICS_BUCKETS_SQL = `
     WHERE p.tenant_id    = $1
       AND p.platform     = $2
       AND p.published_at >= now() - ($4 || ' days')::interval
+      -- The derived override applies to the FEED slot only, so the sample must
+      -- be feed-equivalent posts — a tenant whose morning STORIES drive
+      -- engagement must not have their feed hour dragged to the story hour.
+      AND COALESCE(p.media_type, 'image') NOT IN ('story', 'reel', 'short', 'live')
   )
   SELECT
     EXTRACT(DOW  FROM (published_at AT TIME ZONE $3))::int AS day_of_week,
@@ -263,7 +271,10 @@ export function analyticsRecommendationFromBuckets(
       bestHourPosts = stat.posts;
     }
   }
-  if (bestHour === null) return null;
+  // Zero engagement is not a signal — 8 posts nobody engaged with must not
+  // flip the tenant from the competitor source to "analytics" and lock in
+  // whatever hour the old scheduler happened to use.
+  if (bestHour === null || bestHourAvg <= 0) return null;
 
   const days = [...byDay.entries()]
     .filter(([, stat]) => stat.posts >= MIN_BUCKET_POSTS)
@@ -373,15 +384,22 @@ function competitorRecommendationsFromOutput(
     if (hour === null) continue;
     const minute = asIntInRange(row.minute, 0, 59) ?? 0;
     const days = normalizeDays(row.days);
-    const rationale = typeof row.rationale === 'string' && row.rationale.trim()
-      ? row.rationale.trim().slice(0, MAX_RATIONALE_CHARS)
-      : null;
+    // The rationale is attacker-influenceable free text (the model reads the
+    // competitor's own website) rendered in the tenant's settings card — strip
+    // URLs so it can never carry a phishing link; React text nodes already
+    // prevent markup injection.
+    const rawRationale = typeof row.rationale === 'string' ? row.rationale : '';
+    const cleaned = rawRationale.replace(/https?:\/\/\S+/gi, '').replace(/\s+/g, ' ').trim();
+    const rationale = cleaned ? cleaned.slice(0, MAX_RATIONALE_CHARS) : null;
     recommendations.set(platform, { hour, minute, days, rationale });
   }
   return recommendations.size > 0 ? recommendations : null;
 }
 
 export async function deriveCompetitorPostingTimes(input: {
+  /** Namespaces the Hermes session per tenant so one tenant's competitor page
+   * content can never bleed into another tenant's run context. */
+  tenantId: number;
   competitorUrl: string;
   competitorBrand?: string | null;
   timezone: string;
@@ -398,9 +416,16 @@ export async function deriveCompetitorPostingTimes(input: {
   const apiKey = readEnv(env, 'HERMES_API_SERVER_KEY');
   if (!gatewayUrl || !apiKey) return { ok: false, reason: 'not_configured' };
 
-  const sessionKey = readEnv(env, 'HERMES_POSTING_TIMES_SESSION_KEY') || readEnv(env, 'HERMES_SESSION_KEY') || 'aries-main';
+  // The env override is a PREFIX, not a replacement — the per-tenant suffix is
+  // a tenant-isolation property (one tenant's competitor page content must
+  // never bleed into another tenant's run context), so no configuration can
+  // collapse every tenant onto one shared session.
+  const sessionPrefix = readEnv(env, 'HERMES_POSTING_TIMES_SESSION_KEY') || 'aries-posting-times';
+  const sessionKey = `${sessionPrefix}-${input.tenantId}`;
   const modelHint = readEnv(env, 'HERMES_POSTING_TIMES_MODEL') || DEFAULT_MODEL_HINT;
-  const timeoutMs = readEnvInt(env, 'HERMES_POSTING_TIMES_TIMEOUT_MS', DEFAULT_TIMEOUT_MS);
+  // Floor at 1s: a misconfigured 0 would arm an instant abort and silently
+  // kill the competitor leg for every cold-start tenant.
+  const timeoutMs = Math.max(1_000, readEnvInt(env, 'HERMES_POSTING_TIMES_TIMEOUT_MS', DEFAULT_TIMEOUT_MS));
   const intervalMs = Math.max(MIN_POLL_INTERVAL_MS, readEnvInt(env, 'HERMES_POLL_INTERVAL_MS', DEFAULT_POLL_INTERVAL_MS));
   const auth = `Bearer ${apiKey}`;
 
@@ -418,21 +443,24 @@ export async function deriveCompetitorPostingTimes(input: {
 
   let runId: string;
   try {
+    // The abort timer stays armed through the BODY read, not just the headers
+    // — a gateway that returns headers then stalls/trickles the body must not
+    // hold this promise (and the caller's in-flight guard) open indefinitely.
     const submitController = new AbortController();
     const submitTimer = setTimeout(() => submitController.abort(), timeoutMs);
-    let submit: Response;
+    let submitJson: Record<string, unknown> | null;
     try {
-      submit = await fetchImpl(`${gatewayUrl}/v1/runs`, {
+      const submit = await fetchImpl(`${gatewayUrl}/v1/runs`, {
         method: 'POST',
         headers: { authorization: auth, 'content-type': 'application/json' },
         body: JSON.stringify(body),
         signal: submitController.signal,
       });
+      if (!submit.ok) return { ok: false, reason: 'submit_rejected', detail: `HTTP ${submit.status}` };
+      submitJson = (await submit.json().catch(() => null)) as Record<string, unknown> | null;
     } finally {
       clearTimeout(submitTimer);
     }
-    if (!submit.ok) return { ok: false, reason: 'submit_rejected', detail: `HTTP ${submit.status}` };
-    const submitJson = (await submit.json().catch(() => null)) as Record<string, unknown> | null;
     const candidate = submitJson && typeof submitJson.run_id === 'string' ? submitJson.run_id.trim() : '';
     if (!candidate) return { ok: false, reason: 'submit_invalid' };
     runId = candidate;
@@ -446,20 +474,20 @@ export async function deriveCompetitorPostingTimes(input: {
     try {
       const remaining = deadline - Date.now();
       if (remaining <= 0) break;
+      // Timer covers the body read too — see the submit-side comment.
       const pollController = new AbortController();
       const pollTimer = setTimeout(() => pollController.abort(), remaining);
-      let poll: Response;
       try {
-        poll = await fetchImpl(`${gatewayUrl}/v1/runs/${encodeURIComponent(runId)}`, {
+        const poll = await fetchImpl(`${gatewayUrl}/v1/runs/${encodeURIComponent(runId)}`, {
           method: 'GET',
           headers: { authorization: auth },
           signal: pollController.signal,
         });
+        if (!poll.ok) return { ok: false, reason: 'poll_rejected', detail: `HTTP ${poll.status}` };
+        pollJson = (await poll.json().catch(() => null)) as Record<string, unknown> | null;
       } finally {
         clearTimeout(pollTimer);
       }
-      if (!poll.ok) return { ok: false, reason: 'poll_rejected', detail: `HTTP ${poll.status}` };
-      pollJson = (await poll.json().catch(() => null)) as Record<string, unknown> | null;
     } catch (error) {
       return { ok: false, reason: 'unreachable', detail: error instanceof Error ? error.message : String(error) };
     }
@@ -612,8 +640,11 @@ function analyticsRationale(platform: string, rec: AnalyticsRecommendation): str
 // In-process in-flight guard: one derivation per tenant at a time within this
 // worker — the cheap fast path. Fire-and-forget callers (every generate click,
 // plus the weekly→reel companion's second startSocialContentJob) collapse onto
-// the running derivation.
-const inFlightTenants = new Set<number>();
+// the running derivation. Entries carry their start time and SELF-EXPIRE after
+// the claim window: if a derivation promise ever wedges (e.g. a transport
+// pathology the abort timers don't cover), the guard heals itself instead of
+// blocking that tenant in this worker until process restart.
+const inFlightTenants = new Map<number, number>();
 
 /**
  * Cross-process claim window (minutes). Prod runs a Node cluster
@@ -669,39 +700,57 @@ export async function deriveAndPersistPostingTimes(
   if (!Number.isFinite(tenantId) || !Number.isInteger(tenantId) || tenantId <= 0) {
     return { status: 'invalid_tenant' };
   }
-  if (inFlightTenants.has(tenantId)) return { status: 'in_flight' };
-  inFlightTenants.add(tenantId);
+  // The claim window scales with the operator-tunable Hermes timeout so a
+  // long-timeout deployment can never have a second worker steal the claim
+  // mid-run (submit + poll each get timeoutMs → worst case ~2x).
+  const timeoutMs = readEnvInt(env, 'HERMES_POSTING_TIMES_TIMEOUT_MS', 90_000);
+  const claimWindowMinutes = Math.max(DERIVE_CLAIM_WINDOW_MINUTES, Math.ceil((2 * timeoutMs) / 60_000) + 1);
+
+  const startedAt = inFlightTenants.get(tenantId);
+  if (startedAt !== undefined && Date.now() - startedAt < claimWindowMinutes * 60_000) {
+    return { status: 'in_flight' };
+  }
+  inFlightTenants.set(tenantId, Date.now());
   try {
     const queryable = input.queryable ?? pool;
-    const now = input.now ?? new Date();
-
-    // Cross-process claim (atomic, honored even under force — two simultaneous
-    // "Derive now" clicks on different cluster workers collapse to one run).
-    const claim = await queryable.query(CLAIM_SQL, [tenantId, String(DERIVE_CLAIM_WINDOW_MINUTES)]);
-    const claimGranted = (claim.rowCount ?? (claim.rows?.length ?? 0)) > 0;
-    if (!claimGranted) return { status: 'in_flight' };
-
-    // TTL guard: a fresh-enough derivation short-circuits (force bypasses —
-    // the settings "Derive now" button always re-derives).
-    const ttlMinutes = readEnvInt(env, 'ARIES_POSTING_TIMES_TTL_MINUTES', DERIVE_TTL_MINUTES_DEFAULT);
-    if (!input.force && ttlMinutes > 0) {
-      const freshness = await queryable.query(
-        'SELECT MAX(derived_at) AS derived_at FROM marketing_posting_times WHERE tenant_id = $1',
-        [tenantId],
-      );
-      const raw = (freshness.rows?.[0] as Record<string, unknown> | undefined)?.derived_at;
-      const latest = raw instanceof Date ? raw : typeof raw === 'string' ? new Date(raw) : null;
-      if (latest && Number.isFinite(latest.getTime()) && now.getTime() - latest.getTime() < ttlMinutes * 60_000) {
-        await releaseClaim(queryable, tenantId);
-        return { status: 'skipped_recent' };
-      }
-    }
 
     // Platforms: FB+IG always (every weekly synthesis targets them), plus the
     // crosspost platforms whose rollout flag is ON and the tenant has an
     // active connected account. Fail-open [] mirrors the synthesis side.
     const crosspost = await resolveCrosspostPlatforms(tenantId, queryable, env);
     const platforms: string[] = [...POSTING_TIME_BASE_PLATFORMS, ...crosspost];
+
+    // TTL guard next (read-only) so the common "recent derivation exists"
+    // path never touches the claims table. Freshness is PER PLATFORM — a
+    // partial derivation (e.g. instagram landed, facebook failed) must not
+    // let one fresh row shield the failed platform for the whole TTL — and is
+    // evaluated on the DB clock so it can never skew against claimed_at.
+    // force bypasses the full TTL but still honors a short cooldown floor —
+    // an admin looping the "update now" button cannot fire back-to-back
+    // Hermes research runs. TTL 0 is the operator's explicit "derive on
+    // every click" opt-out — it disables the force cooldown too.
+    const ttlMinutes = readEnvInt(env, 'ARIES_POSTING_TIMES_TTL_MINUTES', DERIVE_TTL_MINUTES_DEFAULT);
+    const effectiveTtlMinutes = input.force ? Math.min(FORCE_COOLDOWN_MINUTES, ttlMinutes) : ttlMinutes;
+    if (effectiveTtlMinutes > 0) {
+      const freshness = await queryable.query(
+        `SELECT COUNT(*)::int AS fresh
+           FROM marketing_posting_times
+          WHERE tenant_id = $1
+            AND platform = ANY($2::text[])
+            AND derived_at > now() - ($3 || ' minutes')::interval`,
+        [tenantId, platforms, String(effectiveTtlMinutes)],
+      );
+      const fresh = Number((freshness.rows?.[0] as Record<string, unknown> | undefined)?.fresh ?? 0);
+      if (fresh >= platforms.length) {
+        return { status: 'skipped_recent' };
+      }
+    }
+
+    // Cross-process claim (atomic, honored even under force — two simultaneous
+    // derive clicks on different cluster workers collapse to one run).
+    const claim = await queryable.query(CLAIM_SQL, [tenantId, String(claimWindowMinutes)]);
+    const claimGranted = (claim.rowCount ?? (claim.rows?.length ?? 0)) > 0;
+    if (!claimGranted) return { status: 'in_flight' };
 
     let timezone = DEFAULT_TENANT_TIMEZONE;
     try {
@@ -742,6 +791,15 @@ export async function deriveAndPersistPostingTimes(
       pendingCompetitor.push(platform);
     }
 
+    // Retained-claim failure backoff: set when the competitor leg failed
+    // TRANSIENTLY (run failed, or an ok run omitted a requested platform) —
+    // NOT when the fall-through is permanent (no competitor configured), and
+    // independent of whether OTHER platforms succeeded via analytics. Without
+    // the independence, one analytics-covered platform would release the claim
+    // and let a doomed ~2x90s Hermes research run re-fire on every generate
+    // click during an outage.
+    let retainClaimAsBackoff = false;
+
     if (pendingCompetitor.length > 0) {
       const competitorUrl = await resolveCompetitorUrl(input, tenantId);
       if (!competitorUrl) {
@@ -752,6 +810,7 @@ export async function deriveAndPersistPostingTimes(
         });
       } else {
         const result = await deriveCompetitorPostingTimes({
+          tenantId,
           competitorUrl,
           competitorBrand: input.competitorBrand ?? null,
           timezone,
@@ -762,6 +821,7 @@ export async function deriveAndPersistPostingTimes(
         });
         if (!result.ok) {
           for (const platform of pendingCompetitor) sources[platform] = 'default';
+          retainClaimAsBackoff = true;
           console.warn('[posting-time-advisor] competitor derivation failed — platforms keep defaults', {
             tenantId,
             reason: result.reason,
@@ -772,6 +832,7 @@ export async function deriveAndPersistPostingTimes(
             const rec = result.recommendations.get(platform);
             if (!rec) {
               sources[platform] = 'default';
+              retainClaimAsBackoff = true; // partial model output — retry after backoff
               continue;
             }
             await upsertPostingTime(queryable, {
@@ -790,20 +851,13 @@ export async function deriveAndPersistPostingTimes(
       }
     }
 
-    // Release the claim only when the attempt actually produced rows: a
-    // derivation where EVERY platform fell through to defaults (no competitor
-    // configured, or the research run failed) retains its claim so the next
-    // attempt backs off for the claim window instead of re-firing a doomed
-    // Hermes run on every generate click. derived_at rows arm the normal TTL
-    // for the successful case.
-    const producedRows = Object.values(sources).some((s) => s === 'analytics' || s === 'competitor');
-    if (producedRows) {
-      await releaseClaim(queryable, tenantId);
-    } else {
-      console.info('[posting-time-advisor] derivation produced no rows — retaining claim as backoff', {
+    if (retainClaimAsBackoff) {
+      console.info('[posting-time-advisor] competitor leg failed — retaining claim as backoff', {
         tenantId,
-        backoffMinutes: DERIVE_CLAIM_WINDOW_MINUTES,
+        backoffMinutes: claimWindowMinutes,
       });
+    } else {
+      await releaseClaim(queryable, tenantId);
     }
 
     console.info('[posting-time-advisor] derivation completed', { tenantId, sources });
@@ -825,7 +879,10 @@ export async function deriveAndPersistPostingTimes(
  * Resolve the competitor URL for the cold-start source. The job-resolved value
  * wins, EXCEPT when it just defaulted to the tenant's own brand URL (the
  * orchestrator's fallback when no competitor was supplied) — that is treated
- * as "no competitor set". Falls back to the stored business profile. Any
+ * as "no competitor set". Falls back to the stored business profile, where the
+ * own-brand comparison uses the stored website URL when the caller (e.g. the
+ * settings derive route) supplied no brandUrl — a stored competitor_url that
+ * points at the tenant's own site is never analyzed as a competitor. Any
  * resolution error → null (platforms keep defaults).
  */
 async function resolveCompetitorUrl(
@@ -840,7 +897,8 @@ async function resolveCompetitorUrl(
   try {
     const defaults = await marketingPayloadDefaultsFromBusinessProfile(String(tenantId));
     const stored = sanitizeLegacyCompetitorUrl(defaults.competitorUrl ?? null);
-    if (stored && (!brand || competitorDomain(stored) !== competitorDomain(brand))) {
+    const brandComparator = brand ?? sanitizeLegacyCompetitorUrl(defaults.websiteUrl ?? null);
+    if (stored && (!brandComparator || competitorDomain(stored) !== competitorDomain(brandComparator))) {
       return stored;
     }
   } catch (err) {

@@ -206,14 +206,27 @@ test('settings Posting times panel renders derived per-platform times with a sou
   );
 });
 
-test('settings Posting times Derive-now button is admin-gated', () => {
+test('settings Posting times update button is admin-gated', () => {
   const panelSource = postingTimesPanelSlice();
-  const deriveButtonIndex = panelSource.indexOf('Derive now');
-  assert.ok(deriveButtonIndex >= 0, 'The panel should offer a Derive now button');
+  const deriveButtonIndex = panelSource.indexOf('Update times now');
+  assert.ok(deriveButtonIndex >= 0, 'The panel should offer an "Update times now" button');
   const adminGateIndex = panelSource.indexOf('{isWorkspaceAdmin ? (');
   assert.ok(
     adminGateIndex >= 0 && deriveButtonIndex > adminGateIndex,
-    'The Derive now button must live inside an isWorkspaceAdmin-gated block',
+    'The "Update times now" button must live inside an isWorkspaceAdmin-gated block',
+  );
+});
+
+test('settings Posting times derive polling cleans up its timer on unmount', () => {
+  assert.equal(
+    source.includes('derivePollTimer'),
+    true,
+    'The derive flow should track its poll timer in a ref',
+  );
+  assert.equal(
+    source.includes('window.clearInterval(derivePollTimer.current)'),
+    true,
+    'The poll timer must be cleared (unmount cleanup + re-arm) so navigation never leaves stray fetch/setState timers',
   );
 });
 
