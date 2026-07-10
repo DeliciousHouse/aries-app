@@ -666,8 +666,9 @@ services:
       ARIES_INSIGHTS_SWEEP_GRACE_MINUTES: ${ARIES_INSIGHTS_SWEEP_GRACE_MINUTES:-60}
       # Composio analytics (#596/#597). ACTIVATION: the Facebook insights path
       # (account bridge + adapter) turns on ONLY when ANALYTICS_PROVIDER=composio.
-      # With the default (direct_meta) the bridge no-ops, the adapter never
-      # activates, and no Composio analytics tool runs. When enabled, the adapter
+      # ANALYTICS_PROVIDER defaults to composio (here and in code), so the only
+      # default-deploy blocker is COMPOSIO_ENABLED=false; setting
+      # ANALYTICS_PROVIDER=direct_meta explicitly disables the path. When enabled, the adapter
       # executes Composio tools, so this sidecar needs the same Composio
       # credentials as the app (COMPOSIO_API_KEY etc.); the *_ACTION slugs are
       # optional (verified code defaults).
