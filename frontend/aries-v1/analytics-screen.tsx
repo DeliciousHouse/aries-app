@@ -83,16 +83,6 @@ export default function AriesAnalyticsScreen({
   // column renders as it does today.
   const postsTable = (
     <ShellPanel eyebrow="Posts" title="Per-post performance">
-      {/* S1-9-PROVISIONAL-DISCLOSURE — REMOVE IN S2-1 (Gap A1 fix). Per-post
-          metrics are lifetime-cumulative snapshots currently SUMmed across daily
-          rows, so these Views/Likes/Comments/Shares totals over-count (~N× over N
-          days). S2-1 fixes the reader math and deletes this note. The /insights
-          Top Performing Content + Goal panels carry the matching disclosure. */}
-      {posts.length > 0 && (
-        <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-amber-400/40 bg-amber-400/10 px-3 py-1 text-[11px] text-amber-300">
-          Provisional totals — these per-post numbers currently over-count; a metrics fix is in progress.
-        </p>
-      )}
       {posts.length > 0 ? (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[640px] border-collapse text-left text-sm">

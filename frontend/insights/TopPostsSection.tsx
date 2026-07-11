@@ -23,8 +23,6 @@ import {
   EmptyState,
   LoadingRows,
 } from "@/frontend/insights/ui";
-// S1-9-PROVISIONAL-DISCLOSURE — REMOVE IN S2-1 (Gap A1 fix).
-import { ProvisionalMetricNote } from "@/frontend/insights/ProvisionalMetricNote";
 
 interface TopPostsSectionProps {
   period:   Period;
@@ -419,24 +417,14 @@ export function TopPostsSection({ period, platform }: TopPostsSectionProps) {
             {/* Footer line */}
             <div
               style={{
-                marginTop:      18,
-                paddingTop:     14,
-                borderTop:      `1px solid ${C.border}`,
-                fontSize:       12,
-                color:          C.t3,
-                display:        "flex",
-                alignItems:     "center",
-                justifyContent: "space-between",
-                gap:            12,
-                flexWrap:       "wrap",
+                marginTop:  18,
+                paddingTop: 14,
+                borderTop:  `1px solid ${C.border}`,
+                fontSize:   12,
+                color:      C.t3,
               }}
             >
-              <span>{data.meta.postCount} posts · avg reach {data.meta.avgReach.toLocaleString()}</span>
-              {/* S1-9-PROVISIONAL-DISCLOSURE — REMOVE IN S2-1 (Gap A1 fix): reach/
-                  saves/shares/comments + avg reach are raw per-post lifetime SUMs
-                  (over-count). engagement %, save rate, multiplier are ratios and
-                  are NOT affected. */}
-              <ProvisionalMetricNote label="Reach / saves / shares / comments are provisional" />
+              {data.meta.postCount} posts · avg reach {data.meta.avgReach.toLocaleString()}
             </div>
           </>
         )}

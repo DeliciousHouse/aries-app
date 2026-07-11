@@ -19,6 +19,7 @@
  */
 
 import pool from '@/lib/db';
+import { LATEST_POST_METRICS_LATERAL } from '../latest-post-metrics-sql';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 
 // Conservative estimate: research + writing + creative + scheduling per post.
@@ -119,14 +120,13 @@ export async function buildActivitySnapshot(
         `WITH post_totals AS (
            SELECT
              p.id,
-             COALESCE(SUM(COALESCE(m.reach, m.views, 0)), 0) AS total_reach
+             -- S2-1: latest lifetime snapshot per post, NOT SUM across dated rows.
+             COALESCE(m.reach, m.views, 0) AS total_reach
            FROM insights_posts p
-           LEFT JOIN insights_post_metrics_daily m
-                  ON m.post_id = p.id AND m.tenant_id = p.tenant_id
+           ${LATEST_POST_METRICS_LATERAL}
            WHERE p.tenant_id    = $1
              AND p.published_at >= $2
              AND ($3::text IS NULL OR p.platform = $3)
-           GROUP BY p.id
          ),
          avg_reach AS (
            SELECT AVG(total_reach) AS avg FROM post_totals

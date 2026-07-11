@@ -12,6 +12,7 @@
  */
 
 import pool from '@/lib/db';
+import { LATEST_POST_METRICS_LATERAL } from '../latest-post-metrics-sql';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 
 export interface HighPerformer {
@@ -147,14 +148,13 @@ export async function buildAttentionSnapshot(
              p.id,
              p.title,
              p.platform,
-             COALESCE(SUM(COALESCE(m.reach, m.views, 0)), 0) AS total_reach
+             -- S2-1: latest lifetime snapshot per post, NOT SUM across dated rows.
+             COALESCE(m.reach, m.views, 0) AS total_reach
            FROM insights_posts p
-           LEFT JOIN insights_post_metrics_daily m
-                  ON m.post_id = p.id AND m.tenant_id = p.tenant_id
+           ${LATEST_POST_METRICS_LATERAL}
            WHERE p.tenant_id    = $1
              AND p.published_at >= $2
              AND ($3::text IS NULL OR p.platform = $3)
-           GROUP BY p.id, p.title, p.platform
          )
          SELECT
            title,
@@ -193,16 +193,19 @@ export async function buildAttentionSnapshot(
         avg_reach: string;
         cnt:       string;
       }>(
-        `SELECT
-           EXTRACT(DOW FROM p.published_at AT TIME ZONE 'UTC')::int AS dow,
-           AVG(COALESCE(m.reach, m.views, 0))                       AS avg_reach,
-           COUNT(*)                                                   AS cnt
-         FROM insights_posts p
-         LEFT JOIN insights_post_metrics_daily m
-                ON m.post_id = p.id AND m.tenant_id = p.tenant_id
-         WHERE p.tenant_id    = $1
-           AND p.published_at >= $2
-           AND ($3::text IS NULL OR p.platform = $3)
+        // S2-1: average each post's LATEST lifetime reach per weekday (and count
+        // posts, not dated rows). The old direct join fanned out per date row, so
+        // AVG/COUNT were over cumulative snapshots, not posts.
+        `SELECT dow, AVG(reach) AS avg_reach, COUNT(*) AS cnt
+         FROM (
+           SELECT EXTRACT(DOW FROM p.published_at AT TIME ZONE 'UTC')::int AS dow,
+                  COALESCE(m.reach, m.views, 0)                            AS reach
+           FROM insights_posts p
+           ${LATEST_POST_METRICS_LATERAL}
+           WHERE p.tenant_id    = $1
+             AND p.published_at >= $2
+             AND ($3::text IS NULL OR p.platform = $3)
+         ) per_post
          GROUP BY dow
          HAVING COUNT(*) >= 2
          ORDER BY avg_reach DESC`,

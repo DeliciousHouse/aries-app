@@ -14,6 +14,7 @@
 import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
+import { LATEST_POST_METRICS_LATERAL } from './latest-post-metrics-sql';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -186,18 +187,19 @@ export async function handleGetInsightsPosts(
          p.permalink,
          p.duration_seconds,
          p.platform_data,
-         COALESCE(SUM(m.views), 0)               AS total_views,
-         COALESCE(SUM(m.likes), 0)               AS total_likes,
-         COALESCE(SUM(m.comments_count), 0)       AS total_comments,
-         COALESCE(SUM(m.shares), 0)               AS total_shares,
-         AVG(NULLIF(m.avg_view_percentage, 0))    AS avg_view_percentage
+         -- S2-1: per-post metrics are lifetime-cumulative snapshots (one row per
+         -- day, each an all-time running total), so the latest row IS the true
+         -- lifetime total. SUMming across dates inflated it ~N×. Take the newest
+         -- snapshot per post via LATERAL (same idiom as posting-time-advisor).
+         COALESCE(m.views, 0)             AS total_views,
+         COALESCE(m.likes, 0)             AS total_likes,
+         COALESCE(m.comments_count, 0)    AS total_comments,
+         COALESCE(m.shares, 0)            AS total_shares,
+         NULLIF(m.avg_view_percentage, 0) AS avg_view_percentage
        FROM insights_posts p
-       LEFT JOIN insights_post_metrics_daily m
-              ON m.post_id = p.id AND m.tenant_id = p.tenant_id
+       ${LATEST_POST_METRICS_LATERAL}
        WHERE p.tenant_id = $1
          AND ($2::text IS NULL OR p.platform = $2)
-       GROUP BY p.id, p.platform, p.external_post_id, p.title, p.media_type,
-                p.published_at, p.permalink, p.duration_seconds, p.platform_data
        ORDER BY p.published_at DESC
        LIMIT $3 OFFSET $4`,
       [tenantId, platform, limit, offset],
