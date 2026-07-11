@@ -237,7 +237,26 @@ export async function syncAccountForTenant(
                    $5, $6, $7, $8,
                    $9, $10, $11, $12,
                    '{}', $13)
-           ON CONFLICT (tenant_id, account_id, date) DO NOTHING`,
+           -- S2-2 (AA-93): intraday upsert. Sync runs ~every 30 min; the first
+           -- run of a calendar day inserted the row and every later same-day run
+           -- was discarded by DO NOTHING, freezing the day's row at its earliest
+           -- value. DO UPDATE refreshes the row to each later sync's latest value.
+           -- Only value columns this INSERT provides are updated (via EXCLUDED);
+           -- reach/profile_visits/saves are NOT written here so are omitted (their
+           -- EXCLUDED is NULL and would clobber any other writer); the conflict key
+           -- (tenant_id, account_id, date) is never touched. This table holds
+           -- genuine daily values (not cumulative snapshots), so the account half
+           -- is safe independently of the per-post S2-1 latest-snapshot fix.
+           ON CONFLICT (tenant_id, account_id, date) DO UPDATE SET
+             views              = EXCLUDED.views,
+             watch_time_minutes = EXCLUDED.watch_time_minutes,
+             followers          = EXCLUDED.followers,
+             followers_delta    = EXCLUDED.followers_delta,
+             likes              = EXCLUDED.likes,
+             comments_count     = EXCLUDED.comments_count,
+             shares             = EXCLUDED.shares,
+             engagement         = EXCLUDED.engagement,
+             raw_source         = EXCLUDED.raw_source`,
           [
             tenantId, accountId, platform, m.date,
             m.views, m.watchTimeMinutes, m.followers, m.followersDelta,
