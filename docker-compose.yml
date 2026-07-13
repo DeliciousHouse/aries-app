@@ -87,6 +87,15 @@ services:
       # today (images ingested, no posts). Fixes "generated images but nowhere to
       # click to publish."
       ARIES_SYNTHESIZE_ON_PUBLISH_SKIP_ENABLED: ${ARIES_SYNTHESIZE_ON_PUBLISH_SKIP_ENABLED:-0}
+      # Unattended-publish guards on the scheduled-dispatch route (2026-07-13
+      # duplicate-post incident). Duplicate-caption window: a post whose exact
+      # trimmed caption already published to the same tenant+platform within N
+      # days is terminally blocked (0 disables). Same-platform spacing: a
+      # publish younger than M minutes on the same tenant+platform defers the
+      # next one (retryable; 0 disables) — makes an N-posts-at-one-instant
+      # burst structurally impossible at the publish boundary.
+      ARIES_DUPLICATE_CAPTION_WINDOW_DAYS: ${ARIES_DUPLICATE_CAPTION_WINDOW_DAYS:-14}
+      ARIES_SAME_PLATFORM_MIN_SPACING_MINUTES: ${ARIES_SAME_PLATFORM_MIN_SPACING_MINUTES:-30}
       # Weekly cross-post fan-out: additionally synthesize x/linkedin/reddit posts
       # (platform-adapted captions, same feed image) for each FB/IG feed image,
       # per platform whose flag is ON and that the tenant has connected. Default
@@ -490,6 +499,12 @@ services:
       APP_BASE_URL: http://aries-app:${PORT:-3000}
       NEXTAUTH_URL: http://aries-app:${PORT:-3000}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
+      # Retry backoff after a non-terminal dispatch outcome (minutes). The
+      # rate-limit tier applies when the persisted error matches a platform
+      # rate-limit signature (e.g. FB error 368) — retrying those at tick
+      # cadence keeps the limit tripped indefinitely.
+      ARIES_DISPATCH_RETRY_BACKOFF_MINUTES: ${ARIES_DISPATCH_RETRY_BACKOFF_MINUTES:-10}
+      ARIES_DISPATCH_RATE_LIMIT_BACKOFF_MINUTES: ${ARIES_DISPATCH_RATE_LIMIT_BACKOFF_MINUTES:-180}
     restart: unless-stopped
     networks:
       - docker_stack

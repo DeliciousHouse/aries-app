@@ -899,6 +899,12 @@ async function initDb() {
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dispatched_at TIMESTAMPTZ;
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS error_at TIMESTAMPTZ;
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS error_message TEXT;
+      -- Retry backoff marker: a retryable dispatch failure sets this into the
+      -- future and the worker's due-rows scan skips the row until it passes.
+      -- NULL = no backoff (legacy behavior). Prevents the 60s-cadence retry
+      -- hammering that kept Facebook's rate limit (error 368) tripped for days
+      -- (2026-07-13 incident).
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ;
       CREATE INDEX IF NOT EXISTS idx_scheduled_posts_pending ON scheduled_posts (scheduled_for) WHERE dispatch_status = 'pending';
       -- The reclaim branch of the worker's due-rows scan filters on
       -- dispatch_status = 'in_flight'; index it the same way as 'pending'.

@@ -1590,8 +1590,17 @@ export function buildAutoScheduleRows(
       for (const target of entry.platform_targets ?? []) {
         const platformKey = String(target.platform || '').trim().toLowerCase();
         if (platformKey) {
+          // recommended_day may live on the entry OR inside each platform
+          // target (current Hermes wire shape). Missing the per-target form
+          // nulled every day → computeAutoScheduleSlots collapsed all posts
+          // onto the first-day fallback → the 6-posts-at-one-instant burst
+          // (2026-07-13 IG incident).
+          const targetDay =
+            typeof target.recommended_day === 'string' && target.recommended_day.trim()
+              ? target.recommended_day
+              : day;
           platformMap.set(platformKey, {
-            recommendedDay: day,
+            recommendedDay: targetDay,
             surface: normalizeScheduleSurface(target.placement ?? entry.placement),
             mediaType: normalizeScheduleMediaType(target.media_type ?? entry.media_type),
           });
@@ -1642,7 +1651,13 @@ export interface WeeklyScheduleEntry {
    */
   placement?: MetaScheduleSurface;
   media_type?: MetaScheduleMediaType;
-  platform_targets?: Array<{ platform?: string; placement?: MetaScheduleSurface; media_type?: MetaScheduleMediaType }>;
+  platform_targets?: Array<{
+    platform?: string;
+    placement?: MetaScheduleSurface;
+    media_type?: MetaScheduleMediaType;
+    /** Current Hermes wire shape carries the day per target, not per entry. */
+    recommended_day?: string | null;
+  }>;
 }
 
 /** A platform's resolved (surface, media_type) for one schedule ordinal. */
