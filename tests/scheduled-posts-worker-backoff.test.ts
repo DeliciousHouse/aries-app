@@ -93,3 +93,15 @@ test('classifyRetryBackoffMinutes: FB 368 → rate-limit tier; generic → gener
     'invalid env falls back to the default',
   );
 });
+
+test('a (re)schedule upsert clears next_attempt_at — operator reschedules beat stale backoff', () => {
+  // Nothing else ever clears the backoff marker, so without this reset a
+  // manually rescheduled row would silently ignore its new scheduled_for
+  // until the old next_attempt_at passed.
+  const upsertSource = readFileSync(
+    path.join(REPO_ROOT, 'backend/social-content/scheduled-posts.ts'),
+    'utf8',
+  );
+  const conflictClause = upsertSource.slice(upsertSource.indexOf('ON CONFLICT (post_id) DO UPDATE'));
+  assert.match(conflictClause, /next_attempt_at = NULL/);
+});

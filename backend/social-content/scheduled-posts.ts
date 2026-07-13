@@ -65,6 +65,10 @@ const UPSERT_SCHEDULED_POST_SQL = `
         width_px = EXCLUDED.width_px,
         height_px = EXCLUDED.height_px,
         duration_seconds = EXCLUDED.duration_seconds,
+        -- A (re)schedule resets any retry backoff: an operator moving a
+        -- backed-off row expects the new time to be honored, not silently
+        -- skipped until the old next_attempt_at passes.
+        next_attempt_at = NULL,
         updated_at = now()
     WHERE scheduled_posts.tenant_id = EXCLUDED.tenant_id
   RETURNING id, post_id, tenant_id, scheduled_for, target_platforms, updated_at
