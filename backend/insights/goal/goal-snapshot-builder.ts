@@ -15,6 +15,9 @@
 
 import pool, { type PoolClient } from '@/lib/db';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
+import { LATEST_POST_METRICS_LATERAL } from '../latest-post-metrics-sql';
+import { resolveTenantInsightsTimeZone } from '../tenant-timezone';
+import { tenantZonePeriodStart, tenantZonePeriodStartDateKey } from '@/lib/format-timestamp';
 
 export type GoalType = 'lead_generation' | 'content_growth' | 'product_sales' | 'brand_awareness';
 
@@ -134,13 +137,6 @@ function periodDays(period: NarrativePeriod): number {
   return 90;
 }
 
-function daysAgo(days: number): Date {
-  const d = new Date();
-  d.setUTCHours(0, 0, 0, 0);
-  d.setUTCDate(d.getUTCDate() - days);
-  return d;
-}
-
 function pctDelta(current: number, prev: number): number {
   if (prev === 0) return current > 0 ? 100 : 0;
   return Math.round(((current - prev) / prev) * 1000) / 10;
@@ -188,27 +184,29 @@ async function queryLeadGeneration(
 async function queryContentGrowth(
   client: PoolClient,
   tenantId: number,
-  fromDate: Date,
-  prevFrom: Date,
+  fromKey: string,
+  prevKey: string,
   platformFilter: string | null,
 ): Promise<{ current: number; prev: number; secondary: null }> {
+  // S2-3: the bare DATE column is bounded by a tenant-tz calendar date ($n::date),
+  // never a timestamptz instant (session-tz-dependent, off-by-one at the boundary).
   const [curr, prev] = await Promise.all([
     client.query<{ total: string }>(
       `SELECT COALESCE(SUM(followers_delta), 0) AS total
        FROM insights_account_metrics_daily
        WHERE tenant_id = $1
-         AND date >= $2
+         AND date >= $2::date
          AND ($3::text IS NULL OR platform = $3)`,
-      [tenantId, fromDate, platformFilter],
+      [tenantId, fromKey, platformFilter],
     ),
     client.query<{ total: string }>(
       `SELECT COALESCE(SUM(followers_delta), 0) AS total
        FROM insights_account_metrics_daily
        WHERE tenant_id = $1
-         AND date >= $2
-         AND date < $3
+         AND date >= $2::date
+         AND date < $3::date
          AND ($4::text IS NULL OR platform = $4)`,
-      [tenantId, prevFrom, fromDate, platformFilter],
+      [tenantId, prevKey, fromKey, platformFilter],
     ),
   ]);
   return {
@@ -221,35 +219,36 @@ async function queryContentGrowth(
 async function queryProductSales(
   client: PoolClient,
   tenantId: number,
-  fromDate: Date,
-  prevFrom: Date,
+  fromKey: string,
+  prevKey: string,
   platformFilter: string | null,
 ): Promise<{ current: number; prev: number; secondary: number }> {
+  // S2-3: bare DATE column bounded by a tenant-tz calendar date ($n::date).
   const [curr, prev, visits] = await Promise.all([
     client.query<{ saves: string }>(
       `SELECT COALESCE(SUM(saves), 0) AS saves
        FROM insights_account_metrics_daily
        WHERE tenant_id = $1
-         AND date >= $2
+         AND date >= $2::date
          AND ($3::text IS NULL OR platform = $3)`,
-      [tenantId, fromDate, platformFilter],
+      [tenantId, fromKey, platformFilter],
     ),
     client.query<{ saves: string }>(
       `SELECT COALESCE(SUM(saves), 0) AS saves
        FROM insights_account_metrics_daily
        WHERE tenant_id = $1
-         AND date >= $2
-         AND date < $3
+         AND date >= $2::date
+         AND date < $3::date
          AND ($4::text IS NULL OR platform = $4)`,
-      [tenantId, prevFrom, fromDate, platformFilter],
+      [tenantId, prevKey, fromKey, platformFilter],
     ),
     client.query<{ visits: string }>(
       `SELECT COALESCE(SUM(profile_visits), 0) AS visits
        FROM insights_account_metrics_daily
        WHERE tenant_id = $1
-         AND date >= $2
+         AND date >= $2::date
          AND ($3::text IS NULL OR platform = $3)`,
-      [tenantId, fromDate, platformFilter],
+      [tenantId, fromKey, platformFilter],
     ),
   ]);
   return {
@@ -262,27 +261,28 @@ async function queryProductSales(
 async function queryBrandAwareness(
   client: PoolClient,
   tenantId: number,
-  fromDate: Date,
-  prevFrom: Date,
+  fromKey: string,
+  prevKey: string,
   platformFilter: string | null,
 ): Promise<{ current: number; prev: number; secondary: null }> {
+  // S2-3: bare DATE column bounded by a tenant-tz calendar date ($n::date).
   const [curr, prev] = await Promise.all([
     client.query<{ reach: string }>(
       `SELECT COALESCE(SUM(COALESCE(reach, views, 0)), 0) AS reach
        FROM insights_account_metrics_daily
        WHERE tenant_id = $1
-         AND date >= $2
+         AND date >= $2::date
          AND ($3::text IS NULL OR platform = $3)`,
-      [tenantId, fromDate, platformFilter],
+      [tenantId, fromKey, platformFilter],
     ),
     client.query<{ reach: string }>(
       `SELECT COALESCE(SUM(COALESCE(reach, views, 0)), 0) AS reach
        FROM insights_account_metrics_daily
        WHERE tenant_id = $1
-         AND date >= $2
-         AND date < $3
+         AND date >= $2::date
+         AND date < $3::date
          AND ($4::text IS NULL OR platform = $4)`,
-      [tenantId, prevFrom, fromDate, platformFilter],
+      [tenantId, prevKey, fromKey, platformFilter],
     ),
   ]);
   return {
@@ -320,19 +320,18 @@ async function queryContributors(
     );
     rows = res.rows;
   } else {
+    // S2-1: latest lifetime snapshot per post, NOT SUM across dated rows.
     const metricCol = goal === 'product_sales'
-      ? 'COALESCE(SUM(m.saves), 0)'
-      : 'COALESCE(SUM(COALESCE(m.reach, m.views, 0)), 0)';
+      ? 'COALESCE(m.saves, 0)'
+      : 'COALESCE(m.reach, m.views, 0)';
 
     const res = await client.query<{ title: string | null; platform: string; content_type: string | null; metric: string }>(
       `SELECT p.title, p.platform, p.content_type, ${metricCol} AS metric
        FROM insights_posts p
-       LEFT JOIN insights_post_metrics_daily m
-              ON m.post_id = p.id AND m.tenant_id = p.tenant_id
+       ${LATEST_POST_METRICS_LATERAL}
        WHERE p.tenant_id = $1
          AND p.published_at >= $2
          AND ($3::text IS NULL OR p.platform = $3)
-       GROUP BY p.id, p.title, p.platform, p.content_type
        ORDER BY metric DESC
        LIMIT 2`,
       [tenantId, fromDate, platformFilter],
@@ -379,21 +378,26 @@ async function queryCategories(
     );
     rows = res.rows;
   } else {
-    const metricCol = goal === 'product_sales'
-      ? 'COALESCE(SUM(m.saves), 0)'
-      : 'COALESCE(SUM(COALESCE(m.reach, m.views, 0)), 0)';
+    // S2-1: take each post's LATEST lifetime snapshot, THEN sum across posts
+    // within a content category (never SUM a post's dated cumulative rows).
+    const metricPerPost = goal === 'product_sales'
+      ? 'COALESCE(m.saves, 0)'
+      : 'COALESCE(m.reach, m.views, 0)';
 
     const res = await client.query<{ content_type: string | null; post_count: string; metric: string }>(
-      `SELECT COALESCE(p.content_type, 'other') AS content_type,
-              COUNT(DISTINCT p.id)              AS post_count,
-              ${metricCol}                      AS metric
-       FROM insights_posts p
-       LEFT JOIN insights_post_metrics_daily m
-              ON m.post_id = p.id AND m.tenant_id = p.tenant_id
-       WHERE p.tenant_id = $1
-         AND p.published_at >= $2
-         AND ($3::text IS NULL OR p.platform = $3)
-       GROUP BY COALESCE(p.content_type, 'other')
+      `SELECT content_type,
+              COUNT(*)     AS post_count,
+              SUM(metric)  AS metric
+       FROM (
+         SELECT COALESCE(p.content_type, 'other') AS content_type,
+                ${metricPerPost}                  AS metric
+         FROM insights_posts p
+         ${LATEST_POST_METRICS_LATERAL}
+         WHERE p.tenant_id = $1
+           AND p.published_at >= $2
+           AND ($3::text IS NULL OR p.platform = $3)
+       ) per_post
+       GROUP BY content_type
        ORDER BY metric DESC`,
       [tenantId, fromDate, platformFilter],
     );
@@ -419,12 +423,20 @@ export async function buildGoalSnapshot(
   platform: string,
 ): Promise<GoalSnapshot | null> {
   const days          = periodDays(period);
-  const fromDate      = daysAgo(days);
-  const prevFrom      = daysAgo(days * 2);
   const platformFilter = platform === 'all' ? null : platform;
 
   const client = await pool.connect();
   try {
+    // S2-3: every window is computed in the tenant's own business timezone.
+    // timestamptz columns (received_at / published_at) use the UTC instant of
+    // tenant-tz midnight; the bare DATE metric column uses the tenant-tz calendar
+    // date ($n::date). The fallback default applies only to a tenant with no zone.
+    const tz       = await resolveTenantInsightsTimeZone(client, tenantId);
+    const fromDate = tenantZonePeriodStart(days, tz);          // timestamptz windows
+    const prevFrom = tenantZonePeriodStart(days * 2, tz);
+    const fromKey  = tenantZonePeriodStartDateKey(days, tz);   // DATE-column windows
+    const prevKey  = tenantZonePeriodStartDateKey(days * 2, tz);
+
     // Fetch primary_goal from business profile
     const profileRes = await client.query<{ primary_goal: string | null }>(
       `SELECT primary_goal FROM business_profiles WHERE tenant_id = $1 LIMIT 1`,
@@ -441,13 +453,15 @@ export async function buildGoalSnapshot(
     let secondary: number | null;
 
     if (goal === 'lead_generation') {
+      // received_at (timestamptz) → instant window.
       ({ current, prev, secondary } = await queryLeadGeneration(client, tenantId, fromDate, prevFrom, platformFilter));
     } else if (goal === 'content_growth') {
-      ({ current, prev, secondary } = await queryContentGrowth(client, tenantId, fromDate, prevFrom, platformFilter));
+      // account_metrics_daily.date (DATE) → date-key window.
+      ({ current, prev, secondary } = await queryContentGrowth(client, tenantId, fromKey, prevKey, platformFilter));
     } else if (goal === 'product_sales') {
-      ({ current, prev, secondary } = await queryProductSales(client, tenantId, fromDate, prevFrom, platformFilter));
+      ({ current, prev, secondary } = await queryProductSales(client, tenantId, fromKey, prevKey, platformFilter));
     } else {
-      ({ current, prev, secondary } = await queryBrandAwareness(client, tenantId, fromDate, prevFrom, platformFilter));
+      ({ current, prev, secondary } = await queryBrandAwareness(client, tenantId, fromKey, prevKey, platformFilter));
     }
 
     const contributors = await queryContributors(client, tenantId, goal, fromDate, platformFilter);

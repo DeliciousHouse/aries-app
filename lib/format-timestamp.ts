@@ -245,6 +245,80 @@ export function tenantZoneDateKey(
   return `${year}-${month}-${day}`;
 }
 
+/**
+ * The tenant-zone civil (year, month, day) that is `days` calendar days before
+ * `now`'s tenant-zone civil date. Shared by the two period-window helpers below.
+ * Subtracting on a UTC-anchored civil date keeps the arithmetic DST-agnostic
+ * (we only ever manipulate the calendar fields, never an instant).
+ */
+function tenantZoneCivilDateNDaysAgo(
+  days: number,
+  zone: string,
+  now: Date,
+): { year: number; month: number; day: number } {
+  const parts = tenantZoneParts(now, zone);
+  const base = parts
+    ? new Date(Date.UTC(parts.year, parts.month - 1, parts.day))
+    : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  base.setUTCDate(base.getUTCDate() - days);
+  return { year: base.getUTCFullYear(), month: base.getUTCMonth() + 1, day: base.getUTCDate() };
+}
+
+/**
+ * S2-3 / AA-94 — the UTC instant of tenant-zone midnight, `days` tenant-days
+ * before `now`. This is the period-window lower bound for a `timestamptz` column
+ * (e.g. `received_at`, `published_at`, `created_at`): `col >= $1` then means
+ * "on or after midnight, `days` days ago, in the tenant's own timezone" for every
+ * section consistently — replacing the old per-builder `setUTCHours(0,0,0,0)` UTC
+ * window that made sections disagree about which day an event fell on.
+ */
+export function tenantZonePeriodStart(
+  days: number,
+  timeZone: string = DEFAULT_TENANT_TIMEZONE,
+  now: Date = new Date(),
+): Date {
+  const zone = resolveTenantTimeZone(timeZone);
+  const { year, month, day } = tenantZoneCivilDateNDaysAgo(days, zone, now);
+  const pad = (input: number) => String(input).padStart(2, '0');
+  const wall = `${year}-${pad(month)}-${pad(day)}T00:00:00`;
+  const utc = fromZonedTime(wall, zone);
+  return Number.isFinite(utc.getTime()) ? utc : now;
+}
+
+/**
+ * S2-3 / AA-94 — the `YYYY-MM-DD` tenant-zone calendar date, `days` tenant-days
+ * before `now`. This is the period-window lower bound for the bare `DATE` columns
+ * on the daily metric tables (`insights_account_metrics_daily.date`), compared as
+ * `date >= $1::date`. A bare DATE has no time-of-day, so it must be bounded by a
+ * calendar date, NOT the instant from `tenantZonePeriodStart` (comparing a DATE to
+ * a timestamptz instant is session-timezone-dependent and off-by-one at the
+ * boundary). The per-row day attribution on those tables remains write-side-bound.
+ */
+export function tenantZonePeriodStartDateKey(
+  days: number,
+  timeZone: string = DEFAULT_TENANT_TIMEZONE,
+  now: Date = new Date(),
+): string {
+  const zone = resolveTenantTimeZone(timeZone);
+  const { year, month, day } = tenantZoneCivilDateNDaysAgo(days, zone, now);
+  const pad = (input: number) => String(input).padStart(2, '0');
+  return `${year}-${pad(month)}-${pad(day)}`;
+}
+
+/**
+ * S2-3/S2-4 — the tenant-zone day-of-week (0=Sun … 6=Sat), the JS mirror of the
+ * SQL `EXTRACT(DOW FROM ts AT TIME ZONE $tz)` the insights builders bucket by.
+ * Same numbering as Postgres EXTRACT(DOW). Returns null on an unparseable value.
+ */
+export function tenantZoneDow(
+  value: string | number | Date,
+  timeZone: string = DEFAULT_TENANT_TIMEZONE,
+): number | null {
+  const parts = tenantZoneParts(value, timeZone);
+  if (!parts) return null;
+  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).getUTCDay();
+}
+
 /** True when a UTC instant falls on the current calendar day in the tenant zone. */
 export function isTenantZoneToday(
   value: string | number | Date,

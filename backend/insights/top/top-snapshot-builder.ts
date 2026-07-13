@@ -15,6 +15,9 @@
 
 import pool from '@/lib/db';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
+import { LATEST_POST_METRICS_LATERAL } from '../latest-post-metrics-sql';
+import { resolveTenantInsightsTimeZone } from '../tenant-timezone';
+import { tenantZonePeriodStart } from '@/lib/format-timestamp';
 
 export type TopSortKey = 'reach' | 'engagement' | 'saves' | 'shares' | 'comments';
 
@@ -70,19 +73,15 @@ function periodDays(period: NarrativePeriod): number {
   return 90;
 }
 
-function utcDayStart(daysAgo: number): Date {
-  const d = new Date();
-  d.setUTCHours(0, 0, 0, 0);
-  d.setUTCDate(d.getUTCDate() - daysAgo);
-  return d;
+// S2-3: a post's date label and best-weekday render in the tenant's business
+// timezone, not UTC — so a post published late-evening tenant-time is not labelled
+// with the next UTC day / weekday (which contradicted the tenant-tz DOW analysis).
+function fmtDate(iso: string, tz: string): string {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tz });
 }
 
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-}
-
-function fmtDow(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+function fmtDow(iso: string, tz: string): string {
+  return new Date(iso).toLocaleDateString('en-US', { weekday: 'long', timeZone: tz });
 }
 
 // ORDER BY column for each sort key (engagement is computed, handled in JS).
@@ -117,25 +116,26 @@ export async function buildTopSnapshot(
   sortBy:    TopSortKey,
 ): Promise<TopSnapshot> {
   const days           = periodDays(period);
-  const fromDate       = utcDayStart(days);
   const platformFilter = platform === 'all' ? null : platform;
 
   const client = await pool.connect();
   try {
+    // S2-3: window filters published_at (timestamptz) → tenant-tz-midnight instant.
+    const tz       = await resolveTenantInsightsTimeZone(client, tenantId);
+    const fromDate = tenantZonePeriodStart(days, tz);
 
     // ── 1. Period average reach (for the multiplier) ─────────────────────────
     const avgRes = await client.query<{ avg_reach: string | null; post_count: string }>(
       `WITH post_totals AS (
          SELECT
            p.id,
-           COALESCE(SUM(COALESCE(m.reach, m.views, 0)), 0) AS total_reach
+           -- S2-1: latest lifetime snapshot per post, NOT SUM across dated rows.
+           COALESCE(m.reach, m.views, 0) AS total_reach
          FROM insights_posts p
-         LEFT JOIN insights_post_metrics_daily m
-                ON m.post_id = p.id AND m.tenant_id = p.tenant_id
+         ${LATEST_POST_METRICS_LATERAL}
          WHERE p.tenant_id     = $1
            AND p.published_at  >= $2
            AND ($3::text IS NULL OR p.platform = $3)
-         GROUP BY p.id
        )
        SELECT AVG(total_reach) AS avg_reach, COUNT(*) AS post_count
        FROM post_totals`,
@@ -173,19 +173,18 @@ export async function buildTopSnapshot(
            p.content_type,
            p.media_type,
            p.platform_data,
-           COALESCE(SUM(COALESCE(m.reach, m.views, 0)), 0) AS reach,
-           COALESCE(SUM(COALESCE(m.likes, 0)), 0)          AS likes,
-           COALESCE(SUM(COALESCE(m.comments_count, 0)), 0) AS comments,
-           COALESCE(SUM(COALESCE(m.saves, 0)), 0)          AS saves,
-           COALESCE(SUM(COALESCE(m.shares, 0)), 0)         AS shares
+           -- S2-1: latest lifetime snapshot per post, NOT SUM across dated rows
+           -- (each daily row is a cumulative all-time total → SUM inflated ~N×).
+           COALESCE(m.reach, m.views, 0) AS reach,
+           COALESCE(m.likes, 0)          AS likes,
+           COALESCE(m.comments_count, 0) AS comments,
+           COALESCE(m.saves, 0)          AS saves,
+           COALESCE(m.shares, 0)         AS shares
          FROM insights_posts p
-         LEFT JOIN insights_post_metrics_daily m
-                ON m.post_id = p.id AND m.tenant_id = p.tenant_id
+         ${LATEST_POST_METRICS_LATERAL}
          WHERE p.tenant_id     = $1
            AND p.published_at  >= $2
            AND ($3::text IS NULL OR p.platform = $3)
-         GROUP BY p.id, p.platform, p.title, p.caption, p.permalink,
-                  p.published_at, p.content_type, p.media_type, p.platform_data
        )
        SELECT *
        FROM post_metrics
@@ -250,7 +249,7 @@ export async function buildTopSnapshot(
         caption:       row.caption,
         permalink:     row.permalink,
         publishedAt:   new Date(row.published_at).toISOString(),
-        dateLabel:     fmtDate(row.published_at),
+        dateLabel:     fmtDate(row.published_at, tz),
         contentType:   row.content_type,
         mediaType:     row.media_type,
         reach,
@@ -260,7 +259,7 @@ export async function buildTopSnapshot(
         comments,
         saveRate,
         multiplier,
-        bestDow:       fmtDow(row.published_at),
+        bestDow:       fmtDow(row.published_at, tz),
         sentiment:     sentimentByPost.get(Number(row.id)) ?? null,
         followerSplit: extractFollowerSplit(row.platform_data),
       };

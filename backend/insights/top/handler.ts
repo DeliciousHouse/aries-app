@@ -24,7 +24,13 @@ import crypto from 'crypto';
 
 // v2: builder output changed (numeric `id`, fixed sentiment Map lookup); bump
 // so any pre-existing top-v1 cache row is invalidated instead of served stale.
-const TEMPLATE_VERSION = 'top-v3';
+// v4: S2-1 — per-post reach/saves/shares/comments, avg reach, and multipliers
+// now use the latest lifetime snapshot per post (not SUM across dated cumulative
+// rows), so displayed numbers and ranking change. Bump invalidates stale v3.
+// v5: S2-3 — the period window is computed in the tenant's business timezone, and
+// each post's date label + best-weekday now render in that zone (not UTC), so a
+// late-evening post's weekday/label and window membership change. Invalidates v4.
+const TEMPLATE_VERSION = 'top-v5';
 const CACHE_TTL_MS     = 60 * 60 * 1000;
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);

@@ -20,7 +20,14 @@ import { buildActivitySnapshot } from './activity-snapshot-builder';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 import crypto from 'crypto';
 
-const TEMPLATE_VERSION = 'activity-v3';
+// v4: S2-1 — the high-performers count (posts ≥2× average reach) now compares
+// latest lifetime snapshots per post, not SUM across dated cumulative rows.
+// Because per-post inflation varied by sync age, the threshold basis and the
+// resulting count shift. Bump invalidates stale v3 bodies.
+// v5: S2-3 — the period window is now computed in the tenant's business timezone,
+// so which posts/comments fall in-window (and thus the counts, high-performer set,
+// hours-saved, and content mix) shift near the day boundary. Bump invalidates v4.
+const TEMPLATE_VERSION = 'activity-v5';
 const CACHE_TTL_MS     = 60 * 60 * 1000; // 1 hour
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);

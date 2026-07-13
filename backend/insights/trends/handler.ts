@@ -25,7 +25,11 @@ import crypto from 'crypto';
 // v2: builder output changed (fixed ::date bucketing so the current-period
 // reach series populates); bump so a stale trends-v1 cache row showing reach=0
 // is invalidated instead of served for up to the TTL.
-const TEMPLATE_VERSION = 'trends-v3';
+// v4: S2-1 — the top-post title is now selected by latest lifetime reach per
+// post (not SUM across dated cumulative rows), so the chosen title can change.
+// (The headline trends numbers are account-level and unchanged.) Bump
+// invalidates stale v3 bodies.
+const TEMPLATE_VERSION = 'trends-v4';
 const CACHE_TTL_MS     = 60 * 60 * 1000; // 1 hour
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);

@@ -22,7 +22,14 @@ import { buildNarrativeText } from './template-builder';
 import { computeAriesScore } from './score-builder';
 import crypto from 'crypto';
 
-const TEMPLATE_VERSION = 'template-v1';
+// v2: S2-1 — hero top-post reach now uses the latest lifetime snapshot per post
+// (not SUM across dated cumulative rows), so the displayed reach number (and
+// which post ranks top) changes. Bump invalidates stale v1 bodies.
+// v3: S2-3 — period windows now computed in the tenant's business timezone
+// (account-daily totals as tenant-tz calendar dates; post/comment windows as
+// tenant-tz-midnight instants), so which rows fall in the current vs prior window
+// (and thus reach/engagement/deltas/hero post) shift near the day boundary.
+const TEMPLATE_VERSION = 'template-v3';
 const CACHE_TTL_MS     = 60 * 60 * 1000; // 1 hour
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);

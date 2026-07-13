@@ -17,6 +17,7 @@
  */
 
 import pool from '@/lib/db';
+import { LATEST_POST_METRICS_LATERAL } from '../latest-post-metrics-sql';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -419,16 +420,16 @@ export async function buildTrendsSnapshot(
       : 0;
 
     // ── 6. Top post title ────────────────────────────────────────────────────
+    // S2-1: rank by each post's LATEST lifetime reach, NOT SUM across dated
+    // cumulative rows (which over-weighted longer-synced posts).
     const topPostRes = await client.query<{ title: string | null }>(
       `SELECT p.title
        FROM insights_posts p
-       LEFT JOIN insights_post_metrics_daily m
-              ON m.post_id = p.id AND m.tenant_id = p.tenant_id
+       ${LATEST_POST_METRICS_LATERAL}
        WHERE p.tenant_id     = $1
          AND p.published_at  >= $2
          AND ($3::text IS NULL OR p.platform = $3)
-       GROUP BY p.id, p.title
-       ORDER BY SUM(COALESCE(m.reach, m.views, 0)) DESC
+       ORDER BY COALESCE(m.reach, m.views, 0) DESC
        LIMIT 1`,
       [tenantId, currentStart, platformFilter],
     );

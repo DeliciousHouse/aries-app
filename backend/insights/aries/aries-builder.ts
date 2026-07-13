@@ -12,6 +12,8 @@
  */
 
 import pool from '@/lib/db';
+import { resolveTenantInsightsTimeZone } from '../tenant-timezone';
+import { tenantZonePeriodStart } from '@/lib/format-timestamp';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 
 // ── Public shapes ─────────────────────────────────────────────────────────────
@@ -51,12 +53,6 @@ function periodDays(period: NarrativePeriod): number {
   return 90;
 }
 
-function daysAgo(days: number): Date {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() - days);
-  return d;
-}
-
 function formatWeekLabel(date: Date): string {
   return new Date(date).toLocaleDateString('en-US', {
     month:    'short',
@@ -94,11 +90,15 @@ export async function buildWorkingWithAriesSnapshot(
   period:   NarrativePeriod,
 ): Promise<WorkingWithAriesSnapshot> {
   const days          = periodDays(period);
-  const fromDate      = daysAgo(days);
-  const priorFromDate = daysAgo(days * 2);
 
   const client = await pool.connect();
   try {
+    // S2-3: windows + weekly bucketing in the tenant's business timezone.
+    // campaign_learning_labels.created_at is timestamptz → tenant-tz-midnight
+    // instant; the learning-curve week is trunc'd in tenant-tz ($tz), not UTC.
+    const tz            = await resolveTenantInsightsTimeZone(client, tenantId);
+    const fromDate      = tenantZonePeriodStart(days, tz);
+    const priorFromDate = tenantZonePeriodStart(days * 2, tz);
 
     // ── Query 1: current-period label counts ─────────────────────────────────
     const flowRes = await client.query<{
@@ -141,13 +141,20 @@ export async function buildWorkingWithAriesSnapshot(
 
     // ── Query 4: weekly label history for learning curve (last 12 weeks) ─────
     const curveRes = await client.query<{
-      week_start: Date;
+      week_start: string;
       approved:   string;
       rejected:   string;
       edited:     string;
     }>(
+      // S2-3: bucket the week in the tenant's business timezone ($3), not UTC/
+      // session tz, so the learning-curve weeks align with the tenant's calendar.
+      // week_start is emitted as a YYYY-MM-DD string: date_trunc(.. AT TIME ZONE)
+      // yields timestamp WITHOUT time zone, which node-pg would parse in the
+      // process's local TZ before formatWeekLabel re-reads it as UTC — shifting
+      // the label a day back on any TZ-ahead-of-UTC process. A plain date string
+      // parses as UTC and stays process-TZ-independent.
       `SELECT
-         date_trunc('week', created_at)                            AS week_start,
+         to_char(date_trunc('week', created_at AT TIME ZONE $3), 'YYYY-MM-DD') AS week_start,
          COUNT(*) FILTER (WHERE label = 'approved')                AS approved,
          COUNT(*) FILTER (WHERE label = 'rejected')                AS rejected,
          COUNT(*) FILTER (WHERE label = 'needs_changes')           AS edited
@@ -157,7 +164,7 @@ export async function buildWorkingWithAriesSnapshot(
          AND label IN ('approved', 'rejected', 'needs_changes')
        GROUP BY week_start
        ORDER BY week_start ASC`,
-      [tenantId, daysAgo(84)],   // 12 weeks back
+      [tenantId, tenantZonePeriodStart(84, tz), tz],   // 12 weeks back
     );
 
     // ── Approval flow ─────────────────────────────────────────────────────────
@@ -192,7 +199,7 @@ export async function buildWorkingWithAriesSnapshot(
       const weekApproved = Number(row.approved);
       if (weekApproved === 0) continue;   // skip weeks with no approved outcomes
       const weekTotal    = weekApproved + Number(row.rejected) + Number(row.edited);
-      curveLabels.push(formatWeekLabel(new Date(row.week_start)));
+      curveLabels.push(formatWeekLabel(new Date(`${row.week_start}T00:00:00Z`)));
       curveValues.push(parseFloat((weekTotal / weekApproved).toFixed(1)));
     }
 

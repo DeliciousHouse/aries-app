@@ -237,7 +237,34 @@ export async function syncAccountForTenant(
                    $5, $6, $7, $8,
                    $9, $10, $11, $12,
                    '{}', $13)
-           ON CONFLICT (tenant_id, account_id, date) DO NOTHING`,
+           -- S2-2 (AA-93): intraday upsert. Sync runs ~every 30 min; the first
+           -- run of a calendar day inserted the row and every later same-day run
+           -- was discarded by DO NOTHING, freezing the day's row at its earliest
+           -- value. DO UPDATE refreshes the row to each later sync's latest value.
+           -- Only value columns this INSERT provides are updated (via EXCLUDED);
+           -- reach/profile_visits/saves are NOT written here so are omitted (their
+           -- EXCLUDED is NULL and would clobber any other writer); the conflict key
+           -- (tenant_id, account_id, date) is never touched. This table holds
+           -- genuine daily values (not cumulative snapshots), so the account half
+           -- is safe independently of the per-post S2-1 latest-snapshot fix.
+           --
+           -- followers / followers_delta are DELIBERATELY not updated: followers
+           -- is an absolute point-in-time snapshot that both adapters stamp
+           -- authoritatively ONLY on the range's latest day (date === latestDate,
+           -- from the account-details call); a re-emitted HISTORICAL day carries
+           -- a per-day metric fallback ('?? 0'; IG's follower_count is absent
+           -- entirely for small accounts), so refreshing them here would rewrite
+           -- the stored authoritative followers history with zeros/noise on every
+           -- sync. First-write-wins (the value captured while that day WAS the
+           -- latest) is the correct semantic for both columns.
+           ON CONFLICT (tenant_id, account_id, date) DO UPDATE SET
+             views              = EXCLUDED.views,
+             watch_time_minutes = EXCLUDED.watch_time_minutes,
+             likes              = EXCLUDED.likes,
+             comments_count     = EXCLUDED.comments_count,
+             shares             = EXCLUDED.shares,
+             engagement         = EXCLUDED.engagement,
+             raw_source         = EXCLUDED.raw_source`,
           [
             tenantId, accountId, platform, m.date,
             m.views, m.watchTimeMinutes, m.followers, m.followersDelta,
@@ -287,7 +314,29 @@ export async function syncAccountForTenant(
                      $5, $6, $7, $8,
                      $9, $10, $11,
                      '{}', $12)
-             ON CONFLICT (tenant_id, post_id, date) DO NOTHING`,
+             -- S2-2 (AA-93) part 2/2: intraday upsert. Sync runs ~every 30 min;
+             -- the first run of a calendar day inserted the row and every later
+             -- same-day run was discarded by DO NOTHING, freezing the day's row at
+             -- its earliest value. DO UPDATE refreshes it to each later sync's
+             -- latest value. Only value columns this INSERT provides are updated
+             -- (via EXCLUDED); reach/saves are NOT written here so are omitted
+             -- (their EXCLUDED is NULL and would clobber any other writer); the
+             -- conflict key (tenant_id, post_id, date) is never touched.
+             -- SAFE ONLY WITH S2-1 LIVE: per-post rows are lifetime-cumulative
+             -- snapshots. Under S2-1's latest-snapshot readers (ORDER BY date DESC
+             -- LIMIT 1), DO UPDATE only freshens the single newest row a reader
+             -- reads — no sum-across-dates path exists to re-inflate. This PR must
+             -- merge AFTER S2-1 (#823); before it, the old SUM readers would
+             -- inflate worse.
+             ON CONFLICT (tenant_id, post_id, date) DO UPDATE SET
+               views                 = EXCLUDED.views,
+               watch_time_minutes    = EXCLUDED.watch_time_minutes,
+               avg_view_duration_sec = EXCLUDED.avg_view_duration_sec,
+               avg_view_percentage   = EXCLUDED.avg_view_percentage,
+               likes                 = EXCLUDED.likes,
+               comments_count        = EXCLUDED.comments_count,
+               shares                = EXCLUDED.shares,
+               raw_source            = EXCLUDED.raw_source`,
             [
               tenantId, post.id, platform, pm.date,
               pm.views, pm.watchTimeMinutes,

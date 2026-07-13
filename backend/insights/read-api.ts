@@ -14,14 +14,11 @@
 import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
+import { resolveTenantInsightsTimeZone } from './tenant-timezone';
+import { tenantZonePeriodStartDateKey } from '@/lib/format-timestamp';
+import { LATEST_POST_METRICS_LATERAL } from './latest-post-metrics-sql';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function daysAgoDate(days: number): Date {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return d;
-}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -75,12 +72,15 @@ export async function handleGetInsightsSummary(
   const { searchParams } = new URL(req.url);
   const platform = searchParams.get('platform') || null;
   const days     = clamp(parseIntParam(searchParams.get('days'), 30), 1, 90);
-  const fromDate = daysAgoDate(days);
 
   const tenantId = Number(tenantResult.tenantContext.tenantId);
   const client = await pool.connect();
 
   try {
+    // S2-3: summary aggregates the bare-DATE account-metrics table, so the window
+    // is a tenant-tz calendar date ($2::date) in the tenant's business timezone.
+    const tz      = await resolveTenantInsightsTimeZone(client, tenantId);
+    const fromKey = tenantZonePeriodStartDateKey(days, tz);
     const res = await client.query<{
       total_views:              string;
       current_followers:        string;
@@ -109,14 +109,14 @@ export async function handleGetInsightsSummary(
          ), 0)                                AS total_engagement
        FROM insights_account_metrics_daily
        WHERE tenant_id = $1
-         AND date >= $2
+         AND date >= $2::date
          AND ($3::text IS NULL OR platform = $3)`,
-      [tenantId, fromDate, platform],
+      [tenantId, fromKey, platform],
     );
 
     const row = res.rows[0];
     return NextResponse.json({
-      period: { days, from: fromDate.toISOString().split('T')[0] },
+      period: { days, from: fromKey },
       platform,
       totalViews:            Number(row.total_views),
       currentFollowers:      Number(row.current_followers),
@@ -186,18 +186,19 @@ export async function handleGetInsightsPosts(
          p.permalink,
          p.duration_seconds,
          p.platform_data,
-         COALESCE(SUM(m.views), 0)               AS total_views,
-         COALESCE(SUM(m.likes), 0)               AS total_likes,
-         COALESCE(SUM(m.comments_count), 0)       AS total_comments,
-         COALESCE(SUM(m.shares), 0)               AS total_shares,
-         AVG(NULLIF(m.avg_view_percentage, 0))    AS avg_view_percentage
+         -- S2-1: per-post metrics are lifetime-cumulative snapshots (one row per
+         -- day, each an all-time running total), so the latest row IS the true
+         -- lifetime total. SUMming across dates inflated it ~N×. Take the newest
+         -- snapshot per post via LATERAL (same idiom as posting-time-advisor).
+         COALESCE(m.views, 0)             AS total_views,
+         COALESCE(m.likes, 0)             AS total_likes,
+         COALESCE(m.comments_count, 0)    AS total_comments,
+         COALESCE(m.shares, 0)            AS total_shares,
+         NULLIF(m.avg_view_percentage, 0) AS avg_view_percentage
        FROM insights_posts p
-       LEFT JOIN insights_post_metrics_daily m
-              ON m.post_id = p.id AND m.tenant_id = p.tenant_id
+       ${LATEST_POST_METRICS_LATERAL}
        WHERE p.tenant_id = $1
          AND ($2::text IS NULL OR p.platform = $2)
-       GROUP BY p.id, p.platform, p.external_post_id, p.title, p.media_type,
-                p.published_at, p.permalink, p.duration_seconds, p.platform_data
        ORDER BY p.published_at DESC
        LIMIT $3 OFFSET $4`,
       [tenantId, platform, limit, offset],
@@ -250,12 +251,15 @@ export async function handleGetInsightsAccountMetrics(
   const { searchParams } = new URL(req.url);
   const platform = searchParams.get('platform') || null;
   const days     = clamp(parseIntParam(searchParams.get('days'), 30), 1, 90);
-  const fromDate = daysAgoDate(days);
 
   const tenantId = Number(tenantResult.tenantContext.tenantId);
   const client = await pool.connect();
 
   try {
+    // S2-3: bare-DATE account-metrics time-series windowed by a tenant-tz calendar
+    // date ($2::date) in the tenant's business timezone.
+    const tz      = await resolveTenantInsightsTimeZone(client, tenantId);
+    const fromKey = tenantZonePeriodStartDateKey(days, tz);
     const res = await client.query<{
       date:                 string;
       platform:             string;
@@ -279,11 +283,11 @@ export async function handleGetInsightsAccountMetrics(
          COALESCE(SUM(shares), 0)             AS shares
        FROM insights_account_metrics_daily
        WHERE tenant_id = $1
-         AND date >= $2
+         AND date >= $2::date
          AND ($3::text IS NULL OR platform = $3)
        GROUP BY date, platform
        ORDER BY date ASC`,
-      [tenantId, fromDate, platform],
+      [tenantId, fromKey, platform],
     );
 
     const series = res.rows.map((row) => ({
@@ -299,7 +303,7 @@ export async function handleGetInsightsAccountMetrics(
     }));
 
     return NextResponse.json({
-      period: { days, from: fromDate.toISOString().split('T')[0] },
+      period: { days, from: fromKey },
       platform,
       series,
     });
