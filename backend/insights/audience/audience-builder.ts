@@ -68,7 +68,8 @@ function captionToTitle(caption: string | null): string {
 }
 
 // Grid rows are Mon..Sun (matches the frontend day-axis order).
-const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+// Exported (with dowToRow/fmtHour) for the S2-4 day-boundary tz-agreement test.
+export const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 function periodDays(period: NarrativePeriod): number {
   if (period === 'week')  return 7;
@@ -80,11 +81,11 @@ function periodDays(period: NarrativePeriod): number {
 const MIN_HEATMAP_EVENTS = 8;
 
 // Postgres DOW: 0=Sun..6=Sat → grid row index where 0=Mon..6=Sun.
-function dowToRow(dow: number): number {
+export function dowToRow(dow: number): number {
   return (dow + 6) % 7;
 }
 
-function fmtHour(hour: number): string {
+export function fmtHour(hour: number): string {
   const h12 = hour % 12 === 0 ? 12 : hour % 12;
   return `${h12} ${hour < 12 ? 'AM' : 'PM'}`;
 }
