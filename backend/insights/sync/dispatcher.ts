@@ -247,11 +247,19 @@ export async function syncAccountForTenant(
            -- (tenant_id, account_id, date) is never touched. This table holds
            -- genuine daily values (not cumulative snapshots), so the account half
            -- is safe independently of the per-post S2-1 latest-snapshot fix.
+           --
+           -- followers / followers_delta are DELIBERATELY not updated: followers
+           -- is an absolute point-in-time snapshot that both adapters stamp
+           -- authoritatively ONLY on the range's latest day (date === latestDate,
+           -- from the account-details call); a re-emitted HISTORICAL day carries
+           -- a per-day metric fallback ('?? 0'; IG's follower_count is absent
+           -- entirely for small accounts), so refreshing them here would rewrite
+           -- the stored authoritative followers history with zeros/noise on every
+           -- sync. First-write-wins (the value captured while that day WAS the
+           -- latest) is the correct semantic for both columns.
            ON CONFLICT (tenant_id, account_id, date) DO UPDATE SET
              views              = EXCLUDED.views,
              watch_time_minutes = EXCLUDED.watch_time_minutes,
-             followers          = EXCLUDED.followers,
-             followers_delta    = EXCLUDED.followers_delta,
              likes              = EXCLUDED.likes,
              comments_count     = EXCLUDED.comments_count,
              shares             = EXCLUDED.shares,

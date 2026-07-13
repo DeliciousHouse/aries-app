@@ -34,8 +34,6 @@ const ACCOUNT_DAILY_UPSERT = `
   ON CONFLICT (tenant_id, account_id, date) DO UPDATE SET
     views              = EXCLUDED.views,
     watch_time_minutes = EXCLUDED.watch_time_minutes,
-    followers          = EXCLUDED.followers,
-    followers_delta    = EXCLUDED.followers_delta,
     likes              = EXCLUDED.likes,
     comments_count     = EXCLUDED.comments_count,
     shares             = EXCLUDED.shares,
@@ -100,7 +98,11 @@ test('later same-day account sync updates the row (DO UPDATE, not frozen DO NOTH
     // DO UPDATE: the row reflects the LATER sync. Under the old DO NOTHING it would
     // still read 1000 / 100 / 10 / 1200 (frozen at the first write).
     assert.equal(Number(row.views), 1500, 'views advance to the later same-day sync (not frozen at 1000)');
-    assert.equal(Number(row.followers), 150, 'followers advance to the later same-day sync (not frozen at 100)');
+    // followers is deliberately NOT in the DO UPDATE SET: it is an absolute
+    // point-in-time snapshot that adapters stamp authoritatively only on the
+    // range's latest day; a re-emitted historical day carries a '?? 0' fallback
+    // that would rewrite stored history. First write of the day wins.
+    assert.equal(Number(row.followers), 100, 'followers keep the first authoritative write (deliberately excluded from DO UPDATE)');
     assert.equal(Number(row.likes), 25, 'likes advance to the later same-day sync (not frozen at 10)');
     assert.equal(Number(row.engagement), 1800, 'engagement advances to the later same-day sync (not frozen at 1200)');
 
