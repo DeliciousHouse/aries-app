@@ -410,3 +410,51 @@ test('guard env parsing: defaults 14d / 30m; invalid values fall back', () => {
   assert.equal(duplicateCaptionWindowDays({ ARIES_DUPLICATE_CAPTION_WINDOW_DAYS: '0' } as unknown as NodeJS.ProcessEnv), 0);
   assert.equal(samePlatformSpacingMinutes({ ARIES_SAME_PLATFORM_MIN_SPACING_MINUTES: '45' } as unknown as NodeJS.ProcessEnv), 45);
 });
+
+// --- 5. Media-type-aware asset resolution -------------------------------------
+
+import { resolveMediaUrls } from '../app/api/internal/publishing/scheduled-dispatch/route';
+
+test('resolveMediaUrls: a VIDEO post only resolves video assets', async () => {
+  let capturedSql = '';
+  const db = fakeDb((sql) => {
+    capturedSql = sql;
+    return { rows: [] };
+  });
+  await resolveMediaUrls('415', '15', db, 'video');
+  assert.match(capturedSql, /AND ca\.media_type = 'video'/);
+  assert.doesNotMatch(capturedSql, /IS DISTINCT FROM/);
+});
+
+test('resolveMediaUrls: an IMAGE post excludes video assets (default direction)', async () => {
+  let capturedSql = '';
+  const db = fakeDb((sql) => {
+    capturedSql = sql;
+    return { rows: [] };
+  });
+  // Default mediaType is image — the legacy call shape must keep excluding videos.
+  await resolveMediaUrls('403', '15', db);
+  assert.match(capturedSql, /AND ca\.media_type IS DISTINCT FROM 'video'/);
+});
+
+test('resolveMediaUrls: served refs map to servable URLs regardless of the media filter', async () => {
+  const db = fakeDb(() => ({
+    rows: [
+      { storage_kind: 'runtime_asset', storage_key: '/host/path.png', served_asset_ref: '/api/internal/hermes/media/abc' },
+      { storage_kind: 'external_url', storage_key: 'https://cdn.example/x.mp4', served_asset_ref: null },
+      { storage_kind: 'runtime_asset', storage_key: '/host/other.png', served_asset_ref: null }, // no servable ref → dropped
+    ],
+  }));
+  const prev = process.env.APP_BASE_URL;
+  process.env.APP_BASE_URL = 'https://aries.example.com';
+  try {
+    const urls = await resolveMediaUrls('999', '15', db, 'video');
+    assert.deepEqual(urls, [
+      'https://aries.example.com/api/internal/hermes/media/abc',
+      'https://cdn.example/x.mp4',
+    ]);
+  } finally {
+    if (prev === undefined) delete process.env.APP_BASE_URL;
+    else process.env.APP_BASE_URL = prev;
+  }
+});

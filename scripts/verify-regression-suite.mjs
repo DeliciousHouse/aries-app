@@ -112,6 +112,21 @@ const steps = [
     args: ['--test', 'tests/insights-tz-boundary-agreement.test.ts'],
   },
   {
+    // 2026-07-13 duplicate-posting incident (AA-134 / PR #841) regression wall:
+    // scheduler day-mapping + same-instant de-collision, the reel-companion
+    // synthesis clamp, the publish-boundary duplicate/spacing guards, and the
+    // worker retry backoff (incl. the crash-safety tick harness that drives the
+    // backoff write site). Pure + in-memory fakes, no DB — a regression here
+    // means Aries can burst-post or retry-hammer a platform again.
+    name: 'duplicate-posting incident wall (scheduler, guards, backoff)',
+    args: [
+      '--test',
+      'tests/duplicate-posting-guards.test.ts',
+      'tests/scheduled-posts-worker-backoff.test.ts',
+      'tests/scheduled-posts-worker-crash-safety.test.ts',
+    ],
+  },
+  {
     // PRD §20 canonical behavioral invariants — codified as runtime checks so
     // future PRs get a green/red CI signal on spec conformance.  See
     // tests/prd-invariants/README.md and docs/product/aries-ai-prd.md §20.
