@@ -35,6 +35,7 @@ type SchedRow = {
   error_at: string | null;
   error_message: string | null;
   updated_at: string;
+  next_attempt_backoff_minutes?: number | null;
 };
 type ChildRow = {
   scheduled_post_id: number;
@@ -182,11 +183,14 @@ class FakeClient {
     }
 
     if (s.startsWith('UPDATE scheduled_posts')) {
-      // markInFlight uses ($1) id; syncParentRollup uses ($1 id, $2 status, $3 err)
+      // markInFlight uses ($1) id; syncParentRollup uses ($1 id, $2 status, $3 err);
+      // setNextAttemptAt uses ($1 id, $2 backoff minutes).
       const id = Number(params[0]);
       const row = store.scheduled.find((r) => r.id === id);
       if (row) {
-        if (s.includes("dispatch_status = 'in_flight'")) {
+        if (s.includes('next_attempt_at = now()')) {
+          row.next_attempt_backoff_minutes = Number(params[1]);
+        } else if (s.includes("dispatch_status = 'in_flight'")) {
           row.dispatch_status = 'in_flight';
           row.updated_at = new Date().toISOString();
         } else {
@@ -406,6 +410,81 @@ test('a fresh in_flight row (within the reclaim window) is NOT stolen by another
     const report = await tick(makePool(db));
     assert.equal(report.processed, 0, 'a fresh in_flight row is not picked up by another pass');
     assert.equal(fetchCalled, false, 'no publish is attempted for a row already in flight');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+// --- Retry backoff write site (2026-07-13 incident) --------------------------
+// The pure classifier and the due/claim SQL are covered by
+// scheduled-posts-worker-backoff.test.ts; these two pin the WRITE SITE in
+// tick(): a non-terminal rollup must persist next_attempt_at in the
+// post-publish transaction. Without this, deleting the tick() else-branch
+// would keep every other test green while restoring the 60s retry hammer.
+
+test('a retryable transport failure writes the general retry backoff', async () => {
+  const { tick } = await loadWorker();
+  const db = new FakeDb();
+  seedDueRow(db);
+
+  process.env.APP_BASE_URL = 'https://aries.example.test';
+  process.env.INTERNAL_API_SECRET = 'test-secret';
+
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => {
+      throw new Error('transient network failure');
+    }) as typeof fetch;
+
+    await tick(makePool(db));
+
+    assert.equal(db.scheduled[0].dispatch_status, 'pending', 'row stays retryable');
+    assert.equal(
+      db.scheduled[0].next_attempt_backoff_minutes,
+      10,
+      'general-tier backoff persisted in the post-publish transaction',
+    );
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('a platform rate-limit failure (FB 368) writes the long rate-limit backoff', async () => {
+  const { tick } = await loadWorker();
+  const db = new FakeDb();
+  seedDueRow(db);
+
+  process.env.APP_BASE_URL = 'https://aries.example.test';
+  process.env.INTERNAL_API_SECRET = 'test-secret';
+
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          status: 'error',
+          results: [
+            {
+              provider: 'facebook',
+              ok: false,
+              retryable: true,
+              error:
+                'Composio tool FACEBOOK_CREATE_PHOTO_POST failed: Facebook API error (code 368): We limit how often you can post. You can try again later.',
+            },
+            { provider: 'instagram', ok: true },
+          ],
+        }),
+        { status: 502, headers: { 'content-type': 'application/json' } },
+      )) as typeof fetch;
+
+    await tick(makePool(db));
+
+    assert.equal(db.scheduled[0].dispatch_status, 'pending', 'FB child retryable → parent non-terminal');
+    assert.equal(
+      db.scheduled[0].next_attempt_backoff_minutes,
+      180,
+      'rate-limit tier backoff persisted — no more 60s hammering against FB 368',
+    );
   } finally {
     globalThis.fetch = realFetch;
   }

@@ -265,6 +265,56 @@ export interface ComputeAutoScheduleSlotsResult {
   skipped: Array<{ row: AutoScheduleInputRow; reason: string }>;
 }
 
+/**
+ * Add whole minutes to a wall-clock ISO string (`YYYY-MM-DDTHH:MM:SS`) with
+ * pure calendar arithmetic. The string is treated as a UTC instant ONLY for
+ * the addition and re-emitted in the same shape; whether the resulting wall
+ * time is valid in the tenant zone is re-checked by `wallTimeToUtc` at the
+ * call site (DST-safe by construction).
+ */
+function addMinutesToWallIso(wallIso: string, minutes: number): string {
+  const parsed = new Date(`${wallIso}Z`);
+  if (!Number.isFinite(parsed.getTime())) return wallIso;
+  return new Date(parsed.getTime() + minutes * 60 * 1000).toISOString().slice(0, 19);
+}
+
+/**
+ * Anti-burst de-collision: find the nearest free slot for a (platform,
+ * surface) pair whose computed wall time is already booked by a sibling row.
+ * Whole-day advances are preferred (keeps the one-post-per-day weekly rhythm
+ * and the platform's derived hour); intra-day 2-hour steps are the fallback
+ * for windows too short to fit another day. Returns null when no free slot
+ * exists inside the window — the caller keeps the colliding slot (volume is
+ * never dropped) and logs loudly.
+ *
+ * This guard exists because N rows with the same (or null → same-fallback)
+ * recommended day all resolved to the identical instant and published as a
+ * simultaneous burst (6 IG posts at 15:00:00Z, 2026-07-13). Scheduling must
+ * make a same-platform same-instant burst structurally impossible, not just
+ * unlikely.
+ */
+function resolveCollisionSlot(
+  baseWallIso: string,
+  used: ReadonlySet<string>,
+  windowStart: Date,
+  windowEnd: Date,
+  tz: string,
+): { wallIso: string; utc: Date; how: string } | null {
+  const DAY_MINUTES = 24 * 60;
+  const probes: Array<{ minutes: number; how: string }> = [];
+  for (let d = 1; d <= 14; d += 1) probes.push({ minutes: d * DAY_MINUTES, how: `+${d}d` });
+  for (let h = 1; h <= 11; h += 1) probes.push({ minutes: h * 120, how: `+${h * 2}h` });
+  for (const probe of probes) {
+    const wallIso = addMinutesToWallIso(baseWallIso, probe.minutes);
+    if (used.has(wallIso)) continue;
+    const utc = wallTimeToUtc(wallIso, tz);
+    if (!utc) continue;
+    if (utc < windowStart || utc > windowEnd) continue;
+    return { wallIso, utc, how: probe.how };
+  }
+  return null;
+}
+
 const DAY_NAME_TO_INDEX: Record<string, number> = {
   sunday: 0,
   monday: 1,
@@ -304,6 +354,10 @@ export function computeAutoScheduleSlots(input: ComputeAutoScheduleSlotsInput): 
 
   const slots: AutoScheduleSlot[] = [];
   const skipped: ComputeAutoScheduleSlotsResult['skipped'] = [];
+  // Anti-burst bookkeeping: wall times already booked per (platform, surface)
+  // pair. A second row resolving to a booked instant is de-collided via
+  // resolveCollisionSlot instead of silently double-booking the platform.
+  const usedWallByPair = new Map<string, Set<string>>();
 
   for (const row of input.rows) {
     const platformKey = row.platform.trim().toLowerCase() as AutoSchedulePlatform;
@@ -339,6 +393,27 @@ export function computeAutoScheduleSlots(input: ComputeAutoScheduleSlotsInput): 
       }
     }
 
+    const pairKey = `${platformKey}:${surface}`;
+    const used = usedWallByPair.get(pairKey) ?? new Set<string>();
+    usedWallByPair.set(pairKey, used);
+    if (used.has(wallTimeIso)) {
+      const resolved = resolveCollisionSlot(wallTimeIso, used, windowStart, windowEnd, tz);
+      if (resolved) {
+        appliedDay = `${appliedDay} (de-collided ${resolved.how})`;
+        wallTimeIso = resolved.wallIso;
+      } else {
+        // No free slot inside the window: keep the colliding instant rather
+        // than dropping the post, but say so loudly — this should only ever
+        // happen for a window shorter than a day with a saturated schedule.
+        console.warn('[auto-schedule] slot collision unresolvable inside window — keeping colliding slot', {
+          postId: row.postId,
+          platform: row.platform,
+          surface,
+          wallTimeIso,
+        });
+      }
+    }
+
     const utc = wallTimeToUtc(wallTimeIso, tz);
     if (!utc) {
       skipped.push({ row, reason: `wall_time_to_utc_failed:${wallTimeIso}` });
@@ -349,6 +424,7 @@ export function computeAutoScheduleSlots(input: ComputeAutoScheduleSlotsInput): 
       continue;
     }
 
+    used.add(wallTimeIso);
     slots.push({
       postId: row.postId,
       platform: row.platform,

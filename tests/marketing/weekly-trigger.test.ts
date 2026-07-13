@@ -197,6 +197,11 @@ test('helper happy path: all gates pass → started with the job id + stage', as
   assert.equal(arg.createdBy, 'weekly-trigger-worker');
   assert.equal(arg.payload.brandUrl, 'https://brand.example');
   assert.equal(arg.payload.businessType, 'coaching');
+  // The scheduled weekly cadence must take the REAL publish path — without
+  // this the job completes via publish-SKIP and its posts strand
+  // approved-unscheduled (2026-07-13 incident: the reel-companion job's rogue
+  // feed posts were the only content that ever published).
+  assert.equal(arg.payload.publishRequested, true);
 });
 
 test('helper: startJob throw → error result (worker can revert + retry)', async () => {

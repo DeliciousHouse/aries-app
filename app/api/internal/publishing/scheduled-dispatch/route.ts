@@ -92,7 +92,18 @@ export async function resolveMediaUrls(
   postId: string,
   tenantId: string,
   db: DispatchQueryable = pool,
+  mediaType: 'image' | 'video' = 'image',
 ): Promise<string[]> {
+  // Media-type scoping (2026-07-13 incident follow-up): a VIDEO post must only
+  // resolve video assets, and an image post must never pick up a video. The
+  // legacy unscoped fallback join handed a reel post every asset its job
+  // produced — a reel then failed `single_media_required ... received 2` (or
+  // worse, resolved a feed IMAGE as its only media) and retried every worker
+  // tick until campaign end.
+  const mediaTypeClause =
+    mediaType === 'video'
+      ? `AND ca.media_type = 'video'`
+      : `AND ca.media_type IS DISTINCT FROM 'video'`;
   const result = await db.query<{
     storage_key: string | null;
     storage_kind: string;
@@ -104,6 +115,7 @@ export async function resolveMediaUrls(
        ON ca.tenant_id = p.tenant_id
       AND ca.storage_kind IN ('runtime_asset', 'ingested_asset', 'external_url')
       AND ca.orphaned_at IS NULL
+      ${mediaTypeClause}
       AND (
         -- Per-POST link: the asset id is listed in posts.creative_asset_ids,
         -- matched against either the uuid id (globally unique) or the Hermes
@@ -145,6 +157,144 @@ export async function resolveMediaUrls(
       return `${appBase}${ref.startsWith('/') ? '' : '/'}${ref}`;
     })
     .filter((url): url is string => Boolean(url));
+}
+
+// ---------------------------------------------------------------------------
+// Unattended-publish guards (2026-07-13 duplicate-post incident).
+//
+// The scheduled-dispatch route is the LAST unattended chokepoint before a
+// post reaches a platform, so structural duplicate-protection lives here:
+//
+//   1. Duplicate-caption block (terminal): another post with the identical
+//      trimmed caption already published to the same tenant+platform inside
+//      the window → this dispatch can only create a visible duplicate; fail
+//      it permanently. Window: ARIES_DUPLICATE_CAPTION_WINDOW_DAYS (default
+//      14; 0 disables). Captions shorter than MIN_GUARDED_CAPTION_LENGTH are
+//      exempt (too generic to treat as identity).
+//
+//   2. Same-platform spacing defer (retryable): the tenant published to this
+//      platform less than ARIES_SAME_PLATFORM_MIN_SPACING_MINUTES ago
+//      (default 30; 0 disables) → defer, the worker re-claims later. This
+//      makes an N-posts-at-one-instant burst structurally impossible at the
+//      publish boundary regardless of upstream scheduling bugs, and keeps
+//      Meta's spam heuristics (FB error 368) from tripping.
+//
+// Both guards are FAIL-OPEN: any query error logs and admits the publish —
+// a guard outage must never stop legitimate delivery. Manual "Publish now"
+// uses a different route and is intentionally not guarded (human intent).
+
+const MIN_GUARDED_CAPTION_LENGTH = 20;
+
+function parsePositiveIntEnv(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw === null || raw.trim() === '') return fallback;
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) return fallback;
+  return Number.parseInt(trimmed, 10);
+}
+
+export function duplicateCaptionWindowDays(env: NodeJS.ProcessEnv = process.env): number {
+  return parsePositiveIntEnv(env.ARIES_DUPLICATE_CAPTION_WINDOW_DAYS, 14);
+}
+
+export function samePlatformSpacingMinutes(env: NodeJS.ProcessEnv = process.env): number {
+  return parsePositiveIntEnv(env.ARIES_SAME_PLATFORM_MIN_SPACING_MINUTES, 30);
+}
+
+export type PublishGuardVerdict = { blocked: 'duplicate' | 'spacing'; detail: string };
+
+/**
+ * Resolve the per-platform guard verdicts for one dispatch request. Returns a
+ * map keyed by lowercase platform name; platforms absent from the map are
+ * admitted. Duplicate beats spacing. Fail-open on any DB error.
+ */
+export async function resolvePublishGuards(args: {
+  db: DispatchQueryable;
+  tenantId: string;
+  postId: string;
+  platforms: string[];
+  content: string;
+  /**
+   * Publish surface of the dispatching post. The duplicate-caption guard is
+   * surface-scoped: the image-story promotion DELIBERATELY reuses the feed
+   * post's caption verbatim on the same platform (surface='story'), so a
+   * platform-wide caption match would terminally block every promoted story
+   * as a "duplicate" of its own feed sibling. A feed post only duplicates a
+   * prior feed post, a story a prior story, etc.
+   */
+  surface: 'feed' | 'story' | 'reel';
+  now?: Date;
+  env?: NodeJS.ProcessEnv;
+}): Promise<Map<string, PublishGuardVerdict>> {
+  const verdicts = new Map<string, PublishGuardVerdict>();
+  const platformKeys = [...new Set(args.platforms.map((p) => p.trim().toLowerCase()).filter(Boolean))];
+  if (platformKeys.length === 0) return verdicts;
+  const now = args.now ?? new Date();
+  const env = args.env ?? process.env;
+
+  const dupWindowDays = duplicateCaptionWindowDays(env);
+  const caption = args.content.trim();
+  if (dupWindowDays > 0 && caption.length >= MIN_GUARDED_CAPTION_LENGTH) {
+    try {
+      const dup = await args.db.query<{ platform: string }>(
+        `SELECT DISTINCT platform FROM posts
+          WHERE tenant_id = $1
+            AND platform = ANY($2)
+            AND id::text <> $3
+            AND published_status = 'published'
+            AND published_at > now() - make_interval(days => $4::int)
+            AND btrim(caption) = $5
+            AND surface = $6`,
+        [args.tenantId, platformKeys, args.postId, dupWindowDays, caption, args.surface],
+      );
+      for (const row of dup.rows) {
+        verdicts.set(String(row.platform).toLowerCase(), {
+          blocked: 'duplicate',
+          detail: `identical caption already published to ${row.platform} within ${dupWindowDays}d`,
+        });
+      }
+    } catch (err) {
+      console.warn('[scheduled-dispatch] duplicate-caption guard failed — admitting (fail-open)', {
+        postId: args.postId,
+        error: (err as Error)?.message ?? String(err),
+      });
+    }
+  }
+
+  const spacingMinutes = samePlatformSpacingMinutes(env);
+  if (spacingMinutes > 0) {
+    try {
+      const recent = await args.db.query<{ platform: string; last_published: string | Date | null }>(
+        `SELECT platform, max(published_at) AS last_published FROM posts
+          WHERE tenant_id = $1
+            AND platform = ANY($2)
+            AND id::text <> $3
+            AND published_at IS NOT NULL
+          GROUP BY platform`,
+        [args.tenantId, platformKeys, args.postId],
+      );
+      for (const row of recent.rows) {
+        const key = String(row.platform).toLowerCase();
+        if (verdicts.has(key)) continue; // duplicate verdict wins
+        const last = row.last_published ? new Date(row.last_published) : null;
+        if (!last || !Number.isFinite(last.getTime())) continue;
+        const ageMs = now.getTime() - last.getTime();
+        if (ageMs >= 0 && ageMs < spacingMinutes * 60 * 1000) {
+          const waitMinutes = Math.ceil((spacingMinutes * 60 * 1000 - ageMs) / 60000);
+          verdicts.set(key, {
+            blocked: 'spacing',
+            detail: `last ${row.platform} publish ${Math.floor(ageMs / 60000)}m ago; spacing ${spacingMinutes}m — retry in ~${waitMinutes}m`,
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('[scheduled-dispatch] spacing guard failed — admitting (fail-open)', {
+        postId: args.postId,
+        error: (err as Error)?.message ?? String(err),
+      });
+    }
+  }
+
+  return verdicts;
 }
 
 // Roll a set of per-platform dispatch outcomes up into the single
@@ -242,7 +392,26 @@ export async function POST(req: Request): Promise<Response> {
     : [];
 
   if (rawMediaUrls.length === 0 && postId) {
-    rawMediaUrls = await resolveMediaUrls(postId, tenantId);
+    rawMediaUrls = await resolveMediaUrls(postId, tenantId, pool, mediaType);
+  }
+
+  // A video post with no video asset can never publish — fail it terminally
+  // NOW instead of letting the media validator reject it retryably on every
+  // worker tick until campaign end (last week's reel spent days retrying at
+  // 60s cadence). Image posts keep the legacy behavior (FB text-only posts
+  // are legitimate with zero media).
+  if (mediaType === 'video' && rawMediaUrls.length === 0) {
+    const results = platforms.map((platform) => ({
+      provider: platform,
+      ok: false,
+      error: 'no_video_asset: video post has no ingested video creative to publish',
+      retryable: false,
+      kind: 'permanent' as MetaPublishFailureKind,
+    }));
+    return new Response(JSON.stringify({ status: 'error', results }), {
+      status: 422,
+      headers: { 'content-type': 'application/json' },
+    });
   }
 
   // Sign media URLs so Meta Graph API can fetch them. Resolve id-addressed
@@ -297,7 +466,36 @@ export async function POST(req: Request): Promise<Response> {
   // scheduled_post_dispatches; posts.published_status is only an OR-rollup.
   let firstPublishedPostId: string | null = null;
 
+  // Unattended-publish guards (duplicate caption + same-platform spacing).
+  // Resolved once per request; fail-open (empty map) on any error.
+  const publishGuards = postId
+    ? await resolvePublishGuards({ db: pool, tenantId, postId, platforms, content, surface })
+    : new Map<string, PublishGuardVerdict>();
+
   for (const platform of platforms) {
+    const guard = publishGuards.get(platform.trim().toLowerCase());
+    if (guard?.blocked === 'duplicate') {
+      // A confirmed duplicate can never become correct by retrying — terminal.
+      results.push({
+        provider: platform,
+        ok: false,
+        error: `duplicate_content_blocked: ${guard.detail}`,
+        retryable: false,
+        kind: 'permanent',
+      });
+      continue;
+    }
+    if (guard?.blocked === 'spacing') {
+      // Not a failure — just too soon after the previous publish. Retryable so
+      // the worker re-claims the row once the spacing window has passed.
+      results.push({
+        provider: platform,
+        ok: false,
+        error: `same_platform_spacing_deferred: ${guard.detail}`,
+        retryable: true,
+      });
+      continue;
+    }
     // X (Twitter), Reddit, LinkedIn and YouTube are Composio-only publish targets
     // (no direct-Meta path), so none is an `isMetaProvider`; accept each only when
     // its rollout flag is on. OFF (default) keeps the exact `unsupported_provider`

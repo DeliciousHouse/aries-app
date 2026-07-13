@@ -533,6 +533,20 @@ export async function synthesizePublishPostsFromContentPackage(
   const scheduleShapeByKey = buildScheduleShapeLookup(doc);
   const videoPublishEnabled = isVideoPublishEnabled();
 
+  // Reel-companion scope clamp. A job created by the weekly-reel trigger
+  // (created_by = 'reel:<sourceWeeklyJobId>', videoRenderCount=1,
+  // imageCreativeCount=0) exists to produce ONE reel — but the Hermes agent is
+  // non-deterministic and has emitted a full 7-post weekly content package on
+  // such jobs, which then synthesized + auto-scheduled a duplicate week of
+  // feed posts alongside the parent weekly job's own package (the 2026-07-13
+  // 6-identical-IG-posts-at-one-instant incident). Aries-side defense: for a
+  // reel-companion job, only reel/video shapes may synthesize into posts;
+  // feed-image entries are dropped with a loud log. The parent weekly job is
+  // the sole owner of the week's feed posts.
+  const isReelCompanionJob =
+    typeof doc.created_by === 'string' && doc.created_by.startsWith('reel:');
+  let reelClampDropped = 0;
+
   // PR2: stamp a stable visual-style lens (from the brand kit's style_vibe) on
   // each synthesized row so a later operator edit (regenerate/delete/review-
   // reject) has a concrete (dimension,value) to mark approved/rejected with no
@@ -584,6 +598,14 @@ export async function synthesizePublishPostsFromContentPackage(
       // the campaign still succeeds on the image/feed shapes. A reel has no
       // image fallback, so the whole (post, platform) target is skipped.
       if (!videoPublishEnabled && (shape.surface === 'reel' || shape.mediaType === 'video')) {
+        skipped++;
+        continue;
+      }
+
+      // Reel-companion jobs may only synthesize their reel/video output —
+      // never a duplicate week of feed posts (see clamp doc-comment above).
+      if (isReelCompanionJob && shape.surface !== 'reel' && shape.mediaType !== 'video') {
+        reelClampDropped++;
         skipped++;
         continue;
       }
@@ -696,7 +718,18 @@ export async function synthesizePublishPostsFromContentPackage(
   // replayed callback hits ON CONFLICT DO NOTHING. If a future Hermes schedule
   // DOES emit a story placement for one of these posts, the main loop already
   // inserted that `:story` row and this promotion is a no-op for it.
-  const storyBudget = readRequestedStoryCount(doc);
+  if (reelClampDropped > 0) {
+    console.info('[synthesize-publish-posts] reel-companion clamp dropped non-reel entries', {
+      jobId,
+      tenantId,
+      createdBy: doc.created_by,
+      dropped: reelClampDropped,
+    });
+  }
+
+  // Story promotion is also feed-derived content — a reel-companion job never
+  // owns the week's stories either (same clamp rationale as above).
+  const storyBudget = isReelCompanionJob ? 0 : readRequestedStoryCount(doc);
   if (storyBudget > 0) {
     for (const entry of entries.slice(0, storyBudget)) {
       const assetInfo = assetInfoByPostNumber.get(entry.postNumber);

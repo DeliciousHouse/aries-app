@@ -74,6 +74,10 @@ function buildPool() {
 // rows that crossed the deadline after being claimed run to completion (the
 // claim-time filter is the only enforcement point; once Meta has been called
 // we cannot un-call it).
+// Retry backoff: a pending row whose next_attempt_at is still in the future is
+// not claimable (set after a retryable failure — see classifyRetryBackoffMinutes).
+// The stale-in_flight reclaim arm deliberately ignores next_attempt_at: a
+// crashed worker pass is not a backoff.
 export const CLAIM_ROW_SQL = `SELECT sp.id, sp.post_id, sp.tenant_id, sp.target_platforms,
             sp.surface, sp.media_type,
             sp.width_px, sp.height_px, sp.duration_seconds,
@@ -82,7 +86,8 @@ export const CLAIM_ROW_SQL = `SELECT sp.id, sp.post_id, sp.tenant_id, sp.target_
      LEFT JOIN posts p ON p.id = sp.post_id
      WHERE sp.id = $1
        AND (
-         sp.dispatch_status = 'pending'
+         (sp.dispatch_status = 'pending'
+          AND (sp.next_attempt_at IS NULL OR sp.next_attempt_at <= NOW()))
          OR (sp.dispatch_status = 'in_flight' AND sp.updated_at < $2)
        )
        AND (sp.campaign_end_date IS NULL OR sp.campaign_end_date >= NOW())
@@ -96,7 +101,8 @@ export const CLAIM_ROW_SQL = `SELECT sp.id, sp.post_id, sp.tenant_id, sp.target_
 export const DUE_ROWS_SQL = `SELECT id FROM scheduled_posts
      WHERE scheduled_for <= NOW()
        AND (
-         dispatch_status = 'pending'
+         (dispatch_status = 'pending'
+          AND (next_attempt_at IS NULL OR next_attempt_at <= NOW()))
          OR (dispatch_status = 'in_flight' AND updated_at < $2)
        )
        AND (campaign_end_date IS NULL OR campaign_end_date >= NOW())
@@ -175,7 +181,11 @@ async function seedPlatformDispatches(client, rowId, platforms) {
   );
 }
 
-/** Set a single platform's child-row status (with optional error detail). */
+/** Set a single platform's child-row status (with optional error detail).
+ * The error is persisted for 'pending' (retryable) outcomes too — a row that
+ * silently retried every tick for days with no recorded reason (FB rate limit
+ * 368, 2026-07-13 incident) was undiagnosable from the DB alone. error_at
+ * still marks terminal failures only. */
 async function setPlatformDispatchStatus(client, rowId, platform, status, errorMessage) {
   const truncated = errorMessage ? String(errorMessage).slice(0, 1000) : null;
   await client.query(
@@ -183,10 +193,49 @@ async function setPlatformDispatchStatus(client, rowId, platform, status, errorM
      SET status = $3,
          dispatched_at = CASE WHEN $3 = 'dispatched' THEN now() ELSE dispatched_at END,
          error_at = CASE WHEN $3 = 'failed' THEN now() ELSE error_at END,
-         error_message = CASE WHEN $3 = 'failed' THEN $4 ELSE error_message END,
+         error_message = CASE WHEN $3 = 'failed' THEN $4
+                              WHEN $3 = 'pending' AND $4 IS NOT NULL THEN $4
+                              ELSE error_message END,
          updated_at = now()
      WHERE scheduled_post_id = $1 AND platform = $2`,
     [rowId, platform, status, truncated],
+  );
+}
+
+// --- Retry backoff ----------------------------------------------------------
+
+// Platform rate-limit signatures. FB error 368 ("We limit how often you can
+// post ... You can try again later"), IG/Graph request-limit codes 4/17/613.
+// Matched against the persisted error text — coarse by design; a false match
+// only lengthens a retry delay, never drops a post.
+const RATE_LIMIT_ERROR_RE = /\(code (368|4|17|613)\)|rate.?limit|request limit reached|try again later/i;
+
+function parseBackoffMinutesEnv(raw, fallback) {
+  if (!raw || !/^\d+$/.test(raw.trim())) return fallback;
+  const parsed = Number.parseInt(raw.trim(), 10);
+  return parsed >= 1 ? parsed : fallback;
+}
+
+/**
+ * Decide the next-attempt backoff (minutes) for a row whose rollup stayed
+ * non-terminal. Returns null when nothing is retrying (no backoff write).
+ * Rate-limit-classified failures wait much longer — retrying a platform
+ * rate limit at tick cadence sustains the limit indefinitely.
+ */
+export function classifyRetryBackoffMinutes(outcomes, env = process.env) {
+  const retrying = (Array.isArray(outcomes) ? outcomes : []).filter((o) => o.status === 'pending');
+  if (retrying.length === 0) return null;
+  const general = parseBackoffMinutesEnv(env.ARIES_DISPATCH_RETRY_BACKOFF_MINUTES, 10);
+  const rateLimit = parseBackoffMinutesEnv(env.ARIES_DISPATCH_RATE_LIMIT_BACKOFF_MINUTES, 180);
+  const hitRateLimit = retrying.some((o) => o.error && RATE_LIMIT_ERROR_RE.test(String(o.error)));
+  return hitRateLimit ? rateLimit : general;
+}
+
+/** Persist the backoff marker so the due-rows scan skips the row until then. */
+async function setNextAttemptAt(client, rowId, backoffMinutes) {
+  await client.query(
+    `UPDATE scheduled_posts SET next_attempt_at = now() + make_interval(mins => $2::int) WHERE id = $1`,
+    [rowId, backoffMinutes],
   );
 }
 
@@ -456,6 +505,14 @@ export async function tick(pool) {
           await updatePostStatus(fc, row.post_id, 'published');
         } else if (rolled === 'failed') {
           await updatePostStatus(fc, row.post_id, 'failed');
+        } else {
+          // Non-terminal: at least one platform is retrying. Back off instead
+          // of re-claiming at tick cadence — 60s retries against a platform
+          // rate limit (FB 368) keep the limit tripped forever.
+          const backoffMinutes = classifyRetryBackoffMinutes(outcomes);
+          if (backoffMinutes !== null) {
+            await setNextAttemptAt(fc, rowId, backoffMinutes);
+          }
         }
         await fc.query('COMMIT');
 

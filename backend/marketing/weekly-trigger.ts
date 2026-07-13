@@ -123,6 +123,16 @@ export async function triggerWeeklyJobForTenant(
       brandUrl: websiteUrl,
       websiteUrl,
       businessType,
+      // The scheduled weekly cadence exists to DELIVER posts, so the job must
+      // take the real publish path (synthesize + auto-schedule at the terminal
+      // callback), not the publish-SKIP path. Without this,
+      // requestedPublishFlag(doc) reads false (the flag lives in
+      // inputs.request), the weekly job's posts strand approved-unscheduled,
+      // and the only content that ever published was the reel-companion job's
+      // rogue feed posts — now clamped by synthesize-publish-posts.ts. The
+      // human-facing create form intentionally still omits this flag (an
+      // operator-created draft week stays review-first).
+      publishRequested: true,
     };
     const carry = (key: string, value: string | string[] | undefined) => {
       if (typeof value === 'string' && value.trim().length > 0) payload[key] = value;
