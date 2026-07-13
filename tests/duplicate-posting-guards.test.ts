@@ -297,6 +297,7 @@ const GUARD_ARGS = {
   postId: '999',
   platforms: ['instagram', 'facebook'],
   content: 'A caption long enough to be treated as content identity for the guard.',
+  surface: 'feed' as const,
   now: new Date('2026-07-13T15:00:00.000Z'),
 };
 
@@ -380,6 +381,25 @@ test('env 0 disables each guard independently', async () => {
     } as unknown as NodeJS.ProcessEnv,
   });
   assert.equal(off.size, 0);
+});
+
+test('duplicate guard is surface-scoped: the story promotion may reuse its feed sibling caption', async () => {
+  // The image-story promotion inserts a surface='story' post with the feed
+  // post's caption VERBATIM on the same platform (storyCount defaults to 1
+  // on form-created weekly jobs). The duplicate query must therefore carry
+  // the dispatching surface so a story is only compared against prior
+  // stories — a platform-wide match would terminally block every promoted
+  // story as a "duplicate" of its own feed sibling.
+  let dupParams: unknown[] | null = null;
+  let dupSql = '';
+  const db = fakeDb((sql, params) => {
+    if (/btrim\(caption\)/i.test(sql)) { dupSql = sql; dupParams = params; return { rows: [] }; }
+    return { rows: [] };
+  });
+  await resolvePublishGuards({ ...GUARD_ARGS, db, surface: 'story' });
+  assert.match(dupSql, /AND surface = \$6/);
+  assert.ok(dupParams, 'duplicate query ran');
+  assert.equal((dupParams as unknown as unknown[])[5], 'story');
 });
 
 test('guard env parsing: defaults 14d / 30m; invalid values fall back', () => {

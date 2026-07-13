@@ -213,6 +213,15 @@ export async function resolvePublishGuards(args: {
   postId: string;
   platforms: string[];
   content: string;
+  /**
+   * Publish surface of the dispatching post. The duplicate-caption guard is
+   * surface-scoped: the image-story promotion DELIBERATELY reuses the feed
+   * post's caption verbatim on the same platform (surface='story'), so a
+   * platform-wide caption match would terminally block every promoted story
+   * as a "duplicate" of its own feed sibling. A feed post only duplicates a
+   * prior feed post, a story a prior story, etc.
+   */
+  surface: 'feed' | 'story' | 'reel';
   now?: Date;
   env?: NodeJS.ProcessEnv;
 }): Promise<Map<string, PublishGuardVerdict>> {
@@ -233,8 +242,9 @@ export async function resolvePublishGuards(args: {
             AND id::text <> $3
             AND published_status = 'published'
             AND published_at > now() - make_interval(days => $4::int)
-            AND btrim(caption) = $5`,
-        [args.tenantId, platformKeys, args.postId, dupWindowDays, caption],
+            AND btrim(caption) = $5
+            AND surface = $6`,
+        [args.tenantId, platformKeys, args.postId, dupWindowDays, caption, args.surface],
       );
       for (const row of dup.rows) {
         verdicts.set(String(row.platform).toLowerCase(), {
@@ -459,7 +469,7 @@ export async function POST(req: Request): Promise<Response> {
   // Unattended-publish guards (duplicate caption + same-platform spacing).
   // Resolved once per request; fail-open (empty map) on any error.
   const publishGuards = postId
-    ? await resolvePublishGuards({ db: pool, tenantId, postId, platforms, content })
+    ? await resolvePublishGuards({ db: pool, tenantId, postId, platforms, content, surface })
     : new Map<string, PublishGuardVerdict>();
 
   for (const platform of platforms) {
