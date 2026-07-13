@@ -30,7 +30,7 @@ jobs:
       (github.event.action == 'labeled' && github.event.label.name == 'agent:fix')
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
