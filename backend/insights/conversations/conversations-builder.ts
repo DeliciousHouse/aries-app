@@ -13,6 +13,8 @@
  */
 
 import pool from '@/lib/db';
+import { resolveTenantInsightsTimeZone } from '../tenant-timezone';
+import { tenantZonePeriodStart } from '@/lib/format-timestamp';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 
 // ── Public shapes ─────────────────────────────────────────────────────────────
@@ -58,12 +60,6 @@ function periodDays(period: NarrativePeriod): number {
   if (period === 'week')  return 7;
   if (period === '30day') return 30;
   return 90;
-}
-
-function daysAgo(days: number): Date {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() - days);
-  return d;
 }
 
 /** Derive a 2-character avatar from an @handle or plain username. */
@@ -116,12 +112,15 @@ export async function buildConversationsSnapshot(
   period:   NarrativePeriod,
   platform: string,
 ): Promise<ConversationsSnapshot> {
-  const fromDate       = daysAgo(periodDays(period));
   const platformFilter = platform === 'all' ? null : platform;
   const now            = new Date();
 
   const client = await pool.connect();
   try {
+    // S2-3: comment window filters received_at (timestamptz) → tenant-tz-midnight
+    // instant, in the tenant's own business timezone.
+    const tz       = await resolveTenantInsightsTimeZone(client, tenantId);
+    const fromDate = tenantZonePeriodStart(periodDays(period), tz);
 
     // ── Aggregate: totals for meta + lead-quality counts ─────────────────────
     const aggRes = await client.query<{

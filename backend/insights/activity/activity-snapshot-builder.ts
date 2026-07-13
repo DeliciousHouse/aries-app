@@ -20,6 +20,8 @@
 
 import pool from '@/lib/db';
 import { LATEST_POST_METRICS_LATERAL } from '../latest-post-metrics-sql';
+import { resolveTenantInsightsTimeZone } from '../tenant-timezone';
+import { tenantZonePeriodStart } from '@/lib/format-timestamp';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 
 // Conservative estimate: research + writing + creative + scheduling per post.
@@ -52,13 +54,6 @@ function periodDays(period: NarrativePeriod): number {
   return 90;
 }
 
-function daysAgo(days: number): Date {
-  const d = new Date();
-  d.setUTCHours(0, 0, 0, 0);
-  d.setUTCDate(d.getUTCDate() - days);
-  return d;
-}
-
 // ── Main builder ──────────────────────────────────────────────────────────────
 
 export async function buildActivitySnapshot(
@@ -67,11 +62,14 @@ export async function buildActivitySnapshot(
   platform:  string,
 ): Promise<ActivitySnapshot> {
   const days           = periodDays(period);
-  const fromDate       = daysAgo(days);
   const platformFilter = platform === 'all' ? null : platform;
 
   const client = await pool.connect();
   try {
+    // S2-3: all activity windows filter timestamptz columns (published_at /
+    // received_at), so the lower bound is the tenant-tz-midnight instant.
+    const tz       = await resolveTenantInsightsTimeZone(client, tenantId);
+    const fromDate = tenantZonePeriodStart(days, tz);
 
     // ── Posts published + platform count ─────────────────────────────────────
     const postsRes = await client.query<{

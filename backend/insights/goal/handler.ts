@@ -28,7 +28,11 @@ import crypto from 'crypto';
 // v5: S2-1 — goal contributor/category values now use the latest lifetime
 // snapshot per post (not SUM across dated cumulative rows), so the "what
 // contributed" numbers change. Bump invalidates stale v4 bodies.
-const TEMPLATE_VERSION = 'goal-template-v5';
+// v6: S2-3 — period windows now computed in the tenant's business timezone
+// (lead-gen received_at instant; content_growth/product_sales/brand_awareness
+// account-daily windows as tenant-tz calendar dates), so which rows fall in the
+// current vs prior window shifts near the day boundary. Bump invalidates v5.
+const TEMPLATE_VERSION = 'goal-template-v6';
 const CACHE_TTL_MS     = 60 * 60 * 1000;
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);

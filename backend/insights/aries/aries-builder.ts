@@ -12,6 +12,8 @@
  */
 
 import pool from '@/lib/db';
+import { resolveTenantInsightsTimeZone } from '../tenant-timezone';
+import { tenantZonePeriodStart } from '@/lib/format-timestamp';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 
 // ── Public shapes ─────────────────────────────────────────────────────────────
@@ -51,12 +53,6 @@ function periodDays(period: NarrativePeriod): number {
   return 90;
 }
 
-function daysAgo(days: number): Date {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() - days);
-  return d;
-}
-
 function formatWeekLabel(date: Date): string {
   return new Date(date).toLocaleDateString('en-US', {
     month:    'short',
@@ -94,11 +90,15 @@ export async function buildWorkingWithAriesSnapshot(
   period:   NarrativePeriod,
 ): Promise<WorkingWithAriesSnapshot> {
   const days          = periodDays(period);
-  const fromDate      = daysAgo(days);
-  const priorFromDate = daysAgo(days * 2);
 
   const client = await pool.connect();
   try {
+    // S2-3: windows + weekly bucketing in the tenant's business timezone.
+    // campaign_learning_labels.created_at is timestamptz → tenant-tz-midnight
+    // instant; the learning-curve week is trunc'd in tenant-tz ($tz), not UTC.
+    const tz            = await resolveTenantInsightsTimeZone(client, tenantId);
+    const fromDate      = tenantZonePeriodStart(days, tz);
+    const priorFromDate = tenantZonePeriodStart(days * 2, tz);
 
     // ── Query 1: current-period label counts ─────────────────────────────────
     const flowRes = await client.query<{
@@ -146,8 +146,10 @@ export async function buildWorkingWithAriesSnapshot(
       rejected:   string;
       edited:     string;
     }>(
+      // S2-3: bucket the week in the tenant's business timezone ($3), not UTC/
+      // session tz, so the learning-curve weeks align with the tenant's calendar.
       `SELECT
-         date_trunc('week', created_at)                            AS week_start,
+         date_trunc('week', created_at AT TIME ZONE $3)            AS week_start,
          COUNT(*) FILTER (WHERE label = 'approved')                AS approved,
          COUNT(*) FILTER (WHERE label = 'rejected')                AS rejected,
          COUNT(*) FILTER (WHERE label = 'needs_changes')           AS edited
@@ -157,7 +159,7 @@ export async function buildWorkingWithAriesSnapshot(
          AND label IN ('approved', 'rejected', 'needs_changes')
        GROUP BY week_start
        ORDER BY week_start ASC`,
-      [tenantId, daysAgo(84)],   // 12 weeks back
+      [tenantId, tenantZonePeriodStart(84, tz), tz],   // 12 weeks back
     );
 
     // ── Approval flow ─────────────────────────────────────────────────────────

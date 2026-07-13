@@ -24,7 +24,10 @@ import crypto from 'crypto';
 // latest lifetime snapshots per post, not SUM across dated cumulative rows.
 // Because per-post inflation varied by sync age, the threshold basis and the
 // resulting count shift. Bump invalidates stale v3 bodies.
-const TEMPLATE_VERSION = 'activity-v4';
+// v5: S2-3 — the period window is now computed in the tenant's business timezone,
+// so which posts/comments fall in-window (and thus the counts, high-performer set,
+// hours-saved, and content mix) shift near the day boundary. Bump invalidates v4.
+const TEMPLATE_VERSION = 'activity-v5';
 const CACHE_TTL_MS     = 60 * 60 * 1000; // 1 hour
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);

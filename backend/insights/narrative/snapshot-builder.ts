@@ -13,6 +13,8 @@
 
 import pool from '@/lib/db';
 import { LATEST_POST_METRICS_LATERAL } from '../latest-post-metrics-sql';
+import { resolveTenantInsightsTimeZone } from '../tenant-timezone';
+import { tenantZonePeriodStart, tenantZonePeriodStartDateKey } from '@/lib/format-timestamp';
 
 export type NarrativePeriod = 'week' | '30day' | '90day';
 
@@ -68,13 +70,6 @@ function periodDays(period: NarrativePeriod): number {
   return 90;
 }
 
-function daysAgo(days: number): Date {
-  const d = new Date();
-  d.setUTCHours(0, 0, 0, 0);
-  d.setUTCDate(d.getUTCDate() - days);
-  return d;
-}
-
 function pctDelta(current: number, prev: number): number {
   if (prev === 0) return current > 0 ? 100 : 0;
   return Math.round(((current - prev) / prev) * 1000) / 10; // 1 decimal
@@ -88,12 +83,19 @@ export async function buildNarrativeSnapshot(
   platform: string,
 ): Promise<NarrativeSnapshot> {
   const days          = periodDays(period);
-  const fromDate      = daysAgo(days);
-  const prevFrom      = daysAgo(days * 2);
   const platformFilter = platform === 'all' ? null : platform;
 
   const client = await pool.connect();
   try {
+    // S2-3: windows in the tenant's business timezone. Account-daily (bare DATE)
+    // totals use the tenant-tz calendar date ($n::date); post/comment windows on
+    // published_at / received_at (timestamptz) use the tenant-tz-midnight instant.
+    const tz       = await resolveTenantInsightsTimeZone(client, tenantId);
+    const fromDate = tenantZonePeriodStart(days, tz);
+    const prevFrom = tenantZonePeriodStart(days * 2, tz);
+    const fromKey  = tenantZonePeriodStartDateKey(days, tz);
+    const prevKey  = tenantZonePeriodStartDateKey(days * 2, tz);
+
     // Current period account-level totals
     const metricsRes = await client.query<{
       reach:              string;
@@ -110,9 +112,9 @@ export async function buildNarrativeSnapshot(
          COALESCE(SUM(watch_time_minutes), 0)        AS watch_time_minutes
        FROM insights_account_metrics_daily
        WHERE tenant_id = $1
-         AND date >= $2
+         AND date >= $2::date
          AND ($3::text IS NULL OR platform = $3)`,
-      [tenantId, fromDate, platformFilter],
+      [tenantId, fromKey, platformFilter],
     );
 
     // Previous period totals (for delta + scoreDelta)
@@ -129,10 +131,10 @@ export async function buildNarrativeSnapshot(
          COALESCE(SUM(shares), 0)                    AS shares
        FROM insights_account_metrics_daily
        WHERE tenant_id = $1
-         AND date >= $2
-         AND date < $3
+         AND date >= $2::date
+         AND date < $3::date
          AND ($4::text IS NULL OR platform = $4)`,
-      [tenantId, prevFrom, fromDate, platformFilter],
+      [tenantId, prevKey, fromKey, platformFilter],
     );
 
     // Post count published in period
