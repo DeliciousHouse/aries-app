@@ -16,6 +16,8 @@
 import pool from '@/lib/db';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 import { LATEST_POST_METRICS_LATERAL } from '../latest-post-metrics-sql';
+import { resolveTenantInsightsTimeZone } from '../tenant-timezone';
+import { tenantZonePeriodStart } from '@/lib/format-timestamp';
 
 export type TopSortKey = 'reach' | 'engagement' | 'saves' | 'shares' | 'comments';
 
@@ -71,19 +73,15 @@ function periodDays(period: NarrativePeriod): number {
   return 90;
 }
 
-function utcDayStart(daysAgo: number): Date {
-  const d = new Date();
-  d.setUTCHours(0, 0, 0, 0);
-  d.setUTCDate(d.getUTCDate() - daysAgo);
-  return d;
+// S2-3: a post's date label and best-weekday render in the tenant's business
+// timezone, not UTC — so a post published late-evening tenant-time is not labelled
+// with the next UTC day / weekday (which contradicted the tenant-tz DOW analysis).
+function fmtDate(iso: string, tz: string): string {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tz });
 }
 
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-}
-
-function fmtDow(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+function fmtDow(iso: string, tz: string): string {
+  return new Date(iso).toLocaleDateString('en-US', { weekday: 'long', timeZone: tz });
 }
 
 // ORDER BY column for each sort key (engagement is computed, handled in JS).
@@ -118,11 +116,13 @@ export async function buildTopSnapshot(
   sortBy:    TopSortKey,
 ): Promise<TopSnapshot> {
   const days           = periodDays(period);
-  const fromDate       = utcDayStart(days);
   const platformFilter = platform === 'all' ? null : platform;
 
   const client = await pool.connect();
   try {
+    // S2-3: window filters published_at (timestamptz) → tenant-tz-midnight instant.
+    const tz       = await resolveTenantInsightsTimeZone(client, tenantId);
+    const fromDate = tenantZonePeriodStart(days, tz);
 
     // ── 1. Period average reach (for the multiplier) ─────────────────────────
     const avgRes = await client.query<{ avg_reach: string | null; post_count: string }>(
@@ -249,7 +249,7 @@ export async function buildTopSnapshot(
         caption:       row.caption,
         permalink:     row.permalink,
         publishedAt:   new Date(row.published_at).toISOString(),
-        dateLabel:     fmtDate(row.published_at),
+        dateLabel:     fmtDate(row.published_at, tz),
         contentType:   row.content_type,
         mediaType:     row.media_type,
         reach,
@@ -259,7 +259,7 @@ export async function buildTopSnapshot(
         comments,
         saveRate,
         multiplier,
-        bestDow:       fmtDow(row.published_at),
+        bestDow:       fmtDow(row.published_at, tz),
         sentiment:     sentimentByPost.get(Number(row.id)) ?? null,
         followerSplit: extractFollowerSplit(row.platform_data),
       };

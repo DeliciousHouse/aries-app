@@ -17,6 +17,8 @@
  */
 
 import pool from '@/lib/db';
+import { resolveTenantInsightsTimeZone } from '../tenant-timezone';
+import { tenantZonePeriodStart } from '@/lib/format-timestamp';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 
 // ── Public shapes ─────────────────────────────────────────────────────────────
@@ -64,10 +66,6 @@ function captionToTitle(caption: string | null): string {
     ? `${firstLine.slice(0, 57).trimEnd()}…`
     : firstLine;
 }
-
-// Default bucket timezone when the tenant has no business_profiles.timezone set.
-// The current prod tenant is US-Central; per-tenant tz should be populated there.
-const DEFAULT_TZ = 'America/Chicago';
 
 // Grid rows are Mon..Sun (matches the frontend day-axis order).
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -150,16 +148,14 @@ export async function buildAudienceSnapshot(
     // bucketed by day-of-week × hour in the tenant's local timezone. This is
     // engagement timing, NOT the platform "followers online" metric — that
     // still needs the Phase 3 audience-analytics adapters (see demographics).
-    const tzRes = await client.query<{ timezone: string | null }>(
-      `SELECT timezone FROM business_profiles WHERE tenant_id = $1 LIMIT 1`,
-      [tenantId],
-    );
-    const timezone = tzRes.rows[0]?.timezone || DEFAULT_TZ;
-
+    // S2-3: the tenant's own business timezone (single source of truth; the
+    // America/New_York default applies only to a tenant with no zone set). This
+    // heatmap already bucketed comments in tenant-tz — now the period window is
+    // tenant-tz too (received_at is timestamptz → tenant-tz-midnight instant), so
+    // window and buckets no longer disagree.
+    const timezone = await resolveTenantInsightsTimeZone(client, tenantId);
     const days     = periodDays(period);
-    const fromDate = new Date();
-    fromDate.setUTCHours(0, 0, 0, 0);
-    fromDate.setUTCDate(fromDate.getUTCDate() - days);
+    const fromDate = tenantZonePeriodStart(days, timezone);
 
     const heatRes = await client.query<{ dow: number; hour: number; n: string }>(
       `SELECT

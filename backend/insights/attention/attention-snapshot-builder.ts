@@ -13,6 +13,8 @@
 
 import pool from '@/lib/db';
 import { LATEST_POST_METRICS_LATERAL } from '../latest-post-metrics-sql';
+import { resolveTenantInsightsTimeZone } from '../tenant-timezone';
+import { tenantZonePeriodStart, tenantZonePeriodStartDateKey } from '@/lib/format-timestamp';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 
 export interface HighPerformer {
@@ -62,13 +64,6 @@ function periodDays(period: NarrativePeriod): number {
   return 90;
 }
 
-function daysAgo(days: number): Date {
-  const d = new Date();
-  d.setUTCHours(0, 0, 0, 0);
-  d.setUTCDate(d.getUTCDate() - days);
-  return d;
-}
-
 const DOW_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 const FOLLOWER_MILESTONES = [100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000];
@@ -93,11 +88,17 @@ export async function buildAttentionSnapshot(
   platform:  string,
 ): Promise<AttentionSnapshot> {
   const days           = periodDays(period);
-  const fromDate       = daysAgo(days);
   const platformFilter = platform === 'all' ? null : platform;
 
   const client = await pool.connect();
   try {
+    // S2-3: windows + day-of-week bucketing in the tenant's business timezone.
+    // timestamptz columns (received_at / published_at) use the tenant-tz-midnight
+    // instant; the two account-daily (bare DATE) sub-queries use a tenant-tz
+    // calendar date ($n::date).
+    const tz       = await resolveTenantInsightsTimeZone(client, tenantId);
+    const fromDate = tenantZonePeriodStart(days, tz);
+    const fromKey  = tenantZonePeriodStartDateKey(days, tz);
 
     // ── A: Unreplied comments + classification hints ──────────────────────────
     const unrepliedRes = await client.query<{
@@ -196,10 +197,12 @@ export async function buildAttentionSnapshot(
         // S2-1: average each post's LATEST lifetime reach per weekday (and count
         // posts, not dated rows). The old direct join fanned out per date row, so
         // AVG/COUNT were over cumulative snapshots, not posts.
+        // S2-3: weekday derived in the tenant's business timezone ($4), not UTC —
+        // this is the flagship "best day to post" coherence fix.
         `SELECT dow, AVG(reach) AS avg_reach, COUNT(*) AS cnt
          FROM (
-           SELECT EXTRACT(DOW FROM p.published_at AT TIME ZONE 'UTC')::int AS dow,
-                  COALESCE(m.reach, m.views, 0)                            AS reach
+           SELECT EXTRACT(DOW FROM p.published_at AT TIME ZONE $4)::int AS dow,
+                  COALESCE(m.reach, m.views, 0)                          AS reach
            FROM insights_posts p
            ${LATEST_POST_METRICS_LATERAL}
            WHERE p.tenant_id    = $1
@@ -209,7 +212,7 @@ export async function buildAttentionSnapshot(
          GROUP BY dow
          HAVING COUNT(*) >= 2
          ORDER BY avg_reach DESC`,
-        [tenantId, fromDate, platformFilter],
+        [tenantId, fromDate, platformFilter, tz],
       );
 
       if (dowRes.rows.length >= 2) {
@@ -232,16 +235,17 @@ export async function buildAttentionSnapshot(
           platform:  string;
           avg_reach: string;
         }>(
+          // S2-3: bare DATE column bounded by a tenant-tz calendar date ($2::date).
           `SELECT
              platform,
              AVG(COALESCE(reach, views, 0)) AS avg_reach
            FROM insights_account_metrics_daily
            WHERE tenant_id = $1
-             AND date >= $2
+             AND date >= $2::date
            GROUP BY platform
            HAVING COUNT(DISTINCT date) >= 3
            ORDER BY avg_reach DESC`,
-          [tenantId, fromDate],
+          [tenantId, fromKey],
         );
 
         if (platRes.rows.length >= 2) {
@@ -268,17 +272,18 @@ export async function buildAttentionSnapshot(
       start_followers:  string | null;
       end_followers:    string | null;
     }>(
+      // S2-3: bare DATE column bounded by a tenant-tz calendar date ($2::date).
       `SELECT
          platform,
          MIN(followers) AS start_followers,
          MAX(followers) AS end_followers
        FROM insights_account_metrics_daily
        WHERE tenant_id = $1
-         AND date >= $2
+         AND date >= $2::date
          AND followers IS NOT NULL
          AND ($3::text IS NULL OR platform = $3)
        GROUP BY platform`,
-      [tenantId, fromDate, platformFilter],
+      [tenantId, fromKey, platformFilter],
     );
 
     for (const row of milestoneRes.rows) {
