@@ -50,7 +50,7 @@ test('init-db.js ships the next_attempt_at column the worker SQL depends on', ()
 test('pending child rows now persist their error_message (silent-retry observability)', () => {
   assert.match(
     workerSource,
-    /WHEN \$3 = 'pending' AND \$4 IS NOT NULL THEN \$4/,
+    /WHEN \$3 = 'pending' AND \$4::text IS NOT NULL THEN \$4::text/,
     'setPlatformDispatchStatus must record the retryable error on pending children',
   );
 });
@@ -104,4 +104,19 @@ test('a (re)schedule upsert clears next_attempt_at — operator reschedules beat
   );
   const conflictClause = upsertSource.slice(upsertSource.indexOf('ON CONFLICT (post_id) DO UPDATE'));
   assert.match(conflictClause, /next_attempt_at = NULL/);
+});
+
+test('setPlatformDispatchStatus casts $4 to text — bare $4 fails Postgres prepare (42P08)', () => {
+  // Postgres cannot infer $4's type when the bare parameter appears in both a
+  // CASE result and an IS NOT NULL predicate; the statement then fails at
+  // prepare time and EVERY post-publish write dies — the publish goes live
+  // but is never recorded, re-opening the stale-reclaim duplicate window
+  // (caught live 2026-07-13 20:05Z). In-memory fakes cannot see prepare-time
+  // inference, so pin the casts at source level.
+  const stmt = workerSource.slice(
+    workerSource.indexOf('UPDATE scheduled_post_dispatches'),
+    workerSource.indexOf('WHERE scheduled_post_id = $1 AND platform = $2'),
+  );
+  const bare = stmt.match(/\$4(?!::text)/g) ?? [];
+  assert.equal(bare.length, 0, `every $4 in the child-status UPDATE must be cast ::text; found ${bare.length} bare`);
 });

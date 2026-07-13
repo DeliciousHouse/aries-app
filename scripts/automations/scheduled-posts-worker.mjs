@@ -1,7 +1,7 @@
 /**
  * Scheduled-posts worker — drains the scheduled_posts table and fires
  * publishToMetaGraph for each row whose scheduled_for <= NOW() and
- * dispatch_status = 'pending'. Runs every minute via the cron manifest.
+ * dispatch_status = 'pending'. Runs as the aries-scheduled-posts-worker compose sidecar (self-scheduling; the legacy host cron that double-dispatched alongside it was removed 2026-07-13).
  */
 import 'dotenv/config';
 
@@ -188,13 +188,20 @@ async function seedPlatformDispatches(client, rowId, platforms) {
  * still marks terminal failures only. */
 async function setPlatformDispatchStatus(client, rowId, platform, status, errorMessage) {
   const truncated = errorMessage ? String(errorMessage).slice(0, 1000) : null;
+  // $4 is cast to text everywhere it appears: with the bare parameter in both
+  // a CASE result and an IS NOT NULL predicate, Postgres cannot infer its type
+  // and rejects the statement with 42P08 "could not determine data type of
+  // parameter $4" — which failed EVERY post-publish write (the publish went
+  // live but was never recorded, re-opening the stale-reclaim duplicate
+  // window). Caught live 2026-07-13 20:05Z; the in-memory test fakes cannot
+  // see prepare-time type inference, hence the live-SQL prepare test.
   await client.query(
     `UPDATE scheduled_post_dispatches
      SET status = $3,
          dispatched_at = CASE WHEN $3 = 'dispatched' THEN now() ELSE dispatched_at END,
          error_at = CASE WHEN $3 = 'failed' THEN now() ELSE error_at END,
-         error_message = CASE WHEN $3 = 'failed' THEN $4
-                              WHEN $3 = 'pending' AND $4 IS NOT NULL THEN $4
+         error_message = CASE WHEN $3 = 'failed' THEN $4::text
+                              WHEN $3 = 'pending' AND $4::text IS NOT NULL THEN $4::text
                               ELSE error_message END,
          updated_at = now()
      WHERE scheduled_post_id = $1 AND platform = $2`,
