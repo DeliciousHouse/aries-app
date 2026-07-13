@@ -64,7 +64,8 @@ function periodDays(period: NarrativePeriod): number {
   return 90;
 }
 
-const DOW_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+// Exported for the S2-4 day-boundary tz-agreement test (tests/insights-tz-boundary-agreement.test.ts).
+export const DOW_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 const FOLLOWER_MILESTONES = [100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000];
 

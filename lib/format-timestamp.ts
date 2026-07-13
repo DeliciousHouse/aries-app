@@ -305,6 +305,20 @@ export function tenantZonePeriodStartDateKey(
   return `${year}-${pad(month)}-${pad(day)}`;
 }
 
+/**
+ * S2-3/S2-4 — the tenant-zone day-of-week (0=Sun … 6=Sat), the JS mirror of the
+ * SQL `EXTRACT(DOW FROM ts AT TIME ZONE $tz)` the insights builders bucket by.
+ * Same numbering as Postgres EXTRACT(DOW). Returns null on an unparseable value.
+ */
+export function tenantZoneDow(
+  value: string | number | Date,
+  timeZone: string = DEFAULT_TENANT_TIMEZONE,
+): number | null {
+  const parts = tenantZoneParts(value, timeZone);
+  if (!parts) return null;
+  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).getUTCDay();
+}
+
 /** True when a UTC instant falls on the current calendar day in the tenant zone. */
 export function isTenantZoneToday(
   value: string | number | Date,

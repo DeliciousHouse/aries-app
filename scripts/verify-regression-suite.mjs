@@ -105,6 +105,13 @@ const steps = [
     args: ['--test', 'tests/insights-sync-worker-stranded-runs.test.ts'],
   },
   {
+    // S2-4/AA-95: day-boundary timezone AGREEMENT guardrail. Pure + no DB, so it
+    // runs here on every PR (unlike the S2-3/S2-1 requires-infra tz tests that
+    // self-skip in CI). Fails if audience or attention reverts to UTC bucketing.
+    name: 'insights day-boundary tz agreement (audience + attention)',
+    args: ['--test', 'tests/insights-tz-boundary-agreement.test.ts'],
+  },
+  {
     // PRD §20 canonical behavioral invariants — codified as runtime checks so
     // future PRs get a green/red CI signal on spec conformance.  See
     // tests/prd-invariants/README.md and docs/product/aries-ai-prd.md §20.
