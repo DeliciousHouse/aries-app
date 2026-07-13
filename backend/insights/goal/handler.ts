@@ -25,7 +25,10 @@ import crypto from 'crypto';
 // goal text. Bump invalidates stale v2 rows that cached the empty label.
 // v4: cached body now carries `goalInferred` (S1-5 / AA-84) — the body shape
 // changed, so bump to invalidate v3 rows that lack the flag.
-const TEMPLATE_VERSION = 'goal-template-v4';
+// v5: S2-1 — goal contributor/category values now use the latest lifetime
+// snapshot per post (not SUM across dated cumulative rows), so the "what
+// contributed" numbers change. Bump invalidates stale v4 bodies.
+const TEMPLATE_VERSION = 'goal-template-v5';
 const CACHE_TTL_MS     = 60 * 60 * 1000;
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);

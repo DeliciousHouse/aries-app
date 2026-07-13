@@ -15,6 +15,7 @@
 
 import pool, { type PoolClient } from '@/lib/db';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
+import { LATEST_POST_METRICS_LATERAL } from '../latest-post-metrics-sql';
 
 export type GoalType = 'lead_generation' | 'content_growth' | 'product_sales' | 'brand_awareness';
 
@@ -320,19 +321,18 @@ async function queryContributors(
     );
     rows = res.rows;
   } else {
+    // S2-1: latest lifetime snapshot per post, NOT SUM across dated rows.
     const metricCol = goal === 'product_sales'
-      ? 'COALESCE(SUM(m.saves), 0)'
-      : 'COALESCE(SUM(COALESCE(m.reach, m.views, 0)), 0)';
+      ? 'COALESCE(m.saves, 0)'
+      : 'COALESCE(m.reach, m.views, 0)';
 
     const res = await client.query<{ title: string | null; platform: string; content_type: string | null; metric: string }>(
       `SELECT p.title, p.platform, p.content_type, ${metricCol} AS metric
        FROM insights_posts p
-       LEFT JOIN insights_post_metrics_daily m
-              ON m.post_id = p.id AND m.tenant_id = p.tenant_id
+       ${LATEST_POST_METRICS_LATERAL}
        WHERE p.tenant_id = $1
          AND p.published_at >= $2
          AND ($3::text IS NULL OR p.platform = $3)
-       GROUP BY p.id, p.title, p.platform, p.content_type
        ORDER BY metric DESC
        LIMIT 2`,
       [tenantId, fromDate, platformFilter],
@@ -379,21 +379,26 @@ async function queryCategories(
     );
     rows = res.rows;
   } else {
-    const metricCol = goal === 'product_sales'
-      ? 'COALESCE(SUM(m.saves), 0)'
-      : 'COALESCE(SUM(COALESCE(m.reach, m.views, 0)), 0)';
+    // S2-1: take each post's LATEST lifetime snapshot, THEN sum across posts
+    // within a content category (never SUM a post's dated cumulative rows).
+    const metricPerPost = goal === 'product_sales'
+      ? 'COALESCE(m.saves, 0)'
+      : 'COALESCE(m.reach, m.views, 0)';
 
     const res = await client.query<{ content_type: string | null; post_count: string; metric: string }>(
-      `SELECT COALESCE(p.content_type, 'other') AS content_type,
-              COUNT(DISTINCT p.id)              AS post_count,
-              ${metricCol}                      AS metric
-       FROM insights_posts p
-       LEFT JOIN insights_post_metrics_daily m
-              ON m.post_id = p.id AND m.tenant_id = p.tenant_id
-       WHERE p.tenant_id = $1
-         AND p.published_at >= $2
-         AND ($3::text IS NULL OR p.platform = $3)
-       GROUP BY COALESCE(p.content_type, 'other')
+      `SELECT content_type,
+              COUNT(*)     AS post_count,
+              SUM(metric)  AS metric
+       FROM (
+         SELECT COALESCE(p.content_type, 'other') AS content_type,
+                ${metricPerPost}                  AS metric
+         FROM insights_posts p
+         ${LATEST_POST_METRICS_LATERAL}
+         WHERE p.tenant_id = $1
+           AND p.published_at >= $2
+           AND ($3::text IS NULL OR p.platform = $3)
+       ) per_post
+       GROUP BY content_type
        ORDER BY metric DESC`,
       [tenantId, fromDate, platformFilter],
     );

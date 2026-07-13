@@ -22,7 +22,10 @@ import { buildNarrativeText } from './template-builder';
 import { computeAriesScore } from './score-builder';
 import crypto from 'crypto';
 
-const TEMPLATE_VERSION = 'template-v1';
+// v2: S2-1 — hero top-post reach now uses the latest lifetime snapshot per post
+// (not SUM across dated cumulative rows), so the displayed reach number (and
+// which post ranks top) changes. Bump invalidates stale v1 bodies.
+const TEMPLATE_VERSION = 'template-v2';
 const CACHE_TTL_MS     = 60 * 60 * 1000; // 1 hour
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);

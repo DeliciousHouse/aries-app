@@ -20,7 +20,11 @@ import { buildActivitySnapshot } from './activity-snapshot-builder';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 import crypto from 'crypto';
 
-const TEMPLATE_VERSION = 'activity-v3';
+// v4: S2-1 — the high-performers count (posts ≥2× average reach) now compares
+// latest lifetime snapshots per post, not SUM across dated cumulative rows.
+// Because per-post inflation varied by sync age, the threshold basis and the
+// resulting count shift. Bump invalidates stale v3 bodies.
+const TEMPLATE_VERSION = 'activity-v4';
 const CACHE_TTL_MS     = 60 * 60 * 1000; // 1 hour
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);

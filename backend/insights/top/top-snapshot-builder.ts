@@ -15,6 +15,7 @@
 
 import pool from '@/lib/db';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
+import { LATEST_POST_METRICS_LATERAL } from '../latest-post-metrics-sql';
 
 export type TopSortKey = 'reach' | 'engagement' | 'saves' | 'shares' | 'comments';
 
@@ -128,14 +129,13 @@ export async function buildTopSnapshot(
       `WITH post_totals AS (
          SELECT
            p.id,
-           COALESCE(SUM(COALESCE(m.reach, m.views, 0)), 0) AS total_reach
+           -- S2-1: latest lifetime snapshot per post, NOT SUM across dated rows.
+           COALESCE(m.reach, m.views, 0) AS total_reach
          FROM insights_posts p
-         LEFT JOIN insights_post_metrics_daily m
-                ON m.post_id = p.id AND m.tenant_id = p.tenant_id
+         ${LATEST_POST_METRICS_LATERAL}
          WHERE p.tenant_id     = $1
            AND p.published_at  >= $2
            AND ($3::text IS NULL OR p.platform = $3)
-         GROUP BY p.id
        )
        SELECT AVG(total_reach) AS avg_reach, COUNT(*) AS post_count
        FROM post_totals`,
@@ -173,19 +173,18 @@ export async function buildTopSnapshot(
            p.content_type,
            p.media_type,
            p.platform_data,
-           COALESCE(SUM(COALESCE(m.reach, m.views, 0)), 0) AS reach,
-           COALESCE(SUM(COALESCE(m.likes, 0)), 0)          AS likes,
-           COALESCE(SUM(COALESCE(m.comments_count, 0)), 0) AS comments,
-           COALESCE(SUM(COALESCE(m.saves, 0)), 0)          AS saves,
-           COALESCE(SUM(COALESCE(m.shares, 0)), 0)         AS shares
+           -- S2-1: latest lifetime snapshot per post, NOT SUM across dated rows
+           -- (each daily row is a cumulative all-time total → SUM inflated ~N×).
+           COALESCE(m.reach, m.views, 0) AS reach,
+           COALESCE(m.likes, 0)          AS likes,
+           COALESCE(m.comments_count, 0) AS comments,
+           COALESCE(m.saves, 0)          AS saves,
+           COALESCE(m.shares, 0)         AS shares
          FROM insights_posts p
-         LEFT JOIN insights_post_metrics_daily m
-                ON m.post_id = p.id AND m.tenant_id = p.tenant_id
+         ${LATEST_POST_METRICS_LATERAL}
          WHERE p.tenant_id     = $1
            AND p.published_at  >= $2
            AND ($3::text IS NULL OR p.platform = $3)
-         GROUP BY p.id, p.platform, p.title, p.caption, p.permalink,
-                  p.published_at, p.content_type, p.media_type, p.platform_data
        )
        SELECT *
        FROM post_metrics

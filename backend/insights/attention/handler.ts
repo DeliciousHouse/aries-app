@@ -20,7 +20,11 @@ import crypto from 'crypto';
 // S1-1/AA-80). Bump regenerates cached attention snapshots holding the bad link.
 // v3: escape the untrusted post title in the opportunity-card HTML (stored XSS,
 // S1-2/AA-81). Bump flushes cached cards holding the unescaped title.
-const TEMPLATE_VERSION = 'attention-v3';
+// v4: S2-1 — the opportunity-card multiplier and best-day-of-week pattern now
+// use the latest lifetime snapshot per post (not SUM across dated cumulative
+// rows); since per-post inflation varied by sync age, the multiplier and DOW
+// ranking change. Bump invalidates stale v3 bodies.
+const TEMPLATE_VERSION = 'attention-v4';
 const CACHE_TTL_MS     = 15 * 60 * 1000; // 15 minutes
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);
