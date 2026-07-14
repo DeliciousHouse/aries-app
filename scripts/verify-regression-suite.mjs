@@ -112,6 +112,14 @@ const steps = [
     args: ['--test', 'tests/insights-tz-boundary-agreement.test.ts'],
   },
   {
+    // S2-5/AA-96: deterministic pins for the S2-1 (latest-snapshot metric) and
+    // S2-3 (tenant-tz window) math — trends pctDelta edges, goal window
+    // boundaries incl. DST, top derive+rank. Pure + no DB; a regression here
+    // means a refactor silently changed a displayed number or window boundary.
+    name: 'insights metric/window math pinning (S2-1 + S2-3)',
+    args: ['--test', 'tests/insights-math-pinning.test.ts'],
+  },
+  {
     // 2026-07-13 duplicate-posting incident (AA-134 / PR #841) regression wall:
     // scheduler day-mapping + same-instant de-collision, the reel-companion
     // synthesis clamp, the publish-boundary duplicate/spacing guards, and the

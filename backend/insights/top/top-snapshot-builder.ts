@@ -94,6 +94,42 @@ function orderColumn(sortBy: TopSortKey): string {
   }
 }
 
+/**
+ * Per-post derived metrics from the LATEST-snapshot raw counts (S2-1) and the
+ * period average reach. Pinned by tests/insights-math-pinning.test.ts (S2-5).
+ *   engagement = (likes+comments+saves+shares)/reach, as a % to 1 decimal
+ *   saveRate   = saves/reach, as a % to 2 decimals
+ *   multiplier = reach / period-average-reach, to 1 decimal ("Nx average")
+ * Each guards its divisor: reach<=0 → engagement/saveRate 0; avgReach<=0 → multiplier 0.
+ */
+export interface TopPostMetrics { engagement: number; saveRate: number; multiplier: number }
+export function deriveTopPostMetrics(
+  raw: { reach: number; likes: number; comments: number; saves: number; shares: number },
+  avgReach: number,
+): TopPostMetrics {
+  const interactions = raw.likes + raw.comments + raw.saves + raw.shares;
+  return {
+    engagement: raw.reach > 0 ? Math.round((interactions / raw.reach) * 1000) / 10 : 0,
+    saveRate:   raw.reach > 0 ? Math.round((raw.saves / raw.reach) * 10000) / 100 : 0,
+    multiplier: avgReach > 0 ? Math.round((raw.reach / avgReach) * 10) / 10 : 0,
+  };
+}
+
+/**
+ * Final top-N ordering. Behavior-identical to the pre-S2-5 inline logic (pinned
+ * by S2-5): engagement is a JS-computed column so it is re-sorted here (desc);
+ * every other sort key trusts the incoming DB `ORDER BY <col> DESC` order. Then
+ * the top 5 are returned. NO tie-breaker — exact-metric ties keep the input
+ * (DB/insertion) order, which is NOT deterministic; a follow-up ticket should add
+ * an id-asc tie-breaker (and only then pin exact tie order).
+ */
+export function rankTopPosts<T extends { engagement: number }>(posts: T[], sortBy: TopSortKey): T[] {
+  const ranked = sortBy === 'engagement'
+    ? [...posts].sort((a, b) => b.engagement - a.engagement)
+    : [...posts];
+  return ranked.slice(0, 5);
+}
+
 // Read a follower-split string out of platform_data JSONB if the platform
 // reported follower vs non-follower reach (Instagram). Returns null otherwise.
 function extractFollowerSplit(platformData: Record<string, unknown> | null): string | null {
@@ -237,10 +273,10 @@ export async function buildTopSnapshot(
       const comments = Number(row.comments);
       const saves    = Number(row.saves);
       const shares   = Number(row.shares);
-      const interactions = likes + comments + saves + shares;
-      const engagement   = reach > 0 ? Math.round((interactions / reach) * 1000) / 10 : 0;
-      const saveRate     = reach > 0 ? Math.round((saves / reach) * 10000) / 100 : 0;
-      const multiplier   = avgReach > 0 ? Math.round((reach / avgReach) * 10) / 10 : 0;
+      const { engagement, saveRate, multiplier } = deriveTopPostMetrics(
+        { reach, likes, comments, saves, shares },
+        avgReach,
+      );
 
       return {
         id:            Number(row.id),
@@ -265,12 +301,10 @@ export async function buildTopSnapshot(
       };
     });
 
-    // Engagement sort is computed in JS (not a DB column); re-sort when requested.
-    if (sortBy === 'engagement') {
-      posts.sort((a, b) => b.engagement - a.engagement);
-    }
-
-    posts = posts.slice(0, 5);
+    // Final ordering + top-5 trim (extracted to rankTopPosts, pinned by S2-5).
+    // Engagement is a JS-computed column so it is re-sorted here; other keys trust
+    // the DB ORDER BY. Behavior-identical to the previous inline logic.
+    posts = rankTopPosts(posts, sortBy);
 
     return { posts, avgReach, postCount, sortBy };
 
