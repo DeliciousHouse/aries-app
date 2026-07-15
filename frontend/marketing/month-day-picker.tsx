@@ -51,7 +51,7 @@ const optionClassName = '[&>option]:bg-[#050505] [&>option]:text-white';
 const selectClassName =
   `rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50 ${optionClassName}`;
 const selectInvalidClassName =
-  `rounded-2xl border border-red-500/50 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-red-500/70 ${optionClassName}`;
+  `rounded-2xl border border-red-500/60 bg-red-500/10 px-4 py-3 text-white focus:outline-none focus:border-red-400 ${optionClassName}`;
 
 export function MonthDayPicker({ value, onChange, ariaLabel, invalid, _today }: MonthDayPickerProps) {
   const today = _today ?? new Date();

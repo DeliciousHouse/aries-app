@@ -216,6 +216,8 @@ const steps = [
       'tests/integrations-openai-safety.test.ts',
       'tests/social-content-new-job-screen.test.ts',
       'tests/marketing-job-route.smoke.test.ts',
+      'tests/marketing-create-error-mapping.test.ts',
+      'tests/marketing-new-job-field-errors.test.ts',
       'tests/runtime-pages.test.ts',
       'tests/docs-social-content-guidance.test.ts',
       'tests/social-content-public-copy.test.ts',
