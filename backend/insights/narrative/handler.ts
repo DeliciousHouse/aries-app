@@ -29,7 +29,11 @@ import crypto from 'crypto';
 // (account-daily totals as tenant-tz calendar dates; post/comment windows as
 // tenant-tz-midnight instants), so which rows fall in the current vs prior window
 // (and thus reach/engagement/deltas/hero post) shift near the day boundary.
-const TEMPLATE_VERSION = 'template-v3';
+// v4: S3-1 (AA-97) honesty pass — hoursSaved reconciled to the shared synthetic
+// estimate (was 0.35–0.9h/post + 0.05h/comment), and the Aries Score no longer
+// floats at the ~50 base for a dead/near-dead account (zero-signal → 0; near-dead
+// now hits the empty state). Bump invalidates stale v3 bodies.
+const TEMPLATE_VERSION = 'template-v4';
 const CACHE_TTL_MS     = 60 * 60 * 1000; // 1 hour
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);
@@ -205,6 +209,7 @@ export async function handleGetInsightsNarrative(
       snapshot.engagementRate,
       snapshot.reachDelta,
       snapshot.engagementRatePrev,
+      snapshot.reach,
     );
     const inputHash = snapshotHash(tenantId, period, platform);
 

@@ -15,6 +15,7 @@ import pool from '@/lib/db';
 import { LATEST_POST_METRICS_LATERAL } from '../latest-post-metrics-sql';
 import { resolveTenantInsightsTimeZone } from '../tenant-timezone';
 import { tenantZonePeriodStart, tenantZonePeriodStartDateKey } from '@/lib/format-timestamp';
+import { estimateHoursSaved } from '../hours-saved';
 
 export type NarrativePeriod = 'week' | '30day' | '90day';
 
@@ -209,10 +210,10 @@ export async function buildNarrativeSnapshot(
       ? Math.round(((prevLikes + prevComments + prevShares) / reachPrev) * 10000) / 100
       : 0;
 
-    // Hours saved: writing + scheduling per post, plus handling replied comments
-    const hoursPerPost = platform === 'youtube' ? 0.9 : 0.35;
-    const handledComments = Math.max(0, commentsTotal - unreplied);
-    const hoursSaved = Math.round((posts * hoursPerPost + handledComments * 0.05) * 10) / 10;
+    // S3-1: hours saved is a synthetic ESTIMATE (rendered with "~"), reconciled to
+    // the shared estimateHoursSaved so the Hero band and the Activity strip can't
+    // show two different numbers (they previously used two different constants).
+    const hoursSaved = estimateHoursSaved(posts);
 
     let topPost: TopPost | null = null;
     if (topPostRes.rows.length > 0) {
@@ -241,7 +242,11 @@ export async function buildNarrativeSnapshot(
       hoursSaved,
       topPost,
       watchTimeMinutes:    includeWatchTime(platform) ? watchTime : null,
-      hasData:             posts > 0 || reach > 0,
+      // S3-1: "enough data" requires measurable reach or engagement — a post with
+      // zero reach and zero engagement is "not enough data yet" (near-dead), not a
+      // summarizable period. Previously `posts > 0` let a 0-reach post render a
+      // fabricated ~50 Aries Score instead of the empty state.
+      hasData:             reach > 0 || engagementRate > 0,
     };
   } finally {
     client.release();

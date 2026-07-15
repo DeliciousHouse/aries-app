@@ -9,7 +9,8 @@
  *   - commentsReceived — comments received on those posts
  *   - highPerformers   — posts that hit ≥2x the period average reach (same
  *                        baseline logic as the Section 3 opportunity card)
- *   - hoursSaved       — formula: postsPublished × HOURS_PER_POST
+ *   - hoursSaved       — shared estimateHoursSaved(postsPublished): a synthetic
+ *                        estimate (posts × 3h), NOT a measurement; see hours-saved.ts
  *   - platformCount    — distinct platforms for the footer line
  *
  * Content mix:
@@ -22,10 +23,8 @@ import pool from '@/lib/db';
 import { LATEST_POST_METRICS_LATERAL } from '../latest-post-metrics-sql';
 import { resolveTenantInsightsTimeZone } from '../tenant-timezone';
 import { tenantZonePeriodStart } from '@/lib/format-timestamp';
+import { estimateHoursSaved } from '../hours-saved';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
-
-// Conservative estimate: research + writing + creative + scheduling per post.
-const HOURS_PER_POST = 3;
 
 export interface ContentMixSlice {
   contentType: string;   // 'uncategorized' when content_type IS NULL
@@ -184,7 +183,7 @@ export async function buildActivitySnapshot(
       commentsHandled,
       commentsNeedReply,
       highPerformers,
-      hoursSaved:   postsPublished * HOURS_PER_POST,
+      hoursSaved:   estimateHoursSaved(postsPublished),
       platformCount,
       platforms,
       contentMix,
