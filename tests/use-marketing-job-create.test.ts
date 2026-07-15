@@ -97,6 +97,54 @@ test('useMarketingJobCreate surfaces 422 field errors from FastAPI detail[] body
   }
 });
 
+test('useMarketingJobCreate surfaces fieldErrors from a 400 body (missing_required_fields shape)', async () => {
+  // AA-131: the jobs handler returns missing_required_fields as 400 with
+  // structured fieldErrors. The hook must parse fieldErrors from any 4xx,
+  // not just 422 — reverting the boundary silently reproduces the raw-code
+  // alert for these responses.
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        error: 'missing_required_fields:payload.businessType',
+        message: 'Your business type is missing.',
+        fieldErrors: { businessType: 'Your business type is missing.' },
+      }),
+      { status: 400, headers: { 'content-type': 'application/json' } }
+    )) as typeof fetch;
+
+  let captured: ReturnType<typeof useMarketingJobCreate> | null = null;
+
+  function Harness() {
+    captured = useMarketingJobCreate();
+    return React.createElement('div', null, 'harness');
+  }
+
+  try {
+    const { act, create } = await import('react-test-renderer');
+    await act(async () => {
+      create(React.createElement(Harness));
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      const fd = new FormData();
+      fd.set('jobType', 'weekly_social_content');
+      fd.set('brandUrl', 'https://example.com');
+      await captured!.createJob(fd);
+      await flushMicrotasks();
+    });
+
+    const result = captured as ReturnType<typeof useMarketingJobCreate> | null;
+    assert.ok(result, 'hook should be captured');
+    assert.equal(result.isError, true);
+    assert.equal(result.error?.status, 400);
+    assert.deepEqual(result.fieldErrors, { businessType: 'Your business type is missing.' });
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
 test('useMarketingJobCreate keeps fieldErrors empty for non-422 errors', async () => {
   const previousFetch = globalThis.fetch;
   globalThis.fetch = (async () =>

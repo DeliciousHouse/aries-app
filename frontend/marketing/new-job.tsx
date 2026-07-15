@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useEffect, useState, type FormEvent } from 'react';
+import React, { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, FileUp, LoaderCircle, Rocket, Sparkles } from 'lucide-react';
 
 import type { MarketingApiError } from '@/lib/api/marketing';
 import { isValidWebsiteUrl } from '@/lib/api/marketing';
 import { validateCanonicalCompetitorUrl } from '@/lib/marketing-competitor';
+import { humanizeMarketingCreateMessage } from '@/lib/marketing-create-errors';
 import { useMarketingJobCreate, type UseMarketingJobCreateOptions } from '@/hooks/use-marketing-job-create';
 import StatusBadge from '../components/status-badge';
 import { MonthDayPicker } from './month-day-picker';
@@ -55,6 +56,32 @@ const SUBMIT_PROGRESS_MESSAGES = [
 
 const FINAL_SUBMIT_PROGRESS_INDEX = SUBMIT_PROGRESS_MESSAGES.length - 1;
 
+/**
+ * Field-error keys this form renders inline (red box + one-line message under
+ * the input). A server fieldError for any OTHER key (e.g. businessType, which
+ * has no input here) falls back to the top-level alert so it is never
+ * silently dropped.
+ */
+const RENDERED_FIELD_KEYS = new Set([
+  'websiteUrl',
+  'competitorUrl',
+  'oneOff.name',
+  'oneOff.campaignEndDate',
+  'oneOff.cta',
+  'oneOff.milestoneDate',
+  'oneOff.milestoneLabel',
+]);
+
+const INPUT_BASE_CLASSNAME =
+  'w-full rounded-2xl border px-4 py-3 text-white placeholder:text-white/30 focus:outline-none';
+
+/** Red box treatment for an input that needs the operator's attention. */
+function inputClassName(hasError: boolean): string {
+  return hasError
+    ? `${INPUT_BASE_CLASSNAME} border-red-500/60 bg-red-500/10 focus:border-red-400`
+    : `${INPUT_BASE_CLASSNAME} border-white/10 bg-white/5 focus:border-primary/50`;
+}
+
 export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContentProps) {
   const router = props.router;
   const marketingCreate = useMarketingJobCreate(props.clientOptions);
@@ -88,6 +115,13 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
   const [oneOffCta, setOneOffCta] = useState('');
   const [milestoneDate, setMilestoneDate] = useState('');
   const [milestoneLabel, setMilestoneLabel] = useState('');
+  // Bumped on every submit attempt so the scroll-to-first-error effect re-runs
+  // even when the same field fails twice in a row.
+  const [submitAttempt, setSubmitAttempt] = useState(0);
+  // Field keys whose error the operator has started fixing (edited since the
+  // last submit); their red box is hidden until the next submit re-validates.
+  const [dismissedFields, setDismissedFields] = useState<ReadonlySet<string>>(new Set());
+  const formRef = useRef<HTMLFormElement | null>(null);
 
   useEffect(() => {
     if (!submitting) {
@@ -112,40 +146,101 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
   }, [submitting]);
 
   useEffect(() => {
-    if (marketingCreate.error?.message) {
-      setErrorText(marketingCreate.error.message);
+    if (!marketingCreate.error) {
+      return;
     }
-  }, [marketingCreate.error]);
+    // A fresh server failure must never be hidden by an earlier
+    // dismiss-on-edit: clear dismissals so its field errors render.
+    setDismissedFields(new Set());
+    // When the server pinned the failure to specific fields, the inline red
+    // boxes carry the message — the top-level alert only shows copy for
+    // fields this form does not render, so nothing is ever silently dropped.
+    // "Rendered" means actually MOUNTED: oneOff.* inputs only exist in
+    // one-off mode, so their errors fall back to the alert if the operator
+    // toggled back to Weekly while the request was in flight (jobMode is a
+    // dependency so a later toggle re-evaluates this split).
+    const serverFieldErrors = marketingCreate.fieldErrors ?? {};
+    const isMounted = (key: string) =>
+      RENDERED_FIELD_KEYS.has(key) && (jobMode === 'oneOff' || !key.startsWith('oneOff.'));
+    const unrendered = Object.entries(serverFieldErrors).filter(([key]) => !isMounted(key));
+    const hasRendered = Object.keys(serverFieldErrors).some(isMounted);
+    if (unrendered.length > 0) {
+      setErrorText([...new Set(unrendered.map(([, copy]) => copy))].join(' '));
+    } else if (hasRendered) {
+      setErrorText(null);
+    } else if (marketingCreate.error.message) {
+      setErrorText(humanizeMarketingCreateMessage(marketingCreate.error.message));
+    }
+  }, [marketingCreate.error, marketingCreate.fieldErrors, jobMode]);
+
+  // Field errors from either side (client pre-submit validation or a server
+  // 4xx) scroll the first offending input into view and focus it, so the
+  // operator lands on the exact red box that explains what is missing. The
+  // attempt guard fires this at most once per submit — when the errors first
+  // appear — never again while the operator is editing fields (a re-fire
+  // would steal focus mid-typing).
+  const clientErrorCount = Object.keys(clientFieldErrors).length;
+  const serverErrorCount = Object.keys(marketingCreate.fieldErrors ?? {}).length;
+  const lastScrolledAttempt = useRef(0);
+  useEffect(() => {
+    if (clientErrorCount === 0 && serverErrorCount === 0) {
+      return;
+    }
+    if (lastScrolledAttempt.current === submitAttempt) {
+      return;
+    }
+    const firstInvalid = formRef.current?.querySelector<HTMLElement>(
+      '[aria-invalid="true"], [data-field-invalid="true"]',
+    );
+    if (!firstInvalid) {
+      return;
+    }
+    lastScrolledAttempt.current = submitAttempt;
+    firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    firstInvalid.focus({ preventScroll: true });
+    // dismissedFields is a dependency because a server-error arrival clears
+    // dismissals one render later — the red box only becomes queryable then.
+  }, [submitAttempt, clientErrorCount, serverErrorCount, dismissedFields]);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setErrorText(null);
+    setSubmitAttempt((current) => current + 1);
+    setDismissedFields(new Set());
+
+    // Aggregate every failing field into the same keyed shape the server
+    // returns from a 4xx so each missing input gets its own inline red box +
+    // one-line message -- not a single top-level alert that hides which
+    // fields the operator needs to fill in. The server re-checks shape and
+    // ordering so a malicious or scripted POST cannot bypass these rules.
+    const errors: Record<string, string> = {};
 
     const trimmedWebsiteUrl = normalizeWebsiteUrlInput(websiteUrl);
     if (!trimmedWebsiteUrl) {
-      setErrorText('website URL is required');
-      return;
+      errors.websiteUrl = 'Website URL is required.';
+    } else if (!isValidWebsiteUrl(trimmedWebsiteUrl)) {
+      errors.websiteUrl = 'Website URL must look like https://example.com.';
     }
-    if (!isValidWebsiteUrl(trimmedWebsiteUrl)) {
-      setErrorText('Website URL must look like https://example.com');
-      return;
+
+    const trimmedCompetitorUrl = competitorUrl.trim();
+    let normalizedCompetitorUrl: string | null = null;
+    if (trimmedCompetitorUrl) {
+      const validation = validateCanonicalCompetitorUrl(trimmedCompetitorUrl);
+      if (validation.error) {
+        errors.competitorUrl = validation.error;
+      } else {
+        normalizedCompetitorUrl = validation.normalized ?? trimmedCompetitorUrl;
+      }
     }
 
     // One-off mode: name + campaign end date + CTA are required; milestone
-    // date + label are optional but paired. Aggregate every failing field
-    // into the same `oneOff.*` keyed shape the server returns from a 422 so
-    // every missing field gets an inline red error -- not a single top-level
-    // alert that hides which fields the operator needs to fill in. The
-    // server re-checks shape and ordering so a malicious or scripted POST
-    // cannot bypass these rules.
-    setClientFieldErrors({});
+    // date + label are optional but paired.
     if (jobMode === 'oneOff') {
       const trimmedOneOffName = oneOffName.trim();
       const trimmedCampaignEndDate = campaignEndDate.trim();
       const trimmedOneOffCta = oneOffCta.trim();
       const trimmedMilestoneDate = milestoneDate.trim();
       const trimmedMilestoneLabel = milestoneLabel.trim();
-      const errors: Record<string, string> = {};
       if (!trimmedOneOffName) errors['oneOff.name'] = 'Name is required.';
       if (!trimmedCampaignEndDate) errors['oneOff.campaignEndDate'] = 'End date is required.';
       if (!trimmedOneOffCta) errors['oneOff.cta'] = 'CTA is required.';
@@ -158,10 +253,11 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
       if (trimmedMilestoneDate && trimmedMilestoneDate > trimmedCampaignEndDate) {
         errors['oneOff.milestoneDate'] = 'Milestone date must be on or before the end date.';
       }
-      if (Object.keys(errors).length > 0) {
-        setClientFieldErrors(errors);
-        return;
-      }
+    }
+
+    setClientFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      return;
     }
 
     const formData = new FormData();
@@ -183,14 +279,8 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
         formData.set('oneOff.milestoneLabel', milestoneLabel.trim());
       }
     }
-    const trimmedCompetitorUrl = competitorUrl.trim();
-    if (trimmedCompetitorUrl) {
-      const validation = validateCanonicalCompetitorUrl(trimmedCompetitorUrl);
-      if (validation.error) {
-        setErrorText(validation.error);
-        return;
-      }
-      formData.set('competitorUrl', validation.normalized ?? trimmedCompetitorUrl);
+    if (normalizedCompetitorUrl) {
+      formData.set('competitorUrl', normalizedCompetitorUrl);
     }
     if (brandVoice.trim()) {
       formData.set('brandVoice', brandVoice.trim());
@@ -219,14 +309,14 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
     try {
       const response = await marketingCreate.createJob(formData);
       if (!response) {
-        setErrorText(
-          marketingCreate.error?.message || 'Failed to create marketing job'
-        );
+        // The error effect above renders the failure from fresh hook state
+        // (inline red boxes when the server pinned fields, alert otherwise);
+        // reading marketingCreate.error here would see a stale closure.
         return;
       }
 
       if (isErrorResult(response)) {
-        setErrorText(response.message || response.error);
+        setErrorText(humanizeMarketingCreateMessage(response.message || response.error));
         return;
       }
 
@@ -259,11 +349,21 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
   const websiteUrlIsValid = isValidWebsiteUrl(normalizedWebsiteUrl);
   // Unified field-error lookup. Client-side errors (set synchronously on
   // submit) take precedence so the operator sees inline feedback before any
-  // network round trip; server-side errors (from 422) fill in the same shape
-  // after a POST. Both keyspaces are 'oneOff.<fieldName>' to match what the
-  // server returns.
-  const oneOffFieldError = (key: string): string | undefined =>
-    clientFieldErrors[key] ?? marketingCreate.fieldErrors?.[key];
+  // network round trip; server-side errors (from a 4xx) fill in the same
+  // shape after a POST. Editing a field dismisses its error until the next
+  // submit so the red box does not linger while the operator is fixing it.
+  const fieldErrorFor = (key: string): string | undefined =>
+    dismissedFields.has(key)
+      ? undefined
+      : clientFieldErrors[key] ?? marketingCreate.fieldErrors?.[key];
+  const dismissFieldError = (key: string) => {
+    setDismissedFields((current) => {
+      if (current.has(key)) return current;
+      const next = new Set(current);
+      next.add(key);
+      return next;
+    });
+  };
 
   return (
     <div className={wrapperClassName}>
@@ -278,7 +378,7 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
 
         <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
           <div className="glass rounded-[2.5rem] p-8">
-            <form onSubmit={onSubmit} className="space-y-6">
+            <form ref={formRef} onSubmit={onSubmit} className="space-y-6">
               <div>
                 <div className="mb-4 flex items-center gap-3">
                   <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10">
@@ -297,17 +397,20 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
               <Field label="Website URL" required>
                 <input
                   value={websiteUrl}
-                  onChange={(event) => setWebsiteUrl(event.target.value)}
+                  onChange={(event) => {
+                    setWebsiteUrl(event.target.value);
+                    dismissFieldError('websiteUrl');
+                  }}
                   onBlur={() => setWebsiteUrl(normalizeWebsiteUrlInput(websiteUrl))}
                   placeholder="https://yourbrand.com"
                   required
-                  aria-invalid={marketingCreate.fieldErrors?.websiteUrl ? true : undefined}
-                  aria-describedby={marketingCreate.fieldErrors?.websiteUrl ? 'website-url-error' : undefined}
-                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+                  aria-invalid={fieldErrorFor('websiteUrl') ? true : undefined}
+                  aria-describedby={fieldErrorFor('websiteUrl') ? 'website-url-error' : undefined}
+                  className={inputClassName(!!fieldErrorFor('websiteUrl'))}
                 />
-                {marketingCreate.fieldErrors?.websiteUrl ? (
+                {fieldErrorFor('websiteUrl') ? (
                   <p id="website-url-error" className="mt-2 text-sm text-red-300">
-                    {marketingCreate.fieldErrors.websiteUrl}
+                    {fieldErrorFor('websiteUrl')}
                   </p>
                 ) : null}
               </Field>
@@ -400,15 +503,18 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
               <Field label="Competitor website URL">
                 <input
                   value={competitorUrl}
-                  onChange={(event) => setCompetitorUrl(event.target.value)}
+                  onChange={(event) => {
+                    setCompetitorUrl(event.target.value);
+                    dismissFieldError('competitorUrl');
+                  }}
                   placeholder="Optional competitor website, e.g. https://competitor.com"
-                  aria-invalid={marketingCreate.fieldErrors?.competitorUrl ? true : undefined}
-                  aria-describedby={marketingCreate.fieldErrors?.competitorUrl ? 'competitor-url-error' : undefined}
-                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+                  aria-invalid={fieldErrorFor('competitorUrl') ? true : undefined}
+                  aria-describedby={fieldErrorFor('competitorUrl') ? 'competitor-url-error' : undefined}
+                  className={inputClassName(!!fieldErrorFor('competitorUrl'))}
                 />
-                {marketingCreate.fieldErrors?.competitorUrl ? (
+                {fieldErrorFor('competitorUrl') ? (
                   <p id="competitor-url-error" className="mt-2 text-sm text-red-300">
-                    {marketingCreate.fieldErrors.competitorUrl}
+                    {fieldErrorFor('competitorUrl')}
                   </p>
                 ) : null}
                 <p className="mt-2 text-sm text-white/70">
@@ -457,37 +563,56 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                   <Field label="Post name" required>
                     <input
                       value={oneOffName}
-                      onChange={(e) => setOneOffName(e.target.value)}
+                      onChange={(e) => {
+                        setOneOffName(e.target.value);
+                        dismissFieldError('oneOff.name');
+                      }}
                       placeholder='e.g. "Summer flash sale" or "Aries AI Hackathon"'
-                      aria-invalid={oneOffFieldError('oneOff.name') ? true : undefined}
-                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+                      aria-invalid={fieldErrorFor('oneOff.name') ? true : undefined}
+                      aria-describedby={fieldErrorFor('oneOff.name') ? 'one-off-name-error' : undefined}
+                      className={inputClassName(!!fieldErrorFor('oneOff.name'))}
                     />
-                    {oneOffFieldError('oneOff.name') ? (
-                      <p className="mt-2 text-sm text-red-300">{oneOffFieldError('oneOff.name')}</p>
+                    {fieldErrorFor('oneOff.name') ? (
+                      <p id="one-off-name-error" className="mt-2 text-sm text-red-300">{fieldErrorFor('oneOff.name')}</p>
                     ) : null}
                   </Field>
                   <Field label="Post end date" required>
-                    <MonthDayPicker
-                      value={campaignEndDate}
-                      onChange={setCampaignEndDate}
-                      ariaLabel="Post end date"
-                      invalid={!!oneOffFieldError('oneOff.campaignEndDate')}
-                    />
+                    <div
+                      role="group"
+                      aria-label="Post end date"
+                      aria-describedby={fieldErrorFor('oneOff.campaignEndDate') ? 'one-off-end-date-error' : undefined}
+                      data-field-invalid={fieldErrorFor('oneOff.campaignEndDate') ? 'true' : undefined}
+                      tabIndex={-1}
+                    >
+                      <MonthDayPicker
+                        value={campaignEndDate}
+                        onChange={(next) => {
+                          setCampaignEndDate(next);
+                          dismissFieldError('oneOff.campaignEndDate');
+                        }}
+                        ariaLabel="Post end date"
+                        invalid={!!fieldErrorFor('oneOff.campaignEndDate')}
+                      />
+                    </div>
                     <p className="mt-2 text-xs text-white/70">Aries stops publishing past end-of-day in your timezone.</p>
-                    {oneOffFieldError('oneOff.campaignEndDate') ? (
-                      <p className="mt-2 text-sm text-red-300">{oneOffFieldError('oneOff.campaignEndDate')}</p>
+                    {fieldErrorFor('oneOff.campaignEndDate') ? (
+                      <p id="one-off-end-date-error" className="mt-2 text-sm text-red-300">{fieldErrorFor('oneOff.campaignEndDate')}</p>
                     ) : null}
                   </Field>
                   <Field label="Call to action" required>
                     <input
                       value={oneOffCta}
-                      onChange={(e) => setOneOffCta(e.target.value)}
+                      onChange={(e) => {
+                        setOneOffCta(e.target.value);
+                        dismissFieldError('oneOff.cta');
+                      }}
                       placeholder='e.g. "Shop the sale" or "Register at example.com/event"'
-                      aria-invalid={oneOffFieldError('oneOff.cta') ? true : undefined}
-                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+                      aria-invalid={fieldErrorFor('oneOff.cta') ? true : undefined}
+                      aria-describedby={fieldErrorFor('oneOff.cta') ? 'one-off-cta-error' : undefined}
+                      className={inputClassName(!!fieldErrorFor('oneOff.cta'))}
                     />
-                    {oneOffFieldError('oneOff.cta') ? (
-                      <p className="mt-2 text-sm text-red-300">{oneOffFieldError('oneOff.cta')}</p>
+                    {fieldErrorFor('oneOff.cta') ? (
+                      <p id="one-off-cta-error" className="mt-2 text-sm text-red-300">{fieldErrorFor('oneOff.cta')}</p>
                     ) : null}
                   </Field>
 
@@ -499,24 +624,39 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                       <Field label="Milestone label">
                         <input
                           value={milestoneLabel}
-                          onChange={(e) => setMilestoneLabel(e.target.value)}
+                          onChange={(e) => {
+                            setMilestoneLabel(e.target.value);
+                            dismissFieldError('oneOff.milestoneLabel');
+                          }}
                           placeholder='e.g. "Sale ends"'
-                          aria-invalid={oneOffFieldError('oneOff.milestoneLabel') ? true : undefined}
-                          className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+                          aria-invalid={fieldErrorFor('oneOff.milestoneLabel') ? true : undefined}
+                          aria-describedby={fieldErrorFor('oneOff.milestoneLabel') ? 'one-off-milestone-label-error' : undefined}
+                          className={inputClassName(!!fieldErrorFor('oneOff.milestoneLabel'))}
                         />
-                        {oneOffFieldError('oneOff.milestoneLabel') ? (
-                          <p className="mt-2 text-sm text-red-300">{oneOffFieldError('oneOff.milestoneLabel')}</p>
+                        {fieldErrorFor('oneOff.milestoneLabel') ? (
+                          <p id="one-off-milestone-label-error" className="mt-2 text-sm text-red-300">{fieldErrorFor('oneOff.milestoneLabel')}</p>
                         ) : null}
                       </Field>
                       <Field label="Milestone date">
-                        <MonthDayPicker
-                          value={milestoneDate}
-                          onChange={setMilestoneDate}
-                          ariaLabel="Milestone date"
-                          invalid={!!oneOffFieldError('oneOff.milestoneDate')}
-                        />
-                        {oneOffFieldError('oneOff.milestoneDate') ? (
-                          <p className="mt-2 text-sm text-red-300">{oneOffFieldError('oneOff.milestoneDate')}</p>
+                        <div
+                          role="group"
+                          aria-label="Milestone date"
+                          aria-describedby={fieldErrorFor('oneOff.milestoneDate') ? 'one-off-milestone-date-error' : undefined}
+                          data-field-invalid={fieldErrorFor('oneOff.milestoneDate') ? 'true' : undefined}
+                          tabIndex={-1}
+                        >
+                          <MonthDayPicker
+                            value={milestoneDate}
+                            onChange={(next) => {
+                              setMilestoneDate(next);
+                              dismissFieldError('oneOff.milestoneDate');
+                            }}
+                            ariaLabel="Milestone date"
+                            invalid={!!fieldErrorFor('oneOff.milestoneDate')}
+                          />
+                        </div>
+                        {fieldErrorFor('oneOff.milestoneDate') ? (
+                          <p id="one-off-milestone-date-error" className="mt-2 text-sm text-red-300">{fieldErrorFor('oneOff.milestoneDate')}</p>
                         ) : null}
                       </Field>
                     </div>

@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState, type FormEvent } from "react";
+import React, { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
 import { isValidWebsiteUrl } from "@/lib/api/marketing";
+import { humanizeMarketingCreateMessage } from "@/lib/marketing-create-errors";
 import { normalizeWebsiteUrlInput } from "@/frontend/marketing/new-job";
 
 const DEFAULT_FORBIDDEN_VISUAL_PATTERNS = [
@@ -20,11 +21,42 @@ const DEFAULT_FORBIDDEN_VISUAL_PATTERNS = [
 
 const DEFAULT_PLATFORMS = ["meta", "instagram"] as const;
 
+/**
+ * Field-error keys this form renders inline (red box + one-line message under
+ * the input). A server fieldError for any other key falls back to the
+ * top-level alert so it is never silently dropped (AA-131).
+ */
+const RENDERED_FIELD_KEYS = new Set(["websiteUrl", "businessType", "weeklyGoal", "competitorUrl"]);
+
+const INPUT_BASE_CLASSNAME =
+  "w-full rounded-2xl border px-4 py-3 text-white placeholder:text-white/30 focus:outline-none";
+
+/** Red box treatment for an input that needs the operator's attention. */
+function inputClassName(hasError: boolean): string {
+  return hasError
+    ? `${INPUT_BASE_CLASSNAME} border-red-500/60 bg-red-500/10 focus:border-red-400`
+    : `${INPUT_BASE_CLASSNAME} border-white/10 bg-white/5 focus:border-primary/50`;
+}
+
 function splitLines(value: string): string[] {
   return value
     .split("\n")
     .map((entry) => entry.trim())
     .filter(Boolean);
+}
+
+function readServerFieldErrors(body: unknown): Record<string, string> {
+  const fieldErrors = (body as { fieldErrors?: unknown })?.fieldErrors;
+  if (!fieldErrors || typeof fieldErrors !== "object" || Array.isArray(fieldErrors)) {
+    return {};
+  }
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(fieldErrors as Record<string, unknown>)) {
+    if (typeof value === "string" && value.trim()) {
+      out[key] = value;
+    }
+  }
+  return out;
 }
 
 type SocialContentCreateResponse = {
@@ -81,6 +113,42 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
 
   const [submitting, setSubmitting] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
+  // Per-field errors (client validation or server fieldErrors) rendered as a
+  // red box + one-line message under the input that needs attention (AA-131).
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  // Bumped per submit attempt so the scroll-to-first-error effect re-runs even
+  // when the same field fails twice in a row.
+  const [submitAttempt, setSubmitAttempt] = useState(0);
+  const formRef = useRef<HTMLFormElement | null>(null);
+
+  // Scroll+focus the first errored field at most ONCE per submit attempt —
+  // when its errors first appear (synchronously for client validation, after
+  // the response for server fieldErrors). Without the attempt guard,
+  // dismiss-on-edit would shrink fieldErrorCount and re-fire this effect,
+  // stealing focus to the next errored field while the operator is typing.
+  const fieldErrorCount = Object.keys(fieldErrors).length;
+  const lastScrolledAttempt = useRef(0);
+  useEffect(() => {
+    if (fieldErrorCount === 0 || lastScrolledAttempt.current === submitAttempt) {
+      return;
+    }
+    const firstInvalid = formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+    if (!firstInvalid) {
+      return;
+    }
+    lastScrolledAttempt.current = submitAttempt;
+    firstInvalid.scrollIntoView({ behavior: "smooth", block: "center" });
+    firstInvalid.focus({ preventScroll: true });
+  }, [submitAttempt, fieldErrorCount]);
+
+  const dismissFieldError = (key: string) => {
+    setFieldErrors((current) => {
+      if (!(key in current)) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  };
 
   const wrapperClassName = props.embedded
     ? "space-y-6"
@@ -99,22 +167,25 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setErrorText(null);
+    setSubmitAttempt((current) => current + 1);
 
+    // Aggregate every failing field so each missing input gets its own inline
+    // red box + one-line message instead of one top-level alert at a time.
+    const errors: Record<string, string> = {};
     const normalizedWebsiteUrl = normalizeWebsiteUrlInput(websiteUrl);
     if (!normalizedWebsiteUrl) {
-      setErrorText("Website URL is required.");
-      return;
-    }
-    if (!isValidWebsiteUrl(normalizedWebsiteUrl)) {
-      setErrorText("Website URL must look like https://example.com");
-      return;
+      errors.websiteUrl = "Website URL is required.";
+    } else if (!isValidWebsiteUrl(normalizedWebsiteUrl)) {
+      errors.websiteUrl = "Website URL must look like https://example.com.";
     }
     if (!businessType.trim()) {
-      setErrorText("Business type is required.");
-      return;
+      errors.businessType = "Business type is required.";
     }
     if (!weeklyGoal.trim()) {
-      setErrorText("Weekly goal is required.");
+      errors.weeklyGoal = "Weekly goal is required.";
+    }
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
       return;
     }
 
@@ -178,13 +249,27 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
       } catch {}
 
       if (!response.ok) {
-        const message =
-          typeof (body as { message?: unknown })?.message === "string"
-            ? (body as { message: string }).message
-            : typeof (body as { error?: unknown })?.error === "string"
-              ? (body as { error: string }).error
-              : "Failed to create weekly social posts.";
-        throw new Error(message);
+        // Structured fieldErrors from the jobs handler pin the failure to the
+        // exact input (red box + one-line message); the alert only carries
+        // copy for fields this form does not render, or unmapped failures.
+        const serverFieldErrors = readServerFieldErrors(body);
+        const rendered = Object.entries(serverFieldErrors).filter(([key]) => RENDERED_FIELD_KEYS.has(key));
+        const unrendered = Object.entries(serverFieldErrors).filter(([key]) => !RENDERED_FIELD_KEYS.has(key));
+        if (rendered.length > 0) {
+          setFieldErrors(Object.fromEntries(rendered));
+        }
+        if (unrendered.length > 0) {
+          setErrorText([...new Set(unrendered.map(([, copy]) => copy))].join(" "));
+        } else if (rendered.length === 0) {
+          const message =
+            typeof (body as { message?: unknown })?.message === "string"
+              ? (body as { message: string }).message
+              : typeof (body as { error?: unknown })?.error === "string"
+                ? (body as { error: string }).error
+                : "Failed to create weekly social posts.";
+          setErrorText(humanizeMarketingCreateMessage(message));
+        }
+        return;
       }
 
       const data = body as SocialContentCreateResponse | null;
@@ -213,16 +298,24 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
         </div>
 
         <div className="glass rounded-[2.5rem] p-8">
-          <form onSubmit={onSubmit} className="space-y-8">
+          <form ref={formRef} onSubmit={onSubmit} className="space-y-8">
             <Section title="Brand">
               <Field label="Website URL" required>
                 <input
                   value={websiteUrl}
-                  onChange={(event) => setWebsiteUrl(event.target.value)}
+                  onChange={(event) => {
+                    setWebsiteUrl(event.target.value);
+                    dismissFieldError("websiteUrl");
+                  }}
                   onBlur={() => setWebsiteUrl(normalizeWebsiteUrlInput(websiteUrl))}
                   placeholder="https://yourbusiness.com"
-                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+                  aria-invalid={fieldErrors.websiteUrl ? true : undefined}
+                  aria-describedby={fieldErrors.websiteUrl ? "website-url-error" : undefined}
+                  className={inputClassName(!!fieldErrors.websiteUrl)}
                 />
+                {fieldErrors.websiteUrl ? (
+                  <p id="website-url-error" className="mt-2 text-sm text-red-300">{fieldErrors.websiteUrl}</p>
+                ) : null}
               </Field>
               <Field label="Business name">
                 <input
@@ -235,10 +328,18 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
               <Field label="Business type" required>
                 <input
                   value={businessType}
-                  onChange={(event) => setBusinessType(event.target.value)}
+                  onChange={(event) => {
+                    setBusinessType(event.target.value);
+                    dismissFieldError("businessType");
+                  }}
                   placeholder="Fitness studio, SaaS, local service..."
-                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+                  aria-invalid={fieldErrors.businessType ? true : undefined}
+                  aria-describedby={fieldErrors.businessType ? "business-type-error" : undefined}
+                  className={inputClassName(!!fieldErrors.businessType)}
                 />
+                {fieldErrors.businessType ? (
+                  <p id="business-type-error" className="mt-2 text-sm text-red-300">{fieldErrors.businessType}</p>
+                ) : null}
               </Field>
             </Section>
 
@@ -246,11 +347,19 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
               <Field label="What should this week’s posts help with?" required>
                 <textarea
                   value={weeklyGoal}
-                  onChange={(event) => setWeeklyGoal(event.target.value)}
+                  onChange={(event) => {
+                    setWeeklyGoal(event.target.value);
+                    dismissFieldError("weeklyGoal");
+                  }}
                   rows={3}
                   placeholder="Get more consultation calls, promote a launch, book demos..."
-                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+                  aria-invalid={fieldErrors.weeklyGoal ? true : undefined}
+                  aria-describedby={fieldErrors.weeklyGoal ? "weekly-goal-error" : undefined}
+                  className={inputClassName(!!fieldErrors.weeklyGoal)}
                 />
+                {fieldErrors.weeklyGoal ? (
+                  <p id="weekly-goal-error" className="mt-2 text-sm text-red-300">{fieldErrors.weeklyGoal}</p>
+                ) : null}
               </Field>
               <Field label="Offer or CTA">
                 <input
@@ -312,10 +421,18 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
               <Field label="Competitor URL">
                 <input
                   value={competitorUrl}
-                  onChange={(event) => setCompetitorUrl(event.target.value)}
+                  onChange={(event) => {
+                    setCompetitorUrl(event.target.value);
+                    dismissFieldError("competitorUrl");
+                  }}
                   placeholder="https://competitor.com"
-                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+                  aria-invalid={fieldErrors.competitorUrl ? true : undefined}
+                  aria-describedby={fieldErrors.competitorUrl ? "competitor-url-error" : undefined}
+                  className={inputClassName(!!fieldErrors.competitorUrl)}
                 />
+                {fieldErrors.competitorUrl ? (
+                  <p id="competitor-url-error" className="mt-2 text-sm text-red-300">{fieldErrors.competitorUrl}</p>
+                ) : null}
               </Field>
               <Field label="Facebook page URL">
                 <input

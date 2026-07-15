@@ -80,6 +80,25 @@ function periodDays(period: NarrativePeriod): number {
   return 90;
 }
 
+/**
+ * Percent change of `cur` vs the prior-period `pri`, or null when no meaningful
+ * comparison exists. Pinned by tests/insights-math-pinning.test.ts (S2-5).
+ *
+ * - `pri <= 0` → null: a freshly connected account has ~no prior-window data, and
+ *   dividing by zero/negative is meaningless (also covers both-zero).
+ * - `|delta| > 999` (or non-finite) → null: suppress the absurd magnitudes a
+ *   near-zero baseline produces (e.g. 1 → 33 = +3200%), which read as broken; the
+ *   template then falls back to the absolute value. The cutoff is strictly `> 999`,
+ *   so exactly ±999% is kept.
+ * - otherwise → Math.round(delta).
+ */
+export function trendsPctDelta(cur: number, pri: number): number | null {
+  if (pri <= 0) return null;
+  const d = ((cur - pri) / pri) * 100;
+  if (!Number.isFinite(d) || Math.abs(d) > 999) return null;
+  return Math.round(d);
+}
+
 function utcDayStart(daysAgo: number): Date {
   const d = new Date();
   d.setUTCHours(0, 0, 0, 0);
@@ -287,16 +306,8 @@ export async function buildTrendsSnapshot(
     const curEngRate  = curReach > 0 ? Math.round((curIntTotal / curReach) * 1000) / 10 : 0;
     const priEngRate  = priReach > 0 ? Math.round((priIntTotal / priReach) * 1000) / 10 : 0;
 
-    const pctDelta = (cur: number, pri: number): number | null => {
-      // No meaningful comparison without a real prior baseline — a freshly
-      // connected account has ~no data in the prior window. Also suppress the
-      // absurd magnitudes a near-zero baseline produces (e.g. 1 → 33 = +3200%),
-      // which read as broken; the template then falls back to the absolute value.
-      if (pri <= 0) return null;
-      const d = ((cur - pri) / pri) * 100;
-      if (!Number.isFinite(d) || Math.abs(d) > 999) return null;
-      return Math.round(d);
-    };
+    // pctDelta extracted to the module-level `trendsPctDelta` (pinned by S2-5).
+    const pctDelta = trendsPctDelta;
 
     // Visits available if any profile_visits data exists for this selection
     const visitsAvailable = curVisits > 0 || priVisits > 0;

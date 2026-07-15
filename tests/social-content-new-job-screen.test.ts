@@ -4,6 +4,7 @@ import test from "node:test";
 import React from "react";
 
 import { SocialContentNewJobScreenContent } from "../frontend/social-content/new-job";
+import { WEBSITE_UNREACHABLE_COPY } from "../lib/marketing-create-errors";
 
 function flushMicrotasks() {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -152,6 +153,68 @@ test("social content form submits defaults and navigates to social-content statu
       "extra logos",
     ]);
     assert.equal(pushCalls[0], "/social-content/status?jobId=job_123");
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("social content form renders server fieldErrors inline and hides raw codes (AA-131)", async () => {
+  const previousFetch = globalThis.fetch;
+  const pushCalls: string[] = [];
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        error: "brand_kit_fetch_failed",
+        message: WEBSITE_UNREACHABLE_COPY,
+        fieldErrors: { websiteUrl: WEBSITE_UNREACHABLE_COPY },
+      }),
+      { status: 422, headers: { "content-type": "application/json" } },
+    )) as typeof fetch;
+
+  try {
+    const { act, create } = await import("react-test-renderer");
+    let root!: import("react-test-renderer").ReactTestRenderer;
+
+    await act(async () => {
+      root = create(
+        React.createElement(SocialContentNewJobScreenContent, {
+          embedded: true,
+          router: {
+            push(href: string) {
+              pushCalls.push(href);
+            },
+          },
+        }),
+      );
+      await flushMicrotasks();
+    });
+
+    const websiteInput = root.root.findByProps({ placeholder: "https://yourbusiness.com" });
+    const businessTypeInput = root.root.findByProps({
+      placeholder: "Fitness studio, SaaS, local service...",
+    });
+    const goalInput = root.root.findByProps({
+      placeholder: "Get more consultation calls, promote a launch, book demos...",
+    });
+    await act(async () => {
+      websiteInput.props.onChange({ target: { value: "https://unreachable.example" } });
+      businessTypeInput.props.onChange({ target: { value: "SaaS" } });
+      goalInput.props.onChange({ target: { value: "Book demos" } });
+      await flushMicrotasks();
+    });
+
+    const form = root.root.findByType("form");
+    await act(async () => {
+      await form.props.onSubmit({ preventDefault() {} });
+      await flushMicrotasks();
+      await flushMicrotasks();
+    });
+
+    const rendered = JSON.stringify(root.toJSON());
+    const copyPattern = new RegExp(WEBSITE_UNREACHABLE_COPY.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    assert.match(rendered, copyPattern);
+    assert.doesNotMatch(rendered, /brand_kit_fetch_failed/);
+    assert.deepEqual(pushCalls, []);
   } finally {
     globalThis.fetch = previousFetch;
   }

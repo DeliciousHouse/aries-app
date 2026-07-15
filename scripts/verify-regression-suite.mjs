@@ -112,6 +112,14 @@ const steps = [
     args: ['--test', 'tests/insights-tz-boundary-agreement.test.ts'],
   },
   {
+    // S2-5/AA-96: deterministic pins for the S2-1 (latest-snapshot metric) and
+    // S2-3 (tenant-tz window) math — trends pctDelta edges, goal window
+    // boundaries incl. DST, top derive+rank. Pure + no DB; a regression here
+    // means a refactor silently changed a displayed number or window boundary.
+    name: 'insights metric/window math pinning (S2-1 + S2-3)',
+    args: ['--test', 'tests/insights-math-pinning.test.ts'],
+  },
+  {
     // S3-1/AA-97: honesty pass — no fabricated numbers posing as measured stats.
     // Dead account scores 0 (not ~50); one shared hoursSaved estimate; whyItWorked
     // uses the real multiplier not a hardcoded 1.5x/1.7x; and a copy tripwire
@@ -216,6 +224,8 @@ const steps = [
       'tests/integrations-openai-safety.test.ts',
       'tests/social-content-new-job-screen.test.ts',
       'tests/marketing-job-route.smoke.test.ts',
+      'tests/marketing-create-error-mapping.test.ts',
+      'tests/marketing-new-job-field-errors.test.ts',
       'tests/runtime-pages.test.ts',
       'tests/docs-social-content-guidance.test.ts',
       'tests/social-content-public-copy.test.ts',
