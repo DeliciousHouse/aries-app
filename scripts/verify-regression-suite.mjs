@@ -120,6 +120,14 @@ const steps = [
     args: ['--test', 'tests/insights-math-pinning.test.ts'],
   },
   {
+    // S3-1/AA-97: honesty pass — no fabricated numbers posing as measured stats.
+    // Dead account scores 0 (not ~50); one shared hoursSaved estimate; whyItWorked
+    // uses the real multiplier not a hardcoded 1.5x/1.7x; and a copy tripwire
+    // against "design accounts" / "1-3.5%" / "N.Nx your ..." reintroduction. No DB.
+    name: 'insights honesty pass (no fabricated stats)',
+    args: ['--test', 'tests/insights-honesty-pass.test.ts'],
+  },
+  {
     // 2026-07-13 duplicate-posting incident (AA-134 / PR #841) regression wall:
     // scheduler day-mapping + same-instant de-collision, the reel-companion
     // synthesis clamp, the publish-boundary duplicate/spacing guards, and the

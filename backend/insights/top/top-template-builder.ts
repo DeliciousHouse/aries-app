@@ -29,9 +29,9 @@ export interface PatternCard {
 const CONTENT_TYPE_NOTES: Record<string, string> = {
   educational:  'Educational content lifts shares and performs well across LinkedIn and Instagram.',
   promotional:  'Promotional posts perform best when paired with strong visual creative.',
-  testimonial:  'Testimonials build trust and drive saves at 1.5x your average rate.',
+  testimonial:  'Testimonials build trust and tend to earn saves.',
   announcement: 'Announcements spike reach quickly — best posted at the start of the week.',
-  lifestyle:    'Lifestyle content converts viewers to followers at 1.7x your average.',
+  lifestyle:    'Lifestyle content tends to convert viewers into followers.',
   engagement:   'Engagement posts drive comments and keep the algorithm active between launches.',
   uncategorized:'Aries is still learning your content formats — classification pending.',
 };
@@ -57,7 +57,7 @@ export function buildWhyItWorked(post: TopPost, avgReach: number): string {
     } else if (ct === 'educational') {
       parts.push(`${ctLabel} content performs disproportionately well on ${platformName(post.platform)} for your niche.`);
     } else if (ct === 'testimonial') {
-      parts.push(`${ctLabel} content builds trust and drives saves at 1.5x your typical rate.`);
+      parts.push(`${ctLabel} content builds trust and tends to earn saves.`);
     } else if (ct === 'announcement') {
       parts.push(`${ctLabel} posts tend to spike reach in the first 24 hours — timing the publish matters.`);
     } else if (ct === 'promotional') {

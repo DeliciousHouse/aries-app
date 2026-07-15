@@ -30,7 +30,11 @@ import crypto from 'crypto';
 // v5: S2-3 — the period window is computed in the tenant's business timezone, and
 // each post's date label + best-weekday now render in that zone (not UTC), so a
 // late-evening post's weekday/label and window membership change. Invalidates v4.
-const TEMPLATE_VERSION = 'top-v5';
+// v6: S3-1 (AA-97) honesty pass — whyItWorked + pattern-card notes no longer
+// claim a hardcoded "1.5x/1.7x your rate" (fabricated stat posing as measured);
+// replaced with qualitative content-type copy. Real derived claims (post
+// multiplier, save rate) are unchanged. Bump invalidates stale v5 bodies.
+const TEMPLATE_VERSION = 'top-v6';
 const CACHE_TTL_MS     = 60 * 60 * 1000;
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);

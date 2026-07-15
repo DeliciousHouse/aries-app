@@ -29,7 +29,11 @@ import crypto from 'crypto';
 // post (not SUM across dated cumulative rows), so the chosen title can change.
 // (The headline trends numbers are account-level and unchanged.) Bump
 // invalidates stale v3 bodies.
-const TEMPLATE_VERSION = 'trends-v4';
+// v5: S3-1 (AA-97) honesty pass — the engagement + visit-to-follow interpretation
+// copy no longer cites a fabricated "1–3.5% range for design accounts" benchmark
+// or assumes a "design accounts" niche (the tenant is not a design account); the
+// copy is now niche-neutral with no invented statistic. Bump invalidates v4.
+const TEMPLATE_VERSION = 'trends-v5';
 const CACHE_TTL_MS     = 60 * 60 * 1000; // 1 hour
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);

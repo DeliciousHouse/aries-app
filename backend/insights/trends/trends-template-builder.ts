@@ -113,7 +113,7 @@ function buildEngagementDisplay(snap: TrendsSnapshot): MetricDisplay {
 
   let interpretation: string;
   if (value >= 5) {
-    interpretation = `Engagement is strong — your audience is more active than the typical 1–3.5% range for design accounts.`;
+    interpretation = `Engagement is strong for this period — your audience is highly active.`;
   } else if (value >= 3.5) {
     interpretation = `Engagement is healthy — within the upper range for accounts your size.`;
   } else {
@@ -205,7 +205,7 @@ function buildVisitsDisplay(snap: TrendsSnapshot): MetricDisplay {
   if (convNum >= 7) {
     interpretation = `Strong visit-to-follow conversion — visitors are finding what they came for.`;
   } else if (convNum >= 4) {
-    interpretation = `Healthy visit-to-follow rate — typical for design accounts at your stage.`;
+    interpretation = `Healthy visit-to-follow rate — a good sign visitors find what they came for.`;
   } else {
     interpretation = `Conversion is on the lower side — a clear bio and strong pinned post tend to lift this.`;
   }
