@@ -578,6 +578,9 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                   </Field>
                   <Field label="Post end date" required>
                     <div
+                      role="group"
+                      aria-label="Post end date"
+                      aria-describedby={fieldErrorFor('oneOff.campaignEndDate') ? 'one-off-end-date-error' : undefined}
                       data-field-invalid={fieldErrorFor('oneOff.campaignEndDate') ? 'true' : undefined}
                       tabIndex={-1}
                     >
@@ -636,6 +639,9 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                       </Field>
                       <Field label="Milestone date">
                         <div
+                          role="group"
+                          aria-label="Milestone date"
+                          aria-describedby={fieldErrorFor('oneOff.milestoneDate') ? 'one-off-milestone-date-error' : undefined}
                           data-field-invalid={fieldErrorFor('oneOff.milestoneDate') ? 'true' : undefined}
                           tabIndex={-1}
                         >
