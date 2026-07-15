@@ -24,6 +24,7 @@ import {
   normalizeMetaPageId,
   validateCanonicalCompetitorUrl,
 } from '@/lib/marketing-competitor';
+import { mapMarketingCreateFailure } from '@/lib/marketing-create-errors';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
 const MARKETING_ONBOARDING_REQUIRED = {
@@ -496,7 +497,11 @@ export async function handlePostMarketingJobs(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message === COMPETITOR_URL_SOCIAL_ERROR || message === COMPETITOR_URL_INVALID_ERROR) {
-      return NextResponse.json({ error: message }, { status: 400 });
+      // fieldErrors keys the inline red highlight on the competitor input.
+      return NextResponse.json(
+        { error: message, message, fieldErrors: { competitorUrl: message } },
+        { status: 400 },
+      );
     }
     throw error;
   }
@@ -579,16 +584,36 @@ export async function handlePostMarketingJobs(
     if (message.startsWith('workflow_missing_for_route:')) {
       return NextResponse.json({ error: message, reason: 'workflow_missing_for_route' }, { status: 501 });
     }
-    if (message.startsWith('brand_kit_')) {
-      return NextResponse.json({ error: message }, { status: 422 });
+    // Operator-actionable failures (brand-kit fetch/extraction, missing
+    // required fields) return structured fieldErrors keyed by the create
+    // form's field names, so the form highlights the exact input to fix
+    // (AA-131). The raw message — which can carry an inner fetch/DNS cause —
+    // stays server-side in this log line and never reaches the browser.
+    const createFailure = mapMarketingCreateFailure(message);
+    if (createFailure) {
+      console.warn('[marketing-job-create] rejected', { error: message });
+      return NextResponse.json(
+        {
+          error: createFailure.error,
+          message: createFailure.message,
+          ...(createFailure.fieldErrors ? { fieldErrors: createFailure.fieldErrors } : {}),
+        },
+        { status: createFailure.status },
+      );
     }
     if (
-      message.startsWith('missing_required_fields:') ||
       message.startsWith('unsupported_job_type:') ||
       message === COMPETITOR_URL_SOCIAL_ERROR ||
       message === COMPETITOR_URL_INVALID_ERROR
     ) {
-      return NextResponse.json({ error: message }, { status: 400 });
+      const fieldErrors =
+        message === COMPETITOR_URL_SOCIAL_ERROR || message === COMPETITOR_URL_INVALID_ERROR
+          ? { competitorUrl: message }
+          : undefined;
+      return NextResponse.json(
+        { error: message, ...(fieldErrors ? { message, fieldErrors } : {}) },
+        { status: 400 },
+      );
     }
 
     console.error('[marketing-job-create] unhandled error', {

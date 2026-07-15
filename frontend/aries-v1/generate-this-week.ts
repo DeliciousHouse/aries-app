@@ -206,7 +206,10 @@ export async function submitGenerateThisWeek(
 
   const jobId = readString(parsed, 'jobId');
   const jobStatusUrl = readString(parsed, 'jobStatusUrl');
-  const rawError = readString(parsed, 'error') ?? readString(parsed, 'message');
+  // Prefer the operator-facing sentence (`message`) the jobs handler now sends
+  // alongside the machine-readable `error` code; fall back to the code for
+  // older/unmapped response shapes.
+  const rawError = readString(parsed, 'message') ?? readString(parsed, 'error');
 
   return {
     ok: response.ok,
