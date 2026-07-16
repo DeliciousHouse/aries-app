@@ -128,6 +128,20 @@ const steps = [
     args: ['--test', 'tests/insights-honesty-pass.test.ts'],
   },
   {
+    // S3-2 (gap C1): insights_posts.content_type production writer. The pure
+    // caption-keyword classifier (6-bucket coverage, tie-break precedence,
+    // null-on-no-signal, vocabulary-lock, and the seed/top-template-builder
+    // drift tripwire) plus the dispatcher upsert seam proving the INSERT binds
+    // content_type and the ON CONFLICT clause COALESCE-preserves an already
+    // classified row. Pure/in-memory, no DB.
+    name: 'insights content_type classifier + dispatcher upsert seam',
+    args: [
+      '--test',
+      'tests/insights-content-type-classify.test.ts',
+      'tests/insights-dispatcher-leg-isolation.test.ts',
+    ],
+  },
+  {
     // 2026-07-13 duplicate-posting incident (AA-134 / PR #841) regression wall:
     // scheduler day-mapping + same-instant de-collision, the reel-companion
     // synthesis clamp, the publish-boundary duplicate/spacing guards, and the

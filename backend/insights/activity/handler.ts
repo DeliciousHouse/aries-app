@@ -27,7 +27,11 @@ import crypto from 'crypto';
 // v5: S2-3 — the period window is now computed in the tenant's business timezone,
 // so which posts/comments fall in-window (and thus the counts, high-performer set,
 // hours-saved, and content mix) shift near the day boundary. Bump invalidates v4.
-const TEMPLATE_VERSION = 'activity-v5';
+// v6: S3-2 — insights_posts.content_type is now derived at sync (previously
+// always NULL outside the demo seed), so the content-mix donut and
+// pendingClassification count shift from an all-"uncategorized" cache row to
+// real buckets on the next fetch. Bump invalidates stale v5 bodies.
+const TEMPLATE_VERSION = 'activity-v6';
 const CACHE_TTL_MS     = 60 * 60 * 1000; // 1 hour
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);

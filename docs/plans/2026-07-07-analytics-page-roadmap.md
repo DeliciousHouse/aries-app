@@ -9,6 +9,8 @@
 
 - 2026-07-07 — Initial plan (post gap-verification + four-lens review). Decisions ratified per S1-10 get recorded here.
 - 2026-07-07 — Analytics workstream assigned to Hammad Latif (@HammadLatif-codes).
+- 2026-07-16 — Flag-flip row 1 executed (S1-11/B1): `ARIES_COMMENT_CLASSIFICATION_ENABLED` compose default flipped to `:-1` on the `aries-insights-sync-worker` service. Precondition holds (Hermes creds ride the same host `.env` that `aries-app` already requires). Post-deploy verify per the checklist: `insights_sync_runs` not `partial` from the classify leg; first batch label-quality-reviewed (labels frozen until S4-3 re-classify path); Conversations sentiment real.
+- 2026-07-16 — S3-2 planned: see `docs/plans/2026-07-16-content-type-production-writer.md` (post-classification / `content_type` production writer).
 
 ---
 

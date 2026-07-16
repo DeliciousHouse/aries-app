@@ -29,6 +29,7 @@ import pool from '@/lib/db';
 import { isSupportedPlatform, type Platform } from '../platforms/registry';
 import { getAdapter } from './adapter-factory';
 import { classifyCommentsWithHermes, isCommentClassificationEnabled, MAX_CLASSIFY_BATCH } from './classify-comments';
+import { classifyPostContentType } from './classify-post';
 import type { DateRange, InsightsAdapter, InsightsAdapterContext } from '../adapters/_adapter.types';
 import type { SyncTrigger, SyncStatus } from '../types';
 import { getConnectionRow } from '@/backend/integrations/composio/connection-store';
@@ -198,17 +199,29 @@ export async function syncAccountForTenant(
     }
 
     for (const rp of rawPosts) {
+      // Caption-keyword theme heuristic (backend/insights/sync/classify-post.ts).
+      // Pure/in-process — no new query, no fan-out. NULL when no confident
+      // match; the ON CONFLICT clause below never clobbers an already-stamped
+      // value (COALESCE-preserve), so a later sync can only fill NULL rows,
+      // never overwrite one classified by this heuristic, the seed, or a
+      // future LLM leg.
+      const contentType = classifyPostContentType({
+        caption: rp.caption,
+        title: rp.title,
+        mediaType: rp.mediaType,
+      });
       await client.query(
         `INSERT INTO insights_posts
            (tenant_id, account_id, platform, external_post_id,
             published_at, media_type, title, caption, permalink,
-            duration_seconds, platform_data)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            duration_seconds, platform_data, content_type)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
          ON CONFLICT (tenant_id, platform, external_post_id)
            DO UPDATE SET
              title         = EXCLUDED.title,
              caption       = EXCLUDED.caption,
-             platform_data = EXCLUDED.platform_data`,
+             platform_data = EXCLUDED.platform_data,
+             content_type  = COALESCE(insights_posts.content_type, EXCLUDED.content_type)`,
         [
           tenantId, accountId, platform, rp.externalPostId,
           rp.publishedAt, rp.mediaType,
@@ -216,6 +229,7 @@ export async function syncAccountForTenant(
           rp.durationSeconds,
           // thumbnail_url has no dedicated column — stored in platform_data
           JSON.stringify({ thumbnailUrl: rp.thumbnailUrl }),
+          contentType,
         ],
       );
       postsSeen++;
