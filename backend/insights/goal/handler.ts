@@ -32,7 +32,11 @@ import crypto from 'crypto';
 // (lead-gen received_at instant; content_growth/product_sales/brand_awareness
 // account-daily windows as tenant-tz calendar dates), so which rows fall in the
 // current vs prior window shifts near the day boundary. Bump invalidates v5.
-const TEMPLATE_VERSION = 'goal-template-v6';
+// v7: S3-2 — insights_posts.content_type is now derived at sync (previously
+// always NULL outside the demo seed), so goal category buckets shift from an
+// all-"other" cache row to real named buckets on the next fetch. Bump
+// invalidates stale v6 bodies.
+const TEMPLATE_VERSION = 'goal-template-v7';
 const CACHE_TTL_MS     = 60 * 60 * 1000;
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);

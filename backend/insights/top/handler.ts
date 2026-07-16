@@ -34,7 +34,11 @@ import crypto from 'crypto';
 // claim a hardcoded "1.5x/1.7x your rate" (fabricated stat posing as measured);
 // replaced with qualitative content-type copy. Real derived claims (post
 // multiplier, save rate) are unchanged. Bump invalidates stale v5 bodies.
-const TEMPLATE_VERSION = 'top-v6';
+// v7: S3-2 — insights_posts.content_type is now derived at sync (previously
+// always NULL outside the demo seed), so whyItWorked's content-type sentence
+// and the pattern-card breakdown shift from all-"uncategorized" to real
+// buckets on the next fetch. Bump invalidates stale v6 bodies.
+const TEMPLATE_VERSION = 'top-v7';
 const CACHE_TTL_MS     = 60 * 60 * 1000;
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);

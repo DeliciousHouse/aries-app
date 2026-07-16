@@ -1241,9 +1241,13 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_insights_llm_calls_tenant_called_at
         ON insights_llm_calls (tenant_id, called_at DESC);
 
-      -- content_type is set by Hermes at generation time on the posts table.
-      -- It is propagated to insights_posts on sync so the analytics module
-      -- stays self-contained (no cross-domain JOIN needed for content mix queries).
+      -- content_type is derived at sync time by a caption-keyword heuristic
+      -- (backend/insights/sync/classify-post.ts), stamped inline in the
+      -- fetchPostList upsert (backend/insights/sync/dispatcher.ts) and
+      -- backfilled for pre-existing rows by scripts/backfill-insights-content-type.ts.
+      -- It is COALESCE-preserved on re-sync (a stamped value is never
+      -- clobbered), so the analytics module stays self-contained without a
+      -- cross-domain JOIN for content-mix queries.
       -- aries_post_id links each analytics row back to its Aries-generated source post,
       -- enforcing the Aries-only analytics scope.
       ALTER TABLE insights_posts ADD COLUMN IF NOT EXISTS content_type TEXT;
