@@ -691,9 +691,15 @@ services:
       COMPOSIO_ENABLED: ${COMPOSIO_ENABLED:-false}
       COMPOSIO_API_KEY: ${COMPOSIO_API_KEY:-}
       # Comment sentiment/lead/category classification via a raw Hermes run
-      # (backend/insights/sync/classify-comments.ts). Default OFF; needs the
-      # Hermes gateway creds below. Best-effort — never breaks the sync tick.
-      ARIES_COMMENT_CLASSIFICATION_ENABLED: ${ARIES_COMMENT_CLASSIFICATION_ENABLED:-0}
+      # (backend/insights/sync/classify-comments.ts). Shipped default ON
+      # (roadmap flag-flip row 1, S1-11) — powers Conversations sentiment,
+      # "What people are asking", goal/attention lead counts, and trends/top
+      # sentiment. Needs the Hermes gateway creds below (already required by
+      # aries-app; same host .env). If creds are ABSENT with the flag on, every
+      # sync run downgrades to 'partial' with classifyComments: not_configured —
+      # deliberate visibility, not breakage (all other legs still persist).
+      # Best-effort — never breaks the sync tick. Set 0 to disable.
+      ARIES_COMMENT_CLASSIFICATION_ENABLED: ${ARIES_COMMENT_CLASSIFICATION_ENABLED:-1}
       HERMES_GATEWAY_URL: ${HERMES_GATEWAY_URL:-}
       HERMES_API_SERVER_KEY: ${HERMES_API_SERVER_KEY:-}
       HERMES_COMMENT_CLASSIFY_MODEL: ${HERMES_COMMENT_CLASSIFY_MODEL:-}
