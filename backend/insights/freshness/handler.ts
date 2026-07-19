@@ -16,14 +16,8 @@
 import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
+import { resolveInsightsStaleMs } from './config';
 import { computeFreshness, type AccountSyncRow } from './freshness-logic';
-
-// Stale after ~2 sync ticks (the worker runs every 30 min). Env-tunable.
-function staleMs(env: NodeJS.ProcessEnv = process.env): number {
-  const raw = Number(env.ARIES_INSIGHTS_STALE_MINUTES);
-  const minutes = Number.isFinite(raw) && raw > 0 ? raw : 60;
-  return minutes * 60_000;
-}
 
 async function queryAccountSyncState(tenantId: number): Promise<AccountSyncRow[]> {
   const res = await pool.query<{
@@ -73,7 +67,7 @@ export async function handleGetInsightsFreshness(
 
   const tenantId = Number(tenantResult.tenantContext.tenantId);
   const rows     = await queryAccountSyncState(tenantId);
-  const freshness = computeFreshness(rows, new Date(), staleMs());
+  const freshness = computeFreshness(rows, new Date(), resolveInsightsStaleMs());
 
   // no-store: the freshness stamp must never be served stale.
   return NextResponse.json(freshness, { headers: { 'Cache-Control': 'no-store' } });

@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.30.0 — feat(integrations): show account-specific sync freshness
+
+Connected integration cards now expose when the selected account last completed
+an insights sync, with freshness semantics shared with the Insights dashboard.
+
+### Added
+
+- The integrations status response includes account-matched `last_synced_at` and
+  `sync_state` telemetry from one tenant-scoped query, so a historical account on
+  the same provider cannot lend its timestamp to the currently connected card.
+- Connected cards render the localized last-sync time plus stable current,
+  stale, and never-synced states; disconnected cards keep the existing copy.
+
+### Changed
+
+- Insights freshness and integration-card staleness now share the same
+  `ARIES_INSIGHTS_STALE_MINUTES` configuration and 60-minute default.
+
 ## v0.1.29.0 — feat(marketing): AI-derived per-platform posting times (flag-gated, default OFF)
 
 Posting times are no longer a fixed set time. Behind `ARIES_AI_POSTING_TIMES_ENABLED`

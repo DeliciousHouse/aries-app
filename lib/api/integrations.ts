@@ -21,6 +21,7 @@ export type IntegrationConnectionState =
   | 'reauth_required'
   | 'disabled';
 export type IntegrationHealth = 'unknown' | 'healthy' | 'degraded' | 'error';
+export type IntegrationSyncState = 'current' | 'stale' | 'never_synced';
 export type IntegrationCardAction =
   | 'connect'
   | 'reconnect'
@@ -62,6 +63,7 @@ export interface IntegrationCard {
   health: IntegrationHealth;
   available_actions: IntegrationCardAction[];
   last_synced_at: string | null;
+  sync_state?: IntegrationSyncState;
   expires_at?: string | null;
   permissions: IntegrationPermission[];
   connected_account?: IntegrationConnectedAccount;
