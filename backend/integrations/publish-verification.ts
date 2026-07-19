@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
 
+import { stampInsightsPostAttribution } from '../insights/sync/attribution-writer';
 import { getDecryptedAccessTokenForTenantProvider } from './oauth-credentials';
 
 export type PublishedStatus = 'published' | 'unverified';
@@ -117,6 +118,33 @@ export type PersistPublishedPostArgs = {
   creativeAssetIds?: string[] | null;
 };
 
+async function stampPublishedPostAttributionBestEffort(
+  args: PersistPublishedPostArgs,
+  postId: string,
+  db: Pool,
+  platformPostId = args.platformPostId,
+): Promise<void> {
+  if (!args.platform) return;
+  try {
+    await stampInsightsPostAttribution({
+      db,
+      tenantId: args.tenantId,
+      ariesPostId: postId,
+      platform: args.platform,
+      platformPostId,
+    });
+  } catch (error) {
+    // Attribution is additive analytics metadata. A transient write failure
+    // must never turn a confirmed platform publish into an application error.
+    console.warn('[publish-verification] insights attribution stamp failed', {
+      tenantId: args.tenantId,
+      postId,
+      platform: args.platform,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 /**
  * Lookup an existing posts row by idempotency key. Returns the row if found,
  * null otherwise. Callers should check this before inserting to short-circuit
@@ -149,6 +177,12 @@ export async function persistPublishedPost(
       db,
     );
     if (existing) {
+      await stampPublishedPostAttributionBestEffort(
+        args,
+        existing.postId,
+        db,
+        existing.platformPostId ?? args.platformPostId,
+      );
       return { postId: existing.postId };
     }
   }
@@ -191,12 +225,20 @@ export async function persistPublishedPost(
         db,
       );
       if (existing) {
+        await stampPublishedPostAttributionBestEffort(
+          args,
+          existing.postId,
+          db,
+          existing.platformPostId ?? args.platformPostId,
+        );
         return { postId: existing.postId };
       }
     }
     throw new Error('publish_verification_persist_failed:no_id_returned');
   }
-  return { postId: String(row.id) };
+  const postId = String(row.id);
+  await stampPublishedPostAttributionBestEffort(args, postId, db);
+  return { postId };
 }
 
 export async function updatePostPublishedStatus(

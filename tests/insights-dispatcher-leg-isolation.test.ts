@@ -129,16 +129,17 @@ test('S3-2: insights_posts INSERT binds content_type and DO UPDATE preserves it 
   assert.ok(postInsert, 'insights_posts upsert ran');
 
   // Anchored BEFORE the VALUES keyword — this is the actual INSERT column
-  // list, not a substring match that also happens to hit the unrelated
-  // `EXCLUDED.content_type)` reference inside the ON CONFLICT clause below.
+  // list, not a substring match that also happens to hit unrelated EXCLUDED
+  // references inside the ON CONFLICT clause below. AA-99 appends
+  // aries_post_id, resolved from the platform id without an extra parameter.
   // A prior version of this assertion (/[\s\S]*content_type\s*\)/, no VALUES
   // anchor) was a confirmed false-pass: it matched even if content_type were
   // dropped from the actual INSERT column list, because the regex was
   // satisfied by "EXCLUDED.content_type)" further down the same string.
   assert.match(
     postInsert!.text,
-    /platform_data,\s*content_type\s*\)\s*VALUES/i,
-    'INSERT column list ends with (..., platform_data, content_type) VALUES — content_type is a real bound INSERT column, not just referenced in ON CONFLICT',
+    /platform_data,\s*content_type,\s*aries_post_id\s*\)\s*VALUES/i,
+    'INSERT column list includes content_type and aries_post_id before VALUES',
   );
   // The 12th positional placeholder must appear in the VALUES tuple (content_type
   // is the 12th bound column per the source comment).
@@ -162,6 +163,21 @@ test('S3-2: insights_posts INSERT binds content_type and DO UPDATE preserves it 
     postInsert!.text,
     /content_type\s*=\s*COALESCE\(\s*insights_posts\.content_type\s*,\s*EXCLUDED\.content_type\s*\)/i,
     'ON CONFLICT DO UPDATE must preserve an existing content_type via COALESCE, never blind-overwrite it',
+  );
+  assert.match(
+    postInsert!.text,
+    /SELECT\s+p\.id[\s\S]*FROM\s+posts\s+p[\s\S]*p\.platform_post_id\s*=\s*\$4/i,
+    'the sync upsert preserves the legacy posts.platform_post_id fallback',
+  );
+  assert.match(
+    postInsert!.text,
+    /scheduled_post_dispatches[\s\S]*platform_post_id\s*=\s*\$4/i,
+    'the sync upsert recovers non-first ids from scheduled dispatch children',
+  );
+  assert.match(
+    postInsert!.text,
+    /aries_post_id\s*=\s*COALESCE\(\s*insights_posts\.aries_post_id\s*,\s*EXCLUDED\.aries_post_id\s*\)/i,
+    'a later sync fills NULL attribution without overwriting an existing link',
   );
   // The caption is unambiguously promotional ("% off" + "shop now") — the
   // last bound param is the classified value threaded through to the INSERT.
