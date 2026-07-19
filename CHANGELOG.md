@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.29.1 — docs(insights): rebase weekly-results MVP plan
+
+Rebased the Weekly Results implementation plan against the shipped Insights
+pipeline so follow-on work starts from repository truth rather than the stale
+assumption that post analytics are unavailable.
+
+### Changed
+
+- Documented the as-built Results route, read/snapshot architecture, schema and
+  feature-flag gates, platform metric capabilities, freshness behavior, and
+  current production unknowns with concrete file and symbol references.
+- Locked a read-only, views-based MVP with metric-correctness and attribution
+  prerequisites, truthful fallback behavior, explicit non-goals, default-off
+  rollout/rollback steps, test coverage, and human-floor live verification.
+- Added implementation-ready response, ranking, insufficient-data, failure,
+  privacy, and tenant-isolation contracts for the follow-on report ticket.
+
 ## v0.1.29.0 — feat(marketing): AI-derived per-platform posting times (flag-gated, default OFF)
 
 Posting times are no longer a fixed set time. Behind `ARIES_AI_POSTING_TIMES_ENABLED`
