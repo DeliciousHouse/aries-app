@@ -66,6 +66,7 @@ function attributionPool(state: AttributionState) {
         const scheduledLookupOffset = text.indexOf('scheduled_post_dispatches');
         const legacyLookupOffset = text.indexOf('FROM posts p');
         const scheduledTenantScoped = /sp\.tenant_id\s*=\s*\$1/i.test(text);
+        const scheduledSourceTenantScoped = /JOIN\s+posts\s+scheduled_source[\s\S]*scheduled_source\.tenant_id\s*=\s*sp\.tenant_id/i.test(text);
         const scheduledPlatformScoped = /lower\(d\.platform\)[\s\S]*lower\(\$3::text\)/i.test(text);
         const scheduledExternalIdScoped = /d\.platform_post_id\s*=\s*\$4/i.test(text);
         const scheduledStatusScoped = /d\.status\s*=\s*'dispatched'/i.test(text);
@@ -79,6 +80,8 @@ function attributionPool(state: AttributionState) {
                 (scheduledPost) => scheduledPost.id === dispatch.scheduledPostId,
               );
               if (!parent) return false;
+              const sourcePost = state.sourcePosts.find((post) => post.id === parent.postId);
+              if (scheduledSourceTenantScoped && sourcePost?.tenantId !== parent.tenantId) return false;
               if (scheduledStatusScoped && dispatch.status !== 'dispatched') return false;
               if (scheduledTenantScoped && parent.tenantId !== tenantId) return false;
               if (scheduledPlatformScoped && normalizePlatform(dispatch.platform) !== normalizePlatform(platform)) return false;
@@ -172,11 +175,16 @@ function scheduledCrossPostState(): AttributionState {
     scheduledPosts: [
       { id: 72, tenantId: 43, postId: 906 },
       { id: 73, tenantId: 42, postId: 907 },
+      // Corrupt cross-tenant source linkage is possible without a composite
+      // database constraint and must not escape the lookup's tenant boundary.
+      { id: 74, tenantId: 42, postId: 906 },
       { id: 71, tenantId: 42, postId: 905 },
     ],
     dispatches: [
       // Same external id in the wrong tenant and on the wrong platform must
-      // never win attribution. They come first so an unscoped lookup fails.
+      // never win attribution. The first row also points from a tenant-42
+      // schedule to a tenant-43 source post; all decoys precede the valid row.
+      { id: 0, scheduledPostId: 74, platform: 'instagram', platformPostId: 'ig_second_905', status: 'dispatched' },
       { id: 1, scheduledPostId: 72, platform: 'instagram', platformPostId: 'ig_second_905', status: 'dispatched' },
       { id: 2, scheduledPostId: 73, platform: 'facebook', platformPostId: 'ig_second_905', status: 'dispatched' },
       { id: 3, scheduledPostId: 71, platform: 'facebook', platformPostId: 'fb_first_905', status: 'dispatched' },

@@ -56,11 +56,14 @@ const CANDIDATE_QUERY = `
 
       UNION ALL
 
-      SELECT sp.post_id AS aries_post_id,
+      SELECT scheduled_source.id AS aries_post_id,
              1 AS source_priority,
              d.dispatched_at AS event_at
       FROM scheduled_post_dispatches d
       JOIN scheduled_posts sp ON sp.id = d.scheduled_post_id
+      JOIN posts scheduled_source
+        ON scheduled_source.id = sp.post_id
+       AND scheduled_source.tenant_id = sp.tenant_id
       WHERE sp.tenant_id = ip.tenant_id
         AND d.status = 'dispatched'
         AND d.platform_post_id = ip.external_post_id

@@ -567,7 +567,7 @@ export async function POST(req: Request): Promise<Response> {
       .query<{ job_id: string | null }>(
         `UPDATE posts
        SET published_status = 'published',
-           platform_post_id = COALESCE($2, platform_post_id),
+           platform_post_id = COALESCE(platform_post_id, $2),
            published_at = COALESCE(published_at, now())
        WHERE id = $1 AND tenant_id = $3
        RETURNING job_id`,

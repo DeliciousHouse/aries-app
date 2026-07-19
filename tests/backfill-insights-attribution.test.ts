@@ -60,6 +60,7 @@ function buildFakeDb(state: {
         const [cursor, batchSize, tenantFilter] = params as [number, number, number | null];
         const hasScheduledSource = /scheduled_post_dispatches/i.test(sql);
         const scheduledTenantScoped = /sp\.tenant_id\s*=\s*ip\.tenant_id/i.test(sql);
+        const scheduledSourceTenantScoped = /JOIN\s+posts\s+scheduled_source[\s\S]*scheduled_source\.tenant_id\s*=\s*sp\.tenant_id/i.test(sql);
         const scheduledPlatformScoped = /lower\(d\.platform\)[\s\S]*lower\(ip\.platform\)/i.test(sql);
         const scheduledExternalIdScoped = /d\.platform_post_id\s*=\s*ip\.external_post_id/i.test(sql);
         const scheduledStatusScoped = /d\.status\s*=\s*'dispatched'/i.test(sql);
@@ -84,6 +85,8 @@ function buildFakeDb(state: {
               for (const dispatch of state.dispatches) {
                 const parent = state.scheduledPosts.find((row) => row.id === dispatch.scheduledPostId);
                 if (!parent) continue;
+                const sourcePost = state.posts.find((post) => post.id === parent.postId);
+                if (scheduledSourceTenantScoped && sourcePost?.tenantId !== parent.tenantId) continue;
                 if (scheduledTenantScoped && parent.tenantId !== insight.tenantId) continue;
                 if (scheduledPlatformScoped && normalizePlatform(dispatch.platform) !== normalizePlatform(insight.platform)) continue;
                 if (scheduledExternalIdScoped && dispatch.platformPostId !== insight.externalPostId) continue;
@@ -145,9 +148,13 @@ function fixtures() {
       { id: 71, tenantId: 15, postId: 101 },
       { id: 72, tenantId: 16, postId: 103 },
       { id: 73, tenantId: 15, postId: 104 },
+      // Cross-tenant parent/source mismatch: schema lacks a composite FK, so
+      // lookup SQL must independently prove the source post belongs to tenant 15.
+      { id: 74, tenantId: 15, postId: 103 },
     ] satisfies ScheduledPostRow[],
     dispatches: [
       // Later decoys ensure the lookup really is tenant- and platform-scoped.
+      { scheduledPostId: 74, platform: 'instagram', platformPostId: 'ig_second_101', status: 'dispatched', dispatchedAt: '2026-07-23T00:00:00Z' },
       { scheduledPostId: 72, platform: 'instagram', platformPostId: 'ig_second_101', status: 'dispatched', dispatchedAt: '2026-07-21T00:00:00Z' },
       { scheduledPostId: 73, platform: 'facebook', platformPostId: 'ig_second_101', status: 'dispatched', dispatchedAt: '2026-07-20T00:00:00Z' },
       { scheduledPostId: 71, platform: 'facebook', platformPostId: 'fb_first_101', status: 'dispatched', dispatchedAt: '2026-07-18T00:00:00Z' },

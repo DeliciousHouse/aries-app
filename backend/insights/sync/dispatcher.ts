@@ -214,9 +214,12 @@ export async function syncAccountForTenant(
         `WITH resolved_attribution AS (
            SELECT COALESCE(
              (
-               SELECT sp.post_id
+               SELECT scheduled_source.id
                FROM scheduled_post_dispatches d
                JOIN scheduled_posts sp ON sp.id = d.scheduled_post_id
+               JOIN posts scheduled_source
+                 ON scheduled_source.id = sp.post_id
+                AND scheduled_source.tenant_id = sp.tenant_id
                WHERE sp.tenant_id = $1
                  AND d.status = 'dispatched'
                  AND d.platform_post_id = $4
