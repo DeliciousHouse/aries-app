@@ -166,6 +166,46 @@ export async function findPostByIdempotencyKey(args: {
   return { postId: String(row.id), platformPostId: row.platform_post_id ?? null };
 }
 
+async function repairExistingPlatformPostIdFirstWriteWins(
+  args: PersistPublishedPostArgs,
+  existing: { postId: string; platformPostId: string | null },
+  db: Pool,
+): Promise<string> {
+  if (existing.platformPostId) return existing.platformPostId;
+
+  const platform = args.platform;
+  const idempotencyKey = args.idempotencyKey;
+  if (!platform || !idempotencyKey) return args.platformPostId;
+
+  const repaired = await db.query<{ platform_post_id: string | null }>(
+    `UPDATE posts
+        SET platform_post_id = COALESCE(platform_post_id, $1),
+            updated_at = CASE WHEN platform_post_id IS NULL THEN now() ELSE updated_at END
+      WHERE id = $2
+        AND tenant_id = $3
+        AND platform = $4
+        AND idempotency_key = $5
+      RETURNING platform_post_id`,
+    [args.platformPostId, existing.postId, args.tenantId, platform, idempotencyKey],
+  );
+  return repaired.rows?.[0]?.platform_post_id ?? args.platformPostId;
+}
+
+async function reconcileExistingPublishedPost(
+  args: PersistPublishedPostArgs,
+  existing: { postId: string; platformPostId: string | null },
+  db: Pool,
+): Promise<{ postId: string }> {
+  const platformPostId = await repairExistingPlatformPostIdFirstWriteWins(args, existing, db);
+  await stampPublishedPostAttributionBestEffort(
+    args,
+    existing.postId,
+    db,
+    platformPostId,
+  );
+  return { postId: existing.postId };
+}
+
 export async function persistPublishedPost(
   args: PersistPublishedPostArgs,
   db: Pool,
@@ -177,13 +217,7 @@ export async function persistPublishedPost(
       db,
     );
     if (existing) {
-      await stampPublishedPostAttributionBestEffort(
-        args,
-        existing.postId,
-        db,
-        existing.platformPostId ?? args.platformPostId,
-      );
-      return { postId: existing.postId };
+      return reconcileExistingPublishedPost(args, existing, db);
     }
   }
 
@@ -225,13 +259,7 @@ export async function persistPublishedPost(
         db,
       );
       if (existing) {
-        await stampPublishedPostAttributionBestEffort(
-          args,
-          existing.postId,
-          db,
-          existing.platformPostId ?? args.platformPostId,
-        );
-        return { postId: existing.postId };
+        return reconcileExistingPublishedPost(args, existing, db);
       }
     }
     throw new Error('publish_verification_persist_failed:no_id_returned');
