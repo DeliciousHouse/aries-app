@@ -8,6 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { computeFreshness, type AccountSyncRow } from '../backend/insights/freshness/freshness-logic';
+import { resolveInsightsStaleMs } from '../backend/insights/freshness/config';
 import { handleGetInsightsFreshness } from '../backend/insights/freshness/handler';
 import pool from '../lib/db';
 
@@ -18,6 +19,12 @@ const ago = (mins: number) => new Date(NOW.getTime() - mins * MIN);
 
 const row = (over: Partial<AccountSyncRow>): AccountSyncRow => ({
   platform: 'facebook', displayName: 'FB', latestStatus: 'ok', lastSuccessAt: ago(10), ...over,
+});
+
+test('shared insights freshness threshold defaults to two ticks and honors a positive override', () => {
+  assert.equal(resolveInsightsStaleMs({}), 60 * MIN);
+  assert.equal(resolveInsightsStaleMs({ ARIES_INSIGHTS_STALE_MINUTES: '90' }), 90 * MIN);
+  assert.equal(resolveInsightsStaleMs({ ARIES_INSIGHTS_STALE_MINUTES: 'invalid' }), 60 * MIN);
 });
 
 test('fresh: recent ok sync → status fresh, dataAsOf = that sync', () => {
