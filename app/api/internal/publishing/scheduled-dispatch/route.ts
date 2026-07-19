@@ -341,6 +341,33 @@ export function deriveDispatchRetryable(error: unknown): boolean {
   return true;
 }
 
+export type ScheduledDispatchResult = {
+  provider: string;
+  ok: boolean;
+  platformPostId?: string;
+  error?: string;
+  retryable?: boolean;
+  // Informational failure taxonomy so the worker can surface *why* a terminal
+  // row failed (e.g. an expired token → reconnect). Does NOT change the retry
+  // policy — `retryable` alone drives pending-vs-failed.
+  kind?: MetaPublishFailureKind;
+};
+
+export function buildScheduledDispatchSuccessResult(
+  provider: string,
+  platformPostId: string,
+): ScheduledDispatchResult {
+  return {
+    provider,
+    ok: true,
+    ...(platformPostId ? { platformPostId } : {}),
+  };
+}
+
+export function firstSuccessfulPlatformPostId(results: ScheduledDispatchResult[]): string | null {
+  return results.find((result) => result.ok && result.platformPostId)?.platformPostId ?? null;
+}
+
 export async function POST(req: Request): Promise<Response> {
   const authResult = verifyInternalCallbackRequest(req);
   if (!authResult.ok) {
@@ -450,21 +477,9 @@ export async function POST(req: Request): Promise<Response> {
   // that does not exist, or a pre-publish reservation handshake that is out
   // of scope here. The reclaim window (10 min) bounds exposure; a duplicate
   // is rare (requires a crash inside that sub-second gap).
-  const results: Array<{
-    provider: string;
-    ok: boolean;
-    error?: string;
-    retryable?: boolean;
-    // Informational failure taxonomy so the worker can surface *why* a terminal
-    // row failed (e.g. an expired token → reconnect). Does NOT change the retry
-    // policy — `retryable` alone drives pending-vs-failed.
-    kind?: MetaPublishFailureKind;
-  }> = [];
-
-  // Tracks the platform_post_id of the first platform that went live, so the
-  // aggregate posts write below can record one. Per-platform truth lives in
-  // scheduled_post_dispatches; posts.published_status is only an OR-rollup.
-  let firstPublishedPostId: string | null = null;
+  // Preserve each provider's confirmed id in the response so the worker can
+  // commit it to the matching scheduled_post_dispatches child row.
+  const results: ScheduledDispatchResult[] = [];
 
   // Unattended-publish guards (duplicate caption + same-platform spacing).
   // Resolved once per request; fail-open (empty map) on any error.
@@ -519,10 +534,7 @@ export async function POST(req: Request): Promise<Response> {
         mediaType,
         mediaMetadata,
       });
-      results.push({ provider: platform, ok: true });
-      if (firstPublishedPostId === null && published.platformPostId) {
-        firstPublishedPostId = published.platformPostId;
-      }
+      results.push(buildScheduledDispatchSuccessResult(platform, published.platformPostId));
     } catch (error) {
       const errMsg = error instanceof MetaPublishError
         ? `${error.code}: ${error.message}`
@@ -546,6 +558,9 @@ export async function POST(req: Request): Promise<Response> {
 
   // Roll the per-platform outcomes up into one posts.published_status write.
   const postStatus = planPostStatusUpdate(results);
+  // Preserve the legacy aggregate mirror: posts.platform_post_id records only
+  // the first successful provider id; per-platform truth lives in child rows.
+  const firstPublishedPostId = firstSuccessfulPlatformPostId(results);
   let dispatchedJobId: string | null = null;
   if (postId && postStatus === 'published') {
     const updated = await pool

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -11,7 +11,7 @@ type WorkerModule = {
 
 async function loadWorker(): Promise<WorkerModule> {
   return (await import(
-    path.join(REPO_ROOT, 'scripts/automations/scheduled-posts-worker.mjs')
+    pathToFileURL(path.join(REPO_ROOT, 'scripts/automations/scheduled-posts-worker.mjs')).href
   )) as unknown as WorkerModule;
 }
 
@@ -41,6 +41,7 @@ type ChildRow = {
   scheduled_post_id: number;
   platform: string;
   status: string;
+  platform_post_id: string | null;
   dispatched_at: string | null;
   error_at: string | null;
   error_message: string | null;
@@ -133,6 +134,7 @@ class FakeClient {
             scheduled_post_id: spId,
             platform,
             status: 'in_flight',
+            platform_post_id: null,
             dispatched_at: null,
             error_at: null,
             error_message: null,
@@ -145,12 +147,19 @@ class FakeClient {
     }
 
     if (s.startsWith('UPDATE scheduled_post_dispatches')) {
-      const [spId, platform, status, errMsg] = params as [number, string, string, string | null];
+      const [spId, platform, status, errMsg, platformPostId] = params as [
+        number,
+        string,
+        string,
+        string | null,
+        string | null,
+      ];
       const child = store.children.find(
         (c) => c.scheduled_post_id === spId && c.platform === platform,
       );
       if (child) {
         child.status = status;
+        if (platformPostId) child.platform_post_id = platformPostId;
         if (status === 'dispatched') child.dispatched_at = new Date().toISOString();
         if (status === 'failed') {
           child.error_at = new Date().toISOString();
@@ -305,8 +314,8 @@ test('worker commits in_flight before publish; a crash mid-publish leaves a recl
         JSON.stringify({
           status: 'ok',
           results: [
-            { provider: 'facebook', ok: true },
-            { provider: 'instagram', ok: true },
+            { provider: 'facebook', ok: true, platformPostId: 'fb_first_100' },
+            { provider: 'instagram', ok: true, platformPostId: 'ig_second_100' },
           ],
         }),
         { status: 202, headers: { 'content-type': 'application/json' } },
@@ -318,6 +327,14 @@ test('worker commits in_flight before publish; a crash mid-publish leaves a recl
     assert.ok(
       db.children.every((c) => c.status === 'dispatched'),
       'all child rows are dispatched after the successful re-claim',
+    );
+    assert.deepEqual(
+      db.children.map((child) => [child.platform, child.platform_post_id]),
+      [
+        ['facebook', 'fb_first_100'],
+        ['instagram', 'ig_second_100'],
+      ],
+      'each successful provider id is committed on its matching durable child row',
     );
   } finally {
     globalThis.fetch = realFetch2;
@@ -343,6 +360,7 @@ test('a stale reclaim does NOT re-dispatch a terminally-failed platform', async 
       scheduled_post_id: 1,
       platform: 'facebook',
       status: 'failed',
+      platform_post_id: null,
       dispatched_at: null,
       error_at: new Date().toISOString(),
       error_message: 'media_invalid',
@@ -351,6 +369,7 @@ test('a stale reclaim does NOT re-dispatch a terminally-failed platform', async 
       scheduled_post_id: 1,
       platform: 'instagram',
       status: 'in_flight',
+      platform_post_id: null,
       dispatched_at: null,
       error_at: null,
       error_message: null,
