@@ -142,6 +142,13 @@ const steps = [
     ],
   },
   {
+    // S3-7/AA-103: attribution coverage gate for the S4-1 all-channel fallback.
+    // Pure count math, including empty-window and invalid-input fail-closed
+    // behavior; no DB or I/O.
+    name: 'insights attribution coverage threshold',
+    args: ['--test', 'tests/insights-attribution-coverage.test.ts'],
+  },
+  {
     // 2026-07-13 duplicate-posting incident (AA-134 / PR #841) regression wall:
     // scheduler day-mapping + same-instant de-collision, the reel-companion
     // synthesis clamp, the publish-boundary duplicate/spacing guards, and the
