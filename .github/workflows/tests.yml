@@ -11,9 +11,13 @@ on:
   pull_request:
   push:
     branches: [master]
+  workflow_call:
+
+permissions:
+  contents: read
 
 concurrency:
-  group: tests-${{ github.ref }}
+  group: tests-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -28,6 +32,7 @@ jobs:
       AUTH_URL: https://aries.example.com
       AUTH_TRUST_HOST: 'true'
       NEXT_TELEMETRY_DISABLED: '1'
+      ARTIFACT_DIR: .artifacts/verification
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -42,14 +47,22 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p "${ARTIFACT_DIR}"
+          npm ci 2>&1 | tee "${ARTIFACT_DIR}/install.log"
 
       - name: Typecheck + lint (route types, banned patterns, repo boundary, protocol drift)
-        run: npm run lint
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run lint 2>&1 | tee "${ARTIFACT_DIR}/lint.log"
 
       - name: Full test suite (all tests/**, concurrency=1)
         shell: bash
         run: |
+          set -o pipefail
           # Full suite, no quarantine. The two tenant-context tests that 400'd on
           # a clean runner are fixed (each pins its own per-test mkdtemp DATA_ROOT).
           # The export below is belt-and-suspenders for any future test that relies
@@ -60,4 +73,19 @@ jobs:
           export DATA_ROOT="${RUNNER_TEMP}/aries-data"
           mapfile -t TEST_FILES < <(find tests -name '*.test.ts' | sort)
           echo "Running ${#TEST_FILES[@]} test files"
-          npx --no-install tsx --test --test-concurrency=1 "${TEST_FILES[@]}"
+          npx --no-install tsx --test --test-concurrency=1 "${TEST_FILES[@]}" 2>&1 | tee "${ARTIFACT_DIR}/full-tests.log"
+
+      - name: Build
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee "${ARTIFACT_DIR}/build.log"
+
+      - name: Upload failure logs
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.ARTIFACT_DIR }}
+          if-no-files-found: warn
+          retention-days: 14
