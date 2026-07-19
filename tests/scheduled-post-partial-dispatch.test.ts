@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -14,12 +14,20 @@ type PlatformOutcome = {
   status: 'pending' | 'in_flight' | 'dispatched' | 'failed';
   error: string | null;
   retryable: boolean;
+  platformPostId: string | null;
 };
 type WorkerModule = {
   rollupParentStatus: (statuses: string[]) => string;
   planPlatformOutcomes: (
     platforms: string[],
-    results: Array<{ provider: string; ok: boolean; error?: string; retryable?: boolean; kind?: string }>,
+    results: Array<{
+      provider: string;
+      ok: boolean;
+      platformPostId?: string;
+      error?: string;
+      retryable?: boolean;
+      kind?: string;
+    }>,
     transportError: string | null,
     mediaType?: string,
   ) => PlatformOutcome[];
@@ -27,7 +35,7 @@ type WorkerModule = {
 
 async function loadWorker(): Promise<WorkerModule> {
   return (await import(
-    path.join(REPO_ROOT, 'scripts/automations/scheduled-posts-worker.mjs')
+    pathToFileURL(path.join(REPO_ROOT, 'scripts/automations/scheduled-posts-worker.mjs')).href
   )) as unknown as WorkerModule;
 }
 
@@ -65,17 +73,40 @@ test('planPlatformOutcomes: FB ok / IG terminal-fail => FB dispatched, IG failed
   assert.equal(parent, 'failed', 'parent rollup must be failed when any platform failed');
 });
 
+test('planPlatformOutcomes retains each successful provider post id on its matching child outcome', async () => {
+  const { planPlatformOutcomes } = await loadWorker();
+  const outcomes = planPlatformOutcomes(
+    ['facebook', 'instagram'],
+    [
+      { provider: 'facebook', ok: true, platformPostId: 'fb_901' },
+      { provider: 'instagram', ok: true, platformPostId: 'ig_902' },
+    ],
+    null,
+  );
+
+  assert.deepEqual(
+    outcomes.map(({ platform, platformPostId }) => ({ platform, platformPostId })),
+    [
+      { platform: 'facebook', platformPostId: 'fb_901' },
+      { platform: 'instagram', platformPostId: 'ig_902' },
+    ],
+  );
+});
+
 test('planPlatformOutcomes: a retryable IG failure stays pending, not failed', async () => {
   const { planPlatformOutcomes, rollupParentStatus } = await loadWorker();
   const outcomes = planPlatformOutcomes(
     ['facebook', 'instagram'],
     [
-      { provider: 'facebook', ok: true },
+      { provider: 'facebook', ok: true, platformPostId: 'fb_partial_901' },
       { provider: 'instagram', ok: false, error: 'rate_limited', retryable: true },
     ],
     null,
   );
   const ig = outcomes.find((o) => o.platform === 'instagram')!;
+  const fb = outcomes.find((o) => o.platform === 'facebook')!;
+  assert.equal(fb.platformPostId, 'fb_partial_901', 'the successful child retains its id while IG retries');
+  assert.equal(ig.platformPostId, null, 'a retryable failure never invents a provider id');
   assert.equal(ig.status, 'pending', 'a retryable failure stays pending for the next pass');
   // FB is dispatched; IG pending -> parent stays non-terminal (re-claimable).
   assert.equal(rollupParentStatus(outcomes.map((o) => o.status)), 'pending');
@@ -119,6 +150,33 @@ test('worker schema: scheduled_post_dispatches child table exists in init-db.js'
     initDbSource,
     /status IN \('pending','in_flight','dispatched','failed'\)/,
     'child status must allow the four-state lifecycle',
+  );
+  assert.match(
+    initDbSource,
+    /ALTER TABLE scheduled_post_dispatches\s+ADD COLUMN IF NOT EXISTS platform_post_id TEXT/,
+    'existing init-db users receive the durable per-platform id column',
+  );
+  assert.match(
+    initDbSource,
+    /CREATE INDEX IF NOT EXISTS idx_scheduled_post_dispatches_platform_post_id\s+ON scheduled_post_dispatches \(platform_post_id, platform\)\s+WHERE platform_post_id IS NOT NULL/,
+    'init-db includes the partial composite lookup index',
+  );
+
+  const migrationPath = path.join(
+    REPO_ROOT,
+    'migrations/20260719000000_scheduled_dispatch_platform_post_id.sql',
+  );
+  assert.ok(existsSync(migrationPath), 'the durable per-platform id migration must exist');
+  const migrationSource = readFileSync(migrationPath, 'utf8');
+  assert.match(
+    migrationSource,
+    /ALTER TABLE scheduled_post_dispatches\s+ADD COLUMN IF NOT EXISTS platform_post_id TEXT/,
+    'migration adds the column idempotently',
+  );
+  assert.match(
+    migrationSource,
+    /CREATE INDEX IF NOT EXISTS idx_scheduled_post_dispatches_platform_post_id\s+ON scheduled_post_dispatches \(platform_post_id, platform\)\s+WHERE platform_post_id IS NOT NULL/,
+    'migration adds the lookup index idempotently',
   );
 });
 

@@ -922,6 +922,7 @@ async function initDb() {
         scheduled_post_id BIGINT NOT NULL REFERENCES scheduled_posts(id) ON DELETE CASCADE,
         platform TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','in_flight','dispatched','failed')),
+        platform_post_id TEXT,
         dispatched_at TIMESTAMPTZ,
         error_at TIMESTAMPTZ,
         error_message TEXT,
@@ -929,8 +930,16 @@ async function initDb() {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         UNIQUE (scheduled_post_id, platform)
       );
+      -- AA-99: preserve every successful provider id on its child row. The
+      -- ALTER keeps init-db idempotent for databases created before this field
+      -- was part of the CREATE TABLE definition.
+      ALTER TABLE scheduled_post_dispatches
+        ADD COLUMN IF NOT EXISTS platform_post_id TEXT;
       CREATE INDEX IF NOT EXISTS idx_scheduled_post_dispatches_parent
         ON scheduled_post_dispatches (scheduled_post_id);
+      CREATE INDEX IF NOT EXISTS idx_scheduled_post_dispatches_platform_post_id
+        ON scheduled_post_dispatches (platform_post_id, platform)
+        WHERE platform_post_id IS NOT NULL;
 
       -- Phase 4 PR1: Slack Events API inbound dedupe. Every delivery has a
       -- stable event_id; the webhook inserts ON CONFLICT DO NOTHING to drop

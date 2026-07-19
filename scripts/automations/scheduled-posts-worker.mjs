@@ -186,7 +186,7 @@ async function seedPlatformDispatches(client, rowId, platforms) {
  * silently retried every tick for days with no recorded reason (FB rate limit
  * 368, 2026-07-13 incident) was undiagnosable from the DB alone. error_at
  * still marks terminal failures only. */
-async function setPlatformDispatchStatus(client, rowId, platform, status, errorMessage) {
+async function setPlatformDispatchStatus(client, rowId, platform, status, errorMessage, platformPostId = null) {
   const truncated = errorMessage ? String(errorMessage).slice(0, 1000) : null;
   // $4 is cast to text everywhere it appears: with the bare parameter in both
   // a CASE result and an IS NOT NULL predicate, Postgres cannot infer its type
@@ -198,6 +198,7 @@ async function setPlatformDispatchStatus(client, rowId, platform, status, errorM
   await client.query(
     `UPDATE scheduled_post_dispatches
      SET status = $3,
+         platform_post_id = COALESCE($5::text, platform_post_id),
          dispatched_at = CASE WHEN $3 = 'dispatched' THEN now() ELSE dispatched_at END,
          error_at = CASE WHEN $3 = 'failed' THEN now() ELSE error_at END,
          error_message = CASE WHEN $3 = 'failed' THEN $4::text
@@ -205,7 +206,7 @@ async function setPlatformDispatchStatus(client, rowId, platform, status, errorM
                               ELSE error_message END,
          updated_at = now()
      WHERE scheduled_post_id = $1 AND platform = $2`,
-    [rowId, platform, status, truncated],
+    [rowId, platform, status, truncated, platformPostId],
   );
 }
 
@@ -314,13 +315,17 @@ export function planPlatformOutcomes(platforms, results, transportError, mediaTy
           status: 'failed',
           error: `video_publish_outcome_unknown (no auto-retry — may already be live): ${transportError}`,
           retryable: false,
+          platformPostId: null,
         };
       }
-      return { platform, status: 'pending', error: transportError, retryable: true };
+      return { platform, status: 'pending', error: transportError, retryable: true, platformPostId: null };
     }
     const result = byProvider.get(platform);
     if (result && result.ok) {
-      return { platform, status: 'dispatched', error: null, retryable: false };
+      const platformPostId = typeof result.platformPostId === 'string' && result.platformPostId.trim()
+        ? result.platformPostId.trim()
+        : null;
+      return { platform, status: 'dispatched', error: null, retryable: false, platformPostId };
     }
     const retryable = result ? result.retryable !== false : true;
     let error = result?.error ?? 'no_result_for_platform';
@@ -331,7 +336,7 @@ export function planPlatformOutcomes(platforms, results, transportError, mediaTy
     if (result?.kind === 'auth') {
       error = `auth: Meta account disconnected — reconnect required. ${error}`;
     }
-    return { platform, status: retryable ? 'pending' : 'failed', error, retryable };
+    return { platform, status: retryable ? 'pending' : 'failed', error, retryable, platformPostId: null };
   });
 }
 
@@ -505,7 +510,14 @@ export async function tick(pool) {
       try {
         await fc.query('BEGIN');
         for (const outcome of outcomes) {
-          await setPlatformDispatchStatus(fc, rowId, outcome.platform, outcome.status, outcome.error);
+          await setPlatformDispatchStatus(
+            fc,
+            rowId,
+            outcome.platform,
+            outcome.status,
+            outcome.error,
+            outcome.platformPostId,
+          );
         }
         const rolled = await syncParentRollup(fc, rowId);
         if (rolled === 'dispatched') {
