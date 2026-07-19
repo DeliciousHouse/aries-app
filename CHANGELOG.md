@@ -9,8 +9,8 @@ failures for the morning Jira intake without taking write-side operational actio
 
 ### Added
 
-- A nightly workflow runs the shared verification pipeline at 13:00 UTC, with the
-  Los Angeles daylight-saving offset documented alongside the schedule.
+- A nightly workflow runs the shared verification pipeline at 09:00 UTC
+  (02:00 PDT / 01:00 PST), ahead of dev-lead's 07:45 PT Jira intake.
 - Failed dependency, lint, test, and build logs are retained as GitHub Actions
   artifacts for 14 days so the morning intake has actionable evidence.
 
