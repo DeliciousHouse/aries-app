@@ -11,6 +11,8 @@ import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/ten
 import { syncAllAccountsForTenant } from '@/backend/insights/sync/dispatcher';
 import { isSupportedPlatform } from '@/backend/insights/platforms/registry';
 import { hasAdapter } from '@/backend/insights/sync/adapter-factory';
+import { resolveInsightsStaleMs } from '@/backend/insights/freshness/config';
+import pool from '@/lib/db';
 
 // openai is a model provider, not a publishing channel; slack is a notification
 // target connected on its own settings card (with a channel picker), not a
@@ -29,6 +31,7 @@ type IntegrationPageCard = {
   health: string;
   available_actions: string[];
   last_synced_at: string | null;
+  sync_state?: 'current' | 'stale' | 'never_synced';
   expires_at: string | null;
   permissions: string[];
   connection_id?: string;
@@ -144,11 +147,81 @@ function buildIntegrationsPagePayload(cards: IntegrationPageCard[]) {
   return { status: 'ok', page_state: 'ready', supported_platforms: platforms, cards, summary };
 }
 
+type IntegrationSyncTerminalStatus = 'ok' | 'partial' | 'failed' | null;
+
+type IntegrationSyncTelemetry = {
+  lastSyncedAt: string | null;
+  syncState: 'current' | 'stale' | 'never_synced';
+};
+
+function syncTelemetryKey(platform: string, externalAccountId: string): string {
+  return `${platform}\u0000${externalAccountId}`;
+}
+
+export function deriveIntegrationSyncTelemetry(
+  lastSyncAt: Date | string | null,
+  latestStatus: IntegrationSyncTerminalStatus,
+  nowMs = Date.now(),
+  staleAfterMs = resolveInsightsStaleMs(),
+): IntegrationSyncTelemetry {
+  if (lastSyncAt === null) {
+    return { lastSyncedAt: null, syncState: 'never_synced' };
+  }
+
+  const timestamp = lastSyncAt instanceof Date ? lastSyncAt : new Date(lastSyncAt);
+  const timestampMs = timestamp.getTime();
+  if (!Number.isFinite(timestampMs)) {
+    return { lastSyncedAt: null, syncState: 'never_synced' };
+  }
+
+  return {
+    lastSyncedAt: timestamp.toISOString(),
+    syncState:
+      latestStatus === 'failed' || nowMs - timestampMs > staleAfterMs
+        ? 'stale'
+        : 'current',
+  };
+}
+
+async function loadSyncTelemetryByAccount(
+  tenantId: number,
+): Promise<Map<string, IntegrationSyncTelemetry>> {
+  const result = await pool.query<{
+    platform: string;
+    external_account_id: string;
+    last_synced_at: Date | string | null;
+    latest_status: IntegrationSyncTerminalStatus;
+  }>(
+    `WITH latest_run AS (
+       SELECT DISTINCT ON (account_id) account_id, status
+       FROM insights_sync_runs
+       WHERE tenant_id = $1 AND status IN ('ok', 'partial', 'failed')
+       ORDER BY account_id, COALESCE(finished_at, started_at) DESC
+     )
+     SELECT a.platform,
+            a.external_account_id,
+            a.last_sync_at AS last_synced_at,
+            lr.status AS latest_status
+     FROM insights_accounts a
+     LEFT JOIN latest_run lr ON lr.account_id = a.id
+     WHERE a.tenant_id = $1`,
+    [tenantId],
+  );
+  const nowMs = Date.now();
+  const staleAfterMs = resolveInsightsStaleMs();
+
+  return new Map(result.rows.map((row) => [
+    syncTelemetryKey(row.platform, row.external_account_id),
+    deriveIntegrationSyncTelemetry(row.last_synced_at, row.latest_status, nowMs, staleAfterMs),
+  ]));
+}
+
 export function buildIntegrationsPageData(tenantId: string) {
   return buildIntegrationsPageDataAsync(tenantId);
 }
 
 export async function buildIntegrationsPageDataAsync(tenantId: string) {
+  const syncExternalAccountIdByPlatform = new Map<string, string>();
   const cards = await Promise.all(
     platforms.map(async (platform) => {
       const status = await oauthStatusAsync(platform, tenantId);
@@ -176,6 +249,11 @@ export async function buildIntegrationsPageDataAsync(tenantId: string) {
             message: customerSafeStatusMessage(platform, 'disabled'),
           },
         };
+      }
+
+      const syncExternalAccountId = status.external_account_id?.trim();
+      if (syncExternalAccountId) {
+        syncExternalAccountIdByPlatform.set(platform, syncExternalAccountId);
       }
 
       const connectedAccount =
@@ -226,7 +304,34 @@ export async function buildIntegrationsPageDataAsync(tenantId: string) {
     }),
   );
 
-  return buildIntegrationsPagePayload(cards);
+  const hasSyncTelemetryCard = cards.some((card) =>
+    card.connection_state === 'connected' || card.connection_state === 'reauth_required'
+  );
+  if (!hasSyncTelemetryCard) {
+    return buildIntegrationsPagePayload(cards);
+  }
+
+  const numericTenantId = Number(tenantId);
+  const telemetryByAccount =
+    Number.isSafeInteger(numericTenantId) && numericTenantId > 0 && syncExternalAccountIdByPlatform.size > 0
+      ? await loadSyncTelemetryByAccount(numericTenantId)
+      : new Map<string, IntegrationSyncTelemetry>();
+
+  return buildIntegrationsPagePayload(cards.map((card) => {
+    if (card.connection_state !== 'connected' && card.connection_state !== 'reauth_required') {
+      return card;
+    }
+
+    const externalAccountId = syncExternalAccountIdByPlatform.get(card.platform);
+    const telemetry = externalAccountId
+      ? telemetryByAccount.get(syncTelemetryKey(card.platform, externalAccountId))
+      : undefined;
+    return {
+      ...card,
+      last_synced_at: telemetry?.lastSyncedAt ?? null,
+      sync_state: telemetry?.syncState ?? 'never_synced',
+    };
+  }));
 }
 
 export async function handleIntegrationsGet(tenantContextLoader?: TenantContextLoader) {

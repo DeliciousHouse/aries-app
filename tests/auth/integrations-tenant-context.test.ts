@@ -83,6 +83,10 @@ function makeQueryMock(connections: Array<{
   return async (sql: string, params: unknown[] = []) => {
     const text = String(sql);
 
+    if (text.includes('FROM insights_accounts')) {
+      return { rows: [], rowCount: 0 };
+    }
+
     // SELECT by tenant_id + provider (dbGetConnection)
     if (text.includes('FROM oauth_connections') && text.includes('WHERE tenant_id = $1 AND provider = $2')) {
       const tenantIdInt = Number(params[0]);
