@@ -25,6 +25,10 @@ test('nightly build schedules the reusable verification suite on the default bra
   assert.match(nightlyWorkflow, /^permissions:\s*\n  contents: read$/m);
   assert.match(
     nightlyWorkflow,
+    /^concurrency:\s*\n  group: nightly-build-\$\{\{ github\.ref \}\}\s*\n  cancel-in-progress: false$/m,
+  );
+  assert.match(
+    nightlyWorkflow,
     /^jobs:\s*\n  full-suite:\s*\n    uses: \.\/\.github\/workflows\/tests\.yml$/m,
   );
   assert.doesNotMatch(nightlyWorkflow, /(?:issues|pull-requests|actions|packages):\s*write/);
@@ -33,8 +37,7 @@ test('nightly build schedules the reusable verification suite on the default bra
 
 test('full verification is reusable and preserves failure logs for triage', () => {
   assert.match(testsWorkflow, /^  workflow_call:\s*$/m);
-  assert.match(testsWorkflow, /^      - name: Build$/m);
-  assert.match(testsWorkflow, /npm run build 2>&1 \| tee "\$\{ARTIFACT_DIR\}\/build\.log"/);
+  assert.match(testsWorkflow, /^    timeout-minutes: 30$/m);
   assert.match(
     testsWorkflow,
     /npx --no-install tsx --test --test-concurrency=1 "\$\{TEST_FILES\[@\]\}" 2>&1 \| tee "\$\{ARTIFACT_DIR\}\/full-tests\.log"/,
@@ -43,4 +46,12 @@ test('full verification is reusable and preserves failure logs for triage', () =
   assert.match(testsWorkflow, /^        if: \$\{\{ failure\(\) \}\}$/m);
   assert.match(testsWorkflow, /uses: actions\/upload-artifact@v4/);
   assert.match(testsWorkflow, /^          path: \$\{\{ env\.ARTIFACT_DIR \}\}$/m);
+  assert.match(testsWorkflow, /^          retention-days: 14$/m);
+});
+
+test('full verification runs the production build with production semantics', () => {
+  assert.match(
+    testsWorkflow,
+    /^      - name: Build\s*\n        env:\s*\n          NODE_ENV: production\s*\n        shell: bash\s*\n        run: \|\s*\n          set -o pipefail\s*\n          npm run build 2>&1 \| tee "\$\{ARTIFACT_DIR\}\/build\.log"$/m,
+  );
 });

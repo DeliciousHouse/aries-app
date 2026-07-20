@@ -76,6 +76,8 @@ jobs:
           npx --no-install tsx --test --test-concurrency=1 "${TEST_FILES[@]}" 2>&1 | tee "${ARTIFACT_DIR}/full-tests.log"
 
       - name: Build
+        env:
+          NODE_ENV: production
         shell: bash
         run: |
           set -o pipefail
