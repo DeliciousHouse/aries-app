@@ -104,6 +104,8 @@ export async function PATCH(req: Request) {
       channels: payload.channels === undefined ? undefined : stringArray(payload.channels),
       goal: payload.goal === undefined ? undefined : stringValue(payload.goal),
       offer: payload.offer === undefined ? undefined : stringValue(payload.offer),
+      brandVoice: payload.brandVoice === undefined ? undefined : stringValue(payload.brandVoice),
+      notes: payload.notes === undefined ? undefined : stringValue(payload.notes),
       competitorUrl: payload.competitorUrl === undefined ? undefined : stringValue(payload.competitorUrl),
       preview: payload.preview === undefined ? undefined : (payload.preview as OnboardingDraftPreview | null),
       provenance:

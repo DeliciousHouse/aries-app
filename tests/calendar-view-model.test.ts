@@ -146,6 +146,27 @@ test('calendar view-model keeps the campaign strip fed by runtime campaigns', ()
   assert.equal(model.events.length, 0);
 });
 
+test('calendar glance marks a failed runtime job and links to its failure details', () => {
+  const model = createCalendarViewModel({
+    scheduledPosts: [],
+    posts: [
+      buildCampaign({
+        status: 'draft',
+        dashboardStatus: 'draft',
+        executionState: 'failed',
+        stageLabel: 'research',
+        pendingApprovals: 0,
+      }),
+    ],
+    timeZone: 'UTC',
+  });
+
+  assert.equal(model.posts[0].failed, true);
+  assert.equal(model.posts[0].failureLabel, 'Research failed');
+  assert.equal(model.posts[0].actionLabel, 'View failure details');
+  assert.equal(model.posts[0].href, '/dashboard/social-content/campaign-1');
+});
+
 test('calendar view-model surfaces the unscheduled backlog tray', () => {
   const model = createCalendarViewModel({
     scheduledPosts: [],

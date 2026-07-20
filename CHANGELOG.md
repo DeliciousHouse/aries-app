@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.33.0 — fix(marketing): preserve onboarding identity and failed-job truth
+
+Customers now confirm distinct brand voice, offer, and revision-note inputs before
+their first weekly social content job starts, and failed jobs render as actionable
+failures instead of healthy approval or in-progress states.
+
+### Fixed
+
+- Onboarding drafts persist confirmed brand voice and revision notes across the
+  pre-auth handoff, materialize each field from its intended source, and expose
+  accessible confirmation controls before first-job generation.
+- Dashboard, calendar, and social-content overviews recognize both `failed` and
+  `failed_stale` execution states, suppress optimistic approval copy, and link to
+  detailed failure context without changing healthy running-job presentation.
+
 ## v0.1.31.0 — chore(ci): add nightly full verification
 
 Maintainers now get a scheduled, GitHub-hosted verification run that surfaces

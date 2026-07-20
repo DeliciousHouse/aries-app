@@ -6,6 +6,7 @@ import {
   tenantZoneAbbreviation,
   tenantZoneDateKey,
 } from '@/lib/format-timestamp';
+import { failedJobLabel, isFailedExecutionState } from '@/frontend/aries-v1/view-models/execution-state';
 
 /**
  * A1 / T11 — the calendar grid is fed by `scheduled_posts` (real queued
@@ -67,6 +68,9 @@ export interface CalendarViewModel {
     stageLabel: string;
     pendingApprovals: string;
     href: string;
+    failed: boolean;
+    failureLabel: string | null;
+    actionLabel: string | null;
   }>;
 }
 
@@ -187,14 +191,20 @@ export function createCalendarViewModel(input: CalendarViewModelInput): Calendar
     },
     events,
     unscheduled,
-    posts: input.posts.map((campaign) => ({
-      id: campaign.id,
-      name: campaign.name,
-      status: campaign.status,
-      nextScheduled: campaign.nextScheduled,
-      stageLabel: campaign.stageLabel,
-      pendingApprovals: String(campaign.pendingApprovals),
-      href: `/dashboard/social-content/${campaign.id}`,
-    })),
+    posts: input.posts.map((campaign) => {
+      const failed = isFailedExecutionState(campaign.executionState);
+      return {
+        id: campaign.id,
+        name: campaign.name,
+        status: campaign.status,
+        nextScheduled: campaign.nextScheduled,
+        stageLabel: campaign.stageLabel,
+        pendingApprovals: String(campaign.pendingApprovals),
+        href: `/dashboard/social-content/${campaign.id}`,
+        failed,
+        failureLabel: failed ? failedJobLabel(campaign.stageLabel) : null,
+        actionLabel: failed ? 'View failure details' : null,
+      };
+    }),
   };
 }

@@ -273,6 +273,8 @@ async function initDb() {
         channels TEXT[] NOT NULL DEFAULT '{}',
         goal TEXT NOT NULL DEFAULT '',
         offer TEXT NOT NULL DEFAULT '',
+        brand_voice TEXT NOT NULL DEFAULT '',
+        notes TEXT NOT NULL DEFAULT '',
         competitor_url TEXT NOT NULL DEFAULT '',
         preview JSONB,
         provenance JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -281,6 +283,9 @@ async function initDb() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
+
+      ALTER TABLE onboarding_drafts ADD COLUMN IF NOT EXISTS brand_voice TEXT NOT NULL DEFAULT '';
+      ALTER TABLE onboarding_drafts ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT '';
 
       CREATE TABLE IF NOT EXISTS business_profiles (
         tenant_id INTEGER PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,

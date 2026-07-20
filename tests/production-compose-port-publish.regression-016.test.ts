@@ -21,25 +21,25 @@ const localCompose = readFileSync(
 // port publish therefore has to live in docker-compose.yml rather than only in
 // the local override file, or the external reverse proxy loses its upstream.
 test('base compose owns the production aries-app port publish', () => {
-  const baseAriesApp = baseCompose.match(/services:\n  aries-app:\n[\s\S]*?(?=\nnetworks:|\nvolumes:|$)/);
+  const baseAriesApp = baseCompose.match(/services:\r?\n  aries-app:\r?\n[\s\S]*?(?=\r?\nnetworks:|\r?\nvolumes:|$)/);
   assert.ok(baseAriesApp, 'expected to find the base aries-app service definition');
   assert.match(
     baseAriesApp![0],
-    /ports:\n\s+- "\$\{PORT:-3000\}:\$\{PORT:-3000\}"/,
+    /ports:\r?\n\s+- "\$\{PORT:-3000\}:\$\{PORT:-3000\}"/,
     'docker-compose.yml should publish the app port for production deploys',
   );
 
-  const localAriesApp = localCompose.match(/services:\n  aries-app:\n[\s\S]*?(?=\n  aries-app-dev:|$)/);
+  const localAriesApp = localCompose.match(/services:\r?\n  aries-app:\r?\n[\s\S]*?(?=\r?\n  aries-app-dev:|$)/);
   assert.ok(localAriesApp, 'expected to find the local override aries-app service block');
   assert.doesNotMatch(
     localAriesApp![0],
-    /\n\s+ports:\n/,
+    /\r?\n\s+ports:\r?\n/,
     'docker-compose.local.yml should no longer be the only place the production aries-app port is exposed',
   );
 
   assert.match(
     localCompose,
-    /  aries-app-dev:\n[\s\S]*?\n\s+ports:\n\s+- "\$\{PORT:-3000\}:\$\{PORT:-3000\}"/,
+    /  aries-app-dev:\r?\n[\s\S]*?\r?\n\s+ports:\r?\n\s+- "\$\{PORT:-3000\}:\$\{PORT:-3000\}"/,
     'the optional dev container can still publish the port inside the local override',
   );
 });

@@ -38,7 +38,7 @@ test('core-offer textarea has an accessible name (htmlFor/id binding only, no ar
   // because aria-label would override the <label> in the accessible-name
   // computation and create a mismatch with the visible question text.
   const textareaMatch = onboardingSource.match(
-    /<textarea[\s\S]*?id="onboarding-core-offer"[\s\S]*?\/>/,
+    /<textarea(?:(?!<textarea)[\s\S])*?id="onboarding-core-offer"(?:(?!<textarea)[\s\S])*?\/>/,
   );
   assert.ok(textareaMatch, 'expected to locate the core-offer <textarea> tag');
   assert.doesNotMatch(
@@ -54,4 +54,25 @@ test('core-offer textarea has an accessible name (htmlFor/id binding only, no ar
     /<span[^>]*>\s*What does your business offer\?\s*<\/span>/,
     'the "What does your business offer?" question must not regress to a non-label <span>',
   );
+});
+
+test('brand confirmation textareas keep their visible labels as accessible names', () => {
+  const fields = [
+    { label: 'Brand voice', id: 'onboarding-brand-voice' },
+    { label: 'Offer summary', id: 'onboarding-offer-summary' },
+    { label: 'Revision notes', id: 'onboarding-revision-notes' },
+  ];
+
+  for (const field of fields) {
+    assert.match(
+      onboardingSource,
+      new RegExp(`<Field[\\s\\S]*?label="${field.label}"[\\s\\S]*?htmlFor="${field.id}"`),
+      `expected ${field.label} to bind its visible label to ${field.id}`,
+    );
+    assert.match(
+      onboardingSource,
+      new RegExp(`<textarea[\\s\\S]*?id="${field.id}"`),
+      `expected ${field.label} textarea to expose id="${field.id}"`,
+    );
+  }
 });

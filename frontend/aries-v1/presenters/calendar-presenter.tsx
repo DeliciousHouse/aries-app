@@ -349,19 +349,32 @@ export default function CalendarPresenter({
                     <Link
                       key={campaign.id}
                       href={campaign.href}
-                      className="block rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 transition-all hover:border-primary/20 hover:bg-primary/[0.04]"
+                      className={`block rounded-2xl border p-5 transition-all ${
+                        campaign.failed
+                          ? 'border-rose-400/25 bg-rose-400/[0.06] hover:border-rose-300/40'
+                          : 'border-white/[0.05] bg-white/[0.02] hover:border-primary/20 hover:bg-primary/[0.04]'
+                      }`}
                     >
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-sm font-medium text-white">{campaign.name}</p>
                         <span className={`rounded-full border px-3 py-1 text-xs font-medium ${statusPill(campaign.status)}`}>
-                          {formatPostStatusLabel(campaign.status)}
+                          {campaign.failed ? 'Failed' : formatPostStatusLabel(campaign.status)}
                         </span>
                       </div>
-                      <p className="mt-2 text-sm text-white/55">{campaign.nextScheduled}</p>
-                      <div className="mt-3 flex flex-wrap gap-3 text-xs uppercase tracking-[0.2em] text-white/70">
-                        <span>{campaign.stageLabel}</span>
-                        <span>{campaign.pendingApprovals} pending approvals</span>
-                      </div>
+                      {campaign.failed ? (
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-rose-100/80">
+                          <span>{campaign.failureLabel}</span>
+                          <span className="font-medium text-rose-200">View failure details</span>
+                        </div>
+                      ) : (
+                        <>
+                          <p className="mt-2 text-sm text-white/55">{campaign.nextScheduled}</p>
+                          <div className="mt-3 flex flex-wrap gap-3 text-xs uppercase tracking-[0.2em] text-white/70">
+                            <span>{campaign.stageLabel}</span>
+                            <span>{campaign.pendingApprovals} pending approvals</span>
+                          </div>
+                        </>
+                      )}
                     </Link>
                   ))
                 )}

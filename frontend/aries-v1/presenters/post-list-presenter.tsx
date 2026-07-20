@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'motion/react';
 import {
+  AlertTriangle,
   ArrowRight,
   CheckCircle2,
   Clock3,
@@ -73,16 +74,16 @@ export default function CampaignListPresenter({ model }: SocialContentListPresen
             >
               <div className="mb-6 flex items-start justify-between">
                 <div className="flex items-center gap-3">
-                  <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${statusIconTone(campaign.status)}`}>
-                    <Rocket className="h-5 w-5" />
+                  <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${campaign.failed ? 'bg-rose-500/10 text-rose-300' : statusIconTone(campaign.status)}`}>
+                    {campaign.failed ? <AlertTriangle className="h-5 w-5" /> : <Rocket className="h-5 w-5" />}
                   </div>
                   <div>
                     <h3 className="text-lg font-semibold text-white transition-colors group-hover:text-violet-300">
                       {campaign.name}
                     </h3>
                     <div className="mt-1 flex items-center gap-2">
-                      <span className={`h-2 w-2 rounded-full ${statusDotTone(campaign.status)}`} />
-                      <span className="text-xs capitalize text-text-muted">{statusLabel(campaign.status)}</span>
+                      <span className={`h-2 w-2 rounded-full ${campaign.failed ? 'bg-rose-400' : statusDotTone(campaign.status)}`} />
+                      <span className="text-xs capitalize text-text-muted">{campaign.failed ? 'Failed' : statusLabel(campaign.status)}</span>
                     </div>
                   </div>
                 </div>
@@ -92,15 +93,24 @@ export default function CampaignListPresenter({ model }: SocialContentListPresen
               </div>
 
               <div className="space-y-5">
+                {campaign.failed ? (
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-rose-400/20 bg-rose-400/[0.06] px-4 py-3 text-sm text-rose-100/80">
+                    <span className="flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4" />
+                      {campaign.failureLabel}
+                    </span>
+                    <span className="font-medium text-rose-200">View failure details</span>
+                  </div>
+                ) : null}
                 <div>
                   <div className="mb-2 flex justify-between text-xs">
                     <span className="text-text-muted">Launch stage</span>
-                    <span className="font-medium text-white">{campaign.stageLabel}</span>
+                    <span className="font-medium text-white">{campaign.failureLabel || campaign.stageLabel}</span>
                   </div>
                   <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/6">
                     <div
-                      className={`h-full rounded-full bg-gradient-to-r ${statusGradient(campaign.status)}`}
-                      style={{ width: `${stageProgress(campaign.status)}%` }}
+                      className={`h-full rounded-full bg-gradient-to-r ${campaign.failed ? 'from-rose-500 to-rose-300' : statusGradient(campaign.status)}`}
+                      style={{ width: `${campaign.failed ? 0 : stageProgress(campaign.status)}%` }}
                     />
                   </div>
                 </div>
@@ -110,7 +120,7 @@ export default function CampaignListPresenter({ model }: SocialContentListPresen
                 <div className="grid gap-3">
                   <InfoRow label="Objective" value={campaign.objective} />
                   <InfoRow label="Next scheduled" value={campaign.nextScheduled} />
-                  <InfoRow label="Pending approvals" value={campaign.pendingApprovals} />
+                  <InfoRow label="Pending approvals" value={campaign.failed ? 'Blocked by failure' : campaign.pendingApprovals} />
                 </div>
 
                 <div className="flex items-center justify-between border-t border-white/8 pt-4">
@@ -146,15 +156,19 @@ export default function CampaignListPresenter({ model }: SocialContentListPresen
             >
               <div className="flex items-start justify-between border-b border-white/10 bg-white/[0.02] p-5 md:p-6">
                 <div className="flex items-center gap-4">
-                  <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${statusIconTone(selectedCampaign.status)} shadow-[0_0_20px_rgba(123,97,255,0.18)]`}>
-                    <Rocket className="h-6 w-6" />
+                  <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${selectedCampaign.failed ? 'bg-rose-500/10 text-rose-300' : statusIconTone(selectedCampaign.status)} shadow-[0_0_20px_rgba(123,97,255,0.18)]`}>
+                    {selectedCampaign.failed ? <AlertTriangle className="h-6 w-6" /> : <Rocket className="h-6 w-6" />}
                   </div>
                   <div>
                     <h2 className="text-2xl font-display font-semibold text-white">{selectedCampaign.name}</h2>
                     <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-text-muted">
                       <span className="flex items-center gap-1.5">
-                        <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                        {statusLabel(selectedCampaign.status)}
+                        {selectedCampaign.failed ? (
+                          <AlertTriangle className="h-4 w-4 text-rose-300" />
+                        ) : (
+                          <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                        )}
+                        {selectedCampaign.failed ? selectedCampaign.failureLabel : statusLabel(selectedCampaign.status)}
                       </span>
                       <span>{selectedCampaign.updatedLabel}</span>
                       <span>{selectedCampaign.dateRange}</span>
@@ -186,6 +200,18 @@ export default function CampaignListPresenter({ model }: SocialContentListPresen
               </div>
 
               <div className="flex-1 overflow-y-auto p-5 md:p-6">
+                {selectedCampaign.failed ? (
+                  <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-rose-400/20 bg-rose-400/[0.06] p-5 text-rose-100/80">
+                    <p>The current job stopped during {selectedCampaign.stageLabel}. Review the runtime failure before retrying.</p>
+                    <Link
+                      href={selectedCampaign.href}
+                      className="inline-flex items-center gap-2 rounded-xl bg-rose-300 px-4 py-2 text-sm font-medium text-rose-950"
+                    >
+                      View failure details
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  </div>
+                ) : null}
                 <div className="mb-8 grid gap-4 sm:grid-cols-3">
                   <MetricBox label="Objective" value={selectedCampaign.objective} />
                   <MetricBox label="Pending approvals" value={selectedCampaign.pendingApprovals} />

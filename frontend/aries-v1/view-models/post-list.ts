@@ -1,5 +1,6 @@
 import type { RuntimePostListItem } from '@/lib/api/aries-v1';
 import type { DashboardHeroMetric } from '@/frontend/aries-v1/components';
+import { failedJobLabel, isFailedExecutionState } from '@/frontend/aries-v1/view-models/execution-state';
 
 export interface SocialContentListViewModel {
   hero: {
@@ -22,6 +23,9 @@ export interface SocialContentListViewModel {
     updatedLabel: string;
     href: string;
     needsApproval: boolean;
+    failed: boolean;
+    failureLabel: string | null;
+    actionLabel: string | null;
   }>;
 }
 
@@ -83,20 +87,26 @@ export function createSocialContentListViewModel(campaigns: RuntimePostListItem[
         },
       ],
     },
-    items: campaigns.map((campaign) => ({
-      id: campaign.id,
-      name: campaign.name,
-      summary: campaign.summary,
-      status: campaign.status,
-      trustNote: campaign.trustNote,
-      objective: campaign.objective,
-      dateRange: campaign.dateRange,
-      nextScheduled: campaign.nextScheduled,
-      pendingApprovals: String(campaign.pendingApprovals),
-      stageLabel: campaign.stageLabel,
-      updatedLabel: formatUpdatedLabel(campaign.updatedAt),
-      href: `/dashboard/social-content/${campaign.id}`,
-      needsApproval: campaign.pendingApprovals > 0 || campaign.status === 'in_review',
-    })),
+    items: campaigns.map((campaign) => {
+      const failed = isFailedExecutionState(campaign.executionState);
+      return {
+        id: campaign.id,
+        name: campaign.name,
+        summary: campaign.summary,
+        status: campaign.status,
+        trustNote: campaign.trustNote,
+        objective: campaign.objective,
+        dateRange: campaign.dateRange,
+        nextScheduled: campaign.nextScheduled,
+        pendingApprovals: String(campaign.pendingApprovals),
+        stageLabel: campaign.stageLabel,
+        updatedLabel: formatUpdatedLabel(campaign.updatedAt),
+        href: `/dashboard/social-content/${campaign.id}`,
+        needsApproval: campaign.pendingApprovals > 0 || campaign.status === 'in_review',
+        failed,
+        failureLabel: failed ? failedJobLabel(campaign.stageLabel) : null,
+        actionLabel: failed ? 'View failure details' : null,
+      };
+    }),
   };
 }

@@ -12,7 +12,7 @@
  * passes.
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -172,5 +172,38 @@ test('the membership assertion accepts EITHER an active membership OR the legacy
     assert.match(sql, /from organization_memberships m/, 'checks an active membership');
     assert.match(sql, /m\.status = 'active'/, 'the membership branch requires status active');
     assert.match(sql, /or u\.organization_id = \$2/, 'the legacy active-pointer fallback branch is present (drift tolerance)');
+  });
+});
+
+test('an explicitly blank brand voice or notes value clears stale persisted identity text', async () => {
+  await withTempDataRoot(async () => {
+    const { client } = makeClient([
+      [ORG_SELECT_RE, () => ({ rows: [{ id: 11, name: 'Acme', slug: 'org-11' }], rowCount: 1 })],
+      [ORG_UPDATE_RE, () => ({ rows: [], rowCount: 1 })],
+    ]);
+
+    await updateBusinessProfileWithDiagnostics(client as never, {
+      tenantId: '11',
+      businessName: 'Acme',
+      brandVoice: 'Warm and direct',
+      notes: 'Use the launch offer',
+    });
+    await updateBusinessProfileWithDiagnostics(client as never, {
+      tenantId: '11',
+      businessName: 'Acme',
+      brandVoice: '',
+      notes: null,
+    });
+
+    const profilePath = path.join(
+      process.env.DATA_ROOT!,
+      'generated',
+      'validated',
+      '11',
+      'business-profile.json',
+    );
+    const profile = JSON.parse(readFileSync(profilePath, 'utf8')) as Record<string, unknown>;
+    assert.equal(profile.brand_voice, null);
+    assert.equal(profile.notes, null);
   });
 });

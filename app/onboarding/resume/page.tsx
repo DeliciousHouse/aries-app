@@ -231,6 +231,8 @@ export default async function OnboardingResumePage(
         primaryGoal: claim.draft.goal,
         launchApproverName: claim.draft.approverName || null,
         offer: claim.draft.offer || null,
+        brandVoice: claim.draft.brandVoice,
+        notes: claim.draft.notes,
         competitorUrl: claim.draft.competitorUrl || null,
         channels: claim.draft.channels,
       });
@@ -268,7 +270,8 @@ export default async function OnboardingResumePage(
       goal: claim.draft.goal,
       primaryGoal: claim.draft.goal,
       offer: claim.draft.offer,
-      notes: claim.draft.preview?.description || '',
+      brandVoice: claim.draft.brandVoice,
+      notes: claim.draft.notes,
       channels: claim.draft.channels,
       mode: 'guided',
     };

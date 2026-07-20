@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import pool from '../lib/db';
 import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
@@ -57,6 +58,8 @@ test('onboarding draft store persists customer intake fields and materialization
       channels: ['meta-ads', 'instagram'],
       goal: 'Book more design consultations',
       offer: 'Museum-grade framing',
+      brandVoice: 'Warm, precise, and design-literate.',
+      notes: 'Avoid discount-led language in the first week.',
       competitorUrl: 'https://competitor.example',
       status: 'ready_for_auth',
       materializedTenantId: '42',
@@ -70,10 +73,14 @@ test('onboarding draft store persists customer intake fields and materialization
     assert.deepEqual(updated.channels, ['meta-ads', 'instagram']);
     assert.equal(updated.goal, 'Book more design consultations');
     assert.equal(updated.offer, 'Museum-grade framing');
+    assert.equal(updated.brandVoice, 'Warm, precise, and design-literate.');
+    assert.equal(updated.notes, 'Avoid discount-led language in the first week.');
     assert.equal(updated.competitorUrl, 'https://competitor.example/');
     assert.equal(updated.materializedTenantId, '42');
     assert.equal(updated.materializedJobId, 'mkt_123');
     assert.equal(reloaded?.businessName, 'The FrameX');
+    assert.equal(reloaded?.brandVoice, 'Warm, precise, and design-literate.');
+    assert.equal(reloaded?.notes, 'Avoid discount-led language in the first week.');
     assert.equal(store.draftTenantId(created.draftId).startsWith('draft_'), true);
   });
 });
@@ -165,5 +172,77 @@ test('fallback onboarding draft store supports the full pre-auth to materialized
     assert.equal(reloaded?.status, 'materialized');
     assert.equal(reloaded?.businessName, 'QA Synthetic Brand');
     assert.equal(reloaded?.materializedJobId, 'mkt_qa_synthetic');
+  });
+});
+
+test('schema-lag reads and claims the fallback draft instead of a legacy database row', async () => {
+  await withDraftEnv(async () => {
+    const store = await import('../backend/onboarding/draft-store');
+    const created = await store.createOnboardingDraft({
+      businessName: 'Fallback Brand',
+      websiteUrl: 'https://fallback.example',
+      brandVoice: 'Distinct fallback voice',
+      notes: 'Keep the fallback notes distinct',
+      status: 'ready_for_auth',
+    });
+
+    process.env.DB_HOST = 'schema-lag-host';
+    process.env.DB_USER = 'schema-lag-user';
+    process.env.DB_PASSWORD = 'schema-lag-password';
+    process.env.DB_NAME = 'schema-lag-db';
+
+    let legacyStatus = 'ready_for_auth';
+    const legacyRow = () => ({
+      draft_id: created.draftId,
+      status: legacyStatus,
+      website_url: created.websiteUrl,
+      business_name: created.businessName,
+      business_type: '',
+      approver_name: '',
+      channels: [],
+      goal: '',
+      offer: '',
+      competitor_url: '',
+      preview: null,
+      provenance: created.provenance,
+      materialized_tenant_id: null,
+      materialized_job_id: null,
+      created_at: created.createdAt,
+      updated_at: created.updatedAt,
+    });
+    const mutablePool = pool as unknown as {
+      query: (sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[]; rowCount: number }>;
+    };
+    const originalQuery = mutablePool.query;
+    mutablePool.query = async (sql: string) => {
+      if (/UPDATE onboarding_drafts/i.test(sql)) {
+        if (legacyStatus === 'ready_for_auth') {
+          legacyStatus = 'materializing';
+          return { rows: [legacyRow()], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      }
+      if (/SELECT \* FROM onboarding_drafts/i.test(sql)) {
+        return { rows: [legacyRow()], rowCount: 1 };
+      }
+      throw new Error(`unexpected query: ${sql}`);
+    };
+
+    try {
+      const reloaded = await store.getOnboardingDraft(created.draftId);
+      assert.equal(reloaded?.brandVoice, 'Distinct fallback voice');
+      assert.equal(reloaded?.notes, 'Keep the fallback notes distinct');
+
+      const firstClaim = await store.claimOnboardingDraftMaterialization(created.draftId);
+      assert.equal(firstClaim.claimed, true);
+      assert.equal(firstClaim.draft.status, 'materializing');
+      assert.equal(firstClaim.draft.brandVoice, 'Distinct fallback voice');
+
+      const duplicateClaim = await store.claimOnboardingDraftMaterialization(created.draftId);
+      assert.equal(duplicateClaim.claimed, false);
+      assert.equal(duplicateClaim.draft.status, 'materializing');
+    } finally {
+      mutablePool.query = originalQuery;
+    }
   });
 });
