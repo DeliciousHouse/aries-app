@@ -4,6 +4,7 @@
 - `Dockerfile`
 - `docker-compose.yml`
 - `docker-compose.local.yml`
+- `docker-compose.selfhost.yml`
 - `.dockerignore`
 
 ## Deployment contract
@@ -262,12 +263,12 @@ container matches `${ARIES_SHARED_DATA_ROOT}/...` on the host.
 Before starting the pipeline on the host, export:
 
 ```bash
-export ARTIFACT_STAGE1_CACHE_DIR="${ARIES_SHARED_DATA_ROOT:-/home/node/data}/lobster-stage1-cache"
-export ARTIFACT_STAGE2_CACHE_DIR="${ARIES_SHARED_DATA_ROOT:-/home/node/data}/lobster-stage2-cache"
-export ARTIFACT_STAGE3_CACHE_DIR="${ARIES_SHARED_DATA_ROOT:-/home/node/data}/lobster-stage3-cache"
-export ARTIFACT_STAGE4_CACHE_DIR="${ARIES_SHARED_DATA_ROOT:-/home/node/data}/lobster-stage4-cache"
+export ARTIFACT_STAGE1_CACHE_DIR="${ARIES_SHARED_DATA_ROOT:-/home/node/data}/hermes-stage1-cache"
+export ARTIFACT_STAGE2_CACHE_DIR="${ARIES_SHARED_DATA_ROOT:-/home/node/data}/hermes-stage2-cache"
+export ARTIFACT_STAGE3_CACHE_DIR="${ARIES_SHARED_DATA_ROOT:-/home/node/data}/hermes-stage3-cache"
+export ARTIFACT_STAGE4_CACHE_DIR="${ARIES_SHARED_DATA_ROOT:-/home/node/data}/hermes-stage4-cache"
 ```
 
-The container defaults to `/data/lobster-stage{N}-cache` in `docker-compose.yml`,
+The container defaults to `/data/hermes-stage{N}-cache` in `docker-compose.yml`,
 which equals those host paths via the `/data` bind. Override either side only
 if you have a reason — if they diverge, Aries silently cannot see the files.

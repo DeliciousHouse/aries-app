@@ -8,7 +8,7 @@ Use it for daily brief generation and repo-scoped execution only.
 - [ ] Keep `aries-app` boundary-safe and prevent sibling-project drift.
 - [ ] Reconcile docs, routes, and tests against executable `aries-app` truth.
 - [ ] Strengthen marketing flow runtime validation and approval safety.
-- [ ] Improve local setup clarity for Postgres and OpenClaw-backed development.
+- [ ] Improve local setup clarity for Postgres and Hermes-backed development.
 - [ ] Keep automation scripts fast, truthful, and scoped to this repository.
 
 ## Working rules

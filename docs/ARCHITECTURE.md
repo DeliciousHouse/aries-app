@@ -18,8 +18,8 @@ Browser
 1. **Browser** talks only to Next.js pages and route handlers inside this repo.
 2. **Route handlers** validate the request, resolve auth/tenant context, call a backend service, and return a typed, frontend-safe response.
 3. **Backend services** (`backend/*`) own domain logic for onboarding, marketing, auth, integrations, and execution.
-4. **Hermes** ([NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent)) is the sole execution provider. Long-running workflows are submitted to `HERMES_GATEWAY_URL/v1/runs`. Hermes posts authenticated status callbacks to `POST /api/internal/hermes/runs`, which advances runtime state inside Aries.
-5. **PostgreSQL** stores durable state: users, organizations, tenant memberships, OAuth tokens, creative assets, execution run records, and publish state.
+4. **Hermes** ([NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent)) is the sole execution provider. Long-running workflows are submitted to `HERMES_GATEWAY_URL/v1/runs` — a **polled** API. The Aries-side reconciler polls in-flight runs to completion and ingests finished ones through the authenticated internal callback route `POST /api/internal/hermes/runs`, which advances runtime state inside Aries.
+5. **PostgreSQL** stores durable relational state: users, organizations, tenant memberships, OAuth tokens, creative assets, and publish state. Execution run and job documents are file-backed under `DATA_ROOT`.
 6. **`DATA_ROOT`** is a writable bind mount for generated draft and validated artifacts produced by Hermes callbacks.
 
 ## Repository layout
@@ -34,8 +34,12 @@ backend/     Server-side domain logic
   onboarding/  Tenant onboarding domain
   social-content/ Weekly content job handlers
   tenant/      Tenant profile and workflow management
-  video/       Video artifact helpers
+  insights/    Platform analytics sync and read models
+  memory/      Honcho memory write events (creative-memory/ holds frame overlay helpers)
+  feedback/    Customer incident report intake and Jira retry sweep
+  partners/    Partner attribution
 components/  Shared UI primitives
+frontend/    Screen-level components grouped by domain (marketing, insights, onboarding, app-shell, …)
 lib/         Shared runtime helpers — DB pool, auth helpers, tenant context, crypto
 scripts/     Startup, DB init, validation, and repo-guard scripts
 tests/       Route, API, auth, and runtime regression coverage
@@ -50,9 +54,14 @@ Operator pages:
 | Route | Purpose |
 |---|---|
 | `/dashboard` | Operator overview |
-| `/dashboard/campaigns` | Campaign list and workspace |
+| `/dashboard/social-content` | Social content jobs list and workspace |
 | `/dashboard/posts` | Publish controls |
 | `/dashboard/calendar` | Scheduling calendar |
+| `/dashboard/analytics` | Insights dashboard |
+| `/dashboard/comments` | Comments and conversations tray |
+| `/dashboard/results` | Weekly results |
+| `/dashboard/publish-status` | Publish queue status |
+| `/dashboard/creative-review`, `/dashboard/brand-review`, `/dashboard/strategy-review` | Creative / brand / strategy review surfaces |
 | `/dashboard/settings` | Tenant settings |
 | `/review`, `/review/:reviewId` | Content review queue |
 
@@ -76,7 +85,7 @@ OAuth tokens (LinkedIn, X, YouTube, Reddit, TikTok) are encrypted with `OAUTH_TO
 
 ## Hermes callback execution boundary
 
-Aries does not execute workflows itself — Hermes does. Aries' only standing processes are lightweight delivery/maintenance side-processes (the run reconciler, stale-run reaper, and kanban GC). The execution boundary is:
+Aries does not execute workflows itself — Hermes does. Aries' only standing processes are lightweight delivery/maintenance side-processes (the run reconciler, stale-run reaper, kanban GC, and partner-attribution outbox worker). The execution boundary is:
 
 1. Aries submits a run to Hermes: `POST HERMES_GATEWAY_URL/v1/runs` with `Authorization: Bearer HERMES_API_SERVER_KEY`.
 2. Hermes `/v1/runs` is a **polled** API — it executes the workflow asynchronously but does not invoke the submission's `callback_url`. The durable Hermes run reconciler side-process (`backend/marketing/hermes-reconciler.ts`, spawned by `start-runtime.mjs`) polls in-flight runs to completion and, for each finished run, feeds the same idempotent callback path internally (deterministic `event_id = reconcile-<hermesRunId>`). The external `POST APP_BASE_URL/api/internal/hermes/runs` route (`Authorization: Bearer INTERNAL_API_SECRET`) remains the trusted ingestion boundary for callbacks.
@@ -96,17 +105,17 @@ A single-gateway deployment can leave all three profile vars blank; each falls b
 
 ## PostgreSQL runtime state
 
-All durable state lives in PostgreSQL. The schema is initialized by `npm run db:init` (`scripts/init-db.js`). Key tables:
+Durable relational state lives in PostgreSQL. The schema is initialized by `npm run db:init` (`scripts/init-db.js`). Execution run records and marketing job documents are file-backed under `DATA_ROOT/generated/` (`backend/execution/run-store.ts`), not Postgres tables. Key tables:
 
 - `users` — user accounts, password hashes, organization membership
 - `organizations` — tenant organizations
 - `oauth_tokens` — encrypted provider tokens with expiry metadata
-- `platform_connections` — provider connection health and sync state
+- `connected_accounts` — provider connection health and sync state
 - `creative_assets` — Hermes-owned generated media metadata
-- `execution_runs` — run records with callback token hashes, status, and result payload
-- `marketing_jobs` / `social_content_jobs` — job tracking and status read models
-- `publish_items` — per-item publish state and retry metadata
-- `calendar_events` — scheduled post calendar entries
+- `posts` — synthesized publish posts (captions, status, creative links)
+- `scheduled_posts` / `scheduled_post_dispatches` — publish queue state and per-dispatch retry metadata
+- `marketing_schedule` — weekly content-generation cadence (one row per tenant)
+- `marketing_posting_times` / `marketing_posting_time_claims` — AI-derived per-platform posting times + derivation claims
 
 ## Marketing pipeline
 
@@ -114,8 +123,8 @@ The weekly social content pipeline is Aries's primary production workflow:
 
 1. Client calls `POST /api/social-content/jobs` with tenant and job parameters.
 2. `backend/marketing/` orchestrates run submission to Hermes.
-3. Hermes posts callbacks as each stage completes (research → strategy → content generation → media generation → publish).
-4. Each callback updates `execution_runs`, `marketing_jobs`, and related read models.
+3. The Hermes reconciler polls each stage's run to completion and feeds the internal callback route as stages finish (research → strategy → content generation → media generation → publish).
+4. Each ingested callback advances the file-backed run/job documents under `DATA_ROOT` and related read models.
 5. The operator reviews content at `/review` and approves optional publish steps via `POST /api/social-content/jobs/:jobId/approve`.
 6. Publishing dispatches through `POST /api/publish/dispatch`, which normalizes content through provider adapters and submits to the live provider APIs.
 

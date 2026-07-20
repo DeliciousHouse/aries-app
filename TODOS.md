@@ -245,6 +245,8 @@ HONCHO_WRITE_APPROVALS_ENABLED: ${HONCHO_WRITE_APPROVALS_ENABLED:-true}
 ```
 And ship as its own PR.
 
+**Resolved:** The flag flip has since landed — `docker-compose.yml` now defaults `HONCHO_ENABLED: ${HONCHO_ENABLED:-true}` and `HONCHO_WRITE_APPROVALS_ENABLED: ${HONCHO_WRITE_APPROVALS_ENABLED:-true}` (flipped ON 2026-05-24 per the compose comment above those lines).
+
 **Priority:** P2 (gated on user decision + prod creds)
 **Source:** Discovered 2026-05-23 during /goal P6 investigation. Asked user; user replied "do what's next" — deferred per that direction.
 
@@ -253,6 +255,8 @@ And ship as its own PR.
 **What:** TODOS lines 81-103 note that Phase 2 (publishing events + performance feedback) and Phase 3 (UI preference signals) have code "shipped on branch" but never landed to master. Find those branches (likely named `feat/honcho-phase-2-...` and `feat/honcho-phase-3-...`) and either land them or close them out.
 
 **Why:** Dangling unmerged work rots. If the design is still valid, ship; if not, close.
+
+**Resolved:** Phase 2 + Phase 3 code is on master (`recordPerformanceEvent` in `backend/memory/write-events.ts`, the `creative-voice-preference` route, and the `aries-honcho-performance-worker` sidecar) and both gates default ON in `docker-compose.yml` on the `aries-app` and `aries-honcho-performance-worker` services (`HONCHO_WRITE_PUBLISH_ENABLED` / `HONCHO_WRITE_PREFERENCES_ENABLED`); the `aries-insights-sync-worker` service deliberately pins `HONCHO_WRITE_PUBLISH_ENABLED:-false` — the performance→Honcho leg belongs to the honcho-performance worker, not the sync worker.
 
 **Priority:** P3 (after Phase 1 flag flip lands)
 **Source:** Surfaced 2026-05-23 during /goal P6 investigation.
