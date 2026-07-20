@@ -91,8 +91,8 @@ export async function register(dependencies: InstrumentationDependencies = {}) {
       }
     }
 
-    if (!report?.ok) {
-      const gatewayUrl = report?.gateway.url ?? 'the configured gateway';
+    if (report && !report.ok) {
+      const gatewayUrl = report.gateway.url;
       const detail = hermesStartupFailureDetail(report);
       warn(
         `[startup] Hermes social-content runtime probe failed after ${HERMES_STARTUP_PROBE_BACKOFF_MS.length + 1} attempts against ${gatewayUrl}; continuing in degraded mode. ${detail}`,
