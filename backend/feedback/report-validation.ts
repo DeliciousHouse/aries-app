@@ -1,10 +1,10 @@
 /**
  * Pure request validation for POST /api/feedback/submit (SC-70 port). No I/O.
  *
- * INVARIANT (SC-70): identity comes from the session only. This validator
- * reads exactly category/impact/title/description/screenshot from the body —
- * submitter/tenant/priority fields a client smuggles in are never read, so
- * they cannot influence the persisted row, the labels, or the ADF.
+ * INVARIANT (SC-70): identity comes from server context only (session when
+ * present, otherwise an IP-hashed anonymous identity). This validator reads
+ * exactly category/impact/title/description/screenshot from the body — client
+ * submitter/tenant/priority fields are never read.
  */
 
 import {

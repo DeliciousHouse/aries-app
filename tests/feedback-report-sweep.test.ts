@@ -41,6 +41,7 @@ function config(overrides: Partial<FeedbackReportConfig> = {}): FeedbackReportCo
 function row(id: string, overrides: Partial<FeedbackReportRow> = {}): FeedbackReportRow {
   return {
     id,
+    submitter_type: 'authenticated',
     tenant_id: '15',
     submitter_id: 'user-1',
     submitter_email: 'jo@acme.co',

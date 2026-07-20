@@ -33,6 +33,7 @@ function config(overrides: Partial<FeedbackReportConfig> = {}): FeedbackReportCo
 }
 
 const SUBMITTER: ReportSubmitter = {
+  attribution: 'authenticated',
   userId: 'user-1',
   email: 'jo@acme.co',
   name: 'Jo',
@@ -116,6 +117,39 @@ test('identity comes from the session argument, never the body', async () => {
   assert.equal(record.tenantId, '15');
   assert.equal(record.customerSlug, 'acme-co');
   assert.equal(record.submitterEmail, 'jo@acme.co');
+  assert.equal(record.submitterType, 'authenticated');
+});
+
+test('anonymous reports persist the hashed rate-limit identity before Jira delivery', async () => {
+  let inserted: FeedbackReportRecord | null = null;
+  const result = await submitFeedbackReport(
+    INPUT,
+    {
+      attribution: 'anonymous',
+      userId: 'anonymous:hashed-client-ip',
+      email: null,
+      name: null,
+      tenantId: 'anonymous',
+      tenantSlug: 'anonymous',
+    },
+    config(),
+    deps({
+      insert: async (_pool, record) => {
+        inserted = record;
+        return { outcome: 'ok' };
+      },
+      sync: async () => ({ status: 'pending_retry', ticketKey: null }),
+    }),
+  );
+
+  const record = inserted as unknown as FeedbackReportRecord;
+  assert.equal(record.submitterType, 'anonymous');
+  assert.equal(record.submitterId, 'anonymous:hashed-client-ip');
+  assert.equal(record.submitterName, null);
+  assert.equal(record.submitterEmail, null);
+  assert.equal(record.customerSlug, 'unknown');
+  assert.equal(result.httpStatus, 202, 'the committed row must survive deferred Jira delivery');
+  assert.equal(result.body.submission_id, 'fixed-id-1111');
 });
 
 test('rate-limited and duplicate inserts are 429 with distinct messages and no sync call', async () => {

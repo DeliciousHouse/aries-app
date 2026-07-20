@@ -31,6 +31,7 @@ interface Harness {
   hasDialog: () => boolean;
   hasSubmitButton: () => boolean;
   alertMessages: () => string[];
+  submitLabel: () => string;
 }
 
 async function withReportDialog(
@@ -115,6 +116,10 @@ async function withReportDialog(
         root.root
           .findAllByProps({ role: 'alert' })
           .map((node) => String((node.props as { children?: unknown }).children)),
+      submitLabel: () => {
+        const button = root.root.findByProps({ 'data-testid': 'report-submit' });
+        return String(button.props.children);
+      },
     };
 
     await run(harness);
@@ -173,3 +178,27 @@ test('INVARIANT 429 keeps values and keeps the dialog open', async () => {
     },
   );
 });
+
+for (const status of [401, 503]) {
+  test(`${status} is announced as an error, preserves input, and offers retry`, async () => {
+    await withReportDialog(
+      async () => ({
+        status,
+        ok: false,
+        json: async () => ({ error: status === 401 ? 'unauthorized' : 'persist_failed' }),
+      }),
+      async (h) => {
+        await h.fillValidForm();
+        await h.submitOnce();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+
+        assert.equal(h.onCloseCalls, 0);
+        assert.equal(h.titleValue(), 'Broken publish button');
+        assert.deepEqual(h.alertMessages(), [
+          "We couldn't send that just now. Your text is saved — please retry.",
+        ]);
+        assert.equal(h.submitLabel(), 'Retry');
+      },
+    );
+  });
+}

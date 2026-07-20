@@ -1,17 +1,20 @@
 # Customer Feedback/Incident Button — SC-70 port (AA-51)
 
 Implementation record for the Sequence CRM SC-70 port. The source plan is the
-self-contained port document (impact-rated, auth-gated incident reports filed
-as Jira Bugs with persist-first durability, retry healing, and idempotency).
+self-contained port document (impact-rated incident reports filed as Jira Bugs
+with persist-first durability, retry healing, and idempotency). Aries initially
+shipped it auth-gated; the 2026-07-20 owner decision made the pipeline public.
 This file records the Aries-specific decisions, the evidence behind them, and
 the operator runbook.
 
 ## What shipped
 
-- `POST /api/feedback/submit` — auth-gated (all tenant roles). Identity comes
-  from the session only; body-supplied identity/tenant/priority fields are
-  never read. Persists a `feedback_reports` row (transactional rate limit
-  10/user+tenant/hr + 60s title+description dedup) and COMMITS before any Jira
+- `POST /api/feedback/submit` — public. Signed-in visitors receive server-side
+  session/tenant attribution; everyone else receives an explicit anonymous
+  attribution keyed by a one-way client-IP hash. Raw IP and fake contact values
+  are never stored, and body identity/tenant/priority fields are never read.
+  Persists a `feedback_reports` row (transactional rate limit 10 per
+  submitter+tenant bucket/hr + 60s title+description dedup) and COMMITS before any Jira
   I/O, then attempts the sync inline. Uniform response
   `{submission_id, jira_ticket_key, status, screenshot_discarded}`:
   201 when a ticket key exists (even if the attachment is still syncing),
@@ -25,14 +28,13 @@ the operator runbook.
   retry sweep.
 - `aries-feedback-retry-worker` sidecar (compose + deploy force-recreate block;
   parity test green). Default ON, inherently dormant without `JIRA_*` config.
-- Dialog: the existing floating Feedback button now probes
-  `/api/auth/session` once per page load — signed-in users get the impact-first
-  report dialog (in-page "Capture page" rasterization via `html-to-image`,
+- Dialog: the floating Feedback button always opens the impact-first durable
+  report dialog; it does not probe auth or race session expiry. The dialog uses
+  in-page "Capture page" rasterization via `html-to-image`,
   excluding the feedback UI — replaced the original `getDisplayMedia`
   screen-share per AA-77 — plus a file picker, 2 MB
-  client cap computed from base64 length, pinned
-  `https://sugarandleather.atlassian.net/browse/<key>` success link); everyone
-  else keeps the legacy public feedback form unchanged.
+  client cap computed from base64 length, and a pinned
+  `https://sugarandleather.atlassian.net/browse/<key>` success link.
 
 ## Decisions (the plan's "confirm with Brendan" items)
 
@@ -49,11 +51,10 @@ the operator runbook.
    `impact-p0..p4` label, so board quick filters work either way. When a Jira
    admin associates the SC-71 priority scheme with AA, priorities start landing
    automatically (next process restart at the latest).
-3. **Existing feedback code**: kept. The legacy public capture path
-   (`/api/feedback`, `feedback_submissions`, Jira **Task**) is untouched and
-   still serves unauthenticated users; the SC-70 pipeline is additive for
-   signed-in users. `JIRA_ISSUE_TOKEN` is accepted as an alias for the existing
-   `JIRA_API_TOKEN`.
+3. **Existing feedback code**: retained for compatibility. The floating button
+   no longer calls the legacy `/api/feedback` capture path; public and signed-in
+   visitors now share the persist-first `/api/feedback/submit` pipeline.
+   `JIRA_ISSUE_TOKEN` remains accepted as an alias for `JIRA_API_TOKEN`.
 
 ## Aries adaptations vs the reference implementation
 
@@ -62,16 +63,18 @@ the operator runbook.
   `Bug`). New-name knobs (`FEEDBACK_MAX_IMAGE_BYTES`,
   `FEEDBACK_USER_RATE_LIMIT_PER_HOUR`, `FEEDBACK_DEDUP_WINDOW_SECONDS`,
   `FEEDBACK_RETRY_*`, `FEEDBACK_STALE_PENDING_MINUTES`) follow the plan.
-  `FEEDBACK_RATE_LIMIT_PER_HOUR` (legacy, per-IP, public endpoint) is a
-  different knob from `FEEDBACK_USER_RATE_LIMIT_PER_HOUR` (v2, per user+tenant).
+  `FEEDBACK_RATE_LIMIT_PER_HOUR` (legacy endpoint) is a different knob from
+  `FEEDBACK_USER_RATE_LIMIT_PER_HOUR` (v2, per authenticated user+tenant or
+  anonymous hashed-IP bucket).
 - The retry sweep is a docker-compose sidecar (the repo's background-job
   pattern), not an in-process lifespan loop; the atomic claim makes concurrent
   sweeps safe regardless.
 - The customer slug prefers the session's `tenantSlug` (already the product's
-  company handle) → tenant id → `unknown`; a tenant-name DB lookup was not
-  needed.
+  company handle) → tenant id → `unknown`; anonymous reports use `anonymous`.
 - A fourth label `impact-<pX>` is added beyond the plan's three (see decision
-  2). The idempotency prefix stays product-unique: `aries-sub-`.
+  2). Anonymous issues also receive `anonymous-feedback` and a plain-text
+  `Submitter: Anonymous` contact block. The idempotency prefix stays
+  product-unique: `aries-sub-`.
 
 ## Operator runbook
 
@@ -85,6 +88,7 @@ the operator runbook.
     (switch to `priority = "P0 - Crit Sit"` etc. once the SC-71 scheme is
     associated with AA)
   - per-customer: `labels = "customer-<slug>"`
+  - anonymous: `labels = anonymous-feedback`
 - **Priority scheme**: to get real Jira priorities on AA, a Jira admin must
   put the `priority` field on AA's Bug create screen / associate the SC-71
   scheme. No Aries deploy needed afterwards.
@@ -104,6 +108,7 @@ the operator runbook.
   walk against malicious payloads, token scrub-before-truncate + JQL zero-HTTP
   guard, 201/202/429 contracts + spoof-ignored, sync idempotency paths +
   priority degrade + exhaust boundary, sweep isolation/no-op paths, dialog
-  logic incl. pinned href + identity-free POST body).
+  logic incl. pinned href, identity-free POST body, 401/503 visible retry state,
+  public-widget no-auth-probe path, and anonymous attribution/Jira labels).
 - Live schema: `tests/feedback-reports-store.requires-infra.test.ts`
   (throwaway schema; run green against the prod Postgres 2026-07-03).

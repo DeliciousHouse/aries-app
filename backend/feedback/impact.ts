@@ -95,11 +95,18 @@ export function idempotencyLabel(reportId: string): string {
  * The full label set for a created issue. Order: triage label, customer label,
  * idempotency label, impact label (Aries adaptation — see header).
  */
-export function reportLabels(reportId: string, customerSlug: string, impact: string): string[] {
-  return [
+export function reportLabels(
+  reportId: string,
+  customerSlug: string,
+  impact: string,
+  submitterType: 'authenticated' | 'anonymous' = 'authenticated',
+): string[] {
+  const labels = [
     'customer-incident',
     `customer-${customerSlug || 'unknown'}`,
     idempotencyLabel(reportId),
     impactLabel(impact),
   ];
+  if (submitterType === 'anonymous') labels.push('anonymous-feedback');
+  return labels;
 }

@@ -1,8 +1,8 @@
 'use client';
 
 /**
- * Customer incident report dialog (SC-70 port) — the authenticated variant of
- * the feedback modal. Impact is asked FIRST (required, no default), then
+ * Customer incident report dialog (SC-70 port) — shared by authenticated and
+ * anonymous visitors. Impact is asked FIRST (required, no default), then
  * category, title, description, and an optional screenshot via an in-page
  * capture of the current page (see capture-screenshot.ts — AA-77) or a file
  * picker.
@@ -260,7 +260,7 @@ export default function ReportModal({ onClose }: { onClose: () => void }): React
               Report an issue
             </h2>
             <p className="mt-0.5 text-xs text-white/55">
-              Filed straight to our tracker — we&apos;ll follow up by email if needed.
+              No sign-in required. Signed-in users can receive an email follow-up.
             </p>
           </div>
           <button

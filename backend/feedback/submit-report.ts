@@ -19,6 +19,7 @@ import pool from '@/lib/db';
 import { resolveCustomerSlug } from './impact';
 import type { FeedbackReportConfig } from './report-config';
 import { validateReportScreenshot } from './report-screenshot';
+import type { ReportSubmitter } from './report-submitter';
 import {
   ensureFeedbackReportsTable,
   insertReportWithLimits,
@@ -27,14 +28,7 @@ import {
 import { poolSyncStore, syncReportToJira, type SyncableReport } from './report-sync';
 import type { ValidatedReportRequest } from './report-validation';
 
-/** Identity — resolved by the route from the server-side session ONLY. */
-export interface ReportSubmitter {
-  userId: string;
-  email: string | null;
-  name: string | null;
-  tenantId: string | null;
-  tenantSlug: string | null;
-}
+export type { ReportSubmitter } from './report-submitter';
 
 export interface SubmitReportResponseBody {
   submission_id: string | null;
@@ -77,15 +71,21 @@ export async function submitFeedbackReport(
 
   const record: FeedbackReportRecord = {
     id,
+    submitterType: submitter.attribution,
     tenantId: submitter.tenantId ?? 'unknown',
     submitterId: submitter.userId,
     submitterEmail: submitter.email,
     submitterName: submitter.name,
-    customerSlug: resolveCustomerSlug({
-      tenantSlug: submitter.tenantSlug,
-      tenantName: null,
-      tenantId: submitter.tenantId,
-    }),
+    // The public tenant bucket is a rate-limit/storage boundary, not a
+    // customer. Do not turn it into a fabricated customer identity in Jira.
+    customerSlug:
+      submitter.attribution === 'anonymous'
+        ? 'unknown'
+        : resolveCustomerSlug({
+            tenantSlug: submitter.tenantSlug,
+            tenantName: null,
+            tenantId: submitter.tenantId,
+          }),
     category: input.category,
     impact: input.impact,
     title: input.title,
@@ -136,6 +136,7 @@ export async function submitFeedbackReport(
   // 2) The row is committed — from here every outcome is a success response.
   const syncable: SyncableReport = {
     id: record.id,
+    submitterType: record.submitterType,
     customerSlug: record.customerSlug,
     category: record.category,
     impact: record.impact,

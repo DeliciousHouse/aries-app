@@ -20,6 +20,7 @@ import type { Pool } from 'pg';
 
 import { buildReportAdf, buildReportSummary } from './report-adf';
 import type { FeedbackReportConfig, FeedbackReportJiraConfig } from './report-config';
+import type { ReportSubmitterAttribution } from './report-submitter';
 import {
   idempotencyLabel,
   priorityForImpact,
@@ -41,6 +42,7 @@ import {
 
 export interface SyncableReport {
   id: string;
+  submitterType: ReportSubmitterAttribution;
   customerSlug: string;
   category: string;
   impact: string;
@@ -57,6 +59,7 @@ export interface SyncableReport {
 export function rowToSyncable(row: FeedbackReportRow): SyncableReport {
   return {
     id: row.id,
+    submitterType: row.submitter_type,
     customerSlug: row.customer_slug,
     category: row.category,
     impact: row.impact,
@@ -124,6 +127,7 @@ export function buildIssueFields(
       description: report.description,
       impactAnswer: impactAnswerText(report.impact),
       category: report.category,
+      submitterType: report.submitterType,
       contact: {
         name: report.submitterName,
         email: report.submitterEmail,
@@ -132,7 +136,7 @@ export function buildIssueFields(
       reportId: report.id,
       submittedAtIso: report.createdAtIso,
     }),
-    labels: reportLabels(report.id, report.customerSlug, report.impact),
+    labels: reportLabels(report.id, report.customerSlug, report.impact, report.submitterType),
   };
   if (withPriority) {
     fields.priority = { name: priorityForImpact(report.impact) };

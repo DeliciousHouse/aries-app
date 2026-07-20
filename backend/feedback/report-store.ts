@@ -11,11 +11,13 @@
 import type { Pool, PoolClient } from 'pg';
 
 import type { FeedbackImpact, FeedbackReportCategory } from '@/lib/feedback/report-options';
+import type { ReportSubmitterAttribution } from './report-submitter';
 
 export type FeedbackReportStatus = 'pending' | 'synced' | 'pending_retry' | 'failed';
 
 export interface FeedbackReportRecord {
   id: string;
+  submitterType: ReportSubmitterAttribution;
   tenantId: string;
   submitterId: string;
   submitterEmail: string | null;
@@ -30,6 +32,7 @@ export interface FeedbackReportRecord {
 
 export interface FeedbackReportRow {
   id: string;
+  submitter_type: ReportSubmitterAttribution;
   tenant_id: string;
   submitter_id: string;
   submitter_email: string | null;
@@ -64,6 +67,8 @@ export async function ensureFeedbackReportsTable(pool: Pool): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS feedback_reports (
       id TEXT PRIMARY KEY,
+      submitter_type TEXT NOT NULL DEFAULT 'authenticated'
+        CHECK (submitter_type IN ('authenticated','anonymous')),
       tenant_id TEXT NOT NULL,
       submitter_id TEXT NOT NULL,
       submitter_email TEXT,
@@ -86,6 +91,12 @@ export async function ensureFeedbackReportsTable(pool: Pool): Promise<void> {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
+  `);
+  // CREATE TABLE IF NOT EXISTS is a no-op for existing production tables.
+  await pool.query(`
+    ALTER TABLE feedback_reports
+      ADD COLUMN IF NOT EXISTS submitter_type TEXT NOT NULL DEFAULT 'authenticated'
+        CHECK (submitter_type IN ('authenticated','anonymous'))
   `);
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_feedback_reports_status_updated
@@ -176,12 +187,13 @@ export async function insertReportWithLimits(
 
     await client.query(
       `INSERT INTO feedback_reports (
-         id, tenant_id, submitter_id, submitter_email, submitter_name,
+         id, submitter_type, tenant_id, submitter_id, submitter_email, submitter_name,
          customer_slug, category, impact, title, description,
          screenshot_bytes, screenshot_mime, status
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending')`,
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'pending')`,
       [
         record.id,
+        record.submitterType,
         record.tenantId,
         record.submitterId,
         record.submitterEmail,

@@ -24,6 +24,7 @@ import {
 function record(id: string, overrides: Partial<FeedbackReportRecord> = {}): FeedbackReportRecord {
   return {
     id,
+    submitterType: 'authenticated',
     tenantId: 't1',
     submitterId: 'u1',
     submitterEmail: 'jo@acme.co',
@@ -92,6 +93,39 @@ test('feedback_reports store: limits, claim, boundary, and sync against real Pos
     // The rolled-back over-limit insert must not have left a row behind.
     const r4 = await pool.query(`SELECT 1 FROM feedback_reports WHERE id = 'r4'`);
     assert.equal(r4.rowCount, 0);
+
+    // Anonymous traffic uses the same transaction-safe limiter, keyed by the
+    // server-generated hashed-IP submitter id rather than a fake user record.
+    const anonymous = {
+      submitterType: 'anonymous' as const,
+      tenantId: 'anonymous',
+      submitterId: 'anonymous:stable-ip-hash',
+      submitterEmail: null,
+      submitterName: null,
+      customerSlug: 'anonymous',
+    };
+    const anonymousLimits = { userRateLimitPerHour: 2, dedupWindowSeconds: 60 };
+    assert.deepEqual(
+      await insertReportWithLimits(pool, record('anon-1', anonymous), anonymousLimits),
+      { outcome: 'ok' },
+    );
+    assert.deepEqual(
+      await insertReportWithLimits(pool, record('anon-2', anonymous), anonymousLimits),
+      { outcome: 'ok' },
+    );
+    assert.deepEqual(
+      await insertReportWithLimits(pool, record('anon-3', anonymous), anonymousLimits),
+      { outcome: 'rate_limited' },
+    );
+    const storedAnonymous = await pool.query(
+      `SELECT submitter_type, submitter_email, submitter_name
+         FROM feedback_reports WHERE id = 'anon-1'`,
+    );
+    assert.deepEqual(storedAnonymous.rows[0], {
+      submitter_type: 'anonymous',
+      submitter_email: null,
+      submitter_name: null,
+    });
 
     // --- claim: only pending_retry-under-max and stale pending rows ---
     await pool.query(
