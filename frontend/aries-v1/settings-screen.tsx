@@ -556,6 +556,15 @@ export default function AriesSettingsScreen() {
                         {integrations.busyAction === `${card.platform}:reconnect` ? 'Reconnecting…' : 'Reconnect'}
                       </button>
                     ) : null}
+                    {!card.available_actions.includes('connect') &&
+                    !card.available_actions.includes('reconnect') ? (
+                      <Link
+                        href="/dashboard/settings/channel-integrations"
+                        className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10"
+                      >
+                        Manage integrations
+                      </Link>
+                    ) : null}
                     {card.available_actions.includes('disconnect') ? (
                       <button
                         type="button"

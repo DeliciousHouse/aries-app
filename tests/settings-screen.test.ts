@@ -91,6 +91,20 @@ test('settings Channels panel treats integrations status:error as unavailable', 
   );
 });
 
+test('settings Channels panel gives cards without connect actions a canonical integrations link', () => {
+  const channelPanelStart = source.indexOf('eyebrow="Channels / Integrations"');
+  const teamPanelStart = source.indexOf('eyebrow="Team / Approvals"');
+  assert.ok(channelPanelStart >= 0, 'Settings should render a Channels / Integrations panel');
+  assert.ok(teamPanelStart > channelPanelStart, 'Settings should render Team after Channels');
+
+  const channelPanelSource = source.slice(channelPanelStart, teamPanelStart);
+  assert.match(
+    channelPanelSource,
+    /!card\.available_actions\.includes\('connect'\)[\s\S]*!card\.available_actions\.includes\('reconnect'\)[\s\S]*<Link[\s\S]*href="\/dashboard\/settings\/channel-integrations"[\s\S]*Manage integrations/,
+    'Every channel without a direct Connect/Reconnect action should expose a keyboard-accessible link to the canonical integration flow',
+  );
+});
+
 // ── Cadence card (multi-brand workspaces Phase 1b, #803 task 1b) ───────────
 
 function cadencePanelSlice(): string {

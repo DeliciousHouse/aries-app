@@ -36,7 +36,10 @@ import crypto from 'crypto';
 // always NULL outside the demo seed), so goal category buckets shift from an
 // all-"other" cache row to real named buckets on the next fetch. Bump
 // invalidates stale v6 bodies.
-const TEMPLATE_VERSION = 'goal-template-v7';
+// v8: AA-151 — goal confirmation now follows persisted explicit/inferred
+// provenance instead of treating an unmatched explicit onboarding label as a
+// guess. Bump invalidates v7 bodies that cached the old inferred flag.
+const TEMPLATE_VERSION = 'goal-template-v8';
 const CACHE_TTL_MS     = 60 * 60 * 1000;
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);

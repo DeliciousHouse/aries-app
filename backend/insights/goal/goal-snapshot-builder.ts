@@ -20,6 +20,7 @@ import { resolveTenantInsightsTimeZone } from '../tenant-timezone';
 import { tenantZonePeriodStart, tenantZonePeriodStartDateKey } from '@/lib/format-timestamp';
 
 export type GoalType = 'lead_generation' | 'content_growth' | 'product_sales' | 'brand_awareness';
+export type GoalProvenance = 'explicit' | 'inferred';
 
 export interface GoalContributor {
   title: string;
@@ -84,7 +85,10 @@ function categoryLabel(contentType: string): string {
 // onboarding preset (e.g. "Increase social media presence") is visible to us,
 // instead of silently landing on brand_awareness (S1-5 / AA-84). Exported for
 // direct unit testing.
-export function normalizeGoal(raw: string): { goal: GoalType; inferred: boolean } {
+function normalizeGoalValue(
+  raw: string,
+  options: { warnOnFallback: boolean },
+): { goal: GoalType; inferred: boolean } {
   const s = raw.trim().toLowerCase();
   if (!s) return { goal: 'brand_awareness', inferred: true };
   // Exact canonical match wins.
@@ -99,8 +103,28 @@ export function normalizeGoal(raw: string): { goal: GoalType; inferred: boolean 
   if (/\baware|reach|visib|impression|discover|exposure|brand\b/.test(s)) return { goal: 'brand_awareness', inferred: false };
   // No keyword matched — we are GUESSING. Log the original text for our
   // visibility and mark the result inferred so the UI asks the user to confirm.
-  console.warn(`[insights.goal] unmatched primary_goal ${JSON.stringify(raw)} → defaulting to brand_awareness (inferred)`);
+  if (options.warnOnFallback) {
+    console.warn(`[insights.goal] unmatched primary_goal ${JSON.stringify(raw)} → defaulting to brand_awareness (inferred)`);
+  }
   return { goal: 'brand_awareness', inferred: true };
+}
+
+export function normalizeGoal(raw: string): { goal: GoalType; inferred: boolean } {
+  return normalizeGoalValue(raw, { warnOnFallback: true });
+}
+
+export function resolveGoalWithProvenance(
+  raw: string,
+  provenance: GoalProvenance | null | undefined,
+): { goal: GoalType; inferred: boolean } {
+  const normalized = normalizeGoalValue(raw, { warnOnFallback: provenance !== 'explicit' });
+  if (provenance === 'explicit') {
+    return { goal: normalized.goal, inferred: false };
+  }
+  if (provenance === 'inferred') {
+    return { goal: normalized.goal, inferred: true };
+  }
+  return normalized;
 }
 
 function goalLabel(goal: GoalType): string {
@@ -438,14 +462,20 @@ export async function buildGoalSnapshot(
     const prevKey  = tenantZonePeriodStartDateKey(days * 2, tz);
 
     // Fetch primary_goal from business profile
-    const profileRes = await client.query<{ primary_goal: string | null }>(
-      `SELECT primary_goal FROM business_profiles WHERE tenant_id = $1 LIMIT 1`,
+    const profileRes = await client.query<{
+      primary_goal: string | null;
+      primary_goal_source: GoalProvenance | null;
+    }>(
+      `SELECT primary_goal, primary_goal_source FROM business_profiles WHERE tenant_id = $1 LIMIT 1`,
       [tenantId],
     );
     const rawGoal = profileRes.rows[0]?.primary_goal ?? null;
     if (!rawGoal) return null;
 
-    const { goal, inferred: goalInferred } = normalizeGoal(rawGoal);
+    const { goal, inferred: goalInferred } = resolveGoalWithProvenance(
+      rawGoal,
+      profileRes.rows[0]?.primary_goal_source,
+    );
 
     // Fetch metric for current + previous period
     let current: number;

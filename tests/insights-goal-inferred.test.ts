@@ -16,7 +16,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { normalizeGoal } from '../backend/insights/goal/goal-snapshot-builder';
+import {
+  normalizeGoal,
+  resolveGoalWithProvenance,
+} from '../backend/insights/goal/goal-snapshot-builder';
 
 /** Run fn with console.warn captured; returns the warn calls seen. */
 function captureWarn<T>(fn: () => T): { result: T; warnings: string[] } {
@@ -37,6 +40,18 @@ test('unmatched onboarding preset "Increase social media presence" → inferred:
   assert.equal(result.inferred, true, 'unmatched free text must be flagged inferred');
   assert.equal(warnings.length, 1, 'a guess must be logged for our visibility');
   assert.match(warnings[0], /Increase social media presence/, 'the log must include the original free text');
+});
+
+test('the same onboarding goal is confirmed only when its persisted provenance is explicit', () => {
+  const explicit = captureWarn(() =>
+    resolveGoalWithProvenance('Increase social media presence', 'explicit'),
+  );
+  const inferred = captureWarn(() =>
+    resolveGoalWithProvenance('Increase social media presence', 'inferred'),
+  );
+
+  assert.deepEqual(explicit.result, { goal: 'brand_awareness', inferred: false });
+  assert.deepEqual(inferred.result, { goal: 'brand_awareness', inferred: true });
 });
 
 test('empty goal string → inferred:true (still a guess)', () => {

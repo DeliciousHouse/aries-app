@@ -289,6 +289,7 @@ async function initDb() {
         website_url TEXT,
         business_type TEXT,
         primary_goal TEXT,
+        primary_goal_source TEXT NOT NULL DEFAULT 'inferred' CHECK (primary_goal_source IN ('explicit', 'inferred')),
         launch_approver_user_id TEXT,
         launch_approver_name TEXT,
         offer TEXT,
@@ -312,6 +313,33 @@ async function initDb() {
       -- jobs) unless a per-job override is supplied. Nullable; an unset value
       -- falls back to the fixed default ('music') in reel-audio-mode.ts.
       ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS reel_audio_mode TEXT;
+
+      -- Preserve whether the primary goal came from a person's explicit choice
+      -- or system inference. Legacy onboarding presets are known explicit UI
+      -- values and are repaired during bootstrap; all other legacy rows remain
+      -- inferred until a person confirms them.
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'business_profiles'
+            AND column_name = 'primary_goal_source'
+        ) THEN
+          ALTER TABLE business_profiles
+            ADD COLUMN IF NOT EXISTS primary_goal_source TEXT NOT NULL DEFAULT 'inferred'
+            CHECK (primary_goal_source IN ('explicit', 'inferred'));
+          UPDATE business_profiles
+          SET primary_goal_source = 'explicit'
+          WHERE primary_goal IN (
+            'Get leads',
+            'Sell a product or service',
+            'Increase social media presence',
+            'Gather information'
+          );
+        END IF;
+      END $$;
     `);
 
     await client.query(`
