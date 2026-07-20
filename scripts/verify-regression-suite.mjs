@@ -142,6 +142,13 @@ const steps = [
     ],
   },
   {
+    // S3-7/AA-103: attribution coverage gate for the S4-1 all-channel fallback.
+    // Pure count math, including empty-window and invalid-input fail-closed
+    // behavior; no DB or I/O.
+    name: 'insights attribution coverage threshold',
+    args: ['--test', 'tests/insights-attribution-coverage.test.ts'],
+  },
+  {
     // 2026-07-13 duplicate-posting incident (AA-134 / PR #841) regression wall:
     // scheduler day-mapping + same-instant de-collision, the reel-companion
     // synthesis clamp, the publish-boundary duplicate/spacing guards, and the
@@ -190,11 +197,29 @@ const steps = [
     args: ['--test', 'tests/repo-boundary-guard.test.ts'],
   },
   {
+    // AA-144 reboot resilience: startup degrades only for classified transient
+    // Hermes failures, while the digest-pinned, Aries-scoped unhealthy watcher
+    // enforces a durable three-restart/15-minute budget. Pure/in-memory except
+    // for the policy's deterministic shell CLI; no Docker daemon is required.
+    name: 'startup and unhealthy-container recovery resilience',
+    args: [
+      '--test',
+      'tests/instrumentation-startup-resilience.test.ts',
+      'tests/container-autoheal.test.ts',
+    ],
+  },
+  {
     // Compose-service vs deploy-workflow recreate parity. In verify (not just
     // the CI full-suite) because the agent-automerge deploy path gates on
     // verify alone — a compose/deploy drift must fail before that dispatch.
     name: 'deploy manifest parity',
     args: ['--test', 'tests/deploy-manifest-parity.test.ts'],
+  },
+  {
+    // The nightly caller must stay surfacing-only while the reusable Tests
+    // workflow remains the single source of truth for the full CI suite.
+    name: 'nightly build workflow contract',
+    args: ['--test', 'tests/nightly-build-workflow.test.ts'],
   },
   {
     name: 'execution provider and Hermes callback smoke tests',

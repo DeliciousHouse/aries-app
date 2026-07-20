@@ -470,21 +470,35 @@ services:
       retries: 5
       start_period: 30s
     labels:
-      autoheal: "true"
+      com.delicioushouse.aries.autoheal: "true"
     networks:
       - docker_stack
 
   # Docker's restart policy only reacts to process exits, not an unhealthy
-  # healthcheck. This socket-scoped watcher restarts only explicitly labelled
-  # containers, so a wedged-but-running web process self-heals without touching
-  # the worker sidecars. The image is version-pinned for reproducible deploys.
+  # healthcheck. This socket-scoped watcher selects only the Aries-specific
+  # label, caps each container at three restarts per 15-minute window, and then
+  # leaves persistent failure unhealthy and visible to operators. The state
+  # volume preserves that budget if the watcher itself restarts.
   aries-autoheal:
-    image: willfarrell/autoheal:1.2.0
+    image: willfarrell/autoheal:1.2.0@sha256:31f580ef0279eaced5b38d631b08c474d70d8403c1c2fdd6ddcf2e879d5f3f7c
+    entrypoint: ["/bin/sh", "/usr/local/bin/aries-autoheal.sh"]
     environment:
-      AUTOHEAL_CONTAINER_LABEL: autoheal
+      AUTOHEAL_CONTAINER_LABEL: com.delicioushouse.aries.autoheal
+      AUTOHEAL_CONTAINER_LABEL_VALUE: "true"
       AUTOHEAL_INTERVAL: 30
+      AUTOHEAL_MAX_RESTARTS_PER_WINDOW: 3
+      AUTOHEAL_RESTART_WINDOW_SECONDS: 900
+      AUTOHEAL_STOP_TIMEOUT: 10
+      AUTOHEAL_STATE_DIR: /var/lib/aries-autoheal
+    labels:
+      com.delicioushouse.aries.autoheal.watcher: "true"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./scripts/aries-autoheal.sh:/usr/local/bin/aries-autoheal.sh:ro
+      - aries-autoheal-state:/var/lib/aries-autoheal
+    read_only: true
+    tmpfs:
+      - /tmp
     network_mode: none
     restart: unless-stopped
 
@@ -863,6 +877,10 @@ services:
     restart: unless-stopped
     networks:
       - docker_stack
+
+volumes:
+  aries-autoheal-state:
+
 networks:
   docker_stack:
     external: true

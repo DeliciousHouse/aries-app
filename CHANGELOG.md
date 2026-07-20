@@ -2,17 +2,58 @@
 
 All notable changes to this project will be documented in this file.
 
-## v0.1.30.0 — fix(runtime): tolerate transient Hermes outages and restart unhealthy web containers
+## v0.1.32.0 — fix(runtime): tolerate transient Hermes outages and restart unhealthy web containers
 
 Aries startup no longer aborts when the configured Hermes gateway is temporarily
-unavailable. The boot probe now retries three times with bounded exponential
-backoff, then logs degraded state and lets the web process serve while retaining
-fail-fast validation for static runtime misconfiguration.
+unavailable. The boot probe now retries transport failures, 408/429 responses,
+and 5xx responses three times with bounded exponential backoff, then logs degraded
+state and lets the web process serve. Bad credentials, other 4xx responses,
+incompatible capability contracts, static misconfiguration, and unrelated startup
+errors still fail fast.
 
-Production Compose now labels the web service for a pinned autoheal sidecar that
-restarts running-but-unhealthy containers. The deploy workflow starts and verifies
-that sidecar before replacing the web container, while keeping its external image
-outside the Aries app-image parity checks.
+Production Compose now uses an Aries-specific label and digest-pinned autoheal
+sidecar to restart running-but-unhealthy web containers. Its durable policy allows
+at most three restarts per container per 15-minute window, then leaves persistent
+failure unhealthy for operator visibility until the cooldown expires. The deploy
+workflow starts and verifies that watcher before replacing the web container while
+keeping its external image outside the Aries app-image parity checks.
+
+## v0.1.31.0 — chore(ci): add nightly full verification
+
+Maintainers now get a scheduled, GitHub-hosted verification run that surfaces
+failures for the morning Jira intake without taking write-side operational action.
+
+### Added
+
+- A nightly workflow runs the shared verification pipeline at 09:00 UTC
+  (02:00 PDT / 01:00 PST), ahead of dev-lead's 07:45 PT Jira intake.
+- Failed dependency, lint, test, and build logs are retained as GitHub Actions
+  artifacts for 14 days so the morning intake has actionable evidence.
+
+### Changed
+
+- The existing Tests workflow is reusable through `workflow_call`, retains its
+  pull-request and `master` triggers, and now includes the production build gate.
+- A regression contract keeps the nightly caller tied to the complete shared
+  verification workflow and prevents write-side remediation from drifting in.
+
+## v0.1.30.0 — feat(integrations): show account-specific sync freshness
+
+Connected integration cards now expose when the selected account last completed
+an insights sync, with freshness semantics shared with the Insights dashboard.
+
+### Added
+
+- The integrations status response includes account-matched `last_synced_at` and
+  `sync_state` telemetry from one tenant-scoped query, so a historical account on
+  the same provider cannot lend its timestamp to the currently connected card.
+- Connected cards render the localized last-sync time plus stable current,
+  stale, and never-synced states; disconnected cards keep the existing copy.
+
+### Changed
+
+- Insights freshness and integration-card staleness now share the same
+  `ARIES_INSIGHTS_STALE_MINUTES` configuration and 60-minute default.
 
 ## v0.1.29.0 — feat(marketing): AI-derived per-platform posting times (flag-gated, default OFF)
 

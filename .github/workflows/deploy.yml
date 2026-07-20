@@ -312,8 +312,8 @@ jobs:
           # --- End EMAIL_FROM guard ---
 
           # Start the restart-on-unhealthy watcher before replacing the web
-          # container. It uses its own pinned external image (not TARGET_IMAGE)
-          # and only watches services carrying the autoheal=true label.
+          # container. It uses its own digest-pinned external image (not
+          # TARGET_IMAGE) and only watches the Aries-specific autoheal label.
           docker compose up -d --no-deps --force-recreate --pull always aries-autoheal
           autoheal_container_id="$(docker compose ps -q aries-autoheal)"
           autoheal_running="$(docker inspect -f '{{.State.Running}}' "${autoheal_container_id}" 2>/dev/null || echo false)"

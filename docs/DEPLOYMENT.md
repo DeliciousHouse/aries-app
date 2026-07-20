@@ -10,7 +10,7 @@ The `Dockerfile` uses a multi-stage build:
 
 1. **`deps`** — `npm ci` against `package.json`
 2. **`builder`** — copies source and runs `npm run build` (Next.js production build)
-3. **`runner`** — Node 24 Bookworm slim; copies only the built output, production `node_modules`, and scripts; runs as non-root `node` user (UID/GID configurable via build args `ARIES_NODE_UID` / `ARIES_NODE_GID`)
+3. **`runner`** — Node 24 Bookworm; copies only the built output, production `node_modules`, and scripts; runs as non-root `node` user (UID/GID configurable via build args `ARIES_NODE_UID` / `ARIES_NODE_GID`)
 
 Application code is baked into the image at `/app`. Writable runtime artifacts live under `/data` only.
 
@@ -74,7 +74,7 @@ Production deploys are triggered automatically on `master` pushes via `.github/w
 2. Builds and publishes `ghcr.io/delicioushouse/aries-app:<sha>` to GHCR.
 3. Pulls the pinned image on the deploy host.
 4. Force-recreates the `aries-app` service and waits for it to pass a health check (failure here fails the deploy).
-5. Force-recreates every worker sidecar in `docker-compose.yml` (`aries-scheduled-posts-worker`, `aries-weekly-trigger-worker`, `aries-draft-expiry-sweep-worker`, `aries-insights-sync-worker`, `aries-honcho-performance-worker`) onto the same pinned image. Sidecar recreate failures are non-fatal relative to the app deploy.
+5. Force-recreates every worker sidecar in `docker-compose.yml` (`aries-scheduled-posts-worker`, `aries-weekly-trigger-worker`, `aries-draft-expiry-sweep-worker`, `aries-hermes-gc-worker`, `aries-feedback-retry-worker`, `aries-insights-sync-worker`, `aries-honcho-performance-worker`, `aries-composio-reconciler-worker`) onto the same pinned image. Sidecar recreate failures are non-fatal relative to the app deploy.
 6. Verifies each sidecar has a running container on the target image ID, iterating `docker compose config --services` so the list can never drift from `docker-compose.yml`. Mismatches stay non-fatal but surface as GitHub `::warning::` annotations and step-summary lines.
 
 Every service in `docker-compose.yml` must have a matching force-recreate block in the workflow: `tests/deploy-manifest-parity.test.ts` (run in `npm run verify` and CI) fails when a compose service is added, renamed, or removed without the workflow being updated. This closes the gap where a worker added to compose but omitted from the workflow would keep running a stale image across every deploy (its `restart: unless-stopped` container is never re-pulled).
@@ -145,11 +145,11 @@ HERMES_STRATEGIST_GATEWAY_URL=http://host:8654
 HERMES_CONTENT_GATEWAY_URL=http://host:8655
 ```
 
-## Development container caveat
+## Development container
 
-`docker-compose.local.yml` defines an `aries-app-dev` service behind the `dev` profile. Its default command does not include `--turbopack`, which is required for Tailwind CSS v4. If you use it, override explicitly:
+`docker-compose.local.yml` defines an `aries-app-dev` service behind the `dev` profile. Its default command is `npm run dev`, which already includes `--turbopack` (required for Tailwind CSS v4), so no command override is needed:
 
 ```bash
 docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml \
-  run --rm --service-ports aries-app-dev sh -lc 'npx next dev -p 3000 --turbopack'
+  run --rm --service-ports aries-app-dev
 ```

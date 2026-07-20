@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { handleIntegrationsGet } from '../app/api/integrations/handlers';
+import {
+  deriveIntegrationSyncTelemetry,
+  handleIntegrationsGet,
+} from '../app/api/integrations/handlers';
 import { handlePlatformConnectionsGet } from '../app/api/platform-connections/handlers';
 import { oauthStore } from '../backend/integrations/connect';
 import pool from '../lib/db';
@@ -48,6 +51,19 @@ function resetOauthStore(): void {
   store.connectedByTenantProvider.clear();
 }
 
+type InsightsAccountFixture = {
+  tenant_id: string;
+  platform: string;
+  external_account_id: string;
+  last_synced_at: Date | string | null;
+  latest_status: 'ok' | 'partial' | 'failed' | null;
+};
+
+type QueryObservation = {
+  sql: string;
+  params: unknown[];
+};
+
 /**
  * Build a pool.query mock that services SELECT queries from oauth-db.ts.
  * Tenant IDs and connection IDs must be numeric strings (toTenantIdInt requirement).
@@ -68,9 +84,18 @@ function makeQueryMock(connections: Array<{
   last_error_message: string | null;
   created_at: string;
   updated_at: string;
-}>) {
+}>, insightsAccounts: InsightsAccountFixture[] = [], seenQueries: QueryObservation[] = []) {
   return async (sql: string, params: unknown[] = []) => {
     const text = String(sql);
+    seenQueries.push({ sql: text, params });
+
+    if (text.includes('FROM insights_accounts')) {
+      const tenantId = String(params[0]);
+      const rows = insightsAccounts
+        .filter((row) => row.tenant_id === tenantId)
+        .map(({ tenant_id: _tenantId, ...row }) => row);
+      return { rows, rowCount: rows.length };
+    }
 
     // SELECT by tenant_id + provider (dbGetConnection)
     if (text.includes('FROM oauth_connections') && text.includes('WHERE tenant_id = $1 AND provider = $2')) {
@@ -104,6 +129,32 @@ function makeQueryMock(connections: Array<{
     throw new Error(`Unhandled SQL in test mock: ${text}`);
   };
 }
+
+test('integration sync telemetry uses the shared two-tick freshness contract and normalizes invalid dates', () => {
+  const now = new Date('2026-07-19T12:00:00.000Z').getTime();
+  const staleAfterMs = 60 * 60_000;
+
+  assert.deepEqual(
+    deriveIntegrationSyncTelemetry('2026-07-19T11:50:00.000Z', 'ok', now, staleAfterMs),
+    { lastSyncedAt: '2026-07-19T11:50:00.000Z', syncState: 'current' },
+  );
+  assert.equal(
+    deriveIntegrationSyncTelemetry('2026-07-19T10:59:59.000Z', 'ok', now, staleAfterMs).syncState,
+    'stale',
+  );
+  assert.equal(
+    deriveIntegrationSyncTelemetry('2026-07-19T11:50:00.000Z', 'failed', now, staleAfterMs).syncState,
+    'stale',
+  );
+  assert.deepEqual(
+    deriveIntegrationSyncTelemetry('not-a-timestamp', 'ok', now, staleAfterMs),
+    { lastSyncedAt: null, syncState: 'never_synced' },
+  );
+  assert.deepEqual(
+    deriveIntegrationSyncTelemetry(null, null, now, staleAfterMs),
+    { lastSyncedAt: null, syncState: 'never_synced' },
+  );
+});
 
 test('/api/platform-connections derives token health from token expiry, not connection activity time', async (t) => {
   await withMetaEnv(async () => {
@@ -151,11 +202,12 @@ test('/api/platform-connections derives token health from token expiry, not conn
   });
 });
 
-test('/api/integrations leaves sync timing unknown unless real sync telemetry exists', async (t) => {
+test('/api/integrations loads one tenant-scoped, account-keyed sync telemetry batch', async (t) => {
   await withMetaEnv(async () => {
     resetOauthStore();
 
     const futureExpiry = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
+    const facebookLastSyncedAt = new Date(Date.now() - 10 * 60_000).toISOString();
     const connRows = [
       {
         id: '101',
@@ -167,8 +219,8 @@ test('/api/integrations leaves sync timing unknown unless real sync telemetry ex
         refresh_expires_at: null,
         connected_at: '2020-01-01T00:00:00.000Z',
         disconnected_at: null,
-        external_account_id: null,
-        external_account_name: null,
+        external_account_id: 'current-page',
+        external_account_name: 'Current Page',
         last_error_code: null,
         last_error_message: null,
         created_at: '2020-01-01T00:00:00.000Z',
@@ -192,7 +244,30 @@ test('/api/integrations leaves sync timing unknown unless real sync telemetry ex
         updated_at: '2020-01-01T00:00:00.000Z',
       },
     ];
-    t.mock.method(pool, 'query', makeQueryMock(connRows) as typeof pool.query);
+    const seenQueries: QueryObservation[] = [];
+    t.mock.method(pool, 'query', makeQueryMock(connRows, [
+      {
+        tenant_id: '123',
+        platform: 'facebook',
+        external_account_id: 'current-page',
+        last_synced_at: facebookLastSyncedAt,
+        latest_status: 'ok',
+      },
+      {
+        tenant_id: '123',
+        platform: 'facebook',
+        external_account_id: 'previous-page',
+        last_synced_at: new Date(Date.now() - 60_000),
+        latest_status: 'ok',
+      },
+      {
+        tenant_id: '999',
+        platform: 'facebook',
+        external_account_id: 'current-page',
+        last_synced_at: new Date(Date.now() - 30_000),
+        latest_status: 'ok',
+      },
+    ], seenQueries) as typeof pool.query);
 
     const response = await handleIntegrationsGet(async () => ({
       userId: 'user_123',
@@ -206,6 +281,7 @@ test('/api/integrations leaves sync timing unknown unless real sync telemetry ex
         platform: string;
         health: string;
         last_synced_at: string | null;
+        sync_state?: string;
         expires_at?: string | null;
       }>;
     };
@@ -214,11 +290,19 @@ test('/api/integrations leaves sync timing unknown unless real sync telemetry ex
 
     const facebook = body.cards.find((card) => card.platform === 'facebook');
     assert.equal(facebook?.health, 'healthy');
-    assert.equal(facebook?.last_synced_at, null);
+    assert.equal(facebook?.last_synced_at, facebookLastSyncedAt);
+    assert.equal(facebook?.sync_state, 'current');
 
     const instagram = body.cards.find((card) => card.platform === 'instagram');
     assert.equal(instagram?.health, 'unknown');
     assert.equal(instagram?.expires_at ?? null, null);
+
+    const insightsQueries = seenQueries.filter(({ sql }) => sql.includes('FROM insights_accounts'));
+    assert.equal(insightsQueries.length, 1, 'sync timing must use one batch query, not a per-card fan-out');
+    assert.deepEqual(insightsQueries[0]?.params, [123]);
+    assert.match(insightsQueries[0]?.sql ?? '', /a\.tenant_id\s*=\s*\$1/i);
+    assert.match(insightsQueries[0]?.sql ?? '', /external_account_id/i);
+    assert.doesNotMatch(insightsQueries[0]?.sql ?? '', /MAX\(last_sync_at\)|GROUP BY platform/i);
   });
 });
 

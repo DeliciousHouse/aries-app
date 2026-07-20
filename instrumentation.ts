@@ -24,6 +24,32 @@ type InstrumentationDependencies = {
 
 const HERMES_STARTUP_PROBE_BACKOFF_MS = [1_000, 2_000] as const;
 
+function isTransientHermesStatus(status: number | null): boolean {
+  return status === null || status === 408 || status === 429 || status >= 500;
+}
+
+function isTransientHermesStartupFailure(
+  report: HermesSocialContentRuntimeReport,
+): boolean {
+  const failedChecks = [report.gateway, report.capabilities].filter(
+    (check) => !check.ok,
+  );
+  return (
+    failedChecks.length > 0 &&
+    failedChecks.every((check) => isTransientHermesStatus(check.httpStatus))
+  );
+}
+
+function hermesStartupFailureDetail(
+  report: HermesSocialContentRuntimeReport,
+): string {
+  return (
+    report.gateway.error ||
+    report.capabilities.error ||
+    'runtime contract unavailable'
+  );
+}
+
 function sleep(delayMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
@@ -55,6 +81,11 @@ export async function register(dependencies: InstrumentationDependencies = {}) {
       if (report.ok) {
         break;
       }
+      if (!isTransientHermesStartupFailure(report)) {
+        throw new Error(
+          `[startup] Hermes social-content runtime probe failed permanently against ${report.gateway.url}. ${hermesStartupFailureDetail(report)}`,
+        );
+      }
       if (attempt < HERMES_STARTUP_PROBE_BACKOFF_MS.length) {
         await wait(HERMES_STARTUP_PROBE_BACKOFF_MS[attempt]);
       }
@@ -62,7 +93,7 @@ export async function register(dependencies: InstrumentationDependencies = {}) {
 
     if (!report?.ok) {
       const gatewayUrl = report?.gateway.url ?? 'the configured gateway';
-      const detail = report?.gateway.error || report?.capabilities.error || 'runtime contract unavailable';
+      const detail = hermesStartupFailureDetail(report);
       warn(
         `[startup] Hermes social-content runtime probe failed after ${HERMES_STARTUP_PROBE_BACKOFF_MS.length + 1} attempts against ${gatewayUrl}; continuing in degraded mode. ${detail}`,
       );

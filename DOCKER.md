@@ -4,6 +4,7 @@
 - `Dockerfile`
 - `docker-compose.yml`
 - `docker-compose.local.yml`
+- `docker-compose.selfhost.yml`
 - `.dockerignore`
 
 ## Deployment contract
@@ -28,18 +29,27 @@ gh workflow run Deploy --ref master \
 
 The production instrumentation hook probes the configured Hermes gateway's
 `/health` and `/v1/capabilities` endpoints. It retries a boot-time failure three
-times with 1-second and 2-second backoff. A still-unavailable gateway is logged
-as degraded startup state and does not prevent the web app from serving; static
-configuration errors still fail fast before the network probe.
+times with 1-second and 2-second backoff only for transport/timeouts, HTTP 408/429,
+and 5xx responses. A still-unavailable gateway is logged as degraded startup state
+and does not prevent the web app from serving. Bad credentials, other 4xx responses,
+an incompatible/missing capability contract, static configuration errors, and
+unrelated startup exceptions still fail fast.
 
 Docker restart policies do not restart a running container merely because its
 healthcheck becomes `unhealthy`. The base Compose file therefore labels only
-`aries-app` with `autoheal=true` and runs `willfarrell/autoheal:1.2.0` to restart
-that labelled container. The deploy workflow starts and verifies `aries-autoheal`
-before recreating the web container. Autoheal needs read/write access to
-`/var/run/docker.sock` to issue the restart, which is effectively host-level
-Docker control; the label selector is intentionally narrow and no worker
-sidecars are opted in.
+`aries-app` with `com.delicioushouse.aries.autoheal=true`. The `aries-autoheal`
+watcher uses the immutable `willfarrell/autoheal:1.2.0@sha256:31f580ef0279eaced5b38d631b08c474d70d8403c1c2fdd6ddcf2e879d5f3f7c`
+manifest and the in-repo `scripts/aries-autoheal.sh` policy. It allows at most three
+successful restarts per container in 15 minutes; further checks leave the
+container unhealthy and emit one operator-visible error until the window expires.
+Restart history lives in the `aries-autoheal-state` volume, so restarting the
+watcher does not reset the budget. The deploy workflow starts and verifies the
+watcher before recreating the web container.
+
+The watcher needs read/write access to `/var/run/docker.sock` to issue a restart,
+which is effectively host-level Docker control. Its Docker query requires both the
+unhealthy state and the full Aries-specific label key/value; no worker sidecars or
+unrelated Compose stacks are opted in.
 
 ## Build
 ```bash
@@ -279,12 +289,12 @@ container matches `${ARIES_SHARED_DATA_ROOT}/...` on the host.
 Before starting the pipeline on the host, export:
 
 ```bash
-export ARTIFACT_STAGE1_CACHE_DIR="${ARIES_SHARED_DATA_ROOT:-/home/node/data}/lobster-stage1-cache"
-export ARTIFACT_STAGE2_CACHE_DIR="${ARIES_SHARED_DATA_ROOT:-/home/node/data}/lobster-stage2-cache"
-export ARTIFACT_STAGE3_CACHE_DIR="${ARIES_SHARED_DATA_ROOT:-/home/node/data}/lobster-stage3-cache"
-export ARTIFACT_STAGE4_CACHE_DIR="${ARIES_SHARED_DATA_ROOT:-/home/node/data}/lobster-stage4-cache"
+export ARTIFACT_STAGE1_CACHE_DIR="${ARIES_SHARED_DATA_ROOT:-/home/node/data}/hermes-stage1-cache"
+export ARTIFACT_STAGE2_CACHE_DIR="${ARIES_SHARED_DATA_ROOT:-/home/node/data}/hermes-stage2-cache"
+export ARTIFACT_STAGE3_CACHE_DIR="${ARIES_SHARED_DATA_ROOT:-/home/node/data}/hermes-stage3-cache"
+export ARTIFACT_STAGE4_CACHE_DIR="${ARIES_SHARED_DATA_ROOT:-/home/node/data}/hermes-stage4-cache"
 ```
 
-The container defaults to `/data/lobster-stage{N}-cache` in `docker-compose.yml`,
+The container defaults to `/data/hermes-stage{N}-cache` in `docker-compose.yml`,
 which equals those host paths via the `/data` bind. Override either side only
 if you have a reason — if they diverge, Aries silently cannot see the files.

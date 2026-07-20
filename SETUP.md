@@ -141,6 +141,13 @@ Browser
 | `POST /api/publish/dispatch` | Submit a publish dispatch request |
 | `POST /api/publish/retry` | Retry publish work |
 | `POST /api/calendar/sync` | Request calendar synchronization |
+| `GET|PATCH /api/marketing/schedule` | Read/update the weekly content-generation cadence |
+| `GET /api/marketing/posting-times` | Read AI-derived per-platform posting times |
+| `POST /api/marketing/posting-times/derive` | Admin: re-derive posting times (202, fire-and-forget) |
+| `GET /api/insights/*` | Insights dashboard read models (summary, trends, audience, comments, …) |
+| `POST /api/insights/comments/:commentId/reply` | Reply natively to a stored social comment (flag-gated) |
+
+This table is a curated contract for the primary operator flows, not an exhaustive route census — see `ROUTE_MANIFEST.md` for the fuller list.
 
 ### Weekly social content operational flow
 

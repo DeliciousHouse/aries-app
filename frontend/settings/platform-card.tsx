@@ -42,6 +42,12 @@ function renderHealth(health: IntegrationHealth): string {
   }
 }
 
+function parseLastSyncDate(value: string | null): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 // StatusBadge accepts the shared runtime status union; map every
 // IntegrationConnectionState to a sensible badge so a new connection state
 // (e.g. `connection_pending` during an in-flight OAuth) never falls through to
@@ -80,6 +86,10 @@ export function connectionStateBadgeStatus(
 
 export function PlatformCard({ card, onAction, busyAction = null }: PlatformCardProps): JSX.Element {
   const usesAriesOauth = card.connection_state !== 'disabled';
+  const showsSyncTelemetry =
+    card.connection_state === 'connected' || card.connection_state === 'reauth_required';
+  const lastSyncDate = parseLastSyncDate(card.last_synced_at);
+  const lastSyncIsStale = lastSyncDate !== null && card.sync_state === 'stale';
 
   return (
     <div data-platform={card.platform} className="glass rounded-[2rem] p-6 h-full">
@@ -112,16 +122,23 @@ export function PlatformCard({ card, onAction, busyAction = null }: PlatformCard
             <span className="text-sm text-white/70">{renderHealth(card.health)}</span>
           </div>
 
-          {card.last_synced_at ? (
+          {showsSyncTelemetry ? (
             <div className="rounded-[1.25rem] border border-white/10 bg-white/5 px-4 py-3 flex items-center justify-between gap-4">
               <strong className="text-sm">Last sync</strong>
-              <span className="text-sm text-white/70">
-                {new Date(card.last_synced_at).toLocaleDateString(undefined, {
-                  month: 'short',
-                  day: 'numeric',
-                  hour: 'numeric',
-                  minute: '2-digit',
-                })}
+              <span className="flex items-center justify-end gap-2 text-sm text-white/70">
+                {lastSyncDate
+                  ? lastSyncDate.toLocaleDateString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                    })
+                  : 'Never synced'}
+                {lastSyncIsStale ? (
+                  <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-xs font-semibold text-amber-200">
+                    Stale
+                  </span>
+                ) : null}
               </span>
             </div>
           ) : null}
