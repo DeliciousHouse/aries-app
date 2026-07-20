@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.30.0 — fix(runtime): tolerate transient Hermes outages and restart unhealthy web containers
+
+Aries startup no longer aborts when the configured Hermes gateway is temporarily
+unavailable. The boot probe now retries three times with bounded exponential
+backoff, then logs degraded state and lets the web process serve while retaining
+fail-fast validation for static runtime misconfiguration.
+
+Production Compose now labels the web service for a pinned autoheal sidecar that
+restarts running-but-unhealthy containers. The deploy workflow starts and verifies
+that sidecar before replacing the web container, while keeping its external image
+outside the Aries app-image parity checks.
+
 ## v0.1.29.0 — feat(marketing): AI-derived per-platform posting times (flag-gated, default OFF)
 
 Posting times are no longer a fixed set time. Behind `ARIES_AI_POSTING_TIMES_ENABLED`

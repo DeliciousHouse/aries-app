@@ -14,7 +14,7 @@
 
 ## Production release
 
-For `aries-app`, deploy by merging or pushing to `master`. The GitHub Actions Deploy workflow builds and publishes `ghcr.io/delicioushouse/aries-app:<sha>` for the exact target commit, then the self-hosted deploy host pulls that pinned image, force-recreates the `aries-app` service, and — once the app passes its health check — force-recreates every worker sidecar in `docker-compose.yml` onto the same pinned image. A post-deploy check then verifies each sidecar has a running container on the target image ID; sidecar failures are non-fatal to the deploy but surface as GitHub `::warning::` annotations and step-summary lines. `tests/deploy-manifest-parity.test.ts` (in `npm run verify` and CI) fails when a compose service is added without a matching recreate block in the workflow.
+For `aries-app`, deploy by merging or pushing to `master`. The GitHub Actions Deploy workflow builds and publishes `ghcr.io/delicioushouse/aries-app:<sha>` for the exact target commit, then the self-hosted deploy host starts the pinned `aries-autoheal` external sidecar, pulls that pinned app image, force-recreates the `aries-app` service, and — once the app passes its health check — force-recreates every app-image worker sidecar in `docker-compose.yml` onto the same pinned image. A post-deploy check then verifies each app-image sidecar has a running container on the target image ID; sidecar failures are non-fatal to the deploy but surface as GitHub `::warning::` annotations and step-summary lines. `tests/deploy-manifest-parity.test.ts` (in `npm run verify` and CI) fails when an app-image compose service is added without a matching recreate block in the workflow.
 
 Manual deploys still use workflow dispatch with an explicit image tag. Use the full commit SHA for normal production recovery so the workflow can build and verify the exact image before restart:
 
@@ -23,6 +23,23 @@ gh workflow run Deploy --ref master \
   -f image_tag=<full-commit-sha> \
   -f git_ref=<full-commit-sha>
 ```
+
+### Boot resilience and unhealthy-container recovery
+
+The production instrumentation hook probes the configured Hermes gateway's
+`/health` and `/v1/capabilities` endpoints. It retries a boot-time failure three
+times with 1-second and 2-second backoff. A still-unavailable gateway is logged
+as degraded startup state and does not prevent the web app from serving; static
+configuration errors still fail fast before the network probe.
+
+Docker restart policies do not restart a running container merely because its
+healthcheck becomes `unhealthy`. The base Compose file therefore labels only
+`aries-app` with `autoheal=true` and runs `willfarrell/autoheal:1.2.0` to restart
+that labelled container. The deploy workflow starts and verifies `aries-autoheal`
+before recreating the web container. Autoheal needs read/write access to
+`/var/run/docker.sock` to issue the restart, which is effectively host-level
+Docker control; the label selector is intentionally narrow and no worker
+sidecars are opted in.
 
 ## Build
 ```bash

@@ -2,6 +2,7 @@ import {
   assertHermesSocialContentRuntimeConfigured,
   probeHermesSocialContentRuntime,
   shouldProbeHermesOnStartup,
+  type HermesSocialContentRuntimeReport,
 } from '@/backend/marketing/hermes-runtime-contract';
 import { assertMarketingExecutionPortConfigured } from '@/backend/marketing/provider-guard';
 import { validateHonchoConfig } from '@/backend/memory/honcho-env';
@@ -10,25 +11,60 @@ import {
   partnerAttributionEnabled,
 } from '@/lib/partner-attribution-env';
 
-export async function register() {
+type StartupEnv = Partial<Record<string, string | undefined>>;
+
+type InstrumentationDependencies = {
+  env?: StartupEnv;
+  probeHermesRuntime?: (
+    env: StartupEnv,
+  ) => Promise<HermesSocialContentRuntimeReport>;
+  sleep?: (delayMs: number) => Promise<void>;
+  warn?: (...args: unknown[]) => void;
+};
+
+const HERMES_STARTUP_PROBE_BACKOFF_MS = [1_000, 2_000] as const;
+
+function sleep(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+export async function register(dependencies: InstrumentationDependencies = {}) {
+  const env = dependencies.env ?? process.env;
+
   // Fail fast on startup when HONCHO_ENABLED=true but required config is absent.
-  validateHonchoConfig(process.env);
+  validateHonchoConfig(env);
 
   // Weekly social content is Hermes-only. Validate the runtime contract at boot
   // so misconfigured deployments fail loudly instead of submitting a run that
   // waits forever for a callback Hermes will never send directly.
   assertMarketingExecutionPortConfigured({
-    ...process.env,
+    ...env,
     ARIES_MARKETING_EXECUTION_PROVIDER: 'hermes',
   });
-  assertHermesSocialContentRuntimeConfigured(process.env);
+  assertHermesSocialContentRuntimeConfigured(env);
 
-  if (shouldProbeHermesOnStartup(process.env)) {
-    const report = await probeHermesSocialContentRuntime(process.env);
-    if (!report.ok) {
-      throw new Error(
-        report.gateway.error ||
-        `Hermes social-content startup probe failed against ${report.gateway.url}.`,
+  if (shouldProbeHermesOnStartup(env)) {
+    const probeHermesRuntime =
+      dependencies.probeHermesRuntime ?? probeHermesSocialContentRuntime;
+    const wait = dependencies.sleep ?? sleep;
+    const warn = dependencies.warn ?? console.warn;
+    let report: HermesSocialContentRuntimeReport | null = null;
+
+    for (let attempt = 0; attempt <= HERMES_STARTUP_PROBE_BACKOFF_MS.length; attempt += 1) {
+      report = await probeHermesRuntime(env);
+      if (report.ok) {
+        break;
+      }
+      if (attempt < HERMES_STARTUP_PROBE_BACKOFF_MS.length) {
+        await wait(HERMES_STARTUP_PROBE_BACKOFF_MS[attempt]);
+      }
+    }
+
+    if (!report?.ok) {
+      const gatewayUrl = report?.gateway.url ?? 'the configured gateway';
+      const detail = report?.gateway.error || report?.capabilities.error || 'runtime contract unavailable';
+      warn(
+        `[startup] Hermes social-content runtime probe failed after ${HERMES_STARTUP_PROBE_BACKOFF_MS.length + 1} attempts against ${gatewayUrl}; continuing in degraded mode. ${detail}`,
       );
     }
   }

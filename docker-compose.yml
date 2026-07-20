@@ -469,8 +469,25 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    labels:
+      autoheal: "true"
     networks:
       - docker_stack
+
+  # Docker's restart policy only reacts to process exits, not an unhealthy
+  # healthcheck. This socket-scoped watcher restarts only explicitly labelled
+  # containers, so a wedged-but-running web process self-heals without touching
+  # the worker sidecars. The image is version-pinned for reproducible deploys.
+  aries-autoheal:
+    image: willfarrell/autoheal:1.2.0
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: autoheal
+      AUTOHEAL_INTERVAL: 30
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    network_mode: none
+    restart: unless-stopped
+
   # Long-lived sidecar that drains the scheduled_posts table and POSTs due rows
   # to /api/internal/publishing/scheduled-dispatch every 60 seconds. The worker
   # script self-schedules via setInterval when started without
