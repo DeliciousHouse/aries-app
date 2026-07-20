@@ -4,7 +4,7 @@
 
 | Endpoint | Source | Contract |
 |---|---|---|
-| `POST /api/integrations/slack/events` | Slack Events API | Verifies the Slack signing signature, answers the `url_verification` challenge, and dedupes by top-level `event_id` into the `slack_event_ids` table. Always returns 200 for verified events. |
+| `POST /api/integrations/slack/events` | Slack Events API | Verifies the Slack signing signature, answers the `url_verification` challenge, and dedupes by top-level `event_id` into the `slack_event_ids` table. Verified, well-formed events are acked 200 (including dedupe hits); malformed JSON or a missing `url_verification` challenge gets 400, a bad signature 401, and an unset `SLACK_SIGNING_SECRET` 503. |
 
 No other inbound webhook contract is exposed in the current architecture. Hermes run delivery is **not** a webhook: the Hermes reconciler polls runs to completion and feeds the internal callback route (`POST /api/internal/hermes/runs`, `INTERNAL_API_SECRET` bearer auth).
 

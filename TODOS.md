@@ -256,7 +256,7 @@ And ship as its own PR.
 
 **Why:** Dangling unmerged work rots. If the design is still valid, ship; if not, close.
 
-**Resolved:** Phase 2 + Phase 3 code is on master (`recordPerformanceEvent` in `backend/memory/write-events.ts`, the `creative-voice-preference` route, and the `aries-honcho-performance-worker` sidecar) and both gates default ON in `docker-compose.yml` (`HONCHO_WRITE_PUBLISH_ENABLED` / `HONCHO_WRITE_PREFERENCES_ENABLED`).
+**Resolved:** Phase 2 + Phase 3 code is on master (`recordPerformanceEvent` in `backend/memory/write-events.ts`, the `creative-voice-preference` route, and the `aries-honcho-performance-worker` sidecar) and both gates default ON in `docker-compose.yml` on the `aries-app` and `aries-honcho-performance-worker` services (`HONCHO_WRITE_PUBLISH_ENABLED` / `HONCHO_WRITE_PREFERENCES_ENABLED`); the `aries-insights-sync-worker` service deliberately pins `HONCHO_WRITE_PUBLISH_ENABLED:-false` — the performance→Honcho leg belongs to the honcho-performance worker, not the sync worker.
 
 **Priority:** P3 (after Phase 1 flag flip lands)
 **Source:** Surfaced 2026-05-23 during /goal P6 investigation.
