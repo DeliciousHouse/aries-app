@@ -1,4 +1,3 @@
-<!-- /autoplan restore point: ~/.gstack/projects/DeliciousHouse-aries-app/claude-aries-live-social-sessions-9lqla6-autoplan-restore-20260720-150305.md -->
 # Live Social Sessions — manage live broadcasts (Instagram Live, Facebook Live, …) from Aries
 
 > Status: draft plan (2026-07-20). Net-new domain (`backend/live/`). Thesis: **managed where the platform API allows, honest companion everywhere else.** A live broadcast is a long-lived stateful external resource, not a one-shot publish — it gets its own tables, its own CAS state machine, and its own dormant sidecar worker. It never rides `posts`/`scheduled_posts`.
@@ -582,7 +581,7 @@ The independent design subagent returned 17 findings (2 critical). Both critical
 
 **Architecture diagram:** see Phase 1 record (S1). **Failure-modes registry:** see Phase 1 record — zero critical gaps after the reveal-decrypt and stale-monitor fixes.
 
-**Test diagram + test plan artifact:** the full codepath→coverage matrix (every new UX flow, data flow, guard, worker leg, integration, plus 2am-Friday/hostile-QA/chaos cases, flakiness controls, and per-phase verify-suite registration) is written to `~/.gstack/projects/DeliciousHouse-aries-app/brendan-claude-aries-live-social-sessions-9lqla6-test-plan-20260720-154500.md`. Additions it forces beyond the plan's original table: a grep-level assertion that `planned_start_time` never appears in `backend/`; event-replay idempotency on `live_session_events.event_id`; DRY_RUN-mutates-nothing tick test; view-model unit for the client-side stale-monitor derivation.
+**Test diagram + test plan artifact:** the full codepath→coverage matrix (every new UX flow, data flow, guard, worker leg, integration, plus 2am-Friday/hostile-QA/chaos cases, flakiness controls, and per-phase verify-suite registration) is checked in alongside this plan at `docs/plans/2026-07-20-live-social-sessions-test-plan.md`. Additions it forces beyond the plan's original table: a grep-level assertion that `planned_start_time` never appears in `backend/`; event-replay idempotency on `live_session_events.event_id`; DRY_RUN-mutates-nothing tick test; view-model unit for the client-side stale-monitor derivation.
 
 **TODOS.md updated** (auto-write per autoplan override): three deferred items appended under a new "Live Sessions" heading — email reminder leg, per-tenant lead-time setting, VOD archival.
 
@@ -647,7 +646,8 @@ Dimension                        Claude(primary)      Subagent              Cons
 | TODOS.md             | 3 items appended (auto-write)               |
 | Scope proposals      | 7 scanned: 1 accepted (ICS), 3 deferred,    |
 |                      | 1 skipped, 2 already-covered                |
-| Test plan artifact   | written to ~/.gstack/projects/…-test-plan…  |
+| Test plan artifact   | docs/plans/2026-07-20-live-social-          |
+|                      | sessions-test-plan.md (checked in)          |
 | Diagrams             | architecture, state machine, data-flow      |
 | Decision audit trail | 46 rows                                     |
 | Outside voices       | [subagent-only] x3 (Codex CLI absent)       |
