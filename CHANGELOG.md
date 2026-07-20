@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.31.0 — chore(ci): add nightly full verification
+
+Maintainers now get a scheduled, GitHub-hosted verification run that surfaces
+failures for the morning Jira intake without taking write-side operational action.
+
+### Added
+
+- A nightly workflow runs the shared verification pipeline at 09:00 UTC
+  (02:00 PDT / 01:00 PST), ahead of dev-lead's 07:45 PT Jira intake.
+- Failed dependency, lint, test, and build logs are retained as GitHub Actions
+  artifacts for 14 days so the morning intake has actionable evidence.
+
+### Changed
+
+- The existing Tests workflow is reusable through `workflow_call`, retains its
+  pull-request and `master` triggers, and now includes the production build gate.
+- A regression contract keeps the nightly caller tied to the complete shared
+  verification workflow and prevents write-side remediation from drifting in.
+
 ## v0.1.30.0 — feat(integrations): show account-specific sync freshness
 
 Connected integration cards now expose when the selected account last completed
