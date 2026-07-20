@@ -2,6 +2,13 @@
 
 Last refreshed May 4, 2026, 16:00 UTC.
 
+> **Stale — do not rely on the details below.** This document was produced by
+> `scripts/automations/rolling-system-reference.mjs`, which no longer exists in the
+> repo, so it has not been regenerated since 2026-05-04 and predates the Hermes
+> reconciler, the sidecar-worker fleet expansion, insights sprints S1–S3, AI
+> posting times, and the multi-workspace program. For current facts use
+> `CLAUDE.md`, `docs/ARCHITECTURE.md`, and `ROUTE_MANIFEST.md`.
+
 ## What changed today
 - README.md
 - DOCKER.md

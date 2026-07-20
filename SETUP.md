@@ -141,6 +141,9 @@ Browser
 | `POST /api/publish/dispatch` | Submit a publish dispatch request |
 | `POST /api/publish/retry` | Retry publish work |
 | `POST /api/calendar/sync` | Request calendar synchronization |
+| `GET|PATCH /api/marketing/schedule` | Read/update the weekly content-generation cadence |
+| `GET /api/marketing/posting-times` | Read AI-derived per-platform posting times |
+| `POST /api/marketing/posting-times/derive` | Admin: re-derive posting times (202, fire-and-forget) |
 
 ### Weekly social content operational flow
 

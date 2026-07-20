@@ -36,6 +36,7 @@ backend/     Server-side domain logic
   tenant/      Tenant profile and workflow management
   video/       Video artifact helpers
 components/  Shared UI primitives
+frontend/    Screen-level components grouped by domain (marketing, insights, onboarding, app-shell, …)
 lib/         Shared runtime helpers — DB pool, auth helpers, tenant context, crypto
 scripts/     Startup, DB init, validation, and repo-guard scripts
 tests/       Route, API, auth, and runtime regression coverage
@@ -50,7 +51,7 @@ Operator pages:
 | Route | Purpose |
 |---|---|
 | `/dashboard` | Operator overview |
-| `/dashboard/campaigns` | Campaign list and workspace |
+| `/dashboard/social-content` | Social content jobs list and workspace |
 | `/dashboard/posts` | Publish controls |
 | `/dashboard/calendar` | Scheduling calendar |
 | `/dashboard/settings` | Tenant settings |
@@ -96,17 +97,17 @@ A single-gateway deployment can leave all three profile vars blank; each falls b
 
 ## PostgreSQL runtime state
 
-All durable state lives in PostgreSQL. The schema is initialized by `npm run db:init` (`scripts/init-db.js`). Key tables:
+Durable relational state lives in PostgreSQL. The schema is initialized by `npm run db:init` (`scripts/init-db.js`). Execution run records and marketing job documents are file-backed under `DATA_ROOT/generated/` (`backend/execution/run-store.ts`), not Postgres tables. Key tables:
 
 - `users` — user accounts, password hashes, organization membership
 - `organizations` — tenant organizations
 - `oauth_tokens` — encrypted provider tokens with expiry metadata
-- `platform_connections` — provider connection health and sync state
+- `connected_accounts` — provider connection health and sync state
 - `creative_assets` — Hermes-owned generated media metadata
-- `execution_runs` — run records with callback token hashes, status, and result payload
-- `marketing_jobs` / `social_content_jobs` — job tracking and status read models
-- `publish_items` — per-item publish state and retry metadata
-- `calendar_events` — scheduled post calendar entries
+- `posts` — synthesized publish posts (captions, status, creative links)
+- `scheduled_posts` / `scheduled_post_dispatches` — publish queue state and per-dispatch retry metadata
+- `marketing_schedule` — weekly content-generation cadence (one row per tenant)
+- `marketing_posting_times` / `marketing_posting_time_claims` — AI-derived per-platform posting times + derivation claims
 
 ## Marketing pipeline
 
