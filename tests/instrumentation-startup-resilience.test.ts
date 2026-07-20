@@ -183,6 +183,28 @@ test('instrumentation fails startup immediately when Hermes rejects its credenti
   assert.deepEqual(warnings, []);
 });
 
+test('instrumentation surfaces the permanent failure when Hermes checks fail for mixed reasons', async () => {
+  const report = runtimeReport(false);
+  report.capabilities.httpStatus = 401;
+  report.capabilities.error = 'Hermes /v1/capabilities rejected the API key (HTTP 401).';
+
+  let attempts = 0;
+  await assert.rejects(
+    () =>
+      registerWithDependencies({
+        env: STARTUP_ENV,
+        probeHermesRuntime: async () => {
+          attempts += 1;
+          return report;
+        },
+        sleep: async () => {},
+        warn: () => {},
+      }),
+    /HTTP 401/,
+  );
+  assert.equal(attempts, 1);
+});
+
 test('instrumentation fails startup on an incompatible Hermes capability contract', async () => {
   const report = runtimeReport(false);
   report.gateway = {

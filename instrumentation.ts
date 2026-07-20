@@ -25,15 +25,22 @@ type InstrumentationDependencies = {
 const HERMES_STARTUP_PROBE_BACKOFF_MS = [1_000, 2_000] as const;
 
 function isTransientHermesStatus(status: number | null): boolean {
-  return status === null || status === 408 || status === 429 || status >= 500;
+  return (
+    status === null ||
+    status === 408 ||
+    status === 429 ||
+    (status >= 500 && status <= 599)
+  );
+}
+
+function failedHermesChecks(report: HermesSocialContentRuntimeReport) {
+  return [report.gateway, report.capabilities].filter((check) => !check.ok);
 }
 
 function isTransientHermesStartupFailure(
   report: HermesSocialContentRuntimeReport,
 ): boolean {
-  const failedChecks = [report.gateway, report.capabilities].filter(
-    (check) => !check.ok,
-  );
+  const failedChecks = failedHermesChecks(report);
   return (
     failedChecks.length > 0 &&
     failedChecks.every((check) => isTransientHermesStatus(check.httpStatus))
@@ -43,9 +50,12 @@ function isTransientHermesStartupFailure(
 function hermesStartupFailureDetail(
   report: HermesSocialContentRuntimeReport,
 ): string {
+  const failedChecks = failedHermesChecks(report);
+  const actionableFailure = failedChecks.find(
+    (check) => !isTransientHermesStatus(check.httpStatus),
+  ) ?? failedChecks[0];
   return (
-    report.gateway.error ||
-    report.capabilities.error ||
+    actionableFailure?.error ||
     'runtime contract unavailable'
   );
 }
