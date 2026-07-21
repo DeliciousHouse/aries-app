@@ -31,8 +31,8 @@ export function InsightsDashboard() {
   return (
     <div style={{ background: C.bg, minHeight: "100%" }}>
       <div
+        className="insights-dashboard-content"
         style={{
-          padding:  "28px 48px 72px",
           maxWidth: 1600,
           width:    "100%",
           margin:   "0 auto",
