@@ -10,8 +10,6 @@
 *::before,
 *::after {
   box-sizing: border-box;
-  margin: 0;
-  padding: 0;
 }
 
 body {
@@ -20,6 +18,16 @@ body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+.insights-dashboard-content {
+  padding: 28px 48px 72px;
+}
+
+@media (max-width: 640px) {
+  .insights-dashboard-content {
+    padding: 20px 16px 40px;
+  }
 }
 
 /* Skeleton shimmer */

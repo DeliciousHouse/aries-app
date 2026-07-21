@@ -28,6 +28,19 @@ their existing workspace and contact attribution.
 - Persisted reports survive Jira delivery failures for later retry, and failed
   browser submissions stay open with conspicuous error copy and a retry action.
 
+## v0.1.33.0 — fix(marketing): keep homepage sections visible
+
+Visitors can now read the complete homepage product story even when browser
+animations, viewport observers, or JavaScript are unavailable.
+
+### Fixed
+
+- The problem, features, four-step transformation, Meet Aries, early-access,
+  and final call-to-action sections now render visibly by default instead of
+  waiting for viewport-triggered animation state.
+- The four transformation steps remain present and readable on desktop and
+  mobile in both JavaScript-enabled and server-rendered/no-JavaScript views.
+
 ## v0.1.31.0 — chore(ci): add nightly full verification
 
 Maintainers now get a scheduled, GitHub-hosted verification run that surfaces
