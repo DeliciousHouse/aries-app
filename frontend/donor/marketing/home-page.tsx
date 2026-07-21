@@ -867,33 +867,18 @@ function Problem() {
     <section id="product" className="py-24 relative overflow-hidden">
       <div className="container mx-auto px-6">
         <div className="relative z-10 text-center mb-16">
-          <motion.h2
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="text-4xl md:text-5xl font-bold mb-6"
-          >
+          <h2 className="text-4xl md:text-5xl font-bold mb-6">
             Marketing without a system is <span className="text-red-400">stressful</span>
-          </motion.h2>
-          <motion.p
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ delay: 0.2 }}
-            className="text-white/60 max-w-2xl mx-auto"
-          >
+          </h2>
+          <p className="text-white/60 max-w-2xl mx-auto">
             Small businesses deserve a calm, clear place to plan marketing, approve work, and see what is actually driving results.
-          </motion.p>
+          </p>
         </div>
 
         <div className="relative z-10 grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {problems.map((problem, index) => (
-            <motion.div
+          {problems.map((problem) => (
+            <div
               key={problem.title}
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: index * 0.1 }}
               className="glass p-8 rounded-3xl border border-white/5 hover:border-white/20 transition-all group"
             >
               <div className="mb-6 w-fit p-3 rounded-full border border-white/10 bg-black/35 backdrop-blur-sm flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -901,7 +886,7 @@ function Problem() {
               </div>
               <h3 className="text-xl font-bold mb-4">{problem.title}</h3>
               <p className="text-white/50 text-sm leading-relaxed">{problem.description}</p>
-            </motion.div>
+            </div>
           ))}
         </div>
       </div>
@@ -953,25 +938,16 @@ function Features() {
     <section id="features" className="py-24 relative">
       <div className="container mx-auto px-6">
         <div className="text-center mb-20">
-          <motion.h2
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="text-4xl md:text-[48px] leading-tight font-bold mb-6"
-          >
+          <h2 className="text-4xl md:text-[48px] leading-tight font-bold mb-6">
             Everything you need to <br />
             <span className="text-gradient">market with confidence</span>
-          </motion.h2>
+          </h2>
         </div>
 
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {features.map((feature, index) => (
+          {features.map((feature) => (
             <motion.div
               key={feature.title}
-              initial={{ opacity: 0, scale: 0.9 }}
-              whileInView={{ opacity: 1, scale: 1 }}
-              viewport={{ once: true }}
-              transition={{ delay: index * 0.1 }}
               whileHover={{ y: -10 }}
               className="glass p-10 rounded-[2.5rem] relative overflow-hidden group"
             >
@@ -1031,14 +1007,7 @@ function HowItWorks() {
 
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-12">
             {steps.map((step, index) => (
-              <motion.div
-                key={step.title}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: index * 0.2 }}
-                className="relative z-10 text-center"
-              >
+              <div key={step.title} className="relative z-10 text-center">
                 <div className="w-20 h-20 mx-auto mb-8 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center relative group">
                   <div className="absolute inset-0 bg-primary/20 blur-xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
                   {step.icon}
@@ -1048,7 +1017,7 @@ function HowItWorks() {
                 </div>
                 <h3 className="text-xl font-bold mb-4">{step.title}</h3>
                 <p className="text-white/50 text-sm leading-relaxed">{step.description}</p>
-              </motion.div>
+              </div>
             ))}
           </div>
         </div>
@@ -1556,12 +1525,7 @@ function EarlyAccessSignup() {
       <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[size:64px_64px] opacity-35" />
       <div className="absolute right-0 top-0 h-96 w-1/2 bg-[radial-gradient(circle_at_top_right,rgba(124,58,237,0.25),transparent_58%)]" />
       <div className="w-full">
-        <motion.div
-          initial={{ opacity: 0, y: 24 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          className="relative w-full overflow-hidden"
-        >
+        <div className="relative w-full overflow-hidden">
           <div className="container relative z-10 mx-auto grid gap-10 px-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-start">
             <EarlyAccessCopy />
             <EarlyAccessForm
@@ -1570,7 +1534,7 @@ function EarlyAccessSignup() {
               className="flex min-h-[390px] flex-col justify-center rounded-[2rem] border border-white/10 bg-black/25 p-5 shadow-2xl shadow-black/20"
             />
           </div>
-        </motion.div>
+        </div>
       </div>
     </section>
   );
@@ -1768,12 +1732,7 @@ function FinalCTA() {
   return (
     <section className="py-24 relative overflow-hidden">
       <div className="container mx-auto px-6">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          whileInView={{ opacity: 1, scale: 1 }}
-          viewport={{ once: true }}
-          className="relative bg-white/5 backdrop-blur-xl border border-white/10 rounded-[4rem] overflow-hidden h-[500px] md:h-[700px] w-full"
-        >
+        <div className="relative bg-white/5 backdrop-blur-xl border border-white/10 rounded-[4rem] overflow-hidden h-[500px] md:h-[700px] w-full">
           {/* Background Glow */}
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full bg-white/5 blur-[120px] -z-10 pointer-events-none" />
 
@@ -1781,12 +1740,7 @@ function FinalCTA() {
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center md:items-end md:justify-end p-8 md:p-12 md:pr-10 lg:pr-21 lg:pb-24 pointer-events-none">
             <div className="flex justify-center md:justify-end w-full pointer-events-auto">
               {/* Action Buttons */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                className="flex flex-wrap items-center gap-4"
-              >
+              <div className="flex flex-wrap items-center gap-4">
                 <a
                   href="/onboarding/start"
                   className="px-8 py-4 rounded-full border border-white/20 hover:border-white/40 text-white font-bold transition-all backdrop-blur-md text-sm"
@@ -1799,7 +1753,7 @@ function FinalCTA() {
                 >
                   See how it works
                 </a>
-              </motion.div>
+              </div>
             </div>
           </div>
 
@@ -1823,7 +1777,7 @@ function FinalCTA() {
               />
             )}
           </div>
-        </motion.div>
+        </div>
       </div>
     </section>
   );
@@ -1861,12 +1815,7 @@ export default function DonorHomePage() {
 
       <section id="meet-aries" className="py-24 relative">
         <div className="container mx-auto px-6 text-center">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="max-w-7xl mx-auto"
-          >
+          <div className="max-w-7xl mx-auto">
             <div className="max-w-4xl mx-auto">
               <h2 className="text-4xl md:text-[48px] leading-tight font-bold mb-8">Meet Aries</h2>
               <p className="text-xl text-white/60 mb-12 leading-relaxed">
@@ -1891,7 +1840,7 @@ export default function DonorHomePage() {
                 </Fragment>
               ))}
             </div>
-          </motion.div>
+          </div>
         </div>
       </section>
 

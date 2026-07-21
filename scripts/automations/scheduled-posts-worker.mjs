@@ -2,6 +2,12 @@
  * Scheduled-posts worker — drains the scheduled_posts table and fires
  * publishToMetaGraph for each row whose scheduled_for <= NOW() and
  * dispatch_status = 'pending'. Runs as the aries-scheduled-posts-worker compose sidecar (self-scheduling; the legacy host cron that double-dispatched alongside it was removed 2026-07-13).
+ *
+ * Each tick also runs the dead-campaign sweep (SWEEP_DEAD_CAMPAIGN_SQL):
+ * rows whose campaign_end_date has passed are permanently excluded by the
+ * claim filter, so without the sweep they rot as invisible forever-'pending'
+ * while their posts still read 'approved' (the 2026-07-21 stuck-queue
+ * incident). The sweep marks them terminally failed and expires the posts.
  */
 import 'dotenv/config';
 
@@ -14,6 +20,10 @@ const REPO_ROOT = path.resolve(__dirname, '../..');
 
 const INTERVAL_MS = 60 * 1000; // 1 minute
 const BATCH_SIZE = 50;
+// Dead-campaign sweep batch. The population is bounded by scheduling volume
+// (a handful of rows per tenant-week), so one batch per tick converges fast;
+// a full batch is logged loudly so a larger backlog is never silently capped.
+const SWEEP_BATCH_SIZE = 200;
 const FETCH_TIMEOUT_MS = 30_000;
 // VIDEO publish is a long async two-step (create container -> poll up to ~300s
 // -> publish), run synchronously by the dispatch route. The worker MUST wait
@@ -117,6 +127,122 @@ export const MARK_IN_FLIGHT_SQL = `UPDATE scheduled_posts
      SET dispatch_status = 'in_flight', updated_at = clock_timestamp()
      WHERE id = $1
      RETURNING updated_at::text AS attempt_token`;
+
+// Dead-campaign sweep: terminally mark rows the campaign_end_date filter above
+// has made permanently unclaimable. Without this, a row that misses its window
+// (retry backoff, guard deferral, worker outage) stays dispatch_status='pending'
+// FOREVER while its posts row still reads 'approved' — a full week of content
+// silently undelivered with nothing in any UI saying so (12 such rows found in
+// prod 2026-07-21, scheduled 7/07-7/18 with campaign_end 7/13 and 7/20).
+//
+// Semantics (deliberate):
+//   - Delivery still STOPS at campaign_end_date — this sweep never publishes
+//     late. For a one_off event campaign, posting after the event ends is
+//     wrong (promoting an ended sale); weekly jobs share the same column, so a
+//     grace-delivery window cannot be added here without splitting the two
+//     populations. Considered and rejected for now; the fix is visibility.
+//   - Parent -> dispatch_status='failed' (the EXISTING terminal vocabulary —
+//     labels.ts, calendar.ts, and the child-table CHECK constraint all already
+//     handle 'failed'; a new enum value would need every consumer audited for
+//     ===/!== literal checks, the widening-union trap this repo shipped 3x).
+//     The canonical 'campaign_window_passed:' error_message prefix is what
+//     distinguishes it, with the per-row end date interpolated for diagnosis.
+//   - Posts mirror -> published_status='expired' (+ legacy status mirror +
+//     expired_at), the draft-expiry-sweep vocabulary for "aged out, never went
+//     live", so the row leaves the approval/backlog trays honestly. Guarded by
+//     published_at IS NULL AND platform_post_id IS NULL AND a pre-publish
+//     published_status, so a post that is live anywhere is NEVER expired.
+//   - Non-terminal children -> 'failed' too, but COALESCE keeps an existing
+//     retryable error_message (e.g. the FB-368 rate-limit text that caused the
+//     miss) — that is the diagnosis, the parent carries the classification.
+//   - pending rows sweep immediately once the deadline passes (they are already
+//     unclaimable); in_flight rows only once STALE past the reclaim window
+//     ($2, same cutoff as CLAIM_ROW_SQL), so a live publish that crossed the
+//     deadline mid-flight still writes its own real outcome.
+//   - Every mutating arm re-checks the full predicate (draft-expiry-sweep
+//     pattern) and the dead CTE takes FOR UPDATE SKIP LOCKED, so a row being
+//     claimed/finished concurrently is skipped, never clobbered. Idempotent:
+//     a swept row no longer matches.
+// $1 = batch limit, $2 = stale-in_flight cutoff timestamp.
+export const SWEEP_DEAD_CAMPAIGN_SQL = `WITH dead AS (
+     SELECT id, post_id FROM scheduled_posts
+      WHERE campaign_end_date IS NOT NULL AND campaign_end_date < NOW()
+        AND (dispatch_status = 'pending'
+             OR (dispatch_status = 'in_flight' AND updated_at < $2))
+      ORDER BY scheduled_for
+      LIMIT $1
+      FOR UPDATE SKIP LOCKED
+   ),
+   marked AS (
+     UPDATE scheduled_posts sp
+        SET dispatch_status = 'failed',
+            error_at = now(),
+            -- The message must be TRUE for partial-success rows: a cross-post
+            -- row with one platform already live rolls up 'pending' and is
+            -- swept too — claiming "never published" there invites a manual
+            -- re-publish of the live platform (a duplicate-post hazard).
+            error_message = 'campaign_window_passed: campaign_end_date '
+              || to_char(sp.campaign_end_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+              || CASE WHEN EXISTS (SELECT 1 FROM scheduled_post_dispatches spd0
+                                    WHERE spd0.scheduled_post_id = sp.id
+                                      AND spd0.status = 'dispatched')
+                 THEN ' elapsed before full dispatch; at least one platform already published (see per-platform rows) — the remaining platform(s) were never sent (swept terminal by scheduled-posts-worker)'
+                 ELSE ' elapsed before dispatch; post was never published (swept terminal by scheduled-posts-worker)'
+                 END,
+            updated_at = now()
+       FROM dead d
+      WHERE sp.id = d.id
+        AND sp.campaign_end_date IS NOT NULL AND sp.campaign_end_date < NOW()
+        AND (sp.dispatch_status = 'pending'
+             OR (sp.dispatch_status = 'in_flight' AND sp.updated_at < $2))
+      RETURNING sp.id, sp.post_id
+   ),
+   swept_children AS (
+     UPDATE scheduled_post_dispatches spd
+        SET status = 'failed',
+            error_at = now(),
+            error_message = COALESCE(spd.error_message,
+              'campaign_window_passed: never dispatched before campaign end'),
+            updated_at = now()
+       FROM marked m
+      WHERE spd.scheduled_post_id = m.id
+        AND spd.status IN ('pending','in_flight')
+      RETURNING spd.id
+   ),
+   expired_posts AS (
+     UPDATE posts p
+        SET published_status = 'expired',
+            status = 'expired',
+            expired_at = now(),
+            updated_at = now()
+       FROM marked m
+      WHERE p.id = m.post_id
+        AND p.published_at IS NULL
+        AND p.platform_post_id IS NULL
+        AND p.published_status IN ('draft','in_review','approved')
+      RETURNING p.id
+   )
+   SELECT (SELECT count(*) FROM marked)::int AS swept,
+          (SELECT count(*) FROM expired_posts)::int AS posts_expired`;
+
+/**
+ * One dead-campaign sweep pass (single batched statement). Returns counts.
+ * Exported for the regression test; called once per tick, failure-isolated so
+ * a sweep error can never stall dispatch.
+ */
+export async function sweepDeadCampaignRows(pool) {
+  const staleCutoff = new Date(Date.now() - IN_FLIGHT_RECLAIM_MS).toISOString();
+  const result = await pool.query(SWEEP_DEAD_CAMPAIGN_SQL, [SWEEP_BATCH_SIZE, staleCutoff]);
+  const row = result.rows?.[0] ?? {};
+  const swept = Number(row.swept) || 0;
+  const postsExpired = Number(row.posts_expired) || 0;
+  if (swept > 0) {
+    console.warn(
+      `[scheduled-posts-worker] dead-campaign sweep: ${swept} row(s) past campaign_end_date marked failed (${postsExpired} post(s) expired)${swept >= SWEEP_BATCH_SIZE ? ' — full batch, more may remain; continuing next tick' : ''}`,
+    );
+  }
+  return { swept, postsExpired };
+}
 
 /**
  * Atomically claim a row (SELECT ... FOR UPDATE SKIP LOCKED). Picks pending
@@ -481,7 +607,18 @@ export async function tick(pool) {
 
   if (!baseUrl) {
     console.error('[scheduled-posts-worker] APP_BASE_URL not set; skipping tick');
-    return { processed: 0, dispatched: 0, failed: 0, skipped: 0 };
+    return { processed: 0, dispatched: 0, failed: 0, skipped: 0, expired: 0 };
+  }
+
+  // Terminally mark rows whose campaign window has passed BEFORE scanning for
+  // due work — they are permanently unclaimable, and leaving them 'pending'
+  // hides a delivery failure from every surface. Isolated: a sweep error must
+  // never stall dispatch of live rows.
+  let sweep = { swept: 0, postsExpired: 0 };
+  try {
+    sweep = await sweepDeadCampaignRows(pool);
+  } catch (sweepError) {
+    console.error('[scheduled-posts-worker] dead-campaign sweep error (isolated; dispatch continues)', sweepError);
   }
 
   // Fetch due rows: pending rows, plus 'in_flight' rows whose worker pass
@@ -491,7 +628,7 @@ export async function tick(pool) {
   const dueResult = await pool.query(DUE_ROWS_SQL, [BATCH_SIZE, staleCutoff]);
 
   const ids = dueResult.rows.map((r) => r.id);
-  const report = { processed: ids.length, dispatched: 0, failed: 0, skipped: 0 };
+  const report = { processed: ids.length, dispatched: 0, failed: 0, skipped: 0, expired: sweep.swept };
 
   for (const rowId of ids) {
     // The claim transaction and the post-publish write each need a pooled
@@ -629,7 +766,7 @@ async function tickSafe(pool) {
   running = true;
   try {
     const report = await tick(pool);
-    if (report.processed > 0 || report.failed > 0) {
+    if (report.processed > 0 || report.failed > 0 || report.expired > 0) {
       console.log(
         `[scheduled-posts-worker] summary ${JSON.stringify(report)}`,
       );

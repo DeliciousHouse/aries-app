@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## v0.1.31.0 — fix(publishing): reconcile concurrent publish attempts
+## v0.1.34.0 — fix(publishing): reconcile concurrent publish attempts
 
 Concurrent direct-publish and scheduled-publish attempts now converge on the
 first durable result instead of allowing a delayed worker to corrupt newer
@@ -17,6 +17,38 @@ dispatch state.
   writes and parent rollups, fencing delayed attempts after a stale reclaim.
 - Per-platform provider IDs are first-write-wins, so a delayed non-null result
   cannot replace an ID already confirmed by the active attempt.
+
+## v0.1.33.0 — fix(marketing): keep homepage sections visible
+
+Visitors can now read the complete homepage product story even when browser
+animations, viewport observers, or JavaScript are unavailable.
+
+### Fixed
+
+- The problem, features, four-step transformation, Meet Aries, early-access,
+  and final call-to-action sections now render visibly by default instead of
+  waiting for viewport-triggered animation state.
+- The four transformation steps remain present and readable on desktop and
+  mobile in both JavaScript-enabled and server-rendered/no-JavaScript views.
+
+## v0.1.31.0 — chore(ci): add nightly full verification
+
+Maintainers now get a scheduled, GitHub-hosted verification run that surfaces
+failures for the morning Jira intake without taking write-side operational action.
+
+### Added
+
+- A nightly workflow runs the shared verification pipeline at 09:00 UTC
+  (02:00 PDT / 01:00 PST), ahead of dev-lead's 07:45 PT Jira intake.
+- Failed dependency, lint, test, and build logs are retained as GitHub Actions
+  artifacts for 14 days so the morning intake has actionable evidence.
+
+### Changed
+
+- The existing Tests workflow is reusable through `workflow_call`, retains its
+  pull-request and `master` triggers, and now includes the production build gate.
+- A regression contract keeps the nightly caller tied to the complete shared
+  verification workflow and prevents write-side remediation from drifting in.
 
 ## v0.1.30.0 — feat(integrations): show account-specific sync freshness
 

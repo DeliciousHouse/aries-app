@@ -204,6 +204,12 @@ const steps = [
     args: ['--test', 'tests/deploy-manifest-parity.test.ts'],
   },
   {
+    // The nightly caller must stay surfacing-only while the reusable Tests
+    // workflow remains the single source of truth for the full CI suite.
+    name: 'nightly build workflow contract',
+    args: ['--test', 'tests/nightly-build-workflow.test.ts'],
+  },
+  {
     name: 'execution provider and Hermes callback smoke tests',
     args: [
       '--test',

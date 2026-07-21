@@ -245,6 +245,8 @@ HONCHO_WRITE_APPROVALS_ENABLED: ${HONCHO_WRITE_APPROVALS_ENABLED:-true}
 ```
 And ship as its own PR.
 
+**Resolved:** The flag flip has since landed — `docker-compose.yml` now defaults `HONCHO_ENABLED: ${HONCHO_ENABLED:-true}` and `HONCHO_WRITE_APPROVALS_ENABLED: ${HONCHO_WRITE_APPROVALS_ENABLED:-true}` (flipped ON 2026-05-24 per the compose comment above those lines).
+
 **Priority:** P2 (gated on user decision + prod creds)
 **Source:** Discovered 2026-05-23 during /goal P6 investigation. Asked user; user replied "do what's next" — deferred per that direction.
 
@@ -253,6 +255,8 @@ And ship as its own PR.
 **What:** TODOS lines 81-103 note that Phase 2 (publishing events + performance feedback) and Phase 3 (UI preference signals) have code "shipped on branch" but never landed to master. Find those branches (likely named `feat/honcho-phase-2-...` and `feat/honcho-phase-3-...`) and either land them or close them out.
 
 **Why:** Dangling unmerged work rots. If the design is still valid, ship; if not, close.
+
+**Resolved:** Phase 2 + Phase 3 code is on master (`recordPerformanceEvent` in `backend/memory/write-events.ts`, the `creative-voice-preference` route, and the `aries-honcho-performance-worker` sidecar) and both gates default ON in `docker-compose.yml` on the `aries-app` and `aries-honcho-performance-worker` services (`HONCHO_WRITE_PUBLISH_ENABLED` / `HONCHO_WRITE_PREFERENCES_ENABLED`); the `aries-insights-sync-worker` service deliberately pins `HONCHO_WRITE_PUBLISH_ENABLED:-false` — the performance→Honcho leg belongs to the honcho-performance worker, not the sync worker.
 
 **Priority:** P3 (after Phase 1 flag flip lands)
 **Source:** Surfaced 2026-05-23 during /goal P6 investigation.
@@ -278,3 +282,41 @@ And ship as its own PR.
 **Effort:** M
 **Priority:** P3
 **Depends on:** Multi-workspace membership Phase 4 (lifecycle repair) shipped.
+
+## Live Sessions (deferred from docs/plans/2026-07-20-live-social-sessions.md autoplan review)
+
+### Email reminder leg for live sessions
+
+**What:** Add an email delivery channel to the live-session reminder worker leg (currently Slack-only via `loadSlackConfigForTenant`; tenants without Slack get only the Phase 1 ICS download).
+
+**Why:** Slack-only reminders silently skip tenants without a Slack connection (`no_tenant_config`), and the reminder is the arc's most important touchpoint. `resend` is already installed for password reset (`lib/email.ts`).
+
+**Context:** Deferred at the 2026-07-20 autoplan CEO phase (no email-notification substrate for operational pings exists yet; building one is its own scope). Dedupe should reuse the `slack_notifications`-style stable-key pattern with a channel dimension.
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** Live Sessions Phase 2 (worker + reminder leg)
+
+### Per-tenant materialize-lead-time setting for managed live sessions
+
+**What:** A settings-hub card exposing `ARIES_LIVE_MATERIALIZE_LEAD_HOURS` per tenant (when the FB platform object — and its public announcement post — is created ahead of a scheduled live).
+
+**Why:** T-24h is a global default; operators with different promo rhythms may want the announcement earlier/later. The announcement-visibility spec (session shows "Announces publicly on <date>") makes the default safe meanwhile.
+
+**Context:** Deferred at the 2026-07-20 autoplan review (open question #2). Follow the Posting-times settings-card idiom.
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** Live Sessions Phase 3 (FB managed)
+
+### VOD download/archival into DATA_ROOT before Facebook's 30-day deletion
+
+**What:** Optionally pull a finished live's VOD bytes into `DATA_ROOT` as an `ingested_asset` before Facebook's 30-day auto-deletion (policy since 2025-02-19), so the replay survives platform retention.
+
+**Why:** The day-23 Slack warning tells the operator to download manually; an automated archive removes the deadline entirely and feeds future clip-generation work.
+
+**Context:** Deferred at the 2026-07-20 autoplan review — storage growth and video-file handling need their own sizing; pairs naturally with future Hermes clip generation (also out of scope there).
+
+**Effort:** M-L
+**Priority:** P3
+**Depends on:** Live Sessions Phase 5 (VOD capture)

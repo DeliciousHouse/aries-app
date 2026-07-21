@@ -997,6 +997,21 @@ async function initDb() {
       );
       CREATE INDEX IF NOT EXISTS idx_marketing_schedule_enabled
         ON marketing_schedule (enabled) WHERE enabled;
+
+      -- In-flight claim marker for the weekly trigger (2026-07-20 incident: a
+      -- POST that hung and died mid-flight left last_triggered_at stamped and
+      -- silently skipped the whole week). Written atomically WITH the claim
+      -- (one CTE statement in the worker), deleted on every concluded outcome
+      -- (success / gate-skip / failure-revert); a row older than the stale
+      -- window is a stranded attempt the worker's heal arm reverts. The worker
+      -- also self-provisions this table at startup (ENSURE_CLAIMS_TABLE_SQL in
+      -- scripts/automations/weekly-job-trigger-worker.ts — keep in sync) since
+      -- prod may run with ARIES_SKIP_DB_INIT=1.
+      CREATE TABLE IF NOT EXISTS marketing_weekly_claims (
+        tenant_id INTEGER PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+        claimed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        prior_last_triggered_at TIMESTAMPTZ
+      );
     `);
 
     // ─── AI-derived posting times ────────────────────────────────────────────────
