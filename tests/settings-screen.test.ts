@@ -105,6 +105,31 @@ test('settings Channels panel gives cards without connect actions a canonical in
   );
 });
 
+test('settings separates goal confirmation from approval-only saves', () => {
+  const businessSaveStart = source.indexOf('async function saveBusinessProfile()');
+  const approvalSaveStart = source.indexOf('async function saveApprovalSettings()');
+  assert.ok(businessSaveStart >= 0, 'Settings should expose a dedicated business-profile save');
+  assert.ok(
+    approvalSaveStart > businessSaveStart,
+    'Settings should expose a separate approval-only save after the business-profile save',
+  );
+
+  const businessSaveSource = source.slice(businessSaveStart, approvalSaveStart);
+  const approvalSaveSource = source.slice(approvalSaveStart, source.indexOf('// Cadence card'));
+  assert.match(
+    businessSaveSource,
+    /business\.updateProfile\(\{[\s\S]*primaryGoal/,
+    'Saving the business profile should deliberately confirm the displayed primary goal',
+  );
+  assert.doesNotMatch(
+    approvalSaveSource,
+    /primaryGoal/,
+    'Saving approval settings must not resubmit a loaded inferred goal',
+  );
+  assert.match(source, /onClick=\{\(\) => void saveBusinessProfile\(\)\}/);
+  assert.match(source, /onClick=\{\(\) => void saveApprovalSettings\(\)\}/);
+});
+
 // ── Cadence card (multi-brand workspaces Phase 1b, #803 task 1b) ───────────
 
 function cadencePanelSlice(): string {

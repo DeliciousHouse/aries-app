@@ -69,9 +69,10 @@ test('accepts a string tenant id (route passes tenantId as a string)', async () 
 test('wiring: the authenticated save path calls invalidateGoalNarrativeCache after the save', () => {
   const src = fs.readFileSync(new URL('../backend/tenant/business-profile.ts', import.meta.url), 'utf8');
   assert.match(src, /invalidateGoalNarrativeCache/, 'save path must invoke the invalidator');
-  // It must run AFTER the profile is persisted, not before.
-  const saveIdx = src.indexOf('saveBusinessProfileRecord({');
+  // It must AWAIT persistence before invalidation, not merely invoke a
+  // fire-and-forget save first.
+  const saveIdx = src.indexOf('await saveBusinessProfileRecord({');
   const callIdx = src.indexOf('await invalidateGoalNarrativeCache(client, input.tenantId)');
-  assert.ok(saveIdx >= 0, 'expected the save call in the update path');
-  assert.ok(callIdx > saveIdx, 'invalidation must be wired AFTER saveBusinessProfileRecord');
+  assert.ok(saveIdx >= 0, 'expected the awaited save call in the update path');
+  assert.ok(callIdx > saveIdx, 'invalidation must be wired AFTER awaited saveBusinessProfileRecord');
 });

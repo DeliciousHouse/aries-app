@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import pool from '../lib/db';
 import {
   persistBusinessProfileFieldsFromMarketingPayload,
   updateBusinessProfileWithDiagnostics,
@@ -74,6 +75,150 @@ test('a system-populated marketing goal persists inferred provenance', async () 
     const stored = readStoredProfile(dataRoot, 'tenant-inferred');
     assert.equal(stored.primary_goal, 'Increase social media presence');
     assert.equal(stored.primary_goal_source, 'inferred');
+  });
+});
+
+test('an unrelated profile update preserves inferred goal provenance', async () => {
+  await withTempDataRoot(async (dataRoot) => {
+    const tenantId = 'tenant-inferred-unrelated-save';
+    const profilePath = path.join(
+      dataRoot,
+      'generated',
+      'validated',
+      tenantId,
+      'business-profile.json',
+    );
+    mkdirSync(path.dirname(profilePath), { recursive: true });
+    writeFileSync(profilePath, JSON.stringify({
+      tenant_id: tenantId,
+      business_name: 'Inferred Business',
+      primary_goal: 'Stay visible every week',
+      primary_goal_source: 'inferred',
+      channels: [],
+    }));
+
+    const client = {
+      async query(sql: string) {
+        if (sql.includes('SELECT id, name')) {
+          return {
+            rowCount: 1,
+            rows: [{ id: 13, name: 'Inferred Business', slug: 'inferred-business' }],
+          };
+        }
+        return { rowCount: 0, rows: [] };
+      },
+    };
+
+    await updateBusinessProfileWithDiagnostics(client as never, {
+      tenantId,
+      businessName: 'Inferred Business Renamed',
+    });
+
+    const stored = readStoredProfile(dataRoot, tenantId);
+    assert.equal(stored.primary_goal, 'Stay visible every week');
+    assert.equal(stored.primary_goal_source, 'inferred');
+  });
+});
+
+test('deliberately confirming an unchanged inferred goal persists explicit provenance', async () => {
+  await withTempDataRoot(async (dataRoot) => {
+    const tenantId = 'tenant-inferred-confirmed';
+    const profilePath = path.join(
+      dataRoot,
+      'generated',
+      'validated',
+      tenantId,
+      'business-profile.json',
+    );
+    mkdirSync(path.dirname(profilePath), { recursive: true });
+    writeFileSync(profilePath, JSON.stringify({
+      tenant_id: tenantId,
+      business_name: 'Confirmed Business',
+      primary_goal: 'Stay visible every week',
+      primary_goal_source: 'inferred',
+      channels: [],
+    }));
+
+    const client = {
+      async query(sql: string) {
+        if (sql.includes('SELECT id, name')) {
+          return {
+            rowCount: 1,
+            rows: [{ id: 14, name: 'Confirmed Business', slug: 'confirmed-business' }],
+          };
+        }
+        return { rowCount: 0, rows: [] };
+      },
+    };
+
+    await updateBusinessProfileWithDiagnostics(client as never, {
+      tenantId,
+      primaryGoal: 'Stay visible every week',
+    });
+
+    const stored = readStoredProfile(dataRoot, tenantId);
+    assert.equal(stored.primary_goal, 'Stay visible every week');
+    assert.equal(stored.primary_goal_source, 'explicit');
+  });
+});
+
+test('database provenance upsert completes before goal-cache invalidation', async (t) => {
+  await withTempDataRoot(async () => {
+    const events: string[] = [];
+    let signalDatabaseWriteStarted: (() => void) | undefined;
+    let releaseDatabaseWrite: (() => void) | undefined;
+    const databaseWriteStarted = new Promise<void>((resolve) => {
+      signalDatabaseWriteStarted = resolve;
+    });
+    const databaseWriteReleased = new Promise<void>((resolve) => {
+      releaseDatabaseWrite = resolve;
+    });
+
+    t.mock.method(pool, 'query', (async () => {
+      events.push('profile-upsert-started');
+      signalDatabaseWriteStarted?.();
+      await databaseWriteReleased;
+      events.push('profile-upsert-completed');
+      return { rowCount: 1, rows: [] };
+    }) as unknown as typeof pool.query);
+
+    const client = {
+      async query(sql: string) {
+        if (sql.includes('SELECT id, name')) {
+          return {
+            rowCount: 1,
+            rows: [{ id: 42, name: 'Ordered Business', slug: 'ordered-business' }],
+          };
+        }
+        if (sql.includes('DELETE FROM insights_narratives')) {
+          events.push('goal-cache-invalidated');
+        }
+        return { rowCount: 0, rows: [] };
+      },
+    };
+
+    const update = updateBusinessProfileWithDiagnostics(client as never, {
+      tenantId: '42',
+      businessName: 'Ordered Business',
+      primaryGoal: 'Stay visible every week',
+    });
+
+    await databaseWriteStarted;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const eventsBeforeDatabaseWriteCompleted = [...events];
+    releaseDatabaseWrite?.();
+    await update;
+
+    assert.deepEqual(
+      eventsBeforeDatabaseWriteCompleted,
+      ['profile-upsert-started'],
+      'cache invalidation must wait for the profile upsert to complete',
+    );
+    assert.deepEqual(events, [
+      'profile-upsert-started',
+      'profile-upsert-completed',
+      'goal-cache-invalidated',
+    ]);
   });
 });
 

@@ -410,14 +410,15 @@ function saveBusinessProfileRecordToFile(record: BusinessProfileRecord): void {
   writeFileSync(filePath, JSON.stringify({ ...record, updated_at: nowIso() }, null, 2));
 }
 
-function saveBusinessProfileRecordToDb(record: BusinessProfileRecord): void {
+async function saveBusinessProfileRecordToDb(record: BusinessProfileRecord): Promise<void> {
   const numericId = Number(record.tenant_id);
   if (!Number.isFinite(numericId) || numericId <= 0) {
     return;
   }
 
-  pool.query(
-    `INSERT INTO business_profiles (
+  try {
+    await pool.query(
+      `INSERT INTO business_profiles (
       tenant_id, business_name, tenant_slug, website_url, business_type,
       primary_goal, primary_goal_source, launch_approver_user_id, launch_approver_name, offer,
       brand_voice, style_vibe, notes, competitor_url, channels, timezone,
@@ -441,22 +442,23 @@ function saveBusinessProfileRecordToDb(record: BusinessProfileRecord): void {
       timezone = EXCLUDED.timezone,
       reel_audio_mode = EXCLUDED.reel_audio_mode,
       updated_at = now()`,
-    [
-      numericId, record.business_name, record.tenant_slug,
-      record.website_url, record.business_type, record.primary_goal, record.primary_goal_source,
-      record.launch_approver_user_id, record.launch_approver_name, record.offer,
-      record.brand_voice, record.style_vibe, record.notes,
-      record.competitor_url, record.channels, record.timezone,
-      record.reel_audio_mode,
-    ],
-  ).catch((err) => {
+      [
+        numericId, record.business_name, record.tenant_slug,
+        record.website_url, record.business_type, record.primary_goal, record.primary_goal_source,
+        record.launch_approver_user_id, record.launch_approver_name, record.offer,
+        record.brand_voice, record.style_vibe, record.notes,
+        record.competitor_url, record.channels, record.timezone,
+        record.reel_audio_mode,
+      ],
+    );
+  } catch (err) {
     console.error('[business-profile] Failed to persist to database:', err);
-  });
+  }
 }
 
-function saveBusinessProfileRecord(record: BusinessProfileRecord): void {
+function saveBusinessProfileRecord(record: BusinessProfileRecord): Promise<void> {
   saveBusinessProfileRecordToFile(record);
-  saveBusinessProfileRecordToDb(record);
+  return saveBusinessProfileRecordToDb(record);
 }
 
 /**
@@ -930,7 +932,7 @@ export async function updateBusinessProfileWithDiagnostics(
 
   await client.query('UPDATE organizations SET name = $1 WHERE id = $2', [nextBusinessName, Number(input.tenantId)]);
 
-  saveBusinessProfileRecord({
+  await saveBusinessProfileRecord({
     tenant_id: input.tenantId,
     business_name: nextBusinessName,
     tenant_slug: current.profile.tenantSlug,
@@ -1037,7 +1039,7 @@ export async function updatePublicBusinessProfile(input: Omit<BusinessProfileUpd
     throw new Error('missing_required_fields:businessName');
   }
 
-  saveBusinessProfileRecord({
+  await saveBusinessProfileRecord({
     tenant_id: tenantId,
     business_name: nextBusinessName,
     tenant_slug: current.profile.tenantSlug || publicTenantSlug(tenantId),
@@ -1204,7 +1206,7 @@ export function persistBusinessProfileFieldsFromMarketingPayload(
     return current;
   }
 
-  saveBusinessProfileRecord(nextRecord);
+  void saveBusinessProfileRecord(nextRecord);
   return nextRecord;
 }
 
