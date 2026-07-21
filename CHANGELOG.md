@@ -27,6 +27,14 @@ their existing workspace and contact attribution.
 
 - Persisted reports survive Jira delivery failures for later retry, and failed
   browser submissions stay open with conspicuous error copy and a retry action.
+- Concurrent requests from one submitter are serialized before rate-limit and
+  duplicate checks, so parallel bursts cannot exceed the configured cap or
+  create duplicate durable report rows.
+- Browser retries reuse a durable idempotency key through API validation,
+  storage, and Jira reconciliation, preventing a lost acknowledgement from
+  creating a second report or Jira issue.
+- Jira failures that exhaust the configured retry budget now report the
+  durable row as terminally failed instead of claiming another retry is queued.
 
 ## v0.1.33.0 — fix(marketing): keep homepage sections visible
 

@@ -17,6 +17,7 @@ export type FeedbackReportStatus = 'pending' | 'synced' | 'pending_retry' | 'fai
 
 export interface FeedbackReportRecord {
   id: string;
+  requestFingerprint: string;
   submitterType: ReportSubmitterAttribution;
   tenantId: string;
   submitterId: string;
@@ -32,6 +33,7 @@ export interface FeedbackReportRecord {
 
 export interface FeedbackReportRow {
   id: string;
+  request_fingerprint: string;
   submitter_type: ReportSubmitterAttribution;
   tenant_id: string;
   submitter_id: string;
@@ -67,6 +69,7 @@ export async function ensureFeedbackReportsTable(pool: Pool): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS feedback_reports (
       id TEXT PRIMARY KEY,
+      request_fingerprint TEXT NOT NULL DEFAULT '',
       submitter_type TEXT NOT NULL DEFAULT 'authenticated'
         CHECK (submitter_type IN ('authenticated','anonymous')),
       tenant_id TEXT NOT NULL,
@@ -98,6 +101,10 @@ export async function ensureFeedbackReportsTable(pool: Pool): Promise<void> {
       ADD COLUMN IF NOT EXISTS submitter_type TEXT NOT NULL DEFAULT 'authenticated'
         CHECK (submitter_type IN ('authenticated','anonymous'))
   `);
+  await pool.query(`
+    ALTER TABLE feedback_reports
+      ADD COLUMN IF NOT EXISTS request_fingerprint TEXT NOT NULL DEFAULT ''
+  `);
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_feedback_reports_status_updated
        ON feedback_reports (status, updated_at)`,
@@ -121,7 +128,9 @@ export function resetFeedbackReportsEnsuredForTests(): void {
 export type InsertReportOutcome =
   | { outcome: 'ok' }
   | { outcome: 'rate_limited' }
-  | { outcome: 'duplicate' };
+  | { outcome: 'duplicate' }
+  | { outcome: 'replay'; report: FeedbackReportRow }
+  | { outcome: 'idempotency_conflict' };
 
 async function countRecentForSubmitter(
   client: PoolClient,
@@ -139,16 +148,13 @@ async function countRecentForSubmitter(
 }
 
 /**
- * Rate limit → dedup → INSERT → post-insert re-count, all in ONE transaction.
+ * Serialize submitter bucket → rate limit → dedup → INSERT, all in ONE
+ * transaction.
  *
- * INVARIANT (SC-70): the rate limit runs BEFORE persisting; a rapid duplicate
- * (same title+description inside the dedup window) is a 429, not a second row.
- * The count-then-insert race under parallel bursts is narrowed by re-counting
- * after the insert inside the same transaction and rolling back over-limit
- * inserts. Honest residual: under READ COMMITTED two concurrent transactions
- * that both commit before either re-count observes the other can still land
- * limit+1 rows in a photo-finish; the window is one statement wide and the
- * limit is advisory abuse protection, not a billing boundary.
+ * INVARIANT (SC-70): the transaction-scoped advisory lock makes every request
+ * for one tenant+submitter observe the preceding committed insert before it
+ * counts or checks content. Parallel bursts therefore cannot overrun the cap
+ * or persist identical reports. Different submitters remain independent.
  */
 export async function insertReportWithLimits(
   pool: Pool,
@@ -158,6 +164,35 @@ export async function insertReportWithLimits(
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
+    // The browser key is global, so serialize it before checking ownership.
+    // A replay from another identity cannot race the original INSERT into a
+    // unique-constraint error or observe an uncommitted row.
+    await client.query(
+      `SELECT pg_advisory_xact_lock(hashtext('feedback-report-idempotency'), hashtext($1))`,
+      [record.id],
+    );
+    const existing = await client.query<FeedbackReportRow>(
+      `SELECT * FROM feedback_reports WHERE id = $1`,
+      [record.id],
+    );
+    if (existing.rows[0]) {
+      const row = existing.rows[0];
+      const sameOwnerAndPayload =
+        row.submitter_type === record.submitterType &&
+        row.tenant_id === record.tenantId &&
+        row.submitter_id === record.submitterId &&
+        row.request_fingerprint === record.requestFingerprint;
+      await client.query('COMMIT');
+      return sameOwnerAndPayload
+        ? { outcome: 'replay', report: row }
+        : { outcome: 'idempotency_conflict' };
+    }
+
+    await client.query(
+      `SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))`,
+      [record.tenantId, record.submitterId],
+    );
 
     const before = await countRecentForSubmitter(client, record.tenantId, record.submitterId);
     if (before >= limits.userRateLimitPerHour) {
@@ -187,12 +222,14 @@ export async function insertReportWithLimits(
 
     await client.query(
       `INSERT INTO feedback_reports (
-         id, submitter_type, tenant_id, submitter_id, submitter_email, submitter_name,
+         id, request_fingerprint, submitter_type, tenant_id, submitter_id,
+         submitter_email, submitter_name,
          customer_slug, category, impact, title, description,
          screenshot_bytes, screenshot_mime, status
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'pending')`,
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pending')`,
       [
         record.id,
+        record.requestFingerprint,
         record.submitterType,
         record.tenantId,
         record.submitterId,
@@ -208,12 +245,6 @@ export async function insertReportWithLimits(
       ],
     );
 
-    const after = await countRecentForSubmitter(client, record.tenantId, record.submitterId);
-    if (after > limits.userRateLimitPerHour) {
-      await client.query('ROLLBACK');
-      return { outcome: 'rate_limited' };
-    }
-
     await client.query('COMMIT');
     return { outcome: 'ok' };
   } catch (error) {
@@ -224,8 +255,48 @@ export async function insertReportWithLimits(
   }
 }
 
+export async function getFeedbackReportById(
+  pool: Pool | PoolClient,
+  id: string,
+): Promise<FeedbackReportRow | null> {
+  const result = await pool.query<FeedbackReportRow>(
+    `SELECT * FROM feedback_reports WHERE id = $1`,
+    [id],
+  );
+  return result.rows[0] ?? null;
+}
+
+/**
+ * Hold a session-scoped lock across Jira I/O for one durable report. A replay
+ * waits for the original request, reloads its row, and returns that outcome
+ * instead of racing search-before-create against the same Jira label.
+ */
+export async function withFeedbackReportSyncLock<T>(
+  pool: Pool,
+  id: string,
+  work: (client: PoolClient) => Promise<T>,
+): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query(
+      `SELECT pg_advisory_lock(hashtext('feedback-report-sync'), hashtext($1))`,
+      [id],
+    );
+    return await work(client);
+  } finally {
+    await client
+      .query(`SELECT pg_advisory_unlock(hashtext('feedback-report-sync'), hashtext($1))`, [id])
+      .catch(() => undefined);
+    client.release();
+  }
+}
+
 /** Store the created/found issue key as soon as it is known (crash safety). */
-export async function markReportTicketKey(pool: Pool, id: string, key: string): Promise<void> {
+export async function markReportTicketKey(
+  pool: Pool | PoolClient,
+  id: string,
+  key: string,
+): Promise<void> {
   await pool.query(
     `UPDATE feedback_reports SET jira_ticket_key = $2, updated_at = now() WHERE id = $1`,
     [id, key],
@@ -233,7 +304,7 @@ export async function markReportTicketKey(pool: Pool, id: string, key: string): 
 }
 
 /** Full success: synced, screenshot bytes NULLed, error cleared. */
-export async function markReportSynced(pool: Pool, id: string): Promise<void> {
+export async function markReportSynced(pool: Pool | PoolClient, id: string): Promise<void> {
   await pool.query(
     `UPDATE feedback_reports SET
        status = 'synced',
@@ -254,7 +325,7 @@ export async function markReportSynced(pool: Pool, id: string): Promise<void> {
  * pending_retry.
  */
 export async function recordReportFailure(
-  pool: Pool,
+  pool: Pool | PoolClient,
   id: string,
   outcome: { error: string; bumpAttempts: boolean; maxAttempts: number },
 ): Promise<void> {

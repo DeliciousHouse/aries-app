@@ -25,6 +25,7 @@ interface Harness {
   root: import('react-test-renderer').ReactTestRenderer;
   onCloseCalls: number;
   fetchCalls: number;
+  requestBodies: Array<Record<string, unknown>>;
   fillValidForm: () => Promise<void>;
   submitOnce: () => Promise<void>;
   titleValue: () => string;
@@ -55,8 +56,11 @@ async function withReportDialog(
   };
 
   let fetchCalls = 0;
+  const requestBodies: Array<Record<string, unknown>> = [];
   (globalThis as Record<string, unknown>).fetch = async (input: unknown, init?: unknown) => {
     fetchCalls += 1;
+    const body = (init as { body?: unknown } | undefined)?.body;
+    if (typeof body === 'string') requestBodies.push(JSON.parse(body) as Record<string, unknown>);
     return fetchImpl(input, init);
   };
 
@@ -88,6 +92,9 @@ async function withReportDialog(
       },
       get fetchCalls() {
         return fetchCalls;
+      },
+      get requestBodies() {
+        return requestBodies;
       },
       fillValidForm: async () => {
         const radios = root.root.findAllByProps({ name: 'report-impact' });
@@ -202,3 +209,51 @@ for (const status of [401, 503]) {
     );
   });
 }
+
+test('ambiguous failure retries preserve one stable browser idempotency key', async () => {
+  await withReportDialog(
+    async () => ({
+      status: 503,
+      ok: false,
+      json: async () => ({ error: 'persist_failed' }),
+    }),
+    async (h) => {
+      await h.fillValidForm();
+      await h.submitOnce();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await h.submitOnce();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      assert.equal(h.requestBodies.length, 2);
+      const first = h.requestBodies[0].idempotency_key;
+      const second = h.requestBodies[1].idempotency_key;
+      assert.equal(typeof first, 'string');
+      assert.match(String(first), /^[0-9a-f-]{36}$/);
+      assert.equal(second, first, 'retrying an unchanged report must reuse the original key');
+    },
+  );
+});
+
+test('a server key conflict rotates the browser idempotency key before retry', async () => {
+  await withReportDialog(
+    async () => ({
+      status: 409,
+      ok: false,
+      json: async () => ({ error: 'This submission key cannot be reused. Please submit again.' }),
+    }),
+    async (h) => {
+      await h.fillValidForm();
+      await h.submitOnce();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await h.submitOnce();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      assert.equal(h.requestBodies.length, 2);
+      assert.notEqual(
+        h.requestBodies[1].idempotency_key,
+        h.requestBodies[0].idempotency_key,
+        'a hard key conflict must not trap Retry on the rejected key',
+      );
+    },
+  );
+});

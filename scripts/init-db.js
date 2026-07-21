@@ -103,6 +103,7 @@ async function initDb() {
     await client.query(`
       CREATE TABLE IF NOT EXISTS feedback_reports (
         id TEXT PRIMARY KEY,
+        request_fingerprint TEXT NOT NULL DEFAULT '',
         submitter_type TEXT NOT NULL DEFAULT 'authenticated'
           CHECK (submitter_type IN ('authenticated','anonymous')),
         tenant_id TEXT NOT NULL,
@@ -130,6 +131,8 @@ async function initDb() {
       ALTER TABLE feedback_reports
         ADD COLUMN IF NOT EXISTS submitter_type TEXT NOT NULL DEFAULT 'authenticated'
           CHECK (submitter_type IN ('authenticated','anonymous'));
+      ALTER TABLE feedback_reports
+        ADD COLUMN IF NOT EXISTS request_fingerprint TEXT NOT NULL DEFAULT '';
       CREATE INDEX IF NOT EXISTS idx_feedback_reports_status_updated
         ON feedback_reports (status, updated_at);
       CREATE INDEX IF NOT EXISTS idx_feedback_reports_tenant_submitter_created

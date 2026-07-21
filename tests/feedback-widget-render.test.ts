@@ -73,4 +73,6 @@ test('public-page feedback opens the durable report pipeline without an auth pro
   assert.doesNotMatch(source, /api\/auth\/session/);
   assert.match(source, /<ReportModal onClose=/);
   assert.doesNotMatch(source, /<FeedbackModal onClose=/);
+  assert.doesNotMatch(source, /function FeedbackModal\(/);
+  assert.doesNotMatch(source, /fetch\(['"]\/api\/feedback['"]/);
 });

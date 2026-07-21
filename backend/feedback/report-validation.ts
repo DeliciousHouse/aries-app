@@ -3,8 +3,8 @@
  *
  * INVARIANT (SC-70): identity comes from server context only (session when
  * present, otherwise an IP-hashed anonymous identity). This validator reads
- * exactly category/impact/title/description/screenshot from the body — client
- * submitter/tenant/priority fields are never read.
+ * exactly idempotency_key/category/impact/title/description/screenshot from
+ * the body — client submitter/tenant/priority fields are never read.
  */
 
 import {
@@ -16,6 +16,7 @@ import {
 } from '@/lib/feedback/report-options';
 
 export interface ValidatedReportRequest {
+  idempotencyKey: string;
   category: FeedbackReportCategory;
   impact: FeedbackImpact;
   title: string;
@@ -28,9 +29,16 @@ export type ReportRequestValidation =
   | { ok: true; value: ValidatedReportRequest }
   | { ok: false; error: 'invalid_input'; fieldErrors: Record<string, string> };
 
+const IDEMPOTENCY_KEY_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
 export function validateReportRequest(body: unknown): ReportRequestValidation {
   const obj = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
   const fieldErrors: Record<string, string> = {};
+
+  const idempotencyKey = typeof obj.idempotency_key === 'string' ? obj.idempotency_key : '';
+  if (!IDEMPOTENCY_KEY_RE.test(idempotencyKey)) {
+    fieldErrors.idempotency_key = 'A valid submission key is required.';
+  }
 
   if (!isFeedbackImpact(obj.impact)) {
     fieldErrors.impact = 'Choose how badly this affects you.';
@@ -68,6 +76,7 @@ export function validateReportRequest(body: unknown): ReportRequestValidation {
   return {
     ok: true,
     value: {
+      idempotencyKey,
       category,
       impact: obj.impact as FeedbackImpact,
       title,

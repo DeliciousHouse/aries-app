@@ -16,7 +16,7 @@
  * SC-71 scheme association changes). The impact still rides as a label.
  */
 
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 
 import { buildReportAdf, buildReportSummary } from './report-adf';
 import type { FeedbackReportConfig, FeedbackReportJiraConfig } from './report-config';
@@ -88,7 +88,7 @@ export interface ReportSyncStore {
   ): Promise<void>;
 }
 
-export function poolSyncStore(pool: Pool): ReportSyncStore {
+export function poolSyncStore(pool: Pool | PoolClient): ReportSyncStore {
   return {
     markTicketKey: (id, key) => markReportTicketKey(pool, id, key),
     markSynced: (id) => markReportSynced(pool, id),
