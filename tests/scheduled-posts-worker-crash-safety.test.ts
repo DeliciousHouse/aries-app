@@ -210,6 +210,13 @@ class FakeClient {
       return { rows: [], rowCount: 0 };
     }
 
+    if (s.startsWith('WITH dead AS')) {
+      // Dead-campaign sweep. No row in this fake carries a campaign_end_date,
+      // so the sweep is always a structural no-op here; its real semantics are
+      // covered by scheduled-posts-worker-campaign-sweep.test.ts.
+      return { rows: [{ swept: 0, posts_expired: 0 }], rowCount: 1 };
+    }
+
     throw new Error(`FakeClient: unhandled SQL: ${s.slice(0, 80)}`);
   }
 
