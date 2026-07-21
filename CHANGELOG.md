@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.35.0 — fix(settings): preserve goal provenance
+
+Settings now keeps inferred business goals provisional until the user deliberately
+confirms them, while every displayed social channel continues to route through the
+canonical accessible integrations surface.
+
+### Fixed
+
+- Saving approval settings no longer resubmits the loaded primary goal, so an
+  unrelated approver change cannot silently convert inferred provenance to explicit.
+- Saving the Business Profile deliberately confirms the displayed goal and persists
+  explicit provenance, including when the confirmed text is unchanged.
+- Goal provenance reaches the database before Insights invalidates its goal narrative
+  cache, preventing an immediate rebuild from copying stale provenance.
+- Channel cards without direct actions continue to use the canonical
+  `/dashboard/settings/channel-integrations` management route.
+
 ## v0.1.33.0 — fix(marketing): keep homepage sections visible
 
 Visitors can now read the complete homepage product story even when browser
