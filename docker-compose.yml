@@ -536,6 +536,7 @@ services:
       DB_NAME: ${DB_NAME}
       ARIES_WEEKLY_TRIGGER_ENABLED: ${ARIES_WEEKLY_TRIGGER_ENABLED:-0}
       ARIES_WEEKLY_TRIGGER_INTERVAL_MS: ${ARIES_WEEKLY_TRIGGER_INTERVAL_MS:-900000}
+      ARIES_WEEKLY_TRIGGER_SUBMIT_TIMEOUT_MS: ${ARIES_WEEKLY_TRIGGER_SUBMIT_TIMEOUT_MS:-600000}
       # In-network app, not the public URL — the weekly-trigger route authenticates
       # on INTERNAL_API_SECRET, not on host.
       APP_BASE_URL: http://aries-app:${PORT:-3000}
