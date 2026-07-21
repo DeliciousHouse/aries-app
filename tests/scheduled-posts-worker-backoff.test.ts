@@ -18,6 +18,16 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const workerPath = path.join(REPO_ROOT, 'scripts/automations/scheduled-posts-worker.mjs');
 const workerSource = readFileSync(workerPath, 'utf8');
 
+function extractChildStatusUpdate(): string {
+  const start = workerSource.indexOf('UPDATE scheduled_post_dispatches');
+  const end = workerSource.indexOf(
+    '[rowId, platform, status, truncated, platformPostId, attemptToken]',
+    start,
+  );
+  assert.ok(start >= 0 && end > start, 'setPlatformDispatchStatus SQL must be present in the worker');
+  return workerSource.slice(start, end);
+}
+
 function extractSql(name: string): string {
   const match = workerSource.match(new RegExp(`export const ${name} = \`([\\s\\S]*?)\`;`));
   assert.ok(match, `${name} must be defined and exported in the worker`);
@@ -113,22 +123,16 @@ test('setPlatformDispatchStatus casts $4 to text — bare $4 fails Postgres prep
   // but is never recorded, re-opening the stale-reclaim duplicate window
   // (caught live 2026-07-13 20:05Z). In-memory fakes cannot see prepare-time
   // inference, so pin the casts at source level.
-  const stmt = workerSource.slice(
-    workerSource.indexOf('UPDATE scheduled_post_dispatches'),
-    workerSource.indexOf('WHERE scheduled_post_id = $1 AND platform = $2'),
-  );
+  const stmt = extractChildStatusUpdate();
   const bare = stmt.match(/\$4(?!::text)/g) ?? [];
   assert.equal(bare.length, 0, `every $4 in the child-status UPDATE must be cast ::text; found ${bare.length} bare`);
 });
 
-test('setPlatformDispatchStatus preserves and persists a successful provider post id', () => {
-  const stmt = workerSource.slice(
-    workerSource.indexOf('UPDATE scheduled_post_dispatches'),
-    workerSource.indexOf('WHERE scheduled_post_id = $1 AND platform = $2'),
-  );
+test('setPlatformDispatchStatus preserves the first successful provider post id', () => {
+  const stmt = extractChildStatusUpdate();
   assert.match(
     stmt,
-    /platform_post_id\s*=\s*COALESCE\(\$5::text,\s*platform_post_id\)/,
-    'successful retries write their id without erasing an existing child id on later null outcomes',
+    /platform_post_id\s*=\s*COALESCE\(platform_post_id,\s*\$5::text\)/,
+    'the first non-null child provider id wins over every later attempt',
   );
 });

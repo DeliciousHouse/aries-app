@@ -233,22 +233,39 @@ export async function persistPublishedPost(
     ),
   );
 
-  const insertResult = await db.query<{ id: string | number }>(
-    `INSERT INTO posts (tenant_id, job_id, caption, platform_post_id, published_at, published_status, platform, idempotency_key, creative_asset_ids)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-     RETURNING id`,
-    [
-      args.tenantId,
-      args.jobId ?? null,
-      args.caption,
-      args.platformPostId,
-      args.publishedAt.toISOString(),
-      args.publishedStatus,
-      args.platform ?? null,
-      args.idempotencyKey ?? null,
-      creativeAssetIds,
-    ],
-  );
+  let insertResult;
+  try {
+    insertResult = await db.query<{ id: string | number }>(
+      `INSERT INTO posts (tenant_id, job_id, caption, platform_post_id, published_at, published_status, platform, idempotency_key, creative_asset_ids)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id`,
+      [
+        args.tenantId,
+        args.jobId ?? null,
+        args.caption,
+        args.platformPostId,
+        args.publishedAt.toISOString(),
+        args.publishedStatus,
+        args.platform ?? null,
+        args.idempotencyKey ?? null,
+        creativeAssetIds,
+      ],
+    );
+  } catch (error) {
+    if (!error || typeof error !== 'object' || !('code' in error) || error.code !== '23505') {
+      throw error;
+    }
+    if (args.idempotencyKey && args.platform) {
+      const existing = await findPostByIdempotencyKey(
+        { tenantId: args.tenantId, platform: args.platform, idempotencyKey: args.idempotencyKey },
+        db,
+      );
+      if (existing) {
+        return reconcileExistingPublishedPost(args, existing, db);
+      }
+    }
+    throw new Error('publish_verification_persist_failed:unique_violation_winner_not_found');
+  }
 
   const row = insertResult.rows?.[0];
   if (!row?.id) {
