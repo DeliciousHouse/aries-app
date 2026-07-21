@@ -112,10 +112,15 @@ test('setPlatformDispatchStatus casts $4 to text — bare $4 fails Postgres prep
   // prepare time and EVERY post-publish write dies — the publish goes live
   // but is never recorded, re-opening the stale-reclaim duplicate window
   // (caught live 2026-07-13 20:05Z). In-memory fakes cannot see prepare-time
-  // inference, so pin the casts at source level.
+  // inference, so pin the casts at source level. Anchored to the
+  // setPlatformDispatchStatus function — the dead-campaign sweep CTE contains
+  // an earlier `UPDATE scheduled_post_dispatches` that must not shift this
+  // slice onto unrelated text.
+  const fnStart = workerSource.indexOf('async function setPlatformDispatchStatus');
+  assert.notEqual(fnStart, -1, 'setPlatformDispatchStatus must exist in the worker');
   const stmt = workerSource.slice(
-    workerSource.indexOf('UPDATE scheduled_post_dispatches'),
-    workerSource.indexOf('WHERE scheduled_post_id = $1 AND platform = $2'),
+    workerSource.indexOf('UPDATE scheduled_post_dispatches', fnStart),
+    workerSource.indexOf('WHERE scheduled_post_id = $1 AND platform = $2', fnStart),
   );
   const bare = stmt.match(/\$4(?!::text)/g) ?? [];
   assert.equal(bare.length, 0, `every $4 in the child-status UPDATE must be cast ::text; found ${bare.length} bare`);

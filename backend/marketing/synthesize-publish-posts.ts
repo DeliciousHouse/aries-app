@@ -95,6 +95,13 @@ export interface SynthesizePublishPostsResult {
   total: number;
   /** True when an approved publish-stage approval record exists after this call. */
   approvalRecordReady: boolean;
+  /**
+   * Video/reel (post, platform) targets that were DROPPED because the job has
+   * no ingested video creative_asset. A reel with no video can never publish —
+   * synthesizing it anyway produced dead posts 415/416 (2026-07-13) that failed
+   * dispatch terminally. These drops also count into `skipped`.
+   */
+  droppedVideoNoAsset: number;
   /** Reason the synthesis did not run, when inserted+skipped+total are all 0. */
   reason?: 'no_content_package' | 'publish_package_present' | 'no_tenant';
 }
@@ -247,7 +254,7 @@ function readRequestedStoryCount(doc: SocialContentJobRuntimeDocument): number {
 }
 
 const SELECT_CREATIVE_ASSETS_SQL = `
-  SELECT id, source_asset_id, width_px, height_px, duration_seconds
+  SELECT id, source_asset_id, media_type, width_px, height_px, duration_seconds
     FROM creative_assets
    WHERE tenant_id = $1
      AND source_job_id = $2
@@ -469,7 +476,7 @@ export async function synthesizePublishPostsFromContentPackage(
   const { jobId, tenantId, doc, publishRunId, pool, composeStoryAsset } = args;
 
   if (!Number.isFinite(tenantId) || tenantId <= 0) {
-    return { inserted: 0, skipped: 0, total: 0, approvalRecordReady: false, reason: 'no_tenant' };
+    return { inserted: 0, skipped: 0, total: 0, approvalRecordReady: false, droppedVideoNoAsset: 0, reason: 'no_tenant' };
   }
 
   // Scope guard: defer to the legacy path ONLY when the publish_package is one
@@ -482,6 +489,7 @@ export async function synthesizePublishPostsFromContentPackage(
       skipped: 0,
       total: 0,
       approvalRecordReady: false,
+      droppedVideoNoAsset: 0,
       reason: 'publish_package_present',
     };
   }
@@ -493,6 +501,7 @@ export async function synthesizePublishPostsFromContentPackage(
       skipped: 0,
       total: 0,
       approvalRecordReady: false,
+      droppedVideoNoAsset: 0,
       reason: 'no_content_package',
     };
   }
@@ -502,26 +511,38 @@ export async function synthesizePublishPostsFromContentPackage(
   // order — the same ordering ingestProductionCreativeAssetsToDb preserves.
   // Dims (width_px/height_px/duration_seconds) are threaded into posts rows so
   // validateMediaForSurface has real metadata at dispatch time.
-  type AssetInfo = { assetId: string; widthPx: number | null; heightPx: number | null; durationSeconds: number | null };
+  type AssetInfo = {
+    assetId: string;
+    mediaType: string | null;
+    widthPx: number | null;
+    heightPx: number | null;
+    durationSeconds: number | null;
+  };
   let assetInfoByPostNumber = new Map<number, AssetInfo>();
+  // Ingested VIDEO assets, in source_asset_id order. A video-shaped (post,
+  // platform) target must link a real video creative — the post-number map
+  // above indexes over ALL assets (image + video), so on a mixed job it can
+  // point a reel at an image. Video shapes resolve from this list instead.
+  let videoAssets: AssetInfo[] = [];
   try {
     const result = await pool.query(SELECT_CREATIVE_ASSETS_SQL, [tenantId, jobId]);
     const rows = (result.rows ?? []) as Array<Record<string, unknown>>;
-    assetInfoByPostNumber = new Map(
-      rows.map((row, index) => {
-        const assetId =
-          typeof row.source_asset_id === 'string' && row.source_asset_id.trim()
-            ? row.source_asset_id.trim()
-            : String(row.id ?? '');
-        const widthPx = typeof row.width_px === 'number' && Number.isFinite(row.width_px) ? row.width_px : null;
-        const heightPx = typeof row.height_px === 'number' && Number.isFinite(row.height_px) ? row.height_px : null;
-        const durationSeconds =
-          typeof row.duration_seconds === 'number' && Number.isFinite(row.duration_seconds)
-            ? row.duration_seconds
-            : null;
-        return [index + 1, { assetId, widthPx, heightPx, durationSeconds }] as const;
-      }),
-    );
+    const infos = rows.map((row) => {
+      const assetId =
+        typeof row.source_asset_id === 'string' && row.source_asset_id.trim()
+          ? row.source_asset_id.trim()
+          : String(row.id ?? '');
+      const mediaType = typeof row.media_type === 'string' ? row.media_type.trim().toLowerCase() : null;
+      const widthPx = typeof row.width_px === 'number' && Number.isFinite(row.width_px) ? row.width_px : null;
+      const heightPx = typeof row.height_px === 'number' && Number.isFinite(row.height_px) ? row.height_px : null;
+      const durationSeconds =
+        typeof row.duration_seconds === 'number' && Number.isFinite(row.duration_seconds)
+          ? row.duration_seconds
+          : null;
+      return { assetId, mediaType, widthPx, heightPx, durationSeconds };
+    });
+    assetInfoByPostNumber = new Map(infos.map((info, index) => [index + 1, info] as const));
+    videoAssets = infos.filter((info) => info.mediaType === 'video');
   } catch (err) {
     console.warn('[synthesize-publish-posts] creative_assets lookup failed — continuing without media links', {
       jobId,
@@ -580,6 +601,7 @@ export async function synthesizePublishPostsFromContentPackage(
   let inserted = 0;
   let skipped = 0;
   let total = 0;
+  let droppedVideoNoAsset = 0;
 
   for (const entry of entries) {
     const assetInfo = assetInfoByPostNumber.get(entry.postNumber);
@@ -610,6 +632,29 @@ export async function synthesizePublishPostsFromContentPackage(
         continue;
       }
 
+      // A video shape must link a real ingested VIDEO creative. The Hermes
+      // content-generator only calls video_generate ~50% of the time on reel
+      // jobs; when it doesn't, no video creative_asset exists and a synthesized
+      // reel row can never publish (the dispatch route fails it terminally, and
+      // before that it retry-spammed until campaign end — posts 415/416,
+      // 2026-07-13). Drop the target instead; the caller decides whether a
+      // missing reel is job-fatal (reel-companion) or tolerable (weekly job
+      // whose feed posts still succeed). When a video asset DOES exist, link it
+      // explicitly — the post-number map indexes ALL assets, so on a mixed job
+      // it can point a reel at an image.
+      let rowAssetInfo: AssetInfo | undefined = assetInfo;
+      let rowCreativeAssetIds = creativeAssetIds;
+      if (shape.mediaType === 'video') {
+        const videoAsset = assetInfo?.mediaType === 'video' ? assetInfo : videoAssets[0];
+        if (!videoAsset) {
+          droppedVideoNoAsset++;
+          skipped++;
+          continue;
+        }
+        rowAssetInfo = videoAsset;
+        rowCreativeAssetIds = [videoAsset.assetId];
+      }
+
       if (shape.surface === 'feed' && shape.mediaType === 'image') entryHasFeedImage = true;
 
       total++;
@@ -626,14 +671,14 @@ export async function synthesizePublishPostsFromContentPackage(
           platform,           // $4
           entry.caption,      // $5
           idempotencyKey,     // $6
-          creativeAssetIds,   // $7
+          rowCreativeAssetIds, // $7
           shape.mediaType,    // $8
           shape.surface,      // $9
           styleDimension,     // $10
           styleValue,         // $11
-          assetInfo?.widthPx ?? null,          // $12
-          assetInfo?.heightPx ?? null,         // $13
-          assetInfo?.durationSeconds ?? null,  // $14
+          rowAssetInfo?.widthPx ?? null,          // $12
+          rowAssetInfo?.heightPx ?? null,         // $13
+          rowAssetInfo?.durationSeconds ?? null,  // $14
         ]);
         if ((result.rowCount ?? 0) > 0) {
           inserted++;
@@ -727,6 +772,19 @@ export async function synthesizePublishPostsFromContentPackage(
     });
   }
 
+  // LOUD: a requested video post could not be synthesized because the job
+  // never ingested a video creative_asset (the Hermes agent did not render a
+  // video). This is the signal the reel-companion outcome gate keys off to
+  // fail the job instead of leaving it approved-with-no-reel.
+  if (droppedVideoNoAsset > 0) {
+    console.error('[synthesize-publish-posts] video post targets dropped — no ingested video creative_asset', {
+      jobId,
+      tenantId,
+      createdBy: doc.created_by ?? null,
+      dropped: droppedVideoNoAsset,
+    });
+  }
+
   // Story promotion is also feed-derived content — a reel-companion job never
   // owns the week's stories either (same clamp rationale as above).
   const storyBudget = isReelCompanionJob ? 0 : readRequestedStoryCount(doc);
@@ -807,5 +865,5 @@ export async function synthesizePublishPostsFromContentPackage(
     });
   }
 
-  return { inserted, skipped, total, approvalRecordReady };
+  return { inserted, skipped, total, approvalRecordReady, droppedVideoNoAsset };
 }

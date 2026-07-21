@@ -193,6 +193,18 @@ function makeFakePool() {
           inserts.push(params);
           return { rows: [{ id: inserts.length }], rowCount: 1 };
         }
+        if (/FROM creative_assets/i.test(sql)) {
+          // A rendered feed image + the reel's video. The synthesis gate drops
+          // video shapes when the job ingested no video creative_asset, so the
+          // clamp tests must supply one to keep testing the clamp itself.
+          return {
+            rows: [
+              { id: 'uuid-img', source_asset_id: 'img_1', media_type: 'image' },
+              { id: 'uuid-vid', source_asset_id: 'vid_1', media_type: 'video' },
+            ],
+            rowCount: 2,
+          };
+        }
         return { rows: [], rowCount: 0 };
       },
     },

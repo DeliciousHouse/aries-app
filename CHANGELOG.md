@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## v0.1.32.0 — fix(runtime): tolerate transient Hermes outages and restart unhealthy web containers
+## v0.1.34.0 — fix(runtime): tolerate transient Hermes outages and restart unhealthy web containers
 
 Aries startup no longer aborts when the configured Hermes gateway is temporarily
 unavailable. The boot probe now retries transport failures, 408/429 responses,
@@ -17,6 +17,19 @@ at most three restarts per container per 15-minute window, then leaves persisten
 failure unhealthy for operator visibility until the cooldown expires. The deploy
 workflow starts and verifies that watcher before replacing the web container while
 keeping its external image outside the Aries app-image parity checks.
+
+## v0.1.33.0 — fix(marketing): keep homepage sections visible
+
+Visitors can now read the complete homepage product story even when browser
+animations, viewport observers, or JavaScript are unavailable.
+
+### Fixed
+
+- The problem, features, four-step transformation, Meet Aries, early-access,
+  and final call-to-action sections now render visibly by default instead of
+  waiting for viewport-triggered animation state.
+- The four transformation steps remain present and readable on desktop and
+  mobile in both JavaScript-enabled and server-rendered/no-JavaScript views.
 
 ## v0.1.31.0 — chore(ci): add nightly full verification
 
