@@ -95,8 +95,9 @@ test('dims: synthesized post copies width/height/duration from linked creative_a
     const prevFlag = process.env.ARIES_VIDEO_PUBLISH_ENABLED;
     process.env.ARIES_VIDEO_PUBLISH_ENABLED = '1';
     const { pool, inserts } = makeDimsPool([
-      // post_number 1 → reel asset with dims
-      { id: 'uuid-vid1', source_asset_id: 'vid_1', width_px: 1080, height_px: 1920, duration_seconds: 15 },
+      // post_number 1 → reel asset with dims. media_type 'video' is required:
+      // the synthesis gate drops video shapes with no ingested video asset.
+      { id: 'uuid-vid1', source_asset_id: 'vid_1', media_type: 'video', width_px: 1080, height_px: 1920, duration_seconds: 15 },
     ]);
     const schedule = [
       { post_number: 1, platforms: ['instagram'], placement: 'reel', media_type: 'video' },
@@ -186,8 +187,8 @@ test('dims: creative_asset with integer dims is faithfully passed through', asyn
   await withDataRoot(async () => {
     process.env.ARIES_VIDEO_PUBLISH_ENABLED = '1';
     const { pool, inserts } = makeDimsPool([
-      // Exact dims from Hermes Veo contract
-      { id: 'uuid-v', source_asset_id: 'vid_1', width_px: 720, height_px: 1280, duration_seconds: 7.5 },
+      // Exact dims from Hermes Veo contract (media_type 'video' — see gate note above)
+      { id: 'uuid-v', source_asset_id: 'vid_1', media_type: 'video', width_px: 720, height_px: 1280, duration_seconds: 7.5 },
     ]);
     const schedule = [
       { post_number: 1, platforms: ['instagram'], placement: 'reel', media_type: 'video' },
