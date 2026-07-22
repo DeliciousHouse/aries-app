@@ -69,12 +69,46 @@ test('a system-populated marketing goal persists inferred provenance', async () 
   await withTempDataRoot((dataRoot) => {
     persistBusinessProfileFieldsFromMarketingPayload({
       tenantId: 'tenant-inferred',
-      payload: { primaryGoal: 'Increase social media presence' },
+      payload: {
+        primaryGoal: 'Increase social media presence',
+        primaryGoalProvenance: 'authenticated_operator',
+        primaryGoalSource: 'explicit',
+      },
     });
 
     const stored = readStoredProfile(dataRoot, 'tenant-inferred');
     assert.equal(stored.primary_goal, 'Increase social media presence');
     assert.equal(stored.primary_goal_source, 'inferred');
+  });
+});
+
+test('an authenticated operator confirming an unchanged inferred marketing goal persists explicit provenance', async () => {
+  await withTempDataRoot((dataRoot) => {
+    const tenantId = 'tenant-operator-confirmed';
+    const profilePath = path.join(
+      dataRoot,
+      'generated',
+      'validated',
+      tenantId,
+      'business-profile.json',
+    );
+    mkdirSync(path.dirname(profilePath), { recursive: true });
+    writeFileSync(profilePath, JSON.stringify({
+      tenant_id: tenantId,
+      primary_goal: 'Increase social media presence',
+      primary_goal_source: 'inferred',
+      channels: [],
+    }));
+
+    persistBusinessProfileFieldsFromMarketingPayload({
+      tenantId,
+      payload: { primaryGoal: 'Increase social media presence' },
+      primaryGoalProvenance: 'authenticated_operator',
+    });
+
+    const stored = readStoredProfile(dataRoot, tenantId);
+    assert.equal(stored.primary_goal, 'Increase social media presence');
+    assert.equal(stored.primary_goal_source, 'explicit');
   });
 });
 

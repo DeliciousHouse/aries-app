@@ -219,6 +219,65 @@ test('/api/social-content/jobs accepts weekly_social_content and returns 202', a
   });
 });
 
+test('/api/social-content/jobs persists an authenticated operator weekly goal with explicit provenance', async () => {
+  await withMarketingRuntimeEnv('tenant_social_route_human_goal', async (dataRoot) => {
+    seedOpenAiConnection({
+      tenantId: 'tenant_social_route_human_goal',
+      connectionId: 'conn_openai_social_route_human_goal',
+      updatedAt: '2026-05-05T00:00:00.000Z',
+      tokenExpiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+    });
+    (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__ = () => ({
+      ok: true,
+      status: 'needs_approval',
+      output: [{
+        run_id: 'social-route-human-goal',
+        executive_summary: {
+          market_positioning: 'Research is complete.',
+          campaign_takeaway: 'Plan ready.',
+        },
+      }],
+      requiresApproval: {
+        resumeToken: 'resume_strategy',
+        prompt: 'Research complete. Approve strategy to continue.',
+      },
+    });
+
+    const formData = new FormData();
+    formData.set('jobType', 'weekly_social_content');
+    formData.set('websiteUrl', 'https://brand.example/');
+    formData.set('businessType', 'Test vertical');
+    formData.set('primaryGoal', 'Book more consultations this week');
+    formData.set('goal', 'Book more consultations this week');
+
+    const { handlePostSocialContentJobs } = await import('../app/api/social-content/jobs/route');
+    const response = await handlePostSocialContentJobs(
+      new Request('http://aries.example.test/api/social-content/jobs', {
+        method: 'POST',
+        body: formData,
+      }),
+      async () => ({
+        userId: 'user-social-route-human-goal',
+        tenantId: 'tenant_social_route_human_goal',
+        tenantSlug: 'tenant-social-route-human-goal',
+        role: 'tenant_admin',
+      }),
+    );
+
+    assert.equal(response.status, 202);
+    const profilePath = path.join(
+      dataRoot,
+      'generated',
+      'validated',
+      'tenant_social_route_human_goal',
+      'business-profile.json',
+    );
+    const stored = JSON.parse(await readFile(profilePath, 'utf8')) as Record<string, unknown>;
+    assert.equal(stored.primary_goal, 'Book more consultations this week');
+    assert.equal(stored.primary_goal_source, 'explicit');
+  });
+});
+
 test('/api/social-content/jobs forces weekly_social_content even when caller sends another jobType', async () => {
   await withMarketingRuntimeEnv('tenant_social_route_forced_weekly', async () => {
     seedOpenAiConnection({

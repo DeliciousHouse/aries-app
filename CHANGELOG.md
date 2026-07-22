@@ -14,6 +14,8 @@ canonical accessible integrations surface.
   unrelated approver change cannot silently convert inferred provenance to explicit.
 - Saving the Business Profile deliberately confirms the displayed goal and persists
   explicit provenance, including when the confirmed text is unchanged.
+- Starting weekly social content from the authenticated operator route now persists
+  the submitted weekly goal as explicit while system and untrusted helper inputs stay inferred.
 - Authenticated goal-provenance upserts reuse the request's held database client,
   propagate failures, and complete before Insights invalidates its goal narrative
   cache, preventing pool exhaustion and stale provenance rebuilds.

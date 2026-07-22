@@ -148,6 +148,7 @@ type MarketingProfilePersistenceInput = {
   tenantId: string;
   payload: Record<string, unknown>;
   tenantSlug?: string | null;
+  primaryGoalProvenance?: 'authenticated_operator';
 };
 
 const DEFAULT_MARKETING_CHANNELS = ['meta-ads', 'instagram'];
@@ -1144,9 +1145,14 @@ export function persistBusinessProfileFieldsFromMarketingPayload(
 
   if (primaryGoalField.present) {
     const primaryGoalMerge = mergePersistedStringField(nextRecord.primary_goal, primaryGoalField.value);
-    if (primaryGoalMerge.changed) {
+    const operatorConfirmedGoal =
+      input.primaryGoalProvenance === 'authenticated_operator' && primaryGoalField.value !== null;
+    if (
+      primaryGoalMerge.changed ||
+      (operatorConfirmedGoal && nextRecord.primary_goal_source !== 'explicit')
+    ) {
       nextRecord.primary_goal = primaryGoalMerge.value;
-      nextRecord.primary_goal_source = 'inferred';
+      nextRecord.primary_goal_source = operatorConfirmedGoal ? 'explicit' : 'inferred';
       shouldPersist = true;
     }
   }
