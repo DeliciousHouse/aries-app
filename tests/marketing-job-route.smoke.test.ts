@@ -321,11 +321,27 @@ test('/api/social-content/jobs waits for explicit PostgreSQL provenance, invalid
       return { rowCount: 0, rows: [] };
     };
 
-    t.mock.method(pool, 'query', query as unknown as typeof pool.query);
-    t.mock.method(pool, 'connect', (async () => ({
+    let connectionHeld = false;
+    let connectCalls = 0;
+    let releaseCalls = 0;
+    const singleConnectionClient = {
       query,
-      release() {},
-    })) as unknown as typeof pool.connect);
+      release() {
+        assert.equal(connectionHeld, true, 'the checked-out client must only be released while held');
+        connectionHeld = false;
+        releaseCalls += 1;
+      },
+    };
+
+    t.mock.method(pool, 'query', query as unknown as typeof pool.query);
+    t.mock.method(pool, 'connect', (async () => {
+      connectCalls += 1;
+      if (connectionHeld) {
+        return new Promise(() => {});
+      }
+      connectionHeld = true;
+      return singleConnectionClient;
+    }) as unknown as typeof pool.connect);
 
     (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__ = () => ({
       ok: true,
@@ -389,15 +405,24 @@ test('/api/social-content/jobs waits for explicit PostgreSQL provenance, invalid
     assert.equal(stored.primary_goal_source, 'explicit');
 
     const { handleGetInsightsGoal } = await import('../backend/insights/goal/handler');
-    const insightsResponse = await handleGetInsightsGoal(
-      new Request('http://aries.example.test/api/insights/goal?period=week&platform=all'),
-      async () => ({
-        userId: 'user-social-route-human-goal',
-        tenantId,
-        tenantSlug: 'brand-example',
-        role: 'tenant_admin',
+    let insightsTimeout: ReturnType<typeof setTimeout>;
+    const insightsResult = await Promise.race([
+      handleGetInsightsGoal(
+        new Request('http://aries.example.test/api/insights/goal?period=week&platform=all'),
+        async () => ({
+          userId: 'user-social-route-human-goal',
+          tenantId,
+          tenantSlug: 'brand-example',
+          role: 'tenant_admin',
+        }),
+      ).then((response) => ({ response })),
+      new Promise<{ timeout: true }>((resolve) => {
+        insightsTimeout = setTimeout(() => resolve({ timeout: true }), 500);
       }),
-    );
+    ]);
+    clearTimeout(insightsTimeout!);
+    assert.ok('response' in insightsResult, 'DB_POOL_MAX=1 Insights refresh must not wait on a nested checkout');
+    const insightsResponse = insightsResult.response;
     const insightsBody = await insightsResponse.json() as Record<string, unknown>;
 
     assert.equal(insightsResponse.status, 200);
@@ -408,6 +433,9 @@ test('/api/social-content/jobs waits for explicit PostgreSQL provenance, invalid
     } | null;
     assert.ok(refreshedGoalCache);
     assert.equal(refreshedGoalCache.body.goalInferred, false);
+    assert.equal(connectCalls, 1, 'the cache miss must use one checked-out client');
+    assert.equal(releaseCalls, 1, 'the checked-out client must be released exactly once');
+    assert.equal(connectionHeld, false, 'the client must be returned to the one-connection pool');
     assert.deepEqual(events, [
       'profile-upsert-started',
       'profile-upserted',
@@ -415,6 +443,53 @@ test('/api/social-content/jobs waits for explicit PostgreSQL provenance, invalid
       'goal-cache-refreshed',
     ]);
   });
+});
+
+test('/api/insights/goal releases its sole checked-out client once when snapshot loading fails', async (t) => {
+  const snapshotError = new Error('simulated goal snapshot failure');
+  let connectionHeld = false;
+  let connectCalls = 0;
+  let releaseCalls = 0;
+  const query = async (sqlInput: string) => {
+    const sql = String(sqlInput);
+    if (sql.includes('SELECT body, generated_at, model')) {
+      return { rowCount: 0, rows: [] };
+    }
+    throw snapshotError;
+  };
+  const singleConnectionClient = {
+    query,
+    release() {
+      assert.equal(connectionHeld, true, 'the checked-out client must only be released while held');
+      connectionHeld = false;
+      releaseCalls += 1;
+    },
+  };
+
+  t.mock.method(pool, 'connect', (async () => {
+    connectCalls += 1;
+    assert.equal(connectionHeld, false, 'DB_POOL_MAX=1 must not attempt a nested checkout');
+    connectionHeld = true;
+    return singleConnectionClient;
+  }) as unknown as typeof pool.connect);
+
+  const { handleGetInsightsGoal } = await import('../backend/insights/goal/handler');
+  await assert.rejects(
+    handleGetInsightsGoal(
+      new Request('http://aries.example.test/api/insights/goal?period=week&platform=all'),
+      async () => ({
+        userId: 'user-insights-goal-failure',
+        tenantId: '42003',
+        tenantSlug: 'brand-example',
+        role: 'tenant_admin',
+      }),
+    ),
+    snapshotError,
+  );
+
+  assert.equal(connectCalls, 1, 'the failing cache miss must use one checked-out client');
+  assert.equal(releaseCalls, 1, 'the checked-out client must be released exactly once on error');
+  assert.equal(connectionHeld, false, 'the client must be returned after the error');
 });
 
 test('/api/social-content/jobs fails closed when explicit PostgreSQL provenance cannot persist', async (t) => {

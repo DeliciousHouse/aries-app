@@ -146,7 +146,7 @@ export async function handleGetInsightsGoal(
       }
     }
 
-    const snapshot = await buildGoalSnapshot(tenantId, period, platform);
+    const snapshot = await buildGoalSnapshot(tenantId, period, platform, client);
 
     if (!snapshot) {
       return NextResponse.json({ status: 'no_goal' });
