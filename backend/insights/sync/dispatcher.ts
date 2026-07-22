@@ -211,17 +211,49 @@ export async function syncAccountForTenant(
         mediaType: rp.mediaType,
       });
       await client.query(
-        `INSERT INTO insights_posts
+        `WITH resolved_attribution AS (
+           SELECT COALESCE(
+             (
+               SELECT scheduled_source.id
+               FROM scheduled_post_dispatches d
+               JOIN scheduled_posts sp ON sp.id = d.scheduled_post_id
+               JOIN posts scheduled_source
+                 ON scheduled_source.id = sp.post_id
+                AND scheduled_source.tenant_id = sp.tenant_id
+               WHERE sp.tenant_id = $1
+                 AND d.status = 'dispatched'
+                 AND d.platform_post_id = $4
+                 AND CASE WHEN lower(d.platform) = 'meta' THEN 'facebook' ELSE lower(d.platform) END
+                     = CASE WHEN lower($3::text) = 'meta' THEN 'facebook' ELSE lower($3::text) END
+               ORDER BY d.dispatched_at DESC NULLS LAST, d.id DESC
+               LIMIT 1
+             ),
+             (
+               SELECT p.id
+               FROM posts p
+               WHERE p.tenant_id = $1
+                 AND p.platform_post_id = $4
+                 AND p.published_status IN ('published', 'unverified')
+                 AND CASE WHEN lower(p.platform) = 'meta' THEN 'facebook' ELSE lower(p.platform) END
+                     = CASE WHEN lower($3::text) = 'meta' THEN 'facebook' ELSE lower($3::text) END
+               ORDER BY p.published_at DESC NULLS LAST, p.id DESC
+               LIMIT 1
+             )
+           ) AS aries_post_id
+         )
+         INSERT INTO insights_posts
            (tenant_id, account_id, platform, external_post_id,
             published_at, media_type, title, caption, permalink,
-            duration_seconds, platform_data, content_type)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            duration_seconds, platform_data, content_type, aries_post_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                 (SELECT aries_post_id FROM resolved_attribution))
          ON CONFLICT (tenant_id, platform, external_post_id)
            DO UPDATE SET
              title         = EXCLUDED.title,
              caption       = EXCLUDED.caption,
              platform_data = EXCLUDED.platform_data,
-             content_type  = COALESCE(insights_posts.content_type, EXCLUDED.content_type)`,
+             content_type  = COALESCE(insights_posts.content_type, EXCLUDED.content_type),
+             aries_post_id = COALESCE(insights_posts.aries_post_id, EXCLUDED.aries_post_id)`,
         [
           tenantId, accountId, platform, rp.externalPostId,
           rp.publishedAt, rp.mediaType,

@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  buildScheduledDispatchSuccessResult,
+  firstSuccessfulPlatformPostId,
   planPostStatusUpdate,
   deriveDispatchRetryable,
 } from '../app/api/internal/publishing/scheduled-dispatch/route';
@@ -67,6 +69,39 @@ test('single-platform success => published', () => {
 
 test('single-platform terminal failure => failed', () => {
   assert.equal(planPostStatusUpdate([{ ok: false, retryable: false }]), 'failed');
+});
+
+test('successful scheduled dispatch results retain distinct provider post ids', () => {
+  const facebook = buildScheduledDispatchSuccessResult('facebook', 'fb_901');
+  const instagram = buildScheduledDispatchSuccessResult('instagram', 'ig_902');
+
+  assert.deepEqual(facebook, {
+    provider: 'facebook',
+    ok: true,
+    platformPostId: 'fb_901',
+  });
+  assert.deepEqual(instagram, {
+    provider: 'instagram',
+    ok: true,
+    platformPostId: 'ig_902',
+  });
+});
+
+test('aggregate legacy post id mirrors only the first successful provider id', () => {
+  assert.equal(
+    firstSuccessfulPlatformPostId([
+      buildScheduledDispatchSuccessResult('facebook', 'fb_first'),
+      buildScheduledDispatchSuccessResult('instagram', 'ig_second'),
+    ]),
+    'fb_first',
+  );
+  assert.equal(
+    firstSuccessfulPlatformPostId([
+      { provider: 'facebook', ok: false, error: 'rate_limited', retryable: true },
+      buildScheduledDispatchSuccessResult('instagram', 'ig_only_success'),
+    ]),
+    'ig_only_success',
+  );
 });
 
 // --- deriveDispatchRetryable ---------------------------------------------------

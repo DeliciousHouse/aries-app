@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.36.0 — fix(publishing): reconcile concurrent publish attempts
+
+Concurrent direct-publish and scheduled-publish attempts now converge on the
+first durable result instead of allowing a delayed worker to corrupt newer
+dispatch state.
+
+### Fixed
+
+- `persistPublishedPost` catches only PostgreSQL unique violations (`23505`),
+  re-reads the tenant/platform/idempotency winner, and reconciles missing
+  provider IDs without masking unrelated database failures.
+- Scheduled-post claims carry an ownership generation through child outcome
+  writes and parent rollups, fencing delayed attempts after a stale reclaim.
+- Per-platform provider IDs are first-write-wins, so a delayed non-null result
+  cannot replace an ID already confirmed by the active attempt.
+
 ## v0.1.35.0 — fix(runtime): tolerate transient Hermes outages and restart unhealthy web containers
 
 Aries startup no longer aborts when the configured Hermes gateway is temporarily

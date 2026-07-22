@@ -18,6 +18,18 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const workerPath = path.join(REPO_ROOT, 'scripts/automations/scheduled-posts-worker.mjs');
 const workerSource = readFileSync(workerPath, 'utf8');
 
+function extractChildStatusUpdate(): string {
+  const functionStart = workerSource.indexOf('async function setPlatformDispatchStatus');
+  assert.notEqual(functionStart, -1, 'setPlatformDispatchStatus must exist in the worker');
+  const start = workerSource.indexOf('UPDATE scheduled_post_dispatches', functionStart);
+  const end = workerSource.indexOf(
+    '[rowId, platform, status, truncated, platformPostId, attemptToken]',
+    start,
+  );
+  assert.ok(start >= 0 && end > start, 'setPlatformDispatchStatus SQL must be present in the worker');
+  return workerSource.slice(start, end);
+}
+
 function extractSql(name: string): string {
   const match = workerSource.match(new RegExp(`export const ${name} = \`([\\s\\S]*?)\`;`));
   assert.ok(match, `${name} must be defined and exported in the worker`);
@@ -112,16 +124,18 @@ test('setPlatformDispatchStatus casts $4 to text — bare $4 fails Postgres prep
   // prepare time and EVERY post-publish write dies — the publish goes live
   // but is never recorded, re-opening the stale-reclaim duplicate window
   // (caught live 2026-07-13 20:05Z). In-memory fakes cannot see prepare-time
-  // inference, so pin the casts at source level. Anchored to the
-  // setPlatformDispatchStatus function — the dead-campaign sweep CTE contains
-  // an earlier `UPDATE scheduled_post_dispatches` that must not shift this
-  // slice onto unrelated text.
-  const fnStart = workerSource.indexOf('async function setPlatformDispatchStatus');
-  assert.notEqual(fnStart, -1, 'setPlatformDispatchStatus must exist in the worker');
-  const stmt = workerSource.slice(
-    workerSource.indexOf('UPDATE scheduled_post_dispatches', fnStart),
-    workerSource.indexOf('WHERE scheduled_post_id = $1 AND platform = $2', fnStart),
-  );
+  // inference, so pin the casts at source level. The helper anchors to the
+  // function because the dead-campaign sweep has an earlier child UPDATE.
+  const stmt = extractChildStatusUpdate();
   const bare = stmt.match(/\$4(?!::text)/g) ?? [];
   assert.equal(bare.length, 0, `every $4 in the child-status UPDATE must be cast ::text; found ${bare.length} bare`);
+});
+
+test('setPlatformDispatchStatus preserves the first successful provider post id', () => {
+  const stmt = extractChildStatusUpdate();
+  assert.match(
+    stmt,
+    /platform_post_id\s*=\s*COALESCE\(platform_post_id,\s*\$5::text\)/,
+    'the first non-null child provider id wins over every later attempt',
+  );
 });

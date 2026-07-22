@@ -120,10 +120,13 @@ export const DUE_ROWS_SQL = `SELECT id FROM scheduled_posts
      LIMIT $1`;
 
 // Parent-row claim UPDATE, exported for the same regression-test reason. $1 is
-// the scheduled_posts id.
+// the scheduled_posts id. The exact updated_at text is the attempt ownership
+// token carried through post-publish writes. clock_timestamp() is used instead
+// of transaction-stable now() so every reclaim receives a fresh generation.
 export const MARK_IN_FLIGHT_SQL = `UPDATE scheduled_posts
-     SET dispatch_status = 'in_flight', updated_at = now()
-     WHERE id = $1`;
+     SET dispatch_status = 'in_flight', updated_at = clock_timestamp()
+     WHERE id = $1
+     RETURNING updated_at::text AS attempt_token`;
 
 // Dead-campaign sweep: terminally mark rows the campaign_end_date filter above
 // has made permanently unclaimable. Without this, a row that misses its window
@@ -260,7 +263,31 @@ async function claimRow(client, rowId) {
  * stale-reclaim window is measured from the claim.
  */
 async function markInFlight(client, rowId) {
-  await client.query(MARK_IN_FLIGHT_SQL, [rowId]);
+  const result = await client.query(MARK_IN_FLIGHT_SQL, [rowId]);
+  const attemptToken = result.rows?.[0]?.attempt_token;
+  if (!attemptToken) {
+    throw new Error(`scheduled_post_claim_failed:no_attempt_token:${rowId}`);
+  }
+  return attemptToken;
+}
+
+/**
+ * Validate and lock the parent generation before touching child rows. Claims
+ * lock parent then children, so the completion path uses the same lock order;
+ * this prevents a reclaim/completion deadlock while making ownership stable
+ * for the rest of the transaction.
+ */
+async function lockActiveAttempt(client, rowId, attemptToken) {
+  const result = await client.query(
+    `SELECT 1
+     FROM scheduled_posts
+     WHERE id = $1
+       AND dispatch_status = 'in_flight'
+       AND updated_at = $2::timestamptz
+     FOR UPDATE`,
+    [rowId, attemptToken],
+  );
+  return result.rowCount === 1;
 }
 
 // --- Per-platform dispatch state ------------------------------------------
@@ -312,7 +339,15 @@ async function seedPlatformDispatches(client, rowId, platforms) {
  * silently retried every tick for days with no recorded reason (FB rate limit
  * 368, 2026-07-13 incident) was undiagnosable from the DB alone. error_at
  * still marks terminal failures only. */
-async function setPlatformDispatchStatus(client, rowId, platform, status, errorMessage) {
+async function setPlatformDispatchStatus(
+  client,
+  rowId,
+  platform,
+  status,
+  errorMessage,
+  platformPostId,
+  attemptToken,
+) {
   const truncated = errorMessage ? String(errorMessage).slice(0, 1000) : null;
   // $4 is cast to text everywhere it appears: with the bare parameter in both
   // a CASE result and an IS NOT NULL predicate, Postgres cannot infer its type
@@ -321,18 +356,28 @@ async function setPlatformDispatchStatus(client, rowId, platform, status, errorM
   // live but was never recorded, re-opening the stale-reclaim duplicate
   // window). Caught live 2026-07-13 20:05Z; the in-memory test fakes cannot
   // see prepare-time type inference, hence the live-SQL prepare test.
-  await client.query(
+  const result = await client.query(
     `UPDATE scheduled_post_dispatches
      SET status = $3,
+         platform_post_id = COALESCE(platform_post_id, $5::text),
          dispatched_at = CASE WHEN $3 = 'dispatched' THEN now() ELSE dispatched_at END,
          error_at = CASE WHEN $3 = 'failed' THEN now() ELSE error_at END,
          error_message = CASE WHEN $3 = 'failed' THEN $4::text
                               WHEN $3 = 'pending' AND $4::text IS NOT NULL THEN $4::text
                               ELSE error_message END,
          updated_at = now()
-     WHERE scheduled_post_id = $1 AND platform = $2`,
-    [rowId, platform, status, truncated],
+     WHERE scheduled_post_id = $1
+       AND platform = $2
+       AND EXISTS (
+         SELECT 1
+         FROM scheduled_posts owner
+         WHERE owner.id = $1
+           AND owner.dispatch_status = 'in_flight'
+           AND owner.updated_at = $6::timestamptz
+       )`,
+    [rowId, platform, status, truncated, platformPostId, attemptToken],
   );
+  return result.rowCount === 1;
 }
 
 // --- Retry backoff ----------------------------------------------------------
@@ -373,7 +418,7 @@ async function setNextAttemptAt(client, rowId, backoffMinutes) {
 }
 
 /** Recompute and persist the parent rollup from the child rows. */
-async function syncParentRollup(client, rowId) {
+async function syncParentRollup(client, rowId, attemptToken) {
   const childResult = await client.query(
     `SELECT status, error_message FROM scheduled_post_dispatches WHERE scheduled_post_id = $1`,
     [rowId],
@@ -381,16 +426,18 @@ async function syncParentRollup(client, rowId) {
   const statuses = childResult.rows.map((r) => r.status);
   const rolled = rollupParentStatus(statuses);
   const firstError = childResult.rows.find((r) => r.status === 'failed' && r.error_message)?.error_message ?? null;
-  await client.query(
+  const result = await client.query(
     `UPDATE scheduled_posts
      SET dispatch_status = $2,
          dispatched_at = CASE WHEN $2 = 'dispatched' THEN now() ELSE dispatched_at END,
          error_at = CASE WHEN $2 = 'failed' THEN now() ELSE error_at END,
          error_message = CASE WHEN $2 = 'failed' THEN $3 ELSE error_message END
-     WHERE id = $1`,
-    [rowId, rolled, firstError],
+     WHERE id = $1
+       AND dispatch_status = 'in_flight'
+       AND updated_at = $4::timestamptz`,
+    [rowId, rolled, firstError, attemptToken],
   );
-  return rolled;
+  return result.rowCount === 1 ? rolled : null;
 }
 
 async function updatePostStatus(client, postId, status) {
@@ -440,13 +487,17 @@ export function planPlatformOutcomes(platforms, results, transportError, mediaTy
           status: 'failed',
           error: `video_publish_outcome_unknown (no auto-retry — may already be live): ${transportError}`,
           retryable: false,
+          platformPostId: null,
         };
       }
-      return { platform, status: 'pending', error: transportError, retryable: true };
+      return { platform, status: 'pending', error: transportError, retryable: true, platformPostId: null };
     }
     const result = byProvider.get(platform);
     if (result && result.ok) {
-      return { platform, status: 'dispatched', error: null, retryable: false };
+      const platformPostId = typeof result.platformPostId === 'string' && result.platformPostId.trim()
+        ? result.platformPostId.trim()
+        : null;
+      return { platform, status: 'dispatched', error: null, retryable: false, platformPostId };
     }
     const retryable = result ? result.retryable !== false : true;
     let error = result?.error ?? 'no_result_for_platform';
@@ -457,7 +508,7 @@ export function planPlatformOutcomes(platforms, results, transportError, mediaTy
     if (result?.kind === 'auth') {
       error = `auth: Meta account disconnected — reconnect required. ${error}`;
     }
-    return { platform, status: retryable ? 'pending' : 'failed', error, retryable };
+    return { platform, status: retryable ? 'pending' : 'failed', error, retryable, platformPostId: null };
   });
 }
 
@@ -587,6 +638,7 @@ export async function tick(pool) {
     // doubled the pool pressure (see guardrail #1, DB_POOL_MAX budgeting).
     let row;
     let platformsToDispatch;
+    let attemptToken;
     try {
       const client = await pool.connect();
       try {
@@ -607,7 +659,7 @@ export async function tick(pool) {
         // a false 'dispatched'. The terminal status is written only after
         // Meta confirms, in the post-publish transaction below.
         await seedPlatformDispatches(client, rowId, platforms);
-        await markInFlight(client, rowId);
+        attemptToken = await markInFlight(client, rowId);
         // On a stale-in_flight re-claim, a platform that already reached a
         // terminal state — 'dispatched' (went live) or 'failed' (terminal,
         // non-retryable) — must not be dispatched again. Excluding only
@@ -641,10 +693,34 @@ export async function tick(pool) {
       const fc = await pool.connect();
       try {
         await fc.query('BEGIN');
-        for (const outcome of outcomes) {
-          await setPlatformDispatchStatus(fc, rowId, outcome.platform, outcome.status, outcome.error);
+        let ownsAttempt = await lockActiveAttempt(fc, rowId, attemptToken);
+        if (!ownsAttempt) {
+          await fc.query('COMMIT');
+          report.skipped += 1;
+          continue;
         }
-        const rolled = await syncParentRollup(fc, rowId);
+        for (const outcome of outcomes) {
+          ownsAttempt = await setPlatformDispatchStatus(
+            fc,
+            rowId,
+            outcome.platform,
+            outcome.status,
+            outcome.error,
+            outcome.platformPostId,
+            attemptToken,
+          );
+          if (!ownsAttempt) break;
+        }
+        const rolled = ownsAttempt
+          ? await syncParentRollup(fc, rowId, attemptToken)
+          : null;
+        if (rolled === null) {
+          // A newer reclaim owns this row. Commit the no-op conditional writes
+          // and leave the newer attempt's children and parent untouched.
+          await fc.query('COMMIT');
+          report.skipped += 1;
+          continue;
+        }
         if (rolled === 'dispatched') {
           await updatePostStatus(fc, row.post_id, 'published');
         } else if (rolled === 'failed') {
