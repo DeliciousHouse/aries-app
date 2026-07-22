@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.39.0 — fix(marketing): make explicit goal provenance durable
+
+Operators can now confirm a weekly goal and see that explicit goal on the first
+Insights read, even with a one-connection database pool or a transient cache
+delete failure.
+
+### Fixed
+
+- Marketing job creation waits for trusted goal provenance to reach PostgreSQL
+  before dispatching downstream work and returns an error when that write fails.
+- Goal persistence invalidates tenant-scoped Insights caches only after the
+  durable write while preserving file-backed and legacy inferred-goal behavior.
+
 ## v0.1.38.0 — fix(marketing): preserve human weekly goal provenance
 
 Weekly social-content goals submitted by authenticated operators now retain
