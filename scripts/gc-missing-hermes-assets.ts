@@ -30,6 +30,8 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
+import { withTaskExecutionLog } from '@/backend/telemetry/task-execution-log';
+
 const DEFAULT_GRACE_DAYS = 7;
 
 // ---------------------------------------------------------------------------
@@ -142,6 +144,16 @@ function resolveMountPath(mountRoot: string, storageKey: string): string {
 }
 
 export async function runGcMissingHermesAssets(options: GcMissingOptions): Promise<GcMissingStats> {
+  // AA-159: DETERMINISTIC_RULE work (file-existence checks + a DB mark, no
+  // model), logged on the caller's own db handle so no extra pooled connection.
+  return withTaskExecutionLog(
+    { engine: 'DETERMINISTIC_RULE', taskKey: 'creative.gc_missing_hermes_assets' },
+    () => runGcMissingHermesAssetsPass(options),
+    { db: options.db },
+  );
+}
+
+async function runGcMissingHermesAssetsPass(options: GcMissingOptions): Promise<GcMissingStats> {
   const stats: GcMissingStats = {
     scanned: 0,
     rowsOrphaned: 0,

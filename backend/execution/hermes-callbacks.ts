@@ -1,12 +1,14 @@
 import {
   ExecutionRunLockError,
   hasExecutionRunEvent,
+  isTerminalExecutionStatus,
   loadExecutionRunRecord,
   markExecutionRunEventApplied,
   type ExecutionRunStatus,
   type ExecutionRunRecord,
   withExecutionRunLock,
 } from './run-store';
+import { recordTaskExecution } from '../telemetry/task-execution-log';
 import { applyHermesMarketingCallback } from '../marketing/hermes-callbacks';
 import { SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY } from '../social-content/defaults';
 import { approvalStepFromWorkflowStepId } from '../social-content/runtime-state';
@@ -43,6 +45,19 @@ const ARIES_RUN_ID_RE = /^arun_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[
 
 function isValidAriesRunId(value: string): boolean {
   return ARIES_RUN_ID_RE.test(value);
+}
+
+/**
+ * Wall-clock ms from a record's created_at to now, for the AA-159 execution log.
+ * Returns null on an unparseable/absent stamp so a bad timestamp records as
+ * "unknown duration" rather than a nonsense number.
+ */
+function durationSinceIso(createdAt: string | null | undefined): number | null {
+  if (typeof createdAt !== 'string') return null;
+  const startedMs = Date.parse(createdAt);
+  if (!Number.isFinite(startedMs)) return null;
+  const elapsed = Date.now() - startedMs;
+  return elapsed >= 0 ? elapsed : null;
 }
 
 function executionStatus(status: HermesRunCallbackStatus): ExecutionRunStatus {
@@ -234,9 +249,11 @@ export async function handleHermesRunCallback(
         await applyHermesMarketingCallback(run, payload);
       }
 
+      const appliedStatus = executionStatus(payload.status);
+
       markExecutionRunEventApplied(payload.aries_run_id, {
         eventId: payload.event_id,
-        status: executionStatus(payload.status),
+        status: appliedStatus,
         stage: payload.stage,
         result: payload.output ?? (payload.approval ? sanitizeApprovalForRunRecord(payload.approval) : null),
         externalRunId: payload.hermes_run_id,
@@ -248,6 +265,35 @@ export async function handleHermesRunCallback(
             }
           : null,
       });
+
+      // AA-159: this is the ONE post-dedup convergence point for every Hermes
+      // run of either domain, so it is where an AI_LLM execution-log row belongs.
+      // Only TERMINAL deliveries are logged — a 'running'/'requires_approval'
+      // callback is a progress ping, not a finished execution, so logging it
+      // would multiply-count one stage. The duplicate-event guard above already
+      // returned, so a reconciler re-delivery (deterministic event_id) cannot
+      // double-write. Best-effort: recordTaskExecution never throws, so callback
+      // idempotency is unaffected.
+      if (isTerminalExecutionStatus(appliedStatus)) {
+        await recordTaskExecution({
+          engine: 'AI_LLM',
+          // Marketing runs are per-stage, so the stage is the unit of cost.
+          taskKey: run.stage ? `marketing.stage.${run.stage}` : `execution.${run.workflow_key}`,
+          tenantId: run.tenant_id,
+          status: appliedStatus === 'completed' ? 'succeeded' : 'failed',
+          errorCode:
+            appliedStatus === 'completed'
+              ? null
+              : (payload.error?.code ?? (appliedStatus === 'cancelled' ? 'cancelled' : 'hermes_run_failed')),
+          durationMs: durationSinceIso(run.created_at),
+          // The gateway the run was submitted to. Aries sends no model hint on
+          // pipeline runs (the Hermes profile picks the model) and Hermes reports
+          // back neither the resolved model nor token usage, so those columns stay
+          // NULL — "not reported", never a fabricated zero.
+          targetProfile: run.target_profile ?? null,
+          externalRunId: payload.hermes_run_id,
+        });
+      }
 
       return {
         status: 'accepted',

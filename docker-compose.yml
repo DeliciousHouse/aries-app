@@ -203,6 +203,13 @@ services:
       # OFF (default) the edit route 404s (invisible) and the UI section is hidden.
       # All route handlers run in this container, so only aries-app needs it.
       ARIES_IMAGE_EDIT_ENABLED: ${ARIES_IMAGE_EDIT_ENABLED:-0}
+      # AA-159 task-execution telemetry: when ON, every classified task execution
+      # appends a task_execution_log row tagged AI_LLM / DETERMINISTIC_RULE /
+      # LOCAL_EDGE, so AI inference cost can be compared against zero-cost
+      # deterministic and local/edge work. When OFF (default) nothing is written
+      # and no task changes behavior. Must be set on every service that executes
+      # classified work (app + the sweep/sync sidecars below).
+      ARIES_TASK_TELEMETRY_ENABLED: ${ARIES_TASK_TELEMETRY_ENABLED:-0}
       # Multi-workspace membership-aware auth resolution (Phase 1). When ON, the
       # active-workspace pointer is validated against an ACTIVE
       # organization_memberships row (role from the membership; workspaceCount on
@@ -607,6 +614,9 @@ services:
       ARIES_DRAFT_EXPIRY_DRY_RUN: ${ARIES_DRAFT_EXPIRY_DRY_RUN:-0}
       ARIES_DRAFT_EXPIRY_INTERVAL_MS: ${ARIES_DRAFT_EXPIRY_INTERVAL_MS:-21600000}
       ARIES_DRAFT_EXPIRY_AGE_DAYS: ${ARIES_DRAFT_EXPIRY_AGE_DAYS:-14}
+      # AA-159: log each sweep pass as DETERMINISTIC_RULE (zero tokens). Written
+      # on the sweep's own db handle, so no extra pooled connection.
+      ARIES_TASK_TELEMETRY_ENABLED: ${ARIES_TASK_TELEMETRY_ENABLED:-0}
     restart: unless-stopped
     networks:
       - docker_stack
@@ -736,6 +746,9 @@ services:
       HERMES_GATEWAY_URL: ${HERMES_GATEWAY_URL:-}
       HERMES_API_SERVER_KEY: ${HERMES_API_SERVER_KEY:-}
       HERMES_COMMENT_CLASSIFY_MODEL: ${HERMES_COMMENT_CLASSIFY_MODEL:-}
+      # AA-159: log the comment-classification leg as AI_LLM with its requested
+      # model hint (the rest of the sync tick is not model work).
+      ARIES_TASK_TELEMETRY_ENABLED: ${ARIES_TASK_TELEMETRY_ENABLED:-0}
       # Toolkit version for manual Composio tool execution (see aries-app above).
       COMPOSIO_TOOLKIT_VERSION: ${COMPOSIO_TOOLKIT_VERSION:-latest}
       COMPOSIO_FACEBOOK_AUTH_CONFIG_ID: ${COMPOSIO_FACEBOOK_AUTH_CONFIG_ID:-}

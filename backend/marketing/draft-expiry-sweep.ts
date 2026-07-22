@@ -44,6 +44,8 @@
  * (scripts/automations/draft-expiry-sweep-worker.ts) is the standing process.
  */
 
+import { withTaskExecutionLog } from '@/backend/telemetry/task-execution-log';
+
 // ---------------------------------------------------------------------------
 // Config / flag parsers (exported for tests)
 // ---------------------------------------------------------------------------
@@ -210,6 +212,21 @@ function asNumber(value: unknown): number {
  * against the production database for inspection.
  */
 export async function runDraftExpirySweep(
+  db: Queryable,
+  opts: DraftExpirySweepOptions,
+): Promise<DraftExpirySweepReport> {
+  // AA-159: a sweep pass is DETERMINISTIC_RULE work — no model in the loop, so
+  // zero tokens by construction. Logged on the caller's own db handle so the
+  // telemetry row adds no extra pooled connection (guardrail #1). System-scoped:
+  // the sweep spans every tenant, so the row carries no tenant_id.
+  return withTaskExecutionLog(
+    { engine: 'DETERMINISTIC_RULE', taskKey: 'marketing.draft_expiry_sweep' },
+    () => runDraftExpirySweepPass(db, opts),
+    { db },
+  );
+}
+
+async function runDraftExpirySweepPass(
   db: Queryable,
   opts: DraftExpirySweepOptions,
 ): Promise<DraftExpirySweepReport> {
