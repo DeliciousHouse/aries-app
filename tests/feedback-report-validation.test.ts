@@ -4,14 +4,18 @@ import test from 'node:test';
 import { validateReportRequest } from '../backend/feedback/report-validation';
 import { resolveFeedbackReportConfig } from '../backend/feedback/report-config';
 
+const IDEMPOTENCY_KEY = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+
 test('a valid body validates with trimmed fields and default category', () => {
   const result = validateReportRequest({
+    idempotency_key: IDEMPOTENCY_KEY,
     impact: 'p2_feature_degraded',
     title: '  Broken publish button  ',
     description: '  It does nothing.  ',
   });
   assert.ok(result.ok);
   if (result.ok) {
+    assert.equal(result.value.idempotencyKey, IDEMPOTENCY_KEY);
     assert.equal(result.value.category, 'bug');
     assert.equal(result.value.title, 'Broken publish button');
     assert.equal(result.value.description, 'It does nothing.');
@@ -29,6 +33,7 @@ test('impact is required with no default; invalid values are 422 field errors', 
 
 test('title and description boundaries mirror the client rules', () => {
   const ok = validateReportRequest({
+    idempotency_key: IDEMPOTENCY_KEY,
     impact: 'p4_question',
     title: 'x'.repeat(255),
     description: 'y'.repeat(10_000),
@@ -63,6 +68,7 @@ test('invalid category is rejected; absent category defaults to bug', () => {
   assert.ok(!bad.ok && bad.fieldErrors.category);
 
   const question = validateReportRequest({
+    idempotency_key: IDEMPOTENCY_KEY,
     impact: 'p4_question',
     category: 'question',
     title: 't',
@@ -73,6 +79,7 @@ test('invalid category is rejected; absent category defaults to bug', () => {
 
 test('INVARIANT: body-supplied identity/tenant/priority fields are ignored entirely', () => {
   const spoof = validateReportRequest({
+    idempotency_key: IDEMPOTENCY_KEY,
     impact: 'p0_system_blocked',
     title: 't',
     description: 'd',
@@ -92,11 +99,31 @@ test('INVARIANT: body-supplied identity/tenant/priority fields are ignored entir
   assert.ok(spoof.ok);
   if (spoof.ok) {
     const keys = Object.keys(spoof.value).sort();
-    assert.deepEqual(keys, ['category', 'description', 'impact', 'screenshot', 'title']);
+    assert.deepEqual(keys, [
+      'category',
+      'description',
+      'idempotencyKey',
+      'impact',
+      'screenshot',
+      'title',
+    ]);
     const serialized = JSON.stringify(spoof.value);
     assert.ok(!serialized.includes('victim'));
     assert.ok(!serialized.includes('other-tenant'));
     assert.ok(!serialized.includes('AA-999'));
+  }
+});
+
+test('a canonical client idempotency UUID is required and validated', () => {
+  for (const idempotency_key of [undefined, null, '', 'not-a-uuid', `${IDEMPOTENCY_KEY}x`]) {
+    const result = validateReportRequest({
+      idempotency_key,
+      impact: 'p4_question',
+      title: 't',
+      description: 'd',
+    });
+    assert.ok(!result.ok);
+    if (!result.ok) assert.ok(result.fieldErrors.idempotency_key);
   }
 });
 

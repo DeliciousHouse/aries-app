@@ -29,6 +29,7 @@ export interface ReportAdfInput {
   description: string;
   impactAnswer: string;
   category: string;
+  submitterType?: 'authenticated' | 'anonymous';
   contact: {
     name: string | null;
     email: string | null;
@@ -57,9 +58,13 @@ export function buildReportAdf(input: ReportAdfInput): AdfNode {
   content.push(paragraph(`Category: ${input.category}`));
 
   content.push(paragraph('— Contact —'));
-  content.push(paragraph(`Name: ${input.contact.name ?? 'unknown'}`));
-  content.push(paragraph(`Email: ${input.contact.email ?? 'unknown'}`));
-  content.push(paragraph(`Company: ${input.contact.company ?? 'unknown'}`));
+  if (input.submitterType === 'anonymous') {
+    content.push(paragraph('Submitter: Anonymous'));
+  } else {
+    content.push(paragraph(`Name: ${input.contact.name ?? 'unknown'}`));
+    content.push(paragraph(`Email: ${input.contact.email ?? 'unknown'}`));
+    content.push(paragraph(`Company: ${input.contact.company ?? 'unknown'}`));
+  }
 
   content.push(paragraph(`Submission ID: ${input.reportId}`));
   content.push(paragraph(`Submitted: ${input.submittedAtIso}`));

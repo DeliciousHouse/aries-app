@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.34.0 — feat(feedback): accept anonymous durable incident reports
+
+Visitors can now report an issue without signing in, while signed-in users keep
+their existing workspace and contact attribution.
+
+### Added
+
+- Anonymous reports receive explicit durable attribution and a stable hashed-IP
+  rate-limit identity without storing the raw client address or invented contact
+  details.
+- Feedback report storage and migrations now preserve the submitter type through
+  retry delivery and Jira issue creation.
+
+### Changed
+
+- The floating feedback button always opens the durable incident-report flow,
+  including on public pages, instead of routing signed-out visitors to the
+  legacy best-effort form.
+- Anonymous Jira issues use honest unknown-customer metadata plus dedicated
+  triage labels, while authenticated reports retain tenant-backed attribution.
+
+### Fixed
+
+- Persisted reports survive Jira delivery failures for later retry, and failed
+  browser submissions stay open with conspicuous error copy and a retry action.
+- Concurrent requests from one submitter are serialized before rate-limit and
+  duplicate checks, so parallel bursts cannot exceed the configured cap or
+  create duplicate durable report rows.
+- Browser retries reuse a durable idempotency key through API validation,
+  storage, and Jira reconciliation, preventing a lost acknowledgement from
+  creating a second report or Jira issue.
+- Jira failures that exhaust the configured retry budget now report the
+  durable row as terminally failed instead of claiming another retry is queued.
+
 ## v0.1.33.0 — fix(marketing): keep homepage sections visible
 
 Visitors can now read the complete homepage product story even when browser

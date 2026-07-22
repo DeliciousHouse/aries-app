@@ -96,13 +96,16 @@ async function initDb() {
     `);
 
     // Customer incident reports — SC-70 port, AA-51
-    // (migrations/20260703000000_feedback_reports.sql). Auth-gated, impact-rated
-    // reports that file a Jira Bug with retry/idempotency semantics; distinct
-    // from the legacy public feedback_submissions capture above. Screenshot
+    // (migrations/20260703000000_feedback_reports.sql). Public, impact-rated
+    // reports that preserve authenticated attribution or explicitly mark an
+    // anonymous submitter; distinct from the legacy feedback_submissions table. Screenshot
     // bytes are held only until the Jira sync completes, then NULLed.
     await client.query(`
       CREATE TABLE IF NOT EXISTS feedback_reports (
         id TEXT PRIMARY KEY,
+        request_fingerprint TEXT NOT NULL DEFAULT '',
+        submitter_type TEXT NOT NULL DEFAULT 'authenticated'
+          CHECK (submitter_type IN ('authenticated','anonymous')),
         tenant_id TEXT NOT NULL,
         submitter_id TEXT NOT NULL,
         submitter_email TEXT,
@@ -125,6 +128,11 @@ async function initDb() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
+      ALTER TABLE feedback_reports
+        ADD COLUMN IF NOT EXISTS submitter_type TEXT NOT NULL DEFAULT 'authenticated'
+          CHECK (submitter_type IN ('authenticated','anonymous'));
+      ALTER TABLE feedback_reports
+        ADD COLUMN IF NOT EXISTS request_fingerprint TEXT NOT NULL DEFAULT '';
       CREATE INDEX IF NOT EXISTS idx_feedback_reports_status_updated
         ON feedback_reports (status, updated_at);
       CREATE INDEX IF NOT EXISTS idx_feedback_reports_tenant_submitter_created
