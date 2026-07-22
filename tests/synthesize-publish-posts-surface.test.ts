@@ -8,7 +8,7 @@ import { synthesizePublishPostsFromContentPackage } from '../backend/marketing/s
 import type { SocialContentJobRuntimeDocument } from '../backend/marketing/runtime-state';
 
 // Fake pool capturing INSERT params; SELECT creative_assets returns none.
-function makeFakePool() {
+function makeFakePool(assetRows: unknown[] = []) {
   const inserts: unknown[][] = [];
   return {
     inserts,
@@ -17,6 +17,9 @@ function makeFakePool() {
         if (/INSERT INTO posts/i.test(sql)) {
           inserts.push(params);
           return { rows: [{ id: inserts.length }], rowCount: 1 };
+        }
+        if (/FROM creative_assets/i.test(sql)) {
+          return { rows: assetRows, rowCount: assetRows.length };
         }
         return { rows: [], rowCount: 0 };
       },
@@ -94,7 +97,12 @@ test('flag OFF: reel/video entries are stripped; only feed/image persists with 4
 test('flag ON: reel/video entry persists with 4-segment key + video/reel shape', async () => {
   await withDataRoot(async () => {
     process.env.ARIES_VIDEO_PUBLISH_ENABLED = '1';
-    const { pool, inserts } = makeFakePool();
+    // The synthesis gate drops video shapes with no ingested VIDEO asset, so
+    // this contract test must supply one (mirrors a real reel job's ingest).
+    const { pool, inserts } = makeFakePool([
+      { id: 'uuid-img', source_asset_id: 'img_1', media_type: 'image' },
+      { id: 'uuid-vid', source_asset_id: 'vid_1', media_type: 'video' },
+    ]);
     try {
       await synthesizePublishPostsFromContentPackage({
         jobId: 'job_on', tenantId: 15, doc: makeDoc('job_on', SCHEDULE), publishRunId: null, pool,
@@ -125,7 +133,16 @@ function makeFakePoolWithAssets() {
         }
         if (/FROM creative_assets/i.test(sql)) {
           // index+1 => post_number; source_asset_id is what synthesize links.
-          return { rows: [{ id: 'uuid-1', source_asset_id: 'img_1' }, { id: 'uuid-2', source_asset_id: 'img_2' }], rowCount: 2 };
+          // vid_1 (media_type 'video') backs video-shaped targets — the
+          // synthesis gate drops them when the job ingested no video asset.
+          return {
+            rows: [
+              { id: 'uuid-1', source_asset_id: 'img_1', media_type: 'image' },
+              { id: 'uuid-2', source_asset_id: 'img_2', media_type: 'image' },
+              { id: 'uuid-3', source_asset_id: 'vid_1', media_type: 'video' },
+            ],
+            rowCount: 3,
+          };
         }
         return { rows: [], rowCount: 0 };
       },

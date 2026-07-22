@@ -38,6 +38,7 @@ All files below gate on the **superset** `DB_HOST` + `DB_PORT` + `DB_USER` + `DB
 | `tests/insights-sync-runs-sweep.requires-infra.test.ts` | the stranded-run sweep predicate flips only stale `'running'` rows, and the dispatcher's terminal-ok UPDATE overrides a mid-flight sweep + clears the abort message (rolled back) | — |
 | `tests/insights-summary-current-followers.requires-infra.test.ts` | `summary.currentFollowers` is the SUM of each platform's LATEST follower count (`CURRENT_FOLLOWERS_SUM_SQL`), not MAX across platforms and not SUM across dated snapshots — seeds older+latest FB/IG rows and asserts 16k, not 10k/29k (rolled back) | — |
 | `tests/publish-creative-asset-ids.test.ts` | `creative_asset_ids` round-trips through the real `posts` schema + `resolveMediaUrls` SQL (rolled back) | — |
+| `tests/scheduled-posts-worker-campaign-sweep.test.ts` | the dead-campaign sweep terminally fails past-`campaign_end_date` rows, expires the never-live posts mirror, and skips live/fresh-in_flight rows (rolled back) | — |
 | `tests/scheduled-posts-worker-end-date.test.ts` | the `campaign_end_date` column exists and the claim filter plans correctly | — |
 | `tests/scheduled-posts-worker-live-db.test.ts` | the scheduled-posts worker drains/claims rows through the live schema (rolled back) | — |
 | `tests/hackathon-register.test.ts` | `hackathon_registrations` accepts insert + upsert against the live schema (rolled back) | — |

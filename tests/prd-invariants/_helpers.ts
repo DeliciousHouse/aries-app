@@ -7,7 +7,7 @@
 // or (b) a focused unit assertion against a single public function.
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
@@ -63,7 +63,7 @@ export function readRepoFile(...segments: string[]): string {
 }
 
 export function rel(absolute: string): string {
-  return relative(REPO_ROOT, absolute);
+  return relative(REPO_ROOT, absolute).split(sep).join('/');
 }
 
 /**

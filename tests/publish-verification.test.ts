@@ -8,6 +8,10 @@ import {
   runPublishVerification,
   verifyMetaPostExists,
 } from '../backend/integrations/publish-verification';
+import {
+  backfillInsightsAttribution,
+  type BackfillQueryable,
+} from '../scripts/backfill-insights-attribution';
 
 type QueryArgs = { sql: string; params: unknown[] };
 
@@ -193,6 +197,292 @@ test('persistPublishedPost: writes unverified status when requested', async () =
   assert.ok(insert);
   // published_status is now params[5] (tenant_id, job_id, caption, platform_post_id, published_at, published_status)
   assert.equal(insert?.params[5], 'unverified', 'published_status param should be unverified');
+});
+
+test('persistPublishedPost: repairs a null idempotent platform id before best-effort stamping so later backfill can attribute it', async () => {
+  const sourcePost = {
+    id: '901',
+    tenantId: 7,
+    platform: 'facebook',
+    idempotencyKey: 'publish:retry:1',
+    platformPostId: null as string | null,
+  };
+  const insight = {
+    id: '501',
+    tenantId: 7,
+    platform: 'facebook',
+    externalPostId: 'fb_retry_901',
+    ariesPostId: null as string | null,
+  };
+  let insightHasSynced = false;
+
+  const { pool, calls } = createMockPool(({ sql, params }) => {
+    const normalizedSql = sql.replace(/\s+/g, ' ').trim();
+    if (normalizedSql.startsWith('SELECT id, platform_post_id FROM posts')) {
+      return { rows: [{ id: sourcePost.id, platform_post_id: sourcePost.platformPostId }] };
+    }
+    if (normalizedSql.startsWith('UPDATE posts SET platform_post_id')) {
+      assert.match(normalizedSql, /WHERE id = \$2/);
+      assert.match(normalizedSql, /tenant_id = \$3/);
+      assert.match(normalizedSql, /platform = \$4/);
+      assert.match(normalizedSql, /idempotency_key = \$5/);
+      assert.match(normalizedSql, /platform_post_id = COALESCE\(platform_post_id, \$1\)/);
+      assert.deepEqual(params, [
+        insight.externalPostId,
+        sourcePost.id,
+        sourcePost.tenantId,
+        sourcePost.platform,
+        sourcePost.idempotencyKey,
+      ]);
+      if (sourcePost.platformPostId !== null) return { rows: [], rowCount: 0 };
+      sourcePost.platformPostId = String(params[0]);
+      return { rows: [{ platform_post_id: sourcePost.platformPostId }], rowCount: 1 };
+    }
+    if (/UPDATE insights_posts/i.test(sql) && /external_post_id = \$4/i.test(sql)) {
+      assert.equal(insightHasSynced, false, 'publish-time Insights stamp must tolerate a missing row');
+      assert.equal(
+        sourcePost.platformPostId,
+        insight.externalPostId,
+        'the durable source row must be repaired before the best-effort stamp runs',
+      );
+      return { rows: [], rowCount: 0 };
+    }
+    if (normalizedSql.startsWith('SELECT ip.id AS insights_post_id')) {
+      const rows = insightHasSynced
+        && insight.ariesPostId === null
+        && sourcePost.platformPostId === insight.externalPostId
+        ? [{
+            insights_post_id: insight.id,
+            tenant_id: insight.tenantId,
+            aries_post_id: sourcePost.id,
+          }]
+        : [];
+      return { rows };
+    }
+    if (/UPDATE insights_posts/i.test(sql) && /WHERE id = \$2/i.test(sql)) {
+      insight.ariesPostId = String(params[0]);
+      return { rows: [{ id: insight.id }], rowCount: 1 };
+    }
+    throw new Error(`unexpected query: ${normalizedSql}`);
+  });
+
+  const persisted = await persistPublishedPost(
+    {
+      tenantId: sourcePost.tenantId,
+      caption: 'successful retry',
+      platformPostId: insight.externalPostId,
+      publishedAt: new Date('2026-07-19T20:00:00Z'),
+      publishedStatus: 'published',
+      platform: sourcePost.platform,
+      idempotencyKey: sourcePost.idempotencyKey,
+    },
+    pool,
+  );
+
+  assert.deepEqual(persisted, { postId: sourcePost.id });
+  assert.equal(sourcePost.platformPostId, insight.externalPostId);
+  assert.ok(
+    calls.some((call) => /UPDATE posts[\s\S]*platform_post_id\s*=\s*COALESCE/i.test(call.sql)),
+    'the existing source row should be repaired before the best-effort Insights stamp',
+  );
+
+  insightHasSynced = true;
+  const report = await backfillInsightsAttribution(pool as unknown as BackfillQueryable, {
+    tenantId: sourcePost.tenantId,
+    write: true,
+    log: () => {},
+  });
+
+  assert.deepEqual(report, { mode: 'write', candidates: 1, updated: 1, batches: 1 });
+  assert.equal(insight.ariesPostId, sourcePost.id);
+});
+
+test('persistPublishedPost: reconciles a 23505 insert winner and keeps later attribution recovery possible', async () => {
+  const sourcePost = {
+    id: '902',
+    tenantId: 7,
+    platform: 'instagram',
+    idempotencyKey: 'publish:retry:2',
+    platformPostId: null as string | null,
+  };
+  const insight = {
+    id: '502',
+    tenantId: sourcePost.tenantId,
+    platform: sourcePost.platform,
+    externalPostId: 'ig_retry_902',
+    ariesPostId: null as string | null,
+  };
+  let insightHasSynced = false;
+  let lookupCount = 0;
+
+  const { pool, calls } = createMockPool(({ sql, params }) => {
+    const normalizedSql = sql.replace(/\s+/g, ' ').trim();
+    if (normalizedSql.startsWith('SELECT id, platform_post_id FROM posts')) {
+      lookupCount += 1;
+      return lookupCount === 1
+        ? { rows: [] }
+        : { rows: [{ id: sourcePost.id, platform_post_id: sourcePost.platformPostId }] };
+    }
+    if (normalizedSql.startsWith('INSERT INTO posts')) {
+      throw Object.assign(
+        new Error('duplicate key value violates unique constraint "uq_posts_tenant_platform_idempotency"'),
+        { code: '23505' },
+      );
+    }
+    if (normalizedSql.startsWith('UPDATE posts SET platform_post_id')) {
+      assert.deepEqual(params, [
+        'ig_retry_902',
+        sourcePost.id,
+        sourcePost.tenantId,
+        sourcePost.platform,
+        sourcePost.idempotencyKey,
+      ]);
+      sourcePost.platformPostId = String(params[0]);
+      return { rows: [{ platform_post_id: sourcePost.platformPostId }], rowCount: 1 };
+    }
+    if (/UPDATE insights_posts/i.test(sql) && /external_post_id = \$4/i.test(sql)) {
+      assert.equal(insightHasSynced, false, 'publish-time stamp remains best-effort when Insights has not synced yet');
+      return { rows: [], rowCount: 0 };
+    }
+    if (normalizedSql.startsWith('SELECT ip.id AS insights_post_id')) {
+      const rows = insightHasSynced
+        && insight.ariesPostId === null
+        && sourcePost.platformPostId === insight.externalPostId
+        ? [{
+            insights_post_id: insight.id,
+            tenant_id: insight.tenantId,
+            aries_post_id: sourcePost.id,
+          }]
+        : [];
+      return { rows };
+    }
+    if (/UPDATE insights_posts/i.test(sql) && /WHERE id = \$2/i.test(sql)) {
+      insight.ariesPostId = String(params[0]);
+      return { rows: [{ id: insight.id }], rowCount: 1 };
+    }
+    throw new Error(`unexpected query: ${normalizedSql}`);
+  });
+
+  const result = await persistPublishedPost(
+    {
+      tenantId: sourcePost.tenantId,
+      caption: 'concurrent retry',
+      platformPostId: 'ig_retry_902',
+      publishedAt: new Date('2026-07-19T20:05:00Z'),
+      publishedStatus: 'published',
+      platform: sourcePost.platform,
+      idempotencyKey: sourcePost.idempotencyKey,
+    },
+    pool,
+  );
+
+  assert.deepEqual(result, { postId: sourcePost.id });
+  assert.equal(sourcePost.platformPostId, 'ig_retry_902');
+  assert.equal(lookupCount, 2);
+  assert.equal(calls.filter((call) => /UPDATE posts[\s\S]*platform_post_id\s*=\s*COALESCE/i.test(call.sql)).length, 1);
+
+  insightHasSynced = true;
+  const report = await backfillInsightsAttribution(pool as unknown as BackfillQueryable, {
+    tenantId: sourcePost.tenantId,
+    write: true,
+    log: () => {},
+  });
+
+  assert.deepEqual(report, { mode: 'write', candidates: 1, updated: 1, batches: 1 });
+  assert.equal(insight.ariesPostId, sourcePost.id);
+});
+
+test('persistPublishedPost: fails explicitly when a 23505 winner cannot be re-read', async () => {
+  let lookupCount = 0;
+  const { pool } = createMockPool(({ sql }) => {
+    const normalizedSql = sql.replace(/\s+/g, ' ').trim();
+    if (normalizedSql.startsWith('SELECT id, platform_post_id FROM posts')) {
+      lookupCount += 1;
+      return { rows: [] };
+    }
+    if (normalizedSql.startsWith('INSERT INTO posts')) {
+      throw Object.assign(new Error('duplicate key'), { code: '23505' });
+    }
+    throw new Error(`unexpected query: ${normalizedSql}`);
+  });
+
+  await assert.rejects(
+    () => persistPublishedPost(
+      {
+        tenantId: 7,
+        caption: 'lost collision winner',
+        platformPostId: 'ig_missing_winner',
+        publishedAt: new Date('2026-07-19T20:06:00Z'),
+        publishedStatus: 'published',
+        platform: 'instagram',
+        idempotencyKey: 'publish:retry:missing-winner',
+      },
+      pool,
+    ),
+    /publish_verification_persist_failed:unique_violation_winner_not_found/,
+  );
+  assert.equal(lookupCount, 2, 'the winner is re-read exactly once after the 23505 collision');
+});
+
+test('persistPublishedPost: propagates non-23505 insert errors unchanged', async () => {
+  const insertError = Object.assign(new Error('connection terminated'), { code: '57P01' });
+  const { pool } = createMockPool(({ sql }) => {
+    const normalizedSql = sql.replace(/\s+/g, ' ').trim();
+    if (normalizedSql.startsWith('SELECT id, platform_post_id FROM posts')) return { rows: [] };
+    if (normalizedSql.startsWith('INSERT INTO posts')) throw insertError;
+    throw new Error(`unexpected query: ${normalizedSql}`);
+  });
+
+  await assert.rejects(
+    () => persistPublishedPost(
+      {
+        tenantId: 7,
+        caption: 'database unavailable',
+        platformPostId: 'ig_db_down',
+        publishedAt: new Date('2026-07-19T20:07:00Z'),
+        publishedStatus: 'published',
+        platform: 'instagram',
+        idempotencyKey: 'publish:retry:db-down',
+      },
+      pool,
+    ),
+    (error) => error === insertError,
+  );
+});
+
+test('persistPublishedPost: never overwrites an existing non-null platform id', async () => {
+  let stampedPlatformPostId: unknown;
+  const { pool, calls } = createMockPool(({ sql, params }) => {
+    const normalizedSql = sql.replace(/\s+/g, ' ').trim();
+    if (normalizedSql.startsWith('SELECT id, platform_post_id FROM posts')) {
+      return { rows: [{ id: '903', platform_post_id: 'first_writer_wins' }] };
+    }
+    if (normalizedSql.startsWith('UPDATE posts SET platform_post_id')) {
+      throw new Error('must not attempt to replace a non-null platform_post_id');
+    }
+    if (/UPDATE insights_posts/i.test(sql)) {
+      stampedPlatformPostId = params[3];
+      return { rows: [], rowCount: 0 };
+    }
+    throw new Error(`unexpected query: ${normalizedSql}`);
+  });
+
+  const result = await persistPublishedPost(
+    {
+      tenantId: 7,
+      caption: 'duplicate retry',
+      platformPostId: 'later_retry_id',
+      publishedAt: new Date('2026-07-19T20:10:00Z'),
+      publishedStatus: 'published',
+      platform: 'facebook',
+      idempotencyKey: 'publish:retry:3',
+    },
+    pool,
+  );
+
+  assert.deepEqual(result, { postId: '903' });
+  assert.equal(stampedPlatformPostId, 'first_writer_wins');
+  assert.equal(calls.filter((call) => /UPDATE posts SET platform_post_id/i.test(call.sql)).length, 0);
 });
 
 test('runPublishVerification: happy path persists published + verifies', async () => {

@@ -96,13 +96,16 @@ async function initDb() {
     `);
 
     // Customer incident reports — SC-70 port, AA-51
-    // (migrations/20260703000000_feedback_reports.sql). Auth-gated, impact-rated
-    // reports that file a Jira Bug with retry/idempotency semantics; distinct
-    // from the legacy public feedback_submissions capture above. Screenshot
+    // (migrations/20260703000000_feedback_reports.sql). Public, impact-rated
+    // reports that preserve authenticated attribution or explicitly mark an
+    // anonymous submitter; distinct from the legacy feedback_submissions table. Screenshot
     // bytes are held only until the Jira sync completes, then NULLed.
     await client.query(`
       CREATE TABLE IF NOT EXISTS feedback_reports (
         id TEXT PRIMARY KEY,
+        request_fingerprint TEXT NOT NULL DEFAULT '',
+        submitter_type TEXT NOT NULL DEFAULT 'authenticated'
+          CHECK (submitter_type IN ('authenticated','anonymous')),
         tenant_id TEXT NOT NULL,
         submitter_id TEXT NOT NULL,
         submitter_email TEXT,
@@ -125,6 +128,11 @@ async function initDb() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
+      ALTER TABLE feedback_reports
+        ADD COLUMN IF NOT EXISTS submitter_type TEXT NOT NULL DEFAULT 'authenticated'
+          CHECK (submitter_type IN ('authenticated','anonymous'));
+      ALTER TABLE feedback_reports
+        ADD COLUMN IF NOT EXISTS request_fingerprint TEXT NOT NULL DEFAULT '';
       CREATE INDEX IF NOT EXISTS idx_feedback_reports_status_updated
         ON feedback_reports (status, updated_at);
       CREATE INDEX IF NOT EXISTS idx_feedback_reports_tenant_submitter_created
@@ -927,6 +935,7 @@ async function initDb() {
         scheduled_post_id BIGINT NOT NULL REFERENCES scheduled_posts(id) ON DELETE CASCADE,
         platform TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','in_flight','dispatched','failed')),
+        platform_post_id TEXT,
         dispatched_at TIMESTAMPTZ,
         error_at TIMESTAMPTZ,
         error_message TEXT,
@@ -934,8 +943,16 @@ async function initDb() {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         UNIQUE (scheduled_post_id, platform)
       );
+      -- AA-99: preserve every successful provider id on its child row. The
+      -- ALTER keeps init-db idempotent for databases created before this field
+      -- was part of the CREATE TABLE definition.
+      ALTER TABLE scheduled_post_dispatches
+        ADD COLUMN IF NOT EXISTS platform_post_id TEXT;
       CREATE INDEX IF NOT EXISTS idx_scheduled_post_dispatches_parent
         ON scheduled_post_dispatches (scheduled_post_id);
+      CREATE INDEX IF NOT EXISTS idx_scheduled_post_dispatches_platform_post_id
+        ON scheduled_post_dispatches (platform_post_id, platform)
+        WHERE platform_post_id IS NOT NULL;
 
       -- Phase 4 PR1: Slack Events API inbound dedupe. Every delivery has a
       -- stable event_id; the webhook inserts ON CONFLICT DO NOTHING to drop
@@ -993,6 +1010,21 @@ async function initDb() {
       );
       CREATE INDEX IF NOT EXISTS idx_marketing_schedule_enabled
         ON marketing_schedule (enabled) WHERE enabled;
+
+      -- In-flight claim marker for the weekly trigger (2026-07-20 incident: a
+      -- POST that hung and died mid-flight left last_triggered_at stamped and
+      -- silently skipped the whole week). Written atomically WITH the claim
+      -- (one CTE statement in the worker), deleted on every concluded outcome
+      -- (success / gate-skip / failure-revert); a row older than the stale
+      -- window is a stranded attempt the worker's heal arm reverts. The worker
+      -- also self-provisions this table at startup (ENSURE_CLAIMS_TABLE_SQL in
+      -- scripts/automations/weekly-job-trigger-worker.ts — keep in sync) since
+      -- prod may run with ARIES_SKIP_DB_INIT=1.
+      CREATE TABLE IF NOT EXISTS marketing_weekly_claims (
+        tenant_id INTEGER PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+        claimed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        prior_last_triggered_at TIMESTAMPTZ
+      );
     `);
 
     // ─── AI-derived posting times ────────────────────────────────────────────────

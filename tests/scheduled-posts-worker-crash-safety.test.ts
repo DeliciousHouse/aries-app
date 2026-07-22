@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -11,7 +11,7 @@ type WorkerModule = {
 
 async function loadWorker(): Promise<WorkerModule> {
   return (await import(
-    path.join(REPO_ROOT, 'scripts/automations/scheduled-posts-worker.mjs')
+    pathToFileURL(path.join(REPO_ROOT, 'scripts/automations/scheduled-posts-worker.mjs')).href
   )) as unknown as WorkerModule;
 }
 
@@ -41,6 +41,7 @@ type ChildRow = {
   scheduled_post_id: number;
   platform: string;
   status: string;
+  platform_post_id: string | null;
   dispatched_at: string | null;
   error_at: string | null;
   error_message: string | null;
@@ -49,6 +50,12 @@ type ChildRow = {
 class FakeDb {
   scheduled: SchedRow[] = [];
   children: ChildRow[] = [];
+  private updatedAtSequence = Date.now();
+
+  nextUpdatedAt(): string {
+    this.updatedAtSequence += 1;
+    return new Date(this.updatedAtSequence).toISOString();
+  }
 }
 
 class FakeClient {
@@ -133,6 +140,7 @@ class FakeClient {
             scheduled_post_id: spId,
             platform,
             status: 'in_flight',
+            platform_post_id: null,
             dispatched_at: null,
             error_at: null,
             error_message: null,
@@ -145,19 +153,30 @@ class FakeClient {
     }
 
     if (s.startsWith('UPDATE scheduled_post_dispatches')) {
-      const [spId, platform, status, errMsg] = params as [number, string, string, string | null];
+      const [spId, platform, status, errMsg, platformPostId, attemptToken] = params as [
+        number,
+        string,
+        string,
+        string | null,
+        string | null,
+        string,
+      ];
       const child = store.children.find(
         (c) => c.scheduled_post_id === spId && c.platform === platform,
       );
-      if (child) {
+      const owner = store.scheduled.find((r) => r.id === spId);
+      const ownsAttempt = owner?.dispatch_status === 'in_flight'
+        && owner.updated_at === attemptToken;
+      if (child && ownsAttempt) {
         child.status = status;
+        if (!child.platform_post_id && platformPostId) child.platform_post_id = platformPostId;
         if (status === 'dispatched') child.dispatched_at = new Date().toISOString();
         if (status === 'failed') {
           child.error_at = new Date().toISOString();
           child.error_message = errMsg;
         }
       }
-      return { rows: [], rowCount: child ? 1 : 0 };
+      return { rows: [], rowCount: child && ownsAttempt ? 1 : 0 };
     }
 
     if (s.startsWith('SELECT platform FROM scheduled_post_dispatches')) {
@@ -172,6 +191,20 @@ class FakeClient {
         )
         .map((c) => ({ platform: c.platform }));
       return { rows, rowCount: rows.length };
+    }
+
+    if (s.startsWith('SELECT 1') && s.includes('FROM scheduled_posts')) {
+      const [spId, attemptToken] = params as [number, string];
+      const owner = store.scheduled.find(
+        (r) =>
+          r.id === spId
+          && r.dispatch_status === 'in_flight'
+          && r.updated_at === attemptToken,
+      );
+      return {
+        rows: owner ? [{ '?column?': 1 }] : [],
+        rowCount: owner ? 1 : 0,
+      };
     }
 
     if (s.startsWith('SELECT status, error_message FROM scheduled_post_dispatches')) {
@@ -190,10 +223,21 @@ class FakeClient {
       if (row) {
         if (s.includes('next_attempt_at = now()')) {
           row.next_attempt_backoff_minutes = Number(params[1]);
-        } else if (s.includes("dispatch_status = 'in_flight'")) {
+        } else if (s.includes("SET dispatch_status = 'in_flight'")) {
           row.dispatch_status = 'in_flight';
-          row.updated_at = new Date().toISOString();
+          row.updated_at = this.db.nextUpdatedAt();
+          return {
+            rows: [{ attempt_token: row.updated_at }],
+            rowCount: 1,
+          };
         } else {
+          const attemptToken = params[3] as string | undefined;
+          if (
+            attemptToken !== undefined
+            && (row.dispatch_status !== 'in_flight' || row.updated_at !== attemptToken)
+          ) {
+            return { rows: [], rowCount: 0 };
+          }
           const status = String(params[1]);
           row.dispatch_status = status;
           if (status === 'dispatched') row.dispatched_at = new Date().toISOString();
@@ -208,6 +252,13 @@ class FakeClient {
 
     if (s.startsWith('UPDATE posts')) {
       return { rows: [], rowCount: 0 };
+    }
+
+    if (s.startsWith('WITH dead AS')) {
+      // Dead-campaign sweep. No row in this fake carries a campaign_end_date,
+      // so the sweep is always a structural no-op here; its real semantics are
+      // covered by scheduled-posts-worker-campaign-sweep.test.ts.
+      return { rows: [{ swept: 0, posts_expired: 0 }], rowCount: 1 };
     }
 
     throw new Error(`FakeClient: unhandled SQL: ${s.slice(0, 80)}`);
@@ -305,8 +356,8 @@ test('worker commits in_flight before publish; a crash mid-publish leaves a recl
         JSON.stringify({
           status: 'ok',
           results: [
-            { provider: 'facebook', ok: true },
-            { provider: 'instagram', ok: true },
+            { provider: 'facebook', ok: true, platformPostId: 'fb_first_100' },
+            { provider: 'instagram', ok: true, platformPostId: 'ig_second_100' },
           ],
         }),
         { status: 202, headers: { 'content-type': 'application/json' } },
@@ -318,6 +369,14 @@ test('worker commits in_flight before publish; a crash mid-publish leaves a recl
     assert.ok(
       db.children.every((c) => c.status === 'dispatched'),
       'all child rows are dispatched after the successful re-claim',
+    );
+    assert.deepEqual(
+      db.children.map((child) => [child.platform, child.platform_post_id]),
+      [
+        ['facebook', 'fb_first_100'],
+        ['instagram', 'ig_second_100'],
+      ],
+      'each successful provider id is committed on its matching durable child row',
     );
   } finally {
     globalThis.fetch = realFetch2;
@@ -343,6 +402,7 @@ test('a stale reclaim does NOT re-dispatch a terminally-failed platform', async 
       scheduled_post_id: 1,
       platform: 'facebook',
       status: 'failed',
+      platform_post_id: null,
       dispatched_at: null,
       error_at: new Date().toISOString(),
       error_message: 'media_invalid',
@@ -351,6 +411,7 @@ test('a stale reclaim does NOT re-dispatch a terminally-failed platform', async 
       scheduled_post_id: 1,
       platform: 'instagram',
       status: 'in_flight',
+      platform_post_id: null,
       dispatched_at: null,
       error_at: null,
       error_message: null,
@@ -411,6 +472,98 @@ test('a fresh in_flight row (within the reclaim window) is NOT stolen by another
     assert.equal(report.processed, 0, 'a fresh in_flight row is not picked up by another pass');
     assert.equal(fetchCalled, false, 'no publish is attempted for a row already in flight');
   } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('a reclaimed attempt fences stale child outcomes, provider ids, and parent rollup', async () => {
+  const { tick } = await loadWorker();
+  const db = new FakeDb();
+  seedDueRow(db);
+
+  process.env.APP_BASE_URL = 'https://aries.example.test';
+  process.env.INTERNAL_API_SECRET = 'test-secret';
+
+  const realFetch = globalThis.fetch;
+  const realDateNow = Date.now;
+  let logicalNow = realDateNow();
+  let fetchCalls = 0;
+  let signalStalePublishStarted!: () => void;
+  const stalePublishStarted = new Promise<void>((resolve) => {
+    signalStalePublishStarted = resolve;
+  });
+  let releaseStalePublish!: (response: Response) => void;
+  const stalePublishResponse = new Promise<Response>((resolve) => {
+    releaseStalePublish = resolve;
+  });
+
+  try {
+    Date.now = () => logicalNow;
+    globalThis.fetch = (async () => {
+      fetchCalls += 1;
+      if (fetchCalls === 1) {
+        signalStalePublishStarted();
+        return stalePublishResponse;
+      }
+      return new Response(
+        JSON.stringify({
+          status: 'ok',
+          results: [
+            { provider: 'facebook', ok: true, platformPostId: 'fb_winner_100' },
+            { provider: 'instagram', ok: true, platformPostId: 'ig_winner_100' },
+          ],
+        }),
+        { status: 202, headers: { 'content-type': 'application/json' } },
+      );
+    }) as typeof fetch;
+
+    const staleTick = tick(makePool(db));
+    await stalePublishStarted;
+
+    // Advance the worker's reclaim clock without mutating the stored claim
+    // timestamp: attempt 1 is now stale, and attempt 2 takes ownership.
+    logicalNow += 60 * 60 * 1000;
+    const winnerReport = await tick(makePool(db));
+    assert.equal(winnerReport.dispatched, 1);
+    assert.equal(db.scheduled[0].dispatch_status, 'dispatched');
+    assert.deepEqual(
+      db.children.map((child) => [child.platform, child.status, child.platform_post_id]),
+      [
+        ['facebook', 'dispatched', 'fb_winner_100'],
+        ['instagram', 'dispatched', 'ig_winner_100'],
+      ],
+    );
+
+    // Attempt 1 finally resumes. Its FB success carries a different non-null
+    // provider id, while its IG failure would demote both the child and parent
+    // without an active-attempt ownership fence.
+    releaseStalePublish(new Response(
+      JSON.stringify({
+        status: 'error',
+        results: [
+          { provider: 'facebook', ok: true, platformPostId: 'fb_stale_100' },
+          { provider: 'instagram', ok: false, retryable: false, error: 'stale terminal failure' },
+        ],
+      }),
+      { status: 202, headers: { 'content-type': 'application/json' } },
+    ));
+    await staleTick;
+
+    assert.deepEqual(
+      db.children.map((child) => [child.platform, child.status, child.platform_post_id]),
+      [
+        ['facebook', 'dispatched', 'fb_winner_100'],
+        ['instagram', 'dispatched', 'ig_winner_100'],
+      ],
+      'the stale attempt cannot replace the first durable id or demote either child',
+    );
+    assert.equal(
+      db.scheduled[0].dispatch_status,
+      'dispatched',
+      'the stale attempt cannot recompute and demote the newer parent rollup',
+    );
+  } finally {
+    Date.now = realDateNow;
     globalThis.fetch = realFetch;
   }
 });

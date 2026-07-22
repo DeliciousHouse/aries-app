@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
 
+import { stampInsightsPostAttribution } from '../insights/sync/attribution-writer';
 import { getDecryptedAccessTokenForTenantProvider } from './oauth-credentials';
 
 export type PublishedStatus = 'published' | 'unverified';
@@ -117,6 +118,33 @@ export type PersistPublishedPostArgs = {
   creativeAssetIds?: string[] | null;
 };
 
+async function stampPublishedPostAttributionBestEffort(
+  args: PersistPublishedPostArgs,
+  postId: string,
+  db: Pool,
+  platformPostId = args.platformPostId,
+): Promise<void> {
+  if (!args.platform) return;
+  try {
+    await stampInsightsPostAttribution({
+      db,
+      tenantId: args.tenantId,
+      ariesPostId: postId,
+      platform: args.platform,
+      platformPostId,
+    });
+  } catch (error) {
+    // Attribution is additive analytics metadata. A transient write failure
+    // must never turn a confirmed platform publish into an application error.
+    console.warn('[publish-verification] insights attribution stamp failed', {
+      tenantId: args.tenantId,
+      postId,
+      platform: args.platform,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 /**
  * Lookup an existing posts row by idempotency key. Returns the row if found,
  * null otherwise. Callers should check this before inserting to short-circuit
@@ -138,6 +166,46 @@ export async function findPostByIdempotencyKey(args: {
   return { postId: String(row.id), platformPostId: row.platform_post_id ?? null };
 }
 
+async function repairExistingPlatformPostIdFirstWriteWins(
+  args: PersistPublishedPostArgs,
+  existing: { postId: string; platformPostId: string | null },
+  db: Pool,
+): Promise<string> {
+  if (existing.platformPostId) return existing.platformPostId;
+
+  const platform = args.platform;
+  const idempotencyKey = args.idempotencyKey;
+  if (!platform || !idempotencyKey) return args.platformPostId;
+
+  const repaired = await db.query<{ platform_post_id: string | null }>(
+    `UPDATE posts
+        SET platform_post_id = COALESCE(platform_post_id, $1),
+            updated_at = CASE WHEN platform_post_id IS NULL THEN now() ELSE updated_at END
+      WHERE id = $2
+        AND tenant_id = $3
+        AND platform = $4
+        AND idempotency_key = $5
+      RETURNING platform_post_id`,
+    [args.platformPostId, existing.postId, args.tenantId, platform, idempotencyKey],
+  );
+  return repaired.rows?.[0]?.platform_post_id ?? args.platformPostId;
+}
+
+async function reconcileExistingPublishedPost(
+  args: PersistPublishedPostArgs,
+  existing: { postId: string; platformPostId: string | null },
+  db: Pool,
+): Promise<{ postId: string }> {
+  const platformPostId = await repairExistingPlatformPostIdFirstWriteWins(args, existing, db);
+  await stampPublishedPostAttributionBestEffort(
+    args,
+    existing.postId,
+    db,
+    platformPostId,
+  );
+  return { postId: existing.postId };
+}
+
 export async function persistPublishedPost(
   args: PersistPublishedPostArgs,
   db: Pool,
@@ -149,7 +217,7 @@ export async function persistPublishedPost(
       db,
     );
     if (existing) {
-      return { postId: existing.postId };
+      return reconcileExistingPublishedPost(args, existing, db);
     }
   }
 
@@ -165,22 +233,39 @@ export async function persistPublishedPost(
     ),
   );
 
-  const insertResult = await db.query<{ id: string | number }>(
-    `INSERT INTO posts (tenant_id, job_id, caption, platform_post_id, published_at, published_status, platform, idempotency_key, creative_asset_ids)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-     RETURNING id`,
-    [
-      args.tenantId,
-      args.jobId ?? null,
-      args.caption,
-      args.platformPostId,
-      args.publishedAt.toISOString(),
-      args.publishedStatus,
-      args.platform ?? null,
-      args.idempotencyKey ?? null,
-      creativeAssetIds,
-    ],
-  );
+  let insertResult;
+  try {
+    insertResult = await db.query<{ id: string | number }>(
+      `INSERT INTO posts (tenant_id, job_id, caption, platform_post_id, published_at, published_status, platform, idempotency_key, creative_asset_ids)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id`,
+      [
+        args.tenantId,
+        args.jobId ?? null,
+        args.caption,
+        args.platformPostId,
+        args.publishedAt.toISOString(),
+        args.publishedStatus,
+        args.platform ?? null,
+        args.idempotencyKey ?? null,
+        creativeAssetIds,
+      ],
+    );
+  } catch (error) {
+    if (!error || typeof error !== 'object' || !('code' in error) || error.code !== '23505') {
+      throw error;
+    }
+    if (args.idempotencyKey && args.platform) {
+      const existing = await findPostByIdempotencyKey(
+        { tenantId: args.tenantId, platform: args.platform, idempotencyKey: args.idempotencyKey },
+        db,
+      );
+      if (existing) {
+        return reconcileExistingPublishedPost(args, existing, db);
+      }
+    }
+    throw new Error('publish_verification_persist_failed:unique_violation_winner_not_found');
+  }
 
   const row = insertResult.rows?.[0];
   if (!row?.id) {
@@ -191,12 +276,14 @@ export async function persistPublishedPost(
         db,
       );
       if (existing) {
-        return { postId: existing.postId };
+        return reconcileExistingPublishedPost(args, existing, db);
       }
     }
     throw new Error('publish_verification_persist_failed:no_id_returned');
   }
-  return { postId: String(row.id) };
+  const postId = String(row.id);
+  await stampPublishedPostAttributionBestEffort(args, postId, db);
+  return { postId };
 }
 
 export async function updatePostPublishedStatus(

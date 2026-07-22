@@ -2,6 +2,12 @@
  * Scheduled-posts worker — drains the scheduled_posts table and fires
  * publishToMetaGraph for each row whose scheduled_for <= NOW() and
  * dispatch_status = 'pending'. Runs as the aries-scheduled-posts-worker compose sidecar (self-scheduling; the legacy host cron that double-dispatched alongside it was removed 2026-07-13).
+ *
+ * Each tick also runs the dead-campaign sweep (SWEEP_DEAD_CAMPAIGN_SQL):
+ * rows whose campaign_end_date has passed are permanently excluded by the
+ * claim filter, so without the sweep they rot as invisible forever-'pending'
+ * while their posts still read 'approved' (the 2026-07-21 stuck-queue
+ * incident). The sweep marks them terminally failed and expires the posts.
  */
 import 'dotenv/config';
 
@@ -14,6 +20,10 @@ const REPO_ROOT = path.resolve(__dirname, '../..');
 
 const INTERVAL_MS = 60 * 1000; // 1 minute
 const BATCH_SIZE = 50;
+// Dead-campaign sweep batch. The population is bounded by scheduling volume
+// (a handful of rows per tenant-week), so one batch per tick converges fast;
+// a full batch is logged loudly so a larger backlog is never silently capped.
+const SWEEP_BATCH_SIZE = 200;
 const FETCH_TIMEOUT_MS = 30_000;
 // VIDEO publish is a long async two-step (create container -> poll up to ~300s
 // -> publish), run synchronously by the dispatch route. The worker MUST wait
@@ -110,10 +120,129 @@ export const DUE_ROWS_SQL = `SELECT id FROM scheduled_posts
      LIMIT $1`;
 
 // Parent-row claim UPDATE, exported for the same regression-test reason. $1 is
-// the scheduled_posts id.
+// the scheduled_posts id. The exact updated_at text is the attempt ownership
+// token carried through post-publish writes. clock_timestamp() is used instead
+// of transaction-stable now() so every reclaim receives a fresh generation.
 export const MARK_IN_FLIGHT_SQL = `UPDATE scheduled_posts
-     SET dispatch_status = 'in_flight', updated_at = now()
-     WHERE id = $1`;
+     SET dispatch_status = 'in_flight', updated_at = clock_timestamp()
+     WHERE id = $1
+     RETURNING updated_at::text AS attempt_token`;
+
+// Dead-campaign sweep: terminally mark rows the campaign_end_date filter above
+// has made permanently unclaimable. Without this, a row that misses its window
+// (retry backoff, guard deferral, worker outage) stays dispatch_status='pending'
+// FOREVER while its posts row still reads 'approved' — a full week of content
+// silently undelivered with nothing in any UI saying so (12 such rows found in
+// prod 2026-07-21, scheduled 7/07-7/18 with campaign_end 7/13 and 7/20).
+//
+// Semantics (deliberate):
+//   - Delivery still STOPS at campaign_end_date — this sweep never publishes
+//     late. For a one_off event campaign, posting after the event ends is
+//     wrong (promoting an ended sale); weekly jobs share the same column, so a
+//     grace-delivery window cannot be added here without splitting the two
+//     populations. Considered and rejected for now; the fix is visibility.
+//   - Parent -> dispatch_status='failed' (the EXISTING terminal vocabulary —
+//     labels.ts, calendar.ts, and the child-table CHECK constraint all already
+//     handle 'failed'; a new enum value would need every consumer audited for
+//     ===/!== literal checks, the widening-union trap this repo shipped 3x).
+//     The canonical 'campaign_window_passed:' error_message prefix is what
+//     distinguishes it, with the per-row end date interpolated for diagnosis.
+//   - Posts mirror -> published_status='expired' (+ legacy status mirror +
+//     expired_at), the draft-expiry-sweep vocabulary for "aged out, never went
+//     live", so the row leaves the approval/backlog trays honestly. Guarded by
+//     published_at IS NULL AND platform_post_id IS NULL AND a pre-publish
+//     published_status, so a post that is live anywhere is NEVER expired.
+//   - Non-terminal children -> 'failed' too, but COALESCE keeps an existing
+//     retryable error_message (e.g. the FB-368 rate-limit text that caused the
+//     miss) — that is the diagnosis, the parent carries the classification.
+//   - pending rows sweep immediately once the deadline passes (they are already
+//     unclaimable); in_flight rows only once STALE past the reclaim window
+//     ($2, same cutoff as CLAIM_ROW_SQL), so a live publish that crossed the
+//     deadline mid-flight still writes its own real outcome.
+//   - Every mutating arm re-checks the full predicate (draft-expiry-sweep
+//     pattern) and the dead CTE takes FOR UPDATE SKIP LOCKED, so a row being
+//     claimed/finished concurrently is skipped, never clobbered. Idempotent:
+//     a swept row no longer matches.
+// $1 = batch limit, $2 = stale-in_flight cutoff timestamp.
+export const SWEEP_DEAD_CAMPAIGN_SQL = `WITH dead AS (
+     SELECT id, post_id FROM scheduled_posts
+      WHERE campaign_end_date IS NOT NULL AND campaign_end_date < NOW()
+        AND (dispatch_status = 'pending'
+             OR (dispatch_status = 'in_flight' AND updated_at < $2))
+      ORDER BY scheduled_for
+      LIMIT $1
+      FOR UPDATE SKIP LOCKED
+   ),
+   marked AS (
+     UPDATE scheduled_posts sp
+        SET dispatch_status = 'failed',
+            error_at = now(),
+            -- The message must be TRUE for partial-success rows: a cross-post
+            -- row with one platform already live rolls up 'pending' and is
+            -- swept too — claiming "never published" there invites a manual
+            -- re-publish of the live platform (a duplicate-post hazard).
+            error_message = 'campaign_window_passed: campaign_end_date '
+              || to_char(sp.campaign_end_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+              || CASE WHEN EXISTS (SELECT 1 FROM scheduled_post_dispatches spd0
+                                    WHERE spd0.scheduled_post_id = sp.id
+                                      AND spd0.status = 'dispatched')
+                 THEN ' elapsed before full dispatch; at least one platform already published (see per-platform rows) — the remaining platform(s) were never sent (swept terminal by scheduled-posts-worker)'
+                 ELSE ' elapsed before dispatch; post was never published (swept terminal by scheduled-posts-worker)'
+                 END,
+            updated_at = now()
+       FROM dead d
+      WHERE sp.id = d.id
+        AND sp.campaign_end_date IS NOT NULL AND sp.campaign_end_date < NOW()
+        AND (sp.dispatch_status = 'pending'
+             OR (sp.dispatch_status = 'in_flight' AND sp.updated_at < $2))
+      RETURNING sp.id, sp.post_id
+   ),
+   swept_children AS (
+     UPDATE scheduled_post_dispatches spd
+        SET status = 'failed',
+            error_at = now(),
+            error_message = COALESCE(spd.error_message,
+              'campaign_window_passed: never dispatched before campaign end'),
+            updated_at = now()
+       FROM marked m
+      WHERE spd.scheduled_post_id = m.id
+        AND spd.status IN ('pending','in_flight')
+      RETURNING spd.id
+   ),
+   expired_posts AS (
+     UPDATE posts p
+        SET published_status = 'expired',
+            status = 'expired',
+            expired_at = now(),
+            updated_at = now()
+       FROM marked m
+      WHERE p.id = m.post_id
+        AND p.published_at IS NULL
+        AND p.platform_post_id IS NULL
+        AND p.published_status IN ('draft','in_review','approved')
+      RETURNING p.id
+   )
+   SELECT (SELECT count(*) FROM marked)::int AS swept,
+          (SELECT count(*) FROM expired_posts)::int AS posts_expired`;
+
+/**
+ * One dead-campaign sweep pass (single batched statement). Returns counts.
+ * Exported for the regression test; called once per tick, failure-isolated so
+ * a sweep error can never stall dispatch.
+ */
+export async function sweepDeadCampaignRows(pool) {
+  const staleCutoff = new Date(Date.now() - IN_FLIGHT_RECLAIM_MS).toISOString();
+  const result = await pool.query(SWEEP_DEAD_CAMPAIGN_SQL, [SWEEP_BATCH_SIZE, staleCutoff]);
+  const row = result.rows?.[0] ?? {};
+  const swept = Number(row.swept) || 0;
+  const postsExpired = Number(row.posts_expired) || 0;
+  if (swept > 0) {
+    console.warn(
+      `[scheduled-posts-worker] dead-campaign sweep: ${swept} row(s) past campaign_end_date marked failed (${postsExpired} post(s) expired)${swept >= SWEEP_BATCH_SIZE ? ' — full batch, more may remain; continuing next tick' : ''}`,
+    );
+  }
+  return { swept, postsExpired };
+}
 
 /**
  * Atomically claim a row (SELECT ... FOR UPDATE SKIP LOCKED). Picks pending
@@ -134,7 +263,31 @@ async function claimRow(client, rowId) {
  * stale-reclaim window is measured from the claim.
  */
 async function markInFlight(client, rowId) {
-  await client.query(MARK_IN_FLIGHT_SQL, [rowId]);
+  const result = await client.query(MARK_IN_FLIGHT_SQL, [rowId]);
+  const attemptToken = result.rows?.[0]?.attempt_token;
+  if (!attemptToken) {
+    throw new Error(`scheduled_post_claim_failed:no_attempt_token:${rowId}`);
+  }
+  return attemptToken;
+}
+
+/**
+ * Validate and lock the parent generation before touching child rows. Claims
+ * lock parent then children, so the completion path uses the same lock order;
+ * this prevents a reclaim/completion deadlock while making ownership stable
+ * for the rest of the transaction.
+ */
+async function lockActiveAttempt(client, rowId, attemptToken) {
+  const result = await client.query(
+    `SELECT 1
+     FROM scheduled_posts
+     WHERE id = $1
+       AND dispatch_status = 'in_flight'
+       AND updated_at = $2::timestamptz
+     FOR UPDATE`,
+    [rowId, attemptToken],
+  );
+  return result.rowCount === 1;
 }
 
 // --- Per-platform dispatch state ------------------------------------------
@@ -186,7 +339,15 @@ async function seedPlatformDispatches(client, rowId, platforms) {
  * silently retried every tick for days with no recorded reason (FB rate limit
  * 368, 2026-07-13 incident) was undiagnosable from the DB alone. error_at
  * still marks terminal failures only. */
-async function setPlatformDispatchStatus(client, rowId, platform, status, errorMessage) {
+async function setPlatformDispatchStatus(
+  client,
+  rowId,
+  platform,
+  status,
+  errorMessage,
+  platformPostId,
+  attemptToken,
+) {
   const truncated = errorMessage ? String(errorMessage).slice(0, 1000) : null;
   // $4 is cast to text everywhere it appears: with the bare parameter in both
   // a CASE result and an IS NOT NULL predicate, Postgres cannot infer its type
@@ -195,18 +356,28 @@ async function setPlatformDispatchStatus(client, rowId, platform, status, errorM
   // live but was never recorded, re-opening the stale-reclaim duplicate
   // window). Caught live 2026-07-13 20:05Z; the in-memory test fakes cannot
   // see prepare-time type inference, hence the live-SQL prepare test.
-  await client.query(
+  const result = await client.query(
     `UPDATE scheduled_post_dispatches
      SET status = $3,
+         platform_post_id = COALESCE(platform_post_id, $5::text),
          dispatched_at = CASE WHEN $3 = 'dispatched' THEN now() ELSE dispatched_at END,
          error_at = CASE WHEN $3 = 'failed' THEN now() ELSE error_at END,
          error_message = CASE WHEN $3 = 'failed' THEN $4::text
                               WHEN $3 = 'pending' AND $4::text IS NOT NULL THEN $4::text
                               ELSE error_message END,
          updated_at = now()
-     WHERE scheduled_post_id = $1 AND platform = $2`,
-    [rowId, platform, status, truncated],
+     WHERE scheduled_post_id = $1
+       AND platform = $2
+       AND EXISTS (
+         SELECT 1
+         FROM scheduled_posts owner
+         WHERE owner.id = $1
+           AND owner.dispatch_status = 'in_flight'
+           AND owner.updated_at = $6::timestamptz
+       )`,
+    [rowId, platform, status, truncated, platformPostId, attemptToken],
   );
+  return result.rowCount === 1;
 }
 
 // --- Retry backoff ----------------------------------------------------------
@@ -247,7 +418,7 @@ async function setNextAttemptAt(client, rowId, backoffMinutes) {
 }
 
 /** Recompute and persist the parent rollup from the child rows. */
-async function syncParentRollup(client, rowId) {
+async function syncParentRollup(client, rowId, attemptToken) {
   const childResult = await client.query(
     `SELECT status, error_message FROM scheduled_post_dispatches WHERE scheduled_post_id = $1`,
     [rowId],
@@ -255,16 +426,18 @@ async function syncParentRollup(client, rowId) {
   const statuses = childResult.rows.map((r) => r.status);
   const rolled = rollupParentStatus(statuses);
   const firstError = childResult.rows.find((r) => r.status === 'failed' && r.error_message)?.error_message ?? null;
-  await client.query(
+  const result = await client.query(
     `UPDATE scheduled_posts
      SET dispatch_status = $2,
          dispatched_at = CASE WHEN $2 = 'dispatched' THEN now() ELSE dispatched_at END,
          error_at = CASE WHEN $2 = 'failed' THEN now() ELSE error_at END,
          error_message = CASE WHEN $2 = 'failed' THEN $3 ELSE error_message END
-     WHERE id = $1`,
-    [rowId, rolled, firstError],
+     WHERE id = $1
+       AND dispatch_status = 'in_flight'
+       AND updated_at = $4::timestamptz`,
+    [rowId, rolled, firstError, attemptToken],
   );
-  return rolled;
+  return result.rowCount === 1 ? rolled : null;
 }
 
 async function updatePostStatus(client, postId, status) {
@@ -314,13 +487,17 @@ export function planPlatformOutcomes(platforms, results, transportError, mediaTy
           status: 'failed',
           error: `video_publish_outcome_unknown (no auto-retry — may already be live): ${transportError}`,
           retryable: false,
+          platformPostId: null,
         };
       }
-      return { platform, status: 'pending', error: transportError, retryable: true };
+      return { platform, status: 'pending', error: transportError, retryable: true, platformPostId: null };
     }
     const result = byProvider.get(platform);
     if (result && result.ok) {
-      return { platform, status: 'dispatched', error: null, retryable: false };
+      const platformPostId = typeof result.platformPostId === 'string' && result.platformPostId.trim()
+        ? result.platformPostId.trim()
+        : null;
+      return { platform, status: 'dispatched', error: null, retryable: false, platformPostId };
     }
     const retryable = result ? result.retryable !== false : true;
     let error = result?.error ?? 'no_result_for_platform';
@@ -331,7 +508,7 @@ export function planPlatformOutcomes(platforms, results, transportError, mediaTy
     if (result?.kind === 'auth') {
       error = `auth: Meta account disconnected — reconnect required. ${error}`;
     }
-    return { platform, status: retryable ? 'pending' : 'failed', error, retryable };
+    return { platform, status: retryable ? 'pending' : 'failed', error, retryable, platformPostId: null };
   });
 }
 
@@ -430,7 +607,18 @@ export async function tick(pool) {
 
   if (!baseUrl) {
     console.error('[scheduled-posts-worker] APP_BASE_URL not set; skipping tick');
-    return { processed: 0, dispatched: 0, failed: 0, skipped: 0 };
+    return { processed: 0, dispatched: 0, failed: 0, skipped: 0, expired: 0 };
+  }
+
+  // Terminally mark rows whose campaign window has passed BEFORE scanning for
+  // due work — they are permanently unclaimable, and leaving them 'pending'
+  // hides a delivery failure from every surface. Isolated: a sweep error must
+  // never stall dispatch of live rows.
+  let sweep = { swept: 0, postsExpired: 0 };
+  try {
+    sweep = await sweepDeadCampaignRows(pool);
+  } catch (sweepError) {
+    console.error('[scheduled-posts-worker] dead-campaign sweep error (isolated; dispatch continues)', sweepError);
   }
 
   // Fetch due rows: pending rows, plus 'in_flight' rows whose worker pass
@@ -440,7 +628,7 @@ export async function tick(pool) {
   const dueResult = await pool.query(DUE_ROWS_SQL, [BATCH_SIZE, staleCutoff]);
 
   const ids = dueResult.rows.map((r) => r.id);
-  const report = { processed: ids.length, dispatched: 0, failed: 0, skipped: 0 };
+  const report = { processed: ids.length, dispatched: 0, failed: 0, skipped: 0, expired: sweep.swept };
 
   for (const rowId of ids) {
     // The claim transaction and the post-publish write each need a pooled
@@ -450,6 +638,7 @@ export async function tick(pool) {
     // doubled the pool pressure (see guardrail #1, DB_POOL_MAX budgeting).
     let row;
     let platformsToDispatch;
+    let attemptToken;
     try {
       const client = await pool.connect();
       try {
@@ -470,7 +659,7 @@ export async function tick(pool) {
         // a false 'dispatched'. The terminal status is written only after
         // Meta confirms, in the post-publish transaction below.
         await seedPlatformDispatches(client, rowId, platforms);
-        await markInFlight(client, rowId);
+        attemptToken = await markInFlight(client, rowId);
         // On a stale-in_flight re-claim, a platform that already reached a
         // terminal state — 'dispatched' (went live) or 'failed' (terminal,
         // non-retryable) — must not be dispatched again. Excluding only
@@ -504,10 +693,34 @@ export async function tick(pool) {
       const fc = await pool.connect();
       try {
         await fc.query('BEGIN');
-        for (const outcome of outcomes) {
-          await setPlatformDispatchStatus(fc, rowId, outcome.platform, outcome.status, outcome.error);
+        let ownsAttempt = await lockActiveAttempt(fc, rowId, attemptToken);
+        if (!ownsAttempt) {
+          await fc.query('COMMIT');
+          report.skipped += 1;
+          continue;
         }
-        const rolled = await syncParentRollup(fc, rowId);
+        for (const outcome of outcomes) {
+          ownsAttempt = await setPlatformDispatchStatus(
+            fc,
+            rowId,
+            outcome.platform,
+            outcome.status,
+            outcome.error,
+            outcome.platformPostId,
+            attemptToken,
+          );
+          if (!ownsAttempt) break;
+        }
+        const rolled = ownsAttempt
+          ? await syncParentRollup(fc, rowId, attemptToken)
+          : null;
+        if (rolled === null) {
+          // A newer reclaim owns this row. Commit the no-op conditional writes
+          // and leave the newer attempt's children and parent untouched.
+          await fc.query('COMMIT');
+          report.skipped += 1;
+          continue;
+        }
         if (rolled === 'dispatched') {
           await updatePostStatus(fc, row.post_id, 'published');
         } else if (rolled === 'failed') {
@@ -553,7 +766,7 @@ async function tickSafe(pool) {
   running = true;
   try {
     const report = await tick(pool);
-    if (report.processed > 0 || report.failed > 0) {
+    if (report.processed > 0 || report.failed > 0 || report.expired > 0) {
       console.log(
         `[scheduled-posts-worker] summary ${JSON.stringify(report)}`,
       );
