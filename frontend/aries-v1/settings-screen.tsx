@@ -129,11 +129,15 @@ export default function AriesSettingsScreen() {
     setWebsiteUrl(profile.websiteUrl || '');
     setBusinessType(profile.businessType || '');
     setPrimaryGoal(profile.primaryGoal || '');
-    setLaunchApproverUserId(profile.launchApproverUserId || '');
     setReelAudioMode(profile.reelAudioMode || 'music');
-  }, [profile?.businessName, profile?.websiteUrl, profile?.businessType, profile?.primaryGoal, profile?.launchApproverUserId, profile?.reelAudioMode]);
+  }, [profile?.businessName, profile?.websiteUrl, profile?.businessType, profile?.primaryGoal, profile?.reelAudioMode]);
 
-  async function saveProfile() {
+  useEffect(() => {
+    if (!profile) return;
+    setLaunchApproverUserId(profile.launchApproverUserId || '');
+  }, [profile?.launchApproverUserId]);
+
+  async function saveBusinessProfile() {
     await business.updateProfile({
       businessName,
       websiteUrl,
@@ -141,6 +145,12 @@ export default function AriesSettingsScreen() {
       primaryGoal,
       launchApproverUserId: launchApproverUserId || null,
       reelAudioMode,
+    });
+  }
+
+  async function saveApprovalSettings() {
+    await business.updateProfile({
+      launchApproverUserId: launchApproverUserId || null,
     });
   }
 
@@ -495,7 +505,7 @@ export default function AriesSettingsScreen() {
                 connected platforms aren&apos;t used for automatic weekly posts yet.
               </p>
             </div>
-            <button type="button" onClick={() => void saveProfile()} disabled={business.save.isLoading} className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] disabled:opacity-60">
+            <button type="button" onClick={() => void saveBusinessProfile()} disabled={business.save.isLoading} className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] disabled:opacity-60">
               {business.save.isLoading ? 'Saving…' : 'Save business profile'}
             </button>
             {profile.incomplete ? <div className="rounded-[1.25rem] border border-amber-400/20 bg-amber-400/10 px-4 py-4 text-sm text-amber-50">This profile is incomplete. Add a website, business type, and primary goal so Aries can use it across campaigns.</div> : null}
@@ -555,6 +565,15 @@ export default function AriesSettingsScreen() {
                       >
                         {integrations.busyAction === `${card.platform}:reconnect` ? 'Reconnecting…' : 'Reconnect'}
                       </button>
+                    ) : null}
+                    {!card.available_actions.includes('connect') &&
+                    !card.available_actions.includes('reconnect') ? (
+                      <Link
+                        href="/dashboard/settings/channel-integrations"
+                        className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10"
+                      >
+                        Manage integrations
+                      </Link>
                     ) : null}
                     {card.available_actions.includes('disconnect') ? (
                       <button
@@ -741,7 +760,7 @@ export default function AriesSettingsScreen() {
                     </div>
                   );
                 })}
-                <button type="button" onClick={() => void saveProfile()} disabled={business.save.isLoading} className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] disabled:opacity-60">
+                <button type="button" onClick={() => void saveApprovalSettings()} disabled={business.save.isLoading} className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] disabled:opacity-60">
                   {business.save.isLoading ? 'Saving…' : 'Save approval settings'}
                 </button>
               </div>

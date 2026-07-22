@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.38.0 — fix(marketing): preserve human weekly goal provenance
+
+Weekly social-content goals submitted by authenticated operators now retain
+human provenance even when they confirm text that was previously inferred.
+
+### Fixed
+
+- Authenticated weekly social-content submissions carry a bounded internal
+  provenance signal so their persisted primary goals become explicit.
+- Reconfirming unchanged inferred goal text upgrades its source to explicit,
+  while direct persistence calls and client-supplied provenance fields remain
+  inferred and cannot forge trusted human provenance.
+
 ## v0.1.37.0 — fix(marketing): preserve onboarding identity and failed-job truth
 
 Customers now confirm distinct brand voice, offer, and revision-note inputs before

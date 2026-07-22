@@ -35,6 +35,7 @@ const MARKETING_ONBOARDING_REQUIRED = {
 
 type PublicJobType = 'weekly_social_content' | 'one_off_post' | 'one_off_campaign';
 type ResponseDialect = 'marketing' | 'social-content';
+type PrimaryGoalProvenance = 'authenticated_operator';
 
 function coerceFieldValue(value: FormDataEntryValue | null): string {
   return typeof value === 'string' ? value.trim() : '';
@@ -478,7 +479,10 @@ function buildCreateResponse(
 export async function handlePostMarketingJobs(
   req: Request,
   tenantContextLoader?: TenantContextLoader,
-  options?: { responseDialect?: ResponseDialect },
+  options?: {
+    responseDialect?: ResponseDialect;
+    primaryGoalProvenance?: PrimaryGoalProvenance;
+  },
 ) {
   const dialect: ResponseDialect = options?.responseDialect ?? 'marketing';
   const requestBody = await parseCreateJobRequest(req);
@@ -514,6 +518,16 @@ export async function handlePostMarketingJobs(
   }
 
   const resolvedTenantId = tenantResult.tenantContext.tenantId;
+  const requestedPrimaryGoal = [requestBody.payload.primaryGoal, requestBody.payload.goal]
+    .find((value): value is string => typeof value === 'string' && value.trim().length > 0);
+  const primaryGoalProvenance: PrimaryGoalProvenance | undefined =
+    options?.primaryGoalProvenance === 'authenticated_operator' &&
+    requestedJobType === 'weekly_social_content' &&
+    typeof tenantResult.tenantContext.userId === 'string' &&
+    tenantResult.tenantContext.userId.trim().length > 0 &&
+    requestedPrimaryGoal !== undefined
+      ? 'authenticated_operator'
+      : undefined;
 
   console.info('[marketing-job-create]', {
     event: 'tenant-resolution',
@@ -526,6 +540,7 @@ export async function handlePostMarketingJobs(
       tenantId: resolvedTenantId,
       tenantSlug: tenantResult.tenantContext.tenantSlug,
       payload: normalizedPayload,
+      primaryGoalProvenance,
     });
     const hydratedPayload = await enrichPayloadFromBusinessProfile(resolvedTenantId, normalizedPayload);
 

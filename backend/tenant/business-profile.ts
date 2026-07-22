@@ -42,6 +42,8 @@ import {
   type ReelAudioMode,
 } from '@/backend/marketing/reel-audio-mode';
 
+export type PrimaryGoalSource = 'explicit' | 'inferred';
+
 export type BusinessProfileRecord = {
   tenant_id: string;
   business_name: string | null;
@@ -49,6 +51,7 @@ export type BusinessProfileRecord = {
   website_url: string | null;
   business_type: string | null;
   primary_goal: string | null;
+  primary_goal_source: PrimaryGoalSource;
   launch_approver_user_id: string | null;
   launch_approver_name: string | null;
   offer: string | null;
@@ -145,6 +148,7 @@ type MarketingProfilePersistenceInput = {
   tenantId: string;
   payload: Record<string, unknown>;
   tenantSlug?: string | null;
+  primaryGoalProvenance?: 'authenticated_operator';
 };
 
 const DEFAULT_MARKETING_CHANNELS = ['meta-ads', 'instagram'];
@@ -155,6 +159,13 @@ function nowIso(): string {
 
 function stringOrNull(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function primaryGoalSource(value: unknown): PrimaryGoalSource {
+  if (value === 'explicit' || value === 'inferred') {
+    return value;
+  }
+  return 'inferred';
 }
 
 function stringArray(value: unknown): string[] {
@@ -304,13 +315,16 @@ function normalizeBusinessProfileRecord(
     return null;
   }
 
+  const normalizedPrimaryGoal = stringOrNull(value.primary_goal);
+
   return {
     tenant_id: stringOrNull(value.tenant_id) || tenantId,
     business_name: stringOrNull(value.business_name),
     tenant_slug: stringOrNull(value.tenant_slug),
     website_url: normalizeMarketingWebsiteUrl(stringOrNull(value.website_url)) || null,
     business_type: stringOrNull(value.business_type),
-    primary_goal: stringOrNull(value.primary_goal),
+    primary_goal: normalizedPrimaryGoal,
+    primary_goal_source: primaryGoalSource(value.primary_goal_source),
     launch_approver_user_id: stringOrNull(value.launch_approver_user_id),
     launch_approver_name: stringOrNull(value.launch_approver_name),
     offer: stringOrNull(value.offer),
@@ -405,25 +419,31 @@ function saveBusinessProfileRecordToFile(record: BusinessProfileRecord): void {
   writeFileSync(filePath, JSON.stringify({ ...record, updated_at: nowIso() }, null, 2));
 }
 
-function saveBusinessProfileRecordToDb(record: BusinessProfileRecord): void {
+type BusinessProfileQueryExecutor = Pick<PoolClient, 'query'>;
+
+async function upsertBusinessProfileRecord(
+  executor: BusinessProfileQueryExecutor,
+  record: BusinessProfileRecord,
+): Promise<void> {
   const numericId = Number(record.tenant_id);
   if (!Number.isFinite(numericId) || numericId <= 0) {
     return;
   }
 
-  pool.query(
+  await executor.query(
     `INSERT INTO business_profiles (
       tenant_id, business_name, tenant_slug, website_url, business_type,
-      primary_goal, launch_approver_user_id, launch_approver_name, offer,
+      primary_goal, primary_goal_source, launch_approver_user_id, launch_approver_name, offer,
       brand_voice, style_vibe, notes, competitor_url, channels, timezone,
       reel_audio_mode, updated_at
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,now())
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,now())
     ON CONFLICT (tenant_id) DO UPDATE SET
       business_name = EXCLUDED.business_name,
       tenant_slug = EXCLUDED.tenant_slug,
       website_url = EXCLUDED.website_url,
       business_type = EXCLUDED.business_type,
       primary_goal = EXCLUDED.primary_goal,
+      primary_goal_source = EXCLUDED.primary_goal_source,
       launch_approver_user_id = EXCLUDED.launch_approver_user_id,
       launch_approver_name = EXCLUDED.launch_approver_name,
       offer = EXCLUDED.offer,
@@ -437,20 +457,28 @@ function saveBusinessProfileRecordToDb(record: BusinessProfileRecord): void {
       updated_at = now()`,
     [
       numericId, record.business_name, record.tenant_slug,
-      record.website_url, record.business_type, record.primary_goal,
+      record.website_url, record.business_type, record.primary_goal, record.primary_goal_source,
       record.launch_approver_user_id, record.launch_approver_name, record.offer,
       record.brand_voice, record.style_vibe, record.notes,
       record.competitor_url, record.channels, record.timezone,
       record.reel_audio_mode,
     ],
-  ).catch((err) => {
+  );
+}
+
+function saveBusinessProfileRecord(record: BusinessProfileRecord): Promise<void> {
+  saveBusinessProfileRecordToFile(record);
+  return upsertBusinessProfileRecord(pool, record).catch((err) => {
     console.error('[business-profile] Failed to persist to database:', err);
   });
 }
 
-function saveBusinessProfileRecord(record: BusinessProfileRecord): void {
+async function saveAuthenticatedBusinessProfileRecord(
+  client: PoolClient,
+  record: BusinessProfileRecord,
+): Promise<void> {
+  await upsertBusinessProfileRecord(client, record);
   saveBusinessProfileRecordToFile(record);
-  saveBusinessProfileRecordToDb(record);
 }
 
 /**
@@ -851,6 +879,7 @@ export async function updateBusinessProfileWithDiagnostics(
   input: BusinessProfileUpdateInput,
 ): Promise<ResolvedBusinessProfile> {
   const current = await getBusinessProfileWithDiagnostics(client, input.tenantId);
+  const currentStoredRecord = loadBusinessProfileRecord(input.tenantId);
 
   const nextBusinessName =
     mergePersistedStringField(current.profile.businessName || null, input.businessName).value ||
@@ -863,6 +892,10 @@ export async function updateBusinessProfileWithDiagnostics(
   ).value;
   const nextBusinessType = mergePersistedStringField(current.profile.businessType, input.businessType).value;
   const nextPrimaryGoal = mergePersistedStringField(current.profile.primaryGoal, input.primaryGoal).value;
+  const nextPrimaryGoalSource: PrimaryGoalSource =
+    typeof input.primaryGoal === 'string' && input.primaryGoal.trim()
+      ? 'explicit'
+      : currentStoredRecord?.primary_goal_source ?? 'inferred';
   const approverMerge = mergePersistedStringField(
     current.profile.launchApproverUserId,
     input.launchApproverUserId,
@@ -902,7 +935,6 @@ export async function updateBusinessProfileWithDiagnostics(
   const nextChannels = mergePersistedStringArrayField(current.profile.channels, input.channels).value;
   // Merge against the STORED timezone (null when unset), not the always-resolved
   // view value, so an unchanged update does not silently persist the fallback.
-  const currentStoredRecord = loadBusinessProfileRecord(input.tenantId);
   const currentStoredTimezone = currentStoredRecord?.timezone ?? null;
   const nextTimezone = mergePersistedTimezoneField(currentStoredTimezone, input.timezone).value;
   // Merge the reel audio mode against the STORED value (null when unset) so an
@@ -920,13 +952,14 @@ export async function updateBusinessProfileWithDiagnostics(
 
   await client.query('UPDATE organizations SET name = $1 WHERE id = $2', [nextBusinessName, Number(input.tenantId)]);
 
-  saveBusinessProfileRecord({
+  await saveAuthenticatedBusinessProfileRecord(client, {
     tenant_id: input.tenantId,
     business_name: nextBusinessName,
     tenant_slug: current.profile.tenantSlug,
     website_url: nextWebsiteUrl,
     business_type: nextBusinessType,
     primary_goal: nextPrimaryGoal,
+    primary_goal_source: nextPrimaryGoalSource,
     launch_approver_user_id: nextApproverUserId,
     launch_approver_name: nextApproverName,
     offer: nextOffer,
@@ -1026,13 +1059,17 @@ export async function updatePublicBusinessProfile(input: Omit<BusinessProfileUpd
     throw new Error('missing_required_fields:businessName');
   }
 
-  saveBusinessProfileRecord({
+  await saveBusinessProfileRecord({
     tenant_id: tenantId,
     business_name: nextBusinessName,
     tenant_slug: current.profile.tenantSlug || publicTenantSlug(tenantId),
     website_url: normalizedWebsiteUrl,
     business_type: mergePersistedStringField(current.profile.businessType, input.businessType).value,
     primary_goal: mergePersistedStringField(current.profile.primaryGoal, input.primaryGoal).value,
+    primary_goal_source:
+      typeof input.primaryGoal === 'string' && input.primaryGoal.trim()
+        ? 'explicit'
+        : loadBusinessProfileRecord(tenantId)?.primary_goal_source ?? 'inferred',
     launch_approver_user_id: mergePersistedStringField(
       current.profile.launchApproverUserId,
       input.launchApproverUserId,
@@ -1085,6 +1122,7 @@ export function persistBusinessProfileFieldsFromMarketingPayload(
     website_url: current?.website_url ?? null,
     business_type: current?.business_type ?? null,
     primary_goal: current?.primary_goal ?? null,
+    primary_goal_source: current?.primary_goal_source ?? 'inferred',
     launch_approver_user_id: current?.launch_approver_user_id ?? null,
     launch_approver_name: current?.launch_approver_name ?? null,
     offer: current?.offer ?? null,
@@ -1122,8 +1160,14 @@ export function persistBusinessProfileFieldsFromMarketingPayload(
 
   if (primaryGoalField.present) {
     const primaryGoalMerge = mergePersistedStringField(nextRecord.primary_goal, primaryGoalField.value);
-    if (primaryGoalMerge.changed) {
+    const operatorConfirmedGoal =
+      input.primaryGoalProvenance === 'authenticated_operator' && primaryGoalField.value !== null;
+    if (
+      primaryGoalMerge.changed ||
+      (operatorConfirmedGoal && nextRecord.primary_goal_source !== 'explicit')
+    ) {
       nextRecord.primary_goal = primaryGoalMerge.value;
+      nextRecord.primary_goal_source = operatorConfirmedGoal ? 'explicit' : 'inferred';
       shouldPersist = true;
     }
   }
@@ -1187,7 +1231,7 @@ export function persistBusinessProfileFieldsFromMarketingPayload(
     return current;
   }
 
-  saveBusinessProfileRecord(nextRecord);
+  void saveBusinessProfileRecord(nextRecord);
   return nextRecord;
 }
 

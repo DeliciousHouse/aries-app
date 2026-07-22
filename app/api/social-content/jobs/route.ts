@@ -5,7 +5,10 @@ export async function handlePostSocialContentJobs(
   req: Request,
   tenantContextLoader?: TenantContextLoader,
 ) {
-  return handlePostMarketingJobs(req, tenantContextLoader, { responseDialect: 'social-content' });
+  return handlePostMarketingJobs(req, tenantContextLoader, {
+    responseDialect: 'social-content',
+    primaryGoalProvenance: 'authenticated_operator',
+  });
 }
 
 export async function POST(req: Request) {

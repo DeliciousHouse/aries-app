@@ -91,6 +91,45 @@ test('settings Channels panel treats integrations status:error as unavailable', 
   );
 });
 
+test('settings Channels panel gives cards without connect actions a canonical integrations link', () => {
+  const channelPanelStart = source.indexOf('eyebrow="Channels / Integrations"');
+  const teamPanelStart = source.indexOf('eyebrow="Team / Approvals"');
+  assert.ok(channelPanelStart >= 0, 'Settings should render a Channels / Integrations panel');
+  assert.ok(teamPanelStart > channelPanelStart, 'Settings should render Team after Channels');
+
+  const channelPanelSource = source.slice(channelPanelStart, teamPanelStart);
+  assert.match(
+    channelPanelSource,
+    /!card\.available_actions\.includes\('connect'\)[\s\S]*!card\.available_actions\.includes\('reconnect'\)[\s\S]*<Link[\s\S]*href="\/dashboard\/settings\/channel-integrations"[\s\S]*Manage integrations/,
+    'Every channel without a direct Connect/Reconnect action should expose a keyboard-accessible link to the canonical integration flow',
+  );
+});
+
+test('settings separates goal confirmation from approval-only saves', () => {
+  const businessSaveStart = source.indexOf('async function saveBusinessProfile()');
+  const approvalSaveStart = source.indexOf('async function saveApprovalSettings()');
+  assert.ok(businessSaveStart >= 0, 'Settings should expose a dedicated business-profile save');
+  assert.ok(
+    approvalSaveStart > businessSaveStart,
+    'Settings should expose a separate approval-only save after the business-profile save',
+  );
+
+  const businessSaveSource = source.slice(businessSaveStart, approvalSaveStart);
+  const approvalSaveSource = source.slice(approvalSaveStart, source.indexOf('// Cadence card'));
+  assert.match(
+    businessSaveSource,
+    /business\.updateProfile\(\{[\s\S]*primaryGoal/,
+    'Saving the business profile should deliberately confirm the displayed primary goal',
+  );
+  assert.doesNotMatch(
+    approvalSaveSource,
+    /primaryGoal/,
+    'Saving approval settings must not resubmit a loaded inferred goal',
+  );
+  assert.match(source, /onClick=\{\(\) => void saveBusinessProfile\(\)\}/);
+  assert.match(source, /onClick=\{\(\) => void saveApprovalSettings\(\)\}/);
+});
+
 // ── Cadence card (multi-brand workspaces Phase 1b, #803 task 1b) ───────────
 
 function cadencePanelSlice(): string {
