@@ -1101,9 +1101,9 @@ export async function updatePublicBusinessProfile(input: Omit<BusinessProfileUpd
   return await getPublicBusinessProfile(normalizedWebsiteUrl);
 }
 
-export function persistBusinessProfileFieldsFromMarketingPayload(
+export async function persistBusinessProfileFieldsFromMarketingPayload(
   input: MarketingProfilePersistenceInput,
-): BusinessProfileRecord | null {
+): Promise<BusinessProfileRecord | null> {
   const current = loadBusinessProfileRecord(input.tenantId);
   const websiteField = firstPresentStringField(input.payload, ['websiteUrl', 'brandUrl']);
   const businessTypeField = firstPresentStringField(input.payload, ['businessType']);
@@ -1137,6 +1137,7 @@ export function persistBusinessProfileFieldsFromMarketingPayload(
   };
 
   let shouldPersist = false;
+  let shouldAwaitExplicitGoalPersistence = false;
 
   if (websiteField.present) {
     const websiteMerge = mergePersistedStringField(
@@ -1162,12 +1163,10 @@ export function persistBusinessProfileFieldsFromMarketingPayload(
     const primaryGoalMerge = mergePersistedStringField(nextRecord.primary_goal, primaryGoalField.value);
     const operatorConfirmedGoal =
       input.primaryGoalProvenance === 'authenticated_operator' && primaryGoalField.value !== null;
-    if (
-      primaryGoalMerge.changed ||
-      (operatorConfirmedGoal && nextRecord.primary_goal_source !== 'explicit')
-    ) {
+    if (primaryGoalMerge.changed || operatorConfirmedGoal) {
       nextRecord.primary_goal = primaryGoalMerge.value;
       nextRecord.primary_goal_source = operatorConfirmedGoal ? 'explicit' : 'inferred';
+      shouldAwaitExplicitGoalPersistence = operatorConfirmedGoal;
       shouldPersist = true;
     }
   }
@@ -1231,7 +1230,29 @@ export function persistBusinessProfileFieldsFromMarketingPayload(
     return current;
   }
 
-  void saveBusinessProfileRecord(nextRecord);
+  const numericTenantId = Number(input.tenantId);
+  if (
+    shouldAwaitExplicitGoalPersistence &&
+    Number.isFinite(numericTenantId) &&
+    numericTenantId > 0
+  ) {
+    // The trusted weekly-goal route must not acknowledge or queue work until
+    // PostgreSQL carries the explicit provenance. Persist through the shared
+    // pool without checking out a nested client, then clear the tenant's goal
+    // narrative cache before returning. The invalidator keeps its established
+    // fail-safe cache semantics, but the provenance upsert itself is fail-closed.
+    await upsertBusinessProfileRecord(pool, nextRecord);
+    try {
+      saveBusinessProfileRecordToFile(nextRecord);
+    } finally {
+      await invalidateGoalNarrativeCache(pool, input.tenantId);
+    }
+  } else {
+    // System-derived, unknown, direct-helper and file-backed callers retain the
+    // existing best-effort behavior. Only the authenticated numeric-tenant path
+    // above acquires the strict durable contract.
+    void saveBusinessProfileRecord(nextRecord);
+  }
   return nextRecord;
 }
 

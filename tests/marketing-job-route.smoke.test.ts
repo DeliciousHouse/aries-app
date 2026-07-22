@@ -7,6 +7,7 @@ import test from 'node:test';
 import { installBrandExampleFetchMock } from './helpers/brand-example-fetch';
 import { resolveProjectRoot } from './helpers/project-root';
 import { oauthStore } from '../backend/integrations/oauth-memory-store';
+import pool from '../lib/db';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
@@ -219,14 +220,113 @@ test('/api/social-content/jobs accepts weekly_social_content and returns 202', a
   });
 });
 
-test('/api/social-content/jobs persists an authenticated operator weekly goal with explicit provenance', async () => {
-  await withMarketingRuntimeEnv('tenant_social_route_human_goal', async (dataRoot) => {
+test('/api/social-content/jobs waits for explicit PostgreSQL provenance, invalidates inferred goal cache, and refreshes Insights', async (t) => {
+  const tenantId = '42001';
+  await withMarketingRuntimeEnv(tenantId, async (dataRoot) => {
     seedOpenAiConnection({
-      tenantId: 'tenant_social_route_human_goal',
+      tenantId,
       connectionId: 'conn_openai_social_route_human_goal',
       updatedAt: '2026-05-05T00:00:00.000Z',
       tokenExpiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
     });
+
+    const profilePath = path.join(
+      dataRoot,
+      'generated',
+      'validated',
+      tenantId,
+      'business-profile.json',
+    );
+    await writeFile(profilePath, JSON.stringify({
+      tenant_id: tenantId,
+      business_name: 'Brand Example',
+      tenant_slug: 'brand-example',
+      website_url: 'https://brand.example/',
+      business_type: 'Test vertical',
+      primary_goal: 'Increase social media presence',
+      primary_goal_source: 'inferred',
+      channels: [],
+    }));
+
+    let databaseProfile = {
+      primary_goal: 'Increase social media presence',
+      primary_goal_source: 'inferred' as 'explicit' | 'inferred',
+    };
+    let goalCache: {
+      body: Record<string, unknown>;
+      generated_at: Date;
+      model: string;
+    } | null = {
+      body: {
+        goal: 'brand_awareness',
+        goalLabel: 'Brand Awareness',
+        goalInferred: true,
+      },
+      generated_at: new Date(),
+      model: 'goal-template-v8',
+    };
+    const events: string[] = [];
+    let releaseUpsert!: () => void;
+    const upsertGate = new Promise<void>((resolve) => {
+      releaseUpsert = resolve;
+    });
+    let markUpsertStarted!: () => void;
+    const upsertStarted = new Promise<void>((resolve) => {
+      markUpsertStarted = resolve;
+    });
+
+    const query = async (sqlInput: string, params: unknown[] = []) => {
+      const sql = String(sqlInput);
+      if (sql.includes('INSERT INTO business_profiles')) {
+        events.push('profile-upsert-started');
+        markUpsertStarted();
+        await upsertGate;
+        databaseProfile = {
+          primary_goal: String(params[5]),
+          primary_goal_source: params[6] as 'explicit' | 'inferred',
+        };
+        events.push('profile-upserted');
+        return { rowCount: 1, rows: [] };
+      }
+      if (sql.includes('DELETE FROM insights_narratives')) {
+        assert.deepEqual(params, [Number(tenantId)]);
+        goalCache = null;
+        events.push('goal-cache-invalidated');
+        return { rowCount: 1, rows: [] };
+      }
+      if (sql.includes('SELECT body, generated_at, model')) {
+        return { rowCount: goalCache ? 1 : 0, rows: goalCache ? [goalCache] : [] };
+      }
+      if (sql.includes('SELECT timezone FROM business_profiles')) {
+        return { rowCount: 1, rows: [{ timezone: 'UTC' }] };
+      }
+      if (sql.includes('SELECT primary_goal, primary_goal_source')) {
+        return { rowCount: 1, rows: [databaseProfile] };
+      }
+      if (sql.includes('insights_account_metrics_daily') && sql.includes('AS reach')) {
+        return { rowCount: 1, rows: [{ reach: '0' }] };
+      }
+      if (sql.includes('FROM insights_posts')) {
+        return { rowCount: 0, rows: [] };
+      }
+      if (sql.includes('INSERT INTO insights_narratives')) {
+        goalCache = {
+          body: JSON.parse(String(params[3])) as Record<string, unknown>,
+          generated_at: new Date(),
+          model: String(params[5]),
+        };
+        events.push('goal-cache-refreshed');
+        return { rowCount: 1, rows: [] };
+      }
+      return { rowCount: 0, rows: [] };
+    };
+
+    t.mock.method(pool, 'query', query as unknown as typeof pool.query);
+    t.mock.method(pool, 'connect', (async () => ({
+      query,
+      release() {},
+    })) as unknown as typeof pool.connect);
+
     (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__ = () => ({
       ok: true,
       status: 'needs_approval',
@@ -247,8 +347,131 @@ test('/api/social-content/jobs persists an authenticated operator weekly goal wi
     formData.set('jobType', 'weekly_social_content');
     formData.set('websiteUrl', 'https://brand.example/');
     formData.set('businessType', 'Test vertical');
-    formData.set('primaryGoal', 'Book more consultations this week');
-    formData.set('goal', 'Book more consultations this week');
+    formData.set('primaryGoal', 'Increase social media presence');
+    formData.set('goal', 'Increase social media presence');
+
+    const { handlePostSocialContentJobs } = await import('../app/api/social-content/jobs/route');
+    const responsePromise = handlePostSocialContentJobs(
+      new Request('http://aries.example.test/api/social-content/jobs', {
+        method: 'POST',
+        body: formData,
+      }),
+      async () => ({
+        userId: 'user-social-route-human-goal',
+        tenantId,
+        tenantSlug: 'brand-example',
+        role: 'tenant_admin',
+      }),
+    );
+
+    await upsertStarted;
+    const beforeRelease = await Promise.race([
+      responsePromise.then(() => 'settled' as const),
+      new Promise<'pending'>((resolve) => setTimeout(() => resolve('pending'), 50)),
+    ]);
+    assert.equal(beforeRelease, 'pending', 'the request must remain pending until PostgreSQL commits');
+    assert.deepEqual(events, ['profile-upsert-started']);
+    assert.equal(goalCache?.body.goalInferred, true, 'cache must not invalidate before persistence succeeds');
+
+    releaseUpsert();
+    const response = await responsePromise;
+    assert.equal(response.status, 202);
+    assert.deepEqual(events, [
+      'profile-upsert-started',
+      'profile-upserted',
+      'goal-cache-invalidated',
+    ]);
+    assert.equal(databaseProfile.primary_goal_source, 'explicit');
+    assert.equal(goalCache, null);
+
+    const stored = JSON.parse(await readFile(profilePath, 'utf8')) as Record<string, unknown>;
+    assert.equal(stored.primary_goal, 'Increase social media presence');
+    assert.equal(stored.primary_goal_source, 'explicit');
+
+    const { handleGetInsightsGoal } = await import('../backend/insights/goal/handler');
+    const insightsResponse = await handleGetInsightsGoal(
+      new Request('http://aries.example.test/api/insights/goal?period=week&platform=all'),
+      async () => ({
+        userId: 'user-social-route-human-goal',
+        tenantId,
+        tenantSlug: 'brand-example',
+        role: 'tenant_admin',
+      }),
+    );
+    const insightsBody = await insightsResponse.json() as Record<string, unknown>;
+
+    assert.equal(insightsResponse.status, 200);
+    assert.equal(insightsBody.cached, false, 'the stale inferred goal narrative must not survive');
+    assert.equal(insightsBody.goalInferred, false, 'Insights must render the operator-confirmed goal immediately');
+    const refreshedGoalCache = goalCache as unknown as {
+      body: Record<string, unknown>;
+    } | null;
+    assert.ok(refreshedGoalCache);
+    assert.equal(refreshedGoalCache.body.goalInferred, false);
+    assert.deepEqual(events, [
+      'profile-upsert-started',
+      'profile-upserted',
+      'goal-cache-invalidated',
+      'goal-cache-refreshed',
+    ]);
+  });
+});
+
+test('/api/social-content/jobs fails closed when explicit PostgreSQL provenance cannot persist', async (t) => {
+  const tenantId = '42002';
+  await withMarketingRuntimeEnv(tenantId, async (dataRoot) => {
+    seedOpenAiConnection({
+      tenantId,
+      connectionId: 'conn_openai_social_route_goal_failure',
+      updatedAt: '2026-05-05T00:00:00.000Z',
+      tokenExpiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+    });
+    const profilePath = path.join(
+      dataRoot,
+      'generated',
+      'validated',
+      tenantId,
+      'business-profile.json',
+    );
+    await writeFile(profilePath, JSON.stringify({
+      tenant_id: tenantId,
+      primary_goal: 'Increase social media presence',
+      primary_goal_source: 'inferred',
+      channels: [],
+    }));
+
+    const events: string[] = [];
+    t.mock.method(pool, 'query', (async (sqlInput: string) => {
+      const sql = String(sqlInput);
+      if (sql.includes('INSERT INTO business_profiles')) {
+        events.push('profile-upsert-failed');
+        throw new Error('simulated explicit provenance failure');
+      }
+      if (sql.includes('DELETE FROM insights_narratives')) {
+        events.push('goal-cache-invalidated');
+      }
+      return { rowCount: 0, rows: [] };
+    }) as unknown as typeof pool.query);
+
+    let executionCalls = 0;
+    (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__ = () => {
+      executionCalls += 1;
+      return {
+        ok: true,
+        status: 'needs_approval',
+        output: [{ run_id: 'must-not-queue' }],
+        requiresApproval: {
+          resumeToken: 'must-not-exist',
+          prompt: 'must not queue',
+        },
+      };
+    };
+
+    const formData = new FormData();
+    formData.set('jobType', 'weekly_social_content');
+    formData.set('websiteUrl', 'https://brand.example/');
+    formData.set('businessType', 'Test vertical');
+    formData.set('primaryGoal', 'Increase social media presence');
 
     const { handlePostSocialContentJobs } = await import('../app/api/social-content/jobs/route');
     const response = await handlePostSocialContentJobs(
@@ -257,24 +480,18 @@ test('/api/social-content/jobs persists an authenticated operator weekly goal wi
         body: formData,
       }),
       async () => ({
-        userId: 'user-social-route-human-goal',
-        tenantId: 'tenant_social_route_human_goal',
-        tenantSlug: 'tenant-social-route-human-goal',
+        userId: 'user-social-route-goal-failure',
+        tenantId,
+        tenantSlug: 'brand-example',
         role: 'tenant_admin',
       }),
     );
 
-    assert.equal(response.status, 202);
-    const profilePath = path.join(
-      dataRoot,
-      'generated',
-      'validated',
-      'tenant_social_route_human_goal',
-      'business-profile.json',
-    );
+    assert.notEqual(response.status, 202, 'a failed explicit upsert must not report a queued job');
+    assert.equal(executionCalls, 0, 'Hermes execution must not start with stale PostgreSQL provenance');
+    assert.deepEqual(events, ['profile-upsert-failed'], 'cache invalidation must not run after a failed upsert');
     const stored = JSON.parse(await readFile(profilePath, 'utf8')) as Record<string, unknown>;
-    assert.equal(stored.primary_goal, 'Book more consultations this week');
-    assert.equal(stored.primary_goal_source, 'explicit');
+    assert.equal(stored.primary_goal_source, 'inferred');
   });
 });
 
