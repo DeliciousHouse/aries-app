@@ -240,6 +240,31 @@ test('publish-ready work produces publish-oriented working-now messaging before 
   assert.match(model.workingNow.summary, /publish-ready items/i);
 });
 
+test('a failed current job overrides healthy current-focus and approval-clear messaging', () => {
+  const model = createDashboardHomeViewModel({
+    posts: [
+      buildCampaign({
+        executionState: 'failed',
+        stageLabel: 'research',
+        pendingApprovals: 0,
+      }),
+    ],
+    reviews: [],
+    profile: null,
+    integrationCards: [],
+  });
+
+  assert.equal(model.activePost?.failed, true);
+  assert.equal(model.activePost?.failureLabel, 'Research failed');
+  assert.equal(model.workingNow.mode, 'failure');
+  assert.match(model.workingNow.title, /research failed/i);
+  assert.equal(model.nextAction.label, 'View failure details');
+  assert.equal(model.nextAction.href, '/dashboard/social-content/campaign-1');
+  const approvals = model.readiness.find((item) => item.label === 'Approvals');
+  assert.equal(approvals?.value, 'Job failed');
+  assert.doesNotMatch(approvals?.detail ?? '', /approval queue is clear/i);
+});
+
 test('the dashboard home view-model builds from plain runtime inputs without demo fixtures', () => {
   const model = createDashboardHomeViewModel({
     posts: [],

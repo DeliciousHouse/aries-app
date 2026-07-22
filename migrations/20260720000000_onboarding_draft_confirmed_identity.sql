@@ -1,0 +1,5 @@
+ALTER TABLE onboarding_drafts
+  ADD COLUMN IF NOT EXISTS brand_voice TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE onboarding_drafts
+  ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT '';

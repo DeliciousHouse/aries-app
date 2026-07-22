@@ -233,6 +233,8 @@ export type OnboardingDraft = {
   channels: string[];
   goal: string;
   offer: string;
+  brandVoice: string;
+  notes: string;
   competitorUrl: string;
   preview: UrlPreviewResponse | null;
   provenance: {
@@ -353,6 +355,8 @@ export type OnboardingDraftPatch = {
   channels?: string[] | null;
   goal?: string | null;
   offer?: string | null;
+  brandVoice?: string | null;
+  notes?: string | null;
   competitorUrl?: string | null;
   preview?: UrlPreviewResponse | null;
   provenance?: {

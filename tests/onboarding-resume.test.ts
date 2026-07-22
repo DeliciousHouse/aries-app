@@ -10,6 +10,10 @@ const source = readFileSync(
   path.join(PROJECT_ROOT, 'app', 'onboarding', 'resume', 'page.tsx'),
   'utf8',
 );
+const onboardingFlowSource = readFileSync(
+  path.join(PROJECT_ROOT, 'frontend', 'aries-v1', 'onboarding-flow.tsx'),
+  'utf8',
+);
 
 test('onboarding resume materializes the isolated tenant and workspace after auth', () => {
   assert.doesNotMatch(source, /const draft = await requireOnboardingDraft/);
@@ -43,4 +47,28 @@ test('onboarding resume auto-provisions a default marketing_schedule row, flag-i
   );
   assert.ok(multiWorkspaceBlockMatch, 'expected to find the isMultiWorkspaceEnabled() branch');
   assert.doesNotMatch(multiWorkspaceBlockMatch![1], /provisionDefaultMarketingSchedule/);
+});
+
+test('onboarding keeps offer, brand voice, and revision notes distinct when materializing the first job', () => {
+  const profileUpdate = source.match(
+    /updateBusinessProfileWithDiagnostics\(client,\s*\{([\s\S]*?)\n\s*\}\);/,
+  );
+  assert.ok(profileUpdate, 'expected the materialization profile update');
+  assert.match(profileUpdate[1], /offer: claim\.draft\.offer \|\| null/);
+  assert.match(profileUpdate[1], /brandVoice: claim\.draft\.brandVoice,/);
+  assert.match(profileUpdate[1], /notes: claim\.draft\.notes,/);
+  assert.doesNotMatch(source, /notes:\s*claim\.draft\.preview\?\.description/);
+});
+
+test('onboarding lets the user confirm or correct scraped identity before first generation', () => {
+  assert.match(onboardingFlowSource, /Brand voice/);
+  assert.match(onboardingFlowSource, /Offer summary/);
+  assert.match(onboardingFlowSource, /Revision notes/);
+  assert.match(onboardingFlowSource, /onChange=\{\(event\) => \{[\s\S]*?setBrandVoice\(event\.target\.value\);/);
+  assert.match(onboardingFlowSource, /onChange=\{\(event\) => setNotes\(event\.target\.value\)\}/);
+
+  const firstGeneration = onboardingFlowSource.indexOf('startSocialContentJob');
+  assert.equal(firstGeneration, -1, 'the client must persist confirmation before server-side generation starts');
+  assert.match(onboardingFlowSource, /brandVoice,/);
+  assert.match(onboardingFlowSource, /notes,/);
 });
