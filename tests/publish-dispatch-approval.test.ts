@@ -431,33 +431,23 @@ test('DB unique-constraint violation on concurrent inserts: persistPublishedPost
     },
   } as unknown as Pool;
 
-  // The current implementation does SELECT first, then INSERT. On concurrent race the SELECT
-  // passes for both, then only one INSERT wins. The loser should recover via the post-conflict lookup.
-  // Since our impl does pre-check then insert (not ON CONFLICT DO NOTHING), a constraint
-  // violation from the pool will propagate as an error. Test that this is a known case.
-  await assert.rejects(
-    () => persistPublishedPost(
-      {
-        tenantId: 42,
-        caption: 'concurrent post',
-        platformPostId: 'some_post',
-        publishedAt: new Date(),
-        publishedStatus: 'published',
-        platform: 'facebook',
-        idempotencyKey,
-      },
-      mockPool,
-    ),
-    (err: unknown) => {
-      // Should propagate the DB unique constraint error (the unique index is the truth)
-      assert.ok(err instanceof Error);
-      assert.ok(
-        (err as Error).message.includes('duplicate key') || (err as Error).message.includes('no_id_returned'),
-        `unexpected error: ${(err as Error).message}`,
-      );
-      return true;
+  // Both callers can pass the pre-check before one INSERT wins. PostgreSQL then
+  // raises 23505 in the loser, which must re-read and reconcile the durable row.
+  const persisted = await persistPublishedPost(
+    {
+      tenantId: 42,
+      caption: 'concurrent post',
+      platformPostId: 'some_post',
+      publishedAt: new Date(),
+      publishedStatus: 'published',
+      platform: 'facebook',
+      idempotencyKey,
     },
+    mockPool,
   );
+
+  assert.deepEqual(persisted, { postId: '77' });
+  assert.ok(queryCount >= 3, 'the 23505 loser must re-read the concurrent winner');
 });
 
 // ── Blocker 3: 429 Retry-After backoff ───────────────────────────────────

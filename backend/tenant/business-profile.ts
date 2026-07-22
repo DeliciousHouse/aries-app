@@ -246,6 +246,21 @@ function mergePersistedStringField(
   };
 }
 
+function replacePersistedStringField(
+  currentValue: string | null,
+  nextValue: string | null | undefined,
+): { value: string | null; changed: boolean } {
+  if (nextValue === undefined) {
+    return { value: currentValue, changed: false };
+  }
+
+  const resolved = nextValue?.trim() || null;
+  return {
+    value: resolved,
+    changed: resolved !== currentValue,
+  };
+}
+
 // A4: merges a timezone update. An explicit non-IANA string is rejected with
 // a typed error so the settings route can return a 400; an absent/blank value
 // leaves the current timezone untouched. Exported for regression testing.
@@ -910,9 +925,9 @@ export async function updateBusinessProfileWithDiagnostics(
     input.launchApproverName,
   ).value;
   const nextOffer = mergePersistedStringField(current.profile.offer, input.offer).value;
-  const nextBrandVoice = mergePersistedStringField(current.profile.brandVoice, input.brandVoice).value;
+  const nextBrandVoice = replacePersistedStringField(current.profile.brandVoice, input.brandVoice).value;
   const nextStyleVibe = mergePersistedStringField(current.profile.styleVibe, input.styleVibe).value;
-  const nextNotes = mergePersistedStringField(current.profile.notes, input.notes).value;
+  const nextNotes = replacePersistedStringField(current.profile.notes, input.notes).value;
   const nextCompetitorUrl = mergePersistedCompetitorUrlField(
     current.profile.competitorUrl,
     input.competitorUrl,

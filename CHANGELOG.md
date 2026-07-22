@@ -2,25 +2,98 @@
 
 All notable changes to this project will be documented in this file.
 
-## v0.1.35.0 — fix(settings): preserve goal provenance
+## v0.1.38.0 — fix(marketing): preserve human weekly goal provenance
 
-Settings now keeps inferred business goals provisional until the user deliberately
-confirms them, while every displayed social channel continues to route through the
-canonical accessible integrations surface.
+Weekly social-content goals submitted by authenticated operators now retain
+human provenance even when they confirm text that was previously inferred.
 
 ### Fixed
 
-- Saving approval settings no longer resubmits the loaded primary goal, so an
-  unrelated approver change cannot silently convert inferred provenance to explicit.
-- Saving the Business Profile deliberately confirms the displayed goal and persists
-  explicit provenance, including when the confirmed text is unchanged.
-- Starting weekly social content from the authenticated operator route now persists
-  the submitted weekly goal as explicit while system and untrusted helper inputs stay inferred.
-- Authenticated goal-provenance upserts reuse the request's held database client,
-  propagate failures, and complete before Insights invalidates its goal narrative
-  cache, preventing pool exhaustion and stale provenance rebuilds.
-- Channel cards without direct actions continue to use the canonical
-  `/dashboard/settings/channel-integrations` management route.
+- Authenticated weekly social-content submissions carry a bounded internal
+  provenance signal so their persisted primary goals become explicit.
+- Reconfirming unchanged inferred goal text upgrades its source to explicit,
+  while direct persistence calls and client-supplied provenance fields remain
+  inferred and cannot forge trusted human provenance.
+
+## v0.1.37.0 — fix(marketing): preserve onboarding identity and failed-job truth
+
+Customers now confirm distinct brand voice, offer, and revision-note inputs before
+their first weekly social content job starts, and failed jobs render as actionable
+failures instead of healthy approval or in-progress states.
+
+### Fixed
+
+- Onboarding drafts persist confirmed brand voice and revision notes across the
+  pre-auth handoff, materialize each field from its intended source, and expose
+  accessible confirmation controls before first-job generation.
+- Dashboard, calendar, and social-content overviews recognize both `failed` and
+  `failed_stale` execution states, suppress optimistic approval copy, and link to
+  detailed failure context without changing healthy running-job presentation.
+
+## v0.1.36.0 — fix(publishing): reconcile concurrent publish attempts
+
+Concurrent direct-publish and scheduled-publish attempts now converge on the
+first durable result instead of allowing a delayed worker to corrupt newer
+dispatch state.
+
+### Fixed
+
+- `persistPublishedPost` catches only PostgreSQL unique violations (`23505`),
+  re-reads the tenant/platform/idempotency winner, and reconciles missing
+  provider IDs without masking unrelated database failures.
+- Scheduled-post claims carry an ownership generation through child outcome
+  writes and parent rollups, fencing delayed attempts after a stale reclaim.
+- Per-platform provider IDs are first-write-wins, so a delayed non-null result
+  cannot replace an ID already confirmed by the active attempt.
+
+## v0.1.35.0 — fix(runtime): tolerate transient Hermes outages and restart unhealthy web containers
+
+Aries startup no longer aborts when the configured Hermes gateway is temporarily
+unavailable. The boot probe now retries transport failures, 408/429 responses,
+and 5xx responses three times with bounded exponential backoff, then logs degraded
+state and lets the web process serve. Bad credentials, other 4xx responses,
+incompatible capability contracts, static misconfiguration, and unrelated startup
+errors still fail fast.
+
+Production Compose now uses an Aries-specific label and digest-pinned autoheal
+sidecar to restart running-but-unhealthy web containers. Its durable policy allows
+at most three restarts per container per 15-minute window, then leaves persistent
+failure unhealthy for operator visibility until the cooldown expires. The deploy
+workflow starts and verifies that watcher before replacing the web container while
+keeping its external image outside the Aries app-image parity checks.
+## v0.1.34.0 — feat(feedback): accept anonymous durable incident reports
+
+Visitors can now report an issue without signing in, while signed-in users keep
+their existing workspace and contact attribution.
+
+### Added
+
+- Anonymous reports receive explicit durable attribution and a stable hashed-IP
+  rate-limit identity without storing the raw client address or invented contact
+  details.
+- Feedback report storage and migrations now preserve the submitter type through
+  retry delivery and Jira issue creation.
+
+### Changed
+
+- The floating feedback button always opens the durable incident-report flow,
+  including on public pages, instead of routing signed-out visitors to the
+  legacy best-effort form.
+- Anonymous Jira issues use honest unknown-customer metadata plus dedicated
+  triage labels, while authenticated reports retain tenant-backed attribution.
+
+### Fixed
+
+- Persisted reports survive Jira delivery failures for later retry, and failed
+  browser submissions stay open with conspicuous error copy and a retry action.
+- Concurrent requests from one submitter are serialized before rate-limit and
+  duplicate checks, so parallel bursts cannot exceed the configured cap or
+  create duplicate durable report rows.
+- Browser retries reuse a durable idempotency key through API validation,
+  storage, and Jira reconciliation, preventing a lost acknowledgement from
+  creating a second report or Jira issue.
+- Jira failures that exhaust the configured retry budget now report the
+  durable row as terminally failed instead of claiming another retry is queued.
 
 ## v0.1.33.0 — fix(marketing): keep homepage sections visible
 

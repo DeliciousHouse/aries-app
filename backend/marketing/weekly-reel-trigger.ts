@@ -45,9 +45,13 @@ function isVideoPublishEnabled(): boolean {
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
 }
 
+type FireReelJobResult = { fired: boolean; reelJobId?: string; reason?: string };
+
+const REEL_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
+
 export async function maybeFireWeeklyReelJob(
   args: { tenantId: number; sourceWeeklyJobId: string; brandUrl?: string | null },
-): Promise<{ fired: boolean; reelJobId?: string; reason?: string }> {
+): Promise<FireReelJobResult> {
   try {
     // Master switch: the reel companion feature must be explicitly enabled.
     if (!isWeeklyReelEnabled()) {
@@ -72,11 +76,100 @@ export async function maybeFireWeeklyReelJob(
     const existingJobId = await findRecentJobIdForTenant(tenantIdStr, {
       jobType: 'one_off_post',
       createdBy,
-      sinceEpochMs: Date.now() - 7 * 24 * 60 * 60 * 1000,
+      sinceEpochMs: Date.now() - REEL_LOOKBACK_MS,
     });
     if (existingJobId) {
       return { fired: false, reelJobId: existingJobId, reason: 'already_exists' };
     }
+
+    return await fireReelCompanionJob({ tenantIdStr, createdBy, brandUrlOverride: args.brandUrl ?? null });
+  } catch (err) {
+    // Best-effort: surface the reason for observability but never propagate.
+    const msg = err instanceof Error ? err.message : String(err);
+    return { fired: false, reason: `error:${msg.slice(0, 120)}` };
+  }
+}
+
+/**
+ * One-shot automatic retry for a reel-companion job that completed WITHOUT ever
+ * ingesting a video creative_asset (the Hermes content-generator only calls
+ * video_generate ~50% of the time on reel jobs). Mirrors the regenerate seam's
+ * shape — the failed job is preserved and a NEW run is submitted — but at job
+ * granularity: a fresh one_off_post reel job runs the full pipeline cleanly, so
+ * no terminal-doc callback surgery is needed.
+ *
+ * Bounded to ONE retry, structurally:
+ *   - it only fires for an ORIGINAL companion (`created_by` = `reel:<uuid>`,
+ *     never the retry's own `reel:retry:<uuid>` marker), and
+ *   - the retry marker `reel:retry:<failedReelJobId>` is idempotent via
+ *     findRecentJobIdForTenant, so reconciler re-delivery of the failed job's
+ *     completion collapses onto the one retry.
+ * The `reel:` prefix is load-bearing: it keeps the retry job inside the
+ * reel-companion synthesis clamp (only reel/video shapes may synthesize) and
+ * the reel-companion outcome gate (a retry that also renders no video is
+ * marked failed, with no further retry).
+ *
+ * Best-effort: never throws — a retry-submission failure leaves the job failed,
+ * which is the correct loud terminal state.
+ */
+export async function maybeFireReelVideoRetryJob(
+  args: {
+    tenantId: number | string;
+    failedReelJobId: string;
+    failedReelCreatedBy: string | null | undefined;
+    brandUrl?: string | null;
+  },
+): Promise<FireReelJobResult> {
+  try {
+    if (!isWeeklyReelEnabled()) {
+      return { fired: false, reason: 'flag_off' };
+    }
+    if (!isVideoPublishEnabled()) {
+      return { fired: false, reason: 'video_publish_off' };
+    }
+
+    const createdBy = typeof args.failedReelCreatedBy === 'string' ? args.failedReelCreatedBy : '';
+    if (!createdBy.startsWith('reel:')) {
+      return { fired: false, reason: 'not_reel_companion' };
+    }
+    // One-shot bound: a retry job never retries itself.
+    if (createdBy.startsWith('reel:retry:')) {
+      return { fired: false, reason: 'retry_exhausted' };
+    }
+
+    const tenantIdStr = String(args.tenantId);
+    const retryCreatedBy = `reel:retry:${args.failedReelJobId}`;
+
+    const existingJobId = await findRecentJobIdForTenant(tenantIdStr, {
+      jobType: 'one_off_post',
+      createdBy: retryCreatedBy,
+      sinceEpochMs: Date.now() - REEL_LOOKBACK_MS,
+    });
+    if (existingJobId) {
+      return { fired: false, reelJobId: existingJobId, reason: 'already_exists' };
+    }
+
+    return await fireReelCompanionJob({
+      tenantIdStr,
+      createdBy: retryCreatedBy,
+      brandUrlOverride: args.brandUrl ?? null,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { fired: false, reason: `error:${msg.slice(0, 120)}` };
+  }
+}
+
+/**
+ * Shared submission core for the weekly companion and its one-shot retry:
+ * brand-kit-derived brief + startSocialContentJob with a video-only media
+ * demand. Callers own gating + idempotency; this only builds and submits.
+ */
+async function fireReelCompanionJob(
+  args: { tenantIdStr: string; createdBy: string; brandUrlOverride: string | null },
+): Promise<FireReelJobResult> {
+  try {
+    const { tenantIdStr, createdBy } = args;
 
     // Load the brand kit to build a brand-aware reel brief. A missing kit is
     // non-fatal — we fall back to generic-but-valid values so the job submits.
@@ -88,8 +181,8 @@ export async function maybeFireWeeklyReelJob(
     // Resolve brand URL: prefer the caller-provided value (already validated
     // by the weekly job), fall back to the brand kit's source URL.
     const brandUrl =
-      (typeof args.brandUrl === 'string' && args.brandUrl.trim().length > 0
-        ? args.brandUrl.trim()
+      (typeof args.brandUrlOverride === 'string' && args.brandUrlOverride.trim().length > 0
+        ? args.brandUrlOverride.trim()
         : null) ??
       brandKit?.source_url?.trim() ??
       null;

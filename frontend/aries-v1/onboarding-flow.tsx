@@ -28,6 +28,10 @@ import {
   useDisabledUntilValid,
 } from '@/lib/form-validation';
 import { validateCanonicalCompetitorUrl } from '@/lib/marketing-competitor';
+import {
+  isBrandVoiceManuallyEdited,
+  resolveBrandVoiceForPreview,
+} from './onboarding-brand-voice';
 import { VISUAL_BOARD_EMPTY_STATE_COPY } from './onboarding-flow.copy';
 
 export { VISUAL_BOARD_EMPTY_STATE_COPY } from './onboarding-flow.copy';
@@ -378,6 +382,9 @@ type LocalDraftSnapshot = {
   goal: string;
   customGoal: string;
   offer: string;
+  brandVoice: string;
+  scrapedBrandVoice: string;
+  notes: string;
   competitorUrl: string;
 };
 
@@ -401,6 +408,9 @@ function readLocalDraft(): LocalDraftSnapshot | null {
       goal: parsed.goal || '',
       customGoal: parsed.customGoal || '',
       offer: parsed.offer || '',
+      brandVoice: parsed.brandVoice || '',
+      scrapedBrandVoice: parsed.scrapedBrandVoice || '',
+      notes: parsed.notes || '',
       competitorUrl: parsed.competitorUrl || '',
     };
   } catch {
@@ -442,6 +452,8 @@ function localDraftHasContent(snapshot: LocalDraftSnapshot | null): boolean {
       snapshot.goal.trim() ||
       snapshot.customGoal.trim() ||
       snapshot.offer.trim() ||
+      snapshot.brandVoice.trim() ||
+      snapshot.notes.trim() ||
       snapshot.competitorUrl.trim(),
   );
 }
@@ -581,6 +593,8 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   const [goal, setGoal] = useState('');
   const [customGoal, setCustomGoal] = useState('');
   const [offer, setOffer] = useState('');
+  const [brandVoice, setBrandVoice] = useState('');
+  const [notes, setNotes] = useState('');
   const [competitorUrl, setCompetitorUrl] = useState('');
   const [websiteChip, setWebsiteChip] = useState<UrlChipState>({ kind: 'idle' });
   // Two separate flags: `locked` prevents the recommendation from re-firing
@@ -611,6 +625,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   const localSaveTimerRef = useRef<number | null>(null);
   const savedIndicatorTimerRef = useRef<number | null>(null);
   const submittingRef = useRef(false);
+  const brandVoiceEditedRef = useRef(false);
   const customGoalInputRef = useRef<HTMLInputElement | null>(null);
   const previousGoalRef = useRef<string>(goal);
   const deferredWebsiteUrl = useDeferredValue(normalizeHttpsUrlInput(websiteUrl));
@@ -651,6 +666,17 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   const currentStepKeyRef = useRef<StepKey>(currentStep.key);
   currentStepKeyRef.current = currentStep.key;
   const preview = urlPreview?.brandKitPreview ?? null;
+
+  useEffect(() => {
+    setBrandVoice((current) =>
+      resolveBrandVoiceForPreview(
+        current,
+        preview?.brandVoiceSummary,
+        brandVoiceEditedRef.current,
+      ),
+    );
+  }, [preview?.brandVoiceSummary]);
+
   const previewBrandName =
     firstPresent(
       preview?.brandName,
@@ -786,6 +812,12 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
           setCustomGoal('');
         }
         setOffer(draft.offer);
+        setBrandVoice(draft.brandVoice);
+        setNotes(draft.notes);
+        brandVoiceEditedRef.current = isBrandVoiceManuallyEdited(
+          draft.brandVoice,
+          draft.preview?.brandKitPreview?.brandVoiceSummary,
+        );
         setCompetitorUrl(draft.competitorUrl);
         setUrlPreview(draft.preview);
         setPreviewError(null);
@@ -823,6 +855,9 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
           setApproverName(nextProfile.launchApproverName || '');
           setGoal(goalFromBusinessProfile(nextProfile.primaryGoal));
           setOffer(nextProfile.offer || nextProfile.brandIdentity?.offer || nextProfile.brandKit?.offer_summary || '');
+          setBrandVoice(nextProfile.brandVoice || '');
+          setNotes(nextProfile.notes || '');
+          brandVoiceEditedRef.current = Boolean(nextProfile.brandVoice?.trim());
           setCompetitorUrl(nextProfile.competitorUrl || '');
           setSelectedChannels(nextProfile.channels.length > 0 ? nextProfile.channels : []);
         }
@@ -862,6 +897,8 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         channels: selectedChannels,
         goal,
         offer,
+        brandVoice,
+        notes,
         competitorUrl,
         preview: urlPreview,
         provenance: {
@@ -888,11 +925,13 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   }, [
     approverName,
     ariesApi,
+    brandVoice,
     businessName,
     businessType,
     competitorUrl,
     draftId,
     goal,
+    notes,
     offer,
     selectedChannels,
     urlPreview,
@@ -922,6 +961,9 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         goal,
         customGoal,
         offer,
+        brandVoice,
+        scrapedBrandVoice: preview?.brandVoiceSummary?.trim() || '',
+        notes,
         competitorUrl,
       };
       const hasContent =
@@ -933,6 +975,8 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         snapshot.goal.trim() ||
         snapshot.customGoal.trim() ||
         snapshot.offer.trim() ||
+        snapshot.brandVoice.trim() ||
+        snapshot.notes.trim() ||
         snapshot.competitorUrl.trim();
       if (hasContent) {
         writeLocalDraft(snapshot);
@@ -952,13 +996,16 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     };
   }, [
     approverName,
+    brandVoice,
     businessName,
     businessType,
     competitorUrl,
     customGoal,
     draftId,
     goal,
+    notes,
     offer,
+    preview?.brandVoiceSummary,
     selectedChannels,
     websiteUrl,
     markSaved,
@@ -1093,6 +1140,12 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     setGoal(snap.goal);
     setCustomGoal(snap.customGoal);
     setOffer(snap.offer);
+    setBrandVoice(snap.brandVoice);
+    setNotes(snap.notes);
+    brandVoiceEditedRef.current = isBrandVoiceManuallyEdited(
+      snap.brandVoice,
+      snap.scrapedBrandVoice,
+    );
     setCompetitorUrl(snap.competitorUrl);
     setResumePromptOpen(false);
     setPendingLocalDraft(null);
@@ -1195,6 +1248,8 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         channels: selectedChannels,
         goal: resolvedGoal,
         offer,
+        brandVoice: brandVoice,
+        notes: notes,
         competitorUrl: canonicalCompetitorUrl,
         preview: urlPreview,
         provenance: {
@@ -1739,27 +1794,78 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         <p className="max-w-2xl text-sm leading-7 text-white/70">
                           {brandPreviewSummary(preview, urlPreview)}
                         </p>
-                        <div className="grid gap-4 sm:grid-cols-2">
-                          <PreviewStat
-                            label="Brand voice"
-                            value={preview?.brandVoiceSummary || (props.initialAuthenticated && !draftId ? profile?.brandVoice : null) || 'Aries will refine the voice as soon as the source review is complete.'}
-                          />
-                          <PreviewStat
-                            label="Offer summary"
-                            value={preview?.offerSummary || offer || (props.initialAuthenticated && !draftId ? profile?.offer : null) || 'The offer summary will appear here once the website provides enough signal.'}
-                          />
-                          {preview?.positioning ? (
-                            <PreviewStat label="Positioning" value={preview.positioning} />
-                          ) : null}
-                          {preview?.audience ? (
-                            <PreviewStat label="Audience" value={preview.audience} />
-                          ) : null}
-                          {preview?.toneOfVoice ? (
-                            <PreviewStat label="Tone of voice" value={preview.toneOfVoice} />
-                          ) : null}
-                          {preview?.styleVibe ? (
-                            <PreviewStat label="Style vibe" value={preview.styleVibe} />
-                          ) : null}
+                        <div className="grid gap-4">
+                          <div className="grid gap-4 sm:grid-cols-2">
+                            <Field
+                              label="Brand voice"
+                              htmlFor="onboarding-brand-voice"
+                              hint="Confirm or correct the voice Aries should use in the first weekly social content job."
+                            >
+                              <textarea
+                                id="onboarding-brand-voice"
+                                value={brandVoice}
+                                onChange={(event) => {
+                                  brandVoiceEditedRef.current = true;
+                                  setBrandVoice(event.target.value);
+                                }}
+                                rows={5}
+                                className={fieldInputClassName}
+                                placeholder="Describe how the brand should sound."
+                              />
+                            </Field>
+                            <Field
+                              label="Offer summary"
+                              htmlFor="onboarding-offer-summary"
+                              hint="Confirm the customer-facing offer. The website suggestion stays visible below for comparison."
+                            >
+                              <textarea
+                                id="onboarding-offer-summary"
+                                value={offer}
+                                onChange={(event) => setOffer(event.target.value)}
+                                onBlur={() => markTouched('offer')}
+                                rows={5}
+                                className={inputClassForValidity(offerValidity)}
+                              />
+                              {preview?.offerSummary && preview.offerSummary !== offer.trim() ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setOffer(preview.offerSummary || '')}
+                                  className="mt-3 text-left text-xs leading-6 text-[#cfb1ff] transition hover:text-white"
+                                >
+                                  Use website suggestion: {preview.offerSummary}
+                                </button>
+                              ) : null}
+                            </Field>
+                          </div>
+                          <Field
+                            label="Revision notes"
+                            htmlFor="onboarding-revision-notes"
+                            hint="Optional instructions to carry into the first weekly social content job. Brand voice is never copied here automatically."
+                            optional
+                          >
+                            <textarea
+                              id="onboarding-revision-notes"
+                              value={notes}
+                              onChange={(event) => setNotes(event.target.value)}
+                              rows={3}
+                              className={fieldInputClassName}
+                              placeholder="Add any one-off corrections or constraints for the first weekly job."
+                            />
+                          </Field>
+                          <div className="grid gap-4 sm:grid-cols-2">
+                            {preview?.positioning ? (
+                              <PreviewStat label="Positioning" value={preview.positioning} />
+                            ) : null}
+                            {preview?.audience ? (
+                              <PreviewStat label="Audience" value={preview.audience} />
+                            ) : null}
+                            {preview?.toneOfVoice ? (
+                              <PreviewStat label="Tone of voice" value={preview.toneOfVoice} />
+                            ) : null}
+                            {preview?.styleVibe ? (
+                              <PreviewStat label="Style vibe" value={preview.styleVibe} />
+                            ) : null}
+                          </div>
                         </div>
                       </div>
 
@@ -2075,6 +2181,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
 
 function Field(props: {
   label: string;
+  htmlFor?: string;
   hint?: string;
   children: ReactNode;
   optional?: boolean;
@@ -2082,21 +2189,43 @@ function Field(props: {
   error?: string | null;
 }) {
   const validity = props.validity ?? 'untouched';
+  const labelContent = (
+    <>
+      {props.label}
+      {props.optional ? (
+        <span className="text-xs font-normal normal-case tracking-normal text-white/70">(optional)</span>
+      ) : null}
+      {validity === 'valid' ? <Check className="h-3.5 w-3.5 text-emerald-400" aria-hidden /> : null}
+    </>
+  );
+  const feedback = props.error ? (
+    <p role="alert" className="text-xs text-red-400">{props.error}</p>
+  ) : props.hint ? (
+    <p className="text-sm leading-7 text-white/70">{props.hint}</p>
+  ) : null;
+
+  if (props.htmlFor) {
+    return (
+      <div className="space-y-2">
+        <label
+          htmlFor={props.htmlFor}
+          className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/72"
+        >
+          {labelContent}
+        </label>
+        {props.children}
+        {feedback}
+      </div>
+    );
+  }
+
   return (
     <label className="space-y-2">
       <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/72">
-        {props.label}
-        {props.optional ? (
-          <span className="text-xs font-normal normal-case tracking-normal text-white/70">(optional)</span>
-        ) : null}
-        {validity === 'valid' ? <Check className="h-3.5 w-3.5 text-emerald-400" aria-hidden /> : null}
+        {labelContent}
       </span>
       {props.children}
-      {props.error ? (
-        <p role="alert" className="text-xs text-red-400">{props.error}</p>
-      ) : props.hint ? (
-        <p className="text-sm leading-7 text-white/70">{props.hint}</p>
-      ) : null}
+      {feedback}
     </label>
   );
 }

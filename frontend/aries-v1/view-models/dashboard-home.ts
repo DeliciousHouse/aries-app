@@ -13,6 +13,7 @@ import {
   evaluateGenerateThisWeekGate,
   type GenerateThisWeekGate,
 } from '@/frontend/aries-v1/generate-this-week';
+import { failedJobLabel, isFailedExecutionState } from '@/frontend/aries-v1/view-models/execution-state';
 
 type DashboardHomePreviewItem = {
   id: string;
@@ -52,6 +53,8 @@ export interface DashboardHomeViewModel {
     pendingApprovals: string;
     trustNote: string;
     href: string;
+    failed: boolean;
+    failureLabel: string | null;
   } | null;
   publish: {
     count: number;
@@ -94,7 +97,7 @@ export interface DashboardHomeViewModel {
     }>;
   };
   workingNow: {
-    mode: 'results' | 'publish' | 'waiting';
+    mode: 'failure' | 'results' | 'publish' | 'waiting';
     title: string;
     summary: string;
     href: string;
@@ -192,6 +195,17 @@ function nextActionFor(
     };
   }
 
+  const failedPost = posts[0];
+  if (isFailedExecutionState(failedPost.executionState)) {
+    const failureLabel = failedJobLabel(failedPost.stageLabel);
+    return {
+      title: failureLabel,
+      summary: 'The latest social content job stopped before it could continue. Open the job to review the runtime failure and retry safely.',
+      href: postHref(failedPost.id),
+      label: 'View failure details',
+    };
+  }
+
   if (reviewCount > 0) {
     return {
       title: 'Review what is waiting',
@@ -241,6 +255,8 @@ export function createDashboardHomeViewModel(args: {
 }): DashboardHomeViewModel {
   const businessName = args.profile?.businessName || 'Your business';
   const activePost = args.posts[0] ?? null;
+  const activePostFailed = activePost !== null && isFailedExecutionState(activePost.executionState);
+  const activePostFailureLabel = activePostFailed ? failedJobLabel(activePost.stageLabel) : null;
   const channelItems = args.integrationCards.map(mapChannelConnection);
   const connectedCount = channelItems.filter((item) => item.health === 'connected').length;
   const attentionCount = channelItems.filter((item) => item.health === 'attention').length;
@@ -272,7 +288,17 @@ export function createDashboardHomeViewModel(args: {
     updatedLabel: formatUpdatedLabel(post.updatedAt),
   }));
   const workingNow: DashboardHomeViewModel['workingNow'] =
-    resultItems.length > 0
+    activePostFailed && activePost !== null
+      ? {
+          mode: 'failure',
+          title: activePostFailureLabel || 'Job failed',
+          summary:
+            'The current social content job stopped and needs attention. Open its runtime details to see the failing stage before retrying.',
+          href: postHref(activePost.id),
+          label: 'View failure details',
+          items: [],
+        }
+      : resultItems.length > 0
       ? {
           mode: 'results',
           title: 'Live social content jobs are sending result signal.',
@@ -322,7 +348,9 @@ export function createDashboardHomeViewModel(args: {
           value: String(args.posts.length),
           detail:
             activePost !== null
-              ? `${activePost.name} is the latest social content job in motion.`
+              ? activePostFailed
+                ? `${activePost.name} stopped during ${activePost.stageLabel || 'execution'}.`
+                : `${activePost.name} is the latest social content job in motion.`
               : 'Create your first social content job to begin.',
         },
         {
@@ -331,8 +359,10 @@ export function createDashboardHomeViewModel(args: {
           detail:
             args.reviews.length > 0
               ? 'The approval queue is waiting on a decision.'
-              : 'Nothing needs a decision right now.',
-          tone: args.reviews.length > 0 ? 'watch' : 'good',
+              : activePostFailed
+                ? 'The current job failed before another approval could be requested.'
+                : 'Nothing needs a decision right now.',
+          tone: args.reviews.length > 0 || activePostFailed ? 'watch' : 'good',
         },
         {
           label: 'Ready to publish',
@@ -390,12 +420,14 @@ export function createDashboardHomeViewModel(args: {
       },
       {
         label: 'Approvals',
-        value: args.reviews.length > 0 ? `${args.reviews.length} waiting` : 'Clear',
+        value: args.reviews.length > 0 ? `${args.reviews.length} waiting` : activePostFailed ? 'Job failed' : 'Clear',
         detail:
           args.reviews.length > 0
             ? 'Resolve the review queue before launch can continue.'
-            : 'Nothing is paused on human approval right now.',
-        tone: args.reviews.length > 0 ? 'watch' : 'good',
+            : activePostFailed
+              ? 'The current job stopped before reaching another approval checkpoint. View failure details to continue.'
+              : 'Nothing is paused on human approval right now.',
+        tone: args.reviews.length > 0 || activePostFailed ? 'watch' : 'good',
       },
     ],
     nextAction: nextActionFor(args.posts, args.reviews.length),
@@ -413,6 +445,8 @@ export function createDashboardHomeViewModel(args: {
             pendingApprovals: String(activePost.pendingApprovals),
             trustNote: activePost.trustNote,
             href: postHref(activePost.id),
+            failed: activePostFailed,
+            failureLabel: activePostFailureLabel,
           },
     publish: {
       count: readyToPublishCount,

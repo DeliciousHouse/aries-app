@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'motion/react';
 import {
+  AlertTriangle,
   ArrowRight,
   CheckCheck,
   ChevronRight,
@@ -64,14 +65,14 @@ export default function DashboardHomePresenter({
       {
         label: 'Social content',
         value: socialContentMetric?.value || '0',
-        supporting: model.activePost ? model.activePost.stageLabel : 'No active post',
+        supporting: model.activePost?.failureLabel || (model.activePost ? model.activePost.stageLabel : 'No active post'),
         icon: Layers3,
         glow: 'rgba(123,97,255,0.28)',
       },
       {
         label: 'Approvals',
-        value: approvalsMetric?.value || String(model.reviews.count),
-        supporting: model.reviews.count > 0 ? 'Waiting on review' : 'Queue is clear',
+        value: model.activePost?.failed ? 'Blocked' : approvalsMetric?.value || String(model.reviews.count),
+        supporting: model.activePost?.failureLabel || (model.reviews.count > 0 ? 'Waiting on review' : 'Queue is clear'),
         icon: CheckCheck,
         glow: 'rgba(229,192,123,0.3)',
       },
@@ -237,7 +238,7 @@ export default function DashboardHomePresenter({
                 {activeSurface.supporting}
               </motion.span>
               <span className="mt-2 text-[9px] uppercase tracking-[0.28em] text-white/70 md:text-[9px] lg:text-[11px]">
-                Current focus
+                {model.activePost?.failed ? 'Needs attention' : 'Current focus'}
               </span>
             </div>
           </div>
@@ -264,7 +265,15 @@ export default function DashboardHomePresenter({
               title={model.activePost?.name || 'No active post yet'}
               detail={model.activePost?.summary || 'Create social content and Aries will start grounding this surface in live runtime data.'}
             >
-              {model.activePost ? (
+              {model.activePost?.failed ? (
+                <Link
+                  href={model.activePost.href}
+                  className="inline-flex items-center gap-2 text-sm font-medium text-rose-200 transition-colors hover:text-rose-100"
+                >
+                  <AlertTriangle className="h-4 w-4" />
+                  View failure details
+                </Link>
+              ) : model.activePost ? (
                 <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.22em] text-white/70">
                   <span>{model.activePost.stageLabel}</span>
                   <span>{model.activePost.pendingApprovals} pending approvals</span>
@@ -418,26 +427,51 @@ export default function DashboardHomePresenter({
         >
           <div className="flex items-start justify-between p-6 pb-5">
             <div>
-              <h4 className="mb-2 text-[11px] font-bold uppercase tracking-[0.15em] text-white/70">Needs Approval</h4>
+              <h4 className="mb-2 text-[11px] font-bold uppercase tracking-[0.15em] text-white/70">
+                {model.activePost?.failed ? 'Needs Attention' : 'Needs Approval'}
+              </h4>
               <h3 className="text-xl font-semibold tracking-tight text-white">
-                {model.reviews.count > 0 ? `${model.reviews.count} items waiting` : 'Approval queue is clear'}
+                {model.activePost?.failed
+                  ? model.activePost.failureLabel
+                  : model.reviews.count > 0
+                    ? `${model.reviews.count} items waiting`
+                    : 'Approval queue is clear'}
               </h3>
             </div>
-            <Link
-              href="/review"
-              className="flex items-center gap-2 rounded-full border border-[#4a4025] bg-[#2a2515] px-4 py-2 text-white transition-colors hover:bg-[#352e18]"
-            >
-              <Layers3 className="h-4 w-4 text-[#e5c07b]" />
-              <span className="text-sm font-medium">Review Queue</span>
-              <span className="ml-1 flex h-5 w-5 items-center justify-center rounded-full bg-white/10 text-xs font-bold text-white">
-                {model.reviews.count}
-              </span>
-            </Link>
+            <div className="flex flex-col items-end gap-2">
+              <Link
+                href={model.activePost?.failed ? model.activePost.href : '/review'}
+                className="flex items-center gap-2 rounded-full border border-[#4a4025] bg-[#2a2515] px-4 py-2 text-white transition-colors hover:bg-[#352e18]"
+              >
+                {model.activePost?.failed ? (
+                  <AlertTriangle className="h-4 w-4 text-rose-300" />
+                ) : (
+                  <Layers3 className="h-4 w-4 text-[#e5c07b]" />
+                )}
+                <span className="text-sm font-medium">
+                  {model.activePost?.failed ? 'View failure details' : 'Review Queue'}
+                </span>
+                {!model.activePost?.failed ? (
+                  <span className="ml-1 flex h-5 w-5 items-center justify-center rounded-full bg-white/10 text-xs font-bold text-white">
+                    {model.reviews.count}
+                  </span>
+                ) : null}
+              </Link>
+              {model.activePost?.failed && model.reviews.count > 0 ? (
+                <Link href="/review" className="text-xs font-medium text-[#e5c07b] hover:text-white">
+                  Review {model.reviews.count} pending {model.reviews.count === 1 ? 'item' : 'items'}
+                </Link>
+              ) : null}
+            </div>
           </div>
           <div className="h-px w-full bg-white/10" />
 
           <div className="space-y-4 p-6">
-            {model.reviews.items.length === 0 ? (
+            {model.activePost?.failed ? (
+              <div className="rounded-2xl border border-rose-400/20 bg-rose-400/[0.06] p-5 text-sm leading-relaxed text-rose-100/80">
+                The current job stopped before it could reach another approval checkpoint. Open the failure details before retrying.
+              </div>
+            ) : model.reviews.items.length === 0 ? (
               <div className="rounded-2xl border border-white/[0.05] bg-[#1B1524] p-5 text-sm leading-relaxed text-white/55">
                 Nothing is waiting on approval right now. New review items will appear here when they are ready for a decision.
               </div>

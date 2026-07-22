@@ -1,8 +1,8 @@
 'use client';
 
 /**
- * Customer incident report dialog (SC-70 port) — the authenticated variant of
- * the feedback modal. Impact is asked FIRST (required, no default), then
+ * Customer incident report dialog (SC-70 port) — shared by authenticated and
+ * anonymous visitors. Impact is asked FIRST (required, no default), then
  * category, title, description, and an optional screenshot via an in-page
  * capture of the current page (see capture-screenshot.ts — AA-77) or a file
  * picker.
@@ -69,6 +69,7 @@ export default function ReportModal({ onClose }: { onClose: () => void }): React
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+  const submissionAttemptRef = useRef<{ payload: string; key: string } | null>(null);
   const reduceMotion = useReducedMotion();
 
   const [impact, setImpact] = useState<FeedbackImpact | null>(null);
@@ -170,6 +171,7 @@ export default function ReportModal({ onClose }: { onClose: () => void }): React
   }, []);
 
   const resetForm = useCallback(() => {
+    submissionAttemptRef.current = null;
     setImpact(null);
     setCategory('bug');
     setTitle('');
@@ -189,11 +191,22 @@ export default function ReportModal({ onClose }: { onClose: () => void }): React
     setPhase('submitting');
     setOutcome(null);
     try {
+      const values = { impact, category, title, description };
+      const screenshotPayload = screenshot?.payload ?? null;
+      const payload = JSON.stringify({
+        ...values,
+        title: title.trim(),
+        description: description.trim(),
+        screenshot: screenshotPayload,
+      });
+      if (submissionAttemptRef.current?.payload !== payload) {
+        submissionAttemptRef.current = { payload, key: globalThis.crypto.randomUUID() };
+      }
       const response = await fetch('/api/feedback/submit', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(
-          buildReportSubmitBody({ impact, category, title, description }, screenshot?.payload ?? null),
+          buildReportSubmitBody(values, screenshotPayload, submissionAttemptRef.current.key),
         ),
       });
       let data: Record<string, unknown> | null = null;
@@ -203,6 +216,11 @@ export default function ReportModal({ onClose }: { onClose: () => void }): React
         data = null;
       }
       const mapped = outcomeFromResponse(response.status, data);
+      if (response.status === 409) {
+        // The server rejected ownership/payload reuse. Keep the report text,
+        // but mint a fresh opaque key if the user presses Retry.
+        submissionAttemptRef.current = null;
+      }
       setOutcome(mapped);
       if (mapped.kind === 'success' || mapped.kind === 'received') {
         setPhase('success');
@@ -260,7 +278,7 @@ export default function ReportModal({ onClose }: { onClose: () => void }): React
               Report an issue
             </h2>
             <p className="mt-0.5 text-xs text-white/55">
-              Filed straight to our tracker — we&apos;ll follow up by email if needed.
+              No sign-in required. Signed-in users can receive an email follow-up.
             </p>
           </div>
           <button

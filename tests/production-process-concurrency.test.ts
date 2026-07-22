@@ -51,7 +51,7 @@ test('package and Dockerfile avoid a PM2 production dependency', () => {
 
 test('compose config exposes worker and pool knobs while preserving one upstream port', () => {
   const baseCompose = readFileSync(path.join(PROJECT_ROOT, 'docker-compose.yml'), 'utf8');
-  const baseAriesApp = baseCompose.match(/services:\n  aries-app:\n[\s\S]*?(?=\nnetworks:|\nvolumes:|$)/);
+  const baseAriesApp = baseCompose.match(/services:\r?\n  aries-app:\r?\n[\s\S]*?(?=\r?\nnetworks:|\r?\nvolumes:|$)/);
   assert.ok(baseAriesApp, 'expected to find the base aries-app service definition');
 
   assert.match(
@@ -76,7 +76,7 @@ test('compose config exposes worker and pool knobs while preserving one upstream
   );
   assert.match(
     baseAriesApp![0],
-    /ports:\n\s+- "\$\{PORT:-3000\}:\$\{PORT:-3000\}"/,
+    /ports:\r?\n\s+- "\$\{PORT:-3000\}:\$\{PORT:-3000\}"/,
     'the external reverse proxy should keep using the single published upstream port',
   );
 });

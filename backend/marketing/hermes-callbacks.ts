@@ -34,6 +34,7 @@ import { scheduleHermesPublishPerformanceHonchoWrite } from '@/backend/memory/wr
 import { approveSocialContentJob } from './orchestrator';
 import type { ApproveSocialContentJobRequest, ApproveSocialContentJobResponse } from './orchestrator';
 import { ingestProductionCreativeAssetsToDb, isVariantBoardJobAwaitingPick } from './ingest-production-assets';
+import { enforceReelCompanionVideoOutcome } from './reel-video-outcome';
 import { recomputeAndPersistPendingApprovalCount } from './runtime-views';
 import { synthesizePublishPostsFromContentPackage } from './synthesize-publish-posts';
 import { isSynthesizeOnPublishSkipEnabled } from './synthesize-on-publish-skip-env';
@@ -2140,6 +2141,10 @@ async function applyHermesMarketingCallbackInner(
       if (isSynthesizeOnPublishSkipEnabled() && !isVariantBoardJobAwaitingPick(doc)) {
         await synthesizePublishPostsOnCompletion(doc, null, { autoSchedule: false });
       }
+      // Reel-companion outcome gate. A reel companion normally takes the real
+      // publish path (one_off jobs request publishing), but if one ever lands
+      // here it must not read "completed" with no video post. No-ops otherwise.
+      await enforceReelCompanionVideoOutcome(doc, { db: pool });
       saveSocialContentJobRuntime(doc.job_id, doc);
       return;
     }
@@ -2229,6 +2234,11 @@ async function applyHermesMarketingCallbackInner(
           multiStage.get('publish')?.runId ?? payload.hermes_run_id ?? null,
         );
       }
+      // Reel-companion outcome gate: a COMPLETED reel job with no video `posts`
+      // row is flipped to failed (loud, incident-recorded) and a one-shot retry
+      // job is fired — instead of reading "completed" with nothing publishable.
+      // No-ops for every other job and for non-terminal docs; never throws.
+      await enforceReelCompanionVideoOutcome(doc, { db: pool });
       saveSocialContentJobRuntime(doc.job_id, doc);
       return;
     }
@@ -2274,8 +2284,11 @@ async function applyHermesMarketingCallbackInner(
     // Auto-advance: submit next stage when Hermes completed without approval.
     // Ordering: (i) markJobCompleted, (ii) honcho schedule, (iii) social-content
     // markers, (iv) maybeAutoAdvanceNextStage (does its own intermediate save),
-    // (v) final save below.
+    // (v) reel-companion outcome gate, (vi) final save below.
     await maybeAutoAdvanceNextStage(doc, targetStage, payload, getMarketingExecutionPort());
+    // Reel-companion outcome gate (see the multi-stage branch above): only acts
+    // on a terminal-completed reel job with no video post; no-ops otherwise.
+    await enforceReelCompanionVideoOutcome(doc, { db: pool });
     saveSocialContentJobRuntime(doc.job_id, doc);
   }
 }

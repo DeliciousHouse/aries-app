@@ -60,6 +60,8 @@ export type OnboardingDraft = {
   channels: string[];
   goal: string;
   offer: string;
+  brandVoice: string;
+  notes: string;
   competitorUrl: string;
   preview: OnboardingDraftPreview | null;
   provenance: OnboardingDraftProvenance;
@@ -78,6 +80,8 @@ type OnboardingDraftMutation = Partial<{
   channels: string[] | null;
   goal: string | null;
   offer: string | null;
+  brandVoice: string | null;
+  notes: string | null;
   competitorUrl: string | null;
   preview: OnboardingDraftPreview | null;
   provenance: Partial<OnboardingDraftProvenance> | null;
@@ -136,6 +140,8 @@ function emptyDraft(input?: Partial<OnboardingDraft>): OnboardingDraft {
     channels: stringArray(input?.channels),
     goal: stringValue(input?.goal),
     offer: stringValue(input?.offer),
+    brandVoice: stringValue(input?.brandVoice),
+    notes: stringValue(input?.notes),
     competitorUrl: stringValue(input?.competitorUrl),
     preview: input?.preview || null,
     provenance: {
@@ -255,6 +261,8 @@ function applyDraftMutation(draft: OnboardingDraft, mutation: OnboardingDraftMut
     channels: mutation.channels === undefined ? draft.channels : stringArray(mutation.channels),
     goal: mutation.goal === undefined ? draft.goal : stringValue(mutation.goal),
     offer: mutation.offer === undefined ? draft.offer : stringValue(mutation.offer),
+    brandVoice: mutation.brandVoice === undefined ? draft.brandVoice : stringValue(mutation.brandVoice),
+    notes: mutation.notes === undefined ? draft.notes : stringValue(mutation.notes),
     competitorUrl:
       mutation.competitorUrl === undefined
         ? draft.competitorUrl
@@ -284,6 +292,8 @@ type DraftRow = {
   channels: string[];
   goal: string;
   offer: string;
+  brand_voice: string;
+  notes: string;
   competitor_url: string;
   preview: OnboardingDraftPreview | null;
   provenance: OnboardingDraftProvenance;
@@ -309,6 +319,8 @@ function rowToDraft(row: DraftRow): OnboardingDraft {
     channels: row.channels,
     goal: row.goal,
     offer: row.offer,
+    brandVoice: row.brand_voice ?? '',
+    notes: row.notes ?? '',
     competitorUrl: row.competitor_url,
     preview: row.preview,
     provenance: row.provenance,
@@ -330,6 +342,8 @@ function draftToRow(draft: OnboardingDraft) {
     channels: draft.channels,
     goal: draft.goal,
     offer: draft.offer,
+    brand_voice: draft.brandVoice,
+    notes: draft.notes,
     competitor_url: draft.competitorUrl,
     preview: draft.preview ? JSON.stringify(draft.preview) : null,
     provenance: JSON.stringify(draft.provenance),
@@ -436,6 +450,27 @@ async function readFallbackDraft(draftId: string): Promise<OnboardingDraft | nul
   return null;
 }
 
+function rowHasConfirmedIdentityColumns(row: DraftRow): boolean {
+  return (
+    Object.prototype.hasOwnProperty.call(row, 'brand_voice') &&
+    Object.prototype.hasOwnProperty.call(row, 'notes')
+  );
+}
+
+async function draftFromDatabaseRowOrFallback(
+  draftId: string,
+  row: DraftRow,
+): Promise<OnboardingDraft> {
+  if (!rowHasConfirmedIdentityColumns(row)) {
+    const fallback = await readFallbackDraft(draftId);
+    if (fallback) {
+      return fallback;
+    }
+  }
+
+  return rowToDraft(row);
+}
+
 export function draftTenantId(draftId: string): string {
   return `draft_${normalizeDraftId(draftId).replace(/-/g, '')}`;
 }
@@ -453,14 +488,14 @@ export async function createOnboardingDraft(initial?: Partial<OnboardingDraft>):
     result = await pool.query<DraftRow>(
       `INSERT INTO onboarding_drafts (
         draft_id, status, website_url, business_name, business_type,
-        approver_name, channels, goal, offer, competitor_url,
+        approver_name, channels, goal, offer, brand_voice, notes, competitor_url,
         preview, provenance, materialized_tenant_id, materialized_job_id
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
       RETURNING *`,
       [
         row.draft_id, row.status, row.website_url, row.business_name, row.business_type,
-        row.approver_name, row.channels, row.goal, row.offer, row.competitor_url,
-        row.preview, row.provenance, row.materialized_tenant_id, row.materialized_job_id,
+        row.approver_name, row.channels, row.goal, row.offer, row.brand_voice, row.notes,
+        row.competitor_url, row.preview, row.provenance, row.materialized_tenant_id, row.materialized_job_id,
       ],
     );
   } catch (error) {
@@ -499,10 +534,10 @@ export async function getOnboardingDraft(draftId: string): Promise<OnboardingDra
   }
 
   if (result.rowCount === 0) {
-    return null;
+    return readFallbackDraft(normalized);
   }
 
-  return rowToDraft(result.rows[0]);
+  return draftFromDatabaseRowOrFallback(normalized, result.rows[0]);
 }
 
 export async function requireOnboardingDraft(draftId: string): Promise<OnboardingDraft> {
@@ -605,14 +640,37 @@ export async function claimOnboardingDraftMaterialization(
   }
 
   if ((result.rowCount ?? 0) > 0) {
+    if (!rowHasConfirmedIdentityColumns(result.rows[0])) {
+      const fallback = await readFallbackDraft(normalized);
+      if (fallback) {
+        return claimFallbackMaterialization(normalized);
+      }
+    }
     return {
       draft: rowToDraft(result.rows[0]),
       claimed: true,
     };
   }
 
+  let currentResult;
+  try {
+    currentResult = await pool.query<DraftRow>(
+      'SELECT * FROM onboarding_drafts WHERE draft_id = $1',
+      [normalized],
+    );
+  } catch (error) {
+    if (shouldUseFallbackDraftStore(error)) {
+      return claimFallbackMaterialization(normalized);
+    }
+    throw error;
+  }
+
+  if ((currentResult.rowCount ?? 0) === 0) {
+    return claimFallbackMaterialization(normalized);
+  }
+
   return {
-    draft: await requireOnboardingDraft(normalized),
+    draft: await draftFromDatabaseRowOrFallback(normalized, currentResult.rows[0]),
     claimed: false,
   };
 }
@@ -634,15 +692,16 @@ export async function updateOnboardingDraft(
     result = await pool.query<DraftRow>(
       `UPDATE onboarding_drafts SET
         status = $2, website_url = $3, business_name = $4, business_type = $5,
-        approver_name = $6, channels = $7, goal = $8, offer = $9, competitor_url = $10,
-        preview = $11, provenance = $12, materialized_tenant_id = $13,
-        materialized_job_id = $14, updated_at = now()
+        approver_name = $6, channels = $7, goal = $8, offer = $9,
+        brand_voice = $10, notes = $11, competitor_url = $12,
+        preview = $13, provenance = $14, materialized_tenant_id = $15,
+        materialized_job_id = $16, updated_at = now()
       WHERE draft_id = $1
       RETURNING *`,
       [
         row.draft_id, row.status, row.website_url, row.business_name, row.business_type,
-        row.approver_name, row.channels, row.goal, row.offer, row.competitor_url,
-        row.preview, row.provenance, row.materialized_tenant_id, row.materialized_job_id,
+        row.approver_name, row.channels, row.goal, row.offer, row.brand_voice, row.notes,
+        row.competitor_url, row.preview, row.provenance, row.materialized_tenant_id, row.materialized_job_id,
       ],
     );
   } catch (error) {

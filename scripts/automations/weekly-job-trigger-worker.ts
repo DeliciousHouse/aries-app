@@ -20,6 +20,19 @@
  * a warning is logged. A deliberate skip (no Meta / stale brand kit / incomplete
  * profile) keeps the claim — it is a decision, not a failure — and is logged so
  * an operator can act, without re-triggering every tick.
+ *
+ * Two hardenings against the 2026-07-20 silent week-skip (claim stamped at
+ * 14:08Z, POST hung against a wedged Hermes gateway, process recreated before
+ * the revert ever ran → tenant not due again until the NEXT Monday):
+ *   1. The submit POST carries an AbortSignal timeout
+ *      (ARIES_WEEKLY_TRIGGER_SUBMIT_TIMEOUT_MS, default 10 min) so a hung
+ *      request resolves into the normal revert-and-retry path.
+ *   2. The claim atomically writes a marketing_weekly_claims in-flight marker
+ *      (same statement, CTE) that every concluded outcome — success, deliberate
+ *      skip, failure-revert — deletes. A marker that outlives the stale window
+ *      means the attempt died mid-flight; each tick's heal arm reverts that
+ *      claim and the tenant becomes due again immediately. Gate-skips release
+ *      their marker on conclusion, so they are never healed into a re-trigger.
  */
 import 'dotenv/config';
 
@@ -32,6 +45,12 @@ import { loadTenantTimezoneOrFallback } from '@/backend/tenant/business-profile'
 import { parsePoolMax, WORKER_POOL_MAX } from '@/lib/db-pool-config';
 
 const DEFAULT_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+// Generous: the app route owns the Hermes submission (an HTTP submit, not a
+// wait-for-completion), so a healthy call is seconds — but never unbounded.
+const DEFAULT_SUBMIT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+// A claim marker must outlive any legitimately in-flight submit before it can
+// be healed, or the heal would re-trigger a tenant whose POST is still running.
+const MIN_STALE_CLAIM_WINDOW_MS = 45 * 60 * 1000; // 45 minutes
 
 // ---------------------------------------------------------------------------
 // Config
@@ -47,6 +66,18 @@ function resolveIntervalMs(): number {
   if (!raw) return DEFAULT_INTERVAL_MS;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;
+}
+
+export function resolveSubmitTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.ARIES_WEEKLY_TRIGGER_SUBMIT_TIMEOUT_MS?.trim();
+  if (!raw) return DEFAULT_SUBMIT_TIMEOUT_MS;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_SUBMIT_TIMEOUT_MS;
+}
+
+/** Stale window scales with the submit timeout so heal can never race a live POST. */
+export function resolveStaleClaimWindowMs(timeoutMs: number): number {
+  return Math.max(3 * timeoutMs, MIN_STALE_CLAIM_WINDOW_MS);
 }
 
 function resolveAppBaseUrl(): string {
@@ -153,14 +184,30 @@ export const ENABLED_ROWS_SQL = `SELECT tenant_id, day_of_week, hour, timezone, 
      FROM marketing_schedule
     WHERE enabled`;
 
+// In-flight claim marker table. The worker self-provisions it at startup
+// (prod currently runs with ARIES_SKIP_DB_INIT=1, so init-db alone would not
+// land it); the same DDL ships in scripts/init-db.js + migrations/ for record.
+export const ENSURE_CLAIMS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS marketing_weekly_claims (
+        tenant_id INTEGER PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+        claimed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        prior_last_triggered_at TIMESTAMPTZ
+      )`;
+
+export async function ensureClaimsTable(pool: Queryable): Promise<void> {
+  await pool.query(ENSURE_CLAIMS_TABLE_SQL);
+}
+
 // Atomic conditional claim. The `prev` CTE captures the pre-update
 // last_triggered_at so a failed submit can revert exactly. The row is claimed
 // (and RETURNs) only if it is still due under the lock — this is the dedup.
+// The in-flight marker rides the SAME statement: a process death can never
+// leave a claim without its marker (or vice versa), which is what makes the
+// heal arm's "stale marker ⇒ stranded attempt" inference sound.
 export const CLAIM_SQL = `WITH prev AS (
        SELECT tenant_id, last_triggered_at AS prior
          FROM marketing_schedule
         WHERE tenant_id = $1
-     )
+     ), claimed AS (
      UPDATE marketing_schedule m
         SET last_triggered_at = now(),
             last_attempt_at   = now(),
@@ -169,15 +216,60 @@ export const CLAIM_SQL = `WITH prev AS (
       WHERE m.tenant_id = prev.tenant_id
         AND m.enabled
         AND (m.last_triggered_at IS NULL OR m.last_triggered_at < $2)
-      RETURNING prev.prior AS prior_last_triggered_at`;
+      RETURNING m.tenant_id, prev.prior AS prior_last_triggered_at
+     ), marker AS (
+       INSERT INTO marketing_weekly_claims (tenant_id, claimed_at, prior_last_triggered_at)
+       SELECT c.tenant_id, now(), c.prior_last_triggered_at FROM claimed c
+       ON CONFLICT (tenant_id) DO UPDATE
+         SET claimed_at = EXCLUDED.claimed_at,
+             prior_last_triggered_at = EXCLUDED.prior_last_triggered_at
+     )
+     SELECT prior_last_triggered_at FROM claimed`;
 
-export const MARK_SUCCESS_SQL = `UPDATE marketing_schedule
+export const MARK_SUCCESS_SQL = `WITH marked AS (
+     UPDATE marketing_schedule
         SET last_success_at = now(), updated_at = now()
-      WHERE tenant_id = $1`;
+      WHERE tenant_id = $1
+     )
+     DELETE FROM marketing_weekly_claims WHERE tenant_id = $1`;
 
-export const REVERT_CLAIM_SQL = `UPDATE marketing_schedule
+export const REVERT_CLAIM_SQL = `WITH reverted AS (
+     UPDATE marketing_schedule
         SET last_triggered_at = $2, updated_at = now()
-      WHERE tenant_id = $1`;
+      WHERE tenant_id = $1
+     )
+     DELETE FROM marketing_weekly_claims WHERE tenant_id = $1`;
+
+// A deliberate gate-skip keeps the schedule claim (no retry this window) but
+// concludes the attempt: the marker is released so heal never re-triggers it.
+export const RELEASE_CLAIM_MARKER_SQL = `DELETE FROM marketing_weekly_claims WHERE tenant_id = $1`;
+
+// Heal arm: markers older than the stale window belong to attempts that died
+// mid-flight (kill between claim and revert — every live code path concludes
+// its marker). Revert the schedule claim to the marker's captured prior so the
+// tenant is due again, and clear the marker either way. The guard
+// `ms.last_triggered_at = s.claimed_at` (claim + marker share one statement's
+// now()) ensures we only ever revert the exact claim the marker recorded,
+// never a newer one; a marker whose claim no longer matches is just cleared.
+export const HEAL_STALE_CLAIMS_SQL = `WITH stale AS (
+       SELECT tenant_id, claimed_at, prior_last_triggered_at
+         FROM marketing_weekly_claims
+        WHERE claimed_at < now() - make_interval(secs => $1)
+     ), healed AS (
+     UPDATE marketing_schedule ms
+        SET last_triggered_at = s.prior_last_triggered_at,
+            updated_at        = now()
+       FROM stale s
+      WHERE ms.tenant_id = s.tenant_id
+        AND ms.last_triggered_at = s.claimed_at
+      RETURNING ms.tenant_id
+     ), cleared AS (
+       DELETE FROM marketing_weekly_claims c
+        USING stale s
+        WHERE c.tenant_id = s.tenant_id
+     )
+     SELECT s.tenant_id, (h.tenant_id IS NOT NULL) AS reverted
+       FROM stale s LEFT JOIN healed h ON h.tenant_id = s.tenant_id`;
 
 type EnabledRow = {
   tenant_id: number;
@@ -212,11 +304,18 @@ async function postTrigger(
   secret: string,
   tenantId: string,
   fetchImpl: typeof fetch,
+  timeoutMs: number,
 ): Promise<{ ok: boolean; body: TriggerResponse; httpStatus: number }> {
   const res = await fetchImpl(`${baseUrl}/api/internal/marketing/weekly-trigger`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${secret}` },
     body: JSON.stringify({ tenant_id: tenantId }),
+    // A hung submit must never outlive the revert logic: without a timeout a
+    // stalled request (wedged Hermes gateway, 2026-07-20 incident) holds the
+    // claim stamped and the whole week silently skips. On abort the caller's
+    // catch reverts the claim and the next tick retries; a submit that lands
+    // server-side anyway is collapsed by the route's idempotency guard.
+    signal: AbortSignal.timeout(timeoutMs),
   });
   let body: TriggerResponse = {};
   try {
@@ -234,6 +333,7 @@ export type WeeklyTriggerTickReport = {
   started: number;
   skipped: number;
   failed: number;
+  healed: number;
 };
 
 /**
@@ -248,11 +348,31 @@ export async function tick(
   const fetchImpl = opts.fetchImpl ?? fetch;
   const baseUrl = resolveAppBaseUrl();
   const secret = resolveInternalSecret();
-  const report: WeeklyTriggerTickReport = { scanned: 0, due: 0, claimed: 0, started: 0, skipped: 0, failed: 0 };
+  const timeoutMs = resolveSubmitTimeoutMs();
+  const report: WeeklyTriggerTickReport = { scanned: 0, due: 0, claimed: 0, started: 0, skipped: 0, failed: 0, healed: 0 };
 
   if (!baseUrl) {
     console.error('[weekly-trigger-worker] APP_BASE_URL not set; skipping tick');
     return report;
+  }
+
+  // Self-heal FIRST, so a tenant whose previous attempt died mid-flight is
+  // re-claimable within this very tick (the enabled scan below sees the
+  // reverted last_triggered_at). Best-effort: a heal failure must never take
+  // down the trigger loop.
+  try {
+    const staleSecs = Math.ceil(resolveStaleClaimWindowMs(timeoutMs) / 1000);
+    const stale = await pool.query(HEAL_STALE_CLAIMS_SQL, [staleSecs]);
+    for (const healedRow of (stale.rows as Array<{ tenant_id: number; reverted: boolean }>)) {
+      report.healed += 1;
+      console.warn('[weekly-trigger-worker] healed stranded claim (previous attempt died mid-flight); tenant due again', {
+        tenantId: String(healedRow.tenant_id), reverted: healedRow.reverted,
+      });
+    }
+  } catch (err) {
+    console.error('[weekly-trigger-worker] stale-claim heal failed (continuing)', {
+      error: (err as Error)?.message ?? String(err),
+    });
   }
 
   const enabled = await pool.query(ENABLED_ROWS_SQL);
@@ -280,7 +400,7 @@ export async function tick(
     const priorClaim = (claim.rows[0] as { prior_last_triggered_at: string | Date | null })?.prior_last_triggered_at ?? null;
 
     try {
-      const { ok, body, httpStatus } = await postTrigger(baseUrl, secret, tenantId, fetchImpl);
+      const { ok, body, httpStatus } = await postTrigger(baseUrl, secret, tenantId, fetchImpl, timeoutMs);
       if (!ok) {
         // Loud failure: revert the claim so the next tick retries this tenant.
         await pool.query(REVERT_CLAIM_SQL, [row.tenant_id, priorClaim]);
@@ -297,7 +417,10 @@ export async function tick(
           tenantId, status: body.status, jobId: body.jobId ?? null,
         });
       } else {
-        // Deliberate skip (gate). Keep the claim (no retry this window); surface.
+        // Deliberate skip (gate). Keep the claim (no retry this window) but
+        // conclude the attempt by releasing the in-flight marker — a skip must
+        // never look like a stranded claim to the heal arm.
+        await pool.query(RELEASE_CLAIM_MARKER_SQL, [row.tenant_id]);
         report.skipped += 1;
         console.warn('[weekly-trigger-worker] tenant skipped by a gate', {
           tenantId, reason: body.reason ?? 'unknown',
@@ -330,7 +453,7 @@ async function tickSafe(pool: pg.Pool): Promise<void> {
   running = true;
   try {
     const report = await tick(pool);
-    if (report.claimed > 0 || report.failed > 0) {
+    if (report.claimed > 0 || report.failed > 0 || report.healed > 0) {
       console.log(`[weekly-trigger-worker] summary ${JSON.stringify(report)}`);
     }
   } catch (error) {
@@ -365,6 +488,14 @@ async function main(): Promise<void> {
   const intervalMs = resolveIntervalMs();
   const pool = buildPool();
   console.log(`[weekly-trigger-worker] starting; interval=${intervalMs}ms`);
+
+  // Self-provision the claim-marker table: prod runs init-db with
+  // ARIES_SKIP_DB_INIT=1, so the worker cannot assume the migration applied.
+  try {
+    await ensureClaimsTable(pool);
+  } catch (error) {
+    console.error('[weekly-trigger-worker] failed to ensure marketing_weekly_claims table', error);
+  }
 
   await tickSafe(pool);
 

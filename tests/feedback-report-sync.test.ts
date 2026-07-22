@@ -34,6 +34,7 @@ function config(overrides: Partial<FeedbackReportConfig> = {}): FeedbackReportCo
 function report(overrides: Partial<SyncableReport> = {}): SyncableReport {
   return {
     id: 'aaaa1111-2222-4333-8444-555566667777',
+    submitterType: 'authenticated',
     customerSlug: 'acme',
     category: 'bug',
     impact: 'p1_account_blocked',
@@ -292,4 +293,23 @@ test('issue fields carry Bug type, mapped priority, labels, and ADF description'
   assert.equal(description.type, 'doc');
   const without = buildIssueFields(jira, report(), false);
   assert.equal(without.priority, undefined);
+});
+
+test('anonymous Jira issues are explicitly labeled and contain no fake contact attribution', () => {
+  const fields = buildIssueFields(
+    config().jira!,
+    report({
+      submitterType: 'anonymous',
+      customerSlug: 'anonymous',
+      submitterName: null,
+      submitterEmail: null,
+    }),
+    true,
+  );
+
+  assert.ok((fields.labels as string[]).includes('anonymous-feedback'));
+  const serialized = JSON.stringify(fields.description);
+  assert.ok(serialized.includes('Submitter: Anonymous'));
+  assert.ok(!serialized.includes('Name: unknown'));
+  assert.ok(!serialized.includes('Email: unknown'));
 });
