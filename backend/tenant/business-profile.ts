@@ -44,13 +44,6 @@ import {
 
 export type PrimaryGoalSource = 'explicit' | 'inferred';
 
-const LEGACY_EXPLICIT_PRIMARY_GOALS = new Set([
-  'Get leads',
-  'Sell a product or service',
-  'Increase social media presence',
-  'Gather information',
-]);
-
 export type BusinessProfileRecord = {
   tenant_id: string;
   business_name: string | null;
@@ -167,11 +160,11 @@ function stringOrNull(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
-function primaryGoalSource(value: unknown, primaryGoal: string | null): PrimaryGoalSource {
+function primaryGoalSource(value: unknown): PrimaryGoalSource {
   if (value === 'explicit' || value === 'inferred') {
     return value;
   }
-  return primaryGoal && LEGACY_EXPLICIT_PRIMARY_GOALS.has(primaryGoal) ? 'explicit' : 'inferred';
+  return 'inferred';
 }
 
 function stringArray(value: unknown): string[] {
@@ -315,7 +308,7 @@ function normalizeBusinessProfileRecord(
     website_url: normalizeMarketingWebsiteUrl(stringOrNull(value.website_url)) || null,
     business_type: stringOrNull(value.business_type),
     primary_goal: normalizedPrimaryGoal,
-    primary_goal_source: primaryGoalSource(value.primary_goal_source, normalizedPrimaryGoal),
+    primary_goal_source: primaryGoalSource(value.primary_goal_source),
     launch_approver_user_id: stringOrNull(value.launch_approver_user_id),
     launch_approver_name: stringOrNull(value.launch_approver_name),
     offer: stringOrNull(value.offer),

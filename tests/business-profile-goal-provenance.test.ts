@@ -284,9 +284,9 @@ test('both authenticated consumers keep their checked-out client through the pro
   }
 });
 
-test('a legacy persisted onboarding preset remains explicit during unrelated profile edits', async () => {
+test('a system-populated legacy preset without provenance remains inferred during unrelated profile edits', async () => {
   await withTempDataRoot(async (dataRoot) => {
-    const tenantId = 'tenant-legacy-explicit';
+    const tenantId = 'tenant-legacy-inferred';
     const profilePath = path.join(
       dataRoot,
       'generated',
@@ -297,7 +297,7 @@ test('a legacy persisted onboarding preset remains explicit during unrelated pro
     mkdirSync(path.dirname(profilePath), { recursive: true });
     writeFileSync(profilePath, JSON.stringify({
       tenant_id: tenantId,
-      business_name: 'Legacy Business',
+      business_name: 'Legacy System-Populated Business',
       primary_goal: 'Increase social media presence',
       channels: [],
     }));
@@ -307,7 +307,7 @@ test('a legacy persisted onboarding preset remains explicit during unrelated pro
         if (sql.includes('SELECT id, name')) {
           return {
             rowCount: 1,
-            rows: [{ id: 12, name: 'Legacy Business', slug: 'legacy-business' }],
+            rows: [{ id: 12, name: 'Legacy System-Populated Business', slug: 'legacy-business' }],
           };
         }
         return { rowCount: 0, rows: [] };
@@ -316,15 +316,16 @@ test('a legacy persisted onboarding preset remains explicit during unrelated pro
 
     await updateBusinessProfileWithDiagnostics(client as never, {
       tenantId,
-      businessName: 'Legacy Business Renamed',
+      businessName: 'Legacy System-Populated Business Renamed',
     });
 
     const stored = readStoredProfile(dataRoot, tenantId);
-    assert.equal(stored.primary_goal_source, 'explicit');
+    assert.equal(stored.primary_goal, 'Increase social media presence');
+    assert.equal(stored.primary_goal_source, 'inferred');
   });
 });
 
-test('database bootstrap and migration persist primary goal provenance', () => {
+test('database bootstrap and migration leave unknown legacy goal provenance inferred', () => {
   const initDbSource = readFileSync(path.join(PROJECT_ROOT, 'scripts', 'init-db.js'), 'utf8');
   const migrationSource = readFileSync(
     path.join(PROJECT_ROOT, 'migrations', '20260720000000_business_profiles_primary_goal_source.sql'),
@@ -333,5 +334,8 @@ test('database bootstrap and migration persist primary goal provenance', () => {
 
   assert.match(initDbSource, /primary_goal_source TEXT NOT NULL DEFAULT 'inferred'/);
   assert.match(migrationSource, /ADD COLUMN IF NOT EXISTS primary_goal_source TEXT NOT NULL DEFAULT 'inferred'/);
-  assert.match(migrationSource, /Increase social media presence/);
+  assert.doesNotMatch(initDbSource, /SET primary_goal_source = 'explicit'/);
+  assert.doesNotMatch(migrationSource, /SET primary_goal_source = 'explicit'/);
+  assert.doesNotMatch(initDbSource, /WHERE primary_goal IN/);
+  assert.doesNotMatch(migrationSource, /WHERE primary_goal IN/);
 });

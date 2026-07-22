@@ -129,9 +129,13 @@ export default function AriesSettingsScreen() {
     setWebsiteUrl(profile.websiteUrl || '');
     setBusinessType(profile.businessType || '');
     setPrimaryGoal(profile.primaryGoal || '');
-    setLaunchApproverUserId(profile.launchApproverUserId || '');
     setReelAudioMode(profile.reelAudioMode || 'music');
-  }, [profile?.businessName, profile?.websiteUrl, profile?.businessType, profile?.primaryGoal, profile?.launchApproverUserId, profile?.reelAudioMode]);
+  }, [profile?.businessName, profile?.websiteUrl, profile?.businessType, profile?.primaryGoal, profile?.reelAudioMode]);
+
+  useEffect(() => {
+    if (!profile) return;
+    setLaunchApproverUserId(profile.launchApproverUserId || '');
+  }, [profile?.launchApproverUserId]);
 
   async function saveBusinessProfile() {
     await business.updateProfile({

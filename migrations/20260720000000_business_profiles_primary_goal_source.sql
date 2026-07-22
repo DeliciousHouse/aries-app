@@ -1,7 +1,7 @@
 -- AA-151: distinguish goals a person explicitly chose/confirmed from goals
 -- inferred by Aries. Unknown legacy values default to inferred so the Insights
--- confirmation prompt fails safe. Exact onboarding presets are known explicit
--- selections and are backfilled to preserve their original provenance.
+-- confirmation prompt fails safe. Pre-column rows have no durable evidence of
+-- who supplied the text, so even values matching onboarding presets stay inferred.
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -14,14 +14,5 @@ BEGIN
     ALTER TABLE business_profiles
       ADD COLUMN IF NOT EXISTS primary_goal_source TEXT NOT NULL DEFAULT 'inferred'
       CHECK (primary_goal_source IN ('explicit', 'inferred'));
-
-    UPDATE business_profiles
-    SET primary_goal_source = 'explicit'
-    WHERE primary_goal IN (
-      'Get leads',
-      'Sell a product or service',
-      'Increase social media presence',
-      'Gather information'
-    );
   END IF;
 END $$;

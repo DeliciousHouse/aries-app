@@ -315,9 +315,8 @@ async function initDb() {
       ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS reel_audio_mode TEXT;
 
       -- Preserve whether the primary goal came from a person's explicit choice
-      -- or system inference. Legacy onboarding presets are known explicit UI
-      -- values and are repaired during bootstrap; all other legacy rows remain
-      -- inferred until a person confirms them.
+      -- or system inference. Pre-column rows have no durable provenance, so all
+      -- legacy values remain inferred until a person explicitly confirms them.
       DO $$
       BEGIN
         IF NOT EXISTS (
@@ -330,14 +329,6 @@ async function initDb() {
           ALTER TABLE business_profiles
             ADD COLUMN IF NOT EXISTS primary_goal_source TEXT NOT NULL DEFAULT 'inferred'
             CHECK (primary_goal_source IN ('explicit', 'inferred'));
-          UPDATE business_profiles
-          SET primary_goal_source = 'explicit'
-          WHERE primary_goal IN (
-            'Get leads',
-            'Sell a product or service',
-            'Increase social media presence',
-            'Gather information'
-          );
         END IF;
       END $$;
     `);
