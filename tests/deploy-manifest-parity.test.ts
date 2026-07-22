@@ -83,10 +83,10 @@ test('deploy workflow force-recreates every docker-compose service', () => {
     'utf8',
   );
 
-  // Services that do NOT run the shared ARIES_APP_IMAGE may be exempted here
-  // (none today — every compose service runs the app image, so all of them
-  // must roll onto the freshly built image on deploy).
-  const recreateExemptServices: string[] = [];
+  // Services that do NOT run the shared ARIES_APP_IMAGE are exempt from the
+  // app-image recreate command. aries-autoheal has its own pinned image and a
+  // dedicated, fail-closed recreate block in deploy.yml.
+  const recreateExemptServices: string[] = ['aries-autoheal'];
 
   const composeServices: string[] = [];
   let inServicesBlock = false;

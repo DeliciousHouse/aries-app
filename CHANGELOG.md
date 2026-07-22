@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.35.0 — fix(runtime): tolerate transient Hermes outages and restart unhealthy web containers
+
+Aries startup no longer aborts when the configured Hermes gateway is temporarily
+unavailable. The boot probe now retries transport failures, 408/429 responses,
+and 5xx responses three times with bounded exponential backoff, then logs degraded
+state and lets the web process serve. Bad credentials, other 4xx responses,
+incompatible capability contracts, static misconfiguration, and unrelated startup
+errors still fail fast.
+
+Production Compose now uses an Aries-specific label and digest-pinned autoheal
+sidecar to restart running-but-unhealthy web containers. Its durable policy allows
+at most three restarts per container per 15-minute window, then leaves persistent
+failure unhealthy for operator visibility until the cooldown expires. The deploy
+workflow starts and verifies that watcher before replacing the web container while
+keeping its external image outside the Aries app-image parity checks.
 ## v0.1.34.0 — feat(feedback): accept anonymous durable incident reports
 
 Visitors can now report an issue without signing in, while signed-in users keep

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -56,7 +56,7 @@ test('pending child rows now persist their error_message (silent-retry observabi
 });
 
 test('classifyRetryBackoffMinutes: FB 368 → rate-limit tier; generic → general tier; none → null', async () => {
-  const worker = await import(workerPath);
+  const worker = await import(pathToFileURL(workerPath).href);
   const classify = worker.classifyRetryBackoffMinutes as (
     outcomes: Array<{ status: string; error?: string | null }>,
     env?: Record<string, string>,

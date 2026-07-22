@@ -8,9 +8,9 @@ const repoRoot =
   candidateRoot && fs.existsSync(path.join(candidateRoot, 'package.json'))
     ? candidateRoot
     : process.cwd();
-const tsxBin = path.join(repoRoot, 'node_modules', '.bin', 'tsx');
-const nextBin = path.join(repoRoot, 'node_modules', '.bin', 'next');
-const tscBin = path.join(repoRoot, 'node_modules', '.bin', 'tsc');
+const tsxBin = path.join(repoRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+const nextBin = path.join(repoRoot, 'node_modules', 'next', 'dist', 'bin', 'next');
+const tscBin = path.join(repoRoot, 'node_modules', 'typescript', 'bin', 'tsc');
 
 const baseEnv = {
   ...process.env,
@@ -30,13 +30,17 @@ const baseEnv = {
 // the class of errors that triggered the Deploy failure in PR #283/#284
 // (second-arg signature mismatch on a route handler).
 const typegenSteps = [
-  { label: 'next typegen', bin: nextBin, args: ['typegen', '.'] },
-  { label: 'tsc --noEmit',  bin: tscBin,  args: ['--noEmit'] },
+  { label: 'next typegen', script: nextBin, args: ['typegen', '.'] },
+  { label: 'tsc --noEmit', script: tscBin, args: ['--noEmit'] },
 ];
 
 console.log('\n[verify route-type gate] next typegen + tsc --noEmit');
-for (const { label, bin, args } of typegenSteps) {
-  const result = spawnSync(bin, args, { cwd: repoRoot, env: baseEnv, stdio: 'inherit' });
+for (const { label, script, args } of typegenSteps) {
+  const result = spawnSync(process.execPath, [script, ...args], {
+    cwd: repoRoot,
+    env: baseEnv,
+    stdio: 'inherit',
+  });
   if (result.error) throw result.error;
   if ((result.status ?? 1) !== 0) {
     console.error(`\nRoute-type gate failed at: ${label}`);
@@ -196,6 +200,18 @@ const steps = [
   {
     name: 'repo-boundary guard',
     args: ['--test', 'tests/repo-boundary-guard.test.ts'],
+  },
+  {
+    // AA-144 reboot resilience: startup degrades only for classified transient
+    // Hermes failures, while the digest-pinned, Aries-scoped unhealthy watcher
+    // enforces a durable three-restart/15-minute budget. Pure/in-memory except
+    // for the policy's deterministic shell CLI; no Docker daemon is required.
+    name: 'startup and unhealthy-container recovery resilience',
+    args: [
+      '--test',
+      'tests/instrumentation-startup-resilience.test.ts',
+      'tests/container-autoheal.test.ts',
+    ],
   },
   {
     // Compose-service vs deploy-workflow recreate parity. In verify (not just
@@ -381,7 +397,7 @@ const steps = [
 
 for (const [index, step] of steps.entries()) {
   console.log(`\n[verify ${index + 1}/${steps.length}] ${step.name}`);
-  const result = spawnSync(tsxBin, step.args, {
+  const result = spawnSync(process.execPath, [tsxBin, ...step.args], {
     cwd: repoRoot,
     env: baseEnv,
     stdio: 'inherit',
