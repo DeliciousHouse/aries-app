@@ -225,10 +225,12 @@ test('brand-profile contract persists to validated runtime store and syncs prese
     assert.equal(stdout.validated_brand_profile_path, brandProfilePath);
     assert.equal(stdout.validated_website_analysis_path, websiteAnalysisPath);
     assert.equal(stdout.persistence.business_profile_path, businessProfilePath);
-    assert.equal(stdout.validated_brand_profile_path.includes('/generated/validated/'), true);
-    assert.equal(stdout.validated_brand_profile_path.includes('/lobster-stage'), false);
-    assert.equal(stdout.validated_website_analysis_path.includes('/generated/validated/'), true);
-    assert.equal(stdout.validated_website_analysis_path.includes('/lobster-stage'), false);
+    const normalizedBrandProfilePath = stdout.validated_brand_profile_path.replaceAll('\\', '/');
+    const normalizedWebsiteAnalysisPath = stdout.validated_website_analysis_path.replaceAll('\\', '/');
+    assert.equal(normalizedBrandProfilePath.includes('/generated/validated/'), true);
+    assert.equal(normalizedBrandProfilePath.includes('/lobster-stage'), false);
+    assert.equal(normalizedWebsiteAnalysisPath.includes('/generated/validated/'), true);
+    assert.equal(normalizedWebsiteAnalysisPath.includes('/lobster-stage'), false);
     assert.equal(persistedBrandProfile.brand_name, 'Sugar & Leather');
     assert.equal(persistedBrandProfile.creative_handoff.primary_cta, 'Book a consult');
     assert.deepEqual(persistedBrandProfile.proof_points.length, 3);

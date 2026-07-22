@@ -44,7 +44,7 @@ test('full verification is reusable and preserves failure logs for triage', () =
   );
   assert.match(testsWorkflow, /^      - name: Upload failure logs$/m);
   assert.match(testsWorkflow, /^        if: \$\{\{ failure\(\) \}\}$/m);
-  assert.match(testsWorkflow, /uses: actions\/upload-artifact@v4/);
+  assert.match(testsWorkflow, /uses: actions\/upload-artifact@v7/);
   assert.match(testsWorkflow, /^          path: \$\{\{ env\.ARTIFACT_DIR \}\}$/m);
   assert.match(testsWorkflow, /^          retention-days: 14$/m);
 });

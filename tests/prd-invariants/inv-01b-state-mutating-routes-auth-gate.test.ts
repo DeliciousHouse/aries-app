@@ -15,7 +15,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
-import { repoPath, walk } from './_helpers';
+import { rel, repoPath, walk } from './_helpers';
 
 // ── Auth-gate patterns ──────────────────────────────────────────────────────
 
@@ -195,7 +195,7 @@ test('every allowlist entry exists on disk (no stale paths)', () => {
 });
 
 test('state-mutating routes scan finds >=30 routes (regression guard on scanner)', () => {
-  const routeFiles = walk(repoPath('app/api')).filter((f) => f.endsWith('/route.ts'));
+  const routeFiles = walk(repoPath('app/api')).filter((f) => rel(f).endsWith('/route.ts'));
   const mutating = routeFiles.filter((f) => {
     try {
       return hasStateMutatingExport(readFileSync(f, 'utf8'));
@@ -256,7 +256,7 @@ test('getTenantContext() enforces the multi-workspace mutation guard (guard cann
 });
 
 test('every state-mutating app/api route has an auth gate or is allowlisted', () => {
-  const routeFiles = walk(repoPath('app/api')).filter((f) => f.endsWith('/route.ts'));
+  const routeFiles = walk(repoPath('app/api')).filter((f) => rel(f).endsWith('/route.ts'));
   const violations: string[] = [];
 
   for (const abs of routeFiles) {
@@ -270,9 +270,9 @@ test('every state-mutating app/api route has an auth gate or is allowlisted', ()
     if (!hasStateMutatingExport(source)) continue;
 
     // Compute the repo-relative path for allowlist lookup
-    const rel = abs.startsWith(REPO_ROOT + '/') ? abs.slice(REPO_ROOT.length + 1) : abs;
+    const relativePath = rel(abs);
 
-    if (ALLOWLIST_SET.has(rel)) continue;
+    if (ALLOWLIST_SET.has(relativePath)) continue;
 
     // Check direct (in-file) auth gate
     if (hasAuthGate(source)) continue;
@@ -295,7 +295,7 @@ test('every state-mutating app/api route has an auth gate or is allowlisted', ()
     }
 
     if (!foundVia1Hop) {
-      violations.push(rel);
+      violations.push(relativePath);
     }
   }
 
