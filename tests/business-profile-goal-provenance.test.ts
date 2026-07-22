@@ -162,24 +162,15 @@ test('deliberately confirming an unchanged inferred goal persists explicit prove
   });
 });
 
-test('database provenance upsert completes before goal-cache invalidation', async (t) => {
+test('the held request client completes the provenance upsert when the pool has no spare connection', async (t) => {
   await withTempDataRoot(async () => {
     const events: string[] = [];
-    let signalDatabaseWriteStarted: (() => void) | undefined;
-    let releaseDatabaseWrite: (() => void) | undefined;
-    const databaseWriteStarted = new Promise<void>((resolve) => {
-      signalDatabaseWriteStarted = resolve;
-    });
-    const databaseWriteReleased = new Promise<void>((resolve) => {
-      releaseDatabaseWrite = resolve;
-    });
+    let globalPoolQueryCalled = false;
+    const saturatedPoolCheckout = new Promise<never>(() => {});
 
-    t.mock.method(pool, 'query', (async () => {
-      events.push('profile-upsert-started');
-      signalDatabaseWriteStarted?.();
-      await databaseWriteReleased;
-      events.push('profile-upsert-completed');
-      return { rowCount: 1, rows: [] };
+    t.mock.method(pool, 'query', (() => {
+      globalPoolQueryCalled = true;
+      return saturatedPoolCheckout;
     }) as unknown as typeof pool.query);
 
     const client = {
@@ -190,10 +181,16 @@ test('database provenance upsert completes before goal-cache invalidation', asyn
             rows: [{ id: 42, name: 'Ordered Business', slug: 'ordered-business' }],
           };
         }
+        if (sql.includes('UPDATE organizations')) {
+          events.push('organization-updated');
+        }
+        if (sql.includes('INSERT INTO business_profiles')) {
+          events.push('profile-upserted');
+        }
         if (sql.includes('DELETE FROM insights_narratives')) {
           events.push('goal-cache-invalidated');
         }
-        return { rowCount: 0, rows: [] };
+        return { rowCount: 1, rows: [] };
       },
     };
 
@@ -202,24 +199,89 @@ test('database provenance upsert completes before goal-cache invalidation', asyn
       businessName: 'Ordered Business',
       primaryGoal: 'Stay visible every week',
     });
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timeoutHandle = setTimeout(
+        () => reject(new Error('profile update waited for a nested pool checkout')),
+        250,
+      );
+    });
 
-    await databaseWriteStarted;
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    const eventsBeforeDatabaseWriteCompleted = [...events];
-    releaseDatabaseWrite?.();
-    await update;
+    try {
+      await Promise.race([update, timeout]);
+    } finally {
+      clearTimeout(timeoutHandle);
+    }
 
-    assert.deepEqual(
-      eventsBeforeDatabaseWriteCompleted,
-      ['profile-upsert-started'],
-      'cache invalidation must wait for the profile upsert to complete',
-    );
+    assert.equal(globalPoolQueryCalled, false, 'the held client must avoid a nested pool checkout');
     assert.deepEqual(events, [
-      'profile-upsert-started',
-      'profile-upsert-completed',
+      'organization-updated',
+      'profile-upserted',
       'goal-cache-invalidated',
     ]);
   });
+});
+
+test('a failed held-client provenance upsert rejects and skips goal-cache invalidation', async (t) => {
+  await withTempDataRoot(async () => {
+    const events: string[] = [];
+    let globalPoolQueryCalled = false;
+
+    t.mock.method(pool, 'query', (async () => {
+      globalPoolQueryCalled = true;
+      throw new Error('unexpected global pool checkout');
+    }) as unknown as typeof pool.query);
+
+    const client = {
+      async query(sql: string) {
+        if (sql.includes('SELECT id, name')) {
+          return {
+            rowCount: 1,
+            rows: [{ id: 43, name: 'Fail Closed Business', slug: 'fail-closed-business' }],
+          };
+        }
+        if (sql.includes('UPDATE organizations')) {
+          events.push('organization-updated');
+          return { rowCount: 1, rows: [] };
+        }
+        if (sql.includes('INSERT INTO business_profiles')) {
+          events.push('profile-upsert-failed');
+          throw new Error('simulated provenance upsert failure');
+        }
+        if (sql.includes('DELETE FROM insights_narratives')) {
+          events.push('goal-cache-invalidated');
+        }
+        return { rowCount: 0, rows: [] };
+      },
+    };
+
+    await assert.rejects(
+      updateBusinessProfileWithDiagnostics(client as never, {
+        tenantId: '43',
+        businessName: 'Fail Closed Business',
+        primaryGoal: 'Stay visible every week',
+      }),
+      /simulated provenance upsert failure/,
+    );
+
+    assert.equal(globalPoolQueryCalled, false, 'authenticated persistence must stay on the held client');
+    assert.deepEqual(events, ['organization-updated', 'profile-upsert-failed']);
+  });
+});
+
+test('both authenticated consumers keep their checked-out client through the profile update', () => {
+  for (const [consumer, relativePath] of [
+    ['PATCH /api/business/profile', path.join('app', 'api', 'business', 'profile', 'route.ts')],
+    ['onboarding resume', path.join('app', 'onboarding', 'resume', 'page.tsx')],
+  ] as const) {
+    const source = readFileSync(path.join(PROJECT_ROOT, relativePath), 'utf8');
+    assert.match(
+      source,
+      /const client = await pool\.connect\(\);[\s\S]*?updateBusinessProfileWithDiagnostics\(client,/,
+      `${consumer} must pass its checked-out PoolClient into the authenticated update path`,
+    );
+    assert.match(source, /finally \{\s*client\.release\(\);\s*\}/, `${consumer} must release that client`);
+  }
 });
 
 test('a legacy persisted onboarding preset remains explicit during unrelated profile edits', async () => {

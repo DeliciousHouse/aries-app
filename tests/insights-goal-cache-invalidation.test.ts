@@ -71,8 +71,8 @@ test('wiring: the authenticated save path calls invalidateGoalNarrativeCache aft
   assert.match(src, /invalidateGoalNarrativeCache/, 'save path must invoke the invalidator');
   // It must AWAIT persistence before invalidation, not merely invoke a
   // fire-and-forget save first.
-  const saveIdx = src.indexOf('await saveBusinessProfileRecord({');
+  const saveIdx = src.indexOf('await saveAuthenticatedBusinessProfileRecord(client, {');
   const callIdx = src.indexOf('await invalidateGoalNarrativeCache(client, input.tenantId)');
-  assert.ok(saveIdx >= 0, 'expected the awaited save call in the update path');
-  assert.ok(callIdx > saveIdx, 'invalidation must be wired AFTER awaited saveBusinessProfileRecord');
+  assert.ok(saveIdx >= 0, 'expected the awaited held-client save call in the update path');
+  assert.ok(callIdx > saveIdx, 'invalidation must be wired AFTER the awaited authenticated save');
 });

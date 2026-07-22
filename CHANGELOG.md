@@ -14,8 +14,9 @@ canonical accessible integrations surface.
   unrelated approver change cannot silently convert inferred provenance to explicit.
 - Saving the Business Profile deliberately confirms the displayed goal and persists
   explicit provenance, including when the confirmed text is unchanged.
-- Goal provenance reaches the database before Insights invalidates its goal narrative
-  cache, preventing an immediate rebuild from copying stale provenance.
+- Authenticated goal-provenance upserts reuse the request's held database client,
+  propagate failures, and complete before Insights invalidates its goal narrative
+  cache, preventing pool exhaustion and stale provenance rebuilds.
 - Channel cards without direct actions continue to use the canonical
   `/dashboard/settings/channel-integrations` management route.
 
