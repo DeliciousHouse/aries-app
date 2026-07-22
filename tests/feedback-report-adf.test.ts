@@ -98,6 +98,22 @@ test('missing contact fields render as "unknown", never empty nodes', () => {
   assert.ok(JSON.stringify(doc).includes('Name: unknown'));
 });
 
+test('anonymous contact renders an explicit anonymous marker without invented name or email', () => {
+  const doc = buildReportAdf({
+    description: 'Public-page report.',
+    impactAnswer: 'A feature is degraded/broken',
+    category: 'bug',
+    contact: { name: null, email: null, company: 'anonymous' },
+    submitterType: 'anonymous',
+    reportId: 'rid-anon',
+    submittedAtIso: '2026-07-20T00:00:00.000Z',
+  });
+  const serialized = JSON.stringify(doc);
+  assert.ok(serialized.includes('Submitter: Anonymous'));
+  assert.ok(!serialized.includes('Name: unknown'));
+  assert.ok(!serialized.includes('Email: unknown'));
+});
+
 test('summary flattens whitespace and caps at 255 inside the service', () => {
   assert.equal(buildReportSummary('  a\n\nb\tc  '), 'a b c');
   const long = 'x'.repeat(400);

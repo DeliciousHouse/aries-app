@@ -50,17 +50,21 @@ test('client validation blocks the POST: impact required, title/description boun
 });
 
 test('INVARIANT: the POST body contains no identity or tenant fields', () => {
+  const idempotencyKey = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
   const body = buildReportSubmitBody(
     { impact: 'p1_account_blocked', category: 'bug', title: ' t ', description: ' d ' },
     { base64: 'AAAA', mime: 'image/png' },
+    idempotencyKey,
   );
   assert.deepEqual(Object.keys(body).sort(), [
     'category',
     'description',
+    'idempotency_key',
     'impact',
     'screenshot',
     'title',
   ]);
+  assert.equal(body.idempotency_key, idempotencyKey);
   assert.equal(body.title, 't');
   assert.equal(body.description, 'd');
   const serialized = JSON.stringify(body);

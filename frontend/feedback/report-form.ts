@@ -79,15 +79,17 @@ export function screenshotPayloadFromDataUrl(
 }
 
 /**
- * INVARIANT (SC-70): the POST body carries ONLY the report content — no
- * identity, tenant, or priority fields. The server derives identity from the
- * session and priority from the impact.
+ * INVARIANT (SC-70): the POST body carries only the report content plus the
+ * opaque retry key — no identity, tenant, or priority fields. The server
+ * derives identity from the session and priority from the impact.
  */
 export function buildReportSubmitBody(
   values: ReportFormValues,
   screenshot: ReportScreenshotPayload | null,
+  idempotencyKey: string,
 ): Record<string, unknown> {
   return {
+    idempotency_key: idempotencyKey,
     impact: values.impact,
     category: values.category,
     title: values.title.trim(),

@@ -5,11 +5,9 @@ import { getTenantContext } from '@/lib/tenant-context';
 import { resolveFeedbackConfig } from '@/lib/feedback/feedback-config';
 import { OVER_LIMIT, readBodyCapped } from '@/lib/http/read-body-capped';
 import { resolveFeedbackReportConfig } from '@/backend/feedback/report-config';
+import { resolveReportSubmitter } from '@/backend/feedback/report-submitter';
 import { validateReportRequest } from '@/backend/feedback/report-validation';
-import {
-  submitFeedbackReport,
-  type ReportSubmitter,
-} from '@/backend/feedback/submit-report';
+import { submitFeedbackReport } from '@/backend/feedback/submit-report';
 
 // Touches pg + node:crypto + next-auth — must run on the Node runtime.
 export const runtime = 'nodejs';
@@ -21,9 +19,9 @@ const MAX_BODY_BYTES = 4 * 1024 * 1024;
 /**
  * POST /api/feedback/submit — customer incident report (SC-70 port).
  *
- * Auth-gated (all tenant roles): unlike the legacy public /api/feedback, this
- * endpoint requires a session, and every identity/tenant value comes from that
- * session — body-supplied identity fields are ignored by the validator.
+ * Public by product decision: authenticated sessions retain server-resolved
+ * user/tenant attribution; missing or expired sessions receive an anonymous,
+ * IP-hashed rate-limit identity. Body-supplied identity fields are ignored.
  */
 export async function POST(req: Request): Promise<NextResponse> {
   // Same master kill switch as the legacy capture path.
@@ -31,40 +29,10 @@ export async function POST(req: Request): Promise<NextResponse> {
     return NextResponse.json({ status: 'error', error: 'feedback_disabled' }, { status: 503 });
   }
 
-  let submitter: ReportSubmitter | null = null;
-  try {
-    const session = await auth();
-    if (session?.user?.id) {
-      submitter = {
-        userId: String(session.user.id),
-        email: session.user.email ?? null,
-        name: session.user.name ?? null,
-        tenantId: session.user.tenantId ? String(session.user.tenantId) : null,
-        tenantSlug: session.user.tenantSlug ? String(session.user.tenantSlug) : null,
-      };
-    }
-  } catch {
-    submitter = null;
-  }
-  if (!submitter) {
-    return NextResponse.json({ status: 'error', error: 'unauthorized' }, { status: 401 });
-  }
-
-  // Authoritative tenant resolution (session claims, then DB fallback) per the
-  // repo rule that authenticated routes resolve tenant context server-side. A
-  // TenantContextError (e.g. mid-onboarding, no membership yet) keeps the
-  // session-only identity above — a tenantless user can still file a report.
-  try {
-    const tenantContext = await getTenantContext();
-    submitter = {
-      ...submitter,
-      userId: tenantContext.userId,
-      tenantId: tenantContext.tenantId,
-      tenantSlug: tenantContext.tenantSlug,
-    };
-  } catch {
-    // keep session-only identity
-  }
+  const submitter = await resolveReportSubmitter(req.headers, {
+    readSession: auth,
+    readTenantContext: getTenantContext,
+  });
 
   const raw = await readBodyCapped(req, MAX_BODY_BYTES);
   if (raw === OVER_LIMIT) {

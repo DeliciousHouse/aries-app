@@ -11,7 +11,7 @@
  * null where not applicable.
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import type { Pool } from 'pg';
 
 import pool from '@/lib/db';
@@ -19,33 +19,41 @@ import pool from '@/lib/db';
 import { resolveCustomerSlug } from './impact';
 import type { FeedbackReportConfig } from './report-config';
 import { validateReportScreenshot } from './report-screenshot';
+import type { ReportSubmitter } from './report-submitter';
 import {
   ensureFeedbackReportsTable,
+  getFeedbackReportById,
   insertReportWithLimits,
+  withFeedbackReportSyncLock,
   type FeedbackReportRecord,
+  type FeedbackReportRow,
 } from './report-store';
-import { poolSyncStore, syncReportToJira, type SyncableReport } from './report-sync';
+import {
+  poolSyncStore,
+  rowToSyncable,
+  syncReportToJira,
+  type SyncableReport,
+} from './report-sync';
 import type { ValidatedReportRequest } from './report-validation';
 
-/** Identity — resolved by the route from the server-side session ONLY. */
-export interface ReportSubmitter {
-  userId: string;
-  email: string | null;
-  name: string | null;
-  tenantId: string | null;
-  tenantSlug: string | null;
-}
+export type { ReportSubmitter } from './report-submitter';
 
 export interface SubmitReportResponseBody {
   submission_id: string | null;
   jira_ticket_key: string | null;
-  status: 'synced' | 'pending_retry' | 'rate_limited' | 'persist_failed';
+  status:
+    | 'synced'
+    | 'pending_retry'
+    | 'failed'
+    | 'rate_limited'
+    | 'idempotency_conflict'
+    | 'persist_failed';
   screenshot_discarded: string | null;
   error?: string;
 }
 
 export interface SubmitReportResult {
-  httpStatus: 201 | 202 | 429 | 503;
+  httpStatus: 201 | 202 | 409 | 429 | 503;
   body: SubmitReportResponseBody;
 }
 
@@ -54,8 +62,41 @@ export interface SubmitReportDeps {
   ensureTable?: typeof ensureFeedbackReportsTable;
   insert?: typeof insertReportWithLimits;
   sync?: typeof syncReportToJira;
-  newId?: () => string;
+  getById?: typeof getFeedbackReportById;
+  withSyncLock?: typeof withFeedbackReportSyncLock;
   now?: () => Date;
+}
+
+function requestFingerprint(
+  input: ValidatedReportRequest,
+  screenshot: { bytes: Buffer; mime: string } | null,
+  discarded: string | null,
+): string {
+  // Bind the original screenshot field even when validation discards it. Two
+  // different oversized/invalid images can share one discard reason, but key
+  // reuse must still fail closed as changed-payload tampering. The request body
+  // is capped and JSON-parsed by the route, so this digest is bounded and
+  // deterministic for a browser retry without retaining the raw input.
+  const submittedScreenshotDigest =
+    input.screenshot == null
+      ? null
+      : createHash('sha256').update(JSON.stringify(input.screenshot)).digest('hex');
+  const screenshotDigest = screenshot
+    ? createHash('sha256').update(screenshot.bytes).digest('hex')
+    : null;
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        category: input.category,
+        impact: input.impact,
+        title: input.title,
+        description: input.description,
+        screenshot: screenshot ? { mime: screenshot.mime, digest: screenshotDigest } : null,
+        submittedScreenshotDigest,
+        screenshotDiscarded: discarded,
+      }),
+    )
+    .digest('hex');
 }
 
 export async function submitFeedbackReport(
@@ -68,7 +109,9 @@ export async function submitFeedbackReport(
   const ensureTable = deps.ensureTable ?? ensureFeedbackReportsTable;
   const insert = deps.insert ?? insertReportWithLimits;
   const sync = deps.sync ?? syncReportToJira;
-  const id = (deps.newId ?? randomUUID)();
+  const getById = deps.getById ?? getFeedbackReportById;
+  const withSyncLock = deps.withSyncLock ?? withFeedbackReportSyncLock;
+  const id = input.idempotencyKey;
   const createdAt = (deps.now ?? (() => new Date()))();
 
   // A malformed/oversized screenshot is discarded with a reason — it never
@@ -77,15 +120,22 @@ export async function submitFeedbackReport(
 
   const record: FeedbackReportRecord = {
     id,
+    requestFingerprint: requestFingerprint(input, shot.screenshot, shot.discarded),
+    submitterType: submitter.attribution,
     tenantId: submitter.tenantId ?? 'unknown',
     submitterId: submitter.userId,
     submitterEmail: submitter.email,
     submitterName: submitter.name,
-    customerSlug: resolveCustomerSlug({
-      tenantSlug: submitter.tenantSlug,
-      tenantName: null,
-      tenantId: submitter.tenantId,
-    }),
+    // The public tenant bucket is a rate-limit/storage boundary, not a
+    // customer. Do not turn it into a fabricated customer identity in Jira.
+    customerSlug:
+      submitter.attribution === 'anonymous'
+        ? 'unknown'
+        : resolveCustomerSlug({
+            tenantSlug: submitter.tenantSlug,
+            tenantName: null,
+            tenantId: submitter.tenantId,
+          }),
     category: input.category,
     impact: input.impact,
     title: input.title,
@@ -94,14 +144,30 @@ export async function submitFeedbackReport(
   };
 
   // 1) Persist durably (rate limit + dedup run inside the same transaction,
-  // BEFORE the row lands).
+  // BEFORE the row lands). A matching idempotency replay bypasses both limits
+  // and is reconciled from its original durable row.
+  let replayRow: FeedbackReportRow | null = null;
   try {
     await ensureTable(db);
     const inserted = await insert(db, record, {
       userRateLimitPerHour: config.userRateLimitPerHour,
       dedupWindowSeconds: config.dedupWindowSeconds,
     });
-    if (inserted.outcome !== 'ok') {
+    if (inserted.outcome === 'idempotency_conflict') {
+      return {
+        httpStatus: 409,
+        body: {
+          submission_id: null,
+          jira_ticket_key: null,
+          status: 'idempotency_conflict',
+          screenshot_discarded: null,
+          error: 'This submission key cannot be reused. Please submit again.',
+        },
+      };
+    }
+    if (inserted.outcome === 'replay') {
+      replayRow = inserted.report;
+    } else if (inserted.outcome !== 'ok') {
       return {
         httpStatus: 429,
         body: {
@@ -134,8 +200,9 @@ export async function submitFeedbackReport(
   }
 
   // 2) The row is committed — from here every outcome is a success response.
-  const syncable: SyncableReport = {
+  const freshSyncable: SyncableReport = {
     id: record.id,
+    submitterType: record.submitterType,
     customerSlug: record.customerSlug,
     category: record.category,
     impact: record.impact,
@@ -149,31 +216,68 @@ export async function submitFeedbackReport(
     createdAtIso: createdAt.toISOString(),
   };
 
-  let ticketKey: string | null = null;
-  let syncStatus: 'synced' | 'pending_retry' = 'pending_retry';
   try {
-    const result = await sync(syncable, config, poolSyncStore(db));
-    ticketKey = result.ticketKey;
-    if (result.status === 'synced') syncStatus = 'synced';
+    return await withSyncLock(db, record.id, async (lockClient) => {
+      // A replay may have waited behind the original request's Jira cycle.
+      // Reload after acquiring the same report lock so it sees the final key
+      // and never starts a second create/search cycle concurrently.
+      const latest = (await getById(lockClient, record.id)) ?? replayRow;
+      if (latest && latest.status !== 'pending') {
+        return {
+          httpStatus: latest.jira_ticket_key ? 201 : 202,
+          body: {
+            submission_id: latest.id,
+            jira_ticket_key: latest.jira_ticket_key,
+            status: latest.status,
+            screenshot_discarded: shot.discarded,
+          },
+        };
+      }
+
+      const syncable = latest ? rowToSyncable(latest) : freshSyncable;
+      let ticketKey: string | null = null;
+      let syncStatus: 'synced' | 'pending_retry' | 'failed' = 'pending_retry';
+      try {
+        const result = await sync(syncable, config, poolSyncStore(lockClient));
+        ticketKey = result.ticketKey;
+        syncStatus = result.status;
+      } catch (error) {
+        // Store-write failures inside the sync leave the row 'pending'; the
+        // stale-pending reclaim recovers it. The report itself is safe.
+        console.error('[feedback-report]', {
+          event: 'inline-sync-failed',
+          submissionId: record.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+
+      // 201 whenever a ticket exists (even if the attachment is still
+      // syncing); 202 when parked for the retry sweep.
+      return {
+        httpStatus: ticketKey ? 201 : 202,
+        body: {
+          submission_id: record.id,
+          jira_ticket_key: ticketKey,
+          status: syncStatus,
+          screenshot_discarded: shot.discarded,
+        },
+      };
+    });
   } catch (error) {
-    // Store-write failures inside the sync leave the row 'pending'; the
-    // stale-pending reclaim recovers it. The report itself is safe.
+    // Lock/read failures also leave the committed row for stale-pending retry.
     console.error('[feedback-report]', {
       event: 'inline-sync-failed',
       submissionId: record.id,
       error: error instanceof Error ? error.message : String(error),
     });
+    return {
+      httpStatus: 202,
+      body: {
+        submission_id: record.id,
+        jira_ticket_key: replayRow?.jira_ticket_key ?? null,
+        status: 'pending_retry',
+        screenshot_discarded: shot.discarded,
+      },
+    };
   }
-
-  // 201 whenever a ticket exists (even if the attachment is still syncing);
-  // 202 when the report is parked for the retry sweep.
-  return {
-    httpStatus: ticketKey ? 201 : 202,
-    body: {
-      submission_id: record.id,
-      jira_ticket_key: ticketKey,
-      status: syncStatus,
-      screenshot_discarded: shot.discarded,
-    },
-  };
 }
