@@ -15,7 +15,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { POST } from '../app/api/internal/publishing/scheduled-dispatch/route';
 
@@ -32,7 +32,7 @@ type WorkerModule = {
 
 async function loadWorker(): Promise<WorkerModule> {
   return (await import(
-    path.join(REPO_ROOT, 'scripts', 'automations', 'scheduled-posts-worker.mjs')
+    pathToFileURL(path.join(REPO_ROOT, 'scripts', 'automations', 'scheduled-posts-worker.mjs')).href
   )) as unknown as WorkerModule;
 }
 

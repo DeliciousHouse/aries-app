@@ -180,6 +180,50 @@ test('deploy workflow force-recreates every docker-compose service', () => {
   );
 });
 
+test('deploy workflow fences scheduled publishing across schema/app rollout and fails closed', () => {
+  const deploySource = fs.readFileSync(
+    path.join(repoRoot, '.github', 'workflows', 'deploy.yml'),
+    'utf8',
+  );
+
+  const stopWorker = deploySource.indexOf('docker compose stop aries-scheduled-posts-worker');
+  const applySchema = deploySource.indexOf(
+    'docker compose run --rm --no-deps --entrypoint node aries-app scripts/init-db.js',
+  );
+  const startApp = deploySource.indexOf(
+    'ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always "${SERVICE_NAME}"',
+  );
+  const healthyGate = deploySource.indexOf('if [[ "${healthy}" != "1" ]]');
+  const restartWorker = deploySource.indexOf(
+    'ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always aries-scheduled-posts-worker',
+  );
+
+  for (const [name, index] of [
+    ['scheduled worker stop', stopWorker],
+    ['target-image schema apply', applySchema],
+    ['app rollout', startApp],
+    ['app healthy gate', healthyGate],
+    ['scheduled worker restart', restartWorker],
+  ] as const) {
+    assert.notEqual(index, -1, `deploy workflow is missing required ${name}`);
+  }
+  assert.ok(stopWorker < applySchema, 'scheduled worker stops before the migration runs');
+  assert.ok(applySchema < startApp, 'schema is applied from the target image before the new app starts');
+  assert.ok(startApp < healthyGate, 'new app starts before its health gate');
+  assert.ok(healthyGate < restartWorker, 'scheduled worker restarts only after the app is healthy');
+
+  assert.doesNotMatch(
+    deploySource,
+    /if ! ARIES_APP_IMAGE="\$\{TARGET_IMAGE\}" docker compose up -d --no-deps --force-recreate --pull always aries-scheduled-posts-worker/,
+    'the scheduled worker is required for a successful deploy, not warning-only',
+  );
+  assert.match(
+    deploySource,
+    /if \[\[ "\$\{worker_mismatches\}" -ne 0 \]\]; then[\s\S]*?exit 1/,
+    'worker manifest/image/running mismatches must fail the deploy closed',
+  );
+});
+
 test('legacy dist deploy shim cannot reintroduce the stale public onboarding path', () => {
   if (!fs.existsSync(distComposePath)) {
     assert.ok(true);

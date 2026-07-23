@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.40.0 — fix(publishing): close attribution and ownership races
+
+Scheduled and concurrent publishes now preserve one canonical provider result,
+attribute Insights immediately when matching synced data exists, and cannot let a
+reschedule or stale worker overwrite the active attempt's terminal state.
+
+### Fixed
+
+- Direct publish verification follows the durable first-writer provider ID after
+  a concurrent `23505` conflict instead of verifying or returning the losing ID.
+- Scheduled dispatches carry an immutable attempt token through the route, child
+  outcomes, and aggregate writes; live schedules reject rescheduling with `409`.
+- Dispatch success stamps matching Insights rows additively while absent rows
+  remain available for the existing later sync attribution path.
+- Production deploys stop the scheduled worker before target-image schema setup,
+  restart it only after app health passes, and fail closed on worker image drift.
+
 ## v0.1.39.0 — fix(marketing): make explicit goal provenance durable
 
 Operators can now confirm a weekly goal and see that explicit goal on the first

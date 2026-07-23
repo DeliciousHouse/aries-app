@@ -13,6 +13,7 @@ import 'dotenv/config';
 
 import pg from 'pg';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -98,7 +99,7 @@ export const CLAIM_ROW_SQL = `SELECT sp.id, sp.post_id, sp.tenant_id, sp.target_
        AND (
          (sp.dispatch_status = 'pending'
           AND (sp.next_attempt_at IS NULL OR sp.next_attempt_at <= NOW()))
-         OR (sp.dispatch_status = 'in_flight' AND sp.updated_at < $2)
+         OR (sp.dispatch_status = 'in_flight' AND sp.dispatch_claimed_at < $2)
        )
        AND (sp.campaign_end_date IS NULL OR sp.campaign_end_date >= NOW())
      FOR UPDATE OF sp SKIP LOCKED`;
@@ -113,20 +114,23 @@ export const DUE_ROWS_SQL = `SELECT id FROM scheduled_posts
        AND (
          (dispatch_status = 'pending'
           AND (next_attempt_at IS NULL OR next_attempt_at <= NOW()))
-         OR (dispatch_status = 'in_flight' AND updated_at < $2)
+         OR (dispatch_status = 'in_flight' AND dispatch_claimed_at < $2)
        )
        AND (campaign_end_date IS NULL OR campaign_end_date >= NOW())
      ORDER BY scheduled_for
      LIMIT $1`;
 
 // Parent-row claim UPDATE, exported for the same regression-test reason. $1 is
-// the scheduled_posts id. The exact updated_at text is the attempt ownership
-// token carried through post-publish writes. clock_timestamp() is used instead
-// of transaction-stable now() so every reclaim receives a fresh generation.
+// the scheduled_posts id and $2 is a worker-generated immutable ownership
+// token. Claim age has its own timestamp so scheduling/metadata writes may
+// update updated_at without stealing or extending the live attempt.
 export const MARK_IN_FLIGHT_SQL = `UPDATE scheduled_posts
-     SET dispatch_status = 'in_flight', updated_at = clock_timestamp()
+     SET dispatch_status = 'in_flight',
+         dispatch_attempt_token = $2,
+         dispatch_claimed_at = clock_timestamp(),
+         updated_at = clock_timestamp()
      WHERE id = $1
-     RETURNING updated_at::text AS attempt_token`;
+     RETURNING dispatch_attempt_token AS attempt_token`;
 
 // Dead-campaign sweep: terminally mark rows the campaign_end_date filter above
 // has made permanently unclaimable. Without this, a row that misses its window
@@ -168,7 +172,7 @@ export const SWEEP_DEAD_CAMPAIGN_SQL = `WITH dead AS (
      SELECT id, post_id FROM scheduled_posts
       WHERE campaign_end_date IS NOT NULL AND campaign_end_date < NOW()
         AND (dispatch_status = 'pending'
-             OR (dispatch_status = 'in_flight' AND updated_at < $2))
+             OR (dispatch_status = 'in_flight' AND dispatch_claimed_at < $2))
       ORDER BY scheduled_for
       LIMIT $1
       FOR UPDATE SKIP LOCKED
@@ -194,7 +198,7 @@ export const SWEEP_DEAD_CAMPAIGN_SQL = `WITH dead AS (
       WHERE sp.id = d.id
         AND sp.campaign_end_date IS NOT NULL AND sp.campaign_end_date < NOW()
         AND (sp.dispatch_status = 'pending'
-             OR (sp.dispatch_status = 'in_flight' AND sp.updated_at < $2))
+             OR (sp.dispatch_status = 'in_flight' AND sp.dispatch_claimed_at < $2))
       RETURNING sp.id, sp.post_id
    ),
    swept_children AS (
@@ -259,11 +263,11 @@ async function claimRow(client, rowId) {
 /**
  * Mark the parent row 'in_flight': a non-terminal claimed state committed
  * BEFORE the network publish runs. A crash after this commit leaves a
- * reclaimable row, never a false 'dispatched'. `updated_at` is bumped so the
- * stale-reclaim window is measured from the claim.
+ * reclaimable row, never a false 'dispatched'. A dedicated token and claimed
+ * timestamp keep attempt ownership independent from mutable business metadata.
  */
 async function markInFlight(client, rowId) {
-  const result = await client.query(MARK_IN_FLIGHT_SQL, [rowId]);
+  const result = await client.query(MARK_IN_FLIGHT_SQL, [rowId, randomUUID()]);
   const attemptToken = result.rows?.[0]?.attempt_token;
   if (!attemptToken) {
     throw new Error(`scheduled_post_claim_failed:no_attempt_token:${rowId}`);
@@ -283,7 +287,7 @@ async function lockActiveAttempt(client, rowId, attemptToken) {
      FROM scheduled_posts
      WHERE id = $1
        AND dispatch_status = 'in_flight'
-       AND updated_at = $2::timestamptz
+       AND dispatch_attempt_token = $2
      FOR UPDATE`,
     [rowId, attemptToken],
   );
@@ -373,7 +377,7 @@ async function setPlatformDispatchStatus(
          FROM scheduled_posts owner
          WHERE owner.id = $1
            AND owner.dispatch_status = 'in_flight'
-           AND owner.updated_at = $6::timestamptz
+           AND owner.dispatch_attempt_token = $6
        )`,
     [rowId, platform, status, truncated, platformPostId, attemptToken],
   );
@@ -434,7 +438,7 @@ async function syncParentRollup(client, rowId, attemptToken) {
          error_message = CASE WHEN $2 = 'failed' THEN $3 ELSE error_message END
      WHERE id = $1
        AND dispatch_status = 'in_flight'
-       AND updated_at = $4::timestamptz`,
+       AND dispatch_attempt_token = $4`,
     [rowId, rolled, firstError, attemptToken],
   );
   return result.rowCount === 1 ? rolled : null;
@@ -518,7 +522,7 @@ export function planPlatformOutcomes(platforms, results, transportError, mediaTy
  * carries each platform's outcome. Returns { results, transportError } —
  * transportError is set only when no per-platform breakdown is available.
  */
-async function dispatchWithRetry(row, baseUrl, secret) {
+async function dispatchWithRetry(row, attemptToken, baseUrl, secret) {
   const platforms = Array.isArray(row.target_platforms) ? row.target_platforms : [];
   const content = row.caption || '';
   const tenantId = String(row.tenant_id);
@@ -533,6 +537,8 @@ async function dispatchWithRetry(row, baseUrl, secret) {
   const body = JSON.stringify({
     tenant_id: tenantId,
     post_id: String(row.post_id),
+    scheduled_post_id: String(row.id),
+    dispatch_attempt_token: attemptToken,
     platforms,
     content,
     // Forward the publish shape so the dispatch route routes feed/story/reel and
@@ -686,7 +692,7 @@ export async function tick(pool) {
       // Fire the dispatch outside any transaction (network call), then write
       // each platform's real outcome to its child row and roll the parent up.
       const { results, transportError } = platformsToDispatch.length > 0
-        ? await dispatchWithRetry({ ...row, target_platforms: platformsToDispatch }, baseUrl, secret)
+        ? await dispatchWithRetry({ ...row, target_platforms: platformsToDispatch }, attemptToken, baseUrl, secret)
         : { results: [], transportError: null };
       const outcomes = planPlatformOutcomes(platformsToDispatch, results, transportError, row.media_type);
 

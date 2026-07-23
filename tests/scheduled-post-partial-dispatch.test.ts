@@ -192,6 +192,29 @@ test('worker schema: scheduled_post_dispatches child table exists in init-db.js'
   );
 });
 
+test('worker schema: scheduled_posts has a dedicated immutable attempt token and claim timestamp', () => {
+  const initDbSource = readFileSync(path.join(REPO_ROOT, 'scripts/init-db.js'), 'utf8');
+  assert.match(
+    initDbSource,
+    /ALTER TABLE scheduled_posts\s+ADD COLUMN IF NOT EXISTS dispatch_attempt_token TEXT/,
+    'attempt ownership must not reuse mutable updated_at',
+  );
+  assert.match(
+    initDbSource,
+    /ALTER TABLE scheduled_posts\s+ADD COLUMN IF NOT EXISTS dispatch_claimed_at TIMESTAMPTZ/,
+    'stale reclaim age must use an immutable claim timestamp',
+  );
+
+  const migrationPath = path.join(
+    REPO_ROOT,
+    'migrations/20260723000000_scheduled_dispatch_attempt_lease.sql',
+  );
+  assert.ok(existsSync(migrationPath), 'the dedicated attempt lease migration must exist');
+  const migrationSource = readFileSync(migrationPath, 'utf8');
+  assert.match(migrationSource, /ADD COLUMN IF NOT EXISTS dispatch_attempt_token TEXT/);
+  assert.match(migrationSource, /ADD COLUMN IF NOT EXISTS dispatch_claimed_at TIMESTAMPTZ/);
+});
+
 
 test('planPlatformOutcomes: an auth kind prefixes the error_message with a reconnect signal', async () => {
   const { planPlatformOutcomes } = await loadWorker();

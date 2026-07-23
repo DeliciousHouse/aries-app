@@ -241,3 +241,40 @@ test('upsertScheduledPost: null dims map to null params', async () => {
   assert.equal(p[8], null, 'heightPx defaults to null');
   assert.equal(p[9], null, 'durationSeconds defaults to null');
 });
+
+test('upsertScheduledPost: an in-flight publish cannot be rescheduled or mutate its attempt lease', async () => {
+  const { upsertScheduledPost } = await import('../backend/social-content/scheduled-posts');
+  const captured: { sql: string; params: unknown[] }[] = [];
+  const mockQueryable = {
+    query: async (sql: string, params: unknown[]) => {
+      captured.push({ sql, params });
+      if (sql.trim().startsWith('INSERT INTO scheduled_posts')) {
+        // PostgreSQL ON CONFLICT ... DO UPDATE WHERE dispatch_status is not
+        // in_flight returns no row when the live attempt owns this schedule.
+        return { rows: [], rowCount: 0 };
+      }
+      if (/SELECT dispatch_status FROM scheduled_posts/i.test(sql)) {
+        return { rows: [{ dispatch_status: 'in_flight' }], rowCount: 1 };
+      }
+      throw new Error(`unexpected query: ${sql}`);
+    },
+  };
+
+  await assert.rejects(
+    upsertScheduledPost(mockQueryable as never, {
+      tenantId: 15,
+      postId: 42,
+      scheduledFor: new Date('2026-06-25T09:00:00.000Z'),
+      platforms: ['facebook'],
+    }),
+    /scheduled_post_in_flight/,
+  );
+
+  const insertCall = captured.find((call) => call.sql.trim().startsWith('INSERT INTO scheduled_posts'));
+  assert.ok(insertCall);
+  assert.match(
+    insertCall.sql,
+    /WHERE scheduled_posts\.tenant_id = EXCLUDED\.tenant_id\s+AND scheduled_posts\.dispatch_status <> 'in_flight'/,
+    'the conflict update must atomically refuse to touch the mutable row while a publish is live',
+  );
+});

@@ -91,7 +91,7 @@ test('scheduled-posts worker claim queries run against real Postgres', async (t)
       //    against the live schema unless the dispatch_status CHECK constraint
       //    actually permits 'in_flight'. id=-1 matches nothing; the statement
       //    still parses, plans, and validates the constraint.
-      await client.query(MARK_IN_FLIGHT_SQL, [-1]);
+      await client.query(MARK_IN_FLIGHT_SQL, [-1, 'live-db-planner-attempt-token']);
 
       await client.query('ROLLBACK');
     } finally {

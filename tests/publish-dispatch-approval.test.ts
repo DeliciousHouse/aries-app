@@ -446,7 +446,10 @@ test('DB unique-constraint violation on concurrent inserts: persistPublishedPost
     mockPool,
   );
 
-  assert.deepEqual(persisted, { postId: '77' });
+  assert.deepEqual(persisted, {
+    postId: '77',
+    platformPostId: 'concurrent_post_id',
+  });
   assert.ok(queryCount >= 3, 'the 23505 loser must re-read the concurrent winner');
 });
 
