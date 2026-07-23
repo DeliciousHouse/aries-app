@@ -34,6 +34,8 @@ type SchedRow = {
   dispatched_at: string | null;
   error_at: string | null;
   error_message: string | null;
+  dispatch_attempt_token: string | null;
+  dispatch_claimed_at: string | null;
   updated_at: string;
   next_attempt_backoff_minutes?: number | null;
 };
@@ -96,7 +98,7 @@ class FakeClient {
         .filter(
           (r) =>
             r.dispatch_status === 'pending' ||
-            (r.dispatch_status === 'in_flight' && r.updated_at < cutoff),
+            (r.dispatch_status === 'in_flight' && (r.dispatch_claimed_at ?? '') < cutoff),
         )
         .map((r) => ({ id: r.id }));
       return { rows, rowCount: rows.length };
@@ -110,7 +112,7 @@ class FakeClient {
         (r) =>
           r.id === id &&
           (r.dispatch_status === 'pending' ||
-            (r.dispatch_status === 'in_flight' && r.updated_at < cutoff)),
+            (r.dispatch_status === 'in_flight' && (r.dispatch_claimed_at ?? '') < cutoff)),
       );
       if (!row) return { rows: [], rowCount: 0 };
       return {
@@ -166,7 +168,7 @@ class FakeClient {
       );
       const owner = store.scheduled.find((r) => r.id === spId);
       const ownsAttempt = owner?.dispatch_status === 'in_flight'
-        && owner.updated_at === attemptToken;
+        && owner.dispatch_attempt_token === attemptToken;
       if (child && ownsAttempt) {
         child.status = status;
         if (!child.platform_post_id && platformPostId) child.platform_post_id = platformPostId;
@@ -199,7 +201,7 @@ class FakeClient {
         (r) =>
           r.id === spId
           && r.dispatch_status === 'in_flight'
-          && r.updated_at === attemptToken,
+          && r.dispatch_attempt_token === attemptToken,
       );
       return {
         rows: owner ? [{ '?column?': 1 }] : [],
@@ -216,7 +218,8 @@ class FakeClient {
     }
 
     if (s.startsWith('UPDATE scheduled_posts')) {
-      // markInFlight uses ($1) id; syncParentRollup uses ($1 id, $2 status, $3 err);
+      // markInFlight uses ($1 id, $2 token); syncParentRollup uses
+      // ($1 id, $2 status, $3 err, $4 token);
       // setNextAttemptAt uses ($1 id, $2 backoff minutes).
       const id = Number(params[0]);
       const row = store.scheduled.find((r) => r.id === id);
@@ -225,16 +228,18 @@ class FakeClient {
           row.next_attempt_backoff_minutes = Number(params[1]);
         } else if (s.includes("SET dispatch_status = 'in_flight'")) {
           row.dispatch_status = 'in_flight';
-          row.updated_at = this.db.nextUpdatedAt();
+          row.dispatch_attempt_token = String(params[1]);
+          row.dispatch_claimed_at = this.db.nextUpdatedAt();
+          row.updated_at = row.dispatch_claimed_at;
           return {
-            rows: [{ attempt_token: row.updated_at }],
+            rows: [{ attempt_token: row.dispatch_attempt_token }],
             rowCount: 1,
           };
         } else {
           const attemptToken = params[3] as string | undefined;
           if (
             attemptToken !== undefined
-            && (row.dispatch_status !== 'in_flight' || row.updated_at !== attemptToken)
+            && (row.dispatch_status !== 'in_flight' || row.dispatch_attempt_token !== attemptToken)
           ) {
             return { rows: [], rowCount: 0 };
           }
@@ -294,6 +299,8 @@ function seedDueRow(db: FakeDb): void {
     dispatched_at: null,
     error_at: null,
     error_message: null,
+    dispatch_attempt_token: null,
+    dispatch_claimed_at: null,
     updated_at: new Date(Date.now() - 60_000).toISOString(),
   });
 }
@@ -344,9 +351,9 @@ test('worker commits in_flight before publish; a crash mid-publish leaves a recl
   }
 
   // --- A later worker pass re-claims the stuck row and completes it ---------
-  // Backdate updated_at so the row is past the stale-in_flight reclaim window.
+  // Backdate the immutable claim timestamp so the row is past the reclaim window.
   db.scheduled[0].dispatch_status = 'in_flight';
-  db.scheduled[0].updated_at = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  db.scheduled[0].dispatch_claimed_at = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   for (const c of db.children) c.status = 'in_flight';
 
   const realFetch2 = globalThis.fetch;
@@ -396,7 +403,7 @@ test('a stale reclaim does NOT re-dispatch a terminally-failed platform', async 
   // The row is stale in_flight (past the reclaim window). FB already failed
   // terminally; IG is still in_flight (its worker pass crashed).
   db.scheduled[0].dispatch_status = 'in_flight';
-  db.scheduled[0].updated_at = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  db.scheduled[0].dispatch_claimed_at = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   db.children.push(
     {
       scheduled_post_id: 1,
@@ -456,7 +463,7 @@ test('a fresh in_flight row (within the reclaim window) is NOT stolen by another
   seedDueRow(db);
   // A row currently in flight, claimed seconds ago — a live publish in progress.
   db.scheduled[0].dispatch_status = 'in_flight';
-  db.scheduled[0].updated_at = new Date().toISOString();
+  db.scheduled[0].dispatch_claimed_at = new Date().toISOString();
 
   process.env.APP_BASE_URL = 'https://aries.example.test';
   process.env.INTERNAL_API_SECRET = 'test-secret';
@@ -638,6 +645,79 @@ test('a platform rate-limit failure (FB 368) writes the long rate-limit backoff'
       180,
       'rate-limit tier backoff persisted — no more 60s hammering against FB 368',
     );
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('rescheduling metadata during a live publish cannot invalidate completion or cause a duplicate reclaim', async () => {
+  const { tick } = await loadWorker();
+  const db = new FakeDb();
+  seedDueRow(db);
+
+  process.env.APP_BASE_URL = 'https://aries.example.test';
+  process.env.INTERNAL_API_SECRET = 'test-secret';
+
+  let publishStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    publishStarted = resolve;
+  });
+  let releasePublish!: () => void;
+  const release = new Promise<void>((resolve) => {
+    releasePublish = resolve;
+  });
+  let fetchCalls = 0;
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async (_input, init) => {
+      fetchCalls += 1;
+      const requestBody = JSON.parse(String(init?.body)) as {
+        post_id?: string;
+        scheduled_post_id?: string;
+        dispatch_attempt_token?: string;
+      };
+      assert.equal(requestBody.post_id, '100');
+      assert.equal(requestBody.scheduled_post_id, '1');
+      assert.equal(
+        requestBody.dispatch_attempt_token,
+        db.scheduled[0]!.dispatch_attempt_token,
+        'the route request carries the immutable claim token owned by this worker generation',
+      );
+      publishStarted();
+      await release;
+      return new Response(
+        JSON.stringify({
+          status: 'ok',
+          results: [
+            { provider: 'facebook', ok: true, platformPostId: 'fb_live_reschedule_1' },
+            { provider: 'instagram', ok: true, platformPostId: 'ig_live_reschedule_1' },
+          ],
+        }),
+        { status: 202, headers: { 'content-type': 'application/json' } },
+      );
+    }) as typeof fetch;
+
+    const inProgressTick = tick(makePool(db));
+    await started;
+
+    const liveRow = db.scheduled[0]!;
+    assert.equal(liveRow.dispatch_status, 'in_flight');
+    // A scheduling/metadata write is allowed to touch updated_at. Attempt
+    // ownership must be independent of that mutable business timestamp.
+    liveRow.updated_at = db.nextUpdatedAt();
+    liveRow.caption = 'rescheduled metadata update';
+
+    releasePublish();
+    await inProgressTick;
+
+    assert.equal(db.scheduled[0]!.dispatch_status, 'dispatched', 'the live owner still completes terminally');
+    assert.ok(db.children.every((child) => child.status === 'dispatched'));
+
+    // Even if the mutable timestamp is old enough for the legacy reclaim
+    // predicate, a terminal row cannot be reclaimed and re-published.
+    db.scheduled[0]!.updated_at = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    await tick(makePool(db));
+    assert.equal(fetchCalls, 1, 'exactly one provider publish occurs');
   } finally {
     globalThis.fetch = realFetch;
   }

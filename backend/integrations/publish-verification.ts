@@ -188,14 +188,20 @@ async function repairExistingPlatformPostIdFirstWriteWins(
       RETURNING platform_post_id`,
     [args.platformPostId, existing.postId, args.tenantId, platform, idempotencyKey],
   );
-  return repaired.rows?.[0]?.platform_post_id ?? args.platformPostId;
+  const canonicalPlatformPostId = repaired.rows?.[0]?.platform_post_id?.trim();
+  if (!canonicalPlatformPostId) {
+    throw new Error(
+      `Published post reconciliation lost canonical row id=${existing.postId}`,
+    );
+  }
+  return canonicalPlatformPostId;
 }
 
 async function reconcileExistingPublishedPost(
   args: PersistPublishedPostArgs,
   existing: { postId: string; platformPostId: string | null },
   db: Pool,
-): Promise<{ postId: string }> {
+): Promise<{ postId: string; platformPostId: string }> {
   const platformPostId = await repairExistingPlatformPostIdFirstWriteWins(args, existing, db);
   await stampPublishedPostAttributionBestEffort(
     args,
@@ -203,13 +209,13 @@ async function reconcileExistingPublishedPost(
     db,
     platformPostId,
   );
-  return { postId: existing.postId };
+  return { postId: existing.postId, platformPostId };
 }
 
 export async function persistPublishedPost(
   args: PersistPublishedPostArgs,
   db: Pool,
-): Promise<{ postId: string }> {
+): Promise<{ postId: string; platformPostId: string }> {
   // Short-circuit via idempotency key before attempting insert (avoids constraint violation noise)
   if (args.idempotencyKey && args.platform) {
     const existing = await findPostByIdempotencyKey(
@@ -283,7 +289,7 @@ export async function persistPublishedPost(
   }
   const postId = String(row.id);
   await stampPublishedPostAttributionBestEffort(args, postId, db);
-  return { postId };
+  return { postId, platformPostId: args.platformPostId };
 }
 
 export async function updatePostPublishedStatus(
@@ -373,7 +379,7 @@ export async function runPublishVerification(
     );
     return {
       status: 'unverified',
-      platformPostId,
+      platformPostId: persisted.platformPostId,
       postId: persisted.postId,
       reason: 'page_token_unavailable',
       publishedAt: publishedAt.toISOString(),
@@ -396,7 +402,7 @@ export async function runPublishVerification(
   );
 
   const verification = await verifyMetaPostExists({
-    platformPostId,
+    platformPostId: persisted.platformPostId,
     pageToken,
     fetchImpl: args.fetchImpl,
   });
@@ -405,7 +411,7 @@ export async function runPublishVerification(
     await updatePostPublishedStatus(persisted.postId, 'published', args.pool);
     return {
       status: 'published',
-      platformPostId,
+      platformPostId: persisted.platformPostId,
       postId: persisted.postId,
       reason: null,
       publishedAt: publishedAt.toISOString(),
@@ -414,7 +420,7 @@ export async function runPublishVerification(
 
   return {
     status: 'unverified',
-    platformPostId,
+    platformPostId: persisted.platformPostId,
     postId: persisted.postId,
     reason: verification.reason,
     publishedAt: publishedAt.toISOString(),

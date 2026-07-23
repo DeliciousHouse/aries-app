@@ -279,7 +279,7 @@ test('persistPublishedPost: repairs a null idempotent platform id before best-ef
     pool,
   );
 
-  assert.deepEqual(persisted, { postId: sourcePost.id });
+  assert.deepEqual(persisted, { postId: sourcePost.id, platformPostId: insight.externalPostId });
   assert.equal(sourcePost.platformPostId, insight.externalPostId);
   assert.ok(
     calls.some((call) => /UPDATE posts[\s\S]*platform_post_id\s*=\s*COALESCE/i.test(call.sql)),
@@ -376,7 +376,7 @@ test('persistPublishedPost: reconciles a 23505 insert winner and keeps later att
     pool,
   );
 
-  assert.deepEqual(result, { postId: sourcePost.id });
+  assert.deepEqual(result, { postId: sourcePost.id, platformPostId: insight.externalPostId });
   assert.equal(sourcePost.platformPostId, 'ig_retry_902');
   assert.equal(lookupCount, 2);
   assert.equal(calls.filter((call) => /UPDATE posts[\s\S]*platform_post_id\s*=\s*COALESCE/i.test(call.sql)).length, 1);
@@ -480,9 +480,66 @@ test('persistPublishedPost: never overwrites an existing non-null platform id', 
     pool,
   );
 
-  assert.deepEqual(result, { postId: '903' });
+  assert.deepEqual(result, { postId: '903', platformPostId: 'first_writer_wins' });
   assert.equal(stampedPlatformPostId, 'first_writer_wins');
   assert.equal(calls.filter((call) => /UPDATE posts SET platform_post_id/i.test(call.sql)).length, 0);
+});
+
+test('runPublishVerification: a 23505 loser verifies and returns only the canonical winner provider id', async () => {
+  const winner = {
+    postId: '930',
+    platformPostId: 'fb_first_writer_930',
+  };
+  const loserPlatformPostId = 'fb_losing_concurrent_publish_930';
+  let lookupCount = 0;
+  let verifiedPlatformPostId: string | null = null;
+
+  const { pool, calls } = createMockPool(({ sql, params }) => {
+    const normalizedSql = sql.replace(/\s+/g, ' ').trim();
+    if (normalizedSql.startsWith('SELECT id, platform_post_id FROM posts')) {
+      lookupCount += 1;
+      return lookupCount === 1
+        ? { rows: [] }
+        : { rows: [{ id: winner.postId, platform_post_id: winner.platformPostId }] };
+    }
+    if (normalizedSql.startsWith('INSERT INTO posts')) {
+      throw Object.assign(new Error('concurrent idempotency winner'), { code: '23505' });
+    }
+    if (/UPDATE insights_posts/i.test(normalizedSql)) {
+      assert.equal(params[3], winner.platformPostId, 'attribution must use the canonical winner id');
+      return { rows: [], rowCount: 0 };
+    }
+    if (normalizedSql.startsWith('UPDATE posts SET published_status')) {
+      assert.deepEqual(params, ['published', winner.postId]);
+      return { rows: [], rowCount: 1 };
+    }
+    throw new Error(`unexpected query: ${normalizedSql}`);
+  });
+
+  const result = await runPublishVerification({
+    tenantId: '7',
+    provider: 'facebook',
+    caption: 'concurrent publish loser',
+    primaryOutput: { platform_post_id: loserPlatformPostId },
+    pool,
+    idempotencyKey: 'publish:concurrent:930',
+    pageTokenLookup: async () => 'page-token',
+    fetchImpl: (async (input: RequestInfo | URL) => {
+      const match = String(input).match(/\/v\d+\.\d+\/([^?]+)/);
+      verifiedPlatformPostId = match ? decodeURIComponent(match[1]) : null;
+      return new Response(JSON.stringify({ id: winner.platformPostId }), { status: 200 });
+    }) as typeof fetch,
+  });
+
+  assert.equal(lookupCount, 2);
+  assert.equal(verifiedPlatformPostId, winner.platformPostId, 'Graph verification must never inspect the losing post');
+  assert.equal(result.status, 'published');
+  assert.equal(result.postId, winner.postId);
+  assert.equal(result.platformPostId, winner.platformPostId);
+  assert.ok(
+    calls.every((call) => !call.params.includes(loserPlatformPostId) || /INSERT INTO posts/i.test(call.sql)),
+    'the losing id may appear only in its failed insert, never in verification/status/attribution writes',
+  );
 });
 
 test('runPublishVerification: happy path persists published + verifies', async () => {

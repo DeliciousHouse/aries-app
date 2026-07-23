@@ -928,6 +928,21 @@ async function initDb() {
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dispatch_status TEXT NOT NULL DEFAULT 'pending' CHECK (dispatch_status IN ('pending','in_flight','dispatched','failed'));
       ALTER TABLE scheduled_posts DROP CONSTRAINT IF EXISTS scheduled_posts_dispatch_status_check;
       ALTER TABLE scheduled_posts ADD CONSTRAINT scheduled_posts_dispatch_status_check CHECK (dispatch_status IN ('pending','in_flight','dispatched','failed'));
+      ALTER TABLE scheduled_posts
+        ADD COLUMN IF NOT EXISTS dispatch_attempt_token TEXT;
+      ALTER TABLE scheduled_posts
+        ADD COLUMN IF NOT EXISTS dispatch_claimed_at TIMESTAMPTZ;
+      -- Backfill a legacy owner identity before the worker restarts. The next
+      -- stale reclaim replaces this token, while dispatch_claimed_at preserves
+      -- the old updated_at-based reclaim age across rollout.
+      UPDATE scheduled_posts
+         SET dispatch_attempt_token = COALESCE(
+               dispatch_attempt_token,
+               md5(random()::text || clock_timestamp()::text || id::text)
+             ),
+             dispatch_claimed_at = COALESCE(dispatch_claimed_at, updated_at)
+       WHERE dispatch_status = 'in_flight'
+         AND (dispatch_attempt_token IS NULL OR dispatch_claimed_at IS NULL);
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dispatched_at TIMESTAMPTZ;
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS error_at TIMESTAMPTZ;
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS error_message TEXT;
