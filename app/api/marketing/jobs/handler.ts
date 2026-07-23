@@ -536,7 +536,7 @@ export async function handlePostMarketingJobs(
   });
 
   try {
-    persistBusinessProfileFieldsFromMarketingPayload({
+    await persistBusinessProfileFieldsFromMarketingPayload({
       tenantId: resolvedTenantId,
       tenantSlug: tenantResult.tenantContext.tenantSlug,
       payload: normalizedPayload,

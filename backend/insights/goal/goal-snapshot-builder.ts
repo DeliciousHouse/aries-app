@@ -13,7 +13,7 @@
  * contributors: top 2 posts that drove the goal metric this period.
  */
 
-import pool, { type PoolClient } from '@/lib/db';
+import type { PoolClient } from '@/lib/db';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 import { LATEST_POST_METRICS_LATERAL } from '../latest-post-metrics-sql';
 import { resolveTenantInsightsTimeZone } from '../tenant-timezone';
@@ -441,79 +441,76 @@ async function queryCategories(
 
 // ── Main builder ──────────────────────────────────────────────────────────────
 
+/** Uses the caller-owned client for every query and never releases it. */
 export async function buildGoalSnapshot(
   tenantId: number,
   period: NarrativePeriod,
   platform: string,
+  client: PoolClient,
 ): Promise<GoalSnapshot | null> {
   const days          = periodDays(period);
   const platformFilter = platform === 'all' ? null : platform;
 
-  const client = await pool.connect();
-  try {
-    // S2-3: every window is computed in the tenant's own business timezone.
-    // timestamptz columns (received_at / published_at) use the UTC instant of
-    // tenant-tz midnight; the bare DATE metric column uses the tenant-tz calendar
-    // date ($n::date). The fallback default applies only to a tenant with no zone.
-    const tz       = await resolveTenantInsightsTimeZone(client, tenantId);
-    const fromDate = tenantZonePeriodStart(days, tz);          // timestamptz windows
-    const prevFrom = tenantZonePeriodStart(days * 2, tz);
-    const fromKey  = tenantZonePeriodStartDateKey(days, tz);   // DATE-column windows
-    const prevKey  = tenantZonePeriodStartDateKey(days * 2, tz);
+  // S2-3: every window is computed in the tenant's own business timezone.
+  // timestamptz columns (received_at / published_at) use the UTC instant of
+  // tenant-tz midnight; the bare DATE metric column uses the tenant-tz calendar
+  // date ($n::date). The fallback default applies only to a tenant with no zone.
+  const tz       = await resolveTenantInsightsTimeZone(client, tenantId);
+  const fromDate = tenantZonePeriodStart(days, tz);          // timestamptz windows
+  const prevFrom = tenantZonePeriodStart(days * 2, tz);
+  const fromKey  = tenantZonePeriodStartDateKey(days, tz);   // DATE-column windows
+  const prevKey  = tenantZonePeriodStartDateKey(days * 2, tz);
 
-    // Fetch primary_goal from business profile
-    const profileRes = await client.query<{
-      primary_goal: string | null;
-      primary_goal_source: GoalProvenance | null;
-    }>(
-      `SELECT primary_goal, primary_goal_source FROM business_profiles WHERE tenant_id = $1 LIMIT 1`,
-      [tenantId],
-    );
-    const rawGoal = profileRes.rows[0]?.primary_goal ?? null;
-    if (!rawGoal) return null;
+  // Fetch primary_goal from business profile
+  const profileRes = await client.query<{
+    primary_goal: string | null;
+    primary_goal_source: GoalProvenance | null;
+  }>(
+    `SELECT primary_goal, primary_goal_source FROM business_profiles WHERE tenant_id = $1 LIMIT 1`,
+    [tenantId],
+  );
+  const rawGoal = profileRes.rows[0]?.primary_goal ?? null;
+  if (!rawGoal) return null;
 
-    const { goal, inferred: goalInferred } = resolveGoalWithProvenance(
-      rawGoal,
-      profileRes.rows[0]?.primary_goal_source,
-    );
+  const { goal, inferred: goalInferred } = resolveGoalWithProvenance(
+    rawGoal,
+    profileRes.rows[0]?.primary_goal_source,
+  );
 
-    // Fetch metric for current + previous period
-    let current: number;
-    let prev: number;
-    let secondary: number | null;
+  // Fetch metric for current + previous period
+  let current: number;
+  let prev: number;
+  let secondary: number | null;
 
-    if (goal === 'lead_generation') {
-      // received_at (timestamptz) → instant window.
-      ({ current, prev, secondary } = await queryLeadGeneration(client, tenantId, fromDate, prevFrom, platformFilter));
-    } else if (goal === 'content_growth') {
-      // account_metrics_daily.date (DATE) → date-key window.
-      ({ current, prev, secondary } = await queryContentGrowth(client, tenantId, fromKey, prevKey, platformFilter));
-    } else if (goal === 'product_sales') {
-      ({ current, prev, secondary } = await queryProductSales(client, tenantId, fromKey, prevKey, platformFilter));
-    } else {
-      ({ current, prev, secondary } = await queryBrandAwareness(client, tenantId, fromKey, prevKey, platformFilter));
-    }
-
-    const contributors = await queryContributors(client, tenantId, goal, fromDate, platformFilter);
-    const categories   = await queryCategories(client, tenantId, goal, fromDate, platformFilter);
-
-    return {
-      goal,
-      goalLabel:      goalLabel(goal),
-      platform,
-      period,
-      metricValue:    current,
-      metricValuePrev: prev,
-      metricDelta:    pctDelta(current, prev),
-      metricLabel:    metricLabel(goal),
-      secondaryValue: secondary,
-      secondaryLabel: goal === 'product_sales' ? 'profile visits' : null,
-      contributors,
-      categories,
-      hasData:        current > 0 || prev > 0,
-      goalInferred,
-    };
-  } finally {
-    client.release();
+  if (goal === 'lead_generation') {
+    // received_at (timestamptz) → instant window.
+    ({ current, prev, secondary } = await queryLeadGeneration(client, tenantId, fromDate, prevFrom, platformFilter));
+  } else if (goal === 'content_growth') {
+    // account_metrics_daily.date (DATE) → date-key window.
+    ({ current, prev, secondary } = await queryContentGrowth(client, tenantId, fromKey, prevKey, platformFilter));
+  } else if (goal === 'product_sales') {
+    ({ current, prev, secondary } = await queryProductSales(client, tenantId, fromKey, prevKey, platformFilter));
+  } else {
+    ({ current, prev, secondary } = await queryBrandAwareness(client, tenantId, fromKey, prevKey, platformFilter));
   }
+
+  const contributors = await queryContributors(client, tenantId, goal, fromDate, platformFilter);
+  const categories   = await queryCategories(client, tenantId, goal, fromDate, platformFilter);
+
+  return {
+    goal,
+    goalLabel:      goalLabel(goal),
+    platform,
+    period,
+    metricValue:    current,
+    metricValuePrev: prev,
+    metricDelta:    pctDelta(current, prev),
+    metricLabel:    metricLabel(goal),
+    secondaryValue: secondary,
+    secondaryLabel: goal === 'product_sales' ? 'profile visits' : null,
+    contributors,
+    categories,
+    hasData:        current > 0 || prev > 0,
+    goalInferred,
+  };
 }
