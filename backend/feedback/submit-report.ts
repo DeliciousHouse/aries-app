@@ -212,6 +212,7 @@ export async function submitFeedbackReport(
     createdAtIso: createdAt.toISOString(),
   };
 
+  let unreclaimedFailedReplay = replayRow?.status === 'failed' ? replayRow : null;
   try {
     return await withSyncLock(db, record.id, async (lockClient) => {
       // A replay may have waited behind the original request's Jira cycle.
@@ -219,7 +220,14 @@ export async function submitFeedbackReport(
       // and never starts a second create/search cycle concurrently.
       let latest = (await getById(lockClient, record.id)) ?? replayRow;
       if (latest?.status === 'failed') {
-        await reclaimFailed(lockClient, latest.id);
+        unreclaimedFailedReplay = latest;
+        const reclaimed = await reclaimFailed(lockClient, latest.id);
+        if (!reclaimed) {
+          throw new Error('Failed feedback report did not transition to pending');
+        }
+        // reclaimFailed resolves only after the durable transition. Exceptions
+        // leave the known terminal row intact for the outer 503 path.
+        unreclaimedFailedReplay = null;
         latest = { ...latest, status: 'pending', attempts: 0 };
       }
       if (latest && latest.status !== 'pending') {
@@ -269,12 +277,29 @@ export async function submitFeedbackReport(
       };
     });
   } catch (error) {
-    // Lock/read failures also leave the committed row for stale-pending retry.
+    // A failed replay stays terminal until reclaim durably succeeds. Never
+    // misreport that known terminal row as a 202 pending retry merely because
+    // the lock/read/reclaim path threw.
     console.error('[feedback-report]', {
       event: 'inline-sync-failed',
       submissionId: record.id,
       error: error instanceof Error ? error.message : String(error),
     });
+    if (unreclaimedFailedReplay) {
+      return {
+        httpStatus: 503,
+        body: {
+          submission_id: unreclaimedFailedReplay.id,
+          jira_ticket_key: unreclaimedFailedReplay.jira_ticket_key,
+          status: 'failed',
+          screenshot_discarded: shot.discarded,
+          error:
+            'Your report was saved, but Jira delivery needs attention. Retry to reconcile it safely.',
+        },
+      };
+    }
+    // Other lock/read failures leave a committed non-terminal row for the
+    // stale-pending retry sweep.
     return {
       httpStatus: 202,
       body: {

@@ -121,17 +121,52 @@ export async function ensureFeedbackReportsTable(pool: Pool): Promise<void> {
       ADD COLUMN IF NOT EXISTS request_fingerprint TEXT NOT NULL DEFAULT ''
   `);
   await pool.query(`
-    ALTER TABLE feedback_reports
-      ADD COLUMN IF NOT EXISTS jira_create_state TEXT NOT NULL DEFAULT 'not_started'
-        CHECK (jira_create_state IN ('not_started','in_flight','uncertain','completed')),
-      ADD COLUMN IF NOT EXISTS jira_create_token TEXT,
-      ADD COLUMN IF NOT EXISTS attachment_state TEXT NOT NULL DEFAULT 'none'
-        CHECK (attachment_state IN ('none','in_flight','uncertain','completed','retained_private'))
-  `);
-  await pool.query(`
-    UPDATE feedback_reports
-       SET attachment_state = 'retained_private'
-     WHERE screenshot_bytes IS NOT NULL AND attachment_state = 'none'
+    DO $feedback_delivery_state$
+    DECLARE
+      jira_create_state_was_missing BOOLEAN;
+      attachment_state_was_missing BOOLEAN;
+    BEGIN
+      LOCK TABLE feedback_reports IN ACCESS EXCLUSIVE MODE;
+
+      SELECT NOT EXISTS (
+        SELECT 1
+          FROM information_schema.columns
+         WHERE table_schema = current_schema()
+           AND table_name = 'feedback_reports'
+           AND column_name = 'jira_create_state'
+      ) INTO jira_create_state_was_missing;
+      SELECT NOT EXISTS (
+        SELECT 1
+          FROM information_schema.columns
+         WHERE table_schema = current_schema()
+           AND table_name = 'feedback_reports'
+           AND column_name = 'attachment_state'
+      ) INTO attachment_state_was_missing;
+
+      ALTER TABLE feedback_reports
+        ADD COLUMN IF NOT EXISTS jira_create_state TEXT NOT NULL DEFAULT 'not_started'
+          CHECK (jira_create_state IN ('not_started','in_flight','uncertain','completed')),
+        ADD COLUMN IF NOT EXISTS jira_create_token TEXT,
+        ADD COLUMN IF NOT EXISTS attachment_state TEXT NOT NULL DEFAULT 'none'
+          CHECK (attachment_state IN ('none','in_flight','uncertain','completed','retained_private'));
+
+      IF jira_create_state_was_missing THEN
+        UPDATE feedback_reports
+           SET jira_create_state = 'completed'
+         WHERE jira_ticket_key IS NOT NULL;
+        UPDATE feedback_reports
+           SET jira_create_state = 'uncertain',
+               jira_create_token = COALESCE(jira_create_token, 'aries-sub-' || id)
+         WHERE jira_ticket_key IS NULL;
+      END IF;
+
+      IF attachment_state_was_missing THEN
+        UPDATE feedback_reports
+           SET attachment_state = 'uncertain'
+         WHERE screenshot_bytes IS NOT NULL;
+      END IF;
+    END
+    $feedback_delivery_state$
   `);
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_feedback_reports_status_updated
@@ -198,7 +233,9 @@ export async function insertReportWithLimits(
     await client.query('BEGIN');
 
     // The browser key is global, so serialize it before checking ownership.
-    // A replay from another identity cannot race the original INSERT into a
+    // This block must stay ahead of the shared/per-user limits and duplicate
+    // check: a valid replay still succeeds after the first request consumes the
+    // last quota slot. Another identity cannot race the original INSERT into a
     // unique-constraint error or observe an uncommitted row.
     await client.query(
       `SELECT pg_advisory_xact_lock(hashtext('feedback-report-idempotency'), hashtext($1))`,
@@ -329,16 +366,18 @@ export async function getFeedbackReportById(
 export async function reclaimFailedReportForRetry(
   pool: Pool | PoolClient,
   id: string,
-): Promise<void> {
-  await pool.query(
-    `UPDATE feedback_reports SET
-       status = 'pending',
-       attempts = 0,
-       last_error = 'manual_retry_requested',
-       updated_at = now()
-     WHERE id = $1 AND status = 'failed'`,
+): Promise<boolean> {
+  const result = await pool.query(
+    `UPDATE feedback_reports
+        SET status = 'pending',
+            attempts = 0,
+            last_error = 'manual_retry_requested',
+            updated_at = now()
+      WHERE id = $1 AND status = 'failed'
+      RETURNING id`,
     [id],
   );
+  return result.rowCount === 1;
 }
 
 /**
@@ -436,13 +475,18 @@ export async function recordReportCreateReconcileMiss(
   );
 }
 
-/** Full success: synced, with unredacted screenshots retained privately. */
+/**
+ * Full success: synced, with new unredacted screenshots retained privately.
+ * A legacy `uncertain` attachment state is historical evidence that the old
+ * schema cannot resolve, so completing Jira reconciliation must preserve it.
+ */
 export async function markReportSynced(pool: Pool | PoolClient, id: string): Promise<void> {
   await pool.query(
     `UPDATE feedback_reports SET
        status = 'synced',
        attachment_state = CASE
          WHEN screenshot_bytes IS NULL THEN 'none'
+         WHEN attachment_state = 'uncertain' THEN 'uncertain'
          ELSE 'retained_private'
        END,
        last_error = NULL,

@@ -127,6 +127,7 @@ export function outcomeFromResponse(
     status?: unknown;
     screenshot_discarded?: unknown;
     error?: unknown;
+    message?: unknown;
   } | null,
 ): ReportOutcome {
   const discarded = typeof body?.screenshot_discarded === 'string' ? body.screenshot_discarded : null;
@@ -156,11 +157,17 @@ export function outcomeFromResponse(
           : 'Too many reports right now. Please try again shortly.',
     };
   }
+  const safeServerMessage =
+    typeof body?.message === 'string'
+      ? body.message
+      : (body?.status === 'failed' || body?.status === 'persist_failed') &&
+          typeof body.error === 'string'
+        ? body.error
+        : null;
   return {
     kind: 'error',
     message:
-      body?.status === 'failed' && typeof body.error === 'string'
-        ? body.error
-        : "We couldn't send that just now. Your text is saved — please retry.",
+      safeServerMessage ??
+      "We couldn't send that just now. Your text is still here — please retry.",
   };
 }

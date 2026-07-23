@@ -166,3 +166,23 @@ test('429 keeps the server message; network/5xx map to a generic retryable error
   assert.equal(terminal.kind, 'error');
   assert.equal(terminal.message, 'Your report was saved. Retry to reconcile it safely.');
 });
+
+test('workspace and persistence failures use safe server copy without claiming the report was saved', () => {
+  const workspace = outcomeFromResponse(409, {
+    status: 'error',
+    message: 'This tab is using a different workspace. Your action was not performed.',
+  });
+  assert.equal(workspace.kind, 'error');
+  assert.equal(
+    workspace.message,
+    'This tab is using a different workspace. Your action was not performed.',
+  );
+
+  const persist = outcomeFromResponse(503, {
+    status: 'persist_failed',
+    error: 'We could not save your report. Please retry.',
+  });
+  assert.equal(persist.kind, 'error');
+  assert.equal(persist.message, 'We could not save your report. Please retry.');
+  assert.doesNotMatch(persist.message, /was saved/i);
+});

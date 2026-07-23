@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import pg from 'pg';
 
@@ -12,11 +13,13 @@ import {
   markReportTicketKey,
   recordReportFailure,
   resetFeedbackReportsEnsuredForTests,
+  withFeedbackReportSyncLock,
   type FeedbackReportRecord,
 } from '../backend/feedback/report-store';
+import type { FeedbackReportConfig } from '../backend/feedback/report-config';
+import { poolSyncStore, rowToSyncable, syncReportToJira } from '../backend/feedback/report-sync';
 import { runFeedbackRetrySweep } from '../backend/feedback/retry-sweep';
 import { resolveReportSubmitter } from '../backend/feedback/report-submitter';
-import type { syncReportToJira } from '../backend/feedback/report-sync';
 import { submitFeedbackReport } from '../backend/feedback/submit-report';
 import {
   assertWorkspacePinMatches,
@@ -76,8 +79,157 @@ test('feedback_reports store: limits, claim, boundary, and sync against real Pos
   });
 
   try {
+    // Reproduce an upgrade from the populated pre-AA-167 schema before the
+    // normal on-demand bootstrap runs. A keyless legacy row may have reached
+    // Jira and lost the acknowledgement even when attempts/status were never
+    // updated, so every pre-existing keyless row must enter reconciliation.
+    const legacySchema = readFileSync(
+      new URL('../migrations/20260703000000_feedback_reports.sql', import.meta.url),
+      'utf8',
+    );
+    const deliveryStateMigration = readFileSync(
+      new URL('../migrations/20260723000000_feedback_reports_delivery_states.sql', import.meta.url),
+      'utf8',
+    );
+    const initDbSource = readFileSync(new URL('../scripts/init-db.js', import.meta.url), 'utf8');
+    const initDbDeliveryState =
+      /DO \$feedback_delivery_state\$[\s\S]*?\$feedback_delivery_state\$;/.exec(initDbSource)?.[0];
+    assert.ok(initDbDeliveryState, 'scripts/init-db.js must carry the delivery-state bootstrap');
+    const legacyRowsSql = `
+      INSERT INTO feedback_reports (
+        id, tenant_id, submitter_id, category, impact, title, description,
+        screenshot_bytes, screenshot_mime, jira_ticket_key, status, attempts, last_error
+      ) VALUES
+        ('legacy-known-key', 'legacy-tenant', 'legacy-user', 'bug', 'p2_feature_degraded',
+         'known key', 'already delivered', NULL, NULL, 'AA-700', 'synced', 1, NULL),
+        ('legacy-attempted-keyless', 'legacy-tenant', 'legacy-user', 'bug', 'p2_feature_degraded',
+         'attempted keyless', 'delivery acknowledgement was lost', $1, 'image/png', NULL,
+         'pending_retry', 1, 'jira create failed'),
+        ('legacy-crash-keyless', 'legacy-tenant', 'legacy-user', 'bug', 'p2_feature_degraded',
+         'crash keyless', 'process died before bookkeeping', NULL, NULL, NULL, 'pending', 0, NULL)
+    `;
+    const expectedLegacyStates = [
+      {
+        id: 'legacy-attempted-keyless',
+        jira_create_state: 'uncertain',
+        jira_create_token: 'aries-sub-legacy-attempted-keyless',
+        attachment_state: 'uncertain',
+      },
+      {
+        id: 'legacy-crash-keyless',
+        jira_create_state: 'uncertain',
+        jira_create_token: 'aries-sub-legacy-crash-keyless',
+        attachment_state: 'none',
+      },
+      {
+        id: 'legacy-known-key',
+        jira_create_state: 'completed',
+        jira_create_token: null,
+        attachment_state: 'none',
+      },
+    ];
+    await pool.query(legacySchema);
+    await pool.query(legacyRowsSql, [Buffer.from('legacy-image')]);
+    await pool.query(deliveryStateMigration);
+    const migratedLegacy = await pool.query<{
+      id: string;
+      jira_create_state: string;
+      jira_create_token: string | null;
+      attachment_state: string;
+    }>(`
+      SELECT id, jira_create_state, jira_create_token, attachment_state
+        FROM feedback_reports
+       WHERE id LIKE 'legacy-%'
+       ORDER BY id
+    `);
+    assert.deepEqual(migratedLegacy.rows, expectedLegacyStates);
+
+    // Execute the exact scripts/init-db bootstrap against another populated
+    // legacy table, not a hand-copied approximation.
+    await pool.query('DROP TABLE feedback_reports');
+    await pool.query(legacySchema);
+    await pool.query(legacyRowsSql, [Buffer.from('legacy-image')]);
+    await pool.query(initDbDeliveryState);
+    const initDbLegacy = await pool.query<{
+      id: string;
+      jira_create_state: string;
+      jira_create_token: string | null;
+      attachment_state: string;
+    }>(`
+      SELECT id, jira_create_state, jira_create_token, attachment_state
+        FROM feedback_reports
+       WHERE id LIKE 'legacy-%'
+       ORDER BY id
+    `);
+    assert.deepEqual(initDbLegacy.rows, expectedLegacyStates);
+
+    // The on-demand application bootstrap must make the same first-upgrade
+    // decision, without reclassifying future not_started rows on every restart.
+    await pool.query('DROP TABLE feedback_reports');
+    await pool.query(legacySchema);
+    await pool.query(legacyRowsSql, [Buffer.from('legacy-image')]);
     resetFeedbackReportsEnsuredForTests();
     await ensureFeedbackReportsTable(pool);
+    const bootstrappedLegacy = await pool.query<{
+      id: string;
+      jira_create_state: string;
+      jira_create_token: string | null;
+      attachment_state: string;
+    }>(`
+      SELECT id, jira_create_state, jira_create_token, attachment_state
+        FROM feedback_reports
+       WHERE id LIKE 'legacy-%'
+       ORDER BY id
+    `);
+    assert.deepEqual(bootstrappedLegacy.rows, expectedLegacyStates);
+
+    const migratedKeyless = await getFeedbackReportById(pool, 'legacy-attempted-keyless');
+    assert.ok(migratedKeyless);
+    let legacyCreateCalls = 0;
+    const legacyReconcile = await syncReportToJira(
+      rowToSyncable(migratedKeyless),
+      {
+        jira: {
+          baseUrl: 'https://example.atlassian.net',
+          email: 'bot@example.com',
+          apiToken: 'test-token',
+          projectKey: 'AA',
+          issueType: 'Bug',
+        },
+        maxImageBytes: 2_000_000,
+        userRateLimitPerHour: 10,
+        sharedRateLimitPerHour: 100,
+        dedupWindowSeconds: 60,
+        retryIntervalMinutes: 5,
+        retryBatchLimit: 10,
+        retryMaxAttempts: 5,
+        stalePendingMinutes: 15,
+      } satisfies FeedbackReportConfig,
+      poolSyncStore(pool),
+      {
+        searchIssueKeyByLabel: async () => null,
+        createIssue: async () => {
+          legacyCreateCalls += 1;
+          return 'AA-should-not-create';
+        },
+      },
+    );
+    assert.deepEqual(legacyReconcile, { status: 'pending_retry', ticketKey: null });
+    assert.equal(
+      legacyCreateCalls,
+      0,
+      'one stale Jira search miss must not authorize a duplicate create for a migrated row',
+    );
+    await markReportSynced(pool, 'legacy-attempted-keyless');
+    const legacyAttachmentCutover = await pool.query<{ attachment_state: string }>(
+      `SELECT attachment_state FROM feedback_reports WHERE id = 'legacy-attempted-keyless'`,
+    );
+    assert.equal(
+      legacyAttachmentCutover.rows[0].attachment_state,
+      'uncertain',
+      'sync must not rewrite unknown legacy Jira-attachment history as proven private-only retention',
+    );
+    await pool.query(`DELETE FROM feedback_reports WHERE id LIKE 'legacy-%'`);
 
     // --- live authoritative membership + stale-tab workspace pinning ---
     await pool.query(`
@@ -222,6 +374,27 @@ test('feedback_reports store: limits, claim, boundary, and sync against real Pos
       release();
       return Promise.all(pending);
     }
+
+    const quotaReplayId = '11111111-2222-4333-8444-555555555555';
+    const quotaReplayRecord = record(quotaReplayId, {
+      tenantId: 'same-key-quota-tenant',
+      submitterId: 'same-key-quota-user',
+      requestFingerprint: 'same-key-quota-fingerprint',
+    });
+    const quotaReplay = await burst(
+      [quotaReplayRecord, quotaReplayRecord],
+      { userRateLimitPerHour: 1, sharedRateLimitPerHour: 1, dedupWindowSeconds: 60 },
+    );
+    assert.deepEqual(
+      quotaReplay.map(({ outcome }) => outcome).sort(),
+      ['ok', 'replay'],
+      'a concurrent same-key replay must return the stored row after the first request consumes the last quota slot',
+    );
+    const quotaReplayRows = await pool.query<{ count: number }>(
+      `SELECT COUNT(*)::int AS count FROM feedback_reports WHERE id = $1`,
+      [quotaReplayId],
+    );
+    assert.equal(quotaReplayRows.rows[0].count, 1);
 
     const capBurst = await burst(
       Array.from({ length: 12 }, (_, index) =>

@@ -61,7 +61,7 @@ function deps(overrides: Partial<SubmitReportDeps> = {}): SubmitReportDeps {
     sync: async () => ({ status: 'synced' as const, ticketKey: 'AA-1' }),
     getById: async () => null,
     withSyncLock: async (_pool, _id, work) => work(FAKE_CLIENT),
-    reclaimFailed: async () => {},
+    reclaimFailed: async () => true,
     now: () => new Date('2026-07-03T00:00:00.000Z'),
     ...overrides,
   };
@@ -521,6 +521,7 @@ test('replaying a terminal row reclaims it under the lock and safely reconciles'
       insert: async () => ({ outcome: 'replay', report: existing }),
       reclaimFailed: async () => {
         reclaimed = true;
+        return true;
       },
       sync: async (report) => {
         syncCalls += 1;
@@ -535,4 +536,56 @@ test('replaying a terminal row reclaims it under the lock and safely reconciles'
   assert.equal(result.httpStatus, 201);
   assert.equal(result.body.status, 'synced');
   assert.equal(result.body.jira_ticket_key, 'AA-88');
+});
+
+test('a failed replay stays an accurate retryable 503 when reclaim throws or cannot transition', async () => {
+  const existing = persistedRow(
+    {
+      id: IDEMPOTENCY_KEY,
+      requestFingerprint: 'server-fingerprint',
+      submitterType: SUBMITTER.attribution,
+      tenantId: SUBMITTER.tenantId!,
+      submitterId: SUBMITTER.userId,
+      submitterEmail: null,
+      submitterName: null,
+      customerSlug: 'tenant',
+      category: INPUT.category,
+      impact: INPUT.impact,
+      title: INPUT.title,
+      description: INPUT.description,
+      screenshot: null,
+    },
+    { status: 'failed', jira_ticket_key: null, attempts: 5 },
+  );
+  let syncCalls = 0;
+  for (const reclaimFailed of [
+    async () => {
+      throw new Error('reclaim write unavailable');
+    },
+    async () => false,
+  ]) {
+    const result = await submitFeedbackReport(
+      INPUT,
+      SUBMITTER,
+      config(),
+      deps({
+        insert: async () => ({ outcome: 'replay', report: existing }),
+        reclaimFailed,
+        sync: async () => {
+          syncCalls += 1;
+          return { status: 'synced', ticketKey: 'AA-should-not-run' };
+        },
+      }),
+    );
+
+    assert.equal(result.httpStatus, 503);
+    assert.deepEqual(result.body, {
+      submission_id: IDEMPOTENCY_KEY,
+      jira_ticket_key: null,
+      status: 'failed',
+      screenshot_discarded: null,
+      error: 'Your report was saved, but Jira delivery needs attention. Retry to reconcile it safely.',
+    });
+  }
+  assert.equal(syncCalls, 0);
 });
