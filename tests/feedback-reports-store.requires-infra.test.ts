@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import pg from 'pg';
 
@@ -6,19 +7,31 @@ import { requireDbEnvOrSkip } from './helpers/requires-infra';
 import {
   claimRetryBatch,
   ensureFeedbackReportsTable,
+  getFeedbackReportById,
   insertReportWithLimits,
   markReportSynced,
   markReportTicketKey,
   recordReportFailure,
   resetFeedbackReportsEnsuredForTests,
+  withFeedbackReportSyncLock,
   type FeedbackReportRecord,
 } from '../backend/feedback/report-store';
+import type { FeedbackReportConfig } from '../backend/feedback/report-config';
+import { poolSyncStore, rowToSyncable, syncReportToJira } from '../backend/feedback/report-sync';
+import { runFeedbackRetrySweep } from '../backend/feedback/retry-sweep';
+import { resolveReportSubmitter } from '../backend/feedback/report-submitter';
 import { submitFeedbackReport } from '../backend/feedback/submit-report';
+import {
+  assertWorkspacePinMatches,
+  loadTenantContextForUser,
+  TenantContextError,
+  WorkspaceMismatchError,
+} from '../lib/tenant-context';
 
 // Live-schema proof for the SC-70 feedback_reports store. The self-contained
 // tests exercise the logic with fakes; this file executes the real SQL —
 // transactional rate-limit/dedup, the FOR UPDATE SKIP LOCKED claim, the
-// attempts boundary, and the bytes-NULLing sync mark — against a throwaway
+// attempts boundary, private screenshot retention, and worker/browser locking
 // schema (search_path pinned per-pool) so a prod database is never touched
 // beyond CREATE SCHEMA/DROP SCHEMA of a uniquely-named test schema.
 
@@ -66,8 +79,204 @@ test('feedback_reports store: limits, claim, boundary, and sync against real Pos
   });
 
   try {
+    // Reproduce an upgrade from the populated pre-AA-167 schema before the
+    // normal on-demand bootstrap runs. A keyless legacy row may have reached
+    // Jira and lost the acknowledgement even when attempts/status were never
+    // updated, so every pre-existing keyless row must enter reconciliation.
+    const legacySchema = readFileSync(
+      new URL('../migrations/20260703000000_feedback_reports.sql', import.meta.url),
+      'utf8',
+    );
+    const deliveryStateMigration = readFileSync(
+      new URL('../migrations/20260723000000_feedback_reports_delivery_states.sql', import.meta.url),
+      'utf8',
+    );
+    const initDbSource = readFileSync(new URL('../scripts/init-db.js', import.meta.url), 'utf8');
+    const initDbDeliveryState =
+      /DO \$feedback_delivery_state\$[\s\S]*?\$feedback_delivery_state\$;/.exec(initDbSource)?.[0];
+    assert.ok(initDbDeliveryState, 'scripts/init-db.js must carry the delivery-state bootstrap');
+    const legacyRowsSql = `
+      INSERT INTO feedback_reports (
+        id, tenant_id, submitter_id, category, impact, title, description,
+        screenshot_bytes, screenshot_mime, jira_ticket_key, status, attempts, last_error
+      ) VALUES
+        ('legacy-known-key', 'legacy-tenant', 'legacy-user', 'bug', 'p2_feature_degraded',
+         'known key', 'already delivered', NULL, NULL, 'AA-700', 'synced', 1, NULL),
+        ('legacy-attempted-keyless', 'legacy-tenant', 'legacy-user', 'bug', 'p2_feature_degraded',
+         'attempted keyless', 'delivery acknowledgement was lost', $1, 'image/png', NULL,
+         'pending_retry', 1, 'jira create failed'),
+        ('legacy-crash-keyless', 'legacy-tenant', 'legacy-user', 'bug', 'p2_feature_degraded',
+         'crash keyless', 'process died before bookkeeping', NULL, NULL, NULL, 'pending', 0, NULL)
+    `;
+    const expectedLegacyStates = [
+      {
+        id: 'legacy-attempted-keyless',
+        jira_create_state: 'uncertain',
+        jira_create_token: 'aries-sub-legacy-attempted-keyless',
+        attachment_state: 'uncertain',
+      },
+      {
+        id: 'legacy-crash-keyless',
+        jira_create_state: 'uncertain',
+        jira_create_token: 'aries-sub-legacy-crash-keyless',
+        attachment_state: 'none',
+      },
+      {
+        id: 'legacy-known-key',
+        jira_create_state: 'completed',
+        jira_create_token: null,
+        attachment_state: 'none',
+      },
+    ];
+    await pool.query(legacySchema);
+    await pool.query(legacyRowsSql, [Buffer.from('legacy-image')]);
+    await pool.query(deliveryStateMigration);
+    const migratedLegacy = await pool.query<{
+      id: string;
+      jira_create_state: string;
+      jira_create_token: string | null;
+      attachment_state: string;
+    }>(`
+      SELECT id, jira_create_state, jira_create_token, attachment_state
+        FROM feedback_reports
+       WHERE id LIKE 'legacy-%'
+       ORDER BY id
+    `);
+    assert.deepEqual(migratedLegacy.rows, expectedLegacyStates);
+
+    // Execute the exact scripts/init-db bootstrap against another populated
+    // legacy table, not a hand-copied approximation.
+    await pool.query('DROP TABLE feedback_reports');
+    await pool.query(legacySchema);
+    await pool.query(legacyRowsSql, [Buffer.from('legacy-image')]);
+    await pool.query(initDbDeliveryState);
+    const initDbLegacy = await pool.query<{
+      id: string;
+      jira_create_state: string;
+      jira_create_token: string | null;
+      attachment_state: string;
+    }>(`
+      SELECT id, jira_create_state, jira_create_token, attachment_state
+        FROM feedback_reports
+       WHERE id LIKE 'legacy-%'
+       ORDER BY id
+    `);
+    assert.deepEqual(initDbLegacy.rows, expectedLegacyStates);
+
+    // The on-demand application bootstrap must make the same first-upgrade
+    // decision, without reclassifying future not_started rows on every restart.
+    await pool.query('DROP TABLE feedback_reports');
+    await pool.query(legacySchema);
+    await pool.query(legacyRowsSql, [Buffer.from('legacy-image')]);
     resetFeedbackReportsEnsuredForTests();
     await ensureFeedbackReportsTable(pool);
+    const bootstrappedLegacy = await pool.query<{
+      id: string;
+      jira_create_state: string;
+      jira_create_token: string | null;
+      attachment_state: string;
+    }>(`
+      SELECT id, jira_create_state, jira_create_token, attachment_state
+        FROM feedback_reports
+       WHERE id LIKE 'legacy-%'
+       ORDER BY id
+    `);
+    assert.deepEqual(bootstrappedLegacy.rows, expectedLegacyStates);
+
+    const migratedKeyless = await getFeedbackReportById(pool, 'legacy-attempted-keyless');
+    assert.ok(migratedKeyless);
+    let legacyCreateCalls = 0;
+    const legacyReconcile = await syncReportToJira(
+      rowToSyncable(migratedKeyless),
+      {
+        jira: {
+          baseUrl: 'https://example.atlassian.net',
+          email: 'bot@example.com',
+          apiToken: 'test-token',
+          projectKey: 'AA',
+          issueType: 'Bug',
+        },
+        maxImageBytes: 2_000_000,
+        userRateLimitPerHour: 10,
+        sharedRateLimitPerHour: 100,
+        dedupWindowSeconds: 60,
+        retryIntervalMinutes: 5,
+        retryBatchLimit: 10,
+        retryMaxAttempts: 5,
+        stalePendingMinutes: 15,
+      } satisfies FeedbackReportConfig,
+      poolSyncStore(pool),
+      {
+        searchIssueKeyByLabel: async () => null,
+        createIssue: async () => {
+          legacyCreateCalls += 1;
+          return 'AA-should-not-create';
+        },
+      },
+    );
+    assert.deepEqual(legacyReconcile, { status: 'pending_retry', ticketKey: null });
+    assert.equal(
+      legacyCreateCalls,
+      0,
+      'one stale Jira search miss must not authorize a duplicate create for a migrated row',
+    );
+    await markReportSynced(pool, 'legacy-attempted-keyless');
+    const legacyAttachmentCutover = await pool.query<{ attachment_state: string }>(
+      `SELECT attachment_state FROM feedback_reports WHERE id = 'legacy-attempted-keyless'`,
+    );
+    assert.equal(
+      legacyAttachmentCutover.rows[0].attachment_state,
+      'uncertain',
+      'sync must not rewrite unknown legacy Jira-attachment history as proven private-only retention',
+    );
+    await pool.query(`DELETE FROM feedback_reports WHERE id LIKE 'legacy-%'`);
+
+    // --- live authoritative membership + stale-tab workspace pinning ---
+    await pool.query(`
+      CREATE TABLE organizations (
+        id BIGINT PRIMARY KEY,
+        slug TEXT NOT NULL
+      );
+      CREATE TABLE users (
+        id BIGINT PRIMARY KEY,
+        organization_id BIGINT,
+        role TEXT
+      );
+      CREATE TABLE organization_memberships (
+        user_id BIGINT NOT NULL,
+        organization_id BIGINT NOT NULL,
+        role TEXT,
+        status TEXT,
+        PRIMARY KEY (user_id, organization_id)
+      );
+      INSERT INTO organizations (id, slug) VALUES (7002, 'workspace-current');
+      INSERT INTO users (id, organization_id, role)
+      VALUES (7001, 7002, 'tenant_admin');
+      INSERT INTO organization_memberships (user_id, organization_id, role, status)
+      VALUES (7001, 7002, 'tenant_admin', 'active');
+    `);
+    const previousMultiWorkspace = process.env.ARIES_MULTI_WORKSPACE_ENABLED;
+    process.env.ARIES_MULTI_WORKSPACE_ENABLED = 'true';
+    try {
+      const currentMembership = await loadTenantContextForUser(pool, '7001');
+      assert.equal(currentMembership.tenantId, '7002');
+      assert.throws(
+        () => assertWorkspacePinMatches(currentMembership.tenantId, 'stale-workspace-tab'),
+        WorkspaceMismatchError,
+      );
+
+      await pool.query(
+        `UPDATE organization_memberships SET status = 'removed'
+          WHERE user_id = 7001 AND organization_id = 7002`,
+      );
+      await assert.rejects(() => loadTenantContextForUser(pool, '7001'), TenantContextError);
+    } finally {
+      if (previousMultiWorkspace === undefined) {
+        delete process.env.ARIES_MULTI_WORKSPACE_ENABLED;
+      } else {
+        process.env.ARIES_MULTI_WORKSPACE_ENABLED = previousMultiWorkspace;
+      }
+    }
 
     // --- rate limit boundary: limit-th passes, limit+1 rejects, dedup 429s ---
     const limits = { userRateLimitPerHour: 3, dedupWindowSeconds: 60 };
@@ -148,7 +357,11 @@ test('feedback_reports store: limits, claim, boundary, and sync against real Pos
 
     async function burst(
       records: FeedbackReportRecord[],
-      burstLimits: { userRateLimitPerHour: number; dedupWindowSeconds: number },
+      burstLimits: {
+        userRateLimitPerHour: number;
+        sharedRateLimitPerHour?: number;
+        dedupWindowSeconds: number;
+      },
     ) {
       let release!: () => void;
       const start = new Promise<void>((resolve) => {
@@ -162,6 +375,27 @@ test('feedback_reports store: limits, claim, boundary, and sync against real Pos
       return Promise.all(pending);
     }
 
+    const quotaReplayId = '11111111-2222-4333-8444-555555555555';
+    const quotaReplayRecord = record(quotaReplayId, {
+      tenantId: 'same-key-quota-tenant',
+      submitterId: 'same-key-quota-user',
+      requestFingerprint: 'same-key-quota-fingerprint',
+    });
+    const quotaReplay = await burst(
+      [quotaReplayRecord, quotaReplayRecord],
+      { userRateLimitPerHour: 1, sharedRateLimitPerHour: 1, dedupWindowSeconds: 60 },
+    );
+    assert.deepEqual(
+      quotaReplay.map(({ outcome }) => outcome).sort(),
+      ['ok', 'replay'],
+      'a concurrent same-key replay must return the stored row after the first request consumes the last quota slot',
+    );
+    const quotaReplayRows = await pool.query<{ count: number }>(
+      `SELECT COUNT(*)::int AS count FROM feedback_reports WHERE id = $1`,
+      [quotaReplayId],
+    );
+    assert.equal(quotaReplayRows.rows[0].count, 1);
+
     const capBurst = await burst(
       Array.from({ length: 12 }, (_, index) =>
         record(`cap-burst-${index}`, { submitterId: 'burst-cap-user' }),
@@ -174,6 +408,64 @@ test('feedback_reports store: limits, claim, boundary, and sync against real Pos
       `SELECT COUNT(*)::int AS count FROM feedback_reports WHERE submitter_id = 'burst-cap-user'`,
     );
     assert.equal(capRows.rows[0].count, 3, 'a concurrent burst must never persist above the cap');
+
+    const rotatedHeaderSubmitters = await Promise.all(
+      Array.from({ length: 8 }, (_, index) =>
+        resolveReportSubmitter(
+          new Headers({ 'x-forwarded-for': `198.51.100.${index + 1}` }),
+          {
+            readSession: async () => null,
+            readTenantContext: async () => null as never,
+          },
+        ),
+      ),
+    );
+    assert.deepEqual(
+      [...new Set(rotatedHeaderSubmitters.map(({ userId }) => userId))],
+      ['anonymous:unknown'],
+      'caller-controlled forwarding-header rotation must collapse to one unverified bucket',
+    );
+    const rotatedHeaderBurst = await burst(
+      rotatedHeaderSubmitters.map((rotatedSubmitter, index) =>
+        record(`rotated-header-${index}`, {
+          submitterType: 'anonymous',
+          tenantId: 'anonymous-header-rotation',
+          submitterId: rotatedSubmitter.userId,
+          submitterEmail: null,
+          submitterName: null,
+          customerSlug: 'anonymous',
+        }),
+      ),
+      { userRateLimitPerHour: 2, sharedRateLimitPerHour: 20, dedupWindowSeconds: 60 },
+    );
+    assert.equal(rotatedHeaderBurst.filter(({ outcome }) => outcome === 'ok').length, 2);
+    assert.equal(rotatedHeaderBurst.filter(({ outcome }) => outcome === 'rate_limited').length, 6);
+
+    const sharedBurst = await burst(
+      Array.from({ length: 12 }, (_, index) =>
+        record(`shared-burst-${index}`, {
+          tenantId: 'shared-ceiling-tenant',
+          submitterId: `rotated-identity-${index}`,
+          title: `shared title ${index}`,
+          description: `shared description ${index}`,
+        }),
+      ),
+      {
+        userRateLimitPerHour: 10,
+        sharedRateLimitPerHour: 4,
+        dedupWindowSeconds: 60,
+      },
+    );
+    assert.equal(sharedBurst.filter(({ outcome }) => outcome === 'ok').length, 4);
+    assert.equal(sharedBurst.filter(({ outcome }) => outcome === 'rate_limited').length, 8);
+    const sharedRows = await pool.query<{ count: number }>(
+      `SELECT COUNT(*)::int AS count FROM feedback_reports WHERE tenant_id = 'shared-ceiling-tenant'`,
+    );
+    assert.equal(
+      sharedRows.rows[0].count,
+      4,
+      'rotated identities must not overrun the shared durable tenant/endpoint ceiling',
+    );
 
     const duplicateBurst = await burst(
       Array.from({ length: 8 }, (_, index) =>
@@ -265,10 +557,7 @@ test('feedback_reports store: limits, claim, boundary, and sync against real Pos
     const submitter = {
       attribution: 'authenticated' as const,
       userId: 'lost-ack-user',
-      email: 'jo@acme.co',
-      name: 'Jo',
       tenantId: 't1',
-      tenantSlug: 'acme',
     };
     const reportConfig = {
       jira: {
@@ -280,6 +569,7 @@ test('feedback_reports store: limits, claim, boundary, and sync against real Pos
       },
       maxImageBytes: 2_000_000,
       userRateLimitPerHour: 10,
+      sharedRateLimitPerHour: 100,
       dedupWindowSeconds: 60,
       retryIntervalMinutes: 5,
       retryBatchLimit: 10,
@@ -348,6 +638,69 @@ test('feedback_reports store: limits, claim, boundary, and sync against real Pos
     assert.equal(inFlightSyncCalls, 1, 'the replay must never run a second Jira cycle');
     assert.deepEqual(replayInFlightResult, firstInFlightResult);
     assert.equal(replayInFlightResult.body.jira_ticket_key, 'AA-901');
+
+    // Worker-vs-browser race: both entry points must take the same advisory
+    // lock and reload while holding it, so only one Jira cycle can execute.
+    const workerRaceId = 'eeeeeeee-ffff-4aaa-8bbb-cccccccccccc';
+    const workerRaceInput = {
+      ...lostAckInput,
+      idempotencyKey: workerRaceId,
+      title: 'worker browser lock race',
+    };
+    await submitFeedbackReport(workerRaceInput, submitter, reportConfig, {
+      pool,
+      ensureTable: async () => {},
+      sync: async () => ({ status: 'pending_retry' as const, ticketKey: null }),
+      now: () => new Date('2026-07-03T00:00:00.000Z'),
+    });
+    await pool.query(
+      `UPDATE feedback_reports SET status = 'pending', updated_at = now() WHERE id = $1`,
+      [workerRaceId],
+    );
+    const workerClaim = await getFeedbackReportById(pool, workerRaceId);
+    assert.ok(workerClaim);
+
+    let workerRaceSyncCalls = 0;
+    let signalWorkerEntered!: () => void;
+    const workerEntered = new Promise<void>((resolve) => {
+      signalWorkerEntered = resolve;
+    });
+    let releaseWorker!: () => void;
+    const workerReleased = new Promise<void>((resolve) => {
+      releaseWorker = resolve;
+    });
+    const sharedRaceSync: typeof syncReportToJira = async (report, _config, store) => {
+      workerRaceSyncCalls += 1;
+      signalWorkerEntered();
+      await workerReleased;
+      await store.markTicketKey(report.id, 'AA-903');
+      await store.markSynced(report.id);
+      return { status: 'synced' as const, ticketKey: 'AA-903' };
+    };
+    const sweepPromise = runFeedbackRetrySweep(pool, reportConfig, {
+      ensureTable: async () => {},
+      claim: async () => [workerClaim],
+      sync: sharedRaceSync,
+    });
+    await workerEntered;
+    const browserRacePromise = submitFeedbackReport(
+      workerRaceInput,
+      submitter,
+      reportConfig,
+      {
+        pool,
+        ensureTable: async () => {},
+        sync: sharedRaceSync,
+        now: () => new Date('2026-07-03T00:00:00.000Z'),
+      },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(workerRaceSyncCalls, 1, 'browser replay must wait outside Jira while worker holds lock');
+    releaseWorker();
+    const [sweepResult, browserRaceResult] = await Promise.all([sweepPromise, browserRacePromise]);
+    assert.equal(sweepResult.synced, 1);
+    assert.equal(workerRaceSyncCalls, 1, 'worker and browser must share one Jira cycle');
+    assert.equal(browserRaceResult.body.jira_ticket_key, 'AA-903');
 
     // The sync lock must not reserve one pool connection while asking the same
     // pool for another. A max=1 pool is both a regression proof and a useful
@@ -438,7 +791,7 @@ test('feedback_reports store: limits, claim, boundary, and sync against real Pos
     assert.equal(r3.rows[0].status, 'pending_retry');
     assert.equal(r3.rows[0].attempts, 0);
 
-    // --- ticket key + synced: key persists, bytes are NULLed on sync ---
+    // --- privacy boundary: key persists and screenshot bytes remain in Aries ---
     await pool.query(
       `UPDATE feedback_reports
           SET screenshot_bytes = $1, screenshot_mime = 'image/png'
@@ -448,20 +801,17 @@ test('feedback_reports store: limits, claim, boundary, and sync against real Pos
     await markReportTicketKey(pool, 'r3', 'AA-123');
     await markReportSynced(pool, 'r3');
     const synced = await pool.query(
-      `SELECT status, jira_ticket_key, screenshot_bytes, screenshot_mime, last_error
+      `SELECT status, jira_ticket_key, screenshot_bytes, screenshot_mime, attachment_state, last_error
          FROM feedback_reports WHERE id = 'r3'`,
     );
     assert.equal(synced.rows[0].status, 'synced');
     assert.equal(synced.rows[0].jira_ticket_key, 'AA-123');
-    assert.equal(synced.rows[0].screenshot_bytes, null);
-    assert.equal(synced.rows[0].screenshot_mime, null);
+    assert.deepEqual(Buffer.from(synced.rows[0].screenshot_bytes), Buffer.from('img-bytes'));
+    assert.equal(synced.rows[0].screenshot_mime, 'image/png');
+    assert.equal(synced.rows[0].attachment_state, 'retained_private');
     assert.equal(synced.rows[0].last_error, null);
 
-    // --- attach-fail keeps screenshot bytes (the sweep re-attaches from these
-    // columns): a row with a stored ticket key + screenshot bytes that then
-    // fails (the attach step, specifically) must retain BOTH columns — the
-    // recordReportFailure UPDATE only ever touches status/attempts/last_error,
-    // never screenshot_bytes/screenshot_mime. ---
+    // Failure bookkeeping never destroys the private durable screenshot.
     await insertReportWithLimits(
       pool,
       record('r7', {
@@ -486,7 +836,7 @@ test('feedback_reports store: limits, claim, boundary, and sync against real Pos
     assert.deepEqual(
       Buffer.from(attachFailed.rows[0].screenshot_bytes),
       Buffer.from('attach-me-bytes'),
-      'screenshot bytes must survive an attach failure so the sweep can retry the attach',
+      'screenshot bytes must survive failure bookkeeping in the private Aries record',
     );
     assert.equal(attachFailed.rows[0].screenshot_mime, 'image/jpeg');
     assert.equal(attachFailed.rows[0].last_error, 'jira attach failed (HTTP 500)');

@@ -6,6 +6,8 @@
  * storing a raw address or inventing contact details.
  */
 
+import { timingSafeEqual } from 'node:crypto';
+
 import { clientIpFromHeaders, hashIp } from '@/lib/feedback/submission';
 
 export type ReportSubmitterAttribution = 'authenticated' | 'anonymous';
@@ -13,42 +15,59 @@ export type ReportSubmitterAttribution = 'authenticated' | 'anonymous';
 export interface ReportSubmitter {
   attribution: ReportSubmitterAttribution;
   userId: string;
-  email: string | null;
-  name: string | null;
   tenantId: string | null;
-  tenantSlug: string | null;
 }
 
 interface ReportSession {
   user?: {
     id?: string | number | null;
-    email?: string | null;
-    name?: string | null;
-    tenantId?: string | number | null;
-    tenantSlug?: string | null;
   } | null;
 }
 
 interface ReportTenantContext {
   userId: string;
   tenantId: string;
-  tenantSlug: string;
 }
 
 export interface ResolveReportSubmitterDeps {
   readSession(): Promise<ReportSession | null>;
   readTenantContext(): Promise<ReportTenantContext>;
+  readVerifiedClientIp?(headers: Headers): string | null;
 }
 
-function anonymousReportSubmitter(headers: Headers): ReportSubmitter {
-  const ipHash = hashIp(clientIpFromHeaders(headers));
+export class ReportTenantAttributionError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'ReportTenantAttributionError';
+  }
+}
+
+/**
+ * Forwarding headers are caller-controlled unless an upstream proxy proves it
+ * sanitized and rewrote them. Deployments opt into that contract with one
+ * server-only value; absent or invalid proof collapses anonymous callers into
+ * the shared unknown bucket rather than letting header rotation bypass limits.
+ */
+export function verifiedClientIpFromHeaders(
+  headers: Headers,
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  const expected = env.ARIES_TRUSTED_PROXY_SECRET?.trim();
+  const provided = headers.get('x-aries-proxy-verification')?.trim();
+  if (!expected || !provided) return null;
+  const expectedBytes = Buffer.from(expected);
+  const providedBytes = Buffer.from(provided);
+  if (expectedBytes.length !== providedBytes.length) return null;
+  if (!timingSafeEqual(expectedBytes, providedBytes)) return null;
+  return clientIpFromHeaders(headers);
+}
+
+function anonymousReportSubmitter(verifiedIp: string | null): ReportSubmitter {
+  const ipHash = hashIp(verifiedIp);
   return {
     attribution: 'anonymous',
     userId: `anonymous:${ipHash ?? 'unknown'}`,
-    email: null,
-    name: null,
     tenantId: 'anonymous',
-    tenantSlug: 'anonymous',
   };
 }
 
@@ -65,35 +84,37 @@ export async function resolveReportSubmitter(
   try {
     session = await deps.readSession();
   } catch {
-    return anonymousReportSubmitter(headers);
+    return anonymousReportSubmitter(
+      deps.readVerifiedClientIp?.(headers) ?? verifiedClientIpFromHeaders(headers),
+    );
   }
 
   if (!session?.user?.id) {
-    return anonymousReportSubmitter(headers);
+    return anonymousReportSubmitter(
+      deps.readVerifiedClientIp?.(headers) ?? verifiedClientIpFromHeaders(headers),
+    );
   }
 
-  let submitter: ReportSubmitter = {
-    attribution: 'authenticated',
-    userId: String(session.user.id),
-    email: session.user.email ?? null,
-    name: session.user.name ?? null,
-    tenantId: session.user.tenantId ? String(session.user.tenantId) : null,
-    tenantSlug: session.user.tenantSlug ? String(session.user.tenantSlug) : null,
-  };
-
-  // A signed-in user without a resolved membership can still report. Preserve
-  // session identity when tenant lookup fails, matching the previous behavior.
+  const sessionUserId = String(session.user.id);
+  let tenantContext: ReportTenantContext;
   try {
-    const tenantContext = await deps.readTenantContext();
-    submitter = {
-      ...submitter,
-      userId: tenantContext.userId,
-      tenantId: tenantContext.tenantId,
-      tenantSlug: tenantContext.tenantSlug,
-    };
-  } catch {
-    // keep session-only attribution
+    tenantContext = await deps.readTenantContext();
+  } catch (error) {
+    throw new ReportTenantAttributionError(
+      'Current workspace membership could not be verified for feedback attribution.',
+      { cause: error },
+    );
   }
 
-  return submitter;
+  if (tenantContext.userId !== sessionUserId) {
+    throw new ReportTenantAttributionError(
+      'Resolved workspace membership does not belong to the authenticated user.',
+    );
+  }
+
+  return {
+    attribution: 'authenticated',
+    userId: tenantContext.userId,
+    tenantId: tenantContext.tenantId,
+  };
 }

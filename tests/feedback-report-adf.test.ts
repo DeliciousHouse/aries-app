@@ -18,10 +18,10 @@ function walk(node: AdfNode, visit: (node: AdfNode) => void): void {
 
 test('ADF node-type set is exactly {doc, paragraph, text} with zero marks', () => {
   const doc = buildReportAdf({
-    description: MALICIOUS.join('\n'),
     impactAnswer: 'Entire team/system is blocked',
     category: 'bug',
-    contact: { name: MALICIOUS[0], email: 'a@b.c', company: MALICIOUS[1] },
+    tenantId: MALICIOUS[0],
+    submitterId: MALICIOUS[1],
     reportId: 'rid-1',
     submittedAtIso: '2026-07-03T00:00:00.000Z',
   });
@@ -38,15 +38,17 @@ test('ADF node-type set is exactly {doc, paragraph, text} with zero marks', () =
   assert.deepEqual([...seenTypes].sort(), ['doc', 'paragraph', 'text']);
 });
 
-test('malicious payloads only ever appear as text-node values', () => {
+test('unredacted report content is not representable in the Jira ADF boundary', () => {
   const doc = buildReportAdf({
     description: MALICIOUS.join('\n'),
     impactAnswer: 'x',
     category: 'bug',
     contact: { name: MALICIOUS[3], email: null, company: null },
+    tenantId: 'tenant-opaque',
+    submitterId: 'user-opaque',
     reportId: 'rid-2',
     submittedAtIso: '2026-07-03T00:00:00.000Z',
-  });
+  } as never);
 
   const textValues: string[] = [];
   walk(doc, (node) => {
@@ -57,61 +59,60 @@ test('malicious payloads only ever appear as text-node values', () => {
       assert.equal(node.text, undefined, 'only text nodes may carry text');
     }
   });
-  // The payloads survive as literal text (single-line pieces of the split).
-  assert.ok(textValues.some((v) => v.includes('<script>alert(1)</script>')));
-  assert.ok(textValues.some((v) => v.includes('"], "marks": [{"type": "link"}]')));
+  assert.ok(!textValues.some((v) => v.includes('<script>alert(1)</script>')));
+  assert.ok(!textValues.some((v) => v.includes('"], "marks": [{"type": "link"}]')));
   // Serialized, the doc contains no link/mark structures at all.
   const serialized = JSON.stringify(doc);
   assert.ok(!serialized.includes('"marks"'));
   assert.ok(!serialized.includes('"link"'));
 });
 
-test('contact block and metadata are present as plain text', () => {
+test('only redacted triage metadata and opaque internal identifiers reach Jira', () => {
   const doc = buildReportAdf({
-    description: 'It broke.',
     impactAnswer: 'A feature is degraded/broken',
     category: 'bug',
-    contact: { name: 'Jo Smith', email: 'jo@acme.co', company: 'acme' },
+    tenantId: 'tenant-15',
+    submitterId: 'user-9',
     reportId: 'rid-3',
     submittedAtIso: '2026-07-03T01:02:03.000Z',
   });
   const serialized = JSON.stringify(doc);
-  assert.ok(serialized.includes('Name: Jo Smith'));
-  assert.ok(serialized.includes('Email: jo@acme.co'));
-  assert.ok(serialized.includes('Company: acme'));
+  assert.ok(!serialized.includes('Jo Smith'));
+  assert.ok(!serialized.includes('jo@acme.co'));
+  assert.ok(serialized.includes('Tenant ID: tenant-15'));
+  assert.ok(serialized.includes('Submitter ID: user-9'));
   assert.ok(serialized.includes('Impact: A feature is degraded/broken'));
   assert.ok(serialized.includes('Submission ID: rid-3'));
 });
 
-test('missing contact fields render as "unknown", never empty nodes', () => {
+test('missing opaque identifiers render as "unknown", never empty nodes', () => {
   const doc = buildReportAdf({
-    description: '',
     impactAnswer: 'x',
     category: 'other',
-    contact: { name: null, email: null, company: null },
+    tenantId: null,
+    submitterId: null,
     reportId: 'rid-4',
     submittedAtIso: '2026-07-03T00:00:00.000Z',
   });
   walk(doc, (node) => {
     if (node.type === 'text') assert.ok((node.text as string).length > 0, 'no empty text nodes');
   });
-  assert.ok(JSON.stringify(doc).includes('Name: unknown'));
+  assert.ok(JSON.stringify(doc).includes('Tenant ID: unknown'));
 });
 
 test('anonymous contact renders an explicit anonymous marker without invented name or email', () => {
   const doc = buildReportAdf({
-    description: 'Public-page report.',
     impactAnswer: 'A feature is degraded/broken',
     category: 'bug',
-    contact: { name: null, email: null, company: 'anonymous' },
+    tenantId: 'anonymous',
+    submitterId: 'anonymous:opaque-hash',
     submitterType: 'anonymous',
     reportId: 'rid-anon',
     submittedAtIso: '2026-07-20T00:00:00.000Z',
   });
   const serialized = JSON.stringify(doc);
   assert.ok(serialized.includes('Submitter: Anonymous'));
-  assert.ok(!serialized.includes('Name: unknown'));
-  assert.ok(!serialized.includes('Email: unknown'));
+  assert.ok(!serialized.includes('Email:'));
 });
 
 test('summary flattens whitespace and caps at 255 inside the service', () => {

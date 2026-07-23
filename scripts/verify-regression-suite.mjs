@@ -76,6 +76,7 @@ const steps = [
       'tests/feedback-report-jira-client.test.ts',
       'tests/feedback-report-validation.test.ts',
       'tests/feedback-report-submitter.test.ts',
+      'tests/feedback-report-route.test.ts',
       'tests/feedback-report-sync.test.ts',
       'tests/feedback-report-submit.test.ts',
       'tests/feedback-report-sweep.test.ts',
