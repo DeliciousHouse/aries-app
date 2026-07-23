@@ -32,6 +32,7 @@ import {
   isBrandVoiceManuallyEdited,
   resolveBrandVoiceForPreview,
 } from './onboarding-brand-voice';
+import { BUSINESS_NAME_FIELD, BUSINESS_TYPE_FIELD } from './business-field-copy';
 import { VISUAL_BOARD_EMPTY_STATE_COPY } from './onboarding-flow.copy';
 
 export { VISUAL_BOARD_EMPTY_STATE_COPY } from './onboarding-flow.copy';
@@ -337,7 +338,7 @@ export function stepValidationMessage(stepKey: StepKey, values?: {
         return 'Add a business name before continuing.';
       }
       if (!values.businessType.trim()) {
-        return 'Select a business type before continuing.';
+        return BUSINESS_TYPE_FIELD.requiredError;
       }
       return null;
     }
@@ -439,6 +440,37 @@ function clearLocalDraft(): void {
   } catch {
     // ignore
   }
+}
+
+/**
+ * True when a server draft actually carries user input. A draft is created
+ * eagerly on mount, so "draft exists" and "draft has content" are different
+ * questions and conflating them blanks the form.
+ */
+function serverDraftHasContent(draft: {
+  businessName?: string;
+  businessType?: string;
+  websiteUrl?: string;
+  approverName?: string;
+  channels?: string[];
+  goal?: string;
+  offer?: string;
+  brandVoice?: string;
+  notes?: string;
+  competitorUrl?: string;
+}): boolean {
+  return Boolean(
+    draft.businessName?.trim() ||
+      draft.businessType?.trim() ||
+      draft.websiteUrl?.trim() ||
+      draft.approverName?.trim() ||
+      (draft.channels?.length ?? 0) > 0 ||
+      draft.goal?.trim() ||
+      draft.offer?.trim() ||
+      draft.brandVoice?.trim() ||
+      draft.notes?.trim() ||
+      draft.competitorUrl?.trim(),
+  );
 }
 
 function localDraftHasContent(snapshot: LocalDraftSnapshot | null): boolean {
@@ -711,6 +743,17 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   });
   const continueDisabled = useDisabledUntilValid(currentStepIsReady, submitting || creatingDraft);
   const finishDisabled = useDisabledUntilValid(canFinish, submitting || creatingDraft);
+  // What is still missing on this step, phrased for the user. Rendered next to
+  // the disabled advance button so "why can't I continue?" never needs a guess.
+  const blockingRequirement = currentStepIsReady
+    ? null
+    : stepValidationMessage(currentStep.key, {
+        businessName,
+        businessType,
+        goal,
+        offer,
+        competitorUrl,
+      });
   const fieldInputClassName =
     'w-full rounded-[1rem] border border-white/12 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] px-4 py-3 text-white outline-none transition duration-200 placeholder:text-white/24 focus:border-[#b36cff] focus:shadow-[0_0_0_1px_rgba(179,108,255,0.24),0_0_24px_rgba(179,108,255,0.14)]';
   const previousWebsiteUrl = normalizeHttpsUrlInput(profile?.websiteUrl || profile?.brandKit?.source_url || '');
@@ -798,6 +841,18 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         }
 
         const draft = response.draft;
+
+        // A freshly-minted draft has nothing to restore. Applying its empty
+        // fields anyway used to race the business-profile hydrate effect and
+        // blank out values that had already been filled in — one of the ways a
+        // returning user landed on an empty wizard and concluded nothing had
+        // been saved. Mark it loaded (so autosave unfreezes) and leave the form
+        // alone.
+        if (!serverDraftHasContent(draft)) {
+          setLoadedDraftId(draft.draftId);
+          return;
+        }
+
         setBusinessName(draft.businessName);
         setWebsiteUrl(normalizeHttpsUrlInput(draft.websiteUrl));
         setBusinessType(draft.businessType);
@@ -822,6 +877,35 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         setUrlPreview(draft.preview);
         setPreviewError(null);
         setLoadedDraftId(draft.draftId);
+
+        // Resume where the work stopped, not at step one. Restoring the answers
+        // but dropping the user back on the first step is what made a recovered
+        // session still feel like "it looped me back to the start and lost
+        // everything". An explicit `?step=` in the URL always wins — that is a
+        // deliberate navigation.
+        if (!stepParam) {
+          const resolvedGoal = draft.goal && !knownGoalLabels.includes(draft.goal) ? 'Other' : draft.goal;
+          const resumeValues = {
+            businessName: draft.businessName,
+            businessType: draft.businessType,
+            websiteUrl: draft.websiteUrl,
+            selectedChannels: draft.channels,
+            goal: resolvedGoal,
+            customGoal: resolvedGoal === 'Other' ? draft.goal : '',
+            offer: draft.offer,
+            competitorUrl: draft.competitorUrl,
+          };
+          const firstIncomplete = STEP_DEFINITIONS.findIndex(
+            (step) => !stepReady(step.key, resumeValues),
+          );
+          const resumeIndex = firstIncomplete === -1 ? STEP_DEFINITIONS.length - 1 : firstIncomplete;
+          setStepIndex(resumeIndex);
+          writeOnboardingUrlState({
+            draftId: draft.draftId,
+            step: STEP_DEFINITIONS[resumeIndex]?.key ?? null,
+            historyMode: 'replace',
+          });
+        }
       })
       .catch(() => {
         if (!cancelled) {
@@ -832,10 +916,19 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     return () => {
       cancelled = true;
     };
-  }, [ariesApi, draftId, loadedDraftId]);
+    // `stepParam` is read only to decide whether to auto-resume the step; the
+    // `loadedDraftId === draftId` guard above makes any re-run a no-op.
+  }, [ariesApi, draftId, loadedDraftId, stepParam]);
 
   useEffect(() => {
-    if (!props.initialAuthenticated || profileHydrated || draftId) {
+    // Gate on `draftParam` (a draft the user explicitly arrived with), NOT on
+    // `draftId`. `draftId` is populated by the eager create-draft effect within
+    // a tick of mount, so gating on it meant an authenticated user returning to
+    // /onboarding/start with no `?draft=` never hydrated their saved business
+    // profile at all — they got a blank wizard and reasonably concluded nothing
+    // had been saved. That is the "looped back to the set up your site thing"
+    // report from the demo.
+    if (!props.initialAuthenticated || profileHydrated || draftParam) {
       return;
     }
 
@@ -844,11 +937,12 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     void loadBusinessProfile()
       .then((result) => {
         if (cancelled || !result?.profileResponse.profile) {
+          setProfileHydrated(true);
           return;
         }
 
         const nextProfile = result.profileResponse.profile;
-        if (!draftId) {
+        if (!draftParam) {
           setBusinessName(nextProfile.businessName?.trim() ? nextProfile.businessName.trim() : '');
           setWebsiteUrl(normalizeHttpsUrlInput(nextProfile.websiteUrl || nextProfile.brandKit?.source_url || ''));
           setBusinessType(nextProfile.businessType || '');
@@ -872,7 +966,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     return () => {
       cancelled = true;
     };
-  }, [draftId, loadBusinessProfile, profileHydrated, props.initialAuthenticated]);
+  }, [draftParam, loadBusinessProfile, profileHydrated, props.initialAuthenticated]);
 
   useEffect(() => {
     if (!draftId) {
@@ -895,7 +989,12 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         businessType,
         approverName,
         channels: selectedChannels,
-        goal,
+        // Autosave used to send the raw `goal`, which for a custom outcome is
+        // the literal string "Other" — the text the user actually typed lived
+        // only in localStorage until the final submit resolved it. Anyone who
+        // lost the local snapshot lost their custom goal entirely. Resolve it
+        // here the same way handleFinish does.
+        goal: goal === 'Other' ? customGoal.trim() : goal,
         offer,
         brandVoice,
         notes,
@@ -929,6 +1028,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     businessName,
     businessType,
     competitorUrl,
+    customGoal,
     draftId,
     goal,
     notes,
@@ -940,7 +1040,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     markSaved,
   ]);
 
-  // localStorage fallback: always write a debounced snapshot so unauthenticated
+  // localStorage fallback: write a debounced snapshot so unauthenticated
   // users (no draftId yet) and users where the draft API failed don't lose
   // their inputs on refresh. Skips the write for empty drafts so we don't
   // leave an empty key around (and so a recently cleared draft doesn't get
@@ -948,6 +1048,18 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   // / transitioning so clearLocalDraft() sticks.
   useEffect(() => {
     if (submittingRef.current) return;
+    // Do not run until the restore decision has been made.
+    //
+    // On mount every field is still empty, so this effect scheduled a 500ms
+    // trailing write with an all-empty snapshot — and the `else` branch below
+    // calls clearLocalDraft(). Meanwhile the restore effect had already opened
+    // the blocking "Resume where you left off?" dialog. The backup was
+    // therefore deleted about half a second after the user was told it existed,
+    // long before anyone could read the dialog, leaving the modal backed only
+    // by in-memory state. Waiting for `resumeChecked`, and staying out of the
+    // way while the prompt is open, keeps the snapshot on disk until the user
+    // has actually chosen to restore or discard it.
+    if (!resumeChecked || resumePromptOpen) return;
     if (localSaveTimerRef.current) {
       window.clearTimeout(localSaveTimerRef.current);
     }
@@ -1006,6 +1118,8 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     notes,
     offer,
     preview?.brandVoiceSummary,
+    resumeChecked,
+    resumePromptOpen,
     selectedChannels,
     websiteUrl,
     markSaved,
@@ -1015,23 +1129,42 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   useEffect(() => {
     if (resumeChecked) return;
     const snapshot = readLocalDraft();
-    setResumeChecked(true);
     if (!localDraftHasContent(snapshot)) {
+      setResumeChecked(true);
       return;
     }
-    // If we already have a server draft with content, skip the prompt — the
-    // server draft always wins.
+    // If the user explicitly arrived with a server draft, that wins.
     if (draftParam) {
+      setResumeChecked(true);
       return;
     }
-    // If the authenticated user already has a business profile, the hydrate
-    // effect will populate things — don't confuse with an older local draft.
+    // Authenticated users used to be excluded outright, on the assumption that
+    // the business-profile hydrate would cover them. It does not cover the case
+    // that actually bit the demo: signing up, hitting a failure on the handoff,
+    // and coming back with a saved local snapshot but an empty profile. Wait for
+    // the hydrate attempt to settle, then offer the snapshot only if the form is
+    // still empty — so a real profile is never second-guessed.
     if (props.initialAuthenticated) {
-      return;
+      if (!profileHydrated) {
+        return; // re-runs when profileHydrated flips
+      }
+      if (businessName.trim() || websiteUrl.trim() || businessType.trim()) {
+        setResumeChecked(true);
+        return;
+      }
     }
+    setResumeChecked(true);
     setPendingLocalDraft(snapshot);
     setResumePromptOpen(true);
-  }, [draftParam, props.initialAuthenticated, resumeChecked]);
+  }, [
+    businessName,
+    businessType,
+    draftParam,
+    profileHydrated,
+    props.initialAuthenticated,
+    resumeChecked,
+    websiteUrl,
+  ]);
 
   useEffect(() => {
     if (currentStep.key !== 'website') {
@@ -1259,14 +1392,23 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         },
       });
 
-      // Freeze autosave and cancel any pending debounced write so the draft
-      // doesn't get re-written between clearLocalDraft() and navigation.
+      // Freeze autosave and cancel any pending debounced write so the snapshot
+      // can't be re-written from under the navigation.
+      //
+      // Deliberately NOT clearing the local draft here. This used to call
+      // clearLocalDraft() before navigating, which meant a failure on the very
+      // next hop (/onboarding/resume) left the user with nothing: the local
+      // snapshot was gone, and the server draft is unreachable once the
+      // `?draft=` param is lost, because onboarding_drafts has no owner column.
+      // That is the "did not save anything he put in" report from the demo.
+      // The snapshot is now kept as the safety net and offered back through the
+      // existing resume prompt; it is cleared only when the user deliberately
+      // starts a fresh workspace (see the `?new=1` effect).
       submittingRef.current = true;
       if (localSaveTimerRef.current) {
         window.clearTimeout(localSaveTimerRef.current);
         localSaveTimerRef.current = null;
       }
-      clearLocalDraft();
 
       if (props.initialAuthenticated) {
         // Show the full-screen "Building your first weekly social content plan" state and
@@ -1358,7 +1500,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
       case 'businessName':
         return businessName.trim() ? null : 'Add a business name.';
       case 'businessType':
-        return businessType.trim() ? null : 'Describe the business in plain language.';
+        return businessType.trim() ? null : BUSINESS_TYPE_FIELD.requiredError;
       case 'goal':
         return goal.trim() ? null : 'Choose a business outcome before continuing.';
       case 'websiteUrl': {
@@ -1490,6 +1632,23 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                   Aries uses this intake to prepare the first weekly social content plan, shape the review package, and keep approvals visible from the start.
                 </p>
               </div>
+
+              {/*
+                Demo feedback (David, item 3): he completed the whole intake
+                before discovering an account was required, and had no reason to
+                believe any of it had been kept. Saying both things up front — an
+                account is coming, and your answers are already saved — costs one
+                line and removes the surprise.
+              */}
+              {!props.initialAuthenticated ? (
+                <div className="mt-5 flex flex-wrap items-center gap-2 rounded-full border border-[#a96cff]/25 bg-[rgba(118,67,190,0.12)] px-4 py-2.5 text-sm text-white/75">
+                  <ShieldCheck className="h-4 w-4 shrink-0 text-[#c8a6ff]" aria-hidden="true" />
+                  <span>
+                    Your answers save as you go. You&apos;ll create an account at the end to open the
+                    workspace — nothing you enter here is lost.
+                  </span>
+                </div>
+              ) : null}
             </div>
 
             <div className="relative z-10 px-6 pb-6 pt-5 sm:px-8 lg:px-10">
@@ -1556,8 +1715,9 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                 <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
                   <div className="grid gap-5 md:grid-cols-2">
                     <Field
-                      label="Business name"
-                      hint="Use the client-facing name that should appear throughout the workspace."
+                      label={BUSINESS_NAME_FIELD.label}
+                      hint={BUSINESS_NAME_FIELD.hint}
+                      required
                       validity={businessNameValidity}
                       error={fieldErrorMessage('businessName')}
                     >
@@ -1566,12 +1726,14 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         onChange={(event) => setBusinessName(event.target.value)}
                         onBlur={() => markTouched('businessName')}
                         className={inputClassForValidity(businessNameValidity)}
-                        placeholder="Sugar & Leather"
+                        placeholder={BUSINESS_NAME_FIELD.placeholder}
+                        aria-required="true"
                       />
                     </Field>
                     <Field
-                      label="Business type"
-                      hint="Describe the business in plain language, not internal taxonomy."
+                      label={BUSINESS_TYPE_FIELD.label}
+                      hint={BUSINESS_TYPE_FIELD.hint}
+                      required
                       validity={businessTypeValidity}
                       error={fieldErrorMessage('businessType')}
                     >
@@ -1580,7 +1742,8 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         onChange={(event) => setBusinessType(event.target.value)}
                         onBlur={() => markTouched('businessType')}
                         className={inputClassForValidity(businessTypeValidity)}
-                        placeholder="Executive and transformational coaching network"
+                        placeholder={BUSINESS_TYPE_FIELD.placeholder}
+                        aria-required="true"
                       />
                     </Field>
                     <Field
@@ -1599,6 +1762,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                     <Field
                       label="Current source"
                       hint="Enter the website Aries should treat as the active brand source for this weekly content plan."
+                      required
                       validity={websiteUrlValidity}
                       error={fieldErrorMessage('websiteUrl')}
                     >
@@ -1636,6 +1800,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                     <Field
                       label="Website"
                       hint="Use the current live website. Aries treats this as the active brand source for the first weekly social content plan."
+                      required
                       validity={websiteUrlValidity}
                       error={fieldErrorMessage('websiteUrl')}
                     >
@@ -1800,6 +1965,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                               label="Brand voice"
                               htmlFor="onboarding-brand-voice"
                               hint="Confirm or correct the voice Aries should use in the first weekly social content job."
+                              optional
                             >
                               <textarea
                                 id="onboarding-brand-voice"
@@ -1817,6 +1983,9 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                               label="Offer summary"
                               htmlFor="onboarding-offer-summary"
                               hint="Confirm the customer-facing offer. The website suggestion stays visible below for comparison."
+                              required
+                              validity={offerValidity}
+                              error={fieldErrorMessage('offer')}
                             >
                               <textarea
                                 id="onboarding-offer-summary"
@@ -2131,11 +2300,22 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
               </button>
 
               <div className="flex flex-wrap items-center gap-3">
-                {error ? <p className="text-sm text-amber-200">{error}</p> : null}
+                {/*
+                  The advance button is disabled until the step validates, and
+                  clicking a disabled button cannot surface the reason — so the
+                  user was left guessing which field was blocking them. Show the
+                  outstanding requirement proactively and point the button at it.
+                */}
+                {error || blockingRequirement ? (
+                  <p id="onboarding-advance-blocker" className="text-sm text-amber-200">
+                    {error || blockingRequirement}
+                  </p>
+                ) : null}
                 {stepIndex < STEP_DEFINITIONS.length - 1 ? (
                   <button
                     type="button"
                     onClick={handleContinue}
+                    aria-describedby={error || blockingRequirement ? 'onboarding-advance-blocker' : undefined}
                     disabled={continueDisabled}
                     className="inline-flex items-center gap-2 rounded-full border border-[#a96cff]/40 bg-[linear-gradient(90deg,#5c2e96,#7a41c2,#a96cff)] px-6 py-3 text-sm font-semibold text-white shadow-[0_0_24px_rgba(169,108,255,0.2)] transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-60"
                   >
@@ -2146,6 +2326,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                   <button
                     type="button"
                     onClick={() => void handleFinish()}
+                    aria-describedby={error || blockingRequirement ? 'onboarding-advance-blocker' : undefined}
                     disabled={finishDisabled}
                     className="inline-flex items-center gap-2 rounded-full border border-[#a96cff]/40 bg-[linear-gradient(90deg,#5c2e96,#7a41c2,#a96cff)] px-6 py-3 text-sm font-semibold text-white shadow-[0_0_24px_rgba(169,108,255,0.2)] transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-60"
                   >
@@ -2185,6 +2366,13 @@ function Field(props: {
   hint?: string;
   children: ReactNode;
   optional?: boolean;
+  /**
+   * Demo feedback (David, item 2): "highlight the fields that have to be filled
+   * in, not just label as 'optional'." Marking only optional fields inverts the
+   * signal — an unmarked field reads as optional-by-omission. Required fields
+   * now carry an explicit chip of their own.
+   */
+  required?: boolean;
   validity?: FieldValidity;
   error?: string | null;
 }) {
@@ -2192,6 +2380,11 @@ function Field(props: {
   const labelContent = (
     <>
       {props.label}
+      {props.required ? (
+        <span className="rounded-full border border-[#ba8cff]/40 bg-[#ba8cff]/12 px-2 py-[2px] text-[10px] font-semibold normal-case tracking-normal text-[#d9bcff]">
+          Required
+        </span>
+      ) : null}
       {props.optional ? (
         <span className="text-xs font-normal normal-case tracking-normal text-white/70">(optional)</span>
       ) : null}

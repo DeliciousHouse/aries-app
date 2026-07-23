@@ -122,8 +122,29 @@ export async function registerUserAction(formData: any) {
       throw err;
     }
   } catch (err: any) {
-    console.error('Registration error:', err);
-    return { success: false, error: err.message || 'Registration failed' };
+    // Demo feedback (David, item 4): registration failed with a server error and
+    // there was no reference to quote. Two problems, both fixed here.
+    //
+    // 1. `err.message` went straight to the browser. For a Postgres failure that
+    //    is the raw driver text — constraint names, column names, sometimes the
+    //    host — which is both a leak and useless to the person reading it.
+    // 2. Nothing correlated the screen to the log line.
+    //
+    // Mint one reference, log it with the real error, and show the user only the
+    // reference. `duplicate email` stays a specific, actionable message because
+    // it is returned on the happy path above, not through here.
+    const reference = `ARS-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+    console.error('Registration error:', {
+      reference,
+      message: err?.message,
+      code: err?.code,
+      stack: err?.stack,
+    });
+    return {
+      success: false,
+      error: `We could not create your account. Please try again — if it keeps happening, quote reference ${reference} to support.`,
+      reference,
+    };
   } finally {
     if (client) client.release();
   }
