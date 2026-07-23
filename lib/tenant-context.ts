@@ -84,6 +84,20 @@ export class WorkspaceMismatchError extends Error {
   }
 }
 
+/** Pure workspace-pin comparison shared by the request guard and live DB tests. */
+export function assertWorkspacePinMatches(
+  activeWorkspaceId: string,
+  requestedWorkspaceId: string,
+): void {
+  if (requestedWorkspaceId !== activeWorkspaceId) {
+    throw new WorkspaceMismatchError(
+      'workspace_mismatch',
+      activeWorkspaceId,
+      requestedWorkspaceId,
+    );
+  }
+}
+
 type Queryable = {
   query: (
     sql: string,
@@ -282,15 +296,11 @@ async function assertActiveWorkspaceMatch(resolved: ResolvedTenantContext): Prom
       activeWorkspaceId: resolved.context.tenantId,
       userId: resolved.context.userId,
     });
-    throw new WorkspaceMismatchError(
-      'workspace_mismatch',
-      resolved.context.tenantId,
-      requested,
-    );
+    assertWorkspacePinMatches(resolved.context.tenantId, requested);
   }
 }
 
-export async function getTenantContext(): Promise<TenantContext> {
+export async function getTenantContext(options: { requireLiveMembership?: boolean } = {}): Promise<TenantContext> {
   const session = await auth();
 
   const client = await pool.connect();
@@ -299,6 +309,10 @@ export async function getTenantContext(): Promise<TenantContext> {
     resolved = await resolveTenantContextForSessionInternal(client, session);
   } finally {
     client.release();
+  }
+
+  if (options.requireLiveMembership && resolved.usedClaimsFallback) {
+    throw new Error('Live workspace membership could not be verified.');
   }
 
   // Multi-workspace mutation guard (Decision 2a). Flag OFF → no-op (no header

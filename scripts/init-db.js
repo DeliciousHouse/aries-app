@@ -121,6 +121,11 @@ async function initDb() {
         screenshot_bytes BYTEA,
         screenshot_mime VARCHAR(64),
         jira_ticket_key VARCHAR(50),
+        jira_create_state TEXT NOT NULL DEFAULT 'not_started'
+          CHECK (jira_create_state IN ('not_started','in_flight','uncertain','completed')),
+        jira_create_token TEXT,
+        attachment_state TEXT NOT NULL DEFAULT 'none'
+          CHECK (attachment_state IN ('none','in_flight','uncertain','completed','retained_private')),
         status TEXT NOT NULL DEFAULT 'pending'
           CHECK (status IN ('pending','synced','pending_retry','failed')),
         attempts INT NOT NULL DEFAULT 0,
@@ -133,6 +138,15 @@ async function initDb() {
           CHECK (submitter_type IN ('authenticated','anonymous'));
       ALTER TABLE feedback_reports
         ADD COLUMN IF NOT EXISTS request_fingerprint TEXT NOT NULL DEFAULT '';
+      ALTER TABLE feedback_reports
+        ADD COLUMN IF NOT EXISTS jira_create_state TEXT NOT NULL DEFAULT 'not_started'
+          CHECK (jira_create_state IN ('not_started','in_flight','uncertain','completed')),
+        ADD COLUMN IF NOT EXISTS jira_create_token TEXT,
+        ADD COLUMN IF NOT EXISTS attachment_state TEXT NOT NULL DEFAULT 'none'
+          CHECK (attachment_state IN ('none','in_flight','uncertain','completed','retained_private'));
+      UPDATE feedback_reports
+         SET attachment_state = 'retained_private'
+       WHERE screenshot_bytes IS NOT NULL AND attachment_state = 'none';
       CREATE INDEX IF NOT EXISTS idx_feedback_reports_status_updated
         ON feedback_reports (status, updated_at);
       CREATE INDEX IF NOT EXISTS idx_feedback_reports_tenant_submitter_created

@@ -10,11 +10,16 @@
  * crashed worker's rows re-enter via the stale-pending window.
  */
 
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 
 import { withTaskExecutionLog } from '@/backend/telemetry/task-execution-log';
 import type { FeedbackReportConfig } from './report-config';
-import { claimRetryBatch, ensureFeedbackReportsTable } from './report-store';
+import {
+  claimRetryBatch,
+  ensureFeedbackReportsTable,
+  getFeedbackReportById,
+  withFeedbackReportSyncLock,
+} from './report-store';
 import {
   poolSyncStore,
   rowToSyncable,
@@ -36,6 +41,8 @@ export interface FeedbackRetrySweepReport {
 export interface RetrySweepDeps {
   claim?: typeof claimRetryBatch;
   ensureTable?: typeof ensureFeedbackReportsTable;
+  getById?: typeof getFeedbackReportById;
+  withSyncLock?: typeof withFeedbackReportSyncLock;
   sync?: (
     report: SyncableReport,
     config: FeedbackReportConfig,
@@ -108,11 +115,29 @@ async function runFeedbackRetrySweepPass(
     if (rows.length === 0) return report;
 
     const sync = deps.sync ?? syncReportToJira;
-    const store = deps.store ?? poolSyncStore(pool);
+    const getById = deps.getById ?? getFeedbackReportById;
+    const withSyncLock = deps.withSyncLock ?? withFeedbackReportSyncLock;
 
     for (const row of rows) {
       try {
-        const result = await sync(rowToSyncable(row), config, store);
+        const result = await withSyncLock(pool, row.id, async (lockClient: PoolClient) => {
+          // The claim snapshot may be stale by the time this worker reaches the
+          // row. Reload while holding the SAME report lock used by browser
+          // replays so every Jira entry point observes one serialized state.
+          const latest = await getById(lockClient, row.id);
+          if (!latest) throw new Error('claimed feedback report no longer exists');
+          if (latest.status === 'synced') {
+            return { status: 'synced' as const, ticketKey: latest.jira_ticket_key };
+          }
+          if (latest.status === 'failed') {
+            return { status: 'failed' as const, ticketKey: latest.jira_ticket_key };
+          }
+          return sync(
+            rowToSyncable(latest),
+            config,
+            deps.store ?? poolSyncStore(lockClient),
+          );
+        });
         if (result.status === 'synced') report.synced += 1;
         else if (result.status === 'failed') report.failed += 1;
         else report.retried += 1;

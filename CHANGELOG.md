@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.41.0 — fix(feedback): make public incident delivery crash-safe
+
+Visitors can keep reporting issues without signing in while retries, worker races,
+and stale workspace sessions now fail safely without duplicating Jira work or
+exposing private report content.
+
+### Added
+
+- Feedback delivery records durable Jira-create and attachment reconciliation
+  state, including an additive migration and operator-visible terminal failures.
+- GitHub Actions now runs the live PostgreSQL feedback concurrency and recovery
+  suite before the full verification job.
+
+### Changed
+
+- Jira receives only redacted triage metadata and opaque internal identifiers;
+  report text and screenshots remain in the private Aries record.
+- Anonymous source identity trusts forwarding headers only under an explicit
+  verified-proxy contract and shares a durable tenant/endpoint traffic ceiling.
+
+### Fixed
+
+- Browser replays, manual recovery, and retry workers share one per-report lock,
+  reload durable state under that lock, and conservatively reconcile uncertain
+  Jira creates instead of creating again after one stale search miss.
+- Authenticated submissions require live membership and workspace-pin agreement,
+  while terminal delivery failures keep the form contents and offer a safe retry.
+
 ## v0.1.39.0 — fix(marketing): make explicit goal provenance durable
 
 Operators can now confirm a weekly goal and see that explicit goal on the first

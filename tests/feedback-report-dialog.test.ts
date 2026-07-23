@@ -61,7 +61,20 @@ async function withReportDialog(
     fetchCalls += 1;
     const body = (init as { body?: unknown } | undefined)?.body;
     if (typeof body === 'string') requestBodies.push(JSON.parse(body) as Record<string, unknown>);
-    return fetchImpl(input, init);
+    const response = (await fetchImpl(input, init)) as {
+      status?: number;
+      ok?: boolean;
+      statusText?: string;
+      text?: () => Promise<string>;
+      json?: () => Promise<unknown>;
+    };
+    if (typeof response.text === 'function') return response;
+    const responseBody = typeof response.json === 'function' ? await response.json() : null;
+    return {
+      ...response,
+      statusText: response.statusText ?? '',
+      text: async () => (responseBody == null ? '' : JSON.stringify(responseBody)),
+    };
   };
 
   try {
@@ -239,7 +252,10 @@ test('a server key conflict rotates the browser idempotency key before retry', a
     async () => ({
       status: 409,
       ok: false,
-      json: async () => ({ error: 'This submission key cannot be reused. Please submit again.' }),
+      json: async () => ({
+        error: 'This submission key cannot be reused. Please submit again.',
+        status: 'idempotency_conflict',
+      }),
     }),
     async (h) => {
       await h.fillValidForm();

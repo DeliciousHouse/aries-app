@@ -1,11 +1,15 @@
 import { NextResponse } from 'next/server';
 
 import { auth } from '@/auth';
-import { getTenantContext } from '@/lib/tenant-context';
+import { getTenantContext, WorkspaceMismatchError } from '@/lib/tenant-context';
+import { workspaceMismatchResponse } from '@/lib/tenant-context-http';
 import { resolveFeedbackConfig } from '@/lib/feedback/feedback-config';
 import { OVER_LIMIT, readBodyCapped } from '@/lib/http/read-body-capped';
 import { resolveFeedbackReportConfig } from '@/backend/feedback/report-config';
-import { resolveReportSubmitter } from '@/backend/feedback/report-submitter';
+import {
+  ReportTenantAttributionError,
+  resolveReportSubmitter,
+} from '@/backend/feedback/report-submitter';
 import { validateReportRequest } from '@/backend/feedback/report-validation';
 import { submitFeedbackReport } from '@/backend/feedback/submit-report';
 
@@ -23,16 +27,35 @@ const MAX_BODY_BYTES = 4 * 1024 * 1024;
  * user/tenant attribution; missing or expired sessions receive an anonymous,
  * IP-hashed rate-limit identity. Body-supplied identity fields are ignored.
  */
-export async function POST(req: Request): Promise<NextResponse> {
+export async function POST(req: Request): Promise<Response> {
   // Same master kill switch as the legacy capture path.
   if (!resolveFeedbackConfig().enabled) {
     return NextResponse.json({ status: 'error', error: 'feedback_disabled' }, { status: 503 });
   }
 
-  const submitter = await resolveReportSubmitter(req.headers, {
-    readSession: auth,
-    readTenantContext: getTenantContext,
-  });
+  let submitter;
+  try {
+    submitter = await resolveReportSubmitter(req.headers, {
+      readSession: auth,
+      readTenantContext: () => getTenantContext({ requireLiveMembership: true }),
+    });
+  } catch (error) {
+    const cause = error instanceof ReportTenantAttributionError ? error.cause : undefined;
+    if (cause instanceof WorkspaceMismatchError) {
+      const response = workspaceMismatchResponse(cause);
+      if (response) return response;
+    }
+    if (error instanceof ReportTenantAttributionError) {
+      return NextResponse.json(
+        {
+          error: 'workspace_context_conflict',
+          message: 'Your current workspace membership could not be verified. Refresh and retry.',
+        },
+        { status: 409 },
+      );
+    }
+    throw error;
+  }
 
   const raw = await readBodyCapped(req, MAX_BODY_BYTES);
   if (raw === OVER_LIMIT) {

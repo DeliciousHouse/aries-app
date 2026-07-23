@@ -28,6 +28,7 @@ function config(overrides: Partial<FeedbackReportConfig> = {}): FeedbackReportCo
     },
     maxImageBytes: 2_000_000,
     userRateLimitPerHour: 10,
+    sharedRateLimitPerHour: 100,
     dedupWindowSeconds: 60,
     retryIntervalMinutes: 5,
     retryBatchLimit: 10,
@@ -40,10 +41,7 @@ function config(overrides: Partial<FeedbackReportConfig> = {}): FeedbackReportCo
 const SUBMITTER: ReportSubmitter = {
   attribution: 'authenticated',
   userId: 'user-1',
-  email: 'jo@acme.co',
-  name: 'Jo',
   tenantId: '15',
-  tenantSlug: 'acme-co',
 };
 
 const INPUT = {
@@ -63,6 +61,7 @@ function deps(overrides: Partial<SubmitReportDeps> = {}): SubmitReportDeps {
     sync: async () => ({ status: 'synced' as const, ticketKey: 'AA-1' }),
     getById: async () => null,
     withSyncLock: async (_pool, _id, work) => work(FAKE_CLIENT),
+    reclaimFailed: async () => {},
     now: () => new Date('2026-07-03T00:00:00.000Z'),
     ...overrides,
   };
@@ -88,6 +87,9 @@ function persistedRow(
     screenshot_bytes: record.screenshot?.bytes ?? null,
     screenshot_mime: record.screenshot?.mime ?? null,
     jira_ticket_key: null,
+    jira_create_state: 'not_started',
+    jira_create_token: null,
+    attachment_state: record.screenshot ? 'retained_private' : 'none',
     status: 'pending',
     attempts: 0,
     last_error: null,
@@ -144,12 +146,13 @@ test('a Jira failure at retryMaxAttempts=1 reports the row as terminally failed'
     }),
   );
 
-  assert.equal(result.httpStatus, 202);
+  assert.equal(result.httpStatus, 503);
   assert.deepEqual(result.body, {
     submission_id: IDEMPOTENCY_KEY,
     jira_ticket_key: null,
     status: 'failed',
     screenshot_discarded: null,
+    error: 'Your report was saved, but Jira delivery needs attention. Retry to reconcile it safely.',
   });
 });
 
@@ -170,8 +173,9 @@ test('identity comes from the session argument, never the body', async () => {
   const record = inserted as unknown as FeedbackReportRecord;
   assert.equal(record.submitterId, 'user-1');
   assert.equal(record.tenantId, '15');
-  assert.equal(record.customerSlug, 'acme-co');
-  assert.equal(record.submitterEmail, 'jo@acme.co');
+  assert.equal(record.customerSlug, 'tenant');
+  assert.equal(record.submitterEmail, null);
+  assert.equal(record.submitterName, null);
   assert.equal(record.submitterType, 'authenticated');
 });
 
@@ -182,10 +186,7 @@ test('anonymous reports persist the hashed rate-limit identity before Jira deliv
     {
       attribution: 'anonymous',
       userId: 'anonymous:hashed-client-ip',
-      email: null,
-      name: null,
       tenantId: 'anonymous',
-      tenantSlug: 'anonymous',
     },
     config(),
     deps({
@@ -202,7 +203,7 @@ test('anonymous reports persist the hashed rate-limit identity before Jira deliv
   assert.equal(record.submitterId, 'anonymous:hashed-client-ip');
   assert.equal(record.submitterName, null);
   assert.equal(record.submitterEmail, null);
-  assert.equal(record.customerSlug, 'unknown');
+  assert.equal(record.customerSlug, 'anonymous');
   assert.equal(result.httpStatus, 202, 'the committed row must survive deferred Jira delivery');
   assert.equal(result.body.submission_id, IDEMPOTENCY_KEY);
 });
@@ -280,7 +281,7 @@ test('an oversized screenshot is discarded per config cap, report still succeeds
   assert.equal(result.body.screenshot_discarded, 'too_large');
 });
 
-test('attach-still-syncing: pending_retry WITH a key is 201 (link known, attachment heals)', async () => {
+test('pending reconciliation WITH a known key is 201 and preserves the safe Jira link', async () => {
   const result = await submitFeedbackReport(
     INPUT,
     SUBMITTER,
@@ -308,11 +309,11 @@ test('Jira unconfigured / failed create is 202 parked with the uniform shape', a
   });
 });
 
-test('a submitter without a tenant still persists (tenant falls back, slug chain applies)', async () => {
+test('a submitter without a tenant still persists with opaque fallback attribution', async () => {
   let inserted: FeedbackReportRecord | null = null;
   await submitFeedbackReport(
     INPUT,
-    { ...SUBMITTER, tenantId: null, tenantSlug: null },
+    { ...SUBMITTER, tenantId: null },
     config(),
     deps({
       insert: async (_pool, record) => {
@@ -323,7 +324,7 @@ test('a submitter without a tenant still persists (tenant falls back, slug chain
   );
   const record = inserted as unknown as FeedbackReportRecord;
   assert.equal(record.tenantId, 'unknown');
-  assert.equal(record.customerSlug, 'unknown');
+  assert.equal(record.customerSlug, 'tenant');
 });
 
 test('lost acknowledgement replay after the dedup window returns the original durable outcome', async () => {
@@ -369,9 +370,9 @@ test('replay after Jira create but before acknowledgement reconciles under the o
       submitterType: SUBMITTER.attribution,
       tenantId: SUBMITTER.tenantId!,
       submitterId: SUBMITTER.userId,
-      submitterEmail: SUBMITTER.email,
-      submitterName: SUBMITTER.name,
-      customerSlug: 'acme-co',
+      submitterEmail: null,
+      submitterName: null,
+      customerSlug: 'tenant',
       category: INPUT.category,
       impact: INPUT.impact,
       title: INPUT.title,
@@ -453,43 +454,85 @@ test('idempotency binds discarded screenshot input, not only its shared discard 
   assert.equal(changed.body.submission_id, null);
 });
 
-test('a scheduled or terminal replay returns stored state without bypassing retry policy', async () => {
-  for (const status of ['pending_retry', 'failed'] as const) {
-    let syncCalls = 0;
-    const existing = persistedRow(
-      {
-        id: IDEMPOTENCY_KEY,
-        requestFingerprint: 'server-fingerprint',
-        submitterType: SUBMITTER.attribution,
-        tenantId: SUBMITTER.tenantId!,
-        submitterId: SUBMITTER.userId,
-        submitterEmail: SUBMITTER.email,
-        submitterName: SUBMITTER.name,
-        customerSlug: 'acme-co',
-        category: INPUT.category,
-        impact: INPUT.impact,
-        title: INPUT.title,
-        description: INPUT.description,
-        screenshot: null,
+test('a scheduled replay returns stored state without bypassing retry policy', async () => {
+  let syncCalls = 0;
+  const existing = persistedRow(
+    {
+      id: IDEMPOTENCY_KEY,
+      requestFingerprint: 'server-fingerprint',
+      submitterType: SUBMITTER.attribution,
+      tenantId: SUBMITTER.tenantId!,
+      submitterId: SUBMITTER.userId,
+      submitterEmail: null,
+      submitterName: null,
+      customerSlug: 'acme-co',
+      category: INPUT.category,
+      impact: INPUT.impact,
+      title: INPUT.title,
+      description: INPUT.description,
+      screenshot: null,
+    },
+    { status: 'pending_retry', attempts: 2 },
+  );
+  const result = await submitFeedbackReport(
+    INPUT,
+    SUBMITTER,
+    config(),
+    deps({
+      insert: async () => ({ outcome: 'replay', report: existing }),
+      sync: async () => {
+        syncCalls += 1;
+        return { status: 'synced', ticketKey: 'AA-88' };
       },
-      { status, jira_ticket_key: 'AA-88', attempts: 2 },
-    );
-    const result = await submitFeedbackReport(
-      INPUT,
-      SUBMITTER,
-      config(),
-      deps({
-        insert: async () => ({ outcome: 'replay', report: existing }),
-        sync: async () => {
-          syncCalls += 1;
-          return { status: 'synced', ticketKey: 'AA-88' };
-        },
-      }),
-    );
+    }),
+  );
 
-    assert.equal(syncCalls, 0, `${status} must remain governed by the sweep retry policy`);
-    assert.equal(result.httpStatus, 201);
-    assert.equal(result.body.status, status);
-    assert.equal(result.body.jira_ticket_key, 'AA-88');
-  }
+  assert.equal(syncCalls, 0);
+  assert.equal(result.httpStatus, 202);
+  assert.equal(result.body.status, 'pending_retry');
+});
+
+test('replaying a terminal row reclaims it under the lock and safely reconciles', async () => {
+  const existing = persistedRow(
+    {
+      id: IDEMPOTENCY_KEY,
+      requestFingerprint: 'server-fingerprint',
+      submitterType: SUBMITTER.attribution,
+      tenantId: SUBMITTER.tenantId!,
+      submitterId: SUBMITTER.userId,
+      submitterEmail: null,
+      submitterName: null,
+      customerSlug: 'acme-co',
+      category: INPUT.category,
+      impact: INPUT.impact,
+      title: INPUT.title,
+      description: INPUT.description,
+      screenshot: null,
+    },
+    { status: 'failed', jira_ticket_key: 'AA-88', attempts: 5 },
+  );
+  let reclaimed = false;
+  let syncCalls = 0;
+  const result = await submitFeedbackReport(
+    INPUT,
+    SUBMITTER,
+    config(),
+    deps({
+      insert: async () => ({ outcome: 'replay', report: existing }),
+      reclaimFailed: async () => {
+        reclaimed = true;
+      },
+      sync: async (report) => {
+        syncCalls += 1;
+        assert.equal(report.attempts, 0);
+        return { status: 'synced', ticketKey: 'AA-88' };
+      },
+    }),
+  );
+
+  assert.equal(reclaimed, true);
+  assert.equal(syncCalls, 1);
+  assert.equal(result.httpStatus, 201);
+  assert.equal(result.body.status, 'synced');
+  assert.equal(result.body.jira_ticket_key, 'AA-88');
 });

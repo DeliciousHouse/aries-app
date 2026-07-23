@@ -115,8 +115,7 @@ function discardNote(reason: string | null | undefined): string {
 
 /**
  * Map the server response to dialog UX per the SC-70 contract:
- *  - 201 + key → success with a browse link ("attachment still syncing" when
- *    status is pending_retry); screenshot_discarded appends its reason.
+ *  - 201 + key → success with a browse link (delivery may still reconcile).
  *  - 202 → received/syncing.
  *  - 429 → keep the dialog open with values intact and show the server message.
  *  - anything else → generic retryable failure, dialog stays open.
@@ -134,7 +133,7 @@ export function outcomeFromResponse(
 
   if (status === 201 && typeof body?.jira_ticket_key === 'string') {
     const key = body.jira_ticket_key;
-    const syncing = body?.status === 'pending_retry' ? ' The attachment is still syncing.' : '';
+    const syncing = body?.status === 'pending_retry' ? ' Delivery is still reconciling.' : '';
     return {
       kind: 'success',
       message: `Thanks — filed as ${key}.${syncing}${discardNote(discarded)}`,
@@ -159,6 +158,9 @@ export function outcomeFromResponse(
   }
   return {
     kind: 'error',
-    message: "We couldn't send that just now. Your text is saved — please retry.",
+    message:
+      body?.status === 'failed' && typeof body.error === 'string'
+        ? body.error
+        : "We couldn't send that just now. Your text is saved — please retry.",
   };
 }

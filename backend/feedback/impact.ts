@@ -92,18 +92,16 @@ export function idempotencyLabel(reportId: string): string {
 }
 
 /**
- * The full label set for a created issue. Order: triage label, customer label,
- * idempotency label, impact label (Aries adaptation — see header).
+ * Privacy-safe label set. Customer slugs are intentionally excluded; Jira gets
+ * only triage, opaque idempotency, impact, and anonymous-attribution markers.
  */
 export function reportLabels(
   reportId: string,
-  customerSlug: string,
   impact: string,
   submitterType: 'authenticated' | 'anonymous' = 'authenticated',
 ): string[] {
   const labels = [
     'customer-incident',
-    `customer-${customerSlug || 'unknown'}`,
     idempotencyLabel(reportId),
     impactLabel(impact),
   ];
