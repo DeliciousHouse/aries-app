@@ -8,7 +8,7 @@ import {
   type ExecutionRunRecord,
   withExecutionRunLock,
 } from './run-store';
-import { recordTaskExecution } from '../telemetry/task-execution-log';
+import { emitTaskExecution } from '../telemetry/task-execution-log';
 import { applyHermesMarketingCallback } from '../marketing/hermes-callbacks';
 import { SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY } from '../social-content/defaults';
 import { approvalStepFromWorkflowStepId } from '../social-content/runtime-state';
@@ -274,24 +274,40 @@ export async function handleHermesRunCallback(
       // returned, so a reconciler re-delivery (deterministic event_id) cannot
       // double-write. Best-effort: recordTaskExecution never throws, so callback
       // idempotency is unaffected.
+      // AA-158: emitted, not awaited — a callback must not pay a DB round-trip
+      // to be observed. The buffer batches and flushes on its own; a flush
+      // failure drops events rather than blocking or throwing.
       if (isTerminalExecutionStatus(appliedStatus)) {
-        await recordTaskExecution({
+        const startedMs = Date.parse(run.created_at ?? '');
+        emitTaskExecution({
           engine: 'AI_LLM',
           // Marketing runs are per-stage, so the stage is the unit of cost.
           taskKey: run.stage ? `marketing.stage.${run.stage}` : `execution.${run.workflow_key}`,
+          // Per-EXECUTION id, so every attempt of one logical task joins up.
+          taskId: run.marketing_job_id ?? run.aries_run_id,
           tenantId: run.tenant_id,
+          // Hermes callbacks are userless — no session reaches this path.
+          userId: null,
           status: appliedStatus === 'completed' ? 'succeeded' : 'failed',
           errorCode:
             appliedStatus === 'completed'
               ? null
               : (payload.error?.code ?? (appliedStatus === 'cancelled' ? 'cancelled' : 'hermes_run_failed')),
+          startedAt: Number.isFinite(startedMs) ? new Date(startedMs) : null,
+          endTime: new Date(),
           durationMs: durationSinceIso(run.created_at),
           // The gateway the run was submitted to. Aries sends no model hint on
-          // pipeline runs (the Hermes profile picks the model) and Hermes reports
-          // back neither the resolved model nor token usage, so those columns stay
-          // NULL — "not reported", never a fabricated zero.
+          // pipeline runs (the Hermes profile picks the model).
           targetProfile: run.target_profile ?? null,
           externalRunId: payload.hermes_run_id,
+          // AA-158: usage is OPTIONAL on the callback protocol and Hermes does
+          // not emit it yet, so these stay NULL — "not reported", never a
+          // fabricated zero. They fill in automatically once Hermes populates
+          // the block; no further Aries change is needed.
+          modelReported: payload.usage?.model ?? null,
+          promptTokens: payload.usage?.prompt_tokens ?? null,
+          completionTokens: payload.usage?.completion_tokens ?? null,
+          totalTokens: payload.usage?.total_tokens ?? null,
         });
       }
 

@@ -19,6 +19,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import pool from '../../lib/db';
+import { settleTaskExecutionBuffer } from '../../backend/telemetry/task-execution-log';
 
 type Insert = { sql: string; params: unknown[] };
 
@@ -46,9 +47,13 @@ async function withCallbackHarness(
     return { rows: [], rowCount: 0 };
   }) as typeof pool.query);
 
+  const { resetTaskExecutionBuffer } = await import('../../backend/telemetry/task-execution-log');
+  resetTaskExecutionBuffer();
+
   try {
     await body({ inserts });
   } finally {
+    resetTaskExecutionBuffer();
     if (previousDataRoot === undefined) delete process.env.DATA_ROOT;
     else process.env.DATA_ROOT = previousDataRoot;
     if (previousFlag === undefined) delete process.env.ARIES_TASK_TELEMETRY_ENABLED;
@@ -59,9 +64,12 @@ async function withCallbackHarness(
 
 const COLUMNS = [
   'tenant_id',
+  'user_id',
+  'task_id',
   'execution_engine',
   'task_key',
   'status',
+  'attempt_number',
   'error_code',
   'duration_ms',
   'cpu_ms',
@@ -69,10 +77,12 @@ const COLUMNS = [
   'model_reported',
   'target_profile',
   'external_run_id',
-  'input_tokens',
-  'output_tokens',
+  'prompt_tokens',
+  'completion_tokens',
+  'total_tokens',
   'cost_cents',
   'started_at',
+  'end_time',
 ] as const;
 
 function row(insert: Insert): Record<string, unknown> {
@@ -105,6 +115,7 @@ test('a terminal Hermes callback logs exactly one AI_LLM execution', async (t) =
     } as never);
 
     assert.equal(result.status, 'accepted');
+    await settleTaskExecutionBuffer();
     assert.equal(inserts.length, 1, 'one execution row');
     const logged = row(inserts[0]);
     assert.equal(logged.execution_engine, 'AI_LLM');
@@ -115,7 +126,7 @@ test('a terminal Hermes callback logs exactly one AI_LLM execution', async (t) =
     assert.equal(typeof logged.duration_ms, 'number');
     // Hermes reports neither the resolved model nor usage — NULL, not a zero.
     assert.equal(logged.model_reported, null);
-    assert.equal(logged.input_tokens, null);
+    assert.equal(logged.prompt_tokens, null);
     assert.equal(logged.cost_cents, null);
   });
 });
@@ -144,6 +155,7 @@ test('a marketing stage run is keyed by its stage', async (t) => {
       output: [{ ok: true }],
     } as never);
 
+    await settleTaskExecutionBuffer();
     assert.equal(inserts.length, 1);
     assert.equal(row(inserts[0]).task_key, 'marketing.stage.production');
   });
@@ -169,6 +181,7 @@ test('a non-terminal progress callback logs nothing', async (t) => {
       status: 'running',
     } as never);
 
+    await settleTaskExecutionBuffer();
     assert.equal(inserts.length, 0, 'a progress ping is not a finished execution');
   });
 });
@@ -199,6 +212,7 @@ test('a duplicate re-delivery does not double-count the execution', async (t) =>
 
     assert.equal(first.status === 'accepted' && first.duplicate, false);
     assert.equal(second.status === 'accepted' && second.duplicate, true);
+    await settleTaskExecutionBuffer();
     assert.equal(inserts.length, 1, 'reconciler re-delivery must not re-log');
   });
 });
@@ -224,6 +238,7 @@ test('a failed run is logged as a failed execution with its error code', async (
       error: { code: 'hermes_gateway_timeout', message: 'timed out', retryable: true },
     } as never);
 
+    await settleTaskExecutionBuffer();
     assert.equal(inserts.length, 1);
     const logged = row(inserts[0]);
     assert.equal(logged.status, 'failed');
@@ -253,6 +268,7 @@ test('flag OFF logs nothing on the callback path', async (t) => {
     } as never);
 
     assert.equal(result.status, 'accepted');
+    await settleTaskExecutionBuffer();
     assert.equal(inserts.length, 0);
   });
 });

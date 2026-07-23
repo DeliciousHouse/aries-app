@@ -105,6 +105,7 @@ const steps = [
     args: [
       '--test',
       'tests/telemetry/task-execution-log.test.ts',
+      'tests/telemetry/task-token-timing-telemetry.test.ts',
       'tests/telemetry/hermes-run-execution-log.test.ts',
       'tests/execution-run-engine-classification.test.ts',
     ],

@@ -42,9 +42,12 @@ function fakeDb(onQuery?: () => void) {
 /** Column order of the INSERT, so params can be read by name in assertions. */
 const COLUMNS = [
   'tenant_id',
+  'user_id',
+  'task_id',
   'execution_engine',
   'task_key',
   'status',
+  'attempt_number',
   'error_code',
   'duration_ms',
   'cpu_ms',
@@ -52,10 +55,12 @@ const COLUMNS = [
   'model_reported',
   'target_profile',
   'external_run_id',
-  'input_tokens',
-  'output_tokens',
+  'prompt_tokens',
+  'completion_tokens',
+  'total_tokens',
   'cost_cents',
   'started_at',
+  'end_time',
 ] as const;
 
 function paramsByColumn(captured: Captured): Record<string, unknown> {
@@ -78,8 +83,9 @@ test('zero-cost engines log hard zero tokens and cost, never NULL', () => {
       status: 'succeeded',
       // Even if a caller passes nothing, the zero-cost contract holds.
     });
-    assert.equal(row.input_tokens, 0, `${engine} input_tokens`);
-    assert.equal(row.output_tokens, 0, `${engine} output_tokens`);
+    assert.equal(row.prompt_tokens, 0, `${engine} prompt_tokens`);
+    assert.equal(row.completion_tokens, 0, `${engine} completion_tokens`);
+    assert.equal(row.total_tokens, 0, `${engine} total_tokens`);
     assert.equal(row.cost_cents, 0, `${engine} cost_cents`);
   }
 });
@@ -111,8 +117,9 @@ test('AI rows keep unreported usage NULL (not a fabricated zero) and record the 
   assert.equal(row.model_requested, 'gemini/gemini-3-flash-preview');
   // Hermes does not report the resolved model or usage back to Aries today.
   assert.equal(row.model_reported, null);
-  assert.equal(row.input_tokens, null);
-  assert.equal(row.output_tokens, null);
+  assert.equal(row.prompt_tokens, null);
+  assert.equal(row.completion_tokens, null);
+  assert.equal(row.total_tokens, null);
   assert.equal(row.cost_cents, null);
 });
 
@@ -123,13 +130,15 @@ test('AI rows persist gateway-reported usage when it is available', () => {
     status: 'succeeded',
     modelRequested: 'gemini/gemini-3-flash-preview',
     modelReported: 'claude-3-5-sonnet',
-    inputTokens: 1200,
-    outputTokens: 340,
+    promptTokens: 1200,
+    completionTokens: 340,
     costCents: 0.42,
   });
   assert.equal(row.model_reported, 'claude-3-5-sonnet');
-  assert.equal(row.input_tokens, 1200);
-  assert.equal(row.output_tokens, 340);
+  assert.equal(row.prompt_tokens, 1200);
+  assert.equal(row.completion_tokens, 340);
+  // Derived from the pair when the gateway does not send an explicit total.
+  assert.equal(row.total_tokens, 1540);
   assert.equal(row.cost_cents, 0.42);
 });
 
@@ -239,8 +248,9 @@ test('withTaskExecutionLog records a LOCAL_EDGE success with compute time and ze
   const row = paramsByColumn(db.calls[0]);
   assert.equal(row.execution_engine, 'LOCAL_EDGE');
   assert.equal(row.status, 'succeeded');
-  assert.equal(row.input_tokens, 0);
-  assert.equal(row.output_tokens, 0);
+  assert.equal(row.prompt_tokens, 0);
+  assert.equal(row.completion_tokens, 0);
+  assert.equal(row.total_tokens, 0);
   assert.equal(row.cost_cents, 0);
   assert.equal(typeof row.duration_ms, 'number');
   assert.equal(typeof row.cpu_ms, 'number');
