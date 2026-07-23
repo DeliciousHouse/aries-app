@@ -85,6 +85,16 @@ export function isCommentClassificationEnabled(env: ClassifyEnv = process.env): 
   return flag === '1' || flag === 'true' || flag === 'on' || flag === 'yes';
 }
 
+/**
+ * The model hint Aries SENDS to the gateway for this run. Hermes owns actual
+ * routing, so this is "requested", not "resolved" — the AA-159 execution log
+ * records it as `model_requested` and leaves `model_reported` NULL until the
+ * gateway reports what it ran.
+ */
+export function resolveClassifyModelHint(env: ClassifyEnv = process.env): string {
+  return readEnv(env, 'HERMES_COMMENT_CLASSIFY_MODEL') || DEFAULT_MODEL_HINT;
+}
+
 function instructionsBlock(): string {
   return [
     'You are a social-media comment classifier for a brand. You will receive a JSON array of comments, each with an "id" and "text".',
@@ -167,7 +177,7 @@ export async function classifyCommentsWithHermes(input: ClassifyCommentsInput): 
   if (!gatewayUrl || !apiKey) return { ok: false, reason: 'not_configured' };
 
   const sessionKey = readEnv(env, 'HERMES_COMMENT_CLASSIFY_SESSION_KEY') || readEnv(env, 'HERMES_SESSION_KEY') || 'aries-main';
-  const modelHint = readEnv(env, 'HERMES_COMMENT_CLASSIFY_MODEL') || DEFAULT_MODEL_HINT;
+  const modelHint = resolveClassifyModelHint(env);
   const timeoutMs = readEnvInt(env, 'HERMES_COMMENT_CLASSIFY_TIMEOUT_MS', DEFAULT_TIMEOUT_MS);
   const intervalMs = Math.max(MIN_POLL_INTERVAL_MS, readEnvInt(env, 'HERMES_POLL_INTERVAL_MS', DEFAULT_POLL_INTERVAL_MS));
   const auth = `Bearer ${apiKey}`;

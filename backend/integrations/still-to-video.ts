@@ -21,6 +21,8 @@ import { mkdtemp, rm, writeFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { withTaskExecutionLog } from '@/backend/telemetry/task-execution-log';
+
 const execFileAsync = promisify(execFile);
 
 /** ffmpeg binary; overridable for non-standard install paths. */
@@ -112,7 +114,21 @@ export function buildFfmpegArgs(options: BuildFfmpegArgsOptions): string[] {
  * local path. On ANY failure the temp dir is cleaned up and the error is
  * rethrown so the caller can classify it as definitely-never-posted.
  */
+/**
+ * AA-159: still→video synthesis is LOCAL_EDGE work — ffmpeg on this host, zero
+ * tokens, cost is CPU/wall time. Pass-through when the telemetry flag is off.
+ */
 export async function synthesizeStillToVideo(input: {
+  image: string;
+  durationSec?: number;
+}): Promise<StillToVideoResult> {
+  return withTaskExecutionLog(
+    { engine: 'LOCAL_EDGE', taskKey: 'integrations.still_to_video' },
+    () => synthesizeStillToVideoCompute(input),
+  );
+}
+
+async function synthesizeStillToVideoCompute(input: {
   image: string;
   durationSec?: number;
 }): Promise<StillToVideoResult> {

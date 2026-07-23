@@ -6,6 +6,7 @@ import type {
   SocialContentImageChannel,
   SocialContentMediaPostType,
 } from '@/backend/social-content/aspect-matrix';
+import { withTaskExecutionLog } from '@/backend/telemetry/task-execution-log';
 
 /**
  * Brand-frame overlay for IG/FB feed static images. Runs AFTER vision QA pass
@@ -254,7 +255,22 @@ export async function applyBrandFrame(input: ApplyBrandFrameInput): Promise<Buff
   return result.buffer;
 }
 
+/**
+ * AA-159: brand framing is LOCAL_EDGE work — sharp compositing on this host,
+ * no model and no gateway, so it costs zero tokens and its only cost is CPU
+ * time. The wrapper measures wall-clock + `process.cpuUsage()` and is a
+ * pass-through when the telemetry flag is off.
+ */
 export async function applyBrandFrameDetailed(
+  input: ApplyBrandFrameInput,
+): Promise<ApplyBrandFrameResult> {
+  return withTaskExecutionLog(
+    { engine: 'LOCAL_EDGE', taskKey: 'creative.apply_brand_frame' },
+    () => applyBrandFrameCompute(input),
+  );
+}
+
+async function applyBrandFrameCompute(
   input: ApplyBrandFrameInput,
 ): Promise<ApplyBrandFrameResult> {
   const { assetBuffer, brandKit, channel, postType } = input;

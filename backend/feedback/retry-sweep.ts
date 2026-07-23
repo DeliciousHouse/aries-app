@@ -12,6 +12,7 @@
 
 import type { Pool } from 'pg';
 
+import { withTaskExecutionLog } from '@/backend/telemetry/task-execution-log';
 import type { FeedbackReportConfig } from './report-config';
 import { claimRetryBatch, ensureFeedbackReportsTable } from './report-store';
 import {
@@ -57,6 +58,20 @@ export function resetRetrySweepLogMemoForTests(): void {
  * an unconfigured Jira is a quiet no-op (one info line per process).
  */
 export async function runFeedbackRetrySweep(
+  pool: Pool,
+  config: FeedbackReportConfig,
+  deps: RetrySweepDeps = {},
+): Promise<FeedbackRetrySweepReport> {
+  // AA-159: DETERMINISTIC_RULE work — claim/retry logic against Jira, no model
+  // in the loop. Logged on the sweep's own pool (no extra pool acquired).
+  return withTaskExecutionLog(
+    { engine: 'DETERMINISTIC_RULE', taskKey: 'feedback.retry_sweep' },
+    () => runFeedbackRetrySweepPass(pool, config, deps),
+    { db: pool },
+  );
+}
+
+async function runFeedbackRetrySweepPass(
   pool: Pool,
   config: FeedbackReportConfig,
   deps: RetrySweepDeps = {},

@@ -96,6 +96,21 @@ const steps = [
     args: ['--test', 'tests/verify-honcho-writes.test.ts'],
   },
   {
+    // AA-159: task-execution engine classification. Pins the contracts the cost
+    // analysis depends on — the engine vocabulary, hard-zero tokens on the
+    // zero-cost engines vs NULL ("not reported") on AI rows, no model columns on
+    // non-AI rows, the flag-OFF pass-through, and telemetry failures never
+    // reaching the measured task. Fully in-memory (injected db).
+    name: 'task-execution engine classification (AA-159)',
+    args: [
+      '--test',
+      'tests/telemetry/task-execution-log.test.ts',
+      'tests/telemetry/task-token-timing-telemetry.test.ts',
+      'tests/telemetry/hermes-run-execution-log.test.ts',
+      'tests/execution-run-engine-classification.test.ts',
+    ],
+  },
+  {
     // Regression for the 2026-06-09 prod wedge: a failed tick must release the
     // insights-sync worker's overlap guard. Fast and fully in-memory.
     name: 'insights-sync worker tick guard',
