@@ -33,6 +33,7 @@ import {
   resolveBrandVoiceForPreview,
 } from './onboarding-brand-voice';
 import { BUSINESS_NAME_FIELD, BUSINESS_TYPE_FIELD } from './business-field-copy';
+import { profileApiErrorMessage } from './customer-safe-copy';
 import { VISUAL_BOARD_EMPTY_STATE_COPY } from './onboarding-flow.copy';
 
 export { VISUAL_BOARD_EMPTY_STATE_COPY } from './onboarding-flow.copy';
@@ -908,9 +909,21 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         }
       })
       .catch(() => {
-        if (!cancelled) {
-          setError('We could not restore the saved onboarding draft.');
+        if (cancelled) {
+          return;
         }
+        // A failed GET used to leave `loadedDraftId` null forever, and the
+        // autosave effect's `loadedDraftId !== draftId` guard then blocked EVERY
+        // subsequent server save for the rest of the session — silently, since
+        // SaveIndicator renders nothing for 'idle'. The user kept typing into a
+        // form that was no longer being saved anywhere.
+        //
+        // Mark the draft as hydrated so autosave resumes (writing the on-screen
+        // values is strictly better than writing nothing), flag the failure so
+        // the local snapshot is treated as the primary backup, and say so.
+        draftApiFailedRef.current = true;
+        setLoadedDraftId(draftId);
+        setError('We could not load your saved setup. Your answers are being kept in this browser — keep going and we will retry saving.');
       });
 
     return () => {
@@ -1133,10 +1146,24 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
       setResumeChecked(true);
       return;
     }
-    // If the user explicitly arrived with a server draft, that wins.
+    // A server draft wins ONLY if it actually has content.
+    //
+    // The wizard writes `?draft=<id>` into the address bar via replaceState the
+    // moment it mints a draft, so from then on every reload and Back carries the
+    // param — and this used to early-return on its mere presence. The local
+    // snapshot, which exists precisely for the case where the server copy is
+    // empty or its GET failed, became unreachable in exactly that case: blank
+    // form on screen, complete intake sitting in localStorage.
     if (draftParam) {
-      setResumeChecked(true);
-      return;
+      // Wait for the GET to settle, then only skip if it brought something back.
+      if (loadedDraftId !== draftParam) {
+        return; // re-runs when the load resolves
+      }
+      const serverHasContent = Boolean(businessName.trim() || websiteUrl.trim() || businessType.trim() || goal.trim());
+      if (serverHasContent) {
+        setResumeChecked(true);
+        return;
+      }
     }
     // Authenticated users used to be excluded outright, on the assumption that
     // the business-profile hydrate would cover them. It does not cover the case
@@ -1160,6 +1187,8 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     businessName,
     businessType,
     draftParam,
+    goal,
+    loadedDraftId,
     profileHydrated,
     props.initialAuthenticated,
     resumeChecked,
@@ -1430,10 +1459,15 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         }),
       );
     } catch (submissionError) {
+      // `requestJson` surfaces the API's `{ "error": "..." }` body as the Error
+      // message, so this used to render machine codes — a user with a stale
+      // bookmarked ?draft= saw the literal text `draft_not_found` under the
+      // button, with no explanation and nothing to do about it.
       setError(
-        submissionError instanceof Error
-          ? submissionError.message
-          : 'We could not save setup for the first weekly social content plan.',
+        profileApiErrorMessage(
+          submissionError instanceof Error ? submissionError.message : null,
+          'We could not save setup for the first weekly social content plan.',
+        ),
       );
     } finally {
       setSubmitting(false);
@@ -1661,15 +1695,43 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
               <div className="flex flex-wrap gap-3 border-b border-white/8 pb-5">
                 {STEP_DEFINITIONS.map((step, index) => {
                   const active = index === stepIndex;
-                  const complete = index < stepIndex;
+                  // Completion is VALIDITY, not "you walked past it". The rail
+                  // used to compute `index < stepIndex`, so a user who deep-linked
+                  // to a later step (?step=channels) or paged back and forward saw
+                  // green checks on steps they had never filled in — while the
+                  // finish button stayed disabled because canFinish re-validates
+                  // everything. The progress rail contradicted the button.
+                  const stepIsValid = stepReady(step.key, {
+                    businessName,
+                    businessType,
+                    websiteUrl,
+                    selectedChannels,
+                    goal,
+                    customGoal,
+                    offer,
+                    competitorUrl,
+                  });
+                  const complete = stepIsValid && !active;
+                  const needsAttention = !stepIsValid && !active && index < stepIndex;
                   return (
-                    <div
+                    <button
                       key={step.key}
+                      type="button"
+                      // Also make the rail navigable, so a user blocked by an
+                      // earlier step can actually get back to the field.
+                      onClick={() => {
+                        setError(null);
+                        setStepIndex(index);
+                        writeOnboardingUrlState({ draftId, step: step.key, historyMode: 'push' });
+                      }}
+                      aria-current={active ? 'step' : undefined}
                       className={clsx(
-                        'flex min-w-[126px] flex-1 items-center gap-2 rounded-full border px-3 py-2.5 text-[1.1rem] transition duration-300',
+                        'flex min-w-[126px] flex-1 items-center gap-2 rounded-full border px-3 py-2.5 text-left text-[1.1rem] transition duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a96cff]',
                         active
                           ? 'border-[#a96cff]/45 bg-[linear-gradient(90deg,rgba(151,93,255,0.22),rgba(151,93,255,0.05))] font-bold text-white shadow-[inset_0_-1px_0_rgba(169,108,255,0.9),0_0_20px_rgba(169,108,255,0.15)]'
-                          : 'border-white/8 bg-white/[0.02] text-white/50',
+                          : needsAttention
+                            ? 'border-amber-400/40 bg-amber-400/[0.06] text-amber-100/80'
+                            : 'border-white/8 bg-white/[0.02] text-white/50',
                       )}
                     >
                       <span
@@ -1679,13 +1741,18 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                             ? 'border-[#a96cff]/50 bg-[#8a52ff]/20 text-[#dec6ff]'
                             : complete
                               ? 'border-white/20 bg-white/[0.08] text-white/80'
-                              : 'border-white/10 text-white/70',
+                              : needsAttention
+                                ? 'border-amber-400/50 text-amber-200'
+                                : 'border-white/10 text-white/70',
                         )}
                       >
                         {complete ? <Check className="h-3 w-3" /> : `0${index + 1}`}
                       </span>
                       <span className="whitespace-nowrap">{step.label}</span>
-                    </div>
+                      {/* Not colour alone — the state is stated in text too. */}
+                      {needsAttention ? <span className="sr-only">Incomplete</span> : null}
+                      {complete ? <span className="sr-only">Complete</span> : null}
+                    </button>
                   );
                 })}
               </div>
@@ -2209,6 +2276,17 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         >
                           What does your business offer?
                         </label>
+                        {/*
+                          This is the first screen a new user sees, and this
+                          field is hard-required by stepReady — yet the only
+                          annotation on the screen used to be the "(optional)"
+                          on Competitor website just below it. Reading top to
+                          bottom, the one marked field looked like the one that
+                          mattered.
+                        */}
+                        <span className="rounded-full border border-[#ba8cff]/40 bg-[#ba8cff]/12 px-2 py-[2px] text-[10px] font-semibold normal-case tracking-normal text-[#d9bcff]">
+                          Required
+                        </span>
                         {offerValidity === 'valid' ? (
                           <Check className="h-4 w-4 text-emerald-400" aria-hidden />
                         ) : null}
@@ -2235,6 +2313,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         value={offer}
                         onChange={(event) => setOffer(event.target.value)}
                         onBlur={() => markTouched('offer')}
+                        aria-required="true"
                         rows={4}
                         className={clsx(
                           'w-full rounded-[1rem] border bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] px-4 py-3 text-white outline-none transition duration-200 placeholder:text-white/32 focus:border-[#b36cff] focus:shadow-[0_0_0_1px_rgba(179,108,255,0.24),0_0_24px_rgba(179,108,255,0.14)]',

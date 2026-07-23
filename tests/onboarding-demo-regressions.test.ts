@@ -304,6 +304,77 @@ test('a custom goal is persisted server-side, not only in localStorage', () => {
   assert.match(onboardingFlow, /competitorUrl,\n\s*customGoal,\n\s*draftId,/);
 });
 
+// ------------------------------------------------- second pass: remaining audit findings
+
+test('the required-offer field on the first screen is marked', () => {
+  // The goal step is the first screen a new user sees. "What does your business
+  // offer?" is hard-required by stepReady, yet the only annotation on the screen
+  // was the "(optional)" on Competitor website just below it.
+  assert.match(stripComments(onboardingFlow), /What does your business offer\?[\s\S]{0,400}?Required/);
+  assert.match(onboardingFlow, /id="onboarding-core-offer"[\s\S]{0,240}?aria-required="true"/);
+});
+
+test('the step rail reflects validity, not how far the user has walked', () => {
+  // `index < stepIndex` put green checks on steps a deep link or Back/Forward
+  // had skipped, while the finish button stayed disabled — the rail actively
+  // contradicted the button.
+  assert.doesNotMatch(stripComments(onboardingFlow), /const complete = index < stepIndex;/);
+  assert.match(onboardingFlow, /const stepIsValid = stepReady\(step\.key, \{/);
+  assert.match(onboardingFlow, /const complete = stepIsValid && !active;/);
+  // State is not conveyed by colour alone, and the rail is navigable.
+  assert.match(onboardingFlow, /<span className="sr-only">Incomplete<\/span>/);
+  assert.match(onboardingFlow, /aria-current=\{active \? 'step' : undefined\}/);
+});
+
+test('a failed draft load does not permanently disable saving', () => {
+  // The catch used to leave loadedDraftId null forever, and the autosave guard
+  // `loadedDraftId !== draftId` then blocked every server save for the rest of
+  // the session — silently, since SaveIndicator renders nothing for 'idle'.
+  assert.match(onboardingFlow, /draftApiFailedRef\.current = true;\s*\n\s*setLoadedDraftId\(draftId\);/);
+  assert.match(onboardingFlow, /kept in this browser/);
+});
+
+test('the local snapshot is reachable when the server draft is empty', () => {
+  // ?draft= is written into the URL on mount, so early-returning on its mere
+  // presence made the local backup unreachable in exactly the case it exists
+  // for: an empty or failed server draft.
+  assert.match(onboardingFlow, /if \(loadedDraftId !== draftParam\) \{/);
+  assert.match(onboardingFlow, /const serverHasContent = Boolean\(/);
+});
+
+test('API error codes are never rendered raw to the user', () => {
+  const copy = read('frontend', 'aries-v1', 'customer-safe-copy.ts');
+  assert.match(copy, /export function profileApiErrorMessage/);
+  // Unmapped snake_case codes fall back rather than leaking.
+  assert.match(copy, /\^\[a-z0-9\]\+\(_\[a-z0-9\]\+\)\+\$/);
+  for (const code of ['brand_kit_fetch_failed', 'draft_not_found', 'onboarding_draft_unavailable']) {
+    assert.ok(copy.includes(code), `${code} must map to customer-facing copy`);
+  }
+
+  // Every surface that used to render the raw message now routes through it.
+  assert.match(onboardingFlow, /profileApiErrorMessage\(/);
+  assert.match(read('frontend', 'aries-v1', 'business-profile-screen.tsx'), /profileApiErrorMessage\(/);
+  assert.match(read('frontend', 'aries-v1', 'settings-screen.tsx'), /profileApiErrorMessage\(/);
+});
+
+test('settings save reports success and failure instead of discarding the result', () => {
+  const settings = read('frontend', 'aries-v1', 'settings-screen.tsx');
+  assert.match(settings, /async function runProfileSave\(/);
+  assert.match(settings, /setSaveFeedback\(\{ kind: 'success'/);
+  assert.match(settings, /setSaveFeedback\(\{\s*\n\s*kind: 'error'/);
+  assert.match(settings, /aria-live="polite"/);
+  // Both buttons surface it.
+  const feedbackMounts = settings.match(/\{saveFeedbackNode\}/g) ?? [];
+  assert.equal(feedbackMounts.length, 2, 'both save buttons must show feedback');
+});
+
+test('brand-kit fetches have a hard deadline', () => {
+  // Unbounded on the onboarding critical path, and fanned out per stylesheet.
+  const brandKit = read('backend', 'marketing', 'brand-kit.ts');
+  assert.match(brandKit, /const BRAND_KIT_FETCH_TIMEOUT_MS = 10_000;/);
+  assert.match(brandKit, /signal: AbortSignal\.timeout\(BRAND_KIT_FETCH_TIMEOUT_MS\)/);
+});
+
 test('demo item 4: interactive profile edits still surface an unreadable website as an error', () => {
   // /api/business/profile maps brand_kit_fetch_failed -> 422, which is correct
   // feedback when a user is editing the URL. Only onboarding degrades.
