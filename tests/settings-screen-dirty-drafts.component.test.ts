@@ -162,8 +162,19 @@ test('approval-only save preserves dirty business drafts until a deliberate busi
   const screen = await mountSettings();
 
   try {
-    const businessName = await screen.findByDisplayValue('Stored Business') as HTMLInputElement;
-    const primaryGoal = await screen.findByDisplayValue('Increase social media presence') as HTMLInputElement;
+    // Mounting this screen is expensive: jsdom + React + the Next router context,
+    // then `useBusinessProfile`'s autoLoad round-trip and the effect that syncs the
+    // loaded profile into input state. That costs ~200ms on an idle box but 0.6-1.4s
+    // when the machine is oversubscribed, which straddles @testing-library's 1000ms
+    // default and makes these two queries flake under parallel suite load.
+    // Both conditions are monotonic — once an input holds its value it keeps it —
+    // so there is no earlier signal to await and a longer budget cannot mask a bug:
+    // it can only fail if the profile genuinely never reaches the inputs. Note this
+    // is deliberately scoped to the mount queries; the in-flight "Saving…" assertion
+    // below is a real transient and must keep the short default.
+    const mountWait = { timeout: 15_000 };
+    const businessName = await screen.findByDisplayValue('Stored Business', undefined, mountWait) as HTMLInputElement;
+    const primaryGoal = await screen.findByDisplayValue('Increase social media presence', undefined, mountWait) as HTMLInputElement;
     const launchApprover = screen.getByLabelText('Launch approver') as HTMLSelectElement;
 
     fireEvent.change(businessName, { target: { value: 'Unsaved Draft Business' } });
