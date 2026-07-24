@@ -60,14 +60,13 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
   }, []);
 
 
-  useEffect(() => {
-    if (errorLocal) {
-      const timer = setTimeout(() => {
-        setErrorLocal(null);
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [errorLocal]);
+  // Signup errors are deliberately NOT auto-dismissed.
+  //
+  // Demo feedback (David, item 4): registration failed and he "moved too fast
+  // to grab the error number". He could not have grabbed it — the banner erased
+  // itself on a 3s timer. A signup failure is the single most important message
+  // this form ever shows; it stays until the user acts on it, and it is cleared
+  // explicitly on the next submit (see handleSubmit) or via the dismiss button.
 
 
   const passwordMeetsPolicy = PASSWORD_POLICY_REGEX.test(password);
@@ -111,7 +110,11 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
       });
 
       if (!result.success) {
-        setErrorLocal(result.error === 'User already exists' ? 'This email is already registered. Please sign in instead.' : result.error);
+        setErrorLocal(
+          result.error === 'User already exists'
+            ? 'This email is already registered. Please sign in instead.'
+            : result.error || 'We could not create your account. Please try again.',
+        );
         setIsSubmitting(false);
         return;
       }
@@ -121,7 +124,15 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
         setIsSubmitting(false);
       }
     } catch (error: unknown) {
-      setErrorLocal(error instanceof Error ? error.message : "Signup failed.");
+      // A throw here is a transport-level failure of the server action, not a
+      // validation result. Its message is framework text — the deployment logs
+      // are full of "Failed to find Server Action <id>", which happens when a
+      // tab is left open across a redeploy — and means nothing to the user.
+      // Log the detail, show something they can act on.
+      console.error('[signup] register action failed', error);
+      setErrorLocal(
+        'We could not reach the server to finish signing you up. Refresh the page and try again.',
+      );
       setIsSubmitting(false);
     }
   };
@@ -153,20 +164,40 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary via-secondary to-primary" />
         
         {(authError || errorLocal) && (
-          <div className="mb-6 rounded-xl border border-red-500/20 bg-gradient-to-r from-red-500/15 via-red-500/5 to-transparent backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] flex items-center gap-3 p-4 border-l-4 border-l-red-500">
-            <div className="shrink-0 rounded-full bg-red-500/20 flex items-center justify-center border border-red-500/30 w-6 h-6">
+          <div
+            role="alert"
+            aria-live="assertive"
+            className="mb-6 rounded-xl border border-red-500/20 bg-gradient-to-r from-red-500/15 via-red-500/5 to-transparent backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] flex items-start gap-3 p-4 border-l-4 border-l-red-500"
+          >
+            <div className="shrink-0 mt-0.5 rounded-full bg-red-500/20 flex items-center justify-center border border-red-500/30 w-6 h-6">
               <svg className="text-red-400 w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
             </div>
-            <span className="text-red-100/90 text-xs font-bold tracking-normal leading-snug">{authError || errorLocal}</span>
+            {/* select-all so the user can copy the message (and any reference in
+                it) straight out of the banner — it no longer disappears on them. */}
+            <span className="flex-1 select-all text-red-100/90 text-xs font-bold tracking-normal leading-snug">
+              {authError || errorLocal}
+            </span>
+            {errorLocal ? (
+              <button
+                type="button"
+                onClick={() => setErrorLocal(null)}
+                aria-label="Dismiss error"
+                className="shrink-0 text-red-200/60 transition hover:text-red-100"
+              >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+              </button>
+            ) : null}
           </div>
         )}
 
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label htmlFor="signup-full-name" className="block text-sm font-medium text-white/80 mb-1.5">Full Name</label>
+            <label htmlFor="signup-full-name" className="block text-sm font-medium text-white/80 mb-1.5">Full Name<span className="ml-2 rounded-full border border-primary/40 bg-primary/12 px-2 py-[2px] text-[10px] font-semibold text-white/85">Required</span></label>
             <input 
               id="signup-full-name"
               type="text" 
@@ -201,7 +232,7 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
 
 
           <div>
-            <label htmlFor="signup-email" className="block text-sm font-medium text-white/80 mb-1.5">Email Address</label>
+            <label htmlFor="signup-email" className="block text-sm font-medium text-white/80 mb-1.5">Email Address<span className="ml-2 rounded-full border border-primary/40 bg-primary/12 px-2 py-[2px] text-[10px] font-semibold text-white/85">Required</span></label>
             <input 
               id="signup-email"
               type="email" 
@@ -223,7 +254,7 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
 
 
           <div>
-            <label htmlFor="signup-password" className="block text-sm font-medium text-white/80 mb-1.5">Password</label>
+            <label htmlFor="signup-password" className="block text-sm font-medium text-white/80 mb-1.5">Password<span className="ml-2 rounded-full border border-primary/40 bg-primary/12 px-2 py-[2px] text-[10px] font-semibold text-white/85">Required</span></label>
             <div className="relative">
               <input 
                 id="signup-password"

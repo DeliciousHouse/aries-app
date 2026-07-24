@@ -2,6 +2,42 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.42.0 — fix(onboarding): stop the signup funnel losing work and failing blind
+
+New customers can complete setup without hitting an unexplained server error, losing
+everything they typed, or being paywalled out of their own first workspace.
+
+### Added
+
+- Every unexpected error now shows a quotable reference and a one-click report,
+  instead of a bare page with nothing to tell support.
+- A failed workspace handoff shows a recovery screen that keeps the saved setup
+  reachable, rather than ending the signup.
+- Setup says up front that answers are saved and an account is needed at the end.
+
+### Changed
+
+- "Business type" is now "Industry", with a hint stating it is not the legal
+  structure. The stored field is unchanged.
+- Required fields are marked as required; a blocked Continue button states what
+  is missing; the step rail reflects what is actually complete and is clickable.
+- Website reading failures no longer stop setup — the workspace is created and
+  the brand details can be filled in by hand.
+
+### Fixed
+
+- Filling in the optional Organization field at signup no longer makes the first
+  workspace look like a second one and demand an upgrade.
+- Signing in from the create-account page no longer bounces back to it, which
+  left returning customers with no way to reach the sign-in form.
+- In-progress setup survives a failure on the next step, an empty saved session,
+  and a failed load; a custom goal is saved to the account, not just the browser.
+- Setup resumes on the step where it stopped instead of restarting at the top.
+- Signup errors stay on screen until dismissed, and show a reference rather than
+  raw database text.
+- Saving in Settings reports success or failure instead of silently discarding it,
+  and error codes are never shown raw.
+
 ## v0.1.41.0 — fix(feedback): make public incident delivery crash-safe
 
 Visitors can keep reporting issues without signing in while retries, worker races,

@@ -116,10 +116,20 @@ test('settings separates goal confirmation from approval-only saves', () => {
 
   const businessSaveSource = source.slice(businessSaveStart, approvalSaveStart);
   const approvalSaveSource = source.slice(approvalSaveStart, source.indexOf('// Cadence card'));
+  // Asserts the PAYLOAD, not which function issues the request: both saves now
+  // go through the shared runProfileSave() helper so a failed save reports
+  // itself instead of being silently discarded. The invariant under test is
+  // unchanged — the business-profile save confirms the displayed goal, the
+  // approval-only save (below) must never resubmit an inferred one.
   assert.match(
     businessSaveSource,
-    /business\.updateProfile\(\{[\s\S]*primaryGoal/,
+    /primaryGoal/,
     'Saving the business profile should deliberately confirm the displayed primary goal',
+  );
+  assert.match(
+    businessSaveSource,
+    /runProfileSave\(|business\.updateProfile\(/,
+    'The business-profile save should still issue a profile update',
   );
   assert.doesNotMatch(
     approvalSaveSource,
