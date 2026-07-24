@@ -7,8 +7,7 @@
  * capture of the current page (see capture-screenshot.ts — AA-77) or a file
  * picker.
  *
- * Outcome UX (SC-70): 201 → success with the Jira ticket link (plus
- * "attachment still syncing" / screenshot-discarded notes); 202 → "received —
+ * Outcome UX (SC-70): 201 → success with the Jira ticket link; 202 → "received —
  * syncing"; 429 → server message with the dialog kept open and values intact;
  * network/5xx → generic failure, dialog stays open, retry works. The submit
  * button is disabled while a request is in flight (exactly one POST).
@@ -17,6 +16,8 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import { Camera, Loader2, Paperclip, X } from 'lucide-react';
+
+import { ApiRequestError, requestJson } from '@/lib/api/http';
 
 import {
   FEEDBACK_IMPACT_OPTIONS,
@@ -202,25 +203,13 @@ export default function ReportModal({ onClose }: { onClose: () => void }): React
       if (submissionAttemptRef.current?.payload !== payload) {
         submissionAttemptRef.current = { payload, key: globalThis.crypto.randomUUID() };
       }
-      const response = await fetch('/api/feedback/submit', {
+      const data = await requestJson<Record<string, unknown>>('/api/feedback/submit', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify(
           buildReportSubmitBody(values, screenshotPayload, submissionAttemptRef.current.key),
         ),
       });
-      let data: Record<string, unknown> | null = null;
-      try {
-        data = (await response.json()) as Record<string, unknown>;
-      } catch {
-        data = null;
-      }
-      const mapped = outcomeFromResponse(response.status, data);
-      if (response.status === 409) {
-        // The server rejected ownership/payload reuse. Keep the report text,
-        // but mint a fresh opaque key if the user presses Retry.
-        submissionAttemptRef.current = null;
-      }
+      const mapped = outcomeFromResponse(typeof data.jira_ticket_key === 'string' ? 201 : 202, data);
       setOutcome(mapped);
       if (mapped.kind === 'success' || mapped.kind === 'received') {
         setPhase('success');
@@ -231,7 +220,21 @@ export default function ReportModal({ onClose }: { onClose: () => void }): React
         // 429 / errors: dialog stays open, values intact, retry works.
         setPhase('idle');
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof ApiRequestError) {
+        const details =
+          error.details && typeof error.details === 'object'
+            ? (error.details as Record<string, unknown>)
+            : null;
+        if (error.status === 409 && details?.status === 'idempotency_conflict') {
+          // The server rejected ownership/payload reuse. Keep the report text,
+          // but mint a fresh opaque key if the user presses Retry.
+          submissionAttemptRef.current = null;
+        }
+        setOutcome(outcomeFromResponse(error.status, details));
+        setPhase('idle');
+        return;
+      }
       setOutcome({
         kind: 'error',
         message: "We couldn't reach the server. Check your connection and try again.",
@@ -278,7 +281,7 @@ export default function ReportModal({ onClose }: { onClose: () => void }): React
               Report an issue
             </h2>
             <p className="mt-0.5 text-xs text-white/55">
-              No sign-in required. Signed-in users can receive an email follow-up.
+              No sign-in required. Reports are stored securely in Aries.
             </p>
           </div>
           <button

@@ -1,6 +1,6 @@
 {
   "name": "aries-platform-bootstrap-runtime",
-  "version": "0.1.40.0",
+  "version": "0.1.43.0",
   "description": "Next.js application for weekly social content automation: connect platforms, generate and review a week of content, and publish on a schedule.",
   "license": "Apache-2.0",
   "repository": {
@@ -63,7 +63,7 @@
     "html-to-image": "^1.11.13",
     "lucide-react": "^1.25.0",
     "motion": "^12.42.0",
-    "next": "16.2.10",
+    "next": "16.2.11",
     "next-auth": "^5.0.0-beta.30",
     "pg": "^8.22.0",
     "react": "^19.2.7",

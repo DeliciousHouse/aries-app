@@ -69,13 +69,6 @@ export interface JiraReportTransport {
   createIssue(input: CreateIssueInput): Promise<string>;
   /** GET /rest/api/3/search/jql for one label → issue key or null. */
   searchIssueKeyByLabel(label: string): Promise<string | null>;
-  /** POST /rest/api/3/issue/{key}/attachments (multipart, no-check token). */
-  attachScreenshot(
-    issueKey: string,
-    bytes: Buffer,
-    mime: string,
-    filename: string,
-  ): Promise<void>;
 }
 
 class LiveJiraReportClient implements JiraReportTransport {
@@ -199,27 +192,6 @@ class LiveJiraReportClient implements JiraReportTransport {
     return key;
   }
 
-  async attachScreenshot(
-    issueKey: string,
-    bytes: Buffer,
-    mime: string,
-    filename: string,
-  ): Promise<void> {
-    // INVARIANT: validate the key before it enters the URL path.
-    if (!ISSUE_KEY_RE.test(issueKey)) {
-      throw new JiraReportError('refusing attachment upload for unsafe issue key');
-    }
-    const form = new FormData();
-    form.append('file', new Blob([new Uint8Array(bytes)], { type: mime }), filename);
-    const response = await this.request(`/rest/api/3/issue/${issueKey}/attachments`, {
-      method: 'POST',
-      headers: { 'X-Atlassian-Token': 'no-check' },
-      body: form,
-    });
-    if (!response.ok) throw await this.errorFromResponse(response, 'jira attach');
-    // Body content is irrelevant on success; drain defensively.
-    await response.text().catch(() => undefined);
-  }
 }
 
 let sharedClient: { signature: string; client: JiraReportTransport } | null = null;

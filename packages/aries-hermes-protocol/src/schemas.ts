@@ -8,7 +8,11 @@ import { z } from 'zod';
 // 1.2.0: additive — regenerate_creative gained optional edit_instruction +
 // source_image_basename for image-to-image edits (MINOR per semver; older
 // consumers strip the fields and degrade to a plain regenerate).
-export const PROTOCOL_VERSION = '1.2.0';
+// 1.3.0: additive (AA-158) — the run callback gained an optional `usage` block
+// (prompt/completion/total tokens + the resolved model). MINOR per semver: a
+// sender that omits it still validates, and Aries records the absence as NULL
+// ("not reported"), never as zero.
+export const PROTOCOL_VERSION = '1.3.0';
 
 /** Strict semver pattern: MAJOR.MINOR.PATCH with optional pre-release suffix. */
 const SEMVER_RE = /^\d+\.\d+\.\d+(-[a-zA-Z0-9._-]+)?$/;
@@ -147,6 +151,26 @@ export const CallbackApprovalSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Usage envelope (AA-158)
+// ---------------------------------------------------------------------------
+
+/**
+ * Token consumption and resolved model routing for a run, as reported by the
+ * gateway. OPTIONAL and additive: Hermes does not emit this today, and an older
+ * sender that omits it must keep validating — so every field is optional and
+ * absence means "not reported", never zero. Aries persists whatever arrives into
+ * task_execution_log (prompt_tokens / completion_tokens / total_tokens /
+ * model_reported); until Hermes populates it those columns stay NULL.
+ */
+export const CallbackUsageSchema = z.object({
+  prompt_tokens: z.number().int().nonnegative().optional(),
+  completion_tokens: z.number().int().nonnegative().optional(),
+  total_tokens: z.number().int().nonnegative().optional(),
+  /** The model the gateway ACTUALLY routed to (Aries only ever sends a hint). */
+  model: z.string().optional(),
+});
+
+// ---------------------------------------------------------------------------
 // Callback payload (Hermes → Aries)
 // ---------------------------------------------------------------------------
 
@@ -166,6 +190,8 @@ export const HermesRunCallbackPayloadSchema = z.object({
     z.array(z.record(z.string(), z.unknown())),
   ]).optional(),
   artifacts: z.array(z.unknown()).optional(),
+  /** Token usage + resolved model for this run. Absent = not reported (AA-158). */
+  usage: CallbackUsageSchema.optional(),
   /** Present only when status === 'requires_approval'. */
   approval: CallbackApprovalSchema.optional(),
   error: CallbackErrorSchema.optional(),

@@ -67,11 +67,10 @@ test('customer slug: unicode-only input falls through the source chain', () => {
   );
 });
 
-test('report labels carry triage, customer, product-unique idempotency, and impact', () => {
-  const labels = reportLabels('123e4567-e89b-42d3-a456-426614174000', 'acme', 'p1_account_blocked');
+test('report labels carry triage, product-unique idempotency, and impact without tenant PII', () => {
+  const labels = reportLabels('123e4567-e89b-42d3-a456-426614174000', 'p1_account_blocked');
   assert.deepEqual(labels, [
     'customer-incident',
-    'customer-acme',
     'aries-sub-123e4567-e89b-42d3-a456-426614174000',
     'impact-p1',
   ]);
@@ -80,12 +79,12 @@ test('report labels carry triage, customer, product-unique idempotency, and impa
   assert.ok(!idempotencyLabel('x').startsWith('crm-sub-'));
 });
 
-test('an empty customer slug never produces a bare "customer-" label', () => {
-  const labels = reportLabels('id-1', '', 'p4_question');
-  assert.ok(labels.includes('customer-unknown'));
+test('customer names/slugs never cross the Jira label privacy boundary', () => {
+  const labels = reportLabels('id-1', 'p4_question');
+  assert.ok(!labels.some((label) => label.startsWith('customer-') && label !== 'customer-incident'));
 });
 
 test('anonymous reports receive a dedicated Jira triage label', () => {
-  const labels = reportLabels('id-anon', 'anonymous', 'p2_feature_degraded', 'anonymous');
+  const labels = reportLabels('id-anon', 'p2_feature_degraded', 'anonymous');
   assert.ok(labels.includes('anonymous-feedback'));
 });

@@ -12,7 +12,7 @@ import {
 } from '@/lib/validation/business-profile';
 
 import { connectedProfileLabel } from './connected-profile-labels';
-import { customerSafeUiErrorMessage } from './customer-safe-copy';
+import { customerSafeUiErrorMessage, profileApiErrorMessage } from './customer-safe-copy';
 import { DashboardHero, EmptyStatePanel, LoadingStateGrid, ShellPanel } from './components';
 
 type ChannelOption = {
@@ -175,10 +175,15 @@ export default function AriesBusinessProfileScreen() {
     if (response) {
       setFeedback({ kind: 'success', message: 'Business profile saved.' });
     } else {
-      const serverMessage = business.save.error?.message;
+      // Never render the server's machine code. A failed save used to put the
+      // literal string `brand_kit_fetch_failed` on screen, which tells the user
+      // nothing and looks broken.
       setFeedback({
         kind: 'error',
-        message: serverMessage || 'Failed to save business profile.',
+        message: profileApiErrorMessage(
+          business.save.error?.message,
+          'Failed to save business profile.',
+        ),
       });
     }
   }

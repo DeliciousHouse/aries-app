@@ -28,7 +28,13 @@
 import pool from '@/lib/db';
 import { isSupportedPlatform, type Platform } from '../platforms/registry';
 import { getAdapter } from './adapter-factory';
-import { classifyCommentsWithHermes, isCommentClassificationEnabled, MAX_CLASSIFY_BATCH } from './classify-comments';
+import {
+  classifyCommentsWithHermes,
+  isCommentClassificationEnabled,
+  MAX_CLASSIFY_BATCH,
+  resolveClassifyModelHint,
+} from './classify-comments';
+import { recordTaskExecution } from '@/backend/telemetry/task-execution-log';
 import { classifyPostContentType } from './classify-post';
 import type { DateRange, InsightsAdapter, InsightsAdapterContext } from '../adapters/_adapter.types';
 import type { SyncTrigger, SyncStatus } from '../types';
@@ -471,9 +477,33 @@ export async function syncAccountForTenant(
         );
 
         if (unclassified.rows.length > 0) {
+          const classifyStartedAt = new Date();
+          const classifyStartMs = Date.now();
           const result = await classifyCommentsWithHermes({
             comments: unclassified.rows.map((r) => ({ id: Number(r.id), text: r.body_text })),
           });
+          // AA-159: this is AI_LLM work — cost-bearing, unlike the rest of the
+          // sync. Recorded on the ALREADY-HELD client so telemetry adds no
+          // second pooled connection (guardrail #1). Gate-skips ('disabled' /
+          // 'empty_input') are not executions and are not logged.
+          if (result.ok || (result.reason !== 'disabled' && result.reason !== 'empty_input')) {
+            await recordTaskExecution(
+              {
+                engine: 'AI_LLM',
+                taskKey: 'insights.classify_comments',
+                tenantId,
+                status: result.ok ? 'succeeded' : 'failed',
+                errorCode: result.ok ? null : result.reason,
+                durationMs: Date.now() - classifyStartMs,
+                startedAt: classifyStartedAt,
+                modelRequested: resolveClassifyModelHint(process.env),
+                // Hermes reports neither the resolved model nor token usage
+                // today, so model_reported / tokens / cost stay NULL ("not
+                // reported") rather than a fabricated zero.
+              },
+              { db: client },
+            );
+          }
           if (result.ok) {
             apiUnitsUsed++;
             for (const [commentId, label] of result.labels) {

@@ -4,7 +4,7 @@
  * sweep so the idempotency invariant is provable by inspection:
  *
  * INVARIANT (SC-70) — search-before-create: every sync cycle first
- * short-circuits on a stored jira_ticket_key (attach-only completion), then
+ * short-circuits on a stored jira_ticket_key, then
  * JQL-searches the `aries-sub-<id>` idempotency label, and only creates when
  * BOTH miss. A "created but not recorded" crash is therefore duplicate-proof.
  * A search failure leaves the row retryable and never reaches create.
@@ -32,26 +32,29 @@ import {
   type JiraReportTransport,
 } from './jira-report-client';
 import { FEEDBACK_IMPACT_OPTIONS } from '@/lib/feedback/report-options';
-import { screenshotFilename } from './report-screenshot';
 import {
+  markReportCreateInFlight,
+  markReportCreateUncertain,
   markReportSynced,
   markReportTicketKey,
+  recordReportCreateReconcileMiss,
   recordReportFailure,
+  type FeedbackAttachmentState,
+  type JiraCreateState,
   type FeedbackReportRow,
 } from './report-store';
 
 export interface SyncableReport {
   id: string;
   submitterType: ReportSubmitterAttribution;
-  customerSlug: string;
+  tenantId: string;
+  submitterId: string;
   category: string;
   impact: string;
-  title: string;
-  description: string;
-  submitterName: string | null;
-  submitterEmail: string | null;
-  screenshot: { bytes: Buffer; mime: string } | null;
   jiraTicketKey: string | null;
+  jiraCreateState: JiraCreateState;
+  jiraCreateToken: string | null;
+  attachmentState: FeedbackAttachmentState;
   attempts: number;
   createdAtIso: string;
 }
@@ -60,18 +63,14 @@ export function rowToSyncable(row: FeedbackReportRow): SyncableReport {
   return {
     id: row.id,
     submitterType: row.submitter_type,
-    customerSlug: row.customer_slug,
+    tenantId: row.tenant_id,
+    submitterId: row.submitter_id,
     category: row.category,
     impact: row.impact,
-    title: row.title,
-    description: row.description,
-    submitterName: row.submitter_name,
-    submitterEmail: row.submitter_email,
-    screenshot:
-      row.screenshot_bytes && row.screenshot_mime
-        ? { bytes: row.screenshot_bytes, mime: row.screenshot_mime }
-        : null,
     jiraTicketKey: row.jira_ticket_key,
+    jiraCreateState: row.jira_create_state,
+    jiraCreateToken: row.jira_create_token,
+    attachmentState: row.attachment_state,
     attempts: row.attempts,
     createdAtIso:
       row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
@@ -80,6 +79,9 @@ export function rowToSyncable(row: FeedbackReportRow): SyncableReport {
 
 /** Store mutations the sync needs — injectable so tests run without Postgres. */
 export interface ReportSyncStore {
+  markCreateInFlight(id: string, token: string): Promise<void>;
+  markCreateUncertain(id: string, error: string): Promise<void>;
+  recordCreateReconcileMiss(id: string, maxAttempts: number): Promise<void>;
   markTicketKey(id: string, key: string): Promise<void>;
   markSynced(id: string): Promise<void>;
   recordFailure(
@@ -90,6 +92,10 @@ export interface ReportSyncStore {
 
 export function poolSyncStore(pool: Pool | PoolClient): ReportSyncStore {
   return {
+    markCreateInFlight: (id, token) => markReportCreateInFlight(pool, id, token),
+    markCreateUncertain: (id, error) => markReportCreateUncertain(pool, id, error),
+    recordCreateReconcileMiss: (id, maxAttempts) =>
+      recordReportCreateReconcileMiss(pool, id, maxAttempts),
     markTicketKey: (id, key) => markReportTicketKey(pool, id, key),
     markSynced: (id) => markReportSynced(pool, id),
     recordFailure: (id, outcome) => recordReportFailure(pool, id, outcome),
@@ -122,21 +128,17 @@ export function buildIssueFields(
   const fields: Record<string, unknown> = {
     project: { key: jira.projectKey },
     issuetype: { name: jira.issueType },
-    summary: buildReportSummary(report.title),
+    summary: buildReportSummary(`Customer incident report ${report.id}`),
     description: buildReportAdf({
-      description: report.description,
       impactAnswer: impactAnswerText(report.impact),
       category: report.category,
       submitterType: report.submitterType,
-      contact: {
-        name: report.submitterName,
-        email: report.submitterEmail,
-        company: report.customerSlug,
-      },
+      tenantId: report.tenantId,
+      submitterId: report.submitterId,
       reportId: report.id,
       submittedAtIso: report.createdAtIso,
     }),
-    labels: reportLabels(report.id, report.customerSlug, report.impact, report.submitterType),
+    labels: reportLabels(report.id, report.impact, report.submitterType),
   };
   if (withPriority) {
     fields.priority = { name: priorityForImpact(report.impact) };
@@ -162,8 +164,9 @@ function failureStatus(
 }
 
 /**
- * Drive one report through key-check → label search → create → attach →
- * synced. Never throws on Jira errors (rows park); store errors propagate so
+ * Drive one report through key-check → label search → create → synced. Raw
+ * report text and screenshots are absent from this boundary by type. Never
+ * throws on Jira errors (rows park); store errors propagate so
  * the row stays 'pending' and the stale-pending reclaim recovers it.
  */
 export async function syncReportToJira(
@@ -204,8 +207,29 @@ export async function syncReportToJira(
     }
   }
 
+  // A prior process reached the create boundary but did not durably record the
+  // resulting key. Jira search is eventually consistent, so one empty result
+  // must never authorize a duplicate create. Keep reconciling with bounded
+  // backoff; the terminal status exposes an operator remediation signal.
+  if (
+    !ticketKey &&
+    (report.jiraCreateState === 'in_flight' ||
+      report.jiraCreateState === 'uncertain' ||
+      report.jiraCreateState === 'completed')
+  ) {
+    await store.recordCreateReconcileMiss(report.id, config.retryMaxAttempts);
+    return {
+      status: failureStatus(report, true, config.retryMaxAttempts),
+      ticketKey: null,
+    };
+  }
+
   // 2) Create — only when both the stored key and the label search missed.
   if (!ticketKey) {
+    const createToken = report.jiraCreateToken ?? idempotencyLabel(report.id);
+    // The fence MUST commit before the first network byte can leave. A crash or
+    // a lost response thereafter can only enter reconciliation, never create.
+    await store.markCreateInFlight(report.id, createToken);
     try {
       try {
         ticketKey = await client.createIssue({
@@ -223,6 +247,7 @@ export async function syncReportToJira(
       }
     } catch (error) {
       const message = error instanceof JiraReportError ? error.message : 'jira create failed';
+      await store.markCreateUncertain(report.id, message);
       await store.recordFailure(report.id, {
         error: message,
         bumpAttempts: true,
@@ -234,27 +259,9 @@ export async function syncReportToJira(
     await store.markTicketKey(report.id, ticketKey);
   }
 
-  // 3) Attach (when bytes are still on the row), then mark synced.
-  if (report.screenshot) {
-    try {
-      await client.attachScreenshot(
-        ticketKey,
-        report.screenshot.bytes,
-        report.screenshot.mime,
-        screenshotFilename(report.id, report.screenshot.mime),
-      );
-    } catch (error) {
-      // Key is stored, bytes are kept — the sweep finishes the attach.
-      const message = error instanceof JiraReportError ? error.message : 'jira attach failed';
-      await store.recordFailure(report.id, {
-        error: message,
-        bumpAttempts: true,
-        maxAttempts: config.retryMaxAttempts,
-      });
-      return { status: failureStatus(report, true, config.retryMaxAttempts), ticketKey };
-    }
-  }
-
+  // Screenshots and all raw report content remain in Aries. Even rows left in
+  // an old in-flight/uncertain attachment state are reconciled by marking the
+  // private record synced; no Jira attachment network call is ever repeated.
   await store.markSynced(report.id);
   return { status: 'synced', ticketKey };
 }

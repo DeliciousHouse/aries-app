@@ -29,7 +29,25 @@ import { startFirstPostVariantBatch } from '@/backend/marketing/onboarding-varia
 import { isOnboardingVariantBoardEnabled } from '@/backend/onboarding/variant-board-env';
 import { ensureSocialContentWorkspaceRecord } from '@/backend/marketing/workspace-store';
 
+import OnboardingResumeFailed from './failed';
 import OnboardingResumePending from './pending';
+
+/**
+ * Mint a short, human-quotable support handle and log it next to the real error.
+ * Demo feedback (David, item 4): the user hit a server error and "moved too fast
+ * to grab the error number" — there was none. Every failure on this page now
+ * carries a reference that appears on screen AND in the server log.
+ */
+function logOnboardingResumeFailure(draftId: string, error: unknown): string {
+  const reference = `ARS-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+  console.error('[onboarding-resume] materialization failed', {
+    reference,
+    draftId,
+    message: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined,
+  });
+  return reference;
+}
 
 function businessSlugBase(input: { businessName: string; websiteUrl: string; email: string }): string {
   const trimmedBusinessName = input.businessName.trim();
@@ -56,6 +74,55 @@ async function tenantIsReusable(tenantId: string): Promise<boolean> {
 
   const reviews = await listMarketingReviewItemsForTenant(tenantId);
   return reviews.length === 0;
+}
+
+/**
+ * The account's single active membership, when it points at an organization
+ * that has never been onboarded and that nobody else belongs to — i.e. the stub
+ * created by a signup that filled in the optional "Organization" field.
+ *
+ * Returns null (so the caller falls through to the normal entitlement-gated
+ * create) unless ALL of these hold:
+ *   - exactly one active membership on the account
+ *   - that membership is already `tenant_admin` (never an elevation)
+ *   - the account is the org's only active member (never a hijack)
+ *   - the org is reusable: no jobs, no stored business profile, no reviews
+ */
+async function findReusableStubTenant(
+  client: PoolClient,
+  userId: string,
+): Promise<string | null> {
+  const memberships = await client.query(
+    `SELECT organization_id, role
+       FROM organization_memberships
+      WHERE user_id = $1 AND status = 'active'
+      FOR UPDATE`,
+    [Number(userId)],
+  );
+
+  if (memberships.rows.length !== 1) {
+    return null;
+  }
+
+  const row = memberships.rows[0] as { organization_id: number | string; role?: string | null };
+  if (row.role !== 'tenant_admin') {
+    return null;
+  }
+
+  const organizationId = String(row.organization_id);
+
+  const otherMembers = await client.query(
+    `SELECT 1
+       FROM organization_memberships
+      WHERE organization_id = $1 AND status = 'active' AND user_id <> $2
+      LIMIT 1`,
+    [Number(organizationId), Number(userId)],
+  );
+  if ((otherMembers.rowCount ?? 0) > 0) {
+    return null;
+  }
+
+  return (await tenantIsReusable(organizationId)) ? organizationId : null;
 }
 
 type ResolveTenantResult =
@@ -108,12 +175,20 @@ async function resolveTenantForDraft(input: {
 
 /**
  * Flag-ON tenant resolution for onboarding (multi-workspace plan Decision 8a/8b
- * + Decision 13). "Onboard a business" ALWAYS creates a NEW org + a NEW admin
- * membership + sets it active — it NEVER reuses/repoints an existing org (8a).
+ * + Decision 13). "Onboard a business" creates a NEW org + a NEW admin
+ * membership + sets it active, rather than repointing an org the user merely
+ * belongs to (8a).
+ *
+ * ONE narrow exception, added after the demo: a never-onboarded STUB org that
+ * this account solely admins is reused rather than counted as an existing
+ * workspace (see findReusableStubTenant for the guards, and the call site for
+ * why). Without it, filling in the optional "Organization" field at signup
+ * paywalled the user's own first workspace.
+ *
  * The `role:'tenant_admin'` force-set therefore only ever applies to the org the
- * user just created, never an existing org they merely belong to (8b — the
- * self-escalation hole in the legacy reuse branch is gone because the branch is
- * gone). Because creating a workspace while the account already holds ≥1 active
+ * user just created, or to that solely-owned stub — never an existing org they
+ * merely belong to (8b — the self-escalation hole in the legacy reuse branch
+ * stays closed). Because creating a workspace while the account already holds ≥1 active
  * membership is a SECOND-workspace attach, the Decision-13 entitlement check
  * gates it (this RSC mutates on render and is out of the Phase-3 header guard by
  * design, so the check is explicit here). It runs INSIDE the transaction that
@@ -140,6 +215,34 @@ async function resolveTenantForDraftWithMemberships(
     // membership and be denied (free) / allowed (pro). Cheap: one indexed lock
     // on the account's own row, inside the txn that was already open.
     await client.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [Number(input.userId)]);
+
+    // Reuse a never-onboarded stub org before counting workspaces.
+    //
+    // A credentials signup that filled in the OPTIONAL "Organization" field
+    // creates an organization plus an active tenant_admin membership before
+    // onboarding ever runs (see registerUserAction). That stub is not a
+    // workspace — no business profile, no jobs, no reviews — but
+    // assertMultiWorkspaceEntitlement counts active memberships, so it read as
+    // "this account already has one workspace". The result, on the free plan:
+    // a brand-new user who typed their company name at signup got their FIRST
+    // workspace denied and was redirected to the upgrade paywall seconds after
+    // registering, stranding the draft. Reusing the stub is also what the
+    // flag-OFF branch does.
+    //
+    // Decision 8b (no self-escalation) is preserved by the guards: we only
+    // reuse when the account is ALREADY tenant_admin of the org and is its only
+    // active member, so this can never repoint or elevate anyone into an org
+    // that belongs to someone else.
+    const stub = await findReusableStubTenant(client, input.userId);
+    if (stub) {
+      await assignUserToOrganization(client, {
+        userId: input.userId,
+        organizationId: stub,
+        role: 'tenant_admin',
+      });
+      await client.query('COMMIT', []);
+      return { status: 'ok', tenantId: stub };
+    }
 
     const entitlement = await assertMultiWorkspaceEntitlement(client, input.userId);
     if (!entitlement.allowed) {
@@ -235,6 +338,10 @@ export default async function OnboardingResumePage(
         notes: claim.draft.notes,
         competitorUrl: claim.draft.competitorUrl || null,
         channels: claim.draft.channels,
+        // The user has just created their account; a website we cannot scrape
+        // right now must not cost them the workspace. The profile row is saved
+        // either way and the brand kit is re-derived on the first job.
+        tolerateBrandKitFailure: true,
       });
 
       // Multi-brand workspaces Phase 1a: seed a default weekly cadence row for
@@ -331,8 +438,22 @@ export default async function OnboardingResumePage(
     // must NOT reset to ready_for_auth — a revisit would re-run the 3-job fan-out
     // and orphan the live jobs. The board recovers (renders what landed, times out).
     if (!variantBatchStarted) {
-      await updateOnboardingDraft(draftId, { status: 'ready_for_auth' });
+      // Best-effort: if this reset itself fails the user still gets the recovery
+      // screen rather than the bare 500 this catch used to rethrow.
+      try {
+        await updateOnboardingDraft(draftId, { status: 'ready_for_auth' });
+      } catch (resetError) {
+        console.error('[onboarding-resume] draft reset failed', { draftId, resetError });
+      }
     }
-    throw error;
+
+    // Do NOT rethrow. Rethrowing here produced the demo's bare "server error":
+    // the user had just created an account, and a failure anywhere in the
+    // materialization chain (most often the brand-kit scrape of a slow or
+    // unreachable customer website) blew up the whole render. The draft is
+    // still intact and still reachable by id, so hand the user a recovery
+    // screen that keeps the draft id — and a reference they can quote.
+    const reference = logOnboardingResumeFailure(draftId, error);
+    return <OnboardingResumeFailed draftId={draftId} reference={reference} />;
   }
 }

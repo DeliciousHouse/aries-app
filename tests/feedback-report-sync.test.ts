@@ -22,6 +22,7 @@ function config(overrides: Partial<FeedbackReportConfig> = {}): FeedbackReportCo
     },
     maxImageBytes: 2_000_000,
     userRateLimitPerHour: 10,
+    sharedRateLimitPerHour: 100,
     dedupWindowSeconds: 60,
     retryIntervalMinutes: 5,
     retryBatchLimit: 10,
@@ -35,15 +36,14 @@ function report(overrides: Partial<SyncableReport> = {}): SyncableReport {
   return {
     id: 'aaaa1111-2222-4333-8444-555566667777',
     submitterType: 'authenticated',
-    customerSlug: 'acme',
+    tenantId: 'tenant-15',
+    submitterId: 'user-42',
     category: 'bug',
     impact: 'p1_account_blocked',
-    title: 'It broke',
-    description: 'Details',
-    submitterName: 'Jo',
-    submitterEmail: 'jo@acme.co',
-    screenshot: null,
     jiraTicketKey: null,
+    jiraCreateState: 'not_started',
+    jiraCreateToken: null,
+    attachmentState: 'none',
     attempts: 0,
     createdAtIso: '2026-07-03T00:00:00.000Z',
     ...overrides,
@@ -51,16 +51,35 @@ function report(overrides: Partial<SyncableReport> = {}): SyncableReport {
 }
 
 interface FakeStoreLog {
+  createInFlight: Array<{ id: string; token: string }>;
+  createUncertain: Array<{ id: string; error: string }>;
+  reconcileMisses: string[];
   ticketKeys: Array<{ id: string; key: string }>;
   synced: string[];
   failures: Array<{ id: string; error: string; bumpAttempts: boolean; maxAttempts: number }>;
 }
 
 function fakeStore(): { store: ReportSyncStore; log: FakeStoreLog } {
-  const log: FakeStoreLog = { ticketKeys: [], synced: [], failures: [] };
+  const log: FakeStoreLog = {
+    createInFlight: [],
+    createUncertain: [],
+    reconcileMisses: [],
+    ticketKeys: [],
+    synced: [],
+    failures: [],
+  };
   return {
     log,
     store: {
+      markCreateInFlight: async (id, token) => {
+        log.createInFlight.push({ id, token });
+      },
+      markCreateUncertain: async (id, error) => {
+        log.createUncertain.push({ id, error });
+      },
+      recordCreateReconcileMiss: async (id) => {
+        log.reconcileMisses.push(id);
+      },
       markTicketKey: async (id, key) => {
         log.ticketKeys.push({ id, key });
       },
@@ -77,15 +96,13 @@ function fakeStore(): { store: ReportSyncStore; log: FakeStoreLog } {
 interface ClientCalls {
   searches: string[];
   creates: Array<Record<string, unknown>>;
-  attaches: Array<{ key: string; filename: string }>;
 }
 
 function fakeClient(behavior: {
   search?: (label: string) => Promise<string | null>;
   create?: (fields: Record<string, unknown>) => Promise<string>;
-  attach?: () => Promise<void>;
 }): { client: JiraReportTransport; calls: ClientCalls } {
-  const calls: ClientCalls = { searches: [], creates: [], attaches: [] };
+  const calls: ClientCalls = { searches: [], creates: [] };
   return {
     calls,
     client: {
@@ -97,10 +114,7 @@ function fakeClient(behavior: {
         calls.creates.push(input.fields);
         return behavior.create ? behavior.create(input.fields) : 'AA-1';
       },
-      attachScreenshot: async (key, _bytes, _mime, filename) => {
-        calls.attaches.push({ key, filename });
-        if (behavior.attach) await behavior.attach();
-      },
+
     },
   };
 }
@@ -109,11 +123,11 @@ beforeEach(() => {
   resetPriorityFieldMemoForTests();
 });
 
-test('happy path: search miss → create → key stored before attach → synced with bytes nulled', async () => {
+test('happy path creates one redacted issue and retains screenshot only in Aries', async () => {
   const { store, log } = fakeStore();
   const { client, calls } = fakeClient({});
   const result = await syncReportToJira(
-    report({ screenshot: { bytes: Buffer.from('img'), mime: 'image/png' } }),
+    report({ attachmentState: 'retained_private' }),
     config(),
     store,
     client,
@@ -122,7 +136,7 @@ test('happy path: search miss → create → key stored before attach → synced
   assert.equal(calls.searches.length, 1);
   assert.ok(calls.searches[0].startsWith('aries-sub-'));
   assert.equal(calls.creates.length, 1);
-  assert.equal(calls.attaches.length, 1);
+  assert.equal('attachScreenshot' in client, false);
   assert.deepEqual(log.ticketKeys, [{ id: report().id, key: 'AA-1' }]);
   assert.deepEqual(log.synced, [report().id]);
   assert.equal(log.failures.length, 0);
@@ -137,13 +151,13 @@ test('unconfigured Jira parks the row WITHOUT burning an attempt', async () => {
   assert.equal(log.failures[0].error, 'jira_not_configured');
 });
 
-test('idempotency: a stored ticket key skips search AND create (attach-only completion)', async () => {
+test('idempotency: a stored ticket key skips search/create and never exports the screenshot', async () => {
   const { store, log } = fakeStore();
   const { client, calls } = fakeClient({});
   const result = await syncReportToJira(
     report({
       jiraTicketKey: 'AA-9',
-      screenshot: { bytes: Buffer.from('img'), mime: 'image/jpeg' },
+      attachmentState: 'retained_private',
     }),
     config(),
     store,
@@ -152,7 +166,7 @@ test('idempotency: a stored ticket key skips search AND create (attach-only comp
   assert.deepEqual(result, { status: 'synced', ticketKey: 'AA-9' });
   assert.equal(calls.searches.length, 0);
   assert.equal(calls.creates.length, 0);
-  assert.deepEqual(calls.attaches, [{ key: 'AA-9', filename: `screenshot-${report().id}.jpg` }]);
+  assert.equal('attachScreenshot' in client, false);
   assert.deepEqual(log.synced, [report().id]);
 });
 
@@ -191,6 +205,48 @@ test('create failure parks the row with a completed attempt', async () => {
   assert.equal(log.failures[0].bumpAttempts, true);
 });
 
+test('an uncertain prior create never treats one stale empty search as permission to create', async () => {
+  const { store, log } = fakeStore();
+  const { client, calls } = fakeClient({ search: async () => null });
+
+  const result = await syncReportToJira(
+    report({ jiraCreateState: 'uncertain', jiraCreateToken: 'attempt-token' }),
+    config(),
+    store,
+    client,
+  );
+
+  assert.equal(result.status, 'pending_retry');
+  assert.equal(calls.searches.length, 1);
+  assert.equal(calls.creates.length, 0, 'an uncertain create must never be blindly repeated');
+  assert.deepEqual(log.reconcileMisses, [report().id]);
+});
+
+test('create accepted then ticket-key persistence failure leaves a durable in-flight fence', async () => {
+  const { store, log } = fakeStore();
+  store.markTicketKey = async () => {
+    throw new Error('database write failed after Jira accepted create');
+  };
+  const { client, calls } = fakeClient({ create: async () => 'AA-404' });
+
+  await assert.rejects(() => syncReportToJira(report(), config(), store, client), /database write failed/);
+  assert.equal(calls.creates.length, 1);
+  assert.equal(log.createInFlight.length, 1, 'the fence must be stored before Jira create');
+
+  const recovery = fakeClient({ search: async () => null });
+  const recovered = await syncReportToJira(
+    report({
+      jiraCreateState: 'in_flight',
+      jiraCreateToken: log.createInFlight[0].token,
+    }),
+    config(),
+    fakeStore().store,
+    recovery.client,
+  );
+  assert.equal(recovered.status, 'pending_retry');
+  assert.equal(recovery.calls.creates.length, 0, 'stale search after process/DB failure must not create again');
+});
+
 test('a failure landing exactly at max attempts reports terminal failed', async () => {
   const { store } = fakeStore();
   const { client } = fakeClient({
@@ -207,23 +263,23 @@ test('a failure landing exactly at max attempts reports terminal failed', async 
   assert.equal(result.status, 'failed');
 });
 
-test('attach failure after create: key stored, 201-eligible result, row retryable', async () => {
+test('lost attachment acknowledgement is reconciled privately without a second upload', async () => {
   const { store, log } = fakeStore();
-  const { client } = fakeClient({
-    attach: async () => {
-      throw new JiraReportError('jira attach failed (HTTP 500)', 500);
-    },
-  });
+  const { client } = fakeClient({});
   const result = await syncReportToJira(
-    report({ screenshot: { bytes: Buffer.from('img'), mime: 'image/png' } }),
+    report({
+      jiraTicketKey: 'AA-42',
+      jiraCreateState: 'completed',
+      attachmentState: 'uncertain',
+    }),
     config(),
     store,
     client,
   );
-  assert.deepEqual(result, { status: 'pending_retry', ticketKey: 'AA-1' });
-  assert.deepEqual(log.ticketKeys, [{ id: report().id, key: 'AA-1' }]);
-  assert.equal(log.synced.length, 0, 'bytes must be kept for the sweep to re-attach');
-  assert.equal(log.failures[0].bumpAttempts, true);
+  assert.deepEqual(result, { status: 'synced', ticketKey: 'AA-42' });
+  assert.equal('attachScreenshot' in client, false);
+  assert.deepEqual(log.synced, [report().id]);
+  assert.equal(log.failures.length, 0);
 });
 
 test('priority-field rejection retries once without priority and memoizes', async () => {
@@ -276,21 +332,27 @@ test('a non-priority 400 does NOT trigger the degrade retry', async () => {
   assert.equal(calls.creates.length, 1);
 });
 
-test('issue fields carry Bug type, mapped priority, labels, and ADF description', () => {
+test('issue fields carry only redacted triage metadata and opaque internal identifiers', () => {
   const jira = config().jira!;
   const fields = buildIssueFields(jira, report(), true);
   assert.deepEqual(fields.project, { key: 'AA' });
   assert.deepEqual(fields.issuetype, { name: 'Bug' });
   assert.deepEqual(fields.priority, { name: 'P1 - Critical' });
-  assert.equal(fields.summary, 'It broke');
+  assert.equal(fields.summary, `Customer incident report ${report().id}`);
   assert.deepEqual(fields.labels, [
     'customer-incident',
-    'customer-acme',
     `aries-sub-${report().id}`,
     'impact-p1',
   ]);
   const description = fields.description as { type: string };
   assert.equal(description.type, 'doc');
+  const serialized = JSON.stringify(fields);
+  assert.ok(!serialized.includes('It broke'));
+  assert.ok(!serialized.includes('Details'));
+  assert.ok(!serialized.includes('jo@acme.co'));
+  assert.ok(!serialized.includes('customer-acme'));
+  assert.ok(serialized.includes('tenant-15'));
+  assert.ok(serialized.includes('user-42'));
   const without = buildIssueFields(jira, report(), false);
   assert.equal(without.priority, undefined);
 });
@@ -300,9 +362,6 @@ test('anonymous Jira issues are explicitly labeled and contain no fake contact a
     config().jira!,
     report({
       submitterType: 'anonymous',
-      customerSlug: 'anonymous',
-      submitterName: null,
-      submitterEmail: null,
     }),
     true,
   );

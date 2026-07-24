@@ -46,6 +46,17 @@ function installSettingsApi() {
   let primaryGoalSource: 'explicit' | 'inferred' = 'inferred';
   const profilePatches: ProfilePatchCall[] = [];
 
+  // In-flight gate for the PATCH.
+  //
+  // This used to be `await new Promise(r => setTimeout(r, 25))`, a fixed 25ms
+  // sleep meant to hold the request open long enough for the test to observe
+  // the disabled "Saving…" button. waitFor polls every 50ms, so on a loaded
+  // machine it could step straight over that window and the assertion failed —
+  // the test flaked ~3 runs in 5 under the full suite. The gate makes the
+  // window explicit: the test releases it when it has finished asserting.
+  let releasePatch: (() => void) | null = null;
+  let patchGate: Promise<void> | null = null;
+
   (globalThis as unknown as { fetch: typeof fetch }).fetch = async (
     input: URL | RequestInfo,
     init?: RequestInit,
@@ -77,7 +88,12 @@ function installSettingsApi() {
         if (Object.prototype.hasOwnProperty.call(patch, 'reelAudioMode') && patch.reelAudioMode) {
           profile.reelAudioMode = patch.reelAudioMode;
         }
-        await new Promise((resolve) => setTimeout(resolve, 25));
+        if (patchGate) {
+          const gate = patchGate;
+          patchGate = null;
+          releasePatch = null;
+          await gate;
+        }
       }
       return jsonResponse({ profile: { ...profile } });
     }
@@ -133,6 +149,21 @@ function installSettingsApi() {
     profile,
     profilePatches,
     getPrimaryGoalSource: () => primaryGoalSource,
+    /**
+     * Hold the next PATCH open until the returned function is called, so a test
+     * can deterministically observe the in-flight UI state.
+     */
+    holdNextPatch(): () => void {
+      // Capture the resolver in this closure rather than reading the shared
+      // `releasePatch` binding — the fetch handler clears that binding when it
+      // takes the gate, so a late read would find null and never release.
+      let resolveGate: (() => void) | null = null;
+      patchGate = new Promise<void>((resolve) => {
+        resolveGate = resolve;
+      });
+      releasePatch = () => resolveGate?.();
+      return () => resolveGate?.();
+    },
   };
 }
 
@@ -162,8 +193,19 @@ test('approval-only save preserves dirty business drafts until a deliberate busi
   const screen = await mountSettings();
 
   try {
-    const businessName = await screen.findByDisplayValue('Stored Business') as HTMLInputElement;
-    const primaryGoal = await screen.findByDisplayValue('Increase social media presence') as HTMLInputElement;
+    // Mounting this screen is expensive: jsdom + React + the Next router context,
+    // then `useBusinessProfile`'s autoLoad round-trip and the effect that syncs the
+    // loaded profile into input state. That costs ~200ms on an idle box but 0.6-1.4s
+    // when the machine is oversubscribed, which straddles @testing-library's 1000ms
+    // default and makes these two queries flake under parallel suite load.
+    // Both conditions are monotonic — once an input holds its value it keeps it —
+    // so there is no earlier signal to await and a longer budget cannot mask a bug:
+    // it can only fail if the profile genuinely never reaches the inputs. Note this
+    // is deliberately scoped to the mount queries; the in-flight "Saving…" assertion
+    // below is a real transient and must keep the short default.
+    const mountWait = { timeout: 15_000 };
+    const businessName = await screen.findByDisplayValue('Stored Business', undefined, mountWait) as HTMLInputElement;
+    const primaryGoal = await screen.findByDisplayValue('Increase social media presence', undefined, mountWait) as HTMLInputElement;
     const launchApprover = screen.getByLabelText('Launch approver') as HTMLSelectElement;
 
     fireEvent.change(businessName, { target: { value: 'Unsaved Draft Business' } });
@@ -171,6 +213,9 @@ test('approval-only save preserves dirty business drafts until a deliberate busi
     fireEvent.change(launchApprover, { target: { value: '20' } });
     assert.equal(businessName.value, 'Unsaved Draft Business');
     assert.equal(primaryGoal.value, 'Unsaved deliberate goal');
+    // Hold the PATCH open so the in-flight state is observable regardless of
+    // machine load, instead of racing a fixed 25ms sleep.
+    const releasePatch = api.holdNextPatch();
     fireEvent.click(screen.getByRole('button', { name: 'Save approval settings' }));
 
     await waitFor(() => assert.equal(api.profilePatches.length, 1));
@@ -179,6 +224,10 @@ test('approval-only save preserves dirty business drafts until a deliberate busi
         (screen.getAllByRole('button', { name: 'Saving…' })[0] as HTMLButtonElement).disabled,
         true,
       );
+    });
+    await act(async () => {
+      releasePatch();
+      await Promise.resolve();
     });
     await screen.findByRole('button', { name: 'Save approval settings' });
     await act(async () => {

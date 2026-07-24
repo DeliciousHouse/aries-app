@@ -248,3 +248,44 @@ describe('callback-envelope-shape', () => {
     assert.equal(result.success, true);
   });
 });
+
+describe('callback usage envelope (AA-158)', () => {
+  it('parses a callback with no usage block — an older Hermes must keep working', () => {
+    const result = HermesRunCallbackPayloadSchema.safeParse({
+      event_id: 'evt-no-usage',
+      aries_run_id: 'arun_00000000-0000-0000-0000-0000000000aa',
+      status: 'completed',
+    });
+    assert.equal(result.success, true);
+    assert.equal(result.success && result.data.usage, undefined);
+  });
+
+  it('parses and preserves a reported usage block', () => {
+    const result = HermesRunCallbackPayloadSchema.safeParse({
+      event_id: 'evt-usage',
+      aries_run_id: 'arun_00000000-0000-0000-0000-0000000000ab',
+      status: 'completed',
+      usage: {
+        prompt_tokens: 1200,
+        completion_tokens: 340,
+        total_tokens: 1540,
+        model: 'claude-3-5-sonnet',
+      },
+    });
+    assert.equal(result.success, true);
+    assert.equal(result.success && result.data.usage?.total_tokens, 1540);
+    assert.equal(result.success && result.data.usage?.model, 'claude-3-5-sonnet');
+  });
+
+  it('rejects a negative or fractional token count', () => {
+    for (const bad of [{ prompt_tokens: -1 }, { completion_tokens: 1.5 }]) {
+      const result = HermesRunCallbackPayloadSchema.safeParse({
+        event_id: 'evt-bad-usage',
+        aries_run_id: 'arun_00000000-0000-0000-0000-0000000000ac',
+        status: 'completed',
+        usage: bad,
+      });
+      assert.equal(result.success, false, `usage ${JSON.stringify(bad)} must be rejected`);
+    }
+  });
+});

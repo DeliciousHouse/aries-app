@@ -48,6 +48,9 @@ export default function SignUpPageClient() {
     }
     if (searchParams.get('draftSaved') === '1') {
       params.set('draftSaved', '1');
+      // Signal an explicit sign-in intent so /login renders the form instead of
+      // bouncing draftSaved traffic back here — otherwise this link is a loop.
+      params.set('intent', 'login');
     }
     const businessName = searchParams.get('businessName');
     if (businessName) {

@@ -1355,6 +1355,9 @@ function deriveOfferSummary(html: string): string | null {
   );
 }
 
+/** Per-request deadline for any outbound brand-kit fetch (page or stylesheet). */
+const BRAND_KIT_FETCH_TIMEOUT_MS = 10_000;
+
 async function fetchText(
   url: string,
   fetchImpl: typeof fetch | undefined,
@@ -1362,6 +1365,14 @@ async function fetchText(
 ): Promise<string | null> {
   // Route through ssrfSafeFetch to guard against redirect-based SSRF and
   // attacker-controlled stylesheet URLs resolving to internal hosts.
+  //
+  // Hard per-request deadline. This runs on the onboarding critical path — a
+  // customer website that accepts the connection and then never responds would
+  // otherwise hang the server render for as long as the platform allows, which
+  // is what the pending screen's 45s "taking longer than expected" state was
+  // papering over. A stylesheet fetch is also fanned out per <link>, so an
+  // unbounded wait multiplies. Aborting yields a normal brand_kit_fetch_failed,
+  // which the onboarding path now tolerates.
   const response = await ssrfSafeFetch(
     url,
     {
@@ -1369,6 +1380,7 @@ async function fetchText(
         'User-Agent': 'Mozilla/5.0 (compatible; AriesBot/1.0)',
         Accept: accept,
       },
+      signal: AbortSignal.timeout(BRAND_KIT_FETCH_TIMEOUT_MS),
     },
     { fetchImpl },
   );

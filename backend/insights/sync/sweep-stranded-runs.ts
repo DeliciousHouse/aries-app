@@ -30,6 +30,8 @@
  * config + logging — same split as backend/marketing/draft-expiry-sweep.ts).
  */
 
+import { withTaskExecutionLog } from '@/backend/telemetry/task-execution-log';
+
 export const DEFAULT_STRANDED_RUN_GRACE_MINUTES = 60;
 
 /**
@@ -83,8 +85,16 @@ export type SweepPool = {
 export async function sweepAbandonedSyncRuns(dbPool: SweepPool): Promise<number> {
   const client = await dbPool.connect();
   try {
-    const res = await client.query(SWEEP_STRANDED_SYNC_RUNS_SQL, [strandedRunGraceMinutes()]);
-    return res.rowCount ?? 0;
+    // AA-159: DETERMINISTIC_RULE work (one predicate UPDATE, no model). Logged
+    // on the client this sweep already holds, so it costs no extra connection.
+    return await withTaskExecutionLog(
+      { engine: 'DETERMINISTIC_RULE', taskKey: 'insights.sweep_stranded_sync_runs' },
+      async () => {
+        const res = await client.query(SWEEP_STRANDED_SYNC_RUNS_SQL, [strandedRunGraceMinutes()]);
+        return res.rowCount ?? 0;
+      },
+      { db: client },
+    );
   } finally {
     client.release();
   }

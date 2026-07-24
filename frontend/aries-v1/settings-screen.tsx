@@ -49,7 +49,7 @@ function memberActionErrorMessage(code: string | undefined): string {
   }
 }
 
-import { customerSafeUiErrorMessage } from './customer-safe-copy';
+import { customerSafeUiErrorMessage, profileApiErrorMessage } from './customer-safe-copy';
 import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './components';
 import { connectedProfileLabel } from './connected-profile-labels';
 
@@ -137,22 +137,59 @@ export default function AriesSettingsScreen() {
     setLaunchApproverUserId(profile.launchApproverUserId || '');
   }, [profile?.launchApproverUserId]);
 
-  async function saveBusinessProfile() {
-    await business.updateProfile({
-      businessName,
-      websiteUrl,
-      businessType,
-      primaryGoal,
-      launchApproverUserId: launchApproverUserId || null,
-      reelAudioMode,
+  // Both save buttons used to await updateProfile() and discard the result
+  // entirely: the label flipped to "Saving…" and back, with no success
+  // confirmation and — worse — no sign that a save had FAILED. A user whose
+  // website could not be read had their edit silently dropped and had no way to
+  // know. Every save now reports what happened.
+  const [saveFeedback, setSaveFeedback] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
+
+  async function runProfileSave(
+    patch: Parameters<typeof business.updateProfile>[0],
+    successMessage: string,
+  ) {
+    setSaveFeedback(null);
+    const response = await business.updateProfile(patch);
+    if (response) {
+      setSaveFeedback({ kind: 'success', message: successMessage });
+      return;
+    }
+    setSaveFeedback({
+      kind: 'error',
+      message: profileApiErrorMessage(business.save.error?.message, 'That change could not be saved.'),
     });
   }
 
-  async function saveApprovalSettings() {
-    await business.updateProfile({
-      launchApproverUserId: launchApproverUserId || null,
-    });
+  async function saveBusinessProfile() {
+    await runProfileSave(
+      {
+        businessName,
+        websiteUrl,
+        businessType,
+        primaryGoal,
+        launchApproverUserId: launchApproverUserId || null,
+        reelAudioMode,
+      },
+      'Business profile saved.',
+    );
   }
+
+  async function saveApprovalSettings() {
+    await runProfileSave(
+      { launchApproverUserId: launchApproverUserId || null },
+      'Approval settings saved.',
+    );
+  }
+
+  const saveFeedbackNode = saveFeedback ? (
+    <p
+      role="status"
+      aria-live="polite"
+      className={saveFeedback.kind === 'success' ? 'text-sm text-emerald-300' : 'text-sm text-red-300'}
+    >
+      {saveFeedback.message}
+    </p>
+  ) : null;
 
   // Cadence card (multi-brand workspaces Phase 1b, #803). Loaded independently
   // of the `ready` gate above (a slow/erroring cadence fetch should not block
@@ -505,9 +542,12 @@ export default function AriesSettingsScreen() {
                 connected platforms aren&apos;t used for automatic weekly posts yet.
               </p>
             </div>
-            <button type="button" onClick={() => void saveBusinessProfile()} disabled={business.save.isLoading} className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] disabled:opacity-60">
-              {business.save.isLoading ? 'Saving…' : 'Save business profile'}
-            </button>
+            <div className="flex flex-wrap items-center gap-3">
+              <button type="button" onClick={() => void saveBusinessProfile()} disabled={business.save.isLoading} className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] disabled:opacity-60">
+                {business.save.isLoading ? 'Saving…' : 'Save business profile'}
+              </button>
+              {saveFeedbackNode}
+            </div>
             {profile.incomplete ? <div className="rounded-[1.25rem] border border-amber-400/20 bg-amber-400/10 px-4 py-4 text-sm text-amber-50">This profile is incomplete. Add a website, business type, and primary goal so Aries can use it across campaigns.</div> : null}
           </div>
         ) : (
@@ -760,9 +800,12 @@ export default function AriesSettingsScreen() {
                     </div>
                   );
                 })}
-                <button type="button" onClick={() => void saveApprovalSettings()} disabled={business.save.isLoading} className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] disabled:opacity-60">
-                  {business.save.isLoading ? 'Saving…' : 'Save approval settings'}
-                </button>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button type="button" onClick={() => void saveApprovalSettings()} disabled={business.save.isLoading} className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] disabled:opacity-60">
+                    {business.save.isLoading ? 'Saving…' : 'Save approval settings'}
+                  </button>
+                  {saveFeedbackNode}
+                </div>
               </div>
             )}
           </div>

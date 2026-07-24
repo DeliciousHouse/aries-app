@@ -24,6 +24,7 @@ import {
   fitCopyToDuration,
 } from '@/backend/integrations/elevenlabs/tts';
 import { isReelVoiceoverEnabled } from '@/backend/integrations/elevenlabs/voiceover-env';
+import { withTaskExecutionLog } from '@/backend/telemetry/task-execution-log';
 import {
   type ReelAudioMode,
   reelAudioModeWantsVoiceover,
@@ -210,7 +211,19 @@ export function computeReelBeats(durationSeconds: number): ReelBeats {
   return { hookStart, hookEnd, valueStart, valueEnd, cardStart, ctaStart, urlStart, end };
 }
 
+/**
+ * AA-159: reel composition is LOCAL_EDGE work — ffmpeg burn-in on this host, no
+ * model and no gateway, so zero tokens by construction and CPU/wall time is the
+ * only cost. Pass-through when the telemetry flag is off.
+ */
 export async function composeReelMarketingLayer(args: ComposeReelArgs): Promise<string | null> {
+  return withTaskExecutionLog(
+    { engine: 'LOCAL_EDGE', taskKey: 'marketing.compose_reel_layer' },
+    () => composeReelMarketingLayerCompute(args),
+  );
+}
+
+async function composeReelMarketingLayerCompute(args: ComposeReelArgs): Promise<string | null> {
   const font = resolveFont(args.fontPath);
   if (!font) return null;
   if (!existsSync(args.videoPath)) return null;

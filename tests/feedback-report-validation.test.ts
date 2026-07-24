@@ -132,6 +132,7 @@ test('config is dark by default: no JIRA_* env ⇒ jira null, knobs at plan defa
   assert.equal(config.jira, null);
   assert.equal(config.maxImageBytes, 2_000_000);
   assert.equal(config.userRateLimitPerHour, 10);
+  assert.equal(config.sharedRateLimitPerHour, 100);
   assert.equal(config.dedupWindowSeconds, 60);
   assert.equal(config.retryIntervalMinutes, 5);
   assert.equal(config.retryBatchLimit, 10);
@@ -172,9 +173,18 @@ test('config: garbage knob values fall back to defaults', () => {
   const config = resolveFeedbackReportConfig({
     FEEDBACK_MAX_IMAGE_BYTES: 'garbage',
     FEEDBACK_USER_RATE_LIMIT_PER_HOUR: '-5',
+    FEEDBACK_SHARED_RATE_LIMIT_PER_HOUR: 'not-a-limit',
     FEEDBACK_RETRY_MAX_ATTEMPTS: '0',
   } as unknown as NodeJS.ProcessEnv);
   assert.equal(config.maxImageBytes, 2_000_000);
   assert.equal(config.userRateLimitPerHour, 10);
+  assert.equal(config.sharedRateLimitPerHour, 100);
   assert.equal(config.retryMaxAttempts, 5);
+});
+
+test('config: shared durable endpoint/tenant ceiling is configurable', () => {
+  const config = resolveFeedbackReportConfig({
+    FEEDBACK_SHARED_RATE_LIMIT_PER_HOUR: '37',
+  } as unknown as NodeJS.ProcessEnv);
+  assert.equal(config.sharedRateLimitPerHour, 37);
 });

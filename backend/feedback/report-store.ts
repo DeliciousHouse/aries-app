@@ -14,6 +14,13 @@ import type { FeedbackImpact, FeedbackReportCategory } from '@/lib/feedback/repo
 import type { ReportSubmitterAttribution } from './report-submitter';
 
 export type FeedbackReportStatus = 'pending' | 'synced' | 'pending_retry' | 'failed';
+export type JiraCreateState = 'not_started' | 'in_flight' | 'uncertain' | 'completed';
+export type FeedbackAttachmentState =
+  | 'none'
+  | 'in_flight'
+  | 'uncertain'
+  | 'completed'
+  | 'retained_private';
 
 export interface FeedbackReportRecord {
   id: string;
@@ -47,6 +54,9 @@ export interface FeedbackReportRow {
   screenshot_bytes: Buffer | null;
   screenshot_mime: string | null;
   jira_ticket_key: string | null;
+  jira_create_state: JiraCreateState;
+  jira_create_token: string | null;
+  attachment_state: FeedbackAttachmentState;
   status: FeedbackReportStatus;
   attempts: number;
   last_error: string | null;
@@ -87,6 +97,11 @@ export async function ensureFeedbackReportsTable(pool: Pool): Promise<void> {
       screenshot_bytes BYTEA,
       screenshot_mime VARCHAR(64),
       jira_ticket_key VARCHAR(50),
+      jira_create_state TEXT NOT NULL DEFAULT 'not_started'
+        CHECK (jira_create_state IN ('not_started','in_flight','uncertain','completed')),
+      jira_create_token TEXT,
+      attachment_state TEXT NOT NULL DEFAULT 'none'
+        CHECK (attachment_state IN ('none','in_flight','uncertain','completed','retained_private')),
       status TEXT NOT NULL DEFAULT 'pending'
         CHECK (status IN ('pending','synced','pending_retry','failed')),
       attempts INT NOT NULL DEFAULT 0,
@@ -104,6 +119,54 @@ export async function ensureFeedbackReportsTable(pool: Pool): Promise<void> {
   await pool.query(`
     ALTER TABLE feedback_reports
       ADD COLUMN IF NOT EXISTS request_fingerprint TEXT NOT NULL DEFAULT ''
+  `);
+  await pool.query(`
+    DO $feedback_delivery_state$
+    DECLARE
+      jira_create_state_was_missing BOOLEAN;
+      attachment_state_was_missing BOOLEAN;
+    BEGIN
+      LOCK TABLE feedback_reports IN ACCESS EXCLUSIVE MODE;
+
+      SELECT NOT EXISTS (
+        SELECT 1
+          FROM information_schema.columns
+         WHERE table_schema = current_schema()
+           AND table_name = 'feedback_reports'
+           AND column_name = 'jira_create_state'
+      ) INTO jira_create_state_was_missing;
+      SELECT NOT EXISTS (
+        SELECT 1
+          FROM information_schema.columns
+         WHERE table_schema = current_schema()
+           AND table_name = 'feedback_reports'
+           AND column_name = 'attachment_state'
+      ) INTO attachment_state_was_missing;
+
+      ALTER TABLE feedback_reports
+        ADD COLUMN IF NOT EXISTS jira_create_state TEXT NOT NULL DEFAULT 'not_started'
+          CHECK (jira_create_state IN ('not_started','in_flight','uncertain','completed')),
+        ADD COLUMN IF NOT EXISTS jira_create_token TEXT,
+        ADD COLUMN IF NOT EXISTS attachment_state TEXT NOT NULL DEFAULT 'none'
+          CHECK (attachment_state IN ('none','in_flight','uncertain','completed','retained_private'));
+
+      IF jira_create_state_was_missing THEN
+        UPDATE feedback_reports
+           SET jira_create_state = 'completed'
+         WHERE jira_ticket_key IS NOT NULL;
+        UPDATE feedback_reports
+           SET jira_create_state = 'uncertain',
+               jira_create_token = COALESCE(jira_create_token, 'aries-sub-' || id)
+         WHERE jira_ticket_key IS NULL;
+      END IF;
+
+      IF attachment_state_was_missing THEN
+        UPDATE feedback_reports
+           SET attachment_state = 'uncertain'
+         WHERE screenshot_bytes IS NOT NULL;
+      END IF;
+    END
+    $feedback_delivery_state$
   `);
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_feedback_reports_status_updated
@@ -159,14 +222,20 @@ async function countRecentForSubmitter(
 export async function insertReportWithLimits(
   pool: Pool,
   record: FeedbackReportRecord,
-  limits: { userRateLimitPerHour: number; dedupWindowSeconds: number },
+  limits: {
+    userRateLimitPerHour: number;
+    sharedRateLimitPerHour?: number;
+    dedupWindowSeconds: number;
+  },
 ): Promise<InsertReportOutcome> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
     // The browser key is global, so serialize it before checking ownership.
-    // A replay from another identity cannot race the original INSERT into a
+    // This block must stay ahead of the shared/per-user limits and duplicate
+    // check: a valid replay still succeeds after the first request consumes the
+    // last quota slot. Another identity cannot race the original INSERT into a
     // unique-constraint error or observe an uncommitted row.
     await client.query(
       `SELECT pg_advisory_xact_lock(hashtext('feedback-report-idempotency'), hashtext($1))`,
@@ -187,6 +256,28 @@ export async function insertReportWithLimits(
       return sameOwnerAndPayload
         ? { outcome: 'replay', report: row }
         : { outcome: 'idempotency_conflict' };
+    }
+
+    // Shared durable tenant/endpoint ceiling. This lock intentionally precedes
+    // the narrower submitter lock on every path so different identities cannot
+    // race the aggregate count or deadlock through inconsistent lock ordering.
+    await client.query(
+      `SELECT pg_advisory_xact_lock(hashtext('feedback-report-shared'), hashtext($1))`,
+      [record.tenantId],
+    );
+    const shared = await client.query<{ count: number }>(
+      `SELECT COUNT(*)::int AS count
+         FROM feedback_reports
+        WHERE tenant_id = $1
+          AND created_at > now() - interval '1 hour'`,
+      [record.tenantId],
+    );
+    if (
+      Number(shared.rows[0]?.count ?? 0) >=
+      (limits.sharedRateLimitPerHour ?? Number.MAX_SAFE_INTEGER)
+    ) {
+      await client.query('ROLLBACK');
+      return { outcome: 'rate_limited' };
     }
 
     await client.query(
@@ -225,8 +316,8 @@ export async function insertReportWithLimits(
          id, request_fingerprint, submitter_type, tenant_id, submitter_id,
          submitter_email, submitter_name,
          customer_slug, category, impact, title, description,
-         screenshot_bytes, screenshot_mime, status
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pending')`,
+         screenshot_bytes, screenshot_mime, attachment_state, status
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'pending')`,
       [
         record.id,
         record.requestFingerprint,
@@ -242,6 +333,7 @@ export async function insertReportWithLimits(
         record.description,
         record.screenshot?.bytes ?? null,
         record.screenshot?.mime ?? null,
+        record.screenshot ? 'retained_private' : 'none',
       ],
     );
 
@@ -264,6 +356,28 @@ export async function getFeedbackReportById(
     [id],
   );
   return result.rows[0] ?? null;
+}
+
+/**
+ * Browser remediation for a terminal row. Called only while the report's Jira
+ * advisory lock is held. Attempts reset, but create/attachment fences remain,
+ * so retrying an uncertain external operation can only reconcile, never repeat.
+ */
+export async function reclaimFailedReportForRetry(
+  pool: Pool | PoolClient,
+  id: string,
+): Promise<boolean> {
+  const result = await pool.query(
+    `UPDATE feedback_reports
+        SET status = 'pending',
+            attempts = 0,
+            last_error = 'manual_retry_requested',
+            updated_at = now()
+      WHERE id = $1 AND status = 'failed'
+      RETURNING id`,
+    [id],
+  );
+  return result.rowCount === 1;
 }
 
 /**
@@ -298,18 +412,83 @@ export async function markReportTicketKey(
   key: string,
 ): Promise<void> {
   await pool.query(
-    `UPDATE feedback_reports SET jira_ticket_key = $2, updated_at = now() WHERE id = $1`,
+    `UPDATE feedback_reports SET
+       jira_ticket_key = $2,
+       jira_create_state = 'completed',
+       updated_at = now()
+     WHERE id = $1`,
     [id, key],
   );
 }
 
-/** Full success: synced, screenshot bytes NULLed, error cleared. */
+/** Persist a stable fence before the create request can leave the process. */
+export async function markReportCreateInFlight(
+  pool: Pool | PoolClient,
+  id: string,
+  token: string,
+): Promise<void> {
+  await pool.query(
+    `UPDATE feedback_reports SET
+       jira_create_state = 'in_flight',
+       jira_create_token = COALESCE(jira_create_token, $2),
+       updated_at = now()
+     WHERE id = $1`,
+    [id, token],
+  );
+}
+
+/** Ambiguous create response: preserve the fence so no later path can create. */
+export async function markReportCreateUncertain(
+  pool: Pool | PoolClient,
+  id: string,
+  error: string,
+): Promise<void> {
+  await pool.query(
+    `UPDATE feedback_reports SET
+       jira_create_state = 'uncertain',
+       last_error = $2,
+       updated_at = now()
+     WHERE id = $1`,
+    [id, error.slice(0, LAST_ERROR_MAX)],
+  );
+}
+
+/**
+ * A stale empty search after an ambiguous create is not permission to create.
+ * Back off through bounded retries and end in an operator-visible terminal
+ * state that can be reconciled manually.
+ */
+export async function recordReportCreateReconcileMiss(
+  pool: Pool | PoolClient,
+  id: string,
+  maxAttempts: number,
+): Promise<void> {
+  await pool.query(
+    `UPDATE feedback_reports SET
+       jira_create_state = 'uncertain',
+       attempts = attempts + 1,
+       status = CASE WHEN attempts + 1 >= $2 THEN 'failed' ELSE 'pending_retry' END,
+       last_error = 'jira_create_uncertain_operator_reconciliation_required',
+       updated_at = now()
+     WHERE id = $1`,
+    [id, maxAttempts],
+  );
+}
+
+/**
+ * Full success: synced, with new unredacted screenshots retained privately.
+ * A legacy `uncertain` attachment state is historical evidence that the old
+ * schema cannot resolve, so completing Jira reconciliation must preserve it.
+ */
 export async function markReportSynced(pool: Pool | PoolClient, id: string): Promise<void> {
   await pool.query(
     `UPDATE feedback_reports SET
        status = 'synced',
-       screenshot_bytes = NULL,
-       screenshot_mime = NULL,
+       attachment_state = CASE
+         WHEN screenshot_bytes IS NULL THEN 'none'
+         WHEN attachment_state = 'uncertain' THEN 'uncertain'
+         ELSE 'retained_private'
+       END,
        last_error = NULL,
        updated_at = now()
      WHERE id = $1`,
@@ -319,7 +498,7 @@ export async function markReportSynced(pool: Pool | PoolClient, id: string): Pro
 
 /**
  * Record a failed sync cycle. `bumpAttempts` counts a COMPLETED failed attempt
- * (search/create/attach actually failed); parking an unconfigured submission
+ * (search/create/reconciliation actually failed); parking an unconfigured submission
  * does not burn an attempt. A bump that reaches maxAttempts goes terminal
  * `failed` — exactly at the boundary, never stranding at an unclaimable
  * pending_retry.

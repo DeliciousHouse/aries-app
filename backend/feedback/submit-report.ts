@@ -16,7 +16,6 @@ import type { Pool } from 'pg';
 
 import pool from '@/lib/db';
 
-import { resolveCustomerSlug } from './impact';
 import type { FeedbackReportConfig } from './report-config';
 import { validateReportScreenshot } from './report-screenshot';
 import type { ReportSubmitter } from './report-submitter';
@@ -24,6 +23,7 @@ import {
   ensureFeedbackReportsTable,
   getFeedbackReportById,
   insertReportWithLimits,
+  reclaimFailedReportForRetry,
   withFeedbackReportSyncLock,
   type FeedbackReportRecord,
   type FeedbackReportRow,
@@ -64,6 +64,7 @@ export interface SubmitReportDeps {
   sync?: typeof syncReportToJira;
   getById?: typeof getFeedbackReportById;
   withSyncLock?: typeof withFeedbackReportSyncLock;
+  reclaimFailed?: typeof reclaimFailedReportForRetry;
   now?: () => Date;
 }
 
@@ -111,6 +112,7 @@ export async function submitFeedbackReport(
   const sync = deps.sync ?? syncReportToJira;
   const getById = deps.getById ?? getFeedbackReportById;
   const withSyncLock = deps.withSyncLock ?? withFeedbackReportSyncLock;
+  const reclaimFailed = deps.reclaimFailed ?? reclaimFailedReportForRetry;
   const id = input.idempotencyKey;
   const createdAt = (deps.now ?? (() => new Date()))();
 
@@ -124,18 +126,12 @@ export async function submitFeedbackReport(
     submitterType: submitter.attribution,
     tenantId: submitter.tenantId ?? 'unknown',
     submitterId: submitter.userId,
-    submitterEmail: submitter.email,
-    submitterName: submitter.name,
-    // The public tenant bucket is a rate-limit/storage boundary, not a
-    // customer. Do not turn it into a fabricated customer identity in Jira.
-    customerSlug:
-      submitter.attribution === 'anonymous'
-        ? 'unknown'
-        : resolveCustomerSlug({
-            tenantSlug: submitter.tenantSlug,
-            tenantName: null,
-            tenantId: submitter.tenantId,
-          }),
+    // Privacy boundary: durable attribution is opaque internal IDs only.
+    submitterEmail: null,
+    submitterName: null,
+    // Legacy non-null column: keep only a generic marker. Tenant attribution
+    // lives exclusively in the opaque tenantId/submitterId columns.
+    customerSlug: submitter.attribution === 'authenticated' ? 'tenant' : 'anonymous',
     category: input.category,
     impact: input.impact,
     title: input.title,
@@ -151,6 +147,7 @@ export async function submitFeedbackReport(
     await ensureTable(db);
     const inserted = await insert(db, record, {
       userRateLimitPerHour: config.userRateLimitPerHour,
+      sharedRateLimitPerHour: config.sharedRateLimitPerHour,
       dedupWindowSeconds: config.dedupWindowSeconds,
     });
     if (inserted.outcome === 'idempotency_conflict') {
@@ -203,25 +200,36 @@ export async function submitFeedbackReport(
   const freshSyncable: SyncableReport = {
     id: record.id,
     submitterType: record.submitterType,
-    customerSlug: record.customerSlug,
+    tenantId: record.tenantId,
+    submitterId: record.submitterId,
     category: record.category,
     impact: record.impact,
-    title: record.title,
-    description: record.description,
-    submitterName: record.submitterName,
-    submitterEmail: record.submitterEmail,
-    screenshot: record.screenshot,
     jiraTicketKey: null,
+    jiraCreateState: 'not_started',
+    jiraCreateToken: null,
+    attachmentState: record.screenshot ? 'retained_private' : 'none',
     attempts: 0,
     createdAtIso: createdAt.toISOString(),
   };
 
+  let unreclaimedFailedReplay = replayRow?.status === 'failed' ? replayRow : null;
   try {
     return await withSyncLock(db, record.id, async (lockClient) => {
       // A replay may have waited behind the original request's Jira cycle.
       // Reload after acquiring the same report lock so it sees the final key
       // and never starts a second create/search cycle concurrently.
-      const latest = (await getById(lockClient, record.id)) ?? replayRow;
+      let latest = (await getById(lockClient, record.id)) ?? replayRow;
+      if (latest?.status === 'failed') {
+        unreclaimedFailedReplay = latest;
+        const reclaimed = await reclaimFailed(lockClient, latest.id);
+        if (!reclaimed) {
+          throw new Error('Failed feedback report did not transition to pending');
+        }
+        // reclaimFailed resolves only after the durable transition. Exceptions
+        // leave the known terminal row intact for the outer 503 path.
+        unreclaimedFailedReplay = null;
+        latest = { ...latest, status: 'pending', attempts: 0 };
+      }
       if (latest && latest.status !== 'pending') {
         return {
           httpStatus: latest.jira_ticket_key ? 201 : 202,
@@ -251,25 +259,47 @@ export async function submitFeedbackReport(
         });
       }
 
-      // 201 whenever a ticket exists (even if the attachment is still
-      // syncing); 202 when parked for the retry sweep.
+      // 201 whenever a ticket exists; 202 when parked for the retry sweep.
       return {
-        httpStatus: ticketKey ? 201 : 202,
+        httpStatus: syncStatus === 'failed' ? 503 : ticketKey ? 201 : 202,
         body: {
           submission_id: record.id,
           jira_ticket_key: ticketKey,
           status: syncStatus,
           screenshot_discarded: shot.discarded,
+          ...(syncStatus === 'failed'
+            ? {
+                error:
+                  'Your report was saved, but Jira delivery needs attention. Retry to reconcile it safely.',
+              }
+            : {}),
         },
       };
     });
   } catch (error) {
-    // Lock/read failures also leave the committed row for stale-pending retry.
+    // A failed replay stays terminal until reclaim durably succeeds. Never
+    // misreport that known terminal row as a 202 pending retry merely because
+    // the lock/read/reclaim path threw.
     console.error('[feedback-report]', {
       event: 'inline-sync-failed',
       submissionId: record.id,
       error: error instanceof Error ? error.message : String(error),
     });
+    if (unreclaimedFailedReplay) {
+      return {
+        httpStatus: 503,
+        body: {
+          submission_id: unreclaimedFailedReplay.id,
+          jira_ticket_key: unreclaimedFailedReplay.jira_ticket_key,
+          status: 'failed',
+          screenshot_discarded: shot.discarded,
+          error:
+            'Your report was saved, but Jira delivery needs attention. Retry to reconcile it safely.',
+        },
+      };
+    }
+    // Other lock/read failures leave a committed non-terminal row for the
+    // stale-pending retry sweep.
     return {
       httpStatus: 202,
       body: {

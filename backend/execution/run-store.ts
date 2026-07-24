@@ -14,6 +14,7 @@ import path from 'node:path';
 
 import { resolveDataPath } from '@/lib/runtime-paths';
 import type { MarketingStage } from '@/backend/marketing/runtime-state';
+import type { ExecutionEngine } from '@/backend/telemetry/task-execution-log';
 
 export type ExecutionRunProvider = 'hermes';
 export type ExecutionRunDomain = 'route' | 'marketing';
@@ -57,6 +58,15 @@ export type ExecutionRunRecord = {
    * the reconciler falls back to deriving the profile from `stage` for those.
    */
   target_profile?: string | null;
+  /**
+   * AA-159 processing-engine classification. Every execution run is submitted to
+   * Hermes and executed by a model, so this is always 'AI_LLM' — it is stamped
+   * explicitly so a consumer never has to infer "is this cost-bearing?" from
+   * `provider`. Optional: records written before this field shipped omit it
+   * (same back-compat contract as `target_profile`), so readers must treat an
+   * absent value as unclassified rather than assuming a default.
+   */
+  execution_engine?: ExecutionEngine;
   status: ExecutionRunStatus;
   event_ids: string[];
   created_at: string;
@@ -242,6 +252,7 @@ export function createExecutionRunRecord(input: CreateExecutionRunRecordInput): 
     stage: input.stage ?? null,
     workflow_step_id: nonEmpty(input.workflowStepId),
     external_run_id: null,
+    execution_engine: 'AI_LLM',
     status: 'submitted',
     event_ids: [],
     created_at: ts,

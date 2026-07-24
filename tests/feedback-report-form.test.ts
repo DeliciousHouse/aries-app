@@ -105,7 +105,7 @@ test('ticket URL is the fixed https prefix + validated server key ONLY', () => {
   }
 });
 
-test('201 with key maps to success with the pinned href; pending_retry appends attach note', () => {
+test('201 with key maps to success with the pinned href; pending_retry never implies Jira attachment upload', () => {
   const done = outcomeFromResponse(201, {
     jira_ticket_key: 'AA-55',
     status: 'synced',
@@ -125,7 +125,8 @@ test('201 with key maps to success with the pinned href; pending_retry appends a
   });
   assert.equal(attaching.kind, 'success');
   if (attaching.kind === 'success') {
-    assert.ok(attaching.message.includes('attachment is still syncing'));
+    assert.ok(attaching.message.includes('Delivery is still reconciling'));
+    assert.ok(!attaching.message.includes('attachment'));
   }
 });
 
@@ -157,4 +158,31 @@ test('429 keeps the server message; network/5xx map to a generic retryable error
   for (const status of [500, 502, 400, 401]) {
     assert.equal(outcomeFromResponse(status, null).kind, 'error');
   }
+
+  const terminal = outcomeFromResponse(503, {
+    status: 'failed',
+    error: 'Your report was saved. Retry to reconcile it safely.',
+  });
+  assert.equal(terminal.kind, 'error');
+  assert.equal(terminal.message, 'Your report was saved. Retry to reconcile it safely.');
+});
+
+test('workspace and persistence failures use safe server copy without claiming the report was saved', () => {
+  const workspace = outcomeFromResponse(409, {
+    status: 'error',
+    message: 'This tab is using a different workspace. Your action was not performed.',
+  });
+  assert.equal(workspace.kind, 'error');
+  assert.equal(
+    workspace.message,
+    'This tab is using a different workspace. Your action was not performed.',
+  );
+
+  const persist = outcomeFromResponse(503, {
+    status: 'persist_failed',
+    error: 'We could not save your report. Please retry.',
+  });
+  assert.equal(persist.kind, 'error');
+  assert.equal(persist.message, 'We could not save your report. Please retry.');
+  assert.doesNotMatch(persist.message, /was saved/i);
 });

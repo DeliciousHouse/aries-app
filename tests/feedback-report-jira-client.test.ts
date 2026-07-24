@@ -177,28 +177,9 @@ test('create posts to /rest/api/3/issue with basic auth and returns a validated 
   );
 });
 
-test('attach validates the issue key, sends no-check token + multipart form', async () => {
-  const { fetchImpl, calls } = fakeFetch(() => json(200, [{ id: '1' }]));
+test('privacy boundary: the report transport exposes no Jira attachment operation', () => {
+  const { fetchImpl, calls } = fakeFetch(() => json(200, []));
   const client = createJiraReportClient(CONFIG, fetchImpl);
-  await client.attachScreenshot('AA-7', Buffer.from('png-bytes'), 'image/png', 'shot.png');
-  assert.equal(calls[0].url, 'https://example.atlassian.net/rest/api/3/issue/AA-7/attachments');
-  const headers = calls[0].init.headers as Record<string, string>;
-  assert.equal(headers['X-Atlassian-Token'], 'no-check');
-  assert.ok(calls[0].init.body instanceof FormData);
-  const file = (calls[0].init.body as FormData).get('file');
-  assert.ok(file instanceof Blob);
-  assert.equal((file as File).name, 'shot.png');
-
-  const { fetchImpl: guard, calls: guardCalls } = fakeFetch(() => json(200, []));
-  await assert.rejects(
-    () =>
-      createJiraReportClient(CONFIG, guard).attachScreenshot(
-        'AA-7/../secrets',
-        Buffer.from('x'),
-        'image/png',
-        'f.png',
-      ),
-    (error: unknown) => error instanceof JiraReportError,
-  );
-  assert.equal(guardCalls.length, 0, 'unsafe key must never reach the wire');
+  assert.equal('attachScreenshot' in client, false);
+  assert.equal(calls.length, 0);
 });

@@ -61,7 +61,20 @@ async function withReportDialog(
     fetchCalls += 1;
     const body = (init as { body?: unknown } | undefined)?.body;
     if (typeof body === 'string') requestBodies.push(JSON.parse(body) as Record<string, unknown>);
-    return fetchImpl(input, init);
+    const response = (await fetchImpl(input, init)) as {
+      status?: number;
+      ok?: boolean;
+      statusText?: string;
+      text?: () => Promise<string>;
+      json?: () => Promise<unknown>;
+    };
+    if (typeof response.text === 'function') return response;
+    const responseBody = typeof response.json === 'function' ? await response.json() : null;
+    return {
+      ...response,
+      statusText: response.statusText ?? '',
+      text: async () => (responseBody == null ? '' : JSON.stringify(responseBody)),
+    };
   };
 
   try {
@@ -186,13 +199,58 @@ test('INVARIANT 429 keeps values and keeps the dialog open', async () => {
   );
 });
 
-for (const status of [401, 503]) {
-  test(`${status} is announced as an error, preserves input, and offers retry`, async () => {
+test('401 is announced as an error, preserves input, and offers retry', async () => {
+  await withReportDialog(
+    async () => ({
+      status: 401,
+      ok: false,
+      json: async () => ({ error: 'unauthorized' }),
+    }),
+    async (h) => {
+      await h.fillValidForm();
+      await h.submitOnce();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      assert.equal(h.onCloseCalls, 0);
+      assert.equal(h.titleValue(), 'Broken publish button');
+      assert.deepEqual(h.alertMessages(), [
+        "We couldn't send that just now. Your text is still here — please retry.",
+      ]);
+      assert.equal(h.submitLabel(), 'Retry');
+    },
+  );
+});
+
+for (const failure of [
+  {
+    name: '409 workspace conflict',
+    status: 409,
+    body: {
+      status: 'error',
+      reason: 'workspace_mismatch',
+      code: 'workspace_mismatch',
+      active_workspace_id: '9',
+      requested_workspace_id: '7',
+      message: 'This tab is using a different workspace. Your action was not performed.',
+    },
+    expected: 'This tab is using a different workspace. Your action was not performed.',
+  },
+  {
+    name: '503 persistence failure',
+    status: 503,
+    body: {
+      status: 'persist_failed',
+      error: 'We could not save your report. Please retry.',
+    },
+    expected: 'We could not save your report. Please retry.',
+  },
+]) {
+  test(`${failure.name} preserves typed input and renders accurate safe server copy`, async () => {
     await withReportDialog(
       async () => ({
-        status,
+        status: failure.status,
         ok: false,
-        json: async () => ({ error: status === 401 ? 'unauthorized' : 'persist_failed' }),
+        json: async () => failure.body,
       }),
       async (h) => {
         await h.fillValidForm();
@@ -201,9 +259,7 @@ for (const status of [401, 503]) {
 
         assert.equal(h.onCloseCalls, 0);
         assert.equal(h.titleValue(), 'Broken publish button');
-        assert.deepEqual(h.alertMessages(), [
-          "We couldn't send that just now. Your text is saved — please retry.",
-        ]);
+        assert.deepEqual(h.alertMessages(), [failure.expected]);
         assert.equal(h.submitLabel(), 'Retry');
       },
     );
@@ -239,7 +295,10 @@ test('a server key conflict rotates the browser idempotency key before retry', a
     async () => ({
       status: 409,
       ok: false,
-      json: async () => ({ error: 'This submission key cannot be reused. Please submit again.' }),
+      json: async () => ({
+        error: 'This submission key cannot be reused. Please submit again.',
+        status: 'idempotency_conflict',
+      }),
     }),
     async (h) => {
       await h.fillValidForm();

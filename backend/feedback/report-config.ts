@@ -44,6 +44,8 @@ export interface FeedbackReportConfig {
   maxImageBytes: number;
   /** Per user+tenant submissions allowed per hour. */
   userRateLimitPerHour: number;
+  /** Shared durable submissions allowed per tenant/endpoint per hour. */
+  sharedRateLimitPerHour: number;
   /** Rapid-duplicate window (same title+description) in seconds. */
   dedupWindowSeconds: number;
   /** Retry sweep cadence in minutes. */
@@ -78,6 +80,7 @@ export function resolveFeedbackReportConfig(
     jira: resolveJira(env),
     maxImageBytes: int(env.FEEDBACK_MAX_IMAGE_BYTES, 2_000_000),
     userRateLimitPerHour: int(env.FEEDBACK_USER_RATE_LIMIT_PER_HOUR, 10),
+    sharedRateLimitPerHour: int(env.FEEDBACK_SHARED_RATE_LIMIT_PER_HOUR, 100),
     dedupWindowSeconds: int(env.FEEDBACK_DEDUP_WINDOW_SECONDS, 60),
     retryIntervalMinutes: int(env.FEEDBACK_RETRY_INTERVAL_MINUTES, 5),
     retryBatchLimit: int(env.FEEDBACK_RETRY_BATCH_LIMIT, 10),

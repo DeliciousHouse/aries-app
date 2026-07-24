@@ -26,44 +26,32 @@ function paragraph(text: string): AdfNode {
 }
 
 export interface ReportAdfInput {
-  description: string;
   impactAnswer: string;
   category: string;
   submitterType?: 'authenticated' | 'anonymous';
-  contact: {
-    name: string | null;
-    email: string | null;
-    company: string | null;
-  };
+  tenantId: string | null;
+  submitterId: string | null;
   reportId: string;
   submittedAtIso: string;
 }
 
 /**
- * Issue body: the description (one paragraph per line — structural split only;
- * every user string stays inside a text node), then a plain-text contact block
- * and submission metadata. Literal label prefixes are concatenated into the
- * text values, never expressed as marks.
+ * Jira is a redacted triage projection, never the durable report record. Raw
+ * title/description/contact/screenshot values are deliberately absent from the
+ * input type, making accidental exfiltration impossible at this boundary.
  */
 export function buildReportAdf(input: ReportAdfInput): AdfNode {
-  const content: AdfNode[] = [];
+  const content: AdfNode[] = [paragraph('Customer incident details are retained in Aries.')];
 
-  const lines = input.description.split(/\r?\n/);
-  for (const line of lines) {
-    content.push(paragraph(line.trim()));
-  }
-
-  content.push(paragraph('— Report details —'));
+  content.push(paragraph('— Redacted triage details —'));
   content.push(paragraph(`Impact: ${input.impactAnswer}`));
   content.push(paragraph(`Category: ${input.category}`));
 
-  content.push(paragraph('— Contact —'));
   if (input.submitterType === 'anonymous') {
     content.push(paragraph('Submitter: Anonymous'));
   } else {
-    content.push(paragraph(`Name: ${input.contact.name ?? 'unknown'}`));
-    content.push(paragraph(`Email: ${input.contact.email ?? 'unknown'}`));
-    content.push(paragraph(`Company: ${input.contact.company ?? 'unknown'}`));
+    content.push(paragraph(`Tenant ID: ${input.tenantId ?? 'unknown'}`));
+    content.push(paragraph(`Submitter ID: ${input.submitterId ?? 'unknown'}`));
   }
 
   content.push(paragraph(`Submission ID: ${input.reportId}`));

@@ -6,6 +6,7 @@ import type {
   CallbackContextSchema,
   CallbackErrorSchema,
   CallbackApprovalSchema,
+  CallbackUsageSchema,
   CallbackStatusSchema,
   CallbackStageSchema,
   HermesRunCallbackPayloadSchema,
@@ -23,6 +24,7 @@ export type HermesRunCallbackStatus = CallbackStatus;
 export type CallbackStage = z.infer<typeof CallbackStageSchema>;
 export type CallbackError = z.infer<typeof CallbackErrorSchema>;
 export type CallbackApproval = z.infer<typeof CallbackApprovalSchema>;
+export type CallbackUsage = z.infer<typeof CallbackUsageSchema>;
 export type HermesRunCallbackPayload = z.infer<typeof HermesRunCallbackPayloadSchema>;
 export type CallbackAuth = z.infer<typeof CallbackAuthSchema>;
 export type CallbackContext = z.infer<typeof CallbackContextSchema>;

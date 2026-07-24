@@ -98,8 +98,8 @@ async function initDb() {
     // Customer incident reports — SC-70 port, AA-51
     // (migrations/20260703000000_feedback_reports.sql). Public, impact-rated
     // reports that preserve authenticated attribution or explicitly mark an
-    // anonymous submitter; distinct from the legacy feedback_submissions table. Screenshot
-    // bytes are held only until the Jira sync completes, then NULLed.
+    // anonymous submitter; distinct from the legacy feedback_submissions table.
+    // New screenshot bytes stay private in Aries and are never copied to Jira.
     await client.query(`
       CREATE TABLE IF NOT EXISTS feedback_reports (
         id TEXT PRIMARY KEY,
@@ -121,6 +121,11 @@ async function initDb() {
         screenshot_bytes BYTEA,
         screenshot_mime VARCHAR(64),
         jira_ticket_key VARCHAR(50),
+        jira_create_state TEXT NOT NULL DEFAULT 'not_started'
+          CHECK (jira_create_state IN ('not_started','in_flight','uncertain','completed')),
+        jira_create_token TEXT,
+        attachment_state TEXT NOT NULL DEFAULT 'none'
+          CHECK (attachment_state IN ('none','in_flight','uncertain','completed','retained_private')),
         status TEXT NOT NULL DEFAULT 'pending'
           CHECK (status IN ('pending','synced','pending_retry','failed')),
         attempts INT NOT NULL DEFAULT 0,
@@ -133,6 +138,52 @@ async function initDb() {
           CHECK (submitter_type IN ('authenticated','anonymous'));
       ALTER TABLE feedback_reports
         ADD COLUMN IF NOT EXISTS request_fingerprint TEXT NOT NULL DEFAULT '';
+      DO $feedback_delivery_state$
+      DECLARE
+        jira_create_state_was_missing BOOLEAN;
+        attachment_state_was_missing BOOLEAN;
+      BEGIN
+        LOCK TABLE feedback_reports IN ACCESS EXCLUSIVE MODE;
+
+        SELECT NOT EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_schema = current_schema()
+             AND table_name = 'feedback_reports'
+             AND column_name = 'jira_create_state'
+        ) INTO jira_create_state_was_missing;
+        SELECT NOT EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_schema = current_schema()
+             AND table_name = 'feedback_reports'
+             AND column_name = 'attachment_state'
+        ) INTO attachment_state_was_missing;
+
+        ALTER TABLE feedback_reports
+          ADD COLUMN IF NOT EXISTS jira_create_state TEXT NOT NULL DEFAULT 'not_started'
+            CHECK (jira_create_state IN ('not_started','in_flight','uncertain','completed')),
+          ADD COLUMN IF NOT EXISTS jira_create_token TEXT,
+          ADD COLUMN IF NOT EXISTS attachment_state TEXT NOT NULL DEFAULT 'none'
+            CHECK (attachment_state IN ('none','in_flight','uncertain','completed','retained_private'));
+
+        IF jira_create_state_was_missing THEN
+          UPDATE feedback_reports
+             SET jira_create_state = 'completed'
+           WHERE jira_ticket_key IS NOT NULL;
+          UPDATE feedback_reports
+             SET jira_create_state = 'uncertain',
+                 jira_create_token = COALESCE(jira_create_token, 'aries-sub-' || id)
+           WHERE jira_ticket_key IS NULL;
+        END IF;
+
+        IF attachment_state_was_missing THEN
+          UPDATE feedback_reports
+             SET attachment_state = 'uncertain'
+           WHERE screenshot_bytes IS NOT NULL;
+        END IF;
+      END
+      $feedback_delivery_state$;
       CREATE INDEX IF NOT EXISTS idx_feedback_reports_status_updated
         ON feedback_reports (status, updated_at);
       CREATE INDEX IF NOT EXISTS idx_feedback_reports_tenant_submitter_created
@@ -1421,6 +1472,66 @@ async function initDb() {
       -- would fail this CREATE loudly rather than corrupt silently.
       CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower_unique
         ON users (LOWER(email));
+
+      -- AA-159: one append-only row per classified task execution, so cost
+      -- analysis can separate paid AI inference from zero-cost deterministic
+      -- automation and local/edge compute.
+      --   AI_LLM             -> work run by a model behind the Hermes gateway.
+      --   DETERMINISTIC_RULE -> rule-based automation (sweeps, dispatchers).
+      --   LOCAL_EDGE         -> in-process CPU work (sharp composite, ffmpeg).
+      -- Token/cost columns are a hard 0 on the two zero-cost engines (by
+      -- construction) and NULL on AI rows until the gateway reports usage —
+      -- NULL means "not reported", never "free". model_requested is the hint
+      -- Aries SENT; model_reported is what the gateway said it actually routed
+      -- to (Hermes owns routing and does not report it back today).
+      -- tenant_id is nullable: system sweeps are not tenant-scoped. No FK — this
+      -- is an append-only analytics log that must outlive the row it describes.
+      -- AA-158 widens the same row with per-user/per-task attribution, explicit
+      -- end_time, the prompt/completion/total token vocabulary, and the
+      -- attempt/retry axis. user_id is nullable and NULL on the majority of rows
+      -- BY DESIGN: the weekly cron, every sidecar, the reconciler, and all Hermes
+      -- callbacks are userless — only an operator-initiated route task has one.
+      -- task_id is the per-EXECUTION id (aries_run_id / job id / generated uuid),
+      -- as opposed to task_key which is the task TYPE.
+      CREATE TABLE IF NOT EXISTS task_execution_log (
+        id                BIGSERIAL PRIMARY KEY,
+        tenant_id         INTEGER,
+        user_id           INTEGER,
+        task_id           TEXT,
+        execution_engine  TEXT NOT NULL
+          CHECK (execution_engine IN ('AI_LLM','DETERMINISTIC_RULE','LOCAL_EDGE')),
+        task_key          TEXT NOT NULL,
+        -- 'retry' marks a non-terminal attempt that will be retried, so its token
+        -- usage is counted separately from the attempt that finally settles.
+        status            TEXT NOT NULL CHECK (status IN ('succeeded','failed','retry')),
+        attempt_number    INTEGER NOT NULL DEFAULT 1,
+        error_code        TEXT,
+        duration_ms       INTEGER,
+        cpu_ms            INTEGER,
+        model_requested   TEXT,
+        model_reported    TEXT,
+        target_profile    TEXT,
+        external_run_id   TEXT,
+        prompt_tokens     INTEGER,
+        completion_tokens INTEGER,
+        total_tokens      INTEGER,
+        cost_cents        NUMERIC(10,4),
+        started_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+        end_time          TIMESTAMPTZ,
+        recorded_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      -- Serves the per-tenant cost breakdown and the cross-engine rollup.
+      CREATE INDEX IF NOT EXISTS idx_task_execution_log_tenant_started
+        ON task_execution_log (tenant_id, started_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_task_execution_log_engine_started
+        ON task_execution_log (execution_engine, started_at DESC);
+      -- Serves the AA-158 per-user rollup. Partial: user_id is NULL on most rows
+      -- (userless cron/sidecar/callback work), so the index stays small.
+      CREATE INDEX IF NOT EXISTS idx_task_execution_log_user_started
+        ON task_execution_log (user_id, started_at DESC) WHERE user_id IS NOT NULL;
+      -- Serves "show me every attempt of this task", the retry-cost question.
+      CREATE INDEX IF NOT EXISTS idx_task_execution_log_task_id
+        ON task_execution_log (task_id) WHERE task_id IS NOT NULL;
     `);
 
     // Idempotent backfill: one membership per user that has an org pointer today

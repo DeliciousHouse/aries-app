@@ -137,6 +137,13 @@ type BusinessProfileUpdateInput = {
   channels?: string[] | null;
   timezone?: string | null;
   reelAudioMode?: ReelAudioMode | null;
+  /**
+   * Onboarding materialization only. Lets a failed brand-kit scrape degrade to a
+   * warning instead of failing the whole save — see persistBrandKitIfNeeded.
+   * Interactive edit paths leave this unset so /api/business/profile keeps
+   * returning 422 for a website it could not read.
+   */
+  tolerateBrandKitFailure?: boolean;
 };
 
 type WorkspaceBrandContext = {
@@ -812,15 +819,35 @@ async function persistBrandKitIfNeeded(
   tenantId: string,
   nextWebsiteUrl: string | null,
   _previousWebsiteUrl: string | null,
+  options?: { tolerateFetchFailure?: boolean },
 ): Promise<void> {
   if (!nextWebsiteUrl) {
     return;
   }
 
-  await extractAndSaveTenantBrandKit({
-    tenantId,
-    brandUrl: nextWebsiteUrl,
-  });
+  try {
+    await extractAndSaveTenantBrandKit({
+      tenantId,
+      brandUrl: nextWebsiteUrl,
+    });
+  } catch (error) {
+    // The brand kit is ENRICHMENT — the profile record is already persisted by
+    // the time we get here. On interactive edit paths we still rethrow, because
+    // /api/business/profile maps `brand_kit_fetch_failed` to a 422 so the user
+    // gets told their URL could not be read.
+    //
+    // On the onboarding materialization path there is nobody left to tell: the
+    // user has just created an account, and rethrowing turned a slow/unreachable
+    // customer website into the bare server error seen in the demo. There we
+    // degrade — the workspace is created, and the brand kit is re-derived later.
+    if (!options?.tolerateFetchFailure) {
+      throw error;
+    }
+    console.warn('[business-profile] brand kit enrichment failed (tolerated)', {
+      tenantId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 export async function getBusinessProfile(client: PoolClient, tenantId: string): Promise<BusinessProfileView> {
@@ -980,7 +1007,9 @@ export async function updateBusinessProfileWithDiagnostics(
   // persisted) and never throws, so a cache miss can't fail the user's save.
   await invalidateGoalNarrativeCache(client, input.tenantId);
 
-  await persistBrandKitIfNeeded(input.tenantId, nextWebsiteUrl, current.profile.websiteUrl);
+  await persistBrandKitIfNeeded(input.tenantId, nextWebsiteUrl, current.profile.websiteUrl, {
+    tolerateFetchFailure: input.tolerateBrandKitFailure === true,
+  });
   return getBusinessProfileWithDiagnostics(client, input.tenantId);
 }
 
