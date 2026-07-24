@@ -10,11 +10,14 @@ import { isLinkedInEnabled, isRedditEnabled, isXEnabled, isYouTubeEnabled } from
 import { toSignedPublicUrl } from '@/app/api/publish/dispatch/handler';
 import { resolveSignableBasename } from '@/backend/marketing/signable-basename';
 import { recomputeAndPersistPendingApprovalCount } from '@/backend/marketing/runtime-views';
+import { stampInsightsPostAttribution } from '@/backend/insights/sync/attribution-writer';
 import pool from '@/lib/db';
 
 type ScheduledDispatchBody = {
   tenant_id?: string;
   post_id?: string;
+  scheduled_post_id?: string;
+  dispatch_attempt_token?: string;
   platforms?: string[];
   content?: string;
   media_urls?: string[];
@@ -368,6 +371,105 @@ export function firstSuccessfulPlatformPostId(results: ScheduledDispatchResult[]
   return results.find((result) => result.ok && result.platformPostId)?.platformPostId ?? null;
 }
 
+export async function isScheduledDispatchAttemptOwned(args: {
+  db: DispatchQueryable;
+  tenantId: string;
+  postId: string;
+  scheduledPostId: string;
+  attemptToken: string;
+}): Promise<boolean> {
+  const result = await args.db.query(
+    `SELECT 1 AS owned
+       FROM scheduled_posts
+      WHERE id = $1::bigint
+        AND post_id = $2::bigint
+        AND tenant_id = $3::int
+        AND dispatch_status = 'in_flight'
+        AND dispatch_attempt_token = $4
+      LIMIT 1`,
+    [args.scheduledPostId, args.postId, args.tenantId, args.attemptToken],
+  );
+  return (result.rowCount ?? result.rows.length) === 1;
+}
+
+export async function finalizeScheduledDispatchAttempt(args: {
+  db: DispatchQueryable;
+  tenantId: string;
+  postId: string;
+  scheduledPostId: string;
+  attemptToken: string;
+  postStatus: PostStatusDecision;
+  results: ScheduledDispatchResult[];
+}): Promise<{ owned: boolean; jobId: string | null }> {
+  if (args.postStatus === null) return { owned: true, jobId: null };
+
+  const firstPublishedPostId = firstSuccessfulPlatformPostId(args.results);
+  const updated = args.postStatus === 'published'
+    ? await args.db.query<{ job_id: string | null }>(
+        `UPDATE posts p
+            SET published_status = 'published',
+                platform_post_id = COALESCE(platform_post_id, $2),
+                published_at = COALESCE(published_at, now())
+           WHERE p.id = $1
+             AND p.tenant_id = $3
+             AND EXISTS (
+               SELECT 1
+                 FROM scheduled_posts owner
+                WHERE owner.id = $4::bigint
+                  AND owner.post_id = p.id
+                  AND owner.tenant_id = p.tenant_id
+                  AND owner.dispatch_status = 'in_flight'
+                  AND owner.dispatch_attempt_token = $5
+             )
+           RETURNING job_id`,
+        [args.postId, firstPublishedPostId, args.tenantId, args.scheduledPostId, args.attemptToken],
+      )
+    : await args.db.query<{ job_id: string | null }>(
+        `UPDATE posts p
+            SET published_status = 'failed'
+          WHERE p.id = $1
+            AND p.tenant_id = $2
+            AND EXISTS (
+              SELECT 1
+                FROM scheduled_posts owner
+               WHERE owner.id = $3::bigint
+                 AND owner.post_id = p.id
+                 AND owner.tenant_id = p.tenant_id
+                 AND owner.dispatch_status = 'in_flight'
+                 AND owner.dispatch_attempt_token = $4
+            )
+          RETURNING job_id`,
+        [args.postId, args.tenantId, args.scheduledPostId, args.attemptToken],
+      );
+
+  const owned = (updated.rowCount ?? updated.rows.length) === 1;
+  if (!owned) return { owned: false, jobId: null };
+
+  if (args.postStatus === 'published') {
+    for (const result of args.results) {
+      if (!result.ok || !result.platformPostId) continue;
+      try {
+        await stampInsightsPostAttribution({
+          db: args.db,
+          tenantId: args.tenantId,
+          ariesPostId: args.postId,
+          platform: result.provider,
+          platformPostId: result.platformPostId,
+        });
+      } catch (error) {
+        console.warn('[scheduled-dispatch] insights attribution stamp failed', {
+          tenantId: args.tenantId,
+          postId: args.postId,
+          platform: result.provider,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+
+  return { owned: true, jobId: updated.rows[0]?.job_id ?? null };
+}
+
 export async function POST(req: Request): Promise<Response> {
   const authResult = verifyInternalCallbackRequest(req);
   if (!authResult.ok) {
@@ -389,6 +491,47 @@ export async function POST(req: Request): Promise<Response> {
   const platforms = Array.isArray(body.platforms) ? body.platforms.filter((p) => typeof p === 'string') : [];
   const content = typeof body.content === 'string' ? body.content : '';
   const postId = typeof body.post_id === 'string' ? body.post_id : '';
+  const scheduledPostId = typeof body.scheduled_post_id === 'string' ? body.scheduled_post_id.trim() : '';
+  const attemptToken = typeof body.dispatch_attempt_token === 'string' ? body.dispatch_attempt_token.trim() : '';
+
+  if (postId && (!/^\d+$/.test(scheduledPostId) || !attemptToken)) {
+    return new Response(JSON.stringify({ error: 'missing_dispatch_attempt' }), {
+      status: 400,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  if (postId) {
+    let ownsAttempt = false;
+    try {
+      ownsAttempt = await isScheduledDispatchAttemptOwned({
+        db: pool,
+        tenantId,
+        postId,
+        scheduledPostId,
+        attemptToken,
+      });
+    } catch {
+      return new Response(JSON.stringify({ error: 'dispatch_ownership_unavailable' }), {
+        status: 503,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (!ownsAttempt) {
+      return new Response(JSON.stringify({
+        status: 'stale_attempt',
+        results: platforms.map((provider) => ({
+          provider,
+          ok: false,
+          error: 'stale_dispatch_attempt',
+          retryable: true,
+        })),
+      }), {
+        status: 409,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+  }
 
   // Publish shape forwarded by the worker. 'feed'/'reel'/'story' map to the
   // MetaPlacement axis; image/video select the media branch. Default feed/image
@@ -560,29 +703,18 @@ export async function POST(req: Request): Promise<Response> {
   const postStatus = planPostStatusUpdate(results);
   // Preserve the legacy aggregate mirror: posts.platform_post_id records only
   // the first successful provider id; per-platform truth lives in child rows.
-  const firstPublishedPostId = firstSuccessfulPlatformPostId(results);
   let dispatchedJobId: string | null = null;
-  if (postId && postStatus === 'published') {
-    const updated = await pool
-      .query<{ job_id: string | null }>(
-        `UPDATE posts
-       SET published_status = 'published',
-           platform_post_id = COALESCE(platform_post_id, $2),
-           published_at = COALESCE(published_at, now())
-       WHERE id = $1 AND tenant_id = $3
-       RETURNING job_id`,
-        [postId, firstPublishedPostId, tenantId],
-      )
-      .catch(() => null);
-    dispatchedJobId = updated?.rows?.[0]?.job_id ?? null;
-  } else if (postId && postStatus === 'failed') {
-    const updated = await pool
-      .query<{ job_id: string | null }>(
-        `UPDATE posts SET published_status = 'failed' WHERE id = $1 AND tenant_id = $2 RETURNING job_id`,
-        [postId, tenantId],
-      )
-      .catch(() => null);
-    dispatchedJobId = updated?.rows?.[0]?.job_id ?? null;
+  if (postId) {
+    const finalized = await finalizeScheduledDispatchAttempt({
+      db: pool,
+      tenantId,
+      postId,
+      scheduledPostId,
+      attemptToken,
+      postStatus,
+      results,
+    }).catch(() => null);
+    dispatchedJobId = finalized?.jobId ?? null;
   }
   // A publish flips posts.published_status, which feeds the campaign-list
   // dashboard's published/scheduled/live counts (via countPublishedPostsForJob).

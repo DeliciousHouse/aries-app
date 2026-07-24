@@ -323,6 +323,14 @@ jobs:
           fi
 
           ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose pull "${SERVICE_NAME}"
+
+          # Scheduled publishing crosses the web/worker boundary. Stop the old
+          # worker before applying attempt-lease schema from the target image so
+          # no old request can race a mixed-version app. Both stop and schema
+          # apply are required deploy gates under set -euo pipefail.
+          docker compose stop aries-scheduled-posts-worker
+          ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose run --rm --no-deps --entrypoint node aries-app scripts/init-db.js
+
           ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always "${SERVICE_NAME}"
 
           container_id="$(ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose ps -q "${SERVICE_NAME}")"
@@ -351,16 +359,10 @@ jobs:
             exit 1
           fi
 
-          # Roll the scheduled-posts-worker sidecar to the same image after the
-          # app is confirmed healthy. Shares ARIES_APP_IMAGE with aries-app so
-          # the worker process stays in lockstep with the web code. --no-deps
-          # mirrors the aries-app handling above; aries-app's depends_on only
-          # gates initial startup, not per-deploy recreation. Sidecar failure is
-          # NOT fatal: the worker is best-effort relative to scheduled posts,
-          # not the user-facing app.
-          if ! ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always aries-scheduled-posts-worker; then
-            echo "WARNING: failed to recreate aries-scheduled-posts-worker; app deploy is healthy, continuing." >&2
-          fi
+          # Restart scheduled publishing only after the target app is healthy.
+          # This worker is a REQUIRED deploy invariant: warning-through would
+          # leave schedules stalled or running mixed ownership semantics.
+          ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always aries-scheduled-posts-worker
 
           # Roll the weekly-trigger-worker sidecar to the same image too, for the
           # same reason: it imports backend code and must stay in lockstep with
@@ -455,11 +457,11 @@ jobs:
               worker_mismatches=$((worker_mismatches + 1))
             fi
           done < <(ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose config --services)
-          if [[ "${worker_mismatches}" -eq 0 ]]; then
-            echo "Post-deploy check: all sidecar workers are running on the target image."
-          else
-            echo "WARNING: ${worker_mismatches} sidecar worker(s) did not roll cleanly; see warnings above." >&2
+          if [[ "${worker_mismatches}" -ne 0 ]]; then
+            echo "ERROR: ${worker_mismatches} sidecar worker(s) did not roll cleanly; refusing to report deploy success." >&2
+            exit 1
           fi
+          echo "Post-deploy check: all sidecar workers are running on the target image."
 
           echo "Post-deploy cleanup: pruning Docker buildx cache to keep approximately 2GB."
           if ! docker buildx prune --keep-storage=2GB --force; then

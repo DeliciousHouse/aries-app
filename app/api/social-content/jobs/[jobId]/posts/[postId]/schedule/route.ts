@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import pool from '@/lib/db';
 import {
+  ScheduledPostInFlightError,
   ScheduledPostTenantMismatchError,
   normalizeTargetPlatforms,
   parseScheduledForIso,
@@ -266,6 +267,12 @@ export async function handlePatchScheduleSocialContentPost(
       { status: 200 },
     );
   } catch (error) {
+    if (error instanceof ScheduledPostInFlightError) {
+      return NextResponse.json(
+        { error: 'Scheduled post is currently publishing.', reason: 'scheduled_post_in_flight' },
+        { status: 409 },
+      );
+    }
     if (error instanceof ScheduledPostTenantMismatchError) {
       return NextResponse.json(POST_NOT_FOUND, { status: 404 });
     }

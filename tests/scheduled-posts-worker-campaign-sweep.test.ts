@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import pg from 'pg';
 
 import { requireDbEnvOrSkip } from './helpers/requires-infra';
@@ -43,7 +43,7 @@ type WorkerModule = {
 };
 
 async function loadWorker(): Promise<WorkerModule> {
-  return (await import(WORKER_PATH)) as unknown as WorkerModule;
+  return (await import(pathToFileURL(WORKER_PATH).href)) as unknown as WorkerModule;
 }
 
 // ---------------------------------------------------------------------------
@@ -66,7 +66,7 @@ test('sweep selects only permanently-unclaimable rows: past-end pending, or past
   );
   assert.match(
     SWEEP_SQL,
-    /dispatch_status = 'pending'\s+OR \(dispatch_status = 'in_flight' AND updated_at < \$2\)/,
+    /dispatch_status = 'pending'\s+OR \(dispatch_status = 'in_flight' AND dispatch_claimed_at < \$2\)/,
     'pending rows sweep immediately; in_flight rows only past the stale-reclaim cutoff ($2) so a live publish crossing the deadline still writes its own outcome',
   );
   assert.match(SWEEP_SQL, /FOR UPDATE SKIP LOCKED/, 'the dead CTE must skip rows locked by a concurrent claim');
@@ -77,7 +77,7 @@ test('sweep mutating arm re-checks the FULL predicate (draft-expiry pattern) and
   // finished between the CTE SELECT and the UPDATE is skipped, not clobbered.
   assert.match(
     SWEEP_SQL,
-    /WHERE sp\.id = d\.id\s+AND sp\.campaign_end_date IS NOT NULL AND sp\.campaign_end_date < NOW\(\)\s+AND \(sp\.dispatch_status = 'pending'\s+OR \(sp\.dispatch_status = 'in_flight' AND sp\.updated_at < \$2\)\)/,
+    /WHERE sp\.id = d\.id\s+AND sp\.campaign_end_date IS NOT NULL AND sp\.campaign_end_date < NOW\(\)\s+AND \(sp\.dispatch_status = 'pending'\s+OR \(sp\.dispatch_status = 'in_flight' AND sp\.dispatch_claimed_at < \$2\)\)/,
     'the parent UPDATE must re-check the full dead predicate in its own WHERE',
   );
   assert.match(

@@ -71,6 +71,7 @@ const UPSERT_SCHEDULED_POST_SQL = `
         next_attempt_at = NULL,
         updated_at = now()
     WHERE scheduled_posts.tenant_id = EXCLUDED.tenant_id
+      AND scheduled_posts.dispatch_status <> 'in_flight'
   RETURNING id, post_id, tenant_id, scheduled_for, target_platforms, updated_at
 `;
 
@@ -95,6 +96,20 @@ export async function upsertScheduledPost(
     input.durationSeconds ?? null,
   ]);
   if ((result.rowCount ?? result.rows.length) === 0 || result.rows.length === 0) {
+    const statusResult = await (queryable.query as unknown as (
+      sql: string,
+      params: unknown[],
+    ) => Promise<{ rows: Array<{ dispatch_status?: string }>; rowCount: number | null }>)(
+      `SELECT dispatch_status FROM scheduled_posts WHERE post_id = $1 AND tenant_id = $2 LIMIT 1`,
+      [input.postId, input.tenantId],
+    );
+    if (statusResult.rows.length > 0) {
+      // The conflict UPDATE is atomic with the ownership check. Even if the
+      // publish completes between it and this diagnostic SELECT, return 409 so
+      // the operator retries from fresh terminal state rather than mistaking a
+      // no-op for a successful reschedule.
+      throw new ScheduledPostInFlightError(input.tenantId, input.postId);
+    }
     // Tenant guard: WHERE clause prevented update; surface typed error so
     // the route returns 404 rather than leaking the cross-tenant attempt.
     throw new ScheduledPostTenantMismatchError(input.tenantId, input.postId);
@@ -108,6 +123,17 @@ export async function upsertScheduledPost(
     platforms: Array.isArray(row.target_platforms) ? row.target_platforms : [],
     updatedAt: normalizeTimestamp(row.updated_at),
   };
+}
+
+export class ScheduledPostInFlightError extends Error {
+  readonly tenantId: number;
+  readonly postId: number;
+  constructor(tenantId: number, postId: number) {
+    super(`scheduled_post_in_flight: post_id=${postId}`);
+    this.name = 'ScheduledPostInFlightError';
+    this.tenantId = tenantId;
+    this.postId = postId;
+  }
 }
 
 export class ScheduledPostTenantMismatchError extends Error {
