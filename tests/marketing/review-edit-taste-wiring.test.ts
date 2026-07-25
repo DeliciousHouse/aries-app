@@ -102,7 +102,7 @@ function buildPostQueryableWithStyle(style: { dimension: string | null; value: s
     if (trimmed === 'BEGIN' || trimmed === 'COMMIT' || trimmed === 'ROLLBACK') {
       return { rows: [], rowCount: 0 };
     }
-    if (trimmed.startsWith('SELECT id, dispatch_status')) {
+    if (/^SELECT id,\s+dispatch_status/.test(trimmed)) {
       return { rows: [], rowCount: 0 };
     }
     if (trimmed.startsWith('SELECT id, tenant_id')) {
