@@ -114,8 +114,8 @@ test('a (re)schedule upsert clears next_attempt_at — operator reschedules beat
     path.join(REPO_ROOT, 'backend/social-content/scheduled-posts.ts'),
     'utf8',
   );
-  const conflictClause = upsertSource.slice(upsertSource.indexOf('ON CONFLICT (post_id) DO UPDATE'));
-  assert.match(conflictClause, /next_attempt_at = NULL/);
+  const rearmClause = upsertSource.slice(upsertSource.indexOf('updated AS ('));
+  assert.match(rearmClause, /next_attempt_at = NULL/);
 });
 
 test('setPlatformDispatchStatus casts $4 to text — bare $4 fails Postgres prepare (42P08)', () => {

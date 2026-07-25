@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
 import { resolveProjectRoot } from './helpers/project-root';
@@ -193,3 +195,132 @@ test('deploy workflow builds and force-recreates the exact commit image', () => 
      'publish script should only update branch/latest tags when SHA-only mode is disabled',
    );
  });
+
+test('schema failure restores the exact old worker container and preserves the nonzero status', () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), 'aries-schema-restore-'));
+  const binDir = path.join(tempRoot, 'bin');
+  const logPath = path.join(tempRoot, 'docker.log');
+  const fakeDocker = path.join(binDir, 'docker');
+  try {
+    mkdirSync(binDir);
+    writeFileSync(
+      fakeDocker,
+      `#!/usr/bin/env bash
+set -u
+printf '%s | PGOPTIONS=%s\\n' "$*" "\${PGOPTIONS:-}" >> "\${DOCKER_LOG}"
+if [[ "$*" == "compose ps -q aries-scheduled-posts-worker" ]]; then
+  printf 'old-worker-container\\n'
+  exit 0
+fi
+if [[ "$1" == "inspect" ]]; then
+  printf 'true\\n'
+  exit 0
+fi
+if [[ "$*" == *"scripts/init-db.js" ]]; then
+  exit 42
+fi
+exit 0
+`,
+      { mode: 0o755 },
+    );
+    chmodSync(fakeDocker, 0o755);
+
+    const result = spawnSync(
+      'bash',
+      [path.join(PROJECT_ROOT, 'scripts', 'release', 'apply-schema-with-worker-restore.sh')],
+      {
+        cwd: PROJECT_ROOT,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          TARGET_IMAGE: 'ghcr.io/example/aries:target',
+          DOCKER_LOG: logPath,
+          PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+        },
+      },
+    );
+
+    assert.equal(result.status, 42, `schema exit code must survive restore; stderr=${result.stderr}`);
+    const calls = readFileSync(logPath, 'utf8');
+    const stop = calls.indexOf('compose stop aries-scheduled-posts-worker');
+    const schema = calls.indexOf('compose run --rm --no-deps --entrypoint node aries-app scripts/init-db.js');
+    const restore = calls.indexOf('start old-worker-container');
+    assert.ok(stop !== -1 && schema !== -1 && restore !== -1);
+    assert.ok(stop < schema && schema < restore, 'old worker is restored only after the forced schema failure');
+    assert.match(calls, /scripts\/init-db\.js \| PGOPTIONS=-c lock_timeout=5s -c statement_timeout=120s/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('any failure after schema apply but before the new worker starts restores the exact old container', () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), 'aries-pre-worker-restore-'));
+  const binDir = path.join(tempRoot, 'bin');
+  const logPath = path.join(tempRoot, 'docker.log');
+  const fakeDocker = path.join(binDir, 'docker');
+  const harness = path.join(tempRoot, 'harness.sh');
+  try {
+    mkdirSync(binDir);
+    writeFileSync(
+      fakeDocker,
+      `#!/usr/bin/env bash
+set -u
+printf '%s | PGOPTIONS=%s\\n' "$*" "\${PGOPTIONS:-}" >> "\${DOCKER_LOG}"
+if [[ "$*" == "compose ps -q aries-scheduled-posts-worker" ]]; then
+  printf 'old-worker-container\\n'
+  exit 0
+fi
+if [[ "$1" == "inspect" ]]; then
+  printf 'true\\n'
+  exit 0
+fi
+exit 0
+`,
+      { mode: 0o755 },
+    );
+    chmodSync(fakeDocker, 0o755);
+    writeFileSync(
+      harness,
+      `#!/usr/bin/env bash
+set -euo pipefail
+source "${path.join(PROJECT_ROOT, 'scripts', 'release', 'apply-schema-with-worker-restore.sh').replace(/\\/g, '/')}"
+exit 37
+`,
+      { mode: 0o755 },
+    );
+
+    const result = spawnSync('bash', [harness], {
+      cwd: PROJECT_ROOT,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        TARGET_IMAGE: 'ghcr.io/example/aries:target',
+        DOCKER_LOG: logPath,
+        PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+      },
+    });
+
+    assert.equal(result.status, 37, `pre-worker failure status must survive restore; stderr=${result.stderr}`);
+    const calls = readFileSync(logPath, 'utf8');
+    assert.match(calls, /compose run --rm --no-deps --entrypoint node aries-app scripts\/init-db\.js/);
+    assert.match(calls, /start old-worker-container/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('deploy skips duplicate app init and keeps exact-worker restore armed through every pre-restart gate', () => {
+  const sourceCutover = workflow.indexOf('source ./scripts/release/apply-schema-with-worker-restore.sh');
+  const skipDuplicateInit = workflow.indexOf('export ARIES_SKIP_DB_INIT=1');
+  const restartWorker = workflow.indexOf(
+    'ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always aries-scheduled-posts-worker',
+  );
+  const verifyWorker = workflow.indexOf('new_scheduled_worker_running=');
+  const completeCutover = workflow.indexOf('complete_scheduled_worker_cutover');
+
+  assert.ok(sourceCutover > 0 && skipDuplicateInit > sourceCutover);
+  assert.ok(restartWorker > skipDuplicateInit);
+  assert.ok(verifyWorker > restartWorker);
+  assert.ok(completeCutover < restartWorker, 'restore trap is disarmed immediately before replacement destroys the old container');
+  assert.match(workflow, /export ARIES_SKIP_DB_INIT=1[\s\S]*?docker compose up[\s\S]*?unset ARIES_SKIP_DB_INIT/);
+});

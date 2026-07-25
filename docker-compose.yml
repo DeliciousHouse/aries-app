@@ -13,6 +13,12 @@ services:
       ARIES_PROCESS_MANAGER: ${ARIES_PROCESS_MANAGER:-cluster}
       ARIES_WEB_CONCURRENCY: ${ARIES_WEB_CONCURRENCY:-2}
       ARIES_WORKER_MAX_RESTARTS: ${ARIES_WORKER_MAX_RESTARTS:-5}
+      # Optional libpq session options used by the deploy's one-shot init-db
+      # container to bound DDL lock/statement waits. Empty during normal app runs.
+      PGOPTIONS: ${PGOPTIONS:-}
+      # Deploy applies schema in a bounded one-shot before app recreation, then
+      # sets this to 1 so start-runtime does not repeat init-db unbounded.
+      ARIES_SKIP_DB_INIT: ${ARIES_SKIP_DB_INIT:-0}
       PORT: ${PORT:-3000}
       HOST: 0.0.0.0
       CODE_ROOT: /app
@@ -547,6 +553,10 @@ services:
       # cadence keeps the limit tripped indefinitely.
       ARIES_DISPATCH_RETRY_BACKOFF_MINUTES: ${ARIES_DISPATCH_RETRY_BACKOFF_MINUTES:-10}
       ARIES_DISPATCH_RATE_LIMIT_BACKOFF_MINUTES: ${ARIES_DISPATCH_RATE_LIMIT_BACKOFF_MINUTES:-180}
+      # The longest publish request is 330s. SIGTERM drains its active tick for
+      # 350s, while Compose grants 360s before SIGKILL.
+      ARIES_SCHEDULED_POSTS_SHUTDOWN_TIMEOUT_MS: ${ARIES_SCHEDULED_POSTS_SHUTDOWN_TIMEOUT_MS:-350000}
+    stop_grace_period: 6m
     restart: unless-stopped
     networks:
       - docker_stack

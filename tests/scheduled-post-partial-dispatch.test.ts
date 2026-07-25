@@ -11,7 +11,7 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 // a child of node:test (the worker only auto-starts when run directly).
 type PlatformOutcome = {
   platform: string;
-  status: 'pending' | 'in_flight' | 'dispatched' | 'failed';
+  status: 'pending' | 'in_flight' | 'dispatched' | 'failed' | 'manual_reconciliation';
   error: string | null;
   retryable: boolean;
   platformPostId: string | null;
@@ -124,12 +124,12 @@ test('planPlatformOutcomes: a retryable IG failure stays pending, not failed', a
   assert.equal(rollupParentStatus(outcomes.map((o) => o.status)), 'pending');
 });
 
-test('planPlatformOutcomes: a transport error leaves every (image) platform pending', async () => {
+test('planPlatformOutcomes: an image transport error requires manual reconciliation', async () => {
   const { planPlatformOutcomes } = await loadWorker();
   const outcomes = planPlatformOutcomes(['facebook', 'instagram'], [], 'fetch failed after retry', 'image');
   assert.ok(
-    outcomes.every((o) => o.status === 'pending' && o.retryable === true),
-    'a whole-call transport failure must not terminally fail any image platform',
+    outcomes.every((o) => o.status === 'manual_reconciliation' && o.retryable === false),
+    'a lost response may hide an accepted publish, so images must not auto-retry either',
   );
 });
 
@@ -140,10 +140,47 @@ test('planPlatformOutcomes: a VIDEO transport error is non-retryable (no duplica
   // (the 8x-IG incident). Must NOT stay pending/retryable.
   const outcomes = planPlatformOutcomes(['facebook', 'instagram'], [], 'fetch failed after retry', 'video');
   assert.ok(
-    outcomes.every((o) => o.status === 'failed' && o.retryable === false),
+    outcomes.every((o) => o.status === 'manual_reconciliation' && o.retryable === false),
     'a video transport failure must be terminal-non-retryable to avoid duplicate Reels',
   );
   assert.match(outcomes[0].error ?? '', /outcome_unknown/);
+});
+
+test('planPlatformOutcomes: explicit outcome_unknown is quarantined even when retryable is incorrectly true', async () => {
+  const { planPlatformOutcomes } = await loadWorker();
+  const outcomes = planPlatformOutcomes(
+    ['facebook'],
+    [{
+      provider: 'facebook',
+      ok: false,
+      error: 'graph_network_error: response lost after POST',
+      retryable: true,
+      kind: 'outcome_unknown',
+    }],
+    null,
+  );
+
+  assert.equal(outcomes[0]?.status, 'manual_reconciliation');
+  assert.equal(outcomes[0]?.retryable, false);
+  assert.match(outcomes[0]?.error ?? '', /manual reconciliation required/i);
+});
+
+test('planPlatformOutcomes: explicit pre_provider failure remains safely retryable', async () => {
+  const { planPlatformOutcomes } = await loadWorker();
+  const outcomes = planPlatformOutcomes(
+    ['facebook'],
+    [{
+      provider: 'facebook',
+      ok: false,
+      error: 'dispatch_ownership_unavailable',
+      retryable: true,
+      kind: 'pre_provider',
+    }],
+    null,
+  );
+
+  assert.equal(outcomes[0]?.status, 'pending');
+  assert.equal(outcomes[0]?.retryable, true);
 });
 
 test('worker schema: scheduled_post_dispatches child table exists in init-db.js', () => {
@@ -160,8 +197,8 @@ test('worker schema: scheduled_post_dispatches child table exists in init-db.js'
   );
   assert.match(
     initDbSource,
-    /status IN \('pending','in_flight','dispatched','failed'\)/,
-    'child status must allow the four-state lifecycle',
+    /status IN \('pending','in_flight','dispatched','failed','manual_reconciliation'\)/,
+    'child status must include the fail-closed manual-reconciliation state',
   );
   assert.match(
     initDbSource,
@@ -194,6 +231,10 @@ test('worker schema: scheduled_post_dispatches child table exists in init-db.js'
 
 test('worker schema: scheduled_posts has a dedicated immutable attempt token and claim timestamp', () => {
   const initDbSource = readFileSync(path.join(REPO_ROOT, 'scripts/init-db.js'), 'utf8');
+  const cutoverSource = readFileSync(
+    path.join(REPO_ROOT, 'scripts/scheduled-dispatch-cutover.js'),
+    'utf8',
+  );
   assert.match(
     initDbSource,
     /ALTER TABLE scheduled_posts\s+ADD COLUMN IF NOT EXISTS dispatch_attempt_token TEXT/,
@@ -204,6 +245,11 @@ test('worker schema: scheduled_posts has a dedicated immutable attempt token and
     /ALTER TABLE scheduled_posts\s+ADD COLUMN IF NOT EXISTS dispatch_claimed_at TIMESTAMPTZ/,
     'stale reclaim age must use an immutable claim timestamp',
   );
+  assert.match(
+    `${initDbSource}\n${cutoverSource}`,
+    /ALTER TABLE scheduled_posts\s+ADD COLUMN IF NOT EXISTS dispatch_started_at TIMESTAMPTZ/,
+    'the provider-submission fence must be durable across worker restarts',
+  );
 
   const migrationPath = path.join(
     REPO_ROOT,
@@ -213,6 +259,20 @@ test('worker schema: scheduled_posts has a dedicated immutable attempt token and
   const migrationSource = readFileSync(migrationPath, 'utf8');
   assert.match(migrationSource, /ADD COLUMN IF NOT EXISTS dispatch_attempt_token TEXT/);
   assert.match(migrationSource, /ADD COLUMN IF NOT EXISTS dispatch_claimed_at TIMESTAMPTZ/);
+  const fenceMigration = readFileSync(
+    path.join(REPO_ROOT, 'migrations/20260724000000_scheduled_dispatch_submission_fence.sql'),
+    'utf8',
+  );
+  assert.match(fenceMigration, /ADD COLUMN IF NOT EXISTS dispatch_started_at TIMESTAMPTZ/);
+});
+
+test('worker never duplicates canonical posts finalization owned by the internal route', () => {
+  const workerSource = readFileSync(
+    path.join(REPO_ROOT, 'scripts/automations/scheduled-posts-worker.mjs'),
+    'utf8',
+  );
+  assert.doesNotMatch(workerSource, /UPDATE\s+posts\s+SET\s+published_status/i);
+  assert.doesNotMatch(workerSource, /updatePostStatus/);
 });
 
 

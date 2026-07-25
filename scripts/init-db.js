@@ -1,4 +1,5 @@
 const { Pool } = require('pg');
+const { quarantineLegacyScheduledDispatches } = require('./scheduled-dispatch-cutover');
 require('dotenv').config();
 
 const pool = new Pool({
@@ -13,6 +14,48 @@ async function initDb() {
   const client = await pool.connect();
   try {
     console.log('Initializing database schema...');
+
+    // Bound every init query, including catalog checks and DDL. Deploy also
+    // supplies the same limits through PGOPTIONS; setting them here keeps
+    // direct db:init and runtime initialization fail-closed too.
+    await client.query(`
+      SET lock_timeout = '5s';
+      SET statement_timeout = '120s'
+    `);
+
+    // Constraint migrations are catalog-guarded so routine deploys do not take
+    // table locks just to DROP/ADD a definition that is already current. Every
+    // caller supplies a distinctive fragment introduced by its latest shape.
+    await client.query(`
+      CREATE TEMP TABLE IF NOT EXISTS __aries_init_guard (id INTEGER);
+      CREATE OR REPLACE FUNCTION pg_temp.ensure_check_constraint(
+        table_name regclass,
+        constraint_name text,
+        expected_fragment text,
+        check_expression text
+      ) RETURNS void
+      LANGUAGE plpgsql
+      AS $function$
+      DECLARE
+        live_definition text;
+      BEGIN
+        SELECT pg_get_constraintdef(oid)
+          INTO live_definition
+          FROM pg_constraint
+         WHERE conrelid = table_name
+           AND conname = constraint_name
+           AND contype = 'c';
+
+        IF live_definition IS NOT NULL
+           AND position(expected_fragment in live_definition) > 0 THEN
+          RETURN;
+        END IF;
+
+        EXECUTE format('ALTER TABLE %s DROP CONSTRAINT IF EXISTS %I', table_name, constraint_name);
+        EXECUTE format('ALTER TABLE %s ADD CONSTRAINT %I CHECK (%s)', table_name, constraint_name, check_expression);
+      END
+      $function$;
+    `);
     
     await client.query(`
       CREATE TABLE IF NOT EXISTS organizations (
@@ -251,14 +294,14 @@ async function initDb() {
 
       -- Per-tenant Slack (Phase 4 Option A), applied to EXISTING databases:
       -- widen the provider CHECK to allow 'slack' and add the notify-channel
-      -- columns. Idempotent: DROP IF EXISTS + re-ADD the constraint, ADD COLUMN
-      -- IF NOT EXISTS. No 'slack' rows can pre-exist (the old CHECK blocked them),
-      -- so re-adding the constraint never fails on existing data.
-      ALTER TABLE oauth_connections
-        DROP CONSTRAINT IF EXISTS oauth_connections_provider_check;
-      ALTER TABLE oauth_connections
-        ADD CONSTRAINT oauth_connections_provider_check
-        CHECK (provider IN ('facebook','instagram','linkedin','x','youtube','tiktok','reddit','slack'));
+      -- columns. The catalog-guarded helper avoids table locks when the live
+      -- definition already contains the latest provider.
+      SELECT pg_temp.ensure_check_constraint(
+        'oauth_connections'::regclass,
+        'oauth_connections_provider_check',
+        'slack',
+        $check$provider IN ('facebook','instagram','linkedin','x','youtube','tiktok','reddit','slack')$check$
+      );
       ALTER TABLE oauth_connections
         ADD COLUMN IF NOT EXISTS notify_channel_id TEXT;
       ALTER TABLE oauth_connections
@@ -310,15 +353,15 @@ async function initDb() {
       -- X (Twitter) connect (#650 added 'x' to IntegrationPlatform but not this
       -- CHECK), applied to EXISTING databases: widen the platform CHECK to allow
       -- 'x' so the Composio connect callback's upsertConnection(platform='x') is
-      -- not rejected at the DB layer. Idempotent: DROP IF EXISTS + re-ADD. No 'x'
-      -- rows can pre-exist (the old CHECK blocked them), so re-adding the
-      -- constraint never fails on existing data. Mirrored in
+      -- not rejected at the DB layer. The catalog guard skips an already-current
+      -- constraint. Mirrored in
       -- migrations/20260618000000_connected_accounts_allow_x.sql.
-      ALTER TABLE connected_accounts
-        DROP CONSTRAINT IF EXISTS connected_accounts_platform_check;
-      ALTER TABLE connected_accounts
-        ADD CONSTRAINT connected_accounts_platform_check
-        CHECK (platform IN ('facebook','instagram','meta_ads','tiktok','youtube','linkedin','reddit','x'));
+      SELECT pg_temp.ensure_check_constraint(
+        'connected_accounts'::regclass,
+        'connected_accounts_platform_check',
+        '''x''',
+        $check$platform IN ('facebook','instagram','meta_ads','tiktok','youtube','linkedin','reddit','x')$check$
+      );
     `);
 
     await client.query(`
@@ -585,16 +628,31 @@ async function initDb() {
       ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS creative_asset_id UUID;
       ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS variant_kind TEXT NOT NULL DEFAULT 'memory_assisted';
       ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS prompt_text TEXT NOT NULL DEFAULT '';
-      ALTER TABLE creative_assets DROP CONSTRAINT IF EXISTS creative_assets_source_type_check;
-      ALTER TABLE creative_assets ADD CONSTRAINT creative_assets_source_type_check CHECK (source_type IN ('owned_instagram','owned_facebook','owned_meta_ad','competitor_meta_ad','manual_upload','generated_by_aries','runtime_artifact','landing_page_screenshot'));
-      ALTER TABLE creative_assets DROP CONSTRAINT IF EXISTS creative_assets_permission_scope_check;
-      ALTER TABLE creative_assets ADD CONSTRAINT creative_assets_permission_scope_check CHECK (permission_scope IN ('owned','public_ad_library','user_uploaded','generated','licensed'));
-      ALTER TABLE creative_assets DROP CONSTRAINT IF EXISTS creative_assets_exact_image_text_generation_check;
-      ALTER TABLE creative_assets ADD CONSTRAINT creative_assets_exact_image_text_generation_check CHECK (media_type <> 'image' OR usable_for_generation = FALSE OR learning_lifecycle <> 'approved_for_generation' OR array_length(exact_image_text, 1) IS NOT NULL);
-      ALTER TABLE creative_assets DROP CONSTRAINT IF EXISTS creative_assets_competitor_not_usable_check;
-      ALTER TABLE creative_assets ADD CONSTRAINT creative_assets_competitor_not_usable_check CHECK ((source_type <> 'competitor_meta_ad' AND permission_scope <> 'public_ad_library') OR usable_for_generation = FALSE);
-      ALTER TABLE campaign_learning_labels DROP CONSTRAINT IF EXISTS campaign_learning_labels_label_check;
-      ALTER TABLE campaign_learning_labels ADD CONSTRAINT campaign_learning_labels_label_check CHECK (label IN ('useful','not_useful','winner','loser','used_in_campaign','needs_changes','approved','rejected'));
+      SELECT pg_temp.ensure_check_constraint(
+        'creative_assets'::regclass, 'creative_assets_source_type_check',
+        'landing_page_screenshot',
+        $check$source_type IN ('owned_instagram','owned_facebook','owned_meta_ad','competitor_meta_ad','manual_upload','generated_by_aries','runtime_artifact','landing_page_screenshot')$check$
+      );
+      SELECT pg_temp.ensure_check_constraint(
+        'creative_assets'::regclass, 'creative_assets_permission_scope_check',
+        'licensed',
+        $check$permission_scope IN ('owned','public_ad_library','user_uploaded','generated','licensed')$check$
+      );
+      SELECT pg_temp.ensure_check_constraint(
+        'creative_assets'::regclass, 'creative_assets_exact_image_text_generation_check',
+        'exact_image_text',
+        $check$media_type <> 'image' OR usable_for_generation = FALSE OR learning_lifecycle <> 'approved_for_generation' OR array_length(exact_image_text, 1) IS NOT NULL$check$
+      );
+      SELECT pg_temp.ensure_check_constraint(
+        'creative_assets'::regclass, 'creative_assets_competitor_not_usable_check',
+        'public_ad_library',
+        $check$(source_type <> 'competitor_meta_ad' AND permission_scope <> 'public_ad_library') OR usable_for_generation = FALSE$check$
+      );
+      SELECT pg_temp.ensure_check_constraint(
+        'campaign_learning_labels'::regclass, 'campaign_learning_labels_label_check',
+        'rejected',
+        $check$label IN ('useful','not_useful','winner','loser','used_in_campaign','needs_changes','approved','rejected')$check$
+      );
       CREATE UNIQUE INDEX IF NOT EXISTS idx_creative_assets_tenant_checksum_unique ON creative_assets (tenant_id, checksum) WHERE checksum IS NOT NULL;
       CREATE INDEX IF NOT EXISTS idx_creative_assets_variant_batch ON creative_assets (tenant_id, variant_batch_id) WHERE variant_batch_id IS NOT NULL;
       CREATE UNIQUE INDEX IF NOT EXISTS idx_style_cards_tenant_name_unique ON style_cards (tenant_id, name);
@@ -677,18 +735,16 @@ async function initDb() {
       ALTER TABLE posts
         ADD COLUMN IF NOT EXISTS published_status TEXT DEFAULT 'draft' CHECK (published_status IN ('draft','in_review','approved','scheduled','publishing','published','failed','rolled_back'));
 
-      ALTER TABLE posts
-        DROP CONSTRAINT IF EXISTS posts_published_status_check;
-
       -- 'expired' is the terminal state the draft-expiry sweep
       -- (scripts/automations/draft-expiry-sweep-worker.ts) writes to a stranded
       -- pre-publish post: one that never reached the publish queue and is older
       -- than the age window. It removes the post from the approval/backlog trays
-      -- without publishing it (stale content must not go out late). DROP + ADD
-      -- runs on every container start, so this constraint widening reaches an
-      -- existing prod posts table (CREATE TABLE IF NOT EXISTS would not).
-      ALTER TABLE posts
-        ADD CONSTRAINT posts_published_status_check CHECK (published_status IN ('draft','in_review','approved','scheduled','publishing','published','failed','rolled_back','unverified','expired'));
+      -- without publishing it (stale content must not go out late). The catalog
+      -- guard widens old databases once and is a no-op on an already-current DB.
+      SELECT pg_temp.ensure_check_constraint(
+        'posts'::regclass, 'posts_published_status_check', 'expired',
+        $check$published_status IN ('draft','in_review','approved','scheduled','publishing','published','failed','rolled_back','unverified','expired')$check$
+      );
 
       -- Columns the prod posts table carries that init-db.js never declared.
       -- A fresh DB from this script previously drifted from prod, missing
@@ -702,11 +758,13 @@ async function initDb() {
       ALTER TABLE posts ADD COLUMN IF NOT EXISTS hermes_run_id TEXT;
       ALTER TABLE posts ADD COLUMN IF NOT EXISTS creative_asset_ids TEXT[] NOT NULL DEFAULT '{}';
       ALTER TABLE posts ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'draft';
-      ALTER TABLE posts DROP CONSTRAINT IF EXISTS posts_status_check;
       -- Keep the legacy mirror column's allowed values in lockstep with
       -- published_status: the draft-expiry sweep writes BOTH to 'expired' so
       -- they never diverge.
-      ALTER TABLE posts ADD CONSTRAINT posts_status_check CHECK (status IN ('draft','in_review','approved','scheduled','publishing','published','failed','rolled_back','expired'));
+      SELECT pg_temp.ensure_check_constraint(
+        'posts'::regclass, 'posts_status_check', 'expired',
+        $check$status IN ('draft','in_review','approved','scheduled','publishing','published','failed','rolled_back','expired')$check$
+      );
 
       -- When the draft-expiry sweep expires a stranded post it stamps
       -- expired_at = now() for audit/observability (distinct from updated_at,
@@ -717,8 +775,10 @@ async function initDb() {
       -- Stories can be image or video; reels are always video; feed can be
       -- either. See migrations/20260531120000_posts_surface.sql.
       ALTER TABLE posts ADD COLUMN IF NOT EXISTS surface TEXT NOT NULL DEFAULT 'feed';
-      ALTER TABLE posts DROP CONSTRAINT IF EXISTS posts_surface_check;
-      ALTER TABLE posts ADD CONSTRAINT posts_surface_check CHECK (surface IN ('feed','story','reel'));
+      SELECT pg_temp.ensure_check_constraint(
+        'posts'::regclass, 'posts_surface_check', 'reel',
+        $check$surface IN ('feed','story','reel')$check$
+      );
 
       -- Generation-time visual-style lens stamped on synthesized posts so a later
       -- operator edit (regenerate/delete/review-reject) has a concrete
@@ -808,11 +868,15 @@ async function initDb() {
       -- Mirror surface + media_type onto scheduled_posts so the worker dispatch
       -- path forwards the publish shape without JOINing posts at claim time.
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS surface TEXT NOT NULL DEFAULT 'feed';
-      ALTER TABLE scheduled_posts DROP CONSTRAINT IF EXISTS scheduled_posts_surface_check;
-      ALTER TABLE scheduled_posts ADD CONSTRAINT scheduled_posts_surface_check CHECK (surface IN ('feed','story','reel'));
+      SELECT pg_temp.ensure_check_constraint(
+        'scheduled_posts'::regclass, 'scheduled_posts_surface_check', 'reel',
+        $check$surface IN ('feed','story','reel')$check$
+      );
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS media_type TEXT NOT NULL DEFAULT 'image';
-      ALTER TABLE scheduled_posts DROP CONSTRAINT IF EXISTS scheduled_posts_media_type_check;
-      ALTER TABLE scheduled_posts ADD CONSTRAINT scheduled_posts_media_type_check CHECK (media_type IN ('image','video'));
+      SELECT pg_temp.ensure_check_constraint(
+        'scheduled_posts'::regclass, 'scheduled_posts_media_type_check', 'video',
+        $check$media_type IN ('image','video')$check$
+      );
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS width_px INTEGER;
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS height_px INTEGER;
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS duration_seconds INTEGER;
@@ -976,9 +1040,20 @@ async function initDb() {
       -- before the network publish so a crash mid-publish leaves a reclaimable
       -- row rather than a false 'dispatched'. The parent dispatch_status is a
       -- rollup derived from the per-platform scheduled_post_dispatches rows.
-      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dispatch_status TEXT NOT NULL DEFAULT 'pending' CHECK (dispatch_status IN ('pending','in_flight','dispatched','failed'));
-      ALTER TABLE scheduled_posts DROP CONSTRAINT IF EXISTS scheduled_posts_dispatch_status_check;
-      ALTER TABLE scheduled_posts ADD CONSTRAINT scheduled_posts_dispatch_status_check CHECK (dispatch_status IN ('pending','in_flight','dispatched','failed'));
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dispatch_status TEXT NOT NULL DEFAULT 'pending' CHECK (dispatch_status IN ('pending','in_flight','dispatched','failed','manual_reconciliation'));
+      DO $constraint$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+           WHERE conrelid = 'scheduled_posts'::regclass
+             AND conname = 'scheduled_posts_dispatch_status_check'
+             AND position('manual_reconciliation' in pg_get_constraintdef(oid)) > 0
+        ) THEN
+          ALTER TABLE scheduled_posts DROP CONSTRAINT IF EXISTS scheduled_posts_dispatch_status_check;
+          ALTER TABLE scheduled_posts ADD CONSTRAINT scheduled_posts_dispatch_status_check
+            CHECK (dispatch_status IN ('pending','in_flight','dispatched','failed','manual_reconciliation'));
+        END IF;
+      END $constraint$;
       ALTER TABLE scheduled_posts
         ADD COLUMN IF NOT EXISTS dispatch_attempt_token TEXT;
       ALTER TABLE scheduled_posts
@@ -1019,7 +1094,7 @@ async function initDb() {
         id BIGSERIAL PRIMARY KEY,
         scheduled_post_id BIGINT NOT NULL REFERENCES scheduled_posts(id) ON DELETE CASCADE,
         platform TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','in_flight','dispatched','failed')),
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','in_flight','dispatched','failed','manual_reconciliation')),
         platform_post_id TEXT,
         dispatched_at TIMESTAMPTZ,
         error_at TIMESTAMPTZ,
@@ -1033,6 +1108,19 @@ async function initDb() {
       -- was part of the CREATE TABLE definition.
       ALTER TABLE scheduled_post_dispatches
         ADD COLUMN IF NOT EXISTS platform_post_id TEXT;
+      DO $constraint$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+           WHERE conrelid = 'scheduled_post_dispatches'::regclass
+             AND conname = 'scheduled_post_dispatches_status_check'
+             AND position('manual_reconciliation' in pg_get_constraintdef(oid)) > 0
+        ) THEN
+          ALTER TABLE scheduled_post_dispatches DROP CONSTRAINT IF EXISTS scheduled_post_dispatches_status_check;
+          ALTER TABLE scheduled_post_dispatches ADD CONSTRAINT scheduled_post_dispatches_status_check
+            CHECK (status IN ('pending','in_flight','dispatched','failed','manual_reconciliation'));
+        END IF;
+      END $constraint$;
       CREATE INDEX IF NOT EXISTS idx_scheduled_post_dispatches_parent
         ON scheduled_post_dispatches (scheduled_post_id);
       CREATE INDEX IF NOT EXISTS idx_scheduled_post_dispatches_platform_post_id
@@ -1065,6 +1153,11 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_slack_notifications_sent_at
         ON slack_notifications (sent_at);
     `);
+
+    // AA-99 old-schema cutover. Run on every initialization rather than
+    // consuming a durable marker: a failed rollout can restore an old worker,
+    // which may create a fresh unfenced in-flight row before the next deploy.
+    await quarantineLegacyScheduledDispatches(client);
 
     // ─── Weekly trigger schedule ─────────────────────────────────────────────────
     // One row per tenant that opts into the weekly-content cadence. The

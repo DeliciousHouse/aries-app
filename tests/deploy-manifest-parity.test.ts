@@ -185,11 +185,12 @@ test('deploy workflow fences scheduled publishing across schema/app rollout and 
     path.join(repoRoot, '.github', 'workflows', 'deploy.yml'),
     'utf8',
   );
-
-  const stopWorker = deploySource.indexOf('docker compose stop aries-scheduled-posts-worker');
-  const applySchema = deploySource.indexOf(
-    'docker compose run --rm --no-deps --entrypoint node aries-app scripts/init-db.js',
+  const schemaFenceSource = fs.readFileSync(
+    path.join(repoRoot, 'scripts', 'release', 'apply-schema-with-worker-restore.sh'),
+    'utf8',
   );
+
+  const applySchema = deploySource.indexOf('source ./scripts/release/apply-schema-with-worker-restore.sh');
   const startApp = deploySource.indexOf(
     'ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always "${SERVICE_NAME}"',
   );
@@ -197,19 +198,20 @@ test('deploy workflow fences scheduled publishing across schema/app rollout and 
   const restartWorker = deploySource.indexOf(
     'ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always aries-scheduled-posts-worker',
   );
+  const completeCutover = deploySource.indexOf('complete_scheduled_worker_cutover');
 
   for (const [name, index] of [
-    ['scheduled worker stop', stopWorker],
-    ['target-image schema apply', applySchema],
+    ['scheduled worker stop + target-image schema fence', applySchema],
     ['app rollout', startApp],
     ['app healthy gate', healthyGate],
     ['scheduled worker restart', restartWorker],
   ] as const) {
     assert.notEqual(index, -1, `deploy workflow is missing required ${name}`);
   }
-  assert.ok(stopWorker < applySchema, 'scheduled worker stops before the migration runs');
   assert.ok(applySchema < startApp, 'schema is applied from the target image before the new app starts');
   assert.ok(startApp < healthyGate, 'new app starts before its health gate');
+  assert.ok(healthyGate < completeCutover, 'exact-worker restore remains armed through the app health gate');
+  assert.ok(completeCutover < restartWorker, 'restore is disarmed immediately before worker replacement starts');
   assert.ok(healthyGate < restartWorker, 'scheduled worker restarts only after the app is healthy');
 
   assert.doesNotMatch(
@@ -221,6 +223,34 @@ test('deploy workflow fences scheduled publishing across schema/app rollout and 
     deploySource,
     /if \[\[ "\$\{worker_mismatches\}" -ne 0 \]\]; then[\s\S]*?exit 1/,
     'worker manifest/image/running mismatches must fail the deploy closed',
+  );
+
+  assert.match(
+    schemaFenceSource,
+    /previous_scheduled_worker_id="\$\(docker compose ps -q aries-scheduled-posts-worker\)"/,
+    'deploy captures the exact pre-rollout worker container before stopping it',
+  );
+  assert.match(
+    schemaFenceSource,
+    /trap restore_previous_scheduled_worker_on_exit EXIT[\s\S]*?scripts\/init-db\.js/,
+    'the exact old worker restore remains armed across every pre-restart failure',
+  );
+  assert.match(
+    schemaFenceSource,
+    /PGOPTIONS="-c lock_timeout=5s -c statement_timeout=120s"[\s\S]{0,220}timeout --signal=TERM 180s[\s\S]{0,220}scripts\/init-db\.js/,
+    'deploy-time init-db uses bounded process, PostgreSQL lock, and statement waits',
+  );
+
+  const composeSource = fs.readFileSync(path.join(repoRoot, 'docker-compose.yml'), 'utf8');
+  assert.match(
+    composeSource,
+    /aries-scheduled-posts-worker:[\s\S]*?ARIES_SCHEDULED_POSTS_SHUTDOWN_TIMEOUT_MS: \$\{ARIES_SCHEDULED_POSTS_SHUTDOWN_TIMEOUT_MS:-350000\}[\s\S]*?stop_grace_period: 6m/,
+    'compose gives the worker drain longer than the provider timeout and aligns the in-process bound',
+  );
+  assert.match(
+    composeSource,
+    /aries-app:[\s\S]*?PGOPTIONS: \$\{PGOPTIONS:-\}/,
+    'the one-shot schema container receives the workflow PGOPTIONS value',
   );
 });
 
