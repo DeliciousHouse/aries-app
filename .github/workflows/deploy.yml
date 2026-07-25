@@ -324,12 +324,11 @@ jobs:
 
           ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose pull "${SERVICE_NAME}"
 
-          # Scheduled publishing crosses the web/worker boundary. Stop the old
-          # worker before applying attempt-lease schema from the target image so
-          # no old request can race a mixed-version app. Both stop and schema
-          # apply are required deploy gates under set -euo pipefail.
-          docker compose stop aries-scheduled-posts-worker
-          ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose run --rm --no-deps --entrypoint node aries-app scripts/init-db.js
+          # Scheduled publishing crosses the web/worker boundary. This helper
+          # stops the old worker, applies target-image schema with bounded DB
+          # waits, and restarts the exact old container if schema application
+          # fails (preserving the migration's non-zero exit status).
+          TARGET_IMAGE="${TARGET_IMAGE}" ./scripts/release/apply-schema-with-worker-restore.sh
 
           ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always "${SERVICE_NAME}"
 

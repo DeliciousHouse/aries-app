@@ -25,6 +25,7 @@ test('formatDispatchStatusLabel pins known dispatch statuses to title case', () 
   assert.equal(formatDispatchStatusLabel('in_flight'), 'In flight');
   assert.equal(formatDispatchStatusLabel('dispatched'), 'Dispatched');
   assert.equal(formatDispatchStatusLabel('failed'), 'Failed');
+  assert.equal(formatDispatchStatusLabel('manual_reconciliation'), 'Needs manual check');
   assert.equal(formatDispatchStatusLabel('skipped'), 'Skipped');
 });
 
@@ -47,6 +48,7 @@ test('formatDispatchStatusLabel title-cases unknown values instead of returning 
 test('formatDispatchStatusChip renders the right chip per known status', () => {
   assert.equal(formatDispatchStatusChip('dispatched'), 'Sent');
   assert.equal(formatDispatchStatusChip('failed'), 'Fail');
+  assert.equal(formatDispatchStatusChip('manual_reconciliation'), 'Check');
   assert.equal(formatDispatchStatusChip('in_flight'), 'Live');
   assert.equal(formatDispatchStatusChip('pending'), 'Sch');
   assert.equal(formatDispatchStatusChip('skipped'), 'Skip');

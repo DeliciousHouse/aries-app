@@ -50,29 +50,63 @@ export interface ScheduledPostRecord {
 
 // $5 is the campaign_end_date UTC instant (null for weekly campaigns -- the
 // worker treats NULL as "no end date"). On a re-schedule the column is
-// overwritten with EXCLUDED.campaign_end_date so an extended deadline takes
-// effect immediately; a row that goes from event_campaign back to weekly (rare,
-// future cancellation flow) correctly clears the end date.
+// overwritten so an extended deadline takes effect immediately; a row that
+// goes from event_campaign back to weekly correctly clears the end date. The
+// parent lock + child reset are one statement so a terminal row becomes a
+// clean, executable pending generation rather than a cosmetic date change.
 const UPSERT_SCHEDULED_POST_SQL = `
-  INSERT INTO scheduled_posts (post_id, tenant_id, scheduled_for, target_platforms, campaign_end_date, surface, media_type, width_px, height_px, duration_seconds, updated_at)
-  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
-  ON CONFLICT (post_id) DO UPDATE
-    SET scheduled_for = EXCLUDED.scheduled_for,
-        target_platforms = EXCLUDED.target_platforms,
-        campaign_end_date = EXCLUDED.campaign_end_date,
-        surface = EXCLUDED.surface,
-        media_type = EXCLUDED.media_type,
-        width_px = EXCLUDED.width_px,
-        height_px = EXCLUDED.height_px,
-        duration_seconds = EXCLUDED.duration_seconds,
-        -- A (re)schedule resets any retry backoff: an operator moving a
-        -- backed-off row expects the new time to be honored, not silently
-        -- skipped until the old next_attempt_at passes.
-        next_attempt_at = NULL,
-        updated_at = now()
-    WHERE scheduled_posts.tenant_id = EXCLUDED.tenant_id
-      AND scheduled_posts.dispatch_status <> 'in_flight'
-  RETURNING id, post_id, tenant_id, scheduled_for, target_platforms, updated_at
+  WITH existing AS MATERIALIZED (
+    SELECT id, tenant_id, dispatch_status
+      FROM scheduled_posts
+     WHERE post_id = $1
+     FOR UPDATE
+  ),
+  reset_dispatches AS (
+    DELETE FROM scheduled_post_dispatches dispatch
+      USING existing
+      WHERE dispatch.scheduled_post_id = existing.id
+        AND existing.tenant_id = $2
+        AND existing.dispatch_status IN ('pending', 'dispatched', 'failed')
+      RETURNING dispatch.id
+  ),
+  updated AS (
+    UPDATE scheduled_posts
+       SET scheduled_for = $3,
+           target_platforms = $4,
+           campaign_end_date = $5,
+           surface = $6,
+           media_type = $7,
+           width_px = $8,
+           height_px = $9,
+           duration_seconds = $10,
+           dispatch_status = 'pending',
+           dispatch_attempt_token = NULL,
+           dispatch_claimed_at = NULL,
+           dispatch_started_at = NULL,
+           next_attempt_at = NULL,
+           dispatched_at = NULL,
+           error_at = NULL,
+           error_message = NULL,
+           updated_at = now()
+     WHERE id = (SELECT id FROM existing)
+       AND tenant_id = $2
+       AND dispatch_status IN ('pending', 'dispatched', 'failed')
+       AND (SELECT count(*) FROM reset_dispatches) >= 0
+     RETURNING id, post_id, tenant_id, scheduled_for, target_platforms, updated_at
+  ),
+  inserted AS (
+    INSERT INTO scheduled_posts (
+      post_id, tenant_id, scheduled_for, target_platforms, campaign_end_date,
+      surface, media_type, width_px, height_px, duration_seconds, updated_at
+    )
+    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now()
+     WHERE NOT EXISTS (SELECT 1 FROM existing)
+    ON CONFLICT (post_id) DO NOTHING
+    RETURNING id, post_id, tenant_id, scheduled_for, target_platforms, updated_at
+  )
+  SELECT id, post_id, tenant_id, scheduled_for, target_platforms, updated_at FROM updated
+  UNION ALL
+  SELECT id, post_id, tenant_id, scheduled_for, target_platforms, updated_at FROM inserted
 `;
 
 function normalizeTimestamp(value: string | Date): string {
@@ -103,6 +137,9 @@ export async function upsertScheduledPost(
       `SELECT dispatch_status FROM scheduled_posts WHERE post_id = $1 AND tenant_id = $2 LIMIT 1`,
       [input.postId, input.tenantId],
     );
+    if (statusResult.rows[0]?.dispatch_status === 'manual_reconciliation') {
+      throw new ScheduledPostManualReconciliationError(input.tenantId, input.postId);
+    }
     if (statusResult.rows.length > 0) {
       // The conflict UPDATE is atomic with the ownership check. Even if the
       // publish completes between it and this diagnostic SELECT, return 409 so
@@ -131,6 +168,17 @@ export class ScheduledPostInFlightError extends Error {
   constructor(tenantId: number, postId: number) {
     super(`scheduled_post_in_flight: post_id=${postId}`);
     this.name = 'ScheduledPostInFlightError';
+    this.tenantId = tenantId;
+    this.postId = postId;
+  }
+}
+
+export class ScheduledPostManualReconciliationError extends Error {
+  readonly tenantId: number;
+  readonly postId: number;
+  constructor(tenantId: number, postId: number) {
+    super(`scheduled_post_manual_reconciliation: post_id=${postId}`);
+    this.name = 'ScheduledPostManualReconciliationError';
     this.tenantId = tenantId;
     this.postId = postId;
   }

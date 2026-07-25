@@ -38,18 +38,41 @@ function makeRequest(secret: string, attemptToken: string): Request {
 function installDispatchFixture(options: DispatchFixtureOptions) {
   const calls: QueryCall[] = [];
   let ariesPostId: string | null = null;
+  let ownerLockReads = 0;
+  let dispatchStartedAt: string | null = null;
   const originalQuery = pool.query.bind(pool);
+  const originalConnect = pool.connect.bind(pool);
   const providerPostId = options.providerPostId ?? 'fb_canonical_901';
 
-  (pool as typeof pool & { query: typeof pool.query }).query = (async (
+  const query = (async (
     sql: unknown,
     params: unknown[] = [],
   ) => {
     const text = String(sql);
     calls.push({ sql: text, params });
 
-    if (/^\s*SELECT 1 AS owned[\s\S]*FROM scheduled_posts/i.test(text)) {
-      return { rows: options.owned ? [{ owned: 1 }] : [], rowCount: options.owned ? 1 : 0 };
+    if (/^\s*(BEGIN|COMMIT|ROLLBACK)\s*$/i.test(text)) {
+      return { rows: [], rowCount: 0 };
+    }
+    if (/FROM scheduled_posts[\s\S]*FOR UPDATE/i.test(text)) {
+      ownerLockReads += 1;
+      const attemptToken = !options.owned
+        ? 'attempt-new-owner'
+        : options.finalizeOwned === false && ownerLockReads > 1
+          ? 'attempt-new-owner'
+          : 'attempt-current';
+      return {
+        rows: [{
+          dispatch_status: 'in_flight',
+          dispatch_attempt_token: attemptToken,
+          dispatch_started_at: dispatchStartedAt,
+        }],
+        rowCount: 1,
+      };
+    }
+    if (/UPDATE scheduled_posts[\s\S]*dispatch_started_at/i.test(text)) {
+      dispatchStartedAt = new Date().toISOString();
+      return { rows: [{ dispatch_started_at: dispatchStartedAt }], rowCount: 1 };
     }
     if (/OAUTH_TOKENS|OAUTH_CONNECTIONS/i.test(text)) {
       return {
@@ -65,13 +88,9 @@ function installDispatchFixture(options: DispatchFixtureOptions) {
       return { rows: [], rowCount: 0 };
     }
     if (/UPDATE posts/i.test(text)) {
-      const token = params[4];
-      const ownsConditionalUpdate = options.finalizeOwned === false
-        ? false
-        : options.owned && token === 'attempt-current';
       return {
-        rows: ownsConditionalUpdate ? [{ job_id: null }] : [],
-        rowCount: ownsConditionalUpdate ? 1 : 0,
+        rows: [{ job_id: null }],
+        rowCount: 1,
       };
     }
     if (/UPDATE insights_posts/i.test(text)) {
@@ -84,12 +103,19 @@ function installDispatchFixture(options: DispatchFixtureOptions) {
     return { rows: [], rowCount: 0 };
   }) as unknown as typeof pool.query;
 
+  (pool as typeof pool & { query: typeof pool.query }).query = query;
+  (pool as typeof pool & { connect: typeof pool.connect }).connect = (async () => ({
+    query,
+    release() {},
+  })) as unknown as typeof pool.connect;
+
   return {
     calls,
     providerPostId,
     getAriesPostId: () => ariesPostId,
     restore: () => {
       (pool as typeof pool & { query: typeof pool.query }).query = originalQuery;
+      (pool as typeof pool & { connect: typeof pool.connect }).connect = originalConnect;
     },
   };
 }
@@ -155,8 +181,11 @@ test('request that loses ownership during provider I/O cannot mutate aggregate, 
       assert.equal(response.status, 202, 'the provider may already have accepted the publish');
 
       const aggregateUpdate = fixture.calls.find((call) => /UPDATE posts/i.test(call.sql));
-      assert.ok(aggregateUpdate, 'post-publish finalization must attempt the ownership-fenced aggregate write');
-      assert.match(aggregateUpdate.sql, /owner\.dispatch_attempt_token = \$5/);
+      assert.equal(aggregateUpdate, undefined, 'post-publish finalization must recheck ownership before aggregate writes');
+      assert.ok(
+        fixture.calls.some((call) => /FROM scheduled_posts[\s\S]*FOR UPDATE/i.test(call.sql)),
+        'post-publish finalization serializes on the scheduled owner row',
+      );
       assert.equal(
         fixture.calls.some((call) => /UPDATE insights_posts/i.test(call.sql)),
         false,
@@ -225,6 +254,48 @@ test('owned scheduled dispatch succeeds when the Insights row is absent and leav
         false,
         'dispatch never fabricates an Insights row; the existing sync upsert remains the later attribution path',
       );
+    } finally {
+      globalThis.fetch = originalFetch;
+      fixture.restore();
+    }
+  });
+});
+
+test('concurrent requests for one attempt token cross provider I/O exactly once', async () => {
+  await withDispatchEnv(async (secret) => {
+    const fixture = installDispatchFixture({ owned: true, insightExists: false });
+    const originalFetch = globalThis.fetch;
+    let fetchCalls = 0;
+    let signalProviderStarted!: () => void;
+    const providerStarted = new Promise<void>((resolve) => {
+      signalProviderStarted = resolve;
+    });
+    let releaseProvider!: () => void;
+    const providerRelease = new Promise<void>((resolve) => {
+      releaseProvider = resolve;
+    });
+    globalThis.fetch = (async () => {
+      fetchCalls += 1;
+      signalProviderStarted();
+      await providerRelease;
+      return new Response(JSON.stringify({ id: fixture.providerPostId, post_id: fixture.providerPostId }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    try {
+      const first = POST(makeRequest(secret, 'attempt-current'));
+      await providerStarted;
+      const duplicate = await POST(makeRequest(secret, 'attempt-current'));
+      const duplicateBody = (await duplicate.json()) as { status?: string };
+
+      assert.equal(duplicate.status, 409);
+      assert.equal(duplicateBody.status, 'attempt_already_started');
+      assert.equal(fetchCalls, 1, 'the duplicate request is fenced before provider I/O');
+
+      releaseProvider();
+      assert.equal((await first).status, 202);
     } finally {
       globalThis.fetch = originalFetch;
       fixture.restore();

@@ -45,7 +45,7 @@ test('init-db.js indexes posts.job_id for the scheduled-dispatch media lookup', 
 test('init-db.js keeps the posts.status check constraint in sync with prod', () => {
   assert.match(
     DDL,
-    /posts_status_check CHECK \(status IN \([^)]*'published'[^)]*'failed'[^)]*\)\)/,
+    /posts_status_check[\s\S]{0,200}\$check\$status IN \([^)]*'published'[^)]*'failed'[^)]*\)\$check\$/,
     'posts.status check constraint must mirror prod',
   );
 });
