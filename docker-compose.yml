@@ -16,6 +16,9 @@ services:
       # Optional libpq session options used by the deploy's one-shot init-db
       # container to bound DDL lock/statement waits. Empty during normal app runs.
       PGOPTIONS: ${PGOPTIONS:-}
+      # Deploy applies schema in a bounded one-shot before app recreation, then
+      # sets this to 1 so start-runtime does not repeat init-db unbounded.
+      ARIES_SKIP_DB_INIT: ${ARIES_SKIP_DB_INIT:-0}
       PORT: ${PORT:-3000}
       HOST: 0.0.0.0
       CODE_ROOT: /app

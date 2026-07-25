@@ -335,18 +335,20 @@ export async function resolvePublishGuards(args: {
 // independently; the parent posts row must NOT be demoted to 'failed'
 // because one platform failed while another went live.
 //   - 'published' — at least one platform was dispatched.
+//   - 'unverified'— at least one provider submission may already be live.
 //   - 'failed'    — every platform failed AND no failure is retryable
 //     (every failure is terminal), so no later worker pass will change it.
 //   - null        — leave posts.published_status untouched: either there
 //     were no platforms, or a retryable failure remains and the worker's
 //     next pass can still drive the post to a terminal state.
-export type PostStatusDecision = 'published' | 'failed' | null;
+export type PostStatusDecision = 'published' | 'failed' | 'unverified' | null;
 
 export function planPostStatusUpdate(
-  results: ReadonlyArray<{ ok: boolean; retryable?: boolean }>,
+  results: ReadonlyArray<{ ok: boolean; retryable?: boolean; kind?: string }>,
 ): PostStatusDecision {
   if (results.length === 0) return null;
   if (results.some((r) => r.ok)) return 'published';
+  if (results.some((r) => r.kind === 'outcome_unknown')) return 'unverified';
   const anyRetryable = results.some((r) => !r.ok && r.retryable);
   return anyRetryable ? null : 'failed';
 }
@@ -359,8 +361,9 @@ export function planPostStatusUpdate(
 //     Reddit SUBREDDIT_NOEXIST, or a capability/guard error) is honored as
 //     terminal, so it self-terminates instead of the worker re-claiming and
 //     re-failing it every tick.
-//   - Everything else (a raw network throw, an unrecognized error) DEFAULTS TO
-//     RETRYABLE (fail-safe): only an explicit `false` buries a failure.
+//   - Everything else defaults to retryable for legacy direct callers. The
+//     route's provider loop uses classifyScheduledDispatchFailure below, which
+//     is stricter once provider submission may have started.
 export function deriveDispatchRetryable(error: unknown): boolean {
   if (error instanceof MetaPublishError) return error.retryable;
   if (
@@ -374,15 +377,37 @@ export function deriveDispatchRetryable(error: unknown): boolean {
   return true;
 }
 
+/**
+ * Fail-closed provider outcome matrix for the route/worker contract. An
+ * unclassified throw after dispatchPublish starts may conceal an accepted
+ * submission, so only an adapter's explicit retryability proof can rearm it.
+ */
+export function classifyScheduledDispatchFailure(error: unknown): {
+  kind: MetaPublishFailureKind;
+  retryable: boolean;
+} {
+  if (error instanceof MetaPublishError) {
+    const kind = classifyMetaPublishFailureKind(error);
+    return { kind, retryable: kind === 'outcome_unknown' ? false : error.retryable };
+  }
+
+  const explicitRetryable =
+    typeof error === 'object' && error !== null && 'retryable' in error
+      ? (error as { retryable?: unknown }).retryable
+      : undefined;
+  if (explicitRetryable === true) return { kind: 'transient', retryable: true };
+  if (explicitRetryable === false) return { kind: 'permanent', retryable: false };
+  return { kind: 'outcome_unknown', retryable: false };
+}
+
 export type ScheduledDispatchResult = {
   provider: string;
   ok: boolean;
   platformPostId?: string;
   error?: string;
   retryable?: boolean;
-  // Informational failure taxonomy so the worker can surface *why* a terminal
-  // row failed (e.g. an expired token → reconnect). Does NOT change the retry
-  // policy — `retryable` alone drives pending-vs-failed.
+  // Failure taxonomy is part of the safety contract: outcome_unknown always
+  // quarantines even if a buggy adapter also reports retryable=true.
   kind?: MetaPublishFailureKind;
 };
 
@@ -524,14 +549,23 @@ export async function finalizeScheduledDispatchAttempt(args: {
             RETURNING job_id`,
           [args.postId, firstPublishedPostId, args.tenantId],
         )
-      : await client.query<{ job_id: string | null }>(
-          `UPDATE posts
-              SET published_status = 'failed'
-            WHERE id = $1
-              AND tenant_id = $2
-            RETURNING job_id`,
-          [args.postId, args.tenantId],
-        );
+      : args.postStatus === 'unverified'
+        ? await client.query<{ job_id: string | null }>(
+            `UPDATE posts
+                SET published_status = 'unverified'
+              WHERE id = $1
+                AND tenant_id = $2
+              RETURNING job_id`,
+            [args.postId, args.tenantId],
+          )
+        : await client.query<{ job_id: string | null }>(
+            `UPDATE posts
+                SET published_status = 'failed'
+              WHERE id = $1
+                AND tenant_id = $2
+              RETURNING job_id`,
+            [args.postId, args.tenantId],
+          );
 
     const owned = (updated.rowCount ?? updated.rows.length) === 1;
     if (!owned) return { owned: false, jobId: null };
@@ -622,6 +656,7 @@ export async function POST(req: Request): Promise<Response> {
           ok: false,
           error: 'dispatch_attempt_already_started',
           retryable: false,
+          kind: 'outcome_unknown' as MetaPublishFailureKind,
         })),
       }), {
         status: 409,
@@ -765,12 +800,14 @@ export async function POST(req: Request): Promise<Response> {
       const errMsg = error instanceof MetaPublishError
         ? `${error.code}: ${error.message}`
         : String((error as Error).message || error);
-      const retryable = deriveDispatchRetryable(error);
-      // Derive the failure taxonomy for surfacing only. A raw non-Meta throw is
-      // 'permanent' per the classifier, but the route still treats it as
-      // retryable above (network blips re-claim) — the two are independent.
-      const kind = classifyMetaPublishFailureKind(error);
-      results.push({ provider: platform, ok: false, error: errMsg, retryable, kind });
+      const classification = classifyScheduledDispatchFailure(error);
+      results.push({
+        provider: platform,
+        ok: false,
+        error: errMsg,
+        retryable: classification.retryable,
+        kind: classification.kind,
+      });
       // Do NOT abort the loop: a later platform may still succeed, and the
       // worker needs every platform's outcome to write per-platform state.
       // Do NOT write posts.published_status here — a per-platform write would
@@ -788,16 +825,56 @@ export async function POST(req: Request): Promise<Response> {
   // the first successful provider id; per-platform truth lives in child rows.
   let dispatchedJobId: string | null = null;
   if (postId) {
-    const finalized = await finalizeScheduledDispatchAttempt({
-      db: pool,
-      tenantId,
-      postId,
-      scheduledPostId,
-      attemptToken,
-      postStatus,
-      results,
-    }).catch(() => null);
-    dispatchedJobId = finalized?.jobId ?? null;
+    try {
+      const finalized = await finalizeScheduledDispatchAttempt({
+        db: pool,
+        tenantId,
+        postId,
+        scheduledPostId,
+        attemptToken,
+        postStatus,
+        results,
+      });
+      if (!finalized.owned) {
+        const reconciliationResults: ScheduledDispatchResult[] = results.map((result) => ({
+          provider: result.provider,
+          ok: false,
+          error: 'canonical_finalization_lost_attempt_ownership',
+          retryable: false,
+          kind: 'outcome_unknown',
+        }));
+        return new Response(JSON.stringify({
+          status: 'finalization_failed',
+          results: reconciliationResults,
+        }), {
+          status: 409,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      dispatchedJobId = finalized.jobId;
+    } catch (finalizationError) {
+      console.error('[scheduled-dispatch] canonical finalization failed', finalizationError);
+      // Provider success may already be externally visible. Never return the
+      // original success payload when canonical post state + Insights
+      // attribution failed atomically; the worker must require reconciliation.
+      const finalizationMessage = finalizationError instanceof Error
+        ? finalizationError.message
+        : String(finalizationError);
+      const reconciliationResults: ScheduledDispatchResult[] = results.map((result) => ({
+        provider: result.provider,
+        ok: false,
+        error: `canonical_finalization_failed:${finalizationMessage}`,
+        retryable: false,
+        kind: 'outcome_unknown',
+      }));
+      return new Response(JSON.stringify({
+        status: 'finalization_failed',
+        results: reconciliationResults,
+      }), {
+        status: 503,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
   }
   // A publish flips posts.published_status, which feeds the campaign-list
   // dashboard's published/scheduled/live counts (via countPublishedPostsForJob).

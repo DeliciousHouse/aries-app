@@ -12,6 +12,7 @@ type DispatchFixtureOptions = {
   finalizeOwned?: boolean;
   insightExists?: boolean;
   providerPostId?: string;
+  insightsWriteFails?: boolean;
 };
 
 function makeRequest(secret: string, attemptToken: string): Request {
@@ -38,6 +39,8 @@ function makeRequest(secret: string, attemptToken: string): Request {
 function installDispatchFixture(options: DispatchFixtureOptions) {
   const calls: QueryCall[] = [];
   let ariesPostId: string | null = null;
+  let postPublishedStatus = 'approved';
+  let transactionSnapshot: { ariesPostId: string | null; postPublishedStatus: string } | null = null;
   let ownerLockReads = 0;
   let dispatchStartedAt: string | null = null;
   const originalQuery = pool.query.bind(pool);
@@ -51,7 +54,20 @@ function installDispatchFixture(options: DispatchFixtureOptions) {
     const text = String(sql);
     calls.push({ sql: text, params });
 
-    if (/^\s*(BEGIN|COMMIT|ROLLBACK)\s*$/i.test(text)) {
+    if (/^\s*BEGIN\s*$/i.test(text)) {
+      transactionSnapshot = { ariesPostId, postPublishedStatus };
+      return { rows: [], rowCount: 0 };
+    }
+    if (/^\s*COMMIT\s*$/i.test(text)) {
+      transactionSnapshot = null;
+      return { rows: [], rowCount: 0 };
+    }
+    if (/^\s*ROLLBACK\s*$/i.test(text)) {
+      if (transactionSnapshot) {
+        ariesPostId = transactionSnapshot.ariesPostId;
+        postPublishedStatus = transactionSnapshot.postPublishedStatus;
+      }
+      transactionSnapshot = null;
       return { rows: [], rowCount: 0 };
     }
     if (/FROM scheduled_posts[\s\S]*FOR UPDATE/i.test(text)) {
@@ -88,12 +104,20 @@ function installDispatchFixture(options: DispatchFixtureOptions) {
       return { rows: [], rowCount: 0 };
     }
     if (/UPDATE posts/i.test(text)) {
+      postPublishedStatus = /published_status = 'published'/i.test(text)
+        ? 'published'
+        : /published_status = 'unverified'/i.test(text)
+          ? 'unverified'
+          : 'failed';
       return {
         rows: [{ job_id: null }],
         rowCount: 1,
       };
     }
     if (/UPDATE insights_posts/i.test(text)) {
+      if (options.insightsWriteFails) {
+        throw new Error('injected Insights attribution failure');
+      }
       if (options.insightExists && params[3] === providerPostId) {
         ariesPostId = String(params[0]);
         return { rows: [], rowCount: 1 };
@@ -113,6 +137,7 @@ function installDispatchFixture(options: DispatchFixtureOptions) {
     calls,
     providerPostId,
     getAriesPostId: () => ariesPostId,
+    getPostPublishedStatus: () => postPublishedStatus,
     restore: () => {
       (pool as typeof pool & { query: typeof pool.query }).query = originalQuery;
       (pool as typeof pool & { connect: typeof pool.connect }).connect = originalConnect;
@@ -178,7 +203,14 @@ test('request that loses ownership during provider I/O cannot mutate aggregate, 
 
     try {
       const response = await POST(makeRequest(secret, 'attempt-current'));
-      assert.equal(response.status, 202, 'the provider may already have accepted the publish');
+      const body = (await response.json()) as {
+        status: string;
+        results: Array<{ kind?: string; retryable?: boolean }>;
+      };
+      assert.equal(response.status, 409, 'the provider may already have accepted the publish');
+      assert.equal(body.status, 'finalization_failed');
+      assert.equal(body.results[0]?.kind, 'outcome_unknown');
+      assert.equal(body.results[0]?.retryable, false);
 
       const aggregateUpdate = fixture.calls.find((call) => /UPDATE posts/i.test(call.sql));
       assert.equal(aggregateUpdate, undefined, 'post-publish finalization must recheck ownership before aggregate writes');
@@ -196,6 +228,43 @@ test('request that loses ownership during provider I/O cannot mutate aggregate, 
         false,
         'the dispatch route never writes child winner state; only the token-fenced worker does',
       );
+    } finally {
+      globalThis.fetch = originalFetch;
+      fixture.restore();
+    }
+  });
+});
+
+test('response loss after the provider POST is returned as explicit outcome_unknown and never retryable', async () => {
+  await withDispatchEnv(async (secret) => {
+    const fixture = installDispatchFixture({ owned: true, insightExists: false });
+    const originalFetch = globalThis.fetch;
+    let providerCalls = 0;
+    globalThis.fetch = (async () => {
+      providerCalls += 1;
+      if (providerCalls === 1) {
+        return new Response(JSON.stringify({ id: 'fb_uploaded_media_1' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      throw new Error('socket closed after provider accepted request bytes');
+    }) as typeof fetch;
+
+    try {
+      const response = await POST(makeRequest(secret, 'attempt-current'));
+      const body = (await response.json()) as {
+        status: string;
+        results: Array<{ provider: string; ok: boolean; retryable?: boolean; kind?: string }>;
+      };
+
+      assert.equal(response.status, 422);
+      assert.equal(body.status, 'error');
+      assert.equal(body.results[0]?.provider, 'facebook');
+      assert.equal(body.results[0]?.kind, 'outcome_unknown');
+      assert.equal(body.results[0]?.retryable, false);
+      assert.equal(fixture.getPostPublishedStatus(), 'unverified');
+      assert.equal(fixture.calls.some((call) => /UPDATE insights_posts/i.test(call.sql)), false);
     } finally {
       globalThis.fetch = originalFetch;
       fixture.restore();
@@ -224,6 +293,7 @@ test('owned scheduled dispatch stamps an already-existing matching Insights row 
       assert.equal(body.status, 'ok');
       assert.equal(body.results[0]?.platformPostId, fixture.providerPostId);
       assert.equal(fixture.getAriesPostId(), '901', 'the dispatch route itself must stamp aries_post_id');
+      assert.equal(fixture.getPostPublishedStatus(), 'published');
       const stamp = fixture.calls.find((call) => /UPDATE insights_posts/i.test(call.sql));
       assert.ok(stamp, 'dispatch-time finalization must execute the additive Insights UPDATE');
       assert.deepEqual(stamp.params, ['901', 15, 'facebook', fixture.providerPostId]);
@@ -254,6 +324,42 @@ test('owned scheduled dispatch succeeds when the Insights row is absent and leav
         false,
         'dispatch never fabricates an Insights row; the existing sync upsert remains the later attribution path',
       );
+    } finally {
+      globalThis.fetch = originalFetch;
+      fixture.restore();
+    }
+  });
+});
+
+test('canonical post status and Insights attribution both roll back when attribution finalization fails', async () => {
+  await withDispatchEnv(async (secret) => {
+    const fixture = installDispatchFixture({
+      owned: true,
+      insightExists: true,
+      insightsWriteFails: true,
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: fixture.providerPostId, post_id: fixture.providerPostId }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as typeof fetch;
+
+    try {
+      const response = await POST(makeRequest(secret, 'attempt-current'));
+      const body = (await response.json()) as {
+        status: string;
+        results: Array<{ ok: boolean; kind?: string; retryable?: boolean }>;
+      };
+
+      assert.equal(response.status, 503);
+      assert.equal(body.status, 'finalization_failed');
+      assert.equal(body.results[0]?.ok, false);
+      assert.equal(body.results[0]?.kind, 'outcome_unknown');
+      assert.equal(body.results[0]?.retryable, false);
+      assert.equal(fixture.getPostPublishedStatus(), 'approved');
+      assert.equal(fixture.getAriesPostId(), null);
+      assert.ok(fixture.calls.some((call) => /^\s*ROLLBACK\s*$/i.test(call.sql)));
     } finally {
       globalThis.fetch = originalFetch;
       fixture.restore();

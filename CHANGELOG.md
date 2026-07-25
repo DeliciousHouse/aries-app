@@ -18,11 +18,14 @@ strand the queue behind a cosmetic terminal-row update.
 ### Changed
 
 - Worker shutdown drains the active publish through durable outcome recording, with
-  a Compose grace period longer than the longest provider request.
+  signal handlers active before the first tick and no later prefetched row started
+  after shutdown begins; its env-bound timeout stays inside the Compose grace period.
 - Terminal reschedules atomically reset the parent lease and per-platform children;
   cancellation and post deletion serialize on the scheduled owner row.
 - Deploy-time schema changes use bounded PostgreSQL waits and catalog-guarded check
-  constraints, and a failed migration restarts the exact pre-rollout worker container.
+  constraints. App startup skips the duplicate init after that bounded pass, and any
+  schema, recreation, identity, or health failure before worker replacement restarts
+  the exact pre-rollout worker container.
 
 ### Fixed
 
@@ -30,6 +33,10 @@ strand the queue behind a cosmetic terminal-row update.
   scheduled owner before writing, preventing stale attempts from winning a reclaim.
 - Repeated internal requests for one attempt token can cross provider I/O only once;
   transport loss is never retried inside the same worker attempt.
+- Meta response loss and explicit unknown outcomes now require manual reconciliation,
+  while proven pre-provider auth/fence failures remain safely retryable.
+- Legacy in-flight rows are quarantined during upgrade, and canonical post plus
+  Insights finalization now either commit together or return an observable failure.
 
 ## v0.1.43.0 — fix(publishing): close attribution and ownership races
 

@@ -309,6 +309,42 @@ test('publishToMetaGraph: a Facebook feed 2xx with no post id is "outcome unknow
   }
 });
 
+test('publishToMetaGraph: response loss after a Facebook feed POST is outcome unknown and never retryable', async () => {
+  process.env.OAUTH_TOKEN_ENCRYPTION_KEY = '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!';
+  const restoreQuery = installOauthQueryFixture({
+    access_token_enc: encryptOAuthSecret('page-token'),
+    connection_id: 'conn_fb_response_loss',
+    external_account_id: 'page_response_loss',
+  });
+
+  const fetchImpl = async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes('/feed')) {
+      throw new Error('socket closed after request body was sent');
+    }
+    throw new Error(`unexpected url: ${url}`);
+  };
+
+  try {
+    const caught = await publishToMetaGraph({
+      tenantId: '12',
+      provider: 'facebook',
+      content: 'accepted but response lost',
+      mediaUrls: [],
+      fetchImpl: fetchImpl as typeof fetch,
+    }).then(() => null, (error: unknown) => error);
+
+    assert.ok(caught instanceof MetaPublishError);
+    assert.equal(caught.code, 'graph_network_error');
+    assert.equal(caught.outcomeUnknown, true);
+    assert.equal(caught.retryable, false);
+    assert.equal(classifyMetaPublishFailure(caught), 'outcome_unknown');
+    assert.equal(classifyMetaPublishFailureKind(caught), 'outcome_unknown');
+  } finally {
+    restoreQuery();
+  }
+});
+
 test('publishToMetaGraph: an Instagram media_publish 2xx with no post id is "outcome unknown"', async () => {
   process.env.OAUTH_TOKEN_ENCRYPTION_KEY = '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!';
   const restoreQuery = installOauthQueryFixture({

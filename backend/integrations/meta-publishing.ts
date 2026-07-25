@@ -68,12 +68,13 @@ export class MetaPublishError extends Error {
   readonly status: number;
   readonly retryable: boolean;
   /**
-   * True when the Meta Graph API accepted the final publish call (2xx) but Aries
-   * could not confirm the resulting post id. The post MAY be live — the outcome
+   * True when Aries submitted the final publish call but could not prove that
+   * Meta rejected it (for example, the response was lost or lacked a post id).
+   * The post MAY be live — the outcome
    * is unknown. Callers must NOT roll back the platform claim and must NOT
    * auto-retry: a retry of a publish that secretly succeeded is a duplicate post.
-   * False (the default) means the failure happened before/instead of a confirmed
-   * publish acceptance — the post definitely never went live and is safe to retry.
+   * False (the default) means the failure happened before the final publish call
+   * or Meta explicitly rejected it, so the post is safe to retry.
    */
   readonly outcomeUnknown: boolean;
 
@@ -95,12 +96,13 @@ export class MetaPublishError extends Error {
  * The two outcome classes a Meta publish failure can fall into. The publish
  * handlers must treat them oppositely:
  *
- *   'definitely_never_posted' — a requestGraphJson network/HTTP/4xx failure (or
- *   any pre-publish failure). The Graph publish call never succeeded, so the
- *   post never went live. Safe to roll back the platform claim and retry.
+ *   'definitely_never_posted' — an explicit Graph rejection or any pre-publish
+ *   failure. The post never went live. Safe to roll back the platform claim and
+ *   retry.
  *
- *   'outcome_unknown' — the Graph publish call was accepted (2xx) but Aries got
- *   no post id back. The post MAY be live. The claim must be LEFT in place,
+ *   'outcome_unknown' — Aries submitted the Graph publish call but could not
+ *   prove rejection (response loss or 2xx with no id). The post MAY be live. The
+ *   claim must be LEFT in place,
  *   surfaced as needs_manual_reconciliation, and NEVER auto-retried — a retry of
  *   a publish that secretly succeeded is a duplicate post.
  */
@@ -290,6 +292,8 @@ export async function requestGraphJson(args: {
   accessToken: string;
   fetchImpl: typeof fetch;
   method?: 'GET' | 'POST';
+  /** Network loss after this request starts may conceal an accepted publish. */
+  outcomeUnknownOnNetworkError?: boolean;
 }): Promise<MetaGraphResponse> {
   const method = args.method ?? 'POST';
   const url = new URL(graphEndpoint(args.pathname));
@@ -313,7 +317,12 @@ export async function requestGraphJson(args: {
         });
       }
     } catch (error) {
-      throw new MetaPublishError('graph_network_error', String((error as Error).message || error), { status: 502, retryable: true });
+      const outcomeUnknown = args.outcomeUnknownOnNetworkError === true;
+      throw new MetaPublishError('graph_network_error', String((error as Error).message || error), {
+        status: 502,
+        retryable: !outcomeUnknown,
+        outcomeUnknown,
+      });
     }
 
     const parsed = await parseGraphResponse(response);
@@ -388,6 +397,7 @@ async function publishFacebookVideo(args: {
     accessToken: args.target.accessToken,
     fetchImpl: args.fetchImpl,
     params,
+    outcomeUnknownOnNetworkError: true,
   });
 
   return {
@@ -424,6 +434,7 @@ async function publishFacebookVideoStory(args: {
     accessToken: args.target.accessToken,
     fetchImpl: args.fetchImpl,
     params: { upload_phase: 'finish', video_id: videoId, video_url: args.mediaUrls[0] },
+    outcomeUnknownOnNetworkError: true,
   });
   const storyPostId =
     typeof finished.post_id === 'string' && finished.post_id.trim().length > 0
@@ -471,6 +482,7 @@ async function publishFacebookPhotoStory(args: {
     accessToken: args.target.accessToken,
     fetchImpl: args.fetchImpl,
     params: { photo_id: photoId },
+    outcomeUnknownOnNetworkError: true,
   });
   // FB photo_stories returns { success, post_id }; tolerate `id` as a fallback.
   const storyPostId =
@@ -566,6 +578,7 @@ async function publishFacebook(args: {
     accessToken: args.target.accessToken,
     fetchImpl: args.fetchImpl,
     params: postParams,
+    outcomeUnknownOnNetworkError: true,
   });
 
   return {
@@ -761,6 +774,7 @@ async function publishInstagram(args: {
     accessToken: args.target.accessToken,
     fetchImpl: args.fetchImpl,
     params: { creation_id: creationId },
+    outcomeUnknownOnNetworkError: true,
   });
 
   return {

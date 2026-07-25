@@ -1049,8 +1049,6 @@ async function initDb() {
         ADD COLUMN IF NOT EXISTS dispatch_attempt_token TEXT;
       ALTER TABLE scheduled_posts
         ADD COLUMN IF NOT EXISTS dispatch_claimed_at TIMESTAMPTZ;
-      ALTER TABLE scheduled_posts
-        ADD COLUMN IF NOT EXISTS dispatch_started_at TIMESTAMPTZ;
       -- Backfill a legacy owner identity before the worker restarts. The next
       -- stale reclaim replaces this token, while dispatch_claimed_at preserves
       -- the old updated_at-based reclaim age across rollout.
@@ -1146,6 +1144,73 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_slack_notifications_sent_at
         ON slack_notifications (sent_at);
     `);
+
+    // AA-99 old-schema cutover. A durable marker is stronger than checking only
+    // for dispatch_started_at: an interrupted/earlier build may have added that
+    // column without quarantining legacy in-flight rows. Keep marker claim, DDL,
+    // and quarantine in one transaction so a partial rollout is retried whole.
+    await client.query('BEGIN');
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS aries_schema_cutovers (
+          name TEXT PRIMARY KEY,
+          applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `);
+      const cutoverClaim = await client.query(`
+        INSERT INTO aries_schema_cutovers (name)
+        VALUES ('scheduled_dispatch_provider_fence_v1')
+        ON CONFLICT (name) DO NOTHING
+        RETURNING name
+      `);
+      const cutoverClaimed = cutoverClaim.rowCount === 1;
+
+      await client.query(`
+        ALTER TABLE scheduled_posts
+          ADD COLUMN IF NOT EXISTS dispatch_started_at TIMESTAMPTZ
+      `);
+
+      if (cutoverClaimed) {
+        await client.query(`
+          UPDATE scheduled_post_dispatches AS dispatch
+             SET status = 'manual_reconciliation',
+                 error_at = COALESCE(error_at, now()),
+                 error_message = COALESCE(
+                   error_message,
+                   'legacy in-flight dispatch predates the provider-submission fence; manual reconciliation required'
+                 ),
+                 updated_at = now()
+            FROM scheduled_posts AS scheduled
+           WHERE dispatch.scheduled_post_id = scheduled.id
+             AND scheduled.dispatch_status = 'in_flight'
+             AND dispatch.status IN ('pending', 'in_flight');
+
+          UPDATE posts AS post
+             SET published_status = 'unverified'
+           WHERE post.published_status <> 'published'
+             AND EXISTS (
+               SELECT 1
+                 FROM scheduled_posts AS scheduled
+                WHERE scheduled.post_id = post.id
+                  AND scheduled.dispatch_status = 'in_flight'
+             );
+
+          UPDATE scheduled_posts
+             SET dispatch_status = 'manual_reconciliation',
+                 error_at = COALESCE(error_at, now()),
+                 error_message = COALESCE(
+                   error_message,
+                   'legacy in-flight dispatch predates the provider-submission fence; manual reconciliation required'
+                 ),
+                 updated_at = now()
+           WHERE dispatch_status = 'in_flight'
+        `);
+      }
+      await client.query('COMMIT');
+    } catch (cutoverError) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw cutoverError;
+    }
 
     // ─── Weekly trigger schedule ─────────────────────────────────────────────────
     // One row per tenant that opts into the weekly-content cadence. The

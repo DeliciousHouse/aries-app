@@ -190,7 +190,7 @@ test('deploy workflow fences scheduled publishing across schema/app rollout and 
     'utf8',
   );
 
-  const applySchema = deploySource.indexOf('./scripts/release/apply-schema-with-worker-restore.sh');
+  const applySchema = deploySource.indexOf('source ./scripts/release/apply-schema-with-worker-restore.sh');
   const startApp = deploySource.indexOf(
     'ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always "${SERVICE_NAME}"',
   );
@@ -198,6 +198,7 @@ test('deploy workflow fences scheduled publishing across schema/app rollout and 
   const restartWorker = deploySource.indexOf(
     'ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always aries-scheduled-posts-worker',
   );
+  const completeCutover = deploySource.indexOf('complete_scheduled_worker_cutover');
 
   for (const [name, index] of [
     ['scheduled worker stop + target-image schema fence', applySchema],
@@ -209,6 +210,8 @@ test('deploy workflow fences scheduled publishing across schema/app rollout and 
   }
   assert.ok(applySchema < startApp, 'schema is applied from the target image before the new app starts');
   assert.ok(startApp < healthyGate, 'new app starts before its health gate');
+  assert.ok(healthyGate < completeCutover, 'exact-worker restore remains armed through the app health gate');
+  assert.ok(completeCutover < restartWorker, 'restore is disarmed immediately before worker replacement starts');
   assert.ok(healthyGate < restartWorker, 'scheduled worker restarts only after the app is healthy');
 
   assert.doesNotMatch(
@@ -229,13 +232,13 @@ test('deploy workflow fences scheduled publishing across schema/app rollout and 
   );
   assert.match(
     schemaFenceSource,
-    /schema_status=0[\s\S]*?scripts\/init-db\.js \|\| schema_status=\$\?[\s\S]*?if \[\[ "\$\{schema_status\}" -ne 0 \]\][\s\S]*?docker start "\$\{previous_scheduled_worker_id\}"[\s\S]*?exit "\$\{schema_status\}"/,
-    'a schema failure restarts the exact old worker container and preserves the failing exit code',
+    /trap restore_previous_scheduled_worker_on_exit EXIT[\s\S]*?scripts\/init-db\.js/,
+    'the exact old worker restore remains armed across every pre-restart failure',
   );
   assert.match(
     schemaFenceSource,
-    /PGOPTIONS="-c lock_timeout=5s -c statement_timeout=120s"[\s\S]{0,220}scripts\/init-db\.js/,
-    'deploy-time init-db uses bounded PostgreSQL lock and statement waits',
+    /PGOPTIONS="-c lock_timeout=5s -c statement_timeout=120s"[\s\S]{0,220}timeout --signal=TERM 180s[\s\S]{0,220}scripts\/init-db\.js/,
+    'deploy-time init-db uses bounded process, PostgreSQL lock, and statement waits',
   );
 
   const composeSource = fs.readFileSync(path.join(repoRoot, 'docker-compose.yml'), 'utf8');

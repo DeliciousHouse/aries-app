@@ -33,7 +33,21 @@ const FETCH_TIMEOUT_MS = 30_000;
 // a DUPLICATE Reel each cycle (the 8x-IG-reel incident, 2026-06-26). Image rows
 // keep the short timeout so one slow video never stalls the image batch.
 const VIDEO_FETCH_TIMEOUT_MS = 330_000; // > composio IG video max_wait_seconds (300s)
-const SHUTDOWN_TIMEOUT_MS = 350_000; // below compose stop_grace_period (6m), above video timeout
+const DEFAULT_SHUTDOWN_TIMEOUT_MS = 350_000;
+const COMPOSE_STOP_GRACE_MS = 360_000;
+
+export function parseShutdownTimeoutMs(raw) {
+  if (!raw || !/^\d+$/.test(raw.trim())) return DEFAULT_SHUTDOWN_TIMEOUT_MS;
+  const parsed = Number.parseInt(raw.trim(), 10);
+  return parsed > VIDEO_FETCH_TIMEOUT_MS && parsed < COMPOSE_STOP_GRACE_MS
+    ? parsed
+    : DEFAULT_SHUTDOWN_TIMEOUT_MS;
+}
+
+// Must remain above provider I/O and below Compose's six-minute grace period.
+const SHUTDOWN_TIMEOUT_MS = parseShutdownTimeoutMs(
+  process.env.ARIES_SCHEDULED_POSTS_SHUTDOWN_TIMEOUT_MS,
+);
 // A row claimed as 'in_flight' but not driven to a terminal state within this
 // window is assumed to belong to a crashed worker pass and is re-claimable.
 // Comfortably larger than the longest fetch timeout (video) so a slow-but-live
@@ -517,14 +531,6 @@ async function syncParentRollup(client, rowId, attemptToken) {
   return result.rowCount === 1 ? rolled : null;
 }
 
-async function updatePostStatus(client, postId, status) {
-  if (!postId) return;
-  await client.query(
-    `UPDATE posts SET published_status = $2, published_at = CASE WHEN $2 = 'published' THEN now() ELSE published_at END
-     WHERE id = $1`,
-    [postId, status],
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Dispatch
@@ -543,12 +549,10 @@ function resolveInternalSecret() {
  * per-platform child-row outcome the worker persists. A platform with `ok`
  * becomes 'dispatched'; a non-retryable failure becomes terminal 'failed'; a
  * retryable failure stays 'pending' so the next worker pass re-claims it.
- * `transportError` covers the case where the whole dispatch call failed (no
- * per-platform breakdown available) — every requested platform stays retryable,
- * EXCEPT video: a transport timeout on a long async video publish means the
- * outcome is UNKNOWN (the route may have published server-side), so retrying
- * would re-create the IG container and duplicate the Reel. Video transport
- * errors are therefore terminal-non-retryable, surfaced for manual check.
+ * `transportError` covers the case where the whole dispatch call failed with no
+ * per-platform proof that submission was never reached. Every requested
+ * platform is therefore quarantined for manual reconciliation; only an
+ * explicit `pre_provider` route result may safely return to pending.
  */
 export function planPlatformOutcomes(platforms, results, transportError) {
   const list = Array.isArray(platforms) ? platforms : [];
@@ -571,6 +575,15 @@ export function planPlatformOutcomes(platforms, results, transportError) {
         ? result.platformPostId.trim()
         : null;
       return { platform, status: 'dispatched', error: null, retryable: false, platformPostId };
+    }
+    if (result?.kind === 'outcome_unknown') {
+      return {
+        platform,
+        status: 'manual_reconciliation',
+        error: `publish_outcome_unknown (manual reconciliation required; no auto-retry — may already be live): ${result.error || 'provider outcome unknown'}`,
+        retryable: false,
+        platformPostId: null,
+      };
     }
     const retryable = result ? result.retryable !== false : true;
     let error = result?.error ?? 'no_result_for_platform';
@@ -648,6 +661,27 @@ async function dispatchOnce(row, attemptToken, baseUrl, secret) {
     return { results: [], transportError: `dispatch ${res.status}: unparseable response body` };
   }
 
+  // These responses are emitted before provider I/O. Unlike a response loss or
+  // an unclassified 5xx, they prove that no publish could have been accepted and
+  // therefore remain safely retryable.
+  const knownPreProviderFailure =
+    res.status === 401 ||
+    res.status === 403 ||
+    parsed?.error === 'dispatch_ownership_unavailable';
+  if (knownPreProviderFailure) {
+    const error = parsed?.error || `dispatch ${res.status}: provider was not reached`;
+    return {
+      results: platforms.map((provider) => ({
+        provider,
+        ok: false,
+        error,
+        retryable: true,
+        kind: 'pre_provider',
+      })),
+      transportError: null,
+    };
+  }
+
   if (Array.isArray(parsed?.results)) {
     return { results: parsed.results, transportError: null };
   }
@@ -660,7 +694,7 @@ async function dispatchOnce(row, attemptToken, baseUrl, secret) {
 
 // Exported for the crash-safety regression test, which drives a single tick
 // against an in-memory pg fake.
-export async function tick(pool) {
+export async function tick(pool, { shouldStop = () => false } = {}) {
   const baseUrl = resolveAppBaseUrl();
   const secret = resolveInternalSecret();
 
@@ -705,7 +739,12 @@ export async function tick(pool) {
     manualReconciliation: ambiguousSweep.swept,
   };
 
-  for (const rowId of ids) {
+  for (let rowIndex = 0; rowIndex < ids.length; rowIndex += 1) {
+    if (shouldStop()) {
+      report.skipped += ids.length - rowIndex;
+      break;
+    }
+    const rowId = ids[rowIndex];
     // The claim transaction and the post-publish write each need a pooled
     // connection, but never at the same time: the network publish runs
     // between them with no connection held. Acquire/release per phase so a
@@ -717,6 +756,13 @@ export async function tick(pool) {
     try {
       const client = await pool.connect();
       try {
+        // A signal can arrive while pool.connect() is pending. Re-check before
+        // beginning the claim so a prefetched later row never crosses into
+        // provider work after shutdown starts.
+        if (shouldStop()) {
+          report.skipped += ids.length - rowIndex;
+          break;
+        }
         await client.query('BEGIN');
 
         row = await claimRow(client, rowId);
@@ -796,13 +842,9 @@ export async function tick(pool) {
           report.skipped += 1;
           continue;
         }
-        if (rolled === 'dispatched') {
-          await updatePostStatus(fc, row.post_id, 'published');
-        } else if (rolled === 'failed') {
-          await updatePostStatus(fc, row.post_id, 'failed');
-        } else if (rolled === 'manual_reconciliation') {
-          await updatePostStatus(fc, row.post_id, 'unverified');
-        } else {
+        if (rolled !== 'dispatched'
+          && rolled !== 'failed'
+          && rolled !== 'manual_reconciliation') {
           // Non-terminal: at least one platform is retrying. Back off instead
           // of re-claiming at tick cadence — 60s retries against a platform
           // rate limit (FB 368) keep the limit tripped forever.
@@ -844,7 +886,7 @@ export function createScheduledPostsWorkerRuntime(pool) {
       console.warn('[scheduled-posts-worker] previous tick still running or shutdown started; skipping');
       return { processed: 0, dispatched: 0, failed: 0, skipped: 1, expired: 0, manualReconciliation: 0 };
     }
-    const current = tick(pool);
+    const current = tick(pool, { shouldStop: () => stopping });
     activeTick = current;
     try {
       const report = await current;
@@ -885,9 +927,34 @@ export function createScheduledPostsWorkerRuntime(pool) {
   return { runTick, shutdown };
 }
 
+export function installScheduledPostsWorkerSignalHandlers(
+  runtime,
+  {
+    processRef = process,
+    getIntervalHandle = () => intervalHandle,
+    exitProcess = (code) => process.exit(code),
+  } = {},
+) {
+  for (const signal of ['SIGINT', 'SIGTERM']) {
+    processRef.once(signal, async () => {
+      const handle = getIntervalHandle();
+      if (handle) clearInterval(handle);
+      const drained = await runtime.shutdown().catch((error) => {
+        console.error('[scheduled-posts-worker] shutdown error', error);
+        return false;
+      });
+      exitProcess(drained ? 0 : 1);
+    });
+  }
+}
+
 async function main() {
   const pool = buildPool();
   const runtime = createScheduledPostsWorkerRuntime(pool);
+
+  // Install before the initial tick: deploy may signal the container while its
+  // first due batch is already in provider I/O.
+  installScheduledPostsWorkerSignalHandlers(runtime);
 
   console.log(`[scheduled-posts-worker] starting; interval=${INTERVAL_MS}ms batch=${BATCH_SIZE}`);
 
@@ -900,16 +967,6 @@ async function main() {
 
   intervalHandle = setInterval(() => void runtime.runTick(), INTERVAL_MS);
 
-  for (const signal of ['SIGINT', 'SIGTERM']) {
-    process.once(signal, async () => {
-      if (intervalHandle) clearInterval(intervalHandle);
-      const drained = await runtime.shutdown().catch((error) => {
-        console.error('[scheduled-posts-worker] shutdown error', error);
-        return false;
-      });
-      process.exit(drained ? 0 : 1);
-    });
-  }
 }
 
 // Only auto-start when run directly as a script; importing this module (e.g.

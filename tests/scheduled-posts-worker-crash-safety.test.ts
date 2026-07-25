@@ -15,6 +15,7 @@ type WorkerModule = {
     skipped: number;
     manualReconciliation: number;
   }>;
+  parseShutdownTimeoutMs: (raw: string | undefined) => number;
   createScheduledPostsWorkerRuntime: (pool: FakePool) => {
     runTick: () => Promise<{ processed: number; dispatched: number; failed: number; skipped: number }>;
     shutdown: (timeoutMs?: number) => Promise<boolean>;
@@ -354,6 +355,15 @@ function seedDueRow(db: FakeDb): void {
   });
 }
 
+test('shutdown timeout env stays above provider I/O and below Compose grace', async () => {
+  const { parseShutdownTimeoutMs } = await loadWorker();
+  assert.equal(parseShutdownTimeoutMs(undefined), 350_000);
+  assert.equal(parseShutdownTimeoutMs('345000'), 345_000);
+  assert.equal(parseShutdownTimeoutMs('330000'), 350_000);
+  assert.equal(parseShutdownTimeoutMs('360000'), 350_000);
+  assert.equal(parseShutdownTimeoutMs('not-a-number'), 350_000);
+});
+
 test('worker sends one internal request and fails closed on ambiguous transport loss', async () => {
   const { tick } = await loadWorker();
   const db = new FakeDb();
@@ -620,6 +630,31 @@ test('an ambiguous transport failure bypasses automatic retry backoff', async ()
   }
 });
 
+test('a known pre-provider 401 response is retryable and never quarantined as an unknown publish', async () => {
+  const { tick } = await loadWorker();
+  const db = new FakeDb();
+  seedDueRow(db);
+
+  process.env.APP_BASE_URL = 'https://aries.example.test';
+  process.env.INTERNAL_API_SECRET = 'test-secret';
+
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => new Response(
+      JSON.stringify({ error: 'invalid_internal_auth' }),
+      { status: 401, headers: { 'content-type': 'application/json' } },
+    )) as typeof fetch;
+
+    await tick(makePool(db));
+
+    assert.equal(db.scheduled[0]!.dispatch_status, 'pending');
+    assert.ok(db.children.every((child) => child.status === 'pending'));
+    assert.equal(db.scheduled[0]!.next_attempt_backoff_minutes, 10);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 test('a platform rate-limit failure (FB 368) writes the long rate-limit backoff', async () => {
   const { tick } = await loadWorker();
   const db = new FakeDb();
@@ -831,6 +866,64 @@ test('SIGTERM drain waits for accepted provider outcome recording before closing
 
     await tick(makePool(db));
     assert.equal(fetchCalls, 1, 'a restarted worker sees the durable terminal row and does not republish');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('shutdown during a prefetched batch drains the active row without claiming or publishing later rows', async () => {
+  const { createScheduledPostsWorkerRuntime } = await loadWorker();
+  const db = new FakeDb();
+  seedDueRow(db);
+  db.scheduled.push({
+    ...db.scheduled[0]!,
+    id: 2,
+    post_id: 102,
+    caption: 'second prefetched post',
+    dispatch_attempt_token: null,
+    dispatch_claimed_at: null,
+    dispatch_started_at: null,
+  });
+  process.env.APP_BASE_URL = 'https://aries.example.test';
+  process.env.INTERNAL_API_SECRET = 'test-secret';
+
+  let signalFirstPublish!: () => void;
+  const firstPublishStarted = new Promise<void>((resolve) => {
+    signalFirstPublish = resolve;
+  });
+  let releaseFirstPublish!: () => void;
+  const firstPublishGate = new Promise<void>((resolve) => {
+    releaseFirstPublish = resolve;
+  });
+
+  let fetchCalls = 0;
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => {
+      fetchCalls += 1;
+      if (fetchCalls === 1) {
+        signalFirstPublish();
+        await firstPublishGate;
+      }
+      return new Response(JSON.stringify({
+        results: [
+          { provider: 'facebook', ok: true, platformPostId: `fb-drain-${fetchCalls}` },
+          { provider: 'instagram', ok: true, platformPostId: `ig-drain-${fetchCalls}` },
+        ],
+      }), { status: 202, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+
+    const runtime = createScheduledPostsWorkerRuntime(makePool(db));
+    const activeTick = runtime.runTick();
+    await firstPublishStarted;
+    const draining = runtime.shutdown(5_000);
+    releaseFirstPublish();
+
+    assert.equal(await draining, true);
+    await activeTick;
+    assert.equal(fetchCalls, 1, 'shutdown must not start provider work for the prefetched second row');
+    assert.equal(db.scheduled.find((row) => row.id === 1)?.dispatch_status, 'dispatched');
+    assert.equal(db.scheduled.find((row) => row.id === 2)?.dispatch_status, 'pending');
   } finally {
     globalThis.fetch = realFetch;
   }

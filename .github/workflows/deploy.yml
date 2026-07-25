@@ -328,8 +328,11 @@ jobs:
           # stops the old worker, applies target-image schema with bounded DB
           # waits, and restarts the exact old container if schema application
           # fails (preserving the migration's non-zero exit status).
-          TARGET_IMAGE="${TARGET_IMAGE}" ./scripts/release/apply-schema-with-worker-restore.sh
+          TARGET_IMAGE="${TARGET_IMAGE}" source ./scripts/release/apply-schema-with-worker-restore.sh
 
+          # init-db already succeeded in the bounded target-image one-shot above.
+          # Skip the runtime's duplicate unbounded init while recreating the app.
+          export ARIES_SKIP_DB_INIT=1
           ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always "${SERVICE_NAME}"
 
           container_id="$(ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose ps -q "${SERVICE_NAME}")"
@@ -357,11 +360,23 @@ jobs:
             echo "ERROR: Aries app health check failed after deploy." >&2
             exit 1
           fi
+          unset ARIES_SKIP_DB_INIT
+
+          # The exact old container can only be restored before Compose begins
+          # replacing it. Schema, app recreation, identity, and health gates have
+          # now passed, so the pre-restart rollback contract is complete.
+          complete_scheduled_worker_cutover
 
           # Restart scheduled publishing only after the target app is healthy.
           # This worker is a REQUIRED deploy invariant: warning-through would
           # leave schedules stalled or running mixed ownership semantics.
           ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always aries-scheduled-posts-worker
+          new_scheduled_worker_id="$(ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose ps -q aries-scheduled-posts-worker)"
+          new_scheduled_worker_running="$(docker inspect -f '{{.State.Running}}' "${new_scheduled_worker_id}" 2>/dev/null || echo false)"
+          if [[ -z "${new_scheduled_worker_id}" || "${new_scheduled_worker_running}" != "true" ]]; then
+            echo "ERROR: replacement scheduled worker did not start." >&2
+            exit 1
+          fi
 
           # Roll the weekly-trigger-worker sidecar to the same image too, for the
           # same reason: it imports backend code and must stay in lockstep with

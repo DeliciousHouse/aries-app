@@ -146,6 +146,43 @@ test('planPlatformOutcomes: a VIDEO transport error is non-retryable (no duplica
   assert.match(outcomes[0].error ?? '', /outcome_unknown/);
 });
 
+test('planPlatformOutcomes: explicit outcome_unknown is quarantined even when retryable is incorrectly true', async () => {
+  const { planPlatformOutcomes } = await loadWorker();
+  const outcomes = planPlatformOutcomes(
+    ['facebook'],
+    [{
+      provider: 'facebook',
+      ok: false,
+      error: 'graph_network_error: response lost after POST',
+      retryable: true,
+      kind: 'outcome_unknown',
+    }],
+    null,
+  );
+
+  assert.equal(outcomes[0]?.status, 'manual_reconciliation');
+  assert.equal(outcomes[0]?.retryable, false);
+  assert.match(outcomes[0]?.error ?? '', /manual reconciliation required/i);
+});
+
+test('planPlatformOutcomes: explicit pre_provider failure remains safely retryable', async () => {
+  const { planPlatformOutcomes } = await loadWorker();
+  const outcomes = planPlatformOutcomes(
+    ['facebook'],
+    [{
+      provider: 'facebook',
+      ok: false,
+      error: 'dispatch_ownership_unavailable',
+      retryable: true,
+      kind: 'pre_provider',
+    }],
+    null,
+  );
+
+  assert.equal(outcomes[0]?.status, 'pending');
+  assert.equal(outcomes[0]?.retryable, true);
+});
+
 test('worker schema: scheduled_post_dispatches child table exists in init-db.js', () => {
   const initDbSource = readFileSync(path.join(REPO_ROOT, 'scripts/init-db.js'), 'utf8');
   assert.match(
@@ -223,6 +260,15 @@ test('worker schema: scheduled_posts has a dedicated immutable attempt token and
     'utf8',
   );
   assert.match(fenceMigration, /ADD COLUMN IF NOT EXISTS dispatch_started_at TIMESTAMPTZ/);
+});
+
+test('worker never duplicates canonical posts finalization owned by the internal route', () => {
+  const workerSource = readFileSync(
+    path.join(REPO_ROOT, 'scripts/automations/scheduled-posts-worker.mjs'),
+    'utf8',
+  );
+  assert.doesNotMatch(workerSource, /UPDATE\s+posts\s+SET\s+published_status/i);
+  assert.doesNotMatch(workerSource, /updatePostStatus/);
 });
 
 
