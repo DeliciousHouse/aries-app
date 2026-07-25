@@ -2,6 +2,44 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.44.0 — fix(publishing): make scheduled dispatch fail closed
+
+Scheduled publishing now serializes provider submission, completion, cancellation,
+and rescheduling so deploys and process crashes cannot silently duplicate a post or
+strand the queue behind a cosmetic terminal-row update.
+
+### Added
+
+- A durable provider-submission fence and explicit manual-reconciliation state
+  quarantine unknown outcomes instead of automatically republishing them.
+- Deterministic lock-race, shutdown-drain, terminal-reschedule, and schema-restore
+  regressions cover both concurrency orderings and deployment failure recovery.
+
+### Changed
+
+- Worker shutdown drains the active publish through durable outcome recording, with
+  signal handlers active before the first tick and no later prefetched row started
+  after shutdown begins; its env-bound timeout stays inside the Compose grace period.
+- Terminal reschedules atomically reset the parent lease and per-platform children;
+  cancellation and post deletion serialize on the scheduled owner row.
+- Deploy-time schema changes use bounded PostgreSQL waits and catalog-guarded check
+  constraints. App startup skips the duplicate init after that bounded pass, and any
+  schema, recreation, identity, or health failure before worker replacement restarts
+  the exact pre-rollout worker container.
+
+### Fixed
+
+- Canonical post and Insights attribution finalization now lock and re-check the
+  scheduled owner before writing, preventing stale attempts from winning a reclaim.
+- Repeated internal requests for one attempt token can cross provider I/O only once;
+  transport loss is never retried inside the same worker attempt.
+- Meta response loss, including a final publish `5xx`, and explicit unknown outcomes
+  now require manual reconciliation, while proven pre-provider auth/fence failures
+  remain safely retryable.
+- Legacy in-flight rows are quarantined on every startup so a failed rollout that
+  restores the old worker is fenced again on the next deploy; canonical post plus
+  Insights finalization now either commit together or return an observable failure.
+
 ## v0.1.43.0 — fix(publishing): close attribution and ownership races
 
 Scheduled and concurrent publishes now preserve one canonical provider result,
