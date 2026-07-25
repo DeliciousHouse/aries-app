@@ -380,7 +380,14 @@ export async function handleDeleteScheduleSocialContentPost(
     // Serialize cancellation against the worker's parent-row claim. Whichever
     // transaction gets this lock first determines the only valid outcome.
     const scheduledOwner = await client.query(
-      `SELECT id, dispatch_status
+      `SELECT id,
+              dispatch_status,
+              EXISTS (
+                SELECT 1
+                  FROM scheduled_post_dispatches dispatch
+                 WHERE dispatch.scheduled_post_id = scheduled_posts.id
+                   AND dispatch.status = 'manual_reconciliation'
+              ) AS has_manual_reconciliation
          FROM scheduled_posts
         WHERE post_id = $1 AND tenant_id = $2
         FOR UPDATE`,
@@ -395,7 +402,8 @@ export async function handleDeleteScheduleSocialContentPost(
       );
     }
     const dispatchStatus = scheduledOwner.rows[0]!['dispatch_status'];
-    if (dispatchStatus !== 'pending') {
+    const hasManualReconciliation = scheduledOwner.rows[0]!['has_manual_reconciliation'] === true;
+    if (dispatchStatus !== 'pending' || hasManualReconciliation) {
       await client.query('COMMIT', []);
       transactionFinished = true;
       return NextResponse.json(
@@ -409,7 +417,13 @@ export async function handleDeleteScheduleSocialContentPost(
     const del = await client.query(
       `DELETE FROM scheduled_posts
         WHERE id = $1::bigint
-          AND dispatch_status = 'pending'`,
+          AND dispatch_status = 'pending'
+          AND NOT EXISTS (
+            SELECT 1
+              FROM scheduled_post_dispatches dispatch
+             WHERE dispatch.scheduled_post_id = scheduled_posts.id
+               AND dispatch.status = 'manual_reconciliation'
+          )`,
       [scheduledOwner.rows[0]!['id']],
     );
     if ((del.rowCount ?? 0) === 0) {

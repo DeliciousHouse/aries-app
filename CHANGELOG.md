@@ -41,8 +41,9 @@ strand the queue behind a cosmetic terminal-row update.
   pending, and canonical post plus Insights finalization either commit together or
   return an observable failure.
 - Manual-reconciliation child evidence now remains review-only even if a parent row
-  is still pending: API reschedules preserve every child and calendar drag controls
-  stay disabled until an operator verifies whether the post is live.
+  is still pending: API reschedules, schedule cancellations, and post deletions
+  preserve every child and canonical post, while calendar drag controls stay disabled
+  until an operator verifies whether the post is live.
 - Provider-fence DDL is installed entirely before app startup; the post-health
   cutover is data-only and reports parent, platform-leg, and unverified-post counts.
 
