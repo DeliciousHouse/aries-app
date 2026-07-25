@@ -28,20 +28,23 @@ function buildScheduleQueryable(opts: {
   deleteRowCount?: number;
 }) {
   const calls: { sql: string; params: unknown[] }[] = [];
-  const query = async (sql: string, params: unknown[]): Promise<QueryResult> => {
+  const query = async (sql: string, params: unknown[] = []): Promise<QueryResult> => {
     const trimmed = sql.trim();
     calls.push({ sql: trimmed, params });
-    if (trimmed.startsWith('SELECT id, tenant_id')) {
+        if (trimmed === 'BEGIN' || trimmed === 'COMMIT' || trimmed === 'ROLLBACK') {
+          return { rows: [], rowCount: 0 };
+        }
+        if (trimmed.startsWith('SELECT id, tenant_id')) {
       if (!opts.postExists) return { rows: [], rowCount: 0 };
       const [postId, tenantId] = params as [number, number];
       return { rows: [{ id: postId, tenant_id: tenantId }], rowCount: 1 };
     }
-    if (trimmed.startsWith('SELECT dispatch_status FROM scheduled_posts')) {
-      if (opts.scheduledDispatchStatus === null || opts.scheduledDispatchStatus === undefined) {
-        return { rows: [], rowCount: 0 };
-      }
-      return { rows: [{ dispatch_status: opts.scheduledDispatchStatus }], rowCount: 1 };
-    }
+    if (trimmed.startsWith('SELECT id, dispatch_status')) {
+          if (opts.scheduledDispatchStatus === null || opts.scheduledDispatchStatus === undefined) {
+            return { rows: [], rowCount: 0 };
+          }
+          return { rows: [{ id: 71, dispatch_status: opts.scheduledDispatchStatus }], rowCount: 1 };
+        }
     if (trimmed.startsWith('DELETE FROM scheduled_posts')) {
       const rowCount = opts.deleteRowCount ?? 1;
       return { rows: [], rowCount };
@@ -58,20 +61,23 @@ function buildPostQueryable(opts: {
   scheduledDispatchStatus?: string | null;
 }) {
   const calls: { sql: string; params: unknown[] }[] = [];
-  const query = async (sql: string, params: unknown[]): Promise<QueryResult> => {
+  const query = async (sql: string, params: unknown[] = []): Promise<QueryResult> => {
     const trimmed = sql.trim();
     calls.push({ sql: trimmed, params });
-    if (trimmed.startsWith('SELECT id, tenant_id')) {
+        if (trimmed === 'BEGIN' || trimmed === 'COMMIT' || trimmed === 'ROLLBACK') {
+          return { rows: [], rowCount: 0 };
+        }
+        if (trimmed.startsWith('SELECT id, tenant_id')) {
       if (!opts.postExists) return { rows: [], rowCount: 0 };
       const [postId, tenantId] = params as [number, number];
       return { rows: [{ id: postId, tenant_id: tenantId }], rowCount: 1 };
     }
-    if (trimmed.startsWith('SELECT dispatch_status FROM scheduled_posts')) {
-      if (opts.scheduledDispatchStatus === null || opts.scheduledDispatchStatus === undefined) {
-        return { rows: [], rowCount: 0 };
-      }
-      return { rows: [{ dispatch_status: opts.scheduledDispatchStatus }], rowCount: 1 };
-    }
+    if (trimmed.startsWith('SELECT id, dispatch_status')) {
+          if (opts.scheduledDispatchStatus === null || opts.scheduledDispatchStatus === undefined) {
+            return { rows: [], rowCount: 0 };
+          }
+          return { rows: [{ id: 71, dispatch_status: opts.scheduledDispatchStatus }], rowCount: 1 };
+        }
     if (trimmed.startsWith('DELETE FROM scheduled_posts')) {
       const hadRow = opts.scheduledDispatchStatus !== null && opts.scheduledDispatchStatus !== undefined;
       return { rows: [], rowCount: hadRow ? 1 : 0 };
@@ -136,6 +142,26 @@ test('DELETE schedule in_flight: returns 409 with dispatch_in_flight', async () 
   assert.equal(body.reason, 'dispatch_in_flight');
 });
 
+test('DELETE schedule preserves manual-reconciliation evidence', async () => {
+  const { queryable, calls } = buildScheduleQueryable({
+    postExists: true,
+    scheduledDispatchStatus: 'manual_reconciliation',
+  });
+  const response = await handleDeleteScheduleSocialContentPost(
+    'job-abc',
+    '42',
+    {
+      tenantContextLoader: tenantLoader(15),
+      queryable,
+      publishApprovalResolver: async () => true,
+    },
+  );
+  assert.equal(response.status, 409);
+  const body = (await response.json()) as { reason: string };
+  assert.equal(body.reason, 'dispatch_not_cancellable');
+  assert.equal(calls.some((call) => call.sql.startsWith('DELETE FROM scheduled_posts')), false);
+});
+
 test('DELETE schedule no-publish-approval: returns 409 with publish_requires_approval', async () => {
   const { queryable } = buildScheduleQueryable({ postExists: true, scheduledDispatchStatus: 'pending' });
   const response = await handleDeleteScheduleSocialContentPost(
@@ -173,6 +199,27 @@ test('DELETE post cascade: both rows gone, returns 200 with scheduledPostDeleted
   assert.ok(schedDel, 'must DELETE scheduled_posts row');
   const postDel = calls.find((c) => c.sql.startsWith('DELETE FROM posts'));
   assert.ok(postDel, 'must DELETE posts row');
+});
+
+test('DELETE post preserves manual-reconciliation evidence and canonical content', async () => {
+  const { queryable, calls } = buildPostQueryable({
+    postExists: true,
+    scheduledDispatchStatus: 'manual_reconciliation',
+  });
+  const response = await handleDeleteSocialContentPost(
+    'job-abc',
+    '42',
+    {
+      tenantContextLoader: tenantLoader(15),
+      queryable,
+      publishApprovalResolver: async () => true,
+    },
+  );
+  assert.equal(response.status, 409);
+  const body = (await response.json()) as { reason: string };
+  assert.equal(body.reason, 'dispatch_not_cancellable');
+  assert.equal(calls.some((call) => call.sql.startsWith('DELETE FROM scheduled_posts')), false);
+  assert.equal(calls.some((call) => call.sql.startsWith('DELETE FROM posts')), false);
 });
 
 test('DELETE post idempotent: already-gone post returns 404 not 500', async () => {

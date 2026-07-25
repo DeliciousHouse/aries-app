@@ -115,6 +115,27 @@ test('calendar view-model maps scheduled_posts rows into grid events', () => {
   assert.doesNotMatch(model.events[0].scheduledFor, /UTC/);
 });
 
+test('calendar view-model marks child manual-reconciliation evidence as review-only while parent stays pending', () => {
+  const model = createCalendarViewModel({
+    scheduledPosts: [buildScheduledPost({
+      dispatchStatus: 'pending',
+      dispatches: [{
+        platform: 'facebook',
+        status: 'manual_reconciliation',
+        dispatchedAt: null,
+        errorAt: '2026-04-15T14:01:00.000Z',
+        errorMessage: 'publish outcome unknown',
+      }],
+    })],
+    posts: [],
+    timeZone: 'UTC',
+  });
+
+  assert.equal(model.events[0]!.reschedulable, false);
+  assert.equal(model.events[0]!.manualReviewRequired, true);
+  assert.match(model.events[0]!.manualReviewMessage ?? '', /verify whether.*live/i);
+});
+
 test('calendar view-model day key is tenant-zone aware (11pm post lands on the tenant day)', () => {
   // 2026-04-16T03:00:00Z is 2026-04-15 23:00 in New York.
   const model = createCalendarViewModel({

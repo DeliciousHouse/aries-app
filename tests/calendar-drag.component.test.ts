@@ -5,6 +5,10 @@ import { installJsdom } from './helpers/jsdom-env';
 
 // DOM must exist before React / @dnd-kit / @testing-library load.
 installJsdom();
+Object.defineProperty(globalThis, 'self', {
+  value: globalThis,
+  configurable: true,
+});
 
 import React from 'react';
 
@@ -89,6 +93,25 @@ test('resolveDragSchedule is a no-op when an event is dropped on its own cell', 
   assert.equal(resolveDragSchedule({ kind: 'event', event }, event.dayKey), null);
 });
 
+test('resolveDragSchedule rejects drag attempts for child manual-reconciliation evidence', () => {
+  const event = createCalendarViewModel({
+    scheduledPosts: [buildScheduledPost({
+      dispatchStatus: 'pending',
+      dispatches: [{
+        platform: 'facebook',
+        status: 'manual_reconciliation',
+        dispatchedAt: null,
+        errorAt: '2026-04-15T14:01:00.000Z',
+        errorMessage: 'publish outcome unknown',
+      }],
+    })],
+    posts: [],
+    timeZone: 'America/New_York',
+  }).events[0];
+
+  assert.equal(resolveDragSchedule({ kind: 'event', event }, '2026-04-20'), null);
+});
+
 test('resolveDragSchedule schedules a NEW post when a tray item is dropped on a cell', () => {
   const model = createCalendarViewModel({
     scheduledPosts: [],
@@ -153,6 +176,39 @@ test('CalendarPresenter renders droppable cells and draggable tiles under jsdom'
     // The current-month day-15 cell exists as a drop target (tenant-zone day key).
     const targetCell = container.querySelector(`[data-testid="cell-${FIXTURE_CURRENT_MONTH_DAY_KEY}"]`);
     assert.ok(targetCell, 'the tenant-zone target cell should be droppable');
+  } finally {
+    cleanup();
+  }
+});
+
+test('CalendarPresenter disables manual-reconciliation drag and directs the operator to review evidence', async () => {
+  const { render, fireEvent, screen, cleanup } = await import('@testing-library/react');
+  const model = createCalendarViewModel({
+    scheduledPosts: [buildScheduledPost({
+      dispatchStatus: 'pending',
+      dispatches: [{
+        platform: 'facebook',
+        status: 'manual_reconciliation',
+        dispatchedAt: null,
+        errorAt: '2026-04-15T14:01:00.000Z',
+        errorMessage: 'publish outcome unknown',
+      }],
+    })],
+    posts: [],
+    timeZone: 'America/New_York',
+  });
+  const { default: CalendarPresenter } = await import(
+    '../frontend/aries-v1/presenters/calendar-presenter'
+  );
+
+  const { container } = render(React.createElement(CalendarPresenter, { model }));
+  try {
+    const tile = container.querySelector('[data-testid="tile-901"]');
+    assert.ok(tile);
+    assert.equal(tile.getAttribute('aria-disabled'), 'true');
+    fireEvent.click(tile);
+    assert.ok(screen.getByText(/verify whether this post is already live/i));
+    assert.equal(screen.queryByRole('button', { name: 'Reschedule' }), null);
   } finally {
     cleanup();
   }

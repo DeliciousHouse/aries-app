@@ -3,10 +3,23 @@ import test from 'node:test';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { upsertScheduledPost } from '../backend/social-content/scheduled-posts';
+
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 type WorkerModule = {
-  tick: (pool: FakePool) => Promise<{ processed: number; dispatched: number; failed: number; skipped: number }>;
+  tick: (pool: FakePool) => Promise<{
+    processed: number;
+    dispatched: number;
+    failed: number;
+    skipped: number;
+    manualReconciliation: number;
+  }>;
+  parseShutdownTimeoutMs: (raw: string | undefined) => number;
+  createScheduledPostsWorkerRuntime: (pool: FakePool) => {
+    runTick: () => Promise<{ processed: number; dispatched: number; failed: number; skipped: number }>;
+    shutdown: (timeoutMs?: number) => Promise<boolean>;
+  };
 };
 
 async function loadWorker(): Promise<WorkerModule> {
@@ -36,6 +49,7 @@ type SchedRow = {
   error_message: string | null;
   dispatch_attempt_token: string | null;
   dispatch_claimed_at: string | null;
+  dispatch_started_at: string | null;
   updated_at: string;
   next_attempt_backoff_minutes?: number | null;
 };
@@ -52,6 +66,8 @@ type ChildRow = {
 class FakeDb {
   scheduled: SchedRow[] = [];
   children: ChildRow[] = [];
+  beforeOutcomeWrite: (() => Promise<void>) | null = null;
+  beforeClaimCommit: (() => Promise<void>) | null = null;
   private updatedAtSequence = Date.now();
 
   nextUpdatedAt(): string {
@@ -79,6 +95,15 @@ class FakeClient {
     }
     if (s === 'COMMIT') {
       if (this.tx) {
+        const createsPreProviderClaim = this.tx.scheduled.some((candidate) => {
+          const live = this.db.scheduled.find((row) => row.id === candidate.id);
+          return candidate.dispatch_status === 'in_flight'
+            && candidate.dispatch_started_at === null
+            && live?.dispatch_status !== 'in_flight';
+        });
+        if (createsPreProviderClaim && this.db.beforeClaimCommit) {
+          await this.db.beforeClaimCommit();
+        }
         this.db.scheduled = this.tx.scheduled;
         this.db.children = this.tx.children;
       }
@@ -98,7 +123,9 @@ class FakeClient {
         .filter(
           (r) =>
             r.dispatch_status === 'pending' ||
-            (r.dispatch_status === 'in_flight' && (r.dispatch_claimed_at ?? '') < cutoff),
+            (r.dispatch_status === 'in_flight'
+              && r.dispatch_started_at === null
+              && (r.dispatch_claimed_at ?? '') < cutoff),
         )
         .map((r) => ({ id: r.id }));
       return { rows, rowCount: rows.length };
@@ -112,7 +139,9 @@ class FakeClient {
         (r) =>
           r.id === id &&
           (r.dispatch_status === 'pending' ||
-            (r.dispatch_status === 'in_flight' && (r.dispatch_claimed_at ?? '') < cutoff)),
+            (r.dispatch_status === 'in_flight'
+              && r.dispatch_started_at === null
+              && (r.dispatch_claimed_at ?? '') < cutoff)),
       );
       if (!row) return { rows: [], rowCount: 0 };
       return {
@@ -155,6 +184,7 @@ class FakeClient {
     }
 
     if (s.startsWith('UPDATE scheduled_post_dispatches')) {
+      if (this.db.beforeOutcomeWrite) await this.db.beforeOutcomeWrite();
       const [spId, platform, status, errMsg, platformPostId, attemptToken] = params as [
         number,
         string,
@@ -173,7 +203,7 @@ class FakeClient {
         child.status = status;
         if (!child.platform_post_id && platformPostId) child.platform_post_id = platformPostId;
         if (status === 'dispatched') child.dispatched_at = new Date().toISOString();
-        if (status === 'failed') {
+        if (status === 'failed' || status === 'manual_reconciliation') {
           child.error_at = new Date().toISOString();
           child.error_message = errMsg;
         }
@@ -183,13 +213,16 @@ class FakeClient {
 
     if (s.startsWith('SELECT platform FROM scheduled_post_dispatches')) {
       // The worker excludes platforms that already reached a terminal state
-      // (dispatched OR failed) from re-dispatch on a stale-in_flight reclaim.
+      // (dispatched, failed, or manual reconciliation) from re-dispatch on a
+      // stale_in_flight reclaim.
       const spId = Number(params[0]);
       const rows = store.children
         .filter(
           (c) =>
             c.scheduled_post_id === spId &&
-            (c.status === 'dispatched' || c.status === 'failed'),
+            (c.status === 'dispatched'
+              || c.status === 'failed'
+              || c.status === 'manual_reconciliation'),
         )
         .map((c) => ({ platform: c.platform }));
       return { rows, rowCount: rows.length };
@@ -230,6 +263,7 @@ class FakeClient {
           row.dispatch_status = 'in_flight';
           row.dispatch_attempt_token = String(params[1]);
           row.dispatch_claimed_at = this.db.nextUpdatedAt();
+          row.dispatch_started_at = null;
           row.updated_at = row.dispatch_claimed_at;
           return {
             rows: [{ attempt_token: row.dispatch_attempt_token }],
@@ -246,7 +280,7 @@ class FakeClient {
           const status = String(params[1]);
           row.dispatch_status = status;
           if (status === 'dispatched') row.dispatched_at = new Date().toISOString();
-          if (status === 'failed') {
+          if (status === 'failed' || status === 'manual_reconciliation') {
             row.error_at = new Date().toISOString();
             row.error_message = (params[2] as string | null) ?? null;
           }
@@ -257,6 +291,53 @@ class FakeClient {
 
     if (s.startsWith('UPDATE posts')) {
       return { rows: [], rowCount: 0 };
+    }
+
+    if (s.startsWith('WITH released_owner AS')) {
+      const [spId, attemptToken] = params as [number, string];
+      const owner = store.scheduled.find(
+        (row) => row.id === spId
+          && row.dispatch_status === 'in_flight'
+          && row.dispatch_started_at === null
+          && row.dispatch_attempt_token === attemptToken,
+      );
+      if (!owner) return { rows: [{ released: 0 }], rowCount: 1 };
+      owner.dispatch_status = 'pending';
+      owner.dispatch_attempt_token = null;
+      owner.dispatch_claimed_at = null;
+      for (const child of store.children) {
+        if (child.scheduled_post_id === spId && child.status === 'in_flight') {
+          child.status = 'pending';
+        }
+      }
+      return { rows: [{ released: 1 }], rowCount: 1 };
+    }
+
+    if (s.startsWith('WITH ambiguous AS')) {
+      const cutoff = String(params[1]);
+      let swept = 0;
+      for (const row of store.scheduled) {
+        if (
+          row.dispatch_status !== 'in_flight'
+          || row.dispatch_started_at === null
+          || (row.dispatch_claimed_at ?? '') >= cutoff
+        ) continue;
+        row.dispatch_status = 'manual_reconciliation';
+        row.error_at = new Date().toISOString();
+        row.error_message = 'publish_outcome_unknown: manual reconciliation required; no auto-retry';
+        for (const child of store.children) {
+          if (
+            child.scheduled_post_id === row.id
+            && (child.status === 'pending' || child.status === 'in_flight')
+          ) {
+            child.status = 'manual_reconciliation';
+            child.error_at = new Date().toISOString();
+            child.error_message = row.error_message;
+          }
+        }
+        swept += 1;
+      }
+      return { rows: [{ swept }], rowCount: 1 };
     }
 
     if (s.startsWith('WITH dead AS')) {
@@ -277,6 +358,7 @@ class FakeClient {
 type FakePool = {
   query: (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount: number }>;
   connect: () => Promise<FakeClient>;
+  end?: () => Promise<void>;
 };
 
 function makePool(db: FakeDb): FakePool {
@@ -301,11 +383,21 @@ function seedDueRow(db: FakeDb): void {
     error_message: null,
     dispatch_attempt_token: null,
     dispatch_claimed_at: null,
+    dispatch_started_at: null,
     updated_at: new Date(Date.now() - 60_000).toISOString(),
   });
 }
 
-test('worker commits in_flight before publish; a crash mid-publish leaves a reclaimable row', async () => {
+test('shutdown timeout env stays above provider I/O and below Compose grace', async () => {
+  const { parseShutdownTimeoutMs } = await loadWorker();
+  assert.equal(parseShutdownTimeoutMs(undefined), 350_000);
+  assert.equal(parseShutdownTimeoutMs('345000'), 345_000);
+  assert.equal(parseShutdownTimeoutMs('330000'), 350_000);
+  assert.equal(parseShutdownTimeoutMs('360000'), 350_000);
+  assert.equal(parseShutdownTimeoutMs('not-a-number'), 350_000);
+});
+
+test('worker sends one internal request and fails closed on ambiguous transport loss', async () => {
   const { tick } = await loadWorker();
   const db = new FakeDb();
   seedDueRow(db);
@@ -315,11 +407,12 @@ test('worker commits in_flight before publish; a crash mid-publish leaves a recl
 
   const realFetch = globalThis.fetch;
   try {
-    // Simulate a crash during the network publish: fetch throws every time.
-    // dispatchWithRetry catches this into a transportError, so the per-platform
-    // outcomes all stay 'pending' — i.e. nothing is terminally marked.
+    // The route may have accepted the provider request before the connection
+    // disappeared. A retry here could duplicate a live post.
     let observedDuringPublish: string | undefined;
+    let fetchCalls = 0;
     globalThis.fetch = (async () => {
+      fetchCalls += 1;
       // At this point the in_flight transaction is already committed.
       observedDuringPublish = db.scheduled[0].dispatch_status;
       throw new Error('simulated worker crash during publish');
@@ -332,61 +425,22 @@ test('worker commits in_flight before publish; a crash mid-publish leaves a recl
       'in_flight',
       'the parent row must be committed as in_flight BEFORE the publish call runs',
     );
+    assert.equal(fetchCalls, 1, 'a worker attempt must issue exactly one internal dispatch request');
 
-    // After a failed publish, the row must NOT be falsely 'dispatched'. It is
-    // a non-terminal state the next pass can re-claim.
     const row = db.scheduled[0];
-    assert.notEqual(row.dispatch_status, 'dispatched', 'a crashed publish must never leave a false dispatched row');
-    assert.ok(
-      row.dispatch_status === 'in_flight' || row.dispatch_status === 'pending',
-      `row must stay non-terminal after a crashed publish, got '${row.dispatch_status}'`,
-    );
-    // Children likewise stayed non-terminal.
-    assert.ok(
-      db.children.every((c) => c.status === 'in_flight' || c.status === 'pending'),
-      'child rows must stay non-terminal after a crashed publish',
-    );
+    assert.equal(row.dispatch_status, 'manual_reconciliation');
+    assert.match(row.error_message ?? '', /publish_outcome_unknown/);
+    assert.ok(db.children.every((c) => c.status === 'manual_reconciliation'));
+
+    globalThis.fetch = (async () => {
+      fetchCalls += 1;
+      throw new Error('manual-reconciliation row must not be reclaimed');
+    }) as typeof fetch;
+    const restartReport = await tick(makePool(db));
+    assert.equal(restartReport.processed, 0);
+    assert.equal(fetchCalls, 1, 'automatic restart must not republish an ambiguous outcome');
   } finally {
     globalThis.fetch = realFetch;
-  }
-
-  // --- A later worker pass re-claims the stuck row and completes it ---------
-  // Backdate the immutable claim timestamp so the row is past the reclaim window.
-  db.scheduled[0].dispatch_status = 'in_flight';
-  db.scheduled[0].dispatch_claimed_at = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  for (const c of db.children) c.status = 'in_flight';
-
-  const realFetch2 = globalThis.fetch;
-  try {
-    globalThis.fetch = (async () =>
-      new Response(
-        JSON.stringify({
-          status: 'ok',
-          results: [
-            { provider: 'facebook', ok: true, platformPostId: 'fb_first_100' },
-            { provider: 'instagram', ok: true, platformPostId: 'ig_second_100' },
-          ],
-        }),
-        { status: 202, headers: { 'content-type': 'application/json' } },
-      )) as typeof fetch;
-
-    const report = await tick(makePool(db));
-    assert.equal(report.dispatched, 1, 'the re-claim pass dispatches the stuck row');
-    assert.equal(db.scheduled[0].dispatch_status, 'dispatched', 'row reaches terminal dispatched after a successful re-claim');
-    assert.ok(
-      db.children.every((c) => c.status === 'dispatched'),
-      'all child rows are dispatched after the successful re-claim',
-    );
-    assert.deepEqual(
-      db.children.map((child) => [child.platform, child.platform_post_id]),
-      [
-        ['facebook', 'fb_first_100'],
-        ['instagram', 'ig_second_100'],
-      ],
-      'each successful provider id is committed on its matching durable child row',
-    );
-  } finally {
-    globalThis.fetch = realFetch2;
   }
 });
 
@@ -582,7 +636,7 @@ test('a reclaimed attempt fences stale child outcomes, provider ids, and parent 
 // post-publish transaction. Without this, deleting the tick() else-branch
 // would keep every other test green while restoring the 60s retry hammer.
 
-test('a retryable transport failure writes the general retry backoff', async () => {
+test('an ambiguous transport failure bypasses automatic retry backoff', async () => {
   const { tick } = await loadWorker();
   const db = new FakeDb();
   seedDueRow(db);
@@ -598,12 +652,37 @@ test('a retryable transport failure writes the general retry backoff', async () 
 
     await tick(makePool(db));
 
-    assert.equal(db.scheduled[0].dispatch_status, 'pending', 'row stays retryable');
+    assert.equal(db.scheduled[0].dispatch_status, 'manual_reconciliation');
     assert.equal(
       db.scheduled[0].next_attempt_backoff_minutes,
-      10,
-      'general-tier backoff persisted in the post-publish transaction',
+      undefined,
+      'ambiguous outcomes are terminally quarantined instead of scheduled for retry',
     );
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('a known pre-provider 401 response is retryable and never quarantined as an unknown publish', async () => {
+  const { tick } = await loadWorker();
+  const db = new FakeDb();
+  seedDueRow(db);
+
+  process.env.APP_BASE_URL = 'https://aries.example.test';
+  process.env.INTERNAL_API_SECRET = 'test-secret';
+
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => new Response(
+      JSON.stringify({ error: 'invalid_internal_auth' }),
+      { status: 401, headers: { 'content-type': 'application/json' } },
+    )) as typeof fetch;
+
+    await tick(makePool(db));
+
+    assert.equal(db.scheduled[0]!.dispatch_status, 'pending');
+    assert.ok(db.children.every((child) => child.status === 'pending'));
+    assert.equal(db.scheduled[0]!.next_attempt_backoff_minutes, 10);
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -644,6 +723,85 @@ test('a platform rate-limit failure (FB 368) writes the long rate-limit backoff'
       db.scheduled[0].next_attempt_backoff_minutes,
       180,
       'rate-limit tier backoff persisted — no more 60s hammering against FB 368',
+    );
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('a mixed unknown and retryable provider outcome retries only the bounded-safe child then settles for manual review', async () => {
+  const { tick } = await loadWorker();
+  const db = new FakeDb();
+  seedDueRow(db);
+
+  process.env.APP_BASE_URL = 'https://aries.example.test';
+  process.env.INTERNAL_API_SECRET = 'test-secret';
+
+  const requestedPlatforms: string[][] = [];
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as { platforms: string[] };
+      requestedPlatforms.push(body.platforms);
+      if (requestedPlatforms.length === 1) {
+        return new Response(JSON.stringify({
+          status: 'error',
+          results: [
+            {
+              provider: 'facebook',
+              ok: false,
+              retryable: false,
+              kind: 'outcome_unknown',
+              error: 'provider accepted request but response was lost',
+            },
+            {
+              provider: 'instagram',
+              ok: false,
+              retryable: true,
+              kind: 'pre_provider',
+              error: 'provider was not reached',
+            },
+          ],
+        }), { status: 502, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({
+        status: 'ok',
+        results: [{ provider: 'instagram', ok: true, platformPostId: 'ig-safe-retry' }],
+      }), { status: 202, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+
+    await tick(makePool(db));
+    assert.equal(
+      db.scheduled[0]!.dispatch_status,
+      'pending',
+      'a retryable sibling keeps the parent claimable despite another child requiring manual review',
+    );
+    assert.deepEqual(
+      db.children.map((child) => [child.platform, child.status]),
+      [
+        ['facebook', 'manual_reconciliation'],
+        ['instagram', 'pending'],
+      ],
+    );
+    assert.equal(db.scheduled[0]!.next_attempt_backoff_minutes, 10);
+
+    await tick(makePool(db));
+    assert.deepEqual(
+      requestedPlatforms,
+      [['facebook', 'instagram'], ['instagram']],
+      'the unknown Facebook outcome is never redispatched; only the bounded-safe child retries',
+    );
+    assert.deepEqual(
+      db.children.map((child) => [child.platform, child.status, child.platform_post_id]),
+      [
+        ['facebook', 'manual_reconciliation', null],
+        ['instagram', 'dispatched', 'ig-safe-retry'],
+      ],
+    );
+    assert.equal(
+      db.scheduled[0]!.dispatch_status,
+      'manual_reconciliation',
+      'after all safe retries finish the parent settles to the remaining manual-review outcome',
     );
   } finally {
     globalThis.fetch = realFetch;
@@ -718,6 +876,311 @@ test('rescheduling metadata during a live publish cannot invalidate completion o
     db.scheduled[0]!.updated_at = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     await tick(makePool(db));
     assert.equal(fetchCalls, 1, 'exactly one provider publish occurs');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('restart quarantines a stale provider-started attempt instead of republishing it', async () => {
+  const { tick } = await loadWorker();
+  const db = new FakeDb();
+  seedDueRow(db);
+  const row = db.scheduled[0]!;
+  row.dispatch_status = 'in_flight';
+  row.dispatch_attempt_token = 'attempt-unknown';
+  row.dispatch_claimed_at = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  row.dispatch_started_at = new Date(Date.now() - 59 * 60 * 1000).toISOString();
+  db.children.push(...row.target_platforms.map((platform) => ({
+    scheduled_post_id: row.id,
+    platform,
+    status: 'in_flight',
+    platform_post_id: null,
+    dispatched_at: null,
+    error_at: null,
+    error_message: null,
+  })));
+
+  let fetchCalls = 0;
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => {
+      fetchCalls += 1;
+      throw new Error('stale started attempt must never cross provider I/O again');
+    }) as typeof fetch;
+
+    const report = await tick(makePool(db));
+    assert.equal(report.manualReconciliation, 1);
+    assert.equal(report.processed, 0);
+    assert.equal(fetchCalls, 0);
+    assert.equal(row.dispatch_status, 'manual_reconciliation');
+    assert.ok(db.children.every((child) => child.status === 'manual_reconciliation'));
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('SIGTERM drain waits for accepted provider outcome recording before closing the pool', async () => {
+  const { createScheduledPostsWorkerRuntime, tick } = await loadWorker();
+  const db = new FakeDb();
+  seedDueRow(db);
+  process.env.APP_BASE_URL = 'https://aries.example.test';
+  process.env.INTERNAL_API_SECRET = 'test-secret';
+
+  let releaseOutcome!: () => void;
+  let outcomeWriteStartedResolve!: () => void;
+  const outcomeWriteStarted = new Promise<void>((resolve) => {
+    outcomeWriteStartedResolve = resolve;
+  });
+  const outcomeGate = new Promise<void>((resolve) => {
+    releaseOutcome = resolve;
+  });
+  let hookCalls = 0;
+  db.beforeOutcomeWrite = async () => {
+    hookCalls += 1;
+    if (hookCalls === 1) {
+      outcomeWriteStartedResolve();
+      await outcomeGate;
+    }
+  };
+
+  let poolEnded = false;
+  const pool: FakePool = {
+    ...makePool(db),
+    end: async () => {
+      poolEnded = true;
+    },
+  };
+  let fetchCalls = 0;
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => {
+      fetchCalls += 1;
+      return new Response(JSON.stringify({
+        results: [
+          { provider: 'facebook', ok: true, platformPostId: 'fb-drained' },
+          { provider: 'instagram', ok: true, platformPostId: 'ig-drained' },
+        ],
+      }), { status: 202, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+
+    const runtime = createScheduledPostsWorkerRuntime(pool);
+    const activeTick = runtime.runTick();
+    await outcomeWriteStarted;
+    const draining = runtime.shutdown(5_000);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(poolEnded, false, 'pool stays open while the accepted outcome is being recorded');
+
+    releaseOutcome();
+    assert.equal(await draining, true);
+    await activeTick;
+    assert.equal(poolEnded, true);
+    assert.equal(db.scheduled[0]!.dispatch_status, 'dispatched');
+
+    await tick(makePool(db));
+    assert.equal(fetchCalls, 1, 'a restarted worker sees the durable terminal row and does not republish');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('shutdown during a prefetched batch drains the active row without claiming or publishing later rows', async () => {
+  const { createScheduledPostsWorkerRuntime } = await loadWorker();
+  const db = new FakeDb();
+  seedDueRow(db);
+  db.scheduled.push({
+    ...db.scheduled[0]!,
+    id: 2,
+    post_id: 102,
+    caption: 'second prefetched post',
+    dispatch_attempt_token: null,
+    dispatch_claimed_at: null,
+    dispatch_started_at: null,
+  });
+  process.env.APP_BASE_URL = 'https://aries.example.test';
+  process.env.INTERNAL_API_SECRET = 'test-secret';
+
+  let signalFirstPublish!: () => void;
+  const firstPublishStarted = new Promise<void>((resolve) => {
+    signalFirstPublish = resolve;
+  });
+  let releaseFirstPublish!: () => void;
+  const firstPublishGate = new Promise<void>((resolve) => {
+    releaseFirstPublish = resolve;
+  });
+
+  let fetchCalls = 0;
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => {
+      fetchCalls += 1;
+      if (fetchCalls === 1) {
+        signalFirstPublish();
+        await firstPublishGate;
+      }
+      return new Response(JSON.stringify({
+        results: [
+          { provider: 'facebook', ok: true, platformPostId: `fb-drain-${fetchCalls}` },
+          { provider: 'instagram', ok: true, platformPostId: `ig-drain-${fetchCalls}` },
+        ],
+      }), { status: 202, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+
+    const runtime = createScheduledPostsWorkerRuntime(makePool(db));
+    const activeTick = runtime.runTick();
+    await firstPublishStarted;
+    const draining = runtime.shutdown(5_000);
+    releaseFirstPublish();
+
+    assert.equal(await draining, true);
+    await activeTick;
+    assert.equal(fetchCalls, 1, 'shutdown must not start provider work for the prefetched second row');
+    assert.equal(db.scheduled.find((row) => row.id === 1)?.dispatch_status, 'dispatched');
+    assert.equal(db.scheduled.find((row) => row.id === 2)?.dispatch_status, 'pending');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('shutdown while the pre-provider claim commit awaits releases the claim without starting provider I/O', async () => {
+  const { createScheduledPostsWorkerRuntime } = await loadWorker();
+  const db = new FakeDb();
+  seedDueRow(db);
+  process.env.APP_BASE_URL = 'https://aries.example.test';
+  process.env.INTERNAL_API_SECRET = 'test-secret';
+
+  let signalClaimCommit!: () => void;
+  const claimCommitStarted = new Promise<void>((resolve) => {
+    signalClaimCommit = resolve;
+  });
+  let releaseClaimCommit!: () => void;
+  const claimCommitGate = new Promise<void>((resolve) => {
+    releaseClaimCommit = resolve;
+  });
+  db.beforeClaimCommit = async () => {
+    signalClaimCommit();
+    await claimCommitGate;
+  };
+
+  let poolEnded = false;
+  const pool: FakePool = {
+    ...makePool(db),
+    end: async () => {
+      poolEnded = true;
+    },
+  };
+  let fetchCalls = 0;
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => {
+      fetchCalls += 1;
+      return new Response(JSON.stringify({ results: [] }), {
+        status: 202,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    const runtime = createScheduledPostsWorkerRuntime(pool);
+    const activeTick = runtime.runTick();
+    await claimCommitStarted;
+    const draining = runtime.shutdown(5_000);
+    releaseClaimCommit();
+
+    assert.equal(await draining, true);
+    await activeTick;
+    assert.equal(fetchCalls, 0, 'a signal delivered while COMMIT awaits closes the last claim-to-dispatch gap');
+    assert.equal(db.scheduled[0]!.dispatch_status, 'pending');
+    assert.equal(db.scheduled[0]!.dispatch_attempt_token, null);
+    assert.equal(db.scheduled[0]!.dispatch_claimed_at, null);
+    assert.ok(db.children.every((child) => child.status === 'pending'));
+    assert.equal(poolEnded, true);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('a terminal reschedule rearms, is claimed, and attempts every requested platform once', async () => {
+  const { tick } = await loadWorker();
+  const db = new FakeDb();
+  seedDueRow(db);
+  const row = db.scheduled[0]!;
+  row.dispatch_status = 'dispatched';
+  row.dispatch_attempt_token = 'terminal-attempt';
+  row.dispatch_claimed_at = '2025-01-01T00:00:00.000Z';
+  row.dispatch_started_at = '2025-01-01T00:00:01.000Z';
+  row.dispatched_at = '2025-01-01T00:00:02.000Z';
+  row.error_at = '2025-01-01T00:00:03.000Z';
+  row.error_message = 'old terminal detail';
+  row.next_attempt_backoff_minutes = 180;
+  db.children.push(...row.target_platforms.map((platform) => ({
+    scheduled_post_id: row.id,
+    platform,
+    status: 'dispatched',
+    platform_post_id: `${platform}-old`,
+    dispatched_at: row.dispatched_at,
+    error_at: null,
+    error_message: null,
+  })));
+
+  await upsertScheduledPost(
+    {
+      query: async (sql, params) => {
+        assert.match(sql, /DELETE FROM scheduled_post_dispatches/);
+        assert.match(sql, /dispatch_status = 'pending'/);
+        db.children = [];
+        row.scheduled_for = String(params[2]);
+        row.target_platforms = params[3] as string[];
+        row.dispatch_status = 'pending';
+        row.dispatch_attempt_token = null;
+        row.dispatch_claimed_at = null;
+        row.dispatch_started_at = null;
+        row.dispatched_at = null;
+        row.error_at = null;
+        row.error_message = null;
+        row.next_attempt_backoff_minutes = undefined;
+        return {
+          rows: [{
+            id: row.id,
+            post_id: row.post_id,
+            tenant_id: row.tenant_id,
+            scheduled_for: row.scheduled_for,
+            target_platforms: row.target_platforms,
+            updated_at: row.updated_at,
+          }],
+          rowCount: 1,
+        };
+      },
+    },
+    {
+      tenantId: 15,
+      postId: 101,
+      scheduledFor: new Date('2025-02-01T00:00:00.000Z'),
+      platforms: ['facebook', 'instagram'],
+    },
+  );
+
+  let internalRequests = 0;
+  const requestedPlatforms: string[] = [];
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async (_url, init) => {
+      internalRequests += 1;
+      const body = JSON.parse(String(init?.body)) as { platforms: string[] };
+      requestedPlatforms.push(...body.platforms);
+      return new Response(JSON.stringify({
+        results: body.platforms.map((provider) => ({
+          provider,
+          ok: true,
+          platformPostId: `${provider}-new`,
+        })),
+      }), { status: 202, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+
+    await tick(makePool(db));
+    await tick(makePool(db));
+    assert.equal(internalRequests, 1);
+    assert.deepEqual(requestedPlatforms.sort(), ['facebook', 'instagram']);
+    assert.equal(db.children.length, 2);
+    assert.ok(db.children.every((child) => child.status === 'dispatched'));
   } finally {
     globalThis.fetch = realFetch;
   }
