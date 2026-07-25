@@ -7,8 +7,8 @@
  *   1. The inline CREATE TABLE CHECK in scripts/init-db.js includes all 8
  *      IntegrationPlatform values (facebook, instagram, meta_ads, tiktok,
  *      youtube, linkedin, reddit, x).
- *   2. The idempotent self-heal ALTER TABLE … ADD CONSTRAINT block in
- *      scripts/init-db.js also includes all 8 values.
+ *   2. The catalog-guarded self-heal helper call in scripts/init-db.js also
+ *      includes all 8 values without replacing an already-current constraint.
  *   3. migrations/20260618000000_connected_accounts_allow_x.sql exists and
  *      its ADD CONSTRAINT includes all 8 values.
  *   4. (Invariant) Every value in INTEGRATION_PLATFORMS (the TS union) is
@@ -96,17 +96,17 @@ test('init-db.js: connected_accounts inline CREATE TABLE platform CHECK includes
 // Test 2 — idempotent self-heal ADD CONSTRAINT block
 // ---------------------------------------------------------------------------
 
-test('init-db.js: connected_accounts self-heal ADD CONSTRAINT platform CHECK includes all 8 platforms', () => {
-  // Match the ADD CONSTRAINT … CHECK block that follows the CREATE TABLE.
+test('init-db.js: connected_accounts catalog-guarded self-heal CHECK includes all 8 platforms', () => {
+  // Match the helper call that avoids a no-op DROP/ADD lock on every deploy.
   const alterBlockMatch =
-    /ADD CONSTRAINT connected_accounts_platform_check([\s\S]*?)CHECK\s*\(\s*platform\s+IN\s*\(([^)]+)\)\s*\)/.exec(
+    /ensure_check_constraint\(\s*'connected_accounts'::regclass,\s*'connected_accounts_platform_check',[\s\S]*?\$check\$platform\s+IN\s*\(([^)]+)\)\$check\$/.exec(
       INIT_DB,
     );
   assert.ok(
     alterBlockMatch,
-    'init-db.js must have the idempotent ADD CONSTRAINT connected_accounts_platform_check … CHECK block',
+    'init-db.js must have the catalog-guarded connected_accounts_platform_check self-heal call',
   );
-  const content = alterBlockMatch[2];
+  const content = alterBlockMatch[1];
 
   for (const platform of ALL_PLATFORMS) {
     assert.ok(
