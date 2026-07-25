@@ -142,6 +142,26 @@ test('DELETE schedule in_flight: returns 409 with dispatch_in_flight', async () 
   assert.equal(body.reason, 'dispatch_in_flight');
 });
 
+test('DELETE schedule preserves manual-reconciliation evidence', async () => {
+  const { queryable, calls } = buildScheduleQueryable({
+    postExists: true,
+    scheduledDispatchStatus: 'manual_reconciliation',
+  });
+  const response = await handleDeleteScheduleSocialContentPost(
+    'job-abc',
+    '42',
+    {
+      tenantContextLoader: tenantLoader(15),
+      queryable,
+      publishApprovalResolver: async () => true,
+    },
+  );
+  assert.equal(response.status, 409);
+  const body = (await response.json()) as { reason: string };
+  assert.equal(body.reason, 'dispatch_not_cancellable');
+  assert.equal(calls.some((call) => call.sql.startsWith('DELETE FROM scheduled_posts')), false);
+});
+
 test('DELETE schedule no-publish-approval: returns 409 with publish_requires_approval', async () => {
   const { queryable } = buildScheduleQueryable({ postExists: true, scheduledDispatchStatus: 'pending' });
   const response = await handleDeleteScheduleSocialContentPost(
@@ -179,6 +199,27 @@ test('DELETE post cascade: both rows gone, returns 200 with scheduledPostDeleted
   assert.ok(schedDel, 'must DELETE scheduled_posts row');
   const postDel = calls.find((c) => c.sql.startsWith('DELETE FROM posts'));
   assert.ok(postDel, 'must DELETE posts row');
+});
+
+test('DELETE post preserves manual-reconciliation evidence and canonical content', async () => {
+  const { queryable, calls } = buildPostQueryable({
+    postExists: true,
+    scheduledDispatchStatus: 'manual_reconciliation',
+  });
+  const response = await handleDeleteSocialContentPost(
+    'job-abc',
+    '42',
+    {
+      tenantContextLoader: tenantLoader(15),
+      queryable,
+      publishApprovalResolver: async () => true,
+    },
+  );
+  assert.equal(response.status, 409);
+  const body = (await response.json()) as { reason: string };
+  assert.equal(body.reason, 'dispatch_not_cancellable');
+  assert.equal(calls.some((call) => call.sql.startsWith('DELETE FROM scheduled_posts')), false);
+  assert.equal(calls.some((call) => call.sql.startsWith('DELETE FROM posts')), false);
 });
 
 test('DELETE post idempotent: already-gone post returns 404 not 500', async () => {

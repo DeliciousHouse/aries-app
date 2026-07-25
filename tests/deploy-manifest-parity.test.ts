@@ -82,6 +82,10 @@ test('deploy workflow force-recreates every docker-compose service', () => {
     path.join(repoRoot, '.github', 'workflows', 'deploy.yml'),
     'utf8',
   );
+  const schemaFenceSource = fs.readFileSync(
+    path.join(repoRoot, 'scripts', 'release', 'apply-schema-with-worker-restore.sh'),
+    'utf8',
+  );
 
   // Services that do NOT run the shared ARIES_APP_IMAGE are exempt from the
   // app-image recreate command. aries-autoheal has its own pinned image and a
@@ -156,6 +160,12 @@ test('deploy workflow force-recreates every docker-compose service', () => {
       recreatedServices.add(nameMatch[1]);
     }
   }
+  assert.match(
+    schemaFenceSource,
+    /ARIES_APP_IMAGE="\$\{target_image\}" docker compose up -d --no-deps --force-recreate --pull always "\$\{scheduled_worker_service\}"/,
+    'the exact-restore helper must retain the pinned scheduled-worker recreate command',
+  );
+  recreatedServices.add('aries-scheduled-posts-worker');
 
   const missingFromDeploy = composeServices.filter(
     (name) => !recreatedServices.has(name) && !recreateExemptServices.includes(name),
@@ -196,9 +206,8 @@ test('deploy workflow fences scheduled publishing across schema/app rollout and 
   );
   const healthyGate = deploySource.indexOf('if [[ "${healthy}" != "1" ]]');
   const restartWorker = deploySource.indexOf(
-    'ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always aries-scheduled-posts-worker',
+    'replace_scheduled_worker_and_verify "${TARGET_IMAGE}" "${target_image_id}"',
   );
-  const completeCutover = deploySource.indexOf('complete_scheduled_worker_cutover');
 
   for (const [name, index] of [
     ['scheduled worker stop + target-image schema fence', applySchema],
@@ -210,9 +219,37 @@ test('deploy workflow fences scheduled publishing across schema/app rollout and 
   }
   assert.ok(applySchema < startApp, 'schema is applied from the target image before the new app starts');
   assert.ok(startApp < healthyGate, 'new app starts before its health gate');
-  assert.ok(healthyGate < completeCutover, 'exact-worker restore remains armed through the app health gate');
-  assert.ok(completeCutover < restartWorker, 'restore is disarmed immediately before worker replacement starts');
   assert.ok(healthyGate < restartWorker, 'scheduled worker restarts only after the app is healthy');
+
+  const helperRecreate = schemaFenceSource.indexOf(
+    'ARIES_APP_IMAGE="${target_image}" docker compose up -d --no-deps --force-recreate --pull always "${scheduled_worker_service}"',
+  );
+  const helperRunningGate = schemaFenceSource.indexOf(
+    'replacement_running="$(docker inspect -f \'{{.State.Running}}\' "${replacement_id}")"',
+  );
+  const helperImageGate = schemaFenceSource.indexOf(
+    'replacement_image_id="$(docker inspect -f \'{{.Image}}\' "${replacement_id}")"',
+  );
+  const helperManifestGate = schemaFenceSource.indexOf(
+    'manifest_json="$(ARIES_APP_IMAGE="${target_image}" docker compose config --format json)"',
+  );
+  const completeCutover = schemaFenceSource.lastIndexOf('  complete_scheduled_worker_cutover');
+  for (const [name, index] of [
+    ['helper recreate', helperRecreate],
+    ['replacement running gate', helperRunningGate],
+    ['replacement image gate', helperImageGate],
+    ['replacement manifest gate', helperManifestGate],
+    ['cutover disarm', completeCutover],
+  ] as const) {
+    assert.notEqual(index, -1, `exact-restore helper is missing ${name}`);
+  }
+  assert.ok(
+    helperRecreate < helperRunningGate &&
+      helperRunningGate < helperImageGate &&
+      helperImageGate < helperManifestGate &&
+      helperManifestGate < completeCutover,
+    'exact-worker restore must stay armed until every replacement verification gate passes',
+  );
 
   assert.doesNotMatch(
     deploySource,
@@ -227,7 +264,7 @@ test('deploy workflow fences scheduled publishing across schema/app rollout and 
 
   assert.match(
     schemaFenceSource,
-    /previous_scheduled_worker_id="\$\(docker compose ps -q aries-scheduled-posts-worker\)"/,
+    /scheduled_worker_service="aries-scheduled-posts-worker"[\s\S]*?previous_scheduled_worker_id="\$\(docker compose ps -q "\$\{scheduled_worker_service\}"\)"/,
     'deploy captures the exact pre-rollout worker container before stopping it',
   );
   assert.match(

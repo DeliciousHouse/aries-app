@@ -1,5 +1,4 @@
 const { Pool } = require('pg');
-const { quarantineLegacyScheduledDispatches } = require('./scheduled-dispatch-cutover');
 require('dotenv').config();
 
 const pool = new Pool({
@@ -1153,11 +1152,6 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_slack_notifications_sent_at
         ON slack_notifications (sent_at);
     `);
-
-    // AA-99 old-schema cutover. Run on every initialization rather than
-    // consuming a durable marker: a failed rollout can restore an old worker,
-    // which may create a fresh unfenced in-flight row before the next deploy.
-    await quarantineLegacyScheduledDispatches(client);
 
     // ─── Weekly trigger schedule ─────────────────────────────────────────────────
     // One row per tenant that opts into the weekly-content cadence. The

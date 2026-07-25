@@ -23,9 +23,9 @@ strand the queue behind a cosmetic terminal-row update.
 - Terminal reschedules atomically reset the parent lease and per-platform children;
   cancellation and post deletion serialize on the scheduled owner row.
 - Deploy-time schema changes use bounded PostgreSQL waits and catalog-guarded check
-  constraints. App startup skips the duplicate init after that bounded pass, and any
-  schema, recreation, identity, or health failure before worker replacement restarts
-  the exact pre-rollout worker container.
+  constraints. Ambiguous legacy rows transition only after the compatible app owns
+  traffic, and every worker recreation or verification failure rebuilds the exact
+  pre-rollout image and container configuration.
 
 ### Fixed
 
@@ -36,9 +36,10 @@ strand the queue behind a cosmetic terminal-row update.
 - Meta response loss, including a final publish `5xx`, and explicit unknown outcomes
   now require manual reconciliation, while proven pre-provider auth/fence failures
   remain safely retryable.
-- Legacy in-flight rows are quarantined on every startup so a failed rollout that
-  restores the old worker is fenced again on the next deploy; canonical post plus
-  Insights finalization now either commit together or return an observable failure.
+- Legacy ambiguous rows are quarantined only after compatible routes own traffic;
+  unknown platform legs require manual review while proven retryable siblings remain
+  pending, and canonical post plus Insights finalization either commit together or
+  return an observable failure.
 
 ## v0.1.43.0 — fix(publishing): close attribution and ownership races
 

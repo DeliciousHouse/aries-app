@@ -115,6 +115,18 @@ test('calendar view-model maps scheduled_posts rows into grid events', () => {
   assert.doesNotMatch(model.events[0].scheduledFor, /UTC/);
 });
 
+test('calendar view-model marks manual-reconciliation events as review-only', () => {
+  const model = createCalendarViewModel({
+    scheduledPosts: [buildScheduledPost({ dispatchStatus: 'manual_reconciliation' })],
+    posts: [],
+    timeZone: 'UTC',
+  });
+
+  assert.equal(model.events[0]!.reschedulable, false);
+  assert.equal(model.events[0]!.manualReviewRequired, true);
+  assert.match(model.events[0]!.manualReviewMessage ?? '', /verify whether.*live/i);
+});
+
 test('calendar view-model day key is tenant-zone aware (11pm post lands on the tenant day)', () => {
   // 2026-04-16T03:00:00Z is 2026-04-15 23:00 in New York.
   const model = createCalendarViewModel({

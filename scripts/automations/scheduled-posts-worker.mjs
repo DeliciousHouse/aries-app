@@ -151,6 +151,32 @@ export const MARK_IN_FLIGHT_SQL = `UPDATE scheduled_posts
      WHERE id = $1
      RETURNING dispatch_attempt_token AS attempt_token`;
 
+// Shutdown may begin while the claim transaction's COMMIT is awaiting the
+// database. At that point rollback is no longer available, but provider I/O has
+// not started. Release only the exact still-unstarted attempt generation and
+// return its retryable children to pending; terminal/manual children stay put.
+export const RELEASE_PRE_PROVIDER_CLAIM_SQL = `WITH released_owner AS (
+    UPDATE scheduled_posts
+       SET dispatch_status = 'pending',
+           dispatch_attempt_token = NULL,
+           dispatch_claimed_at = NULL,
+           updated_at = clock_timestamp()
+     WHERE id = $1
+       AND dispatch_status = 'in_flight'
+       AND dispatch_attempt_token = $2
+       AND dispatch_started_at IS NULL
+     RETURNING id
+  ), released_children AS (
+    UPDATE scheduled_post_dispatches dispatch
+       SET status = 'pending',
+           updated_at = now()
+      FROM released_owner owner
+     WHERE dispatch.scheduled_post_id = owner.id
+       AND dispatch.status = 'in_flight'
+     RETURNING dispatch.id
+  )
+  SELECT count(*)::int AS released FROM released_owner`;
+
 // Dead-campaign sweep: terminally mark rows the campaign_end_date filter above
 // has made permanently unclaimable. Without this, a row that misses its window
 // (retry backoff, guard deferral, worker outage) stays dispatch_status='pending'
@@ -359,6 +385,11 @@ async function markInFlight(client, rowId) {
   return attemptToken;
 }
 
+async function releasePreProviderClaim(pool, rowId, attemptToken) {
+  const result = await pool.query(RELEASE_PRE_PROVIDER_CLAIM_SQL, [rowId, attemptToken]);
+  return Number(result.rows?.[0]?.released ?? 0) === 1;
+}
+
 /**
  * Validate and lock the parent generation before touching child rows. Claims
  * lock parent then children, so the completion path uses the same lock order;
@@ -383,33 +414,34 @@ async function lockActiveAttempt(client, rowId, attemptToken) {
 /**
  * Roll a set of per-platform statuses up into the single parent
  * scheduled_posts.dispatch_status. A row is only 'dispatched' once every
- * platform succeeded; 'failed' once every platform reached a terminal state
- * and at least one failed; otherwise it stays non-terminal ('in_flight' if
- * any platform is in flight, else 'pending') so a later pass re-claims it.
+ * platform succeeded. In-flight and bounded-safe pending work take precedence
+ * over manual review so they can finish; an ambiguous child wins only after no
+ * retryable work remains. Fully terminal failures otherwise roll up to failed.
  */
 export function rollupParentStatus(platformStatuses) {
   const statuses = Array.isArray(platformStatuses) ? platformStatuses : [];
   if (statuses.length === 0) return 'pending';
   if (statuses.every((s) => s === 'dispatched')) return 'dispatched';
+  if (statuses.some((s) => s === 'in_flight')) return 'in_flight';
+  if (statuses.some((s) => s === 'pending')) return 'pending';
   if (statuses.some((s) => s === 'manual_reconciliation')) return 'manual_reconciliation';
   if (statuses.every((s) => s === 'dispatched' || s === 'failed')) return 'failed';
-  if (statuses.some((s) => s === 'in_flight')) return 'in_flight';
   return 'pending';
 }
 
 /**
  * Seed one scheduled_post_dispatches row per target platform in the
  * non-terminal 'in_flight' state, committed before the publish runs. On a
- * re-claim of a stale row, a child already 'dispatched' is left untouched so a
- * platform that already went live is never re-sent; only non-terminal children
- * are reset to 'in_flight' for the retry.
+ * re-claim of a stale row, terminal child evidence is left untouched so a
+ * platform that already went live or needs manual review is never re-sent;
+ * only non-terminal children are reset to 'in_flight' for the retry.
  */
 async function seedPlatformDispatches(client, rowId, platforms) {
   if (platforms.length === 0) return;
   // One multi-row INSERT instead of one round-trip per platform. $1 is the
   // scheduled_post id; $2.. are the platform names. ON CONFLICT keeps the
-  // re-claim semantics: a child already terminal ('dispatched'/'failed') is
-  // left untouched, only a non-terminal child is reset to 'in_flight'.
+  // re-claim semantics: terminal dispatched/failed/manual-review evidence is
+  // left untouched; only bounded-safe work is reset to 'in_flight'.
   const valueTuples = platforms
     .map((_, i) => `($1, $${i + 2}, 'in_flight', now())`)
     .join(', ');
@@ -765,11 +797,22 @@ export async function tick(pool, { shouldStop = () => false } = {}) {
         }
         await client.query('BEGIN');
 
+        if (shouldStop()) {
+          report.skipped += ids.length - rowIndex;
+          await client.query('ROLLBACK');
+          break;
+        }
+
         row = await claimRow(client, rowId);
         if (!row) {
           report.skipped += 1;
           await client.query('ROLLBACK');
           continue;
+        }
+        if (shouldStop()) {
+          report.skipped += ids.length - rowIndex;
+          await client.query('ROLLBACK');
+          break;
         }
 
         const platforms = Array.isArray(row.target_platforms) ? row.target_platforms : [];
@@ -780,17 +823,34 @@ export async function tick(pool, { shouldStop = () => false } = {}) {
         // a false 'dispatched'. The terminal status is written only after
         // Meta confirms, in the post-publish transaction below.
         await seedPlatformDispatches(client, rowId, platforms);
+        if (shouldStop()) {
+          report.skipped += ids.length - rowIndex;
+          await client.query('ROLLBACK');
+          break;
+        }
         attemptToken = await markInFlight(client, rowId);
+        if (shouldStop()) {
+          report.skipped += ids.length - rowIndex;
+          await client.query('ROLLBACK');
+          break;
+        }
         // On a stale-in_flight re-claim, a platform that already reached a
-        // terminal state — 'dispatched' (went live) or 'failed' (terminal,
-        // non-retryable) — must not be dispatched again. Excluding only
-        // 'dispatched' would re-send a permanently-failed platform.
+        // terminal state — 'dispatched' (went live), 'failed' (terminal,
+        // non-retryable), or 'manual_reconciliation' (outcome unknown) — must
+        // not be dispatched again. A pending sibling keeps the parent
+        // claimable, but the ambiguous child stays quarantined on every retry.
         const childResult = await client.query(
           `SELECT platform FROM scheduled_post_dispatches
-           WHERE scheduled_post_id = $1 AND status IN ('dispatched', 'failed')`,
+           WHERE scheduled_post_id = $1
+             AND status IN ('dispatched', 'failed', 'manual_reconciliation')`,
           [rowId],
         );
         const alreadyTerminal = new Set(childResult.rows.map((r) => r.platform));
+        if (shouldStop()) {
+          report.skipped += ids.length - rowIndex;
+          await client.query('ROLLBACK');
+          break;
+        }
         await client.query('COMMIT');
 
         platformsToDispatch = platforms.filter((p) => !alreadyTerminal.has(p));
@@ -802,6 +862,19 @@ export async function tick(pool, { shouldStop = () => false } = {}) {
         // holds no DB connection, and the post-publish write acquires a fresh
         // one. A row never pins two connections at once.
         client.release();
+      }
+
+      // A signal can arrive while COMMIT itself awaits. The just-created claim
+      // is durable then, so roll it back with an ownership-fenced statement
+      // before leaving the loop. There is no await between this final stop check
+      // and dispatchOnce's fetch, closing the entire claim-to-provider gap.
+      if (shouldStop()) {
+        const released = await releasePreProviderClaim(pool, rowId, attemptToken);
+        if (!released) {
+          throw new Error(`scheduled_post_shutdown_release_failed:${rowId}`);
+        }
+        report.skipped += ids.length - rowIndex;
+        break;
       }
 
       // Fire the dispatch outside any transaction (network call), then write

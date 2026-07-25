@@ -67,6 +67,7 @@ class FakeDb {
   scheduled: SchedRow[] = [];
   children: ChildRow[] = [];
   beforeOutcomeWrite: (() => Promise<void>) | null = null;
+  beforeClaimCommit: (() => Promise<void>) | null = null;
   private updatedAtSequence = Date.now();
 
   nextUpdatedAt(): string {
@@ -94,6 +95,15 @@ class FakeClient {
     }
     if (s === 'COMMIT') {
       if (this.tx) {
+        const createsPreProviderClaim = this.tx.scheduled.some((candidate) => {
+          const live = this.db.scheduled.find((row) => row.id === candidate.id);
+          return candidate.dispatch_status === 'in_flight'
+            && candidate.dispatch_started_at === null
+            && live?.dispatch_status !== 'in_flight';
+        });
+        if (createsPreProviderClaim && this.db.beforeClaimCommit) {
+          await this.db.beforeClaimCommit();
+        }
         this.db.scheduled = this.tx.scheduled;
         this.db.children = this.tx.children;
       }
@@ -203,13 +213,16 @@ class FakeClient {
 
     if (s.startsWith('SELECT platform FROM scheduled_post_dispatches')) {
       // The worker excludes platforms that already reached a terminal state
-      // (dispatched OR failed) from re-dispatch on a stale-in_flight reclaim.
+      // (dispatched, failed, or manual reconciliation) from re-dispatch on a
+      // stale_in_flight reclaim.
       const spId = Number(params[0]);
       const rows = store.children
         .filter(
           (c) =>
             c.scheduled_post_id === spId &&
-            (c.status === 'dispatched' || c.status === 'failed'),
+            (c.status === 'dispatched'
+              || c.status === 'failed'
+              || c.status === 'manual_reconciliation'),
         )
         .map((c) => ({ platform: c.platform }));
       return { rows, rowCount: rows.length };
@@ -278,6 +291,26 @@ class FakeClient {
 
     if (s.startsWith('UPDATE posts')) {
       return { rows: [], rowCount: 0 };
+    }
+
+    if (s.startsWith('WITH released_owner AS')) {
+      const [spId, attemptToken] = params as [number, string];
+      const owner = store.scheduled.find(
+        (row) => row.id === spId
+          && row.dispatch_status === 'in_flight'
+          && row.dispatch_started_at === null
+          && row.dispatch_attempt_token === attemptToken,
+      );
+      if (!owner) return { rows: [{ released: 0 }], rowCount: 1 };
+      owner.dispatch_status = 'pending';
+      owner.dispatch_attempt_token = null;
+      owner.dispatch_claimed_at = null;
+      for (const child of store.children) {
+        if (child.scheduled_post_id === spId && child.status === 'in_flight') {
+          child.status = 'pending';
+        }
+      }
+      return { rows: [{ released: 1 }], rowCount: 1 };
     }
 
     if (s.startsWith('WITH ambiguous AS')) {
@@ -696,6 +729,85 @@ test('a platform rate-limit failure (FB 368) writes the long rate-limit backoff'
   }
 });
 
+test('a mixed unknown and retryable provider outcome retries only the bounded-safe child then settles for manual review', async () => {
+  const { tick } = await loadWorker();
+  const db = new FakeDb();
+  seedDueRow(db);
+
+  process.env.APP_BASE_URL = 'https://aries.example.test';
+  process.env.INTERNAL_API_SECRET = 'test-secret';
+
+  const requestedPlatforms: string[][] = [];
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as { platforms: string[] };
+      requestedPlatforms.push(body.platforms);
+      if (requestedPlatforms.length === 1) {
+        return new Response(JSON.stringify({
+          status: 'error',
+          results: [
+            {
+              provider: 'facebook',
+              ok: false,
+              retryable: false,
+              kind: 'outcome_unknown',
+              error: 'provider accepted request but response was lost',
+            },
+            {
+              provider: 'instagram',
+              ok: false,
+              retryable: true,
+              kind: 'pre_provider',
+              error: 'provider was not reached',
+            },
+          ],
+        }), { status: 502, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({
+        status: 'ok',
+        results: [{ provider: 'instagram', ok: true, platformPostId: 'ig-safe-retry' }],
+      }), { status: 202, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+
+    await tick(makePool(db));
+    assert.equal(
+      db.scheduled[0]!.dispatch_status,
+      'pending',
+      'a retryable sibling keeps the parent claimable despite another child requiring manual review',
+    );
+    assert.deepEqual(
+      db.children.map((child) => [child.platform, child.status]),
+      [
+        ['facebook', 'manual_reconciliation'],
+        ['instagram', 'pending'],
+      ],
+    );
+    assert.equal(db.scheduled[0]!.next_attempt_backoff_minutes, 10);
+
+    await tick(makePool(db));
+    assert.deepEqual(
+      requestedPlatforms,
+      [['facebook', 'instagram'], ['instagram']],
+      'the unknown Facebook outcome is never redispatched; only the bounded-safe child retries',
+    );
+    assert.deepEqual(
+      db.children.map((child) => [child.platform, child.status, child.platform_post_id]),
+      [
+        ['facebook', 'manual_reconciliation', null],
+        ['instagram', 'dispatched', 'ig-safe-retry'],
+      ],
+    );
+    assert.equal(
+      db.scheduled[0]!.dispatch_status,
+      'manual_reconciliation',
+      'after all safe retries finish the parent settles to the remaining manual-review outcome',
+    );
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 test('rescheduling metadata during a live publish cannot invalidate completion or cause a duplicate reclaim', async () => {
   const { tick } = await loadWorker();
   const db = new FakeDb();
@@ -924,6 +1036,63 @@ test('shutdown during a prefetched batch drains the active row without claiming 
     assert.equal(fetchCalls, 1, 'shutdown must not start provider work for the prefetched second row');
     assert.equal(db.scheduled.find((row) => row.id === 1)?.dispatch_status, 'dispatched');
     assert.equal(db.scheduled.find((row) => row.id === 2)?.dispatch_status, 'pending');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('shutdown while the pre-provider claim commit awaits releases the claim without starting provider I/O', async () => {
+  const { createScheduledPostsWorkerRuntime } = await loadWorker();
+  const db = new FakeDb();
+  seedDueRow(db);
+  process.env.APP_BASE_URL = 'https://aries.example.test';
+  process.env.INTERNAL_API_SECRET = 'test-secret';
+
+  let signalClaimCommit!: () => void;
+  const claimCommitStarted = new Promise<void>((resolve) => {
+    signalClaimCommit = resolve;
+  });
+  let releaseClaimCommit!: () => void;
+  const claimCommitGate = new Promise<void>((resolve) => {
+    releaseClaimCommit = resolve;
+  });
+  db.beforeClaimCommit = async () => {
+    signalClaimCommit();
+    await claimCommitGate;
+  };
+
+  let poolEnded = false;
+  const pool: FakePool = {
+    ...makePool(db),
+    end: async () => {
+      poolEnded = true;
+    },
+  };
+  let fetchCalls = 0;
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => {
+      fetchCalls += 1;
+      return new Response(JSON.stringify({ results: [] }), {
+        status: 202,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    const runtime = createScheduledPostsWorkerRuntime(pool);
+    const activeTick = runtime.runTick();
+    await claimCommitStarted;
+    const draining = runtime.shutdown(5_000);
+    releaseClaimCommit();
+
+    assert.equal(await draining, true);
+    await activeTick;
+    assert.equal(fetchCalls, 0, 'a signal delivered while COMMIT awaits closes the last claim-to-dispatch gap');
+    assert.equal(db.scheduled[0]!.dispatch_status, 'pending');
+    assert.equal(db.scheduled[0]!.dispatch_attempt_token, null);
+    assert.equal(db.scheduled[0]!.dispatch_claimed_at, null);
+    assert.ok(db.children.every((child) => child.status === 'pending'));
+    assert.equal(poolEnded, true);
   } finally {
     globalThis.fetch = realFetch;
   }

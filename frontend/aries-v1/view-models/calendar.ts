@@ -33,6 +33,9 @@ export interface CalendarEvent {
   scheduledForIso: string;
   status: CalendarEventStatus;
   dispatchStatus: string;
+  reschedulable: boolean;
+  manualReviewRequired: boolean;
+  manualReviewMessage: string | null;
   href: string;
   timestamp: number;
   /** YYYY-MM-DD key computed in the tenant timezone. */
@@ -118,6 +121,7 @@ export function createCalendarViewModel(input: CalendarViewModelInput): Calendar
       if (!dayKey) {
         return null;
       }
+      const manualReviewRequired = post.dispatchStatus === 'manual_reconciliation';
       return {
         id: post.id,
         postId: post.postId,
@@ -129,6 +133,11 @@ export function createCalendarViewModel(input: CalendarViewModelInput): Calendar
         scheduledForIso: post.scheduledFor,
         status: dispatchStatusToEventStatus(post.dispatchStatus),
         dispatchStatus: post.dispatchStatus,
+        reschedulable: !manualReviewRequired,
+        manualReviewRequired,
+        manualReviewMessage: manualReviewRequired
+          ? 'Manual review required: verify whether this post is already live on each platform before making scheduling changes.'
+          : null,
         href: post.jobId ? `/dashboard/social-content/${post.jobId}` : '/dashboard/calendar',
         timestamp,
         dayKey,
