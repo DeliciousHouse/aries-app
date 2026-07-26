@@ -362,6 +362,11 @@ jobs:
           fi
           unset ARIES_SKIP_DB_INIT
 
+          # From this point on, the stopped pre-rollout worker is protocol-
+          # incompatible with any mutated dispatch rows. Any later failure must
+          # leave publishing stopped for manual recovery, never restart it.
+          mark_scheduled_worker_protocol_boundary
+
           # Keep legacy in-flight evidence unchanged until the compatible app's
           # route guards own traffic. The old worker is still stopped, so this
           # data-only transaction completes before any target worker can claim.
@@ -371,9 +376,9 @@ jobs:
               "${SERVICE_NAME}" scripts/run-scheduled-dispatch-cutover.js
 
           # Restart scheduled publishing only after the target app is healthy
-          # and data is compatible. This helper preserves an exact inspect
-          # snapshot and restores it on every replacement verification failure;
-          # it disarms the EXIT trap only after the target worker is proven live.
+          # and data is compatible. After the protocol boundary, every failure
+          # remains fail-closed with publishing stopped until a target worker is
+          # proven live and the EXIT trap is disarmed.
           replace_scheduled_worker_and_verify "${TARGET_IMAGE}" "${target_image_id}"
 
           # Roll the weekly-trigger-worker sidecar to the same image too, for the

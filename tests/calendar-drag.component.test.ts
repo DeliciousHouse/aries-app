@@ -208,7 +208,11 @@ test('CalendarPresenter disables manual-reconciliation drag and directs the oper
     assert.equal(tile.getAttribute('aria-disabled'), 'true');
     fireEvent.click(tile);
     assert.ok(screen.getByText(/verify whether this post is already live/i));
-    assert.equal(screen.queryByRole('button', { name: 'Reschedule' }), null);
+    const actionLabels = Array.from(container.querySelectorAll('button'))
+      .map((button) => button.textContent?.trim());
+    assert.equal(actionLabels.includes('Reschedule'), false);
+    assert.equal(actionLabels.includes('Publish now'), false);
+    assert.equal(actionLabels.includes('Cancel'), false);
   } finally {
     cleanup();
   }

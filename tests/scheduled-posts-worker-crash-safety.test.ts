@@ -1098,89 +1098,84 @@ test('shutdown while the pre-provider claim commit awaits releases the claim wit
   }
 });
 
-test('a terminal reschedule rearms, is claimed, and attempts every requested platform once', async () => {
+test('a partial-success reschedule is rejected and never republishes the successful platform', async () => {
   const { tick } = await loadWorker();
   const db = new FakeDb();
   seedDueRow(db);
   const row = db.scheduled[0]!;
-  row.dispatch_status = 'dispatched';
+  row.dispatch_status = 'failed';
   row.dispatch_attempt_token = 'terminal-attempt';
   row.dispatch_claimed_at = '2025-01-01T00:00:00.000Z';
   row.dispatch_started_at = '2025-01-01T00:00:01.000Z';
-  row.dispatched_at = '2025-01-01T00:00:02.000Z';
+  row.dispatched_at = null;
   row.error_at = '2025-01-01T00:00:03.000Z';
-  row.error_message = 'old terminal detail';
+  row.error_message = 'instagram failed after facebook published';
   row.next_attempt_backoff_minutes = 180;
-  db.children.push(...row.target_platforms.map((platform) => ({
-    scheduled_post_id: row.id,
-    platform,
-    status: 'dispatched',
-    platform_post_id: `${platform}-old`,
-    dispatched_at: row.dispatched_at,
-    error_at: null,
-    error_message: null,
-  })));
-
-  await upsertScheduledPost(
+  db.children.push(
     {
-      query: async (sql, params) => {
-        assert.match(sql, /DELETE FROM scheduled_post_dispatches/);
-        assert.match(sql, /dispatch_status = 'pending'/);
-        db.children = [];
-        row.scheduled_for = String(params[2]);
-        row.target_platforms = params[3] as string[];
-        row.dispatch_status = 'pending';
-        row.dispatch_attempt_token = null;
-        row.dispatch_claimed_at = null;
-        row.dispatch_started_at = null;
-        row.dispatched_at = null;
-        row.error_at = null;
-        row.error_message = null;
-        row.next_attempt_backoff_minutes = undefined;
-        return {
-          rows: [{
-            id: row.id,
-            post_id: row.post_id,
-            tenant_id: row.tenant_id,
-            scheduled_for: row.scheduled_for,
-            target_platforms: row.target_platforms,
-            updated_at: row.updated_at,
-          }],
-          rowCount: 1,
-        };
-      },
+      scheduled_post_id: row.id,
+      platform: 'facebook',
+      status: 'dispatched',
+      platform_post_id: 'facebook-confirmed-123',
+      dispatched_at: '2025-01-01T00:00:02.000Z',
+      error_at: null,
+      error_message: null,
     },
     {
-      tenantId: 15,
-      postId: 101,
-      scheduledFor: new Date('2025-02-01T00:00:00.000Z'),
-      platforms: ['facebook', 'instagram'],
+      scheduled_post_id: row.id,
+      platform: 'instagram',
+      status: 'failed',
+      platform_post_id: null,
+      dispatched_at: null,
+      error_at: row.error_at,
+      error_message: 'provider rejected publish',
     },
   );
 
+  await assert.rejects(
+    upsertScheduledPost(
+      ({
+        query: async (sql: string) => {
+          if (sql.trim().startsWith('WITH existing AS')) {
+            assert.match(sql, /terminal_dispatch_evidence AS MATERIALIZED/);
+            assert.match(sql, /status IN \('dispatched', 'manual_reconciliation'\)/);
+            return { rows: [], rowCount: 0 };
+          }
+          return {
+            rows: [{
+              dispatch_status: row.dispatch_status,
+              has_manual_reconciliation: false,
+              has_terminal_dispatch_evidence: true,
+            }],
+            rowCount: 1,
+          };
+        },
+      } as never),
+      {
+        tenantId: 15,
+        postId: 101,
+        scheduledFor: new Date('2025-02-01T00:00:00.000Z'),
+        platforms: ['facebook', 'instagram'],
+      },
+    ),
+    /scheduled_post_dispatch_evidence/,
+  );
+
   let internalRequests = 0;
-  const requestedPlatforms: string[] = [];
   const realFetch = globalThis.fetch;
   try {
-    globalThis.fetch = (async (_url, init) => {
+    globalThis.fetch = (async () => {
       internalRequests += 1;
-      const body = JSON.parse(String(init?.body)) as { platforms: string[] };
-      requestedPlatforms.push(...body.platforms);
-      return new Response(JSON.stringify({
-        results: body.platforms.map((provider) => ({
-          provider,
-          ok: true,
-          platformPostId: `${provider}-new`,
-        })),
-      }), { status: 202, headers: { 'content-type': 'application/json' } });
+      return new Response(null, { status: 500 });
     }) as typeof fetch;
 
     await tick(makePool(db));
-    await tick(makePool(db));
-    assert.equal(internalRequests, 1);
-    assert.deepEqual(requestedPlatforms.sort(), ['facebook', 'instagram']);
+    assert.equal(internalRequests, 0);
+    assert.equal(row.dispatch_status, 'failed');
     assert.equal(db.children.length, 2);
-    assert.ok(db.children.every((child) => child.status === 'dispatched'));
+    assert.equal(db.children[0]!.status, 'dispatched');
+    assert.equal(db.children[0]!.platform_post_id, 'facebook-confirmed-123');
+    assert.equal(db.children[1]!.status, 'failed');
   } finally {
     globalThis.fetch = realFetch;
   }

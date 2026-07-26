@@ -281,7 +281,7 @@ test('upsertScheduledPost: an in-flight publish cannot be rescheduled or mutate 
   );
 });
 
-test('upsertScheduledPost: terminal reschedule atomically rearms owner and reconciles children', async () => {
+test('upsertScheduledPost: safe pending/failed reschedule atomically rearms owner and reconciles children', async () => {
   const { upsertScheduledPost } = await import('../backend/social-content/scheduled-posts');
   const captured: { sql: string; params: unknown[] }[] = [];
   const mockQueryable = {
@@ -326,8 +326,8 @@ test('upsertScheduledPost: terminal reschedule atomically rearms owner and recon
   }
   assert.match(
     sql,
-    /dispatch_status IN \('pending', 'dispatched', 'failed'\)/,
-    'terminal and pending rows are reschedulable while in_flight/manual rows remain fenced',
+    /dispatch_status IN \('pending', 'failed'\)/,
+    'only rows without confirmed success are reschedulable',
   );
   assert.match(
     sql,
@@ -369,17 +369,65 @@ test('upsertScheduledPost: pending parent with manual child evidence is review-o
   );
 
   const atomicSql = captured[0]!.sql;
-  assert.match(atomicSql, /manual_reconciliation_evidence AS MATERIALIZED/);
-  assert.match(atomicSql, /status = 'manual_reconciliation'/);
+  assert.match(atomicSql, /terminal_dispatch_evidence AS MATERIALIZED/);
+  assert.match(atomicSql, /status IN \('dispatched', 'manual_reconciliation'\)/);
   assert.match(
     atomicSql,
-    /DELETE FROM scheduled_post_dispatches[\s\S]*NOT EXISTS \(SELECT 1 FROM manual_reconciliation_evidence\)/,
+    /DELETE FROM scheduled_post_dispatches[\s\S]*NOT EXISTS \(SELECT 1 FROM terminal_dispatch_evidence\)/,
     'manual evidence must gate child deletion inside the parent-lock transaction',
   );
   assert.match(
     atomicSql,
-    /UPDATE scheduled_posts[\s\S]*NOT EXISTS \(SELECT 1 FROM manual_reconciliation_evidence\)/,
+    /UPDATE scheduled_posts[\s\S]*NOT EXISTS \(SELECT 1 FROM terminal_dispatch_evidence\)/,
     'manual evidence must also gate provider-fence reset',
+  );
+  assert.equal(captured.length, 2, 'rejected reschedule performs no follow-up mutation');
+});
+
+test('upsertScheduledPost: pending parent with dispatched child evidence cannot be rearmed', async () => {
+  const { upsertScheduledPost } = await import('../backend/social-content/scheduled-posts');
+  const captured: { sql: string; params: unknown[] }[] = [];
+  const mockQueryable = {
+    query: async (sql: string, params: unknown[]) => {
+      captured.push({ sql, params });
+      if (sql.trim().startsWith('WITH existing AS')) {
+        return { rows: [], rowCount: 0 };
+      }
+      if (/SELECT[\s\S]*dispatch_status[\s\S]*FROM scheduled_posts/i.test(sql)) {
+        return {
+          rows: [{
+            dispatch_status: 'pending',
+            has_terminal_dispatch_evidence: true,
+          }],
+          rowCount: 1,
+        };
+      }
+      throw new Error(`unexpected query: ${sql}`);
+    },
+  };
+
+  await assert.rejects(
+    upsertScheduledPost(mockQueryable as never, {
+      tenantId: 15,
+      postId: 42,
+      scheduledFor: new Date('2026-06-26T09:00:00.000Z'),
+      platforms: ['facebook', 'instagram'],
+    }),
+    /scheduled_post_dispatch_evidence/,
+  );
+
+  const atomicSql = captured[0]!.sql;
+  assert.match(
+    atomicSql,
+    /terminal_dispatch_evidence AS MATERIALIZED[\s\S]*status IN \('dispatched', 'manual_reconciliation'\)/,
+  );
+  assert.match(
+    atomicSql,
+    /DELETE FROM scheduled_post_dispatches[\s\S]*NOT EXISTS \(SELECT 1 FROM terminal_dispatch_evidence\)/,
+  );
+  assert.match(
+    atomicSql,
+    /UPDATE scheduled_posts[\s\S]*NOT EXISTS \(SELECT 1 FROM terminal_dispatch_evidence\)/,
   );
   assert.equal(captured.length, 2, 'rejected reschedule performs no follow-up mutation');
 });

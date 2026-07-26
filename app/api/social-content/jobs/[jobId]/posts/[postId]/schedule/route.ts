@@ -4,6 +4,7 @@ import pool from '@/lib/db';
 import {
   normalizeTargetPlatforms,
   parseScheduledForIso,
+  ScheduledPostDispatchEvidenceError,
   ScheduledPostInFlightError,
   ScheduledPostManualReconciliationError,
   ScheduledPostTenantMismatchError,
@@ -283,6 +284,15 @@ export async function handlePatchScheduleSocialContentPost(
         { status: 409 },
       );
     }
+    if (error instanceof ScheduledPostDispatchEvidenceError) {
+      return NextResponse.json(
+        {
+          error: 'This post has already been published to at least one platform and cannot be queued again.',
+          reason: 'scheduled_post_dispatch_evidence',
+        },
+        { status: 409 },
+      );
+    }
     if (error instanceof ScheduledPostTenantMismatchError) {
       return NextResponse.json(POST_NOT_FOUND, { status: 404 });
     }
@@ -386,8 +396,8 @@ export async function handleDeleteScheduleSocialContentPost(
                 SELECT 1
                   FROM scheduled_post_dispatches dispatch
                  WHERE dispatch.scheduled_post_id = scheduled_posts.id
-                   AND dispatch.status = 'manual_reconciliation'
-              ) AS has_manual_reconciliation
+                   AND dispatch.status IN ('dispatched', 'manual_reconciliation')
+              ) AS has_terminal_dispatch_evidence
          FROM scheduled_posts
         WHERE post_id = $1 AND tenant_id = $2
         FOR UPDATE`,
@@ -402,8 +412,8 @@ export async function handleDeleteScheduleSocialContentPost(
       );
     }
     const dispatchStatus = scheduledOwner.rows[0]!['dispatch_status'];
-    const hasManualReconciliation = scheduledOwner.rows[0]!['has_manual_reconciliation'] === true;
-    if (dispatchStatus !== 'pending' || hasManualReconciliation) {
+    const hasTerminalDispatchEvidence = scheduledOwner.rows[0]!['has_terminal_dispatch_evidence'] === true;
+    if (dispatchStatus !== 'pending' || hasTerminalDispatchEvidence) {
       await client.query('COMMIT', []);
       transactionFinished = true;
       return NextResponse.json(
@@ -422,7 +432,7 @@ export async function handleDeleteScheduleSocialContentPost(
             SELECT 1
               FROM scheduled_post_dispatches dispatch
              WHERE dispatch.scheduled_post_id = scheduled_posts.id
-               AND dispatch.status = 'manual_reconciliation'
+               AND dispatch.status IN ('dispatched', 'manual_reconciliation')
           )`,
       [scheduledOwner.rows[0]!['id']],
     );

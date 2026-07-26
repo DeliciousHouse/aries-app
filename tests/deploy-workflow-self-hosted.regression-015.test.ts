@@ -359,7 +359,7 @@ exit 0
   }
 });
 
-test('every post-recreate verification gate restores the exact prior worker snapshot', async (t) => {
+test('every post-boundary replacement failure leaves publishing stopped instead of restoring a stale worker', async (t) => {
   for (const gate of ['recreate', 'inspect', 'running', 'image', 'manifest']) {
     await t.test(gate, () => {
       const tempRoot = mkdtempSync(path.join(tmpdir(), `aries-worker-${gate}-`));
@@ -446,6 +446,7 @@ printf 'restored-old-container\\n'
           `#!/usr/bin/env bash
 set -euo pipefail
 source "${path.join(PROJECT_ROOT, 'scripts', 'release', 'apply-schema-with-worker-restore.sh').replace(/\\/g, '/')}"
+mark_scheduled_worker_protocol_boundary
 replace_scheduled_worker_and_verify 'ghcr.io/example/aries:target' 'sha-target'
 `,
           { mode: 0o755 },
@@ -471,12 +472,13 @@ replace_scheduled_worker_and_verify 'ghcr.io/example/aries:target' 'sha-target'
         assert.notEqual(result.status, 0, `${gate} failure must fail the deployment`);
         const calls = readFileSync(logPath, 'utf8');
         assert.match(calls, /rm -f new-worker-container/);
-        assert.match(calls, /restore-snapshot /);
-        assert.match(calls, /start restored-old-container/);
-        const snapshot = readFileSync(path.join(stateDir, 'restored-snapshot.json'), 'utf8');
-        assert.match(snapshot, /"Image":"sha-old"/);
-        assert.match(snapshot, /"Env":\["A=1"\]/);
-        assert.match(snapshot, /\/srv\/aries\/\.env:\/app\/\.env:ro/);
+        assert.match(calls, /compose stop aries-scheduled-posts-worker/);
+        assert.doesNotMatch(calls, /restore-snapshot /);
+        assert.doesNotMatch(calls, /start restored-old-container/);
+        assert.match(
+          `${result.stdout}\n${result.stderr}`,
+          /protocol boundary crossed; refusing to restore the previous scheduled worker/i,
+        );
       } finally {
         rmSync(tempRoot, { recursive: true, force: true });
       }
@@ -484,15 +486,18 @@ replace_scheduled_worker_and_verify 'ghcr.io/example/aries:target' 'sha-target'
   }
 });
 
-test('deploy performs the data cutover only after the compatible app is healthy and keeps exact-worker restore armed through verification', () => {
+test('deploy marks the worker protocol boundary before data cutover and never rearms stale-worker restore afterward', () => {
   const sourceCutover = workflow.indexOf('source ./scripts/release/apply-schema-with-worker-restore.sh');
   const skipDuplicateInit = workflow.indexOf('export ARIES_SKIP_DB_INIT=1');
   const appHealth = workflow.indexOf('if [[ "${healthy}" != "1" ]]');
+  const protocolBoundary = workflow.indexOf('mark_scheduled_worker_protocol_boundary');
   const dataCutover = workflow.indexOf('scripts/run-scheduled-dispatch-cutover.js');
   const restartWorker = workflow.indexOf('replace_scheduled_worker_and_verify "${TARGET_IMAGE}" "${target_image_id}"');
 
   assert.ok(sourceCutover > 0 && skipDuplicateInit > sourceCutover);
   assert.ok(appHealth > skipDuplicateInit);
+  assert.ok(protocolBoundary > appHealth, 'the old worker stays recoverable until the compatible app owns traffic');
+  assert.ok(dataCutover > protocolBoundary, 'the rollback boundary must be durable before protocol data mutates');
   assert.ok(dataCutover > appHealth, 'legacy evidence is quarantined only after compatible route guards own traffic');
   assert.ok(restartWorker > dataCutover);
   assert.doesNotMatch(

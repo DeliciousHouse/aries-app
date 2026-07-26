@@ -61,12 +61,12 @@ const UPSERT_SCHEDULED_POST_SQL = `
      WHERE post_id = $1
      FOR UPDATE
   ),
-  manual_reconciliation_evidence AS MATERIALIZED (
+  terminal_dispatch_evidence AS MATERIALIZED (
     SELECT 1
       FROM scheduled_post_dispatches dispatch
       JOIN existing ON existing.id = dispatch.scheduled_post_id
      WHERE existing.tenant_id = $2
-       AND dispatch.status = 'manual_reconciliation'
+       AND dispatch.status IN ('dispatched', 'manual_reconciliation')
      FOR UPDATE OF dispatch
   ),
   reset_dispatches AS (
@@ -74,8 +74,8 @@ const UPSERT_SCHEDULED_POST_SQL = `
       USING existing
       WHERE dispatch.scheduled_post_id = existing.id
         AND existing.tenant_id = $2
-        AND existing.dispatch_status IN ('pending', 'dispatched', 'failed')
-        AND NOT EXISTS (SELECT 1 FROM manual_reconciliation_evidence)
+        AND existing.dispatch_status IN ('pending', 'failed')
+        AND NOT EXISTS (SELECT 1 FROM terminal_dispatch_evidence)
       RETURNING dispatch.id
   ),
   updated AS (
@@ -99,8 +99,8 @@ const UPSERT_SCHEDULED_POST_SQL = `
            updated_at = now()
      WHERE id = (SELECT id FROM existing)
        AND tenant_id = $2
-       AND dispatch_status IN ('pending', 'dispatched', 'failed')
-       AND NOT EXISTS (SELECT 1 FROM manual_reconciliation_evidence)
+       AND dispatch_status IN ('pending', 'failed')
+       AND NOT EXISTS (SELECT 1 FROM terminal_dispatch_evidence)
        AND (SELECT count(*) FROM reset_dispatches) >= 0
      RETURNING id, post_id, tenant_id, scheduled_for, target_platforms, updated_at
   ),
@@ -144,10 +144,20 @@ export async function upsertScheduledPost(
       sql: string,
       params: unknown[],
     ) => Promise<{
-      rows: Array<{ dispatch_status?: string; has_manual_reconciliation?: boolean }>;
+      rows: Array<{
+        dispatch_status?: string;
+        has_manual_reconciliation?: boolean;
+        has_terminal_dispatch_evidence?: boolean;
+      }>;
       rowCount: number | null;
     }>)(
       `SELECT owner.dispatch_status,
+              EXISTS (
+                SELECT 1
+                  FROM scheduled_post_dispatches dispatch
+                 WHERE dispatch.scheduled_post_id = owner.id
+                   AND dispatch.status IN ('dispatched', 'manual_reconciliation')
+              ) AS has_terminal_dispatch_evidence,
               EXISTS (
                 SELECT 1
                   FROM scheduled_post_dispatches dispatch
@@ -165,6 +175,12 @@ export async function upsertScheduledPost(
       || statusResult.rows[0]?.has_manual_reconciliation === true
     ) {
       throw new ScheduledPostManualReconciliationError(input.tenantId, input.postId);
+    }
+    if (
+      statusResult.rows[0]?.dispatch_status === 'dispatched'
+      || statusResult.rows[0]?.has_terminal_dispatch_evidence === true
+    ) {
+      throw new ScheduledPostDispatchEvidenceError(input.tenantId, input.postId);
     }
     if (statusResult.rows.length > 0) {
       // The conflict UPDATE is atomic with the ownership check. Even if the
@@ -205,6 +221,17 @@ export class ScheduledPostManualReconciliationError extends Error {
   constructor(tenantId: number, postId: number) {
     super(`scheduled_post_manual_reconciliation: post_id=${postId}`);
     this.name = 'ScheduledPostManualReconciliationError';
+    this.tenantId = tenantId;
+    this.postId = postId;
+  }
+}
+
+export class ScheduledPostDispatchEvidenceError extends Error {
+  readonly tenantId: number;
+  readonly postId: number;
+  constructor(tenantId: number, postId: number) {
+    super(`scheduled_post_dispatch_evidence: post_id=${postId}`);
+    this.name = 'ScheduledPostDispatchEvidenceError';
     this.tenantId = tenantId;
     this.postId = postId;
   }

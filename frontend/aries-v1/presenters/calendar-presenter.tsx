@@ -456,7 +456,7 @@ export default function CalendarPresenter({
                   ) : null}
 
                   <div className="flex flex-wrap gap-3">
-                    {selectedEvent.jobId && selectedEvent.reschedulable ? (
+                    {selectedEvent.jobId && !selectedEvent.manualReviewRequired && selectedEvent.reschedulable ? (
                       <button
                         type="button"
                         data-testid="calendar-open-reschedule"
@@ -468,6 +468,7 @@ export default function CalendarPresenter({
                       </button>
                     ) : null}
                     {selectedEvent.jobId &&
+                    !selectedEvent.manualReviewRequired &&
                     (selectedEvent.dispatchStatus === 'pending' ||
                       selectedEvent.dispatchStatus === 'failed') ? (
                       <PublishNowButton
@@ -480,6 +481,7 @@ export default function CalendarPresenter({
                       />
                     ) : null}
                     {selectedEvent.jobId &&
+                    !selectedEvent.manualReviewRequired &&
                     (selectedEvent.dispatchStatus === 'pending' ||
                       selectedEvent.dispatchStatus === 'in_flight') ? (
                       <CancelScheduleButton

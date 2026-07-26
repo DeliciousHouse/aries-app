@@ -18,6 +18,7 @@ if [[ -n "${previous_scheduled_worker_id}" ]]; then
 fi
 
 scheduled_worker_cutover_complete=false
+scheduled_worker_protocol_boundary_crossed=false
 previous_scheduled_worker_snapshot=""
 
 cleanup_scheduled_worker_snapshot() {
@@ -42,8 +43,22 @@ restore_previous_scheduled_worker_on_exit() {
   set +e
 
   if [[ "${scheduled_worker_cutover_complete}" != "true" \
-        && "${previous_scheduled_worker_was_running}" == "true" \
-        && -n "${previous_scheduled_worker_id}" ]]; then
+        && "${scheduled_worker_protocol_boundary_crossed}" == "true" ]]; then
+    echo "ERROR: scheduled-worker protocol boundary crossed; refusing to restore the previous scheduled worker. Publishing remains stopped." >&2
+
+    local current_worker_id
+    current_worker_id="$(
+      ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose ps -aq "${scheduled_worker_service}" 2>/dev/null
+    )"
+    if [[ -n "${current_worker_id}" && "${current_worker_id}" != "${previous_scheduled_worker_id}" ]]; then
+      if ! docker rm -f "${current_worker_id}" >/dev/null; then
+        echo "ERROR: could not remove failed replacement worker ${current_worker_id}; manual recovery required." >&2
+      fi
+    fi
+    ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose stop "${scheduled_worker_service}" >/dev/null || true
+  elif [[ "${scheduled_worker_cutover_complete}" != "true" \
+          && "${previous_scheduled_worker_was_running}" == "true" \
+          && -n "${previous_scheduled_worker_id}" ]]; then
     echo "ERROR: scheduled-worker cutover failed; restoring exact pre-rollout worker state." >&2
 
     local current_worker_id
@@ -99,7 +114,15 @@ complete_scheduled_worker_cutover() {
   trap - EXIT
 }
 
+mark_scheduled_worker_protocol_boundary() {
+  scheduled_worker_protocol_boundary_crossed=true
+  cleanup_scheduled_worker_snapshot
+}
+
 prepare_scheduled_worker_replacement() {
+  if [[ "${scheduled_worker_protocol_boundary_crossed}" == "true" ]]; then
+    return 0
+  fi
   if [[ "${previous_scheduled_worker_was_running}" != "true" \
         || -z "${previous_scheduled_worker_id}" ]]; then
     return 0

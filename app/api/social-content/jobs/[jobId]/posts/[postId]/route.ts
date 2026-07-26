@@ -195,8 +195,8 @@ export async function handleDeleteSocialContentPost(
                 SELECT 1
                   FROM scheduled_post_dispatches dispatch
                  WHERE dispatch.scheduled_post_id = scheduled_posts.id
-                   AND dispatch.status = 'manual_reconciliation'
-              ) AS has_manual_reconciliation
+                   AND dispatch.status IN ('dispatched', 'manual_reconciliation')
+              ) AS has_terminal_dispatch_evidence
          FROM scheduled_posts
         WHERE post_id = $1 AND tenant_id = $2
         FOR UPDATE`,
@@ -204,10 +204,10 @@ export async function handleDeleteSocialContentPost(
     );
 
     const dispatchStatus = scheduledOwner.rows[0]?.['dispatch_status'];
-    const hasManualReconciliation = scheduledOwner.rows[0]?.['has_manual_reconciliation'] === true;
+    const hasTerminalDispatchEvidence = scheduledOwner.rows[0]?.['has_terminal_dispatch_evidence'] === true;
     if (
       (dispatchStatus !== undefined && dispatchStatus !== 'pending')
-      || hasManualReconciliation
+      || hasTerminalDispatchEvidence
     ) {
       await client.query('COMMIT', []);
       transactionFinished = true;
@@ -242,7 +242,7 @@ export async function handleDeleteSocialContentPost(
                 SELECT 1
                   FROM scheduled_post_dispatches dispatch
                  WHERE dispatch.scheduled_post_id = scheduled_posts.id
-                   AND dispatch.status = 'manual_reconciliation'
+                   AND dispatch.status IN ('dispatched', 'manual_reconciliation')
               )`,
           [scheduledOwner.rows[0]['id']],
         )
