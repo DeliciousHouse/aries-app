@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.44.0 — fix(publishing): make scheduled delivery crash-safe
+
+Scheduled social posts now cross each provider boundary at most once, preserve
+successful platforms through partial failures, and fail closed across deploys or
+process crashes instead of risking a duplicate public post.
+
+### Added
+
+- Durable per-attempt provider-submission fences and a bounded migration/cutover
+  path quarantine ambiguous legacy work for manual reconciliation.
+- Calendar and status surfaces distinguish manual-reconciliation evidence from
+  work that is safe to drag, reschedule, cancel, or retry.
+- Production deploys snapshot the exact old worker container before mutation and
+  can restore it only before the target app protocol boundary.
+
+### Changed
+
+- Scheduled worker claims, cancels, creates, deletes, and finalizers serialize on
+  their canonical parent rows and preserve per-platform provider IDs.
+- Database initialization bounds schema lock and statement waits, while deploys
+  verify the target worker image and manifest before re-enabling publishing.
+
+### Fixed
+
+- Final Facebook and Instagram publish requests no longer retry inside one call
+  after a `429`, response loss, or ambiguous `5xx`; pre-publish uploads retain
+  bounded safe retries.
+- A successful Facebook or Instagram child keeps the canonical post published
+  when a later sibling fails or needs manual reconciliation.
+- First-schedule creation racing canonical deletion cannot leave an orphaned or
+  claimable schedule, and failed app rollout health leaves publishing stopped.
+- Fresh database setup retains the complete connected-account platform check and
+  production post status vocabulary used by the runtime.
+
 ## v0.1.43.0 — fix(publishing): close attribution and ownership races
 
 Scheduled and concurrent publishes now preserve one canonical provider result,
