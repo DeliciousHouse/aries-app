@@ -18,7 +18,7 @@ function buildQueryable(): { queryable: ScheduleRouteQueryable; calls: Captured[
       const [postId, tenantId] = params as [number, number];
       return { rows: [{ id: postId, tenant_id: tenantId, surface: 'feed', media_type: 'image' }], rowCount: 1 };
     }
-    if (trimmed.startsWith('INSERT INTO scheduled_posts')) {
+    if (trimmed.startsWith('WITH existing AS')) {
       const [postId, tenantId, scheduledFor, platforms] = params as [number, number, string, string[]];
       return {
         rows: [
@@ -69,7 +69,7 @@ test('PATCH schedule rejects a post with no approved publish approval (409)', as
   const body = (await response.json()) as { reason: string };
   assert.equal(body.reason, 'publish_requires_approval');
 
-  const insertCall = calls.find((call) => call.sql.startsWith('INSERT INTO scheduled_posts'));
+  const insertCall = calls.find((call) => call.sql.startsWith('WITH existing AS'));
   assert.equal(insertCall, undefined, 'must NOT write scheduled_posts without an approval');
 });
 
@@ -98,7 +98,7 @@ test('PATCH schedule allows a post with an approved publish approval (200 + row 
   const body = (await response.json()) as Record<string, unknown>;
   assert.equal(body.jobId, 'job-approved');
 
-  const insertCall = calls.find((call) => call.sql.startsWith('INSERT INTO scheduled_posts'));
+  const insertCall = calls.find((call) => call.sql.startsWith('WITH existing AS'));
   assert.ok(insertCall, 'INSERT INTO scheduled_posts must run once approved');
 
   assert.deepEqual(resolverCalls, [{ jobId: 'job-approved', tenantId: '7' }]);

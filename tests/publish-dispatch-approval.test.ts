@@ -473,7 +473,7 @@ function installOauthQueryFixture(row: { access_token_enc: string | null; connec
   };
 }
 
-test('Graph returns 429 with Retry-After header → retries and succeeds, records retry attempt', async () => {
+test('a final Graph 429 never re-submits the non-idempotent Facebook feed request', async () => {
   process.env.OAUTH_TOKEN_ENCRYPTION_KEY = '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!';
   const restore = installOauthQueryFixture({
     access_token_enc: encryptOAuthSecret('page-token'),
@@ -491,33 +491,34 @@ test('Graph returns 429 with Retry-After header → retries and succeeds, record
     }
     if (url.includes('/feed')) {
       feedCallCount.n += 1;
-      if (feedCallCount.n === 1) {
-        // First /feed call returns 429 with short Retry-After for test speed
-        return new Response(
-          JSON.stringify({ error: { message: 'Rate limit exceeded' } }),
-          {
-            status: 429,
-            headers: { 'retry-after': '0' }, // 0s so test stays fast
-          },
-        );
-      }
-      return new Response(JSON.stringify({ id: 'post_after_429' }), { status: 200 });
+      return new Response(
+        JSON.stringify({ error: { message: 'Rate limit exceeded' } }),
+        {
+          status: 429,
+          headers: { 'retry-after': '0' },
+        },
+      );
     }
     throw new Error(`unexpected url: ${url}`);
   };
 
   try {
-    const result = await publishToMetaGraph({
-      tenantId: '12',
-      provider: 'facebook',
-      content: 'Post after 429',
-      mediaUrls: ['https://cdn.example.com/img.png'],
-      fetchImpl: fetchImpl as typeof fetch,
-    });
-
-    assert.equal(result.platformPostId, 'post_after_429');
-    // Must have retried: feed was called at least twice
-    assert.ok(feedCallCount.n >= 2, `expected >=2 /feed calls (initial + retry), got ${feedCallCount.n}`);
+    await assert.rejects(
+      () => publishToMetaGraph({
+        tenantId: '12',
+        provider: 'facebook',
+        content: 'Post after 429',
+        mediaUrls: ['https://cdn.example.com/img.png'],
+        fetchImpl: fetchImpl as typeof fetch,
+      }),
+      (error: unknown) => (
+        error instanceof MetaPublishError
+        && error.code === 'graph_rate_limited'
+        && error.retryable
+        && !error.outcomeUnknown
+      ),
+    );
+    assert.equal(feedCallCount.n, 1, 'a final Graph 429 must not cross the provider boundary twice');
   } finally {
     restore();
   }

@@ -176,48 +176,99 @@ export async function handleDeleteSocialContentPost(
     );
   }
 
-  const ownsPool = !options.queryable;
-  const pooled = options.queryable ? null : await pool.connect();
+  const connectionSource = options.queryable ?? pool;
+  const pooled = connectionSource.connect ? await connectionSource.connect() : null;
   const wrapPooled: DeletePostQueryable = {
     query: ((sql: string, params: unknown[]) => pooled!.query(sql, params)) as unknown as DeletePostQueryable['query'],
   };
-  const client: DeletePostQueryable = options.queryable ?? wrapPooled;
+  const client: DeletePostQueryable = pooled ? wrapPooled : options.queryable!;
+  let transactionFinished = false;
 
   try {
-    // Check post exists and belongs to tenant. Capture the generation-time style
-    // lens (PR2) BEFORE the row is gone so a delete can teach tenant taste.
+    await client.query('BEGIN', []);
+    // The canonical post is the first lock for schedule, dispatch, and delete.
+    // This closes the first-schedule race where delete used to observe no child
+    // row while a concurrent scheduler inserted one after the post disappeared.
     const lookup = await client.query(
-      'SELECT id, tenant_id, style_dimension, style_value FROM posts WHERE id = $1 AND tenant_id = $2 LIMIT 1',
+      `SELECT id, tenant_id, style_dimension, style_value
+         FROM posts
+        WHERE id = $1 AND tenant_id = $2
+        FOR UPDATE`,
       [postIdInt, tenantId],
     );
     if ((lookup.rowCount ?? lookup.rows.length) === 0 || lookup.rows.length === 0) {
+      await client.query('COMMIT', []);
+      transactionFinished = true;
       return NextResponse.json({ error: 'Post not found.', reason: 'post_not_found' }, { status: 404 });
     }
     const deletedPostRow = lookup.rows[0] as { style_dimension?: string | null; style_value?: string | null };
 
-    // Refuse if any scheduled row is in_flight — worker has already started the Meta call.
-    const inFlightCheck = await client.query(
-      "SELECT dispatch_status FROM scheduled_posts WHERE post_id = $1 AND tenant_id = $2 LIMIT 1",
+    // Lock the scheduled owner second. The worker claim follows the same parent
+    // then child order, making cancel-vs-claim a single-winner race.
+    const scheduledOwner = await client.query(
+      `SELECT id,
+              dispatch_status,
+              EXISTS (
+                SELECT 1
+                  FROM scheduled_post_dispatches dispatch
+                 WHERE dispatch.scheduled_post_id = scheduled_posts.id
+                   AND dispatch.status IN ('dispatched', 'manual_reconciliation')
+              ) AS has_terminal_dispatch_evidence
+         FROM scheduled_posts
+        WHERE post_id = $1 AND tenant_id = $2
+        FOR UPDATE`,
       [postIdInt, tenantId],
     );
-    if (inFlightCheck.rows.length > 0 && inFlightCheck.rows[0]!['dispatch_status'] === 'in_flight') {
+
+    const dispatchStatus = scheduledOwner.rows[0]?.['dispatch_status'];
+    const hasTerminalDispatchEvidence = scheduledOwner.rows[0]?.['has_terminal_dispatch_evidence'] === true;
+    if (
+      (dispatchStatus !== undefined && dispatchStatus !== 'pending')
+      || hasTerminalDispatchEvidence
+    ) {
+      await client.query('COMMIT', []);
+      transactionFinished = true;
       return NextResponse.json(
-        { error: 'Dispatch is in progress — cannot delete post mid-flight.', reason: 'dispatch_in_flight' },
+        dispatchStatus === 'in_flight'
+          ? { error: 'Dispatch is in progress — cannot delete post mid-flight.', reason: 'dispatch_in_flight' }
+          : { error: 'Scheduled post is not cancellable.', reason: 'dispatch_not_cancellable' },
         { status: 409 },
       );
     }
 
+
     // Cascade: remove scheduled_posts row first, then the post itself.
-    const schedDel = await client.query(
-      'DELETE FROM scheduled_posts WHERE post_id = $1 AND tenant_id = $2',
-      [postIdInt, tenantId],
-    );
+    const schedDel = scheduledOwner.rows[0]
+      ? await client.query(
+          `DELETE FROM scheduled_posts
+            WHERE id = $1::bigint
+              AND dispatch_status = 'pending'
+              AND NOT EXISTS (
+                SELECT 1
+                  FROM scheduled_post_dispatches dispatch
+                 WHERE dispatch.scheduled_post_id = scheduled_posts.id
+                   AND dispatch.status IN ('dispatched', 'manual_reconciliation')
+              )`,
+          [scheduledOwner.rows[0]['id']],
+        )
+      : { rows: [], rowCount: 0 };
     const scheduledPostDeleted = (schedDel.rowCount ?? 0) > 0;
+    if (scheduledOwner.rows[0] && !scheduledPostDeleted) {
+      await client.query('ROLLBACK', []);
+      transactionFinished = true;
+      return NextResponse.json(
+        { error: 'Scheduled post is not cancellable.', reason: 'dispatch_not_cancellable' },
+        { status: 409 },
+      );
+    }
 
     await client.query(
       'DELETE FROM posts WHERE id = $1 AND tenant_id = $2',
       [postIdInt, tenantId],
     );
+
+    await client.query('COMMIT', []);
+    transactionFinished = true;
 
     // PR2 Phase 3: deleting a post is a structural rejection of its creative —
     // teach tenant taste on the stamped visual-style lens. Best-effort +
@@ -236,6 +287,7 @@ export async function handleDeleteSocialContentPost(
       { status: 200 },
     );
   } catch (error) {
+    if (!transactionFinished) await client.query('ROLLBACK', []).catch(() => {});
     const message = error instanceof Error ? error.message : String(error);
     console.error('[social-content-post-delete]', { jobId, postId, error: message });
     return NextResponse.json(
@@ -243,7 +295,7 @@ export async function handleDeleteSocialContentPost(
       { status: 500 },
     );
   } finally {
-    if (ownsPool && pooled) {
+    if (pooled) {
       pooled.release();
     }
   }

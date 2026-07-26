@@ -36,6 +36,36 @@ export type DispatchQueryable = {
   ) => Promise<{ rows: T[]; rowCount?: number | null }>;
 };
 
+type DispatchTransactionClient = DispatchQueryable & { release?: () => void };
+type DispatchDatabase = DispatchQueryable & {
+  connect?: () => Promise<DispatchTransactionClient>;
+};
+
+async function withDispatchTransaction<T>(
+  db: DispatchDatabase,
+  run: (client: DispatchTransactionClient) => Promise<T>,
+): Promise<T> {
+  let ownsClient = false;
+  let client: DispatchTransactionClient;
+  if (typeof db.connect === 'function') {
+    client = await db.connect();
+    ownsClient = true;
+  } else {
+    client = db;
+  }
+  try {
+    await client.query('BEGIN', []);
+    const result = await run(client);
+    await client.query('COMMIT', []);
+    return result;
+  } catch (error) {
+    await client.query('ROLLBACK', []).catch(() => {});
+    throw error;
+  } finally {
+    if (ownsClient) client.release?.();
+  }
+}
+
 async function readBody(req: Request): Promise<ScheduledDispatchBody> {
   try {
     return (await req.json()) as ScheduledDispatchBody;
@@ -305,18 +335,20 @@ export async function resolvePublishGuards(args: {
 // independently; the parent posts row must NOT be demoted to 'failed'
 // because one platform failed while another went live.
 //   - 'published' — at least one platform was dispatched.
+//   - 'unverified'— at least one provider submission may already be live.
 //   - 'failed'    — every platform failed AND no failure is retryable
 //     (every failure is terminal), so no later worker pass will change it.
 //   - null        — leave posts.published_status untouched: either there
 //     were no platforms, or a retryable failure remains and the worker's
 //     next pass can still drive the post to a terminal state.
-export type PostStatusDecision = 'published' | 'failed' | null;
+export type PostStatusDecision = 'published' | 'failed' | 'unverified' | null;
 
 export function planPostStatusUpdate(
-  results: ReadonlyArray<{ ok: boolean; retryable?: boolean }>,
+  results: ReadonlyArray<{ ok: boolean; retryable?: boolean; kind?: string }>,
 ): PostStatusDecision {
   if (results.length === 0) return null;
   if (results.some((r) => r.ok)) return 'published';
+  if (results.some((r) => r.kind === 'outcome_unknown')) return 'unverified';
   const anyRetryable = results.some((r) => !r.ok && r.retryable);
   return anyRetryable ? null : 'failed';
 }
@@ -329,8 +361,9 @@ export function planPostStatusUpdate(
 //     Reddit SUBREDDIT_NOEXIST, or a capability/guard error) is honored as
 //     terminal, so it self-terminates instead of the worker re-claiming and
 //     re-failing it every tick.
-//   - Everything else (a raw network throw, an unrecognized error) DEFAULTS TO
-//     RETRYABLE (fail-safe): only an explicit `false` buries a failure.
+//   - Everything else defaults to retryable for legacy direct callers. The
+//     route's provider loop uses classifyScheduledDispatchFailure below, which
+//     is stricter once provider submission may have started.
 export function deriveDispatchRetryable(error: unknown): boolean {
   if (error instanceof MetaPublishError) return error.retryable;
   if (
@@ -344,15 +377,37 @@ export function deriveDispatchRetryable(error: unknown): boolean {
   return true;
 }
 
+/**
+ * Fail-closed provider outcome matrix for the route/worker contract. An
+ * unclassified throw after dispatchPublish starts may conceal an accepted
+ * submission, so only an adapter's explicit retryability proof can rearm it.
+ */
+export function classifyScheduledDispatchFailure(error: unknown): {
+  kind: MetaPublishFailureKind;
+  retryable: boolean;
+} {
+  if (error instanceof MetaPublishError) {
+    const kind = classifyMetaPublishFailureKind(error);
+    return { kind, retryable: kind === 'outcome_unknown' ? false : error.retryable };
+  }
+
+  const explicitRetryable =
+    typeof error === 'object' && error !== null && 'retryable' in error
+      ? (error as { retryable?: unknown }).retryable
+      : undefined;
+  if (explicitRetryable === true) return { kind: 'transient', retryable: true };
+  if (explicitRetryable === false) return { kind: 'permanent', retryable: false };
+  return { kind: 'outcome_unknown', retryable: false };
+}
+
 export type ScheduledDispatchResult = {
   provider: string;
   ok: boolean;
   platformPostId?: string;
   error?: string;
   retryable?: boolean;
-  // Informational failure taxonomy so the worker can surface *why* a terminal
-  // row failed (e.g. an expired token → reconnect). Does NOT change the retry
-  // policy — `retryable` alone drives pending-vs-failed.
+  // Failure taxonomy is part of the safety contract: outcome_unknown always
+  // quarantines even if a buggy adapter also reports retryable=true.
   kind?: MetaPublishFailureKind;
 };
 
@@ -392,8 +447,63 @@ export async function isScheduledDispatchAttemptOwned(args: {
   return (result.rowCount ?? result.rows.length) === 1;
 }
 
+/**
+ * Fence provider I/O for one immutable worker claim. The parent row is the
+ * serialization point: only the first request for a live attempt token stamps
+ * dispatch_started_at and may cross the provider boundary.
+ */
+export async function claimScheduledDispatchProviderSubmission(args: {
+  db: DispatchDatabase;
+  tenantId: string;
+  postId: string;
+  scheduledPostId: string;
+  attemptToken: string;
+}): Promise<{ owned: boolean; claimed: boolean }> {
+  return withDispatchTransaction(args.db, async (client) => {
+    const owner = await client.query<{
+      dispatch_status: string;
+      dispatch_attempt_token: string | null;
+      dispatch_started_at: string | null;
+    }>(
+      `SELECT dispatch_status, dispatch_attempt_token, dispatch_started_at
+         FROM scheduled_posts
+        WHERE id = $1::bigint
+          AND post_id = $2::bigint
+          AND tenant_id = $3::int
+        FOR UPDATE`,
+      [args.scheduledPostId, args.postId, args.tenantId],
+    );
+    const row = owner.rows[0];
+    if (
+      !row
+      || row.dispatch_status !== 'in_flight'
+      || row.dispatch_attempt_token !== args.attemptToken
+    ) {
+      return { owned: false, claimed: false };
+    }
+    if (row.dispatch_started_at !== null) {
+      return { owned: true, claimed: false };
+    }
+
+    const claimed = await client.query(
+      `UPDATE scheduled_posts
+          SET dispatch_started_at = clock_timestamp()
+        WHERE id = $1::bigint
+          AND dispatch_status = 'in_flight'
+          AND dispatch_attempt_token = $2
+          AND dispatch_started_at IS NULL
+        RETURNING dispatch_started_at`,
+      [args.scheduledPostId, args.attemptToken],
+    );
+    return {
+      owned: true,
+      claimed: (claimed.rowCount ?? claimed.rows.length) === 1,
+    };
+  });
+}
+
 export async function finalizeScheduledDispatchAttempt(args: {
-  db: DispatchQueryable;
+  db: DispatchDatabase;
   tenantId: string;
   postId: string;
   scheduledPostId: string;
@@ -404,70 +514,97 @@ export async function finalizeScheduledDispatchAttempt(args: {
   if (args.postStatus === null) return { owned: true, jobId: null };
 
   const firstPublishedPostId = firstSuccessfulPlatformPostId(args.results);
-  const updated = args.postStatus === 'published'
-    ? await args.db.query<{ job_id: string | null }>(
-        `UPDATE posts p
-            SET published_status = 'published',
-                platform_post_id = COALESCE(platform_post_id, $2),
-                published_at = COALESCE(published_at, now())
-           WHERE p.id = $1
-             AND p.tenant_id = $3
-             AND EXISTS (
-               SELECT 1
-                 FROM scheduled_posts owner
-                WHERE owner.id = $4::bigint
-                  AND owner.post_id = p.id
-                  AND owner.tenant_id = p.tenant_id
-                  AND owner.dispatch_status = 'in_flight'
-                  AND owner.dispatch_attempt_token = $5
-             )
-           RETURNING job_id`,
-        [args.postId, firstPublishedPostId, args.tenantId, args.scheduledPostId, args.attemptToken],
-      )
-    : await args.db.query<{ job_id: string | null }>(
-        `UPDATE posts p
-            SET published_status = 'failed'
-          WHERE p.id = $1
-            AND p.tenant_id = $2
-            AND EXISTS (
-              SELECT 1
-                FROM scheduled_posts owner
-               WHERE owner.id = $3::bigint
-                 AND owner.post_id = p.id
-                 AND owner.tenant_id = p.tenant_id
-                 AND owner.dispatch_status = 'in_flight'
-                 AND owner.dispatch_attempt_token = $4
-            )
-          RETURNING job_id`,
-        [args.postId, args.tenantId, args.scheduledPostId, args.attemptToken],
-      );
+  return withDispatchTransaction(args.db, async (client) => {
+    // Canonical parent first, then scheduled owner: schedule/delete/finalize all
+    // use this order, preventing deadlocks and eliminating a delete/finalize gap.
+    const canonicalPost = await client.query(
+      `SELECT id
+         FROM posts
+        WHERE id = $1::bigint
+          AND tenant_id = $2::int
+        FOR UPDATE`,
+      [args.postId, args.tenantId],
+    );
+    if ((canonicalPost.rowCount ?? canonicalPost.rows.length) !== 1) {
+      return { owned: false, jobId: null };
+    }
 
-  const owned = (updated.rowCount ?? updated.rows.length) === 1;
-  if (!owned) return { owned: false, jobId: null };
+    // A stale finalizer that waits behind a reclaim observes the replacement
+    // token before touching canonical state or Insights attribution.
+    const owner = await client.query<{
+      dispatch_status: string;
+      dispatch_attempt_token: string | null;
+    }>(
+      `SELECT dispatch_status, dispatch_attempt_token
+         FROM scheduled_posts
+        WHERE id = $1::bigint
+          AND post_id = $2::bigint
+          AND tenant_id = $3::int
+        FOR UPDATE`,
+      [args.scheduledPostId, args.postId, args.tenantId],
+    );
+    const ownerRow = owner.rows[0];
+    if (
+      !ownerRow
+      || ownerRow.dispatch_status !== 'in_flight'
+      || ownerRow.dispatch_attempt_token !== args.attemptToken
+    ) {
+      return { owned: false, jobId: null };
+    }
 
-  if (args.postStatus === 'published') {
-    for (const result of args.results) {
-      if (!result.ok || !result.platformPostId) continue;
-      try {
+    // Published is monotonic. A later sibling/provider finalizer must not erase
+    // either a canonical success or durable dispatched child evidence.
+    const updated = await client.query<{ job_id: string | null }>(
+      `UPDATE posts
+          SET published_status = CASE
+                WHEN posts.published_status = 'published'
+                  OR $3 = 'published'
+                  OR EXISTS (
+                    SELECT 1
+                      FROM scheduled_post_dispatches dispatch
+                     WHERE dispatch.scheduled_post_id = $5::bigint
+                       AND dispatch.status = 'dispatched'
+                  )
+                  THEN 'published'
+                  ELSE $3
+                  END,
+              platform_post_id = COALESCE(platform_post_id, $2),
+              published_at = CASE
+                  WHEN posts.published_status = 'published'
+                    OR $3 = 'published'
+                  OR EXISTS (
+                    SELECT 1
+                      FROM scheduled_post_dispatches dispatch
+                     WHERE dispatch.scheduled_post_id = $5::bigint
+                       AND dispatch.status = 'dispatched'
+                  )
+                THEN COALESCE(published_at, now())
+                ELSE published_at
+              END
+        WHERE id = $1
+          AND tenant_id = $4
+        RETURNING job_id`,
+      [args.postId, firstPublishedPostId, args.postStatus, args.tenantId, args.scheduledPostId],
+    );
+
+    const owned = (updated.rowCount ?? updated.rows.length) === 1;
+    if (!owned) return { owned: false, jobId: null };
+
+    if (args.postStatus === 'published') {
+      for (const result of args.results) {
+        if (!result.ok || !result.platformPostId) continue;
         await stampInsightsPostAttribution({
-          db: args.db,
+          db: client,
           tenantId: args.tenantId,
           ariesPostId: args.postId,
           platform: result.provider,
           platformPostId: result.platformPostId,
         });
-      } catch (error) {
-        console.warn('[scheduled-dispatch] insights attribution stamp failed', {
-          tenantId: args.tenantId,
-          postId: args.postId,
-          platform: result.provider,
-          error: error instanceof Error ? error.message : String(error),
-        });
       }
     }
-  }
 
-  return { owned: true, jobId: updated.rows[0]?.job_id ?? null };
+    return { owned: true, jobId: updated.rows[0]?.job_id ?? null };
+  });
 }
 
 export async function POST(req: Request): Promise<Response> {
@@ -502,9 +639,9 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   if (postId) {
-    let ownsAttempt = false;
+    let providerClaim: { owned: boolean; claimed: boolean };
     try {
-      ownsAttempt = await isScheduledDispatchAttemptOwned({
+      providerClaim = await claimScheduledDispatchProviderSubmission({
         db: pool,
         tenantId,
         postId,
@@ -517,7 +654,7 @@ export async function POST(req: Request): Promise<Response> {
         headers: { 'content-type': 'application/json' },
       });
     }
-    if (!ownsAttempt) {
+    if (!providerClaim.owned) {
       return new Response(JSON.stringify({
         status: 'stale_attempt',
         results: platforms.map((provider) => ({
@@ -525,6 +662,21 @@ export async function POST(req: Request): Promise<Response> {
           ok: false,
           error: 'stale_dispatch_attempt',
           retryable: true,
+        })),
+      }), {
+        status: 409,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (!providerClaim.claimed) {
+      return new Response(JSON.stringify({
+        status: 'attempt_already_started',
+        results: platforms.map((provider) => ({
+          provider,
+          ok: false,
+          error: 'dispatch_attempt_already_started',
+          retryable: false,
+          kind: 'outcome_unknown' as MetaPublishFailureKind,
         })),
       }), {
         status: 409,
@@ -603,23 +755,9 @@ export async function POST(req: Request): Promise<Response> {
   // rows; a non-retryable failure is terminal, a retryable one is re-claimed
   // on a later pass.
   //
-  // KNOWN double-publish window (F5b): there is a narrow crash window between
-  // Meta committing a post and this route recording the platform's outcome.
-  // If the process dies after publishToMetaGraph's Graph POST succeeds but
-  // before the worker's post-publish transaction writes the 'dispatched'
-  // child row, the stale-in_flight reclaim re-dispatches that platform and
-  // Meta gets a second, duplicate post.
-  //
-  // This is NOT closed with a Graph-side idempotency key: the Meta Graph
-  // publishing endpoints (/feed, /media_publish) accept no idempotency or
-  // dedupe parameter — there is nothing to thread. posts.idempotency_key and
-  // its unique index are a DB-side dedupe on the post-hoc verification INSERT
-  // (publish-verification.ts), not a Graph-call guard. Forcing a key through
-  // publishToMetaGraph would be dead weight Meta ignores. The window is left
-  // open deliberately; closing it would need a Meta-side dedupe primitive
-  // that does not exist, or a pre-publish reservation handshake that is out
-  // of scope here. The reclaim window (10 min) bounds exposure; a duplicate
-  // is rare (requires a crash inside that sub-second gap).
+  // The provider fence above is durable before this loop starts. If the route
+  // or worker dies after a provider accepts but before outcome persistence,
+  // the stale row is parked for manual reconciliation rather than republished.
   // Preserve each provider's confirmed id in the response so the worker can
   // commit it to the matching scheduled_post_dispatches child row.
   const results: ScheduledDispatchResult[] = [];
@@ -682,12 +820,14 @@ export async function POST(req: Request): Promise<Response> {
       const errMsg = error instanceof MetaPublishError
         ? `${error.code}: ${error.message}`
         : String((error as Error).message || error);
-      const retryable = deriveDispatchRetryable(error);
-      // Derive the failure taxonomy for surfacing only. A raw non-Meta throw is
-      // 'permanent' per the classifier, but the route still treats it as
-      // retryable above (network blips re-claim) — the two are independent.
-      const kind = classifyMetaPublishFailureKind(error);
-      results.push({ provider: platform, ok: false, error: errMsg, retryable, kind });
+      const classification = classifyScheduledDispatchFailure(error);
+      results.push({
+        provider: platform,
+        ok: false,
+        error: errMsg,
+        retryable: classification.retryable,
+        kind: classification.kind,
+      });
       // Do NOT abort the loop: a later platform may still succeed, and the
       // worker needs every platform's outcome to write per-platform state.
       // Do NOT write posts.published_status here — a per-platform write would
@@ -705,16 +845,56 @@ export async function POST(req: Request): Promise<Response> {
   // the first successful provider id; per-platform truth lives in child rows.
   let dispatchedJobId: string | null = null;
   if (postId) {
-    const finalized = await finalizeScheduledDispatchAttempt({
-      db: pool,
-      tenantId,
-      postId,
-      scheduledPostId,
-      attemptToken,
-      postStatus,
-      results,
-    }).catch(() => null);
-    dispatchedJobId = finalized?.jobId ?? null;
+    try {
+      const finalized = await finalizeScheduledDispatchAttempt({
+        db: pool,
+        tenantId,
+        postId,
+        scheduledPostId,
+        attemptToken,
+        postStatus,
+        results,
+      });
+      if (!finalized.owned) {
+        const reconciliationResults: ScheduledDispatchResult[] = results.map((result) => ({
+          provider: result.provider,
+          ok: false,
+          error: 'canonical_finalization_lost_attempt_ownership',
+          retryable: false,
+          kind: 'outcome_unknown',
+        }));
+        return new Response(JSON.stringify({
+          status: 'finalization_failed',
+          results: reconciliationResults,
+        }), {
+          status: 409,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      dispatchedJobId = finalized.jobId;
+    } catch (finalizationError) {
+      console.error('[scheduled-dispatch] canonical finalization failed', finalizationError);
+      // Provider success may already be externally visible. Never return the
+      // original success payload when canonical post state + Insights
+      // attribution failed atomically; the worker must require reconciliation.
+      const finalizationMessage = finalizationError instanceof Error
+        ? finalizationError.message
+        : String(finalizationError);
+      const reconciliationResults: ScheduledDispatchResult[] = results.map((result) => ({
+        provider: result.provider,
+        ok: false,
+        error: `canonical_finalization_failed:${finalizationMessage}`,
+        retryable: false,
+        kind: 'outcome_unknown',
+      }));
+      return new Response(JSON.stringify({
+        status: 'finalization_failed',
+        results: reconciliationResults,
+      }), {
+        status: 503,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
   }
   // A publish flips posts.published_status, which feeds the campaign-list
   // dashboard's published/scheduled/live counts (via countPublishedPostsForJob).
