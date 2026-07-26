@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.45.0 — fix(publishing): make scheduled delivery fail closed
+
+Scheduled publishing now treats provider submission as a fenced, durable attempt:
+workers can recover known successes without posting twice, and ambiguous outcomes
+are quarantined for manual reconciliation instead of being retried automatically.
+
+### Added
+
+- Per-platform dispatch-attempt rows retain owner tokens, provider post IDs, and
+  manual-reconciliation evidence independently from the canonical post row.
+- A one-shot scheduled-worker readiness check validates database, schema, and
+  protocol compatibility before production publishing is re-enabled.
+- Cutover and backfill commands repair legacy terminal rows and fail closed on
+  legacy in-flight work whose provider outcome is not known.
+
+### Changed
+
+- Scheduled claim, retry, reschedule, cancel, finalize, and deployment paths share
+  explicit lock ordering and immutable attempt ownership.
+- Calendar and review surfaces expose partial and manual-reconciliation states
+  honestly, including per-platform success/failure details.
+
+### Fixed
+
+- Instagram image publication allows the complete provider polling window plus
+  margin without timing out and resubmitting an outcome-unknown request.
+- Concurrent cancellation/rescheduling serializes on the canonical post before
+  touching child schedule state, so a successful cancellation cannot leave a row.
+- Cutover locks canonical posts before scheduled children, matching live traffic
+  and preventing deployment-time deadlocks.
+- Deploys keep scheduled publishing stopped until the target image passes the
+  functional worker readiness command; DB/schema/protocol failures remain closed.
+
 ## v0.1.44.1 — chore(runtime): pin the supported Node release
 
 Contributors now get immediate Node 24 guidance before running Aries locally,

@@ -27,6 +27,8 @@ export function formatDispatchStatusLabel(status: string): string {
       return 'Dispatched';
     case 'failed':
       return 'Failed';
+    case 'manual_reconciliation':
+      return 'Needs manual check';
     case 'skipped':
       return 'Skipped';
     default:
@@ -45,6 +47,8 @@ export function formatDispatchStatusChip(status: string): string {
       return 'Sent';
     case 'failed':
       return 'Fail';
+    case 'manual_reconciliation':
+      return 'Check';
     case 'in_flight':
       return 'Live';
     case 'pending':
