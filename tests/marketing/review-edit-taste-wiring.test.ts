@@ -99,6 +99,12 @@ function buildPostQueryableWithStyle(style: { dimension: string | null; value: s
   const query = async (sql: string, params: unknown[]) => {
     const trimmed = sql.trim();
     localCalls.push({ sql: trimmed, params });
+    if (trimmed === 'BEGIN' || trimmed === 'COMMIT' || trimmed === 'ROLLBACK') {
+      return { rows: [], rowCount: 0 };
+    }
+    if (/^SELECT id,\s+dispatch_status/.test(trimmed)) {
+      return { rows: [], rowCount: 0 };
+    }
     if (trimmed.startsWith('SELECT id, tenant_id')) {
       const [postId, tenantId] = params as [number, number];
       return {
@@ -113,9 +119,7 @@ function buildPostQueryableWithStyle(style: { dimension: string | null; value: s
         rowCount: 1,
       };
     }
-    if (trimmed.startsWith('SELECT dispatch_status FROM scheduled_posts')) {
-      return { rows: [], rowCount: 0 };
-    }
+
     if (trimmed.startsWith('DELETE FROM scheduled_posts')) {
       return { rows: [], rowCount: 0 };
     }
