@@ -62,10 +62,18 @@ type ChildRow = {
   error_at: string | null;
   error_message: string | null;
 };
+type PostRow = {
+  id: number;
+  tenant_id: number;
+  published_status: string;
+  platform_post_id: string | null;
+  published_at: string | null;
+};
 
 class FakeDb {
   scheduled: SchedRow[] = [];
   children: ChildRow[] = [];
+  posts: PostRow[] = [];
   beforeOutcomeWrite: (() => Promise<void>) | null = null;
   beforeClaimCommit: (() => Promise<void>) | null = null;
   private updatedAtSequence = Date.now();
@@ -77,11 +85,11 @@ class FakeDb {
 }
 
 class FakeClient {
-  private tx: { scheduled: SchedRow[]; children: ChildRow[] } | null = null;
+  private tx: { scheduled: SchedRow[]; children: ChildRow[]; posts: PostRow[] } | null = null;
   constructor(private db: FakeDb) {}
 
   private active() {
-    return this.tx ?? { scheduled: this.db.scheduled, children: this.db.children };
+    return this.tx ?? { scheduled: this.db.scheduled, children: this.db.children, posts: this.db.posts };
   }
 
   async query(sql: string, params: unknown[] = []): Promise<{ rows: any[]; rowCount: number }> {
@@ -90,6 +98,7 @@ class FakeClient {
       this.tx = {
         scheduled: this.db.scheduled.map((r) => ({ ...r })),
         children: this.db.children.map((r) => ({ ...r })),
+        posts: this.db.posts.map((r) => ({ ...r })),
       };
       return { rows: [], rowCount: 0 };
     }
@@ -106,6 +115,7 @@ class FakeClient {
         }
         this.db.scheduled = this.tx.scheduled;
         this.db.children = this.tx.children;
+        this.db.posts = this.tx.posts;
       }
       this.tx = null;
       return { rows: [], rowCount: 0 };
@@ -289,8 +299,39 @@ class FakeClient {
       return { rows: [], rowCount: row ? 1 : 0 };
     }
 
+    if (s.startsWith('SELECT id') && s.includes('FROM posts') && s.includes('FOR UPDATE')) {
+      const [postId, tenantId] = params.map(Number);
+      const post = store.posts.find(
+        (candidate) => candidate.id === postId && candidate.tenant_id === tenantId,
+      );
+      return { rows: post ? [{ id: post.id }] : [], rowCount: post ? 1 : 0 };
+    }
+
     if (s.startsWith('UPDATE posts')) {
-      return { rows: [], rowCount: 0 };
+      const [scheduledPostId, postId, tenantId, attemptToken] = params as [
+        number,
+        number,
+        number,
+        string,
+      ];
+      const owner = store.scheduled.find(
+        (row) => row.id === scheduledPostId
+          && row.dispatch_status === 'in_flight'
+          && row.dispatch_attempt_token === attemptToken,
+      );
+      const post = store.posts.find(
+        (candidate) => candidate.id === postId && candidate.tenant_id === tenantId,
+      );
+      const firstSuccess = store.children.find(
+        (child) => child.scheduled_post_id === scheduledPostId
+          && child.status === 'dispatched'
+          && child.platform_post_id !== null,
+      );
+      if (!owner || !post || !firstSuccess) return { rows: [], rowCount: 0 };
+      post.published_status = 'published';
+      post.platform_post_id ??= firstSuccess.platform_post_id;
+      post.published_at ??= new Date().toISOString();
+      return { rows: [{ id: post.id }], rowCount: 1 };
     }
 
     if (s.startsWith('WITH released_owner AS')) {
@@ -386,6 +427,13 @@ function seedDueRow(db: FakeDb): void {
     dispatch_started_at: null,
     updated_at: new Date(Date.now() - 60_000).toISOString(),
   });
+  db.posts.push({
+    id: 100,
+    tenant_id: 7,
+    published_status: 'approved',
+    platform_post_id: null,
+    published_at: null,
+  });
 }
 
 test('shutdown timeout env stays above provider I/O and below Compose grace', async () => {
@@ -439,6 +487,79 @@ test('worker sends one internal request and fails closed on ambiguous transport 
     const restartReport = await tick(makePool(db));
     assert.equal(restartReport.processed, 0);
     assert.equal(fetchCalls, 1, 'automatic restart must not republish an ambiguous outcome');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('known Facebook success survives route finalization failure and a later Instagram unknown outcome', async () => {
+  const { tick } = await loadWorker();
+  const db = new FakeDb();
+  seedDueRow(db);
+
+  process.env.APP_BASE_URL = 'https://aries.example.test';
+  process.env.INTERNAL_API_SECRET = 'test-secret';
+
+  const requestedPlatforms: string[][] = [];
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async (_url, init) => {
+      const request = JSON.parse(String(init?.body)) as { platforms: string[] };
+      requestedPlatforms.push(request.platforms);
+      if (requestedPlatforms.length === 1) {
+        return new Response(JSON.stringify({
+          status: 'finalization_failed',
+          results: [
+            { provider: 'facebook', ok: true, platformPostId: 'fb_finalizer_failed_100' },
+            {
+              provider: 'instagram',
+              ok: false,
+              retryable: true,
+              kind: 'transient',
+              error: 'instagram temporarily unavailable',
+            },
+          ],
+        }), { status: 503, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({
+        status: 'finalization_failed',
+        results: [{
+          provider: 'instagram',
+          ok: false,
+          retryable: false,
+          kind: 'outcome_unknown',
+          error: 'instagram provider response lost',
+        }],
+      }), { status: 503, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+
+    await tick(makePool(db));
+    assert.deepEqual(
+      db.children.map((child) => [child.platform, child.status, child.platform_post_id]),
+      [
+        ['facebook', 'dispatched', 'fb_finalizer_failed_100'],
+        ['instagram', 'pending', null],
+      ],
+    );
+    assert.equal(db.posts[0]?.published_status, 'published');
+    assert.equal(db.posts[0]?.platform_post_id, 'fb_finalizer_failed_100');
+
+    await tick(makePool(db));
+    assert.deepEqual(
+      requestedPlatforms,
+      [['facebook', 'instagram'], ['instagram']],
+      'Facebook crosses provider I/O exactly once and is never automatically retried',
+    );
+    assert.deepEqual(
+      db.children.map((child) => [child.platform, child.status, child.platform_post_id]),
+      [
+        ['facebook', 'dispatched', 'fb_finalizer_failed_100'],
+        ['instagram', 'manual_reconciliation', null],
+      ],
+      'later Instagram failure cannot erase durable Facebook success or its id',
+    );
+    assert.equal(db.posts[0]?.published_status, 'published');
+    assert.equal(db.posts[0]?.platform_post_id, 'fb_finalizer_failed_100');
   } finally {
     globalThis.fetch = realFetch;
   }

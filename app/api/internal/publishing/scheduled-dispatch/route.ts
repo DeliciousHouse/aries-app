@@ -874,22 +874,19 @@ export async function POST(req: Request): Promise<Response> {
       dispatchedJobId = finalized.jobId;
     } catch (finalizationError) {
       console.error('[scheduled-dispatch] canonical finalization failed', finalizationError);
-      // Provider success may already be externally visible. Never return the
-      // original success payload when canonical post state + Insights
-      // attribution failed atomically; the worker must require reconciliation.
+      // Provider success is external fact even when our canonical/Insights
+      // transaction rolls back. Preserve each confirmed provider outcome so
+      // the owning worker can durably record the successful child and provider
+      // id, then reconcile canonical published truth without another provider
+      // POST. Rewriting a known success to outcome_unknown discards the only
+      // duplicate-prevention evidence available after this response.
       const finalizationMessage = finalizationError instanceof Error
         ? finalizationError.message
         : String(finalizationError);
-      const reconciliationResults: ScheduledDispatchResult[] = results.map((result) => ({
-        provider: result.provider,
-        ok: false,
-        error: `canonical_finalization_failed:${finalizationMessage}`,
-        retryable: false,
-        kind: 'outcome_unknown',
-      }));
       return new Response(JSON.stringify({
         status: 'finalization_failed',
-        results: reconciliationResults,
+        error: `canonical_finalization_failed:${finalizationMessage}`,
+        results,
       }), {
         status: 503,
         headers: { 'content-type': 'application/json' },

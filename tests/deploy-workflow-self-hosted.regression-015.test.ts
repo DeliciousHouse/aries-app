@@ -176,8 +176,8 @@ test('deploy workflow builds and force-recreates the exact commit image', () => 
   );
   assert.match(
     workflow,
-    /docker compose up -d --no-deps --force-recreate --pull always "\$\{SERVICE_NAME\}"/,
-    'deploy workflow should force-recreate the live app so new image and env take effect',
+    /replace_application_and_verify "\$\{TARGET_IMAGE\}" "\$\{target_image_id\}" "\$\{SERVICE_NAME\}"/,
+    'deploy workflow should use the executable recreate-and-health verifier',
   );
    assert.doesNotMatch(
      workflow,
@@ -552,26 +552,84 @@ replace_scheduled_worker_and_verify 'ghcr.io/example/aries:target' 'sha-target'
   }
 });
 
-test('deploy marks the worker protocol boundary before data cutover and never rearms stale-worker restore afterward', () => {
-  const sourceCutover = workflow.indexOf('source ./scripts/release/apply-schema-with-worker-restore.sh');
-  const skipDuplicateInit = workflow.indexOf('export ARIES_SKIP_DB_INIT=1');
-  const appReplacement = workflow.indexOf('docker compose up -d --no-deps --force-recreate --pull always "${SERVICE_NAME}"');
-  const appHealth = workflow.indexOf('if [[ "${healthy}" != "1" ]]');
-  const protocolBoundary = workflow.indexOf('mark_scheduled_worker_protocol_boundary');
-  const dataCutover = workflow.indexOf('scripts/run-scheduled-dispatch-cutover.js');
-  const restartWorker = workflow.indexOf('replace_scheduled_worker_and_verify "${TARGET_IMAGE}" "${target_image_id}"');
+test('application health failure after the protocol boundary leaves publishing stopped', () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), 'aries-app-health-boundary-'));
+  const binDir = path.join(tempRoot, 'bin');
+  const logPath = path.join(tempRoot, 'docker.log');
+  const fakeDocker = path.join(binDir, 'docker');
+  const harness = path.join(tempRoot, 'harness.sh');
+  try {
+    mkdirSync(binDir);
+    writeFileSync(
+      fakeDocker,
+      `#!/usr/bin/env bash
+set -u
+printf '%s\\n' "$*" >> "\${DOCKER_LOG}"
+if [[ "$*" == "compose ps -q aries-scheduled-posts-worker" || "$*" == "compose ps -aq aries-scheduled-posts-worker" ]]; then
+  printf 'old-worker-container\\n'; exit 0
+fi
+if [[ "$*" == "inspect -f {{.State.Running}} old-worker-container" ]]; then
+  printf 'true\\n'; exit 0
+fi
+if [[ "$*" == "inspect -f {{.Image}} old-worker-container" ]]; then
+  printf 'sha-old\\n'; exit 0
+fi
+if [[ "$*" == "inspect old-worker-container" ]]; then
+  printf '%s\\n' '[{"Id":"old-worker-container","Name":"/aries-scheduled-posts-worker-1","Image":"sha-old","Config":{"Image":"ghcr.io/example/aries:old"},"HostConfig":{},"NetworkSettings":{"Networks":{}}}]'
+  exit 0
+fi
+if [[ "$*" == "compose ps -q aries-app" ]]; then
+  printf 'new-app-container\\n'; exit 0
+fi
+if [[ "$*" == "image inspect -f {{.Id}} ghcr.io/example/aries:target" ]]; then
+  printf 'sha-target\\n'; exit 0
+fi
+if [[ "$*" == "inspect -f {{.Image}} new-app-container" ]]; then
+  printf 'sha-target\\n'; exit 0
+fi
+if [[ "$*" == "compose exec -T aries-app wget -qO- http://127.0.0.1:3000/" ]]; then
+  exit 1
+fi
+exit 0
+`,
+      { mode: 0o755 },
+    );
+    writeFileSync(
+      harness,
+      `#!/usr/bin/env bash
+set -euo pipefail
+source "${path.join(PROJECT_ROOT, 'scripts', 'release', 'apply-schema-with-worker-restore.sh').replace(/\\/g, '/')}"
+mark_scheduled_worker_protocol_boundary
+replace_application_and_verify 'ghcr.io/example/aries:target' 'sha-target' 'aries-app' 2 0
+`,
+      { mode: 0o755 },
+    );
+    chmodSync(fakeDocker, 0o755);
+    chmodSync(harness, 0o755);
 
-  assert.ok(sourceCutover > 0 && skipDuplicateInit > sourceCutover);
-  assert.ok(protocolBoundary > skipDuplicateInit);
-  assert.ok(appReplacement > protocolBoundary, 'the no-old-worker boundary must precede target app execution');
-  assert.ok(appHealth > appReplacement);
-  assert.ok(dataCutover > protocolBoundary, 'the rollback boundary must be durable before protocol data mutates');
-  assert.ok(dataCutover > appHealth, 'legacy evidence is quarantined only after compatible route guards own traffic');
-  assert.ok(restartWorker > dataCutover);
-  assert.doesNotMatch(
-    workflow,
-    /complete_scheduled_worker_cutover/,
-    'the workflow must not disarm restoration outside the replacement verifier',
-  );
-  assert.match(workflow, /export ARIES_SKIP_DB_INIT=1[\s\S]*?docker compose up[\s\S]*?unset ARIES_SKIP_DB_INIT/);
+    const result = spawnSync('bash', [harness], {
+      cwd: PROJECT_ROOT,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        TARGET_IMAGE: 'ghcr.io/example/aries:target',
+        DOCKER_LOG: logPath,
+        PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+      },
+    });
+
+    assert.notEqual(result.status, 0, 'application health failure must fail the deployment');
+    const calls = readFileSync(logPath, 'utf8');
+    assert.match(calls, /compose up -d --no-deps --force-recreate --pull always aries-app/);
+    assert.match(calls, /compose exec -T aries-app wget -qO- http:\/\/127\.0\.0\.1:3000\//);
+    assert.match(calls, /compose stop aries-scheduled-posts-worker/);
+    assert.doesNotMatch(calls, /start old-worker-container/);
+    assert.doesNotMatch(calls, /compose up .*aries-scheduled-posts-worker/);
+    assert.match(
+      `${result.stdout}\n${result.stderr}`,
+      /protocol boundary crossed; refusing to restore the previous scheduled worker/i,
+    );
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
 });

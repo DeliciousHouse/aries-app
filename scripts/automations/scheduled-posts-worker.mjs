@@ -390,12 +390,22 @@ async function releasePreProviderClaim(pool, rowId, attemptToken) {
   return Number(result.rows?.[0]?.released ?? 0) === 1;
 }
 
-/**
- * Validate and lock the parent generation before touching child rows. Claims
- * lock parent then children, so the completion path uses the same lock order;
- * this prevents a reclaim/completion deadlock while making ownership stable
- * for the rest of the transaction.
- */
+/** Lock canonical post first: route finalization and schedule/delete use the
+ * same canonical -> scheduled ordering, so worker reconciliation cannot form a
+ * lock cycle with those paths. */
+async function lockCanonicalPost(client, postId, tenantId) {
+  const result = await client.query(
+    `SELECT id
+     FROM posts
+     WHERE id = $1
+       AND tenant_id = $2
+     FOR UPDATE`,
+    [postId, tenantId],
+  );
+  return result.rowCount === 1;
+}
+
+/** Validate and lock the active parent generation after the canonical post. */
 async function lockActiveAttempt(client, rowId, attemptToken) {
   const result = await client.query(
     `SELECT 1
@@ -497,6 +507,62 @@ async function setPlatformDispatchStatus(
            AND owner.dispatch_attempt_token = $6
        )`,
     [rowId, platform, status, truncated, platformPostId, attemptToken],
+  );
+  return result.rowCount === 1;
+}
+
+/**
+ * Reconcile canonical publish truth from durable child evidence while the
+ * canonical and scheduled-owner locks are held. This is the worker-side
+ * fallback for a route response whose provider POST succeeded but whose
+ * canonical/Insights transaction failed. Published and the legacy aggregate
+ * provider id are monotonic: later sibling failures can neither demote the
+ * canonical post nor replace the first confirmed id.
+ */
+async function syncCanonicalPublishedState(client, rowId, postId, tenantId, attemptToken) {
+  const result = await client.query(
+    `UPDATE posts
+     SET published_status = 'published',
+         platform_post_id = COALESCE(
+           posts.platform_post_id,
+           (
+             SELECT dispatch.platform_post_id
+             FROM scheduled_post_dispatches dispatch
+             WHERE dispatch.scheduled_post_id = $1
+               AND dispatch.status = 'dispatched'
+               AND dispatch.platform_post_id IS NOT NULL
+             ORDER BY dispatch.dispatched_at ASC NULLS LAST, dispatch.platform ASC
+             LIMIT 1
+           )
+         ),
+         published_at = COALESCE(
+           posts.published_at,
+           (
+             SELECT min(dispatch.dispatched_at)
+             FROM scheduled_post_dispatches dispatch
+             WHERE dispatch.scheduled_post_id = $1
+               AND dispatch.status = 'dispatched'
+           ),
+           now()
+         ),
+         updated_at = now()
+     WHERE posts.id = $2
+       AND posts.tenant_id = $3
+       AND EXISTS (
+         SELECT 1
+         FROM scheduled_posts owner
+         WHERE owner.id = $1
+           AND owner.dispatch_status = 'in_flight'
+           AND owner.dispatch_attempt_token = $4
+       )
+       AND EXISTS (
+         SELECT 1
+         FROM scheduled_post_dispatches dispatch
+         WHERE dispatch.scheduled_post_id = $1
+           AND dispatch.status = 'dispatched'
+       )
+     RETURNING posts.id`,
+    [rowId, postId, tenantId, attemptToken],
   );
   return result.rowCount === 1;
 }
@@ -887,7 +953,9 @@ export async function tick(pool, { shouldStop = () => false } = {}) {
       const fc = await pool.connect();
       try {
         await fc.query('BEGIN');
-        let ownsAttempt = await lockActiveAttempt(fc, rowId, attemptToken);
+        const canonicalLocked = await lockCanonicalPost(fc, row.post_id, row.tenant_id);
+        let ownsAttempt = canonicalLocked
+          && await lockActiveAttempt(fc, rowId, attemptToken);
         if (!ownsAttempt) {
           await fc.query('COMMIT');
           report.skipped += 1;
@@ -904,6 +972,15 @@ export async function tick(pool, { shouldStop = () => false } = {}) {
             attemptToken,
           );
           if (!ownsAttempt) break;
+        }
+        if (ownsAttempt) {
+          await syncCanonicalPublishedState(
+            fc,
+            rowId,
+            row.post_id,
+            row.tenant_id,
+            attemptToken,
+          );
         }
         const rolled = ownsAttempt
           ? await syncParentRollup(fc, rowId, attemptToken)

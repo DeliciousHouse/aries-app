@@ -339,33 +339,8 @@ jobs:
           # force-recreate so an app startup/health failure cannot rearm stale
           # publishing code against target schema.
           mark_scheduled_worker_protocol_boundary
-          ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always "${SERVICE_NAME}"
-
-          container_id="$(ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose ps -q "${SERVICE_NAME}")"
-          if [[ -z "${container_id}" ]]; then
-            echo "ERROR: Compose did not return a running container id for ${SERVICE_NAME}." >&2
-            exit 1
-          fi
           target_image_id="$(docker image inspect -f '{{.Id}}' "${TARGET_IMAGE}")"
-          container_image_id="$(docker inspect -f '{{.Image}}' "${container_id}")"
-          if [[ "${container_image_id}" != "${target_image_id}" ]]; then
-            echo "ERROR: Running container image ${container_image_id} does not match target ${target_image_id}." >&2
-            exit 1
-          fi
-
-          healthy=0
-          for attempt in $(seq 1 30); do
-            if docker compose exec -T "${SERVICE_NAME}" wget -qO- "http://127.0.0.1:${PORT:-3000}/" >/dev/null 2>&1; then
-              healthy=1
-              break
-            fi
-            sleep 5
-          done
-
-          if [[ "${healthy}" != "1" ]]; then
-            echo "ERROR: Aries app health check failed after deploy." >&2
-            exit 1
-          fi
+          replace_application_and_verify "${TARGET_IMAGE}" "${target_image_id}" "${SERVICE_NAME}"
           unset ARIES_SKIP_DB_INIT
 
 

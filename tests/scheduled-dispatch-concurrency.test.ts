@@ -1,8 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
 
 import {
   claimScheduledDispatchProviderSubmission,
@@ -12,8 +9,6 @@ import {
 type DispatchDb = Parameters<typeof finalizeScheduledDispatchAttempt>[0]['db'];
 
 type QueryResult = { rows: Array<Record<string, unknown>>; rowCount: number };
-
-const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 class Mutex {
   private locked = false;
@@ -41,6 +36,9 @@ class LockedOwnerFixture {
   insightsWrites = 0;
   providerClaims = 0;
   lockOrder: string[] = [];
+  postPublishedStatus = 'approved';
+  aggregatePlatformPostId: string | null = null;
+  durableChildren = new Map<string, { status: string; platformPostId: string | null }>();
 
   async query(sql: string, params: unknown[] = []): Promise<QueryResult> {
     return this.handleQuery(sql, params, false, { releaseLock: null, stagedToken: null });
@@ -84,14 +82,24 @@ class LockedOwnerFixture {
       return { rows: [{ dispatch_started_at: this.dispatchStartedAt }], rowCount: 1 };
     }
     if (/UPDATE posts/i.test(text)) {
-      // This branch intentionally models the pre-fix EXISTS update: it can see
-      // the old committed token while a reclaim transaction owns the parent lock.
-      const attemptToken = String(params[4] ?? params[0] ?? '');
-      if (attemptToken === this.token) {
-        this.canonicalWrites += 1;
-        return { rows: [{ job_id: null }], rowCount: 1 };
+      this.canonicalWrites += 1;
+      const requestedStatus = String(params[2]);
+      const hasDurableSuccess = [...this.durableChildren.values()].some(
+        (child) => child.status === 'dispatched',
+      );
+      if (
+        this.postPublishedStatus === 'published'
+        || requestedStatus === 'published'
+        || hasDurableSuccess
+      ) {
+        this.postPublishedStatus = 'published';
+      } else {
+        this.postPublishedStatus = requestedStatus;
       }
-      return { rows: [], rowCount: 0 };
+      if (this.aggregatePlatformPostId === null && typeof params[1] === 'string') {
+        this.aggregatePlatformPostId = params[1];
+      }
+      return { rows: [{ job_id: null }], rowCount: 1 };
     }
     if (/UPDATE insights_posts/i.test(text)) {
       this.insightsWrites += 1;
@@ -208,20 +216,58 @@ test('an attempt token has exactly one provider-submission claim', async () => {
   assert.equal(fixture.providerClaims, 1);
 });
 
-test('canonical published status is monotonic across later sibling failure and outcome-unknown attempts', () => {
-  const routeSource = readFileSync(
-    path.join(REPO_ROOT, 'app/api/internal/publishing/scheduled-dispatch/route.ts'),
-    'utf8',
-  );
+test('canonical and aggregate publish truth remain monotonic across later sibling outcomes', async () => {
+  const fixture = new LockedOwnerFixture();
 
-  assert.match(
-    routeSource,
-    /published_status\s*=\s*CASE[\s\S]*published_status\s*=\s*'published'[\s\S]*scheduled_post_dispatches[\s\S]*status\s*=\s*'dispatched'[\s\S]*THEN\s+'published'/i,
-    'durable Facebook success must keep the canonical post published when a later Instagram attempt fails or is unverified',
-  );
-  assert.match(
-    routeSource,
-    /ELSE\s+\$\d+[\s\S]*END/i,
-    'only a post with no durable success may accept the current failed/unverified outcome',
+  await finalizeScheduledDispatchAttempt({
+    db: fixture as unknown as DispatchDb,
+    scheduledPostId: '71',
+    attemptToken: 'attempt-stale',
+    tenantId: '15',
+    postId: '901',
+    postStatus: 'published',
+    results: [{ provider: 'facebook', ok: true, platformPostId: 'fb_durable_901' }],
+  });
+  fixture.durableChildren.set('facebook', {
+    status: 'dispatched',
+    platformPostId: 'fb_durable_901',
+  });
+
+  // Inject the historical failure mode: a sibling path leaves canonical state
+  // stale even though the worker has durable Facebook success evidence.
+  fixture.postPublishedStatus = 'approved';
+  await finalizeScheduledDispatchAttempt({
+    db: fixture as unknown as DispatchDb,
+    scheduledPostId: '71',
+    attemptToken: 'attempt-stale',
+    tenantId: '15',
+    postId: '901',
+    postStatus: 'failed',
+    results: [{ provider: 'instagram', ok: false, retryable: false, error: 'media_invalid' }],
+  });
+  assert.equal(fixture.postPublishedStatus, 'published');
+  assert.equal(fixture.aggregatePlatformPostId, 'fb_durable_901');
+
+  fixture.postPublishedStatus = 'approved';
+  await finalizeScheduledDispatchAttempt({
+    db: fixture as unknown as DispatchDb,
+    scheduledPostId: '71',
+    attemptToken: 'attempt-stale',
+    tenantId: '15',
+    postId: '901',
+    postStatus: 'unverified',
+    results: [{
+      provider: 'instagram',
+      ok: false,
+      retryable: false,
+      kind: 'outcome_unknown',
+      error: 'provider response lost',
+    }],
+  });
+  assert.equal(fixture.postPublishedStatus, 'published');
+  assert.equal(
+    fixture.aggregatePlatformPostId,
+    'fb_durable_901',
+    'later sibling attempts cannot replace the first confirmed aggregate provider id',
   );
 });

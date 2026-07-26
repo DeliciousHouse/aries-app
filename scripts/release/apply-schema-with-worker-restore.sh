@@ -150,6 +150,47 @@ prepare_scheduled_worker_replacement() {
   fi
 }
 
+replace_application_and_verify() {
+  local target_image=$1
+  local target_image_id=$2
+  local service_name=$3
+  local health_attempts=${4:-30}
+  local health_sleep_seconds=${5:-5}
+  local container_id container_image_id healthy=0 attempt
+
+  if ! ARIES_APP_IMAGE="${target_image}" docker compose up -d --no-deps --force-recreate --pull always "${service_name}"; then
+    echo "ERROR: Aries app recreate failed." >&2
+    return 1
+  fi
+
+  if ! container_id="$(ARIES_APP_IMAGE="${target_image}" docker compose ps -q "${service_name}")" \
+      || [[ -z "${container_id}" ]]; then
+    echo "ERROR: Compose did not return a running container id for ${service_name}." >&2
+    return 1
+  fi
+  if ! container_image_id="$(docker inspect -f '{{.Image}}' "${container_id}")"; then
+    echo "ERROR: running Aries app image inspection failed." >&2
+    return 1
+  fi
+  if [[ "${container_image_id}" != "${target_image_id}" ]]; then
+    echo "ERROR: Running container image ${container_image_id} does not match target ${target_image_id}." >&2
+    return 1
+  fi
+
+  for attempt in $(seq 1 "${health_attempts}"); do
+    if docker compose exec -T "${service_name}" wget -qO- "http://127.0.0.1:${PORT:-3000}/" >/dev/null 2>&1; then
+      healthy=1
+      break
+    fi
+    sleep "${health_sleep_seconds}"
+  done
+
+  if [[ "${healthy}" != "1" ]]; then
+    echo "ERROR: Aries app health check failed after deploy." >&2
+    return 1
+  fi
+}
+
 replace_scheduled_worker_and_verify() {
   local target_image=$1
   local target_image_id=$2

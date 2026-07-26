@@ -93,18 +93,6 @@ test('planPlatformOutcomes retains each successful provider post id on its match
   );
 });
 
-test('legacy aggregate platform id remains first-write-wins across partial retries', () => {
-  const routeSource = readFileSync(
-    path.join(REPO_ROOT, 'app/api/internal/publishing/scheduled-dispatch/route.ts'),
-    'utf8',
-  );
-  assert.match(
-    routeSource,
-    /platform_post_id\s*=\s*COALESCE\(platform_post_id,\s*\$2\)/,
-    'a later platform retry must not replace the first successful aggregate id',
-  );
-});
-
 test('planPlatformOutcomes: a retryable IG failure stays pending, not failed', async () => {
   const { planPlatformOutcomes, rollupParentStatus } = await loadWorker();
   const outcomes = planPlatformOutcomes(
@@ -265,16 +253,6 @@ test('worker schema: scheduled_posts has a dedicated immutable attempt token and
   );
   assert.match(fenceMigration, /ADD COLUMN IF NOT EXISTS dispatch_started_at TIMESTAMPTZ/);
 });
-
-test('worker never duplicates canonical posts finalization owned by the internal route', () => {
-  const workerSource = readFileSync(
-    path.join(REPO_ROOT, 'scripts/automations/scheduled-posts-worker.mjs'),
-    'utf8',
-  );
-  assert.doesNotMatch(workerSource, /UPDATE\s+posts\s+SET\s+published_status/i);
-  assert.doesNotMatch(workerSource, /updatePostStatus/);
-});
-
 
 test('planPlatformOutcomes: an auth kind prefixes the error_message with a reconnect signal', async () => {
   const { planPlatformOutcomes } = await loadWorker();

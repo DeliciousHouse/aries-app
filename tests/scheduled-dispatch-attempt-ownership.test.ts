@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import test from 'node:test';
+import { pathToFileURL } from 'node:url';
 
 import { POST } from '../app/api/internal/publishing/scheduled-dispatch/route';
 import { encryptOAuthSecret } from '../backend/integrations/oauth-token-crypto';
@@ -330,7 +332,7 @@ test('owned scheduled dispatch succeeds when the Insights row is absent and leav
   });
 });
 
-test('canonical post status and Insights attribution both roll back when attribution finalization fails', async () => {
+test('confirmed provider success survives Insights finalization failure for worker reconciliation', async () => {
   await withDispatchEnv(async (secret) => {
     const fixture = installDispatchFixture({
       owned: true,
@@ -338,24 +340,55 @@ test('canonical post status and Insights attribution both roll back when attribu
       insightsWriteFails: true,
     });
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ id: fixture.providerPostId, post_id: fixture.providerPostId }), {
+    let finalPublishPosts = 0;
+    globalThis.fetch = (async (input) => {
+      if (String(input).endsWith('/feed')) finalPublishPosts += 1;
+      return new Response(JSON.stringify({ id: fixture.providerPostId, post_id: fixture.providerPostId }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
-      })) as typeof fetch;
+      });
+    }) as typeof fetch;
 
     try {
       const response = await POST(makeRequest(secret, 'attempt-current'));
       const body = (await response.json()) as {
         status: string;
-        results: Array<{ ok: boolean; kind?: string; retryable?: boolean }>;
+        results: Array<{
+          ok: boolean;
+          platformPostId?: string;
+          kind?: string;
+          retryable?: boolean;
+        }>;
       };
 
       assert.equal(response.status, 503);
       assert.equal(body.status, 'finalization_failed');
-      assert.equal(body.results[0]?.ok, false);
-      assert.equal(body.results[0]?.kind, 'outcome_unknown');
-      assert.equal(body.results[0]?.retryable, false);
+      assert.equal(body.results[0]?.ok, true, 'confirmed provider success remains confirmed');
+      assert.equal(body.results[0]?.platformPostId, fixture.providerPostId);
+      assert.equal(body.results[0]?.kind, undefined);
+      assert.equal(body.results[0]?.retryable, undefined);
+      assert.equal(
+        finalPublishPosts,
+        1,
+        'the route crosses the non-idempotent provider publish boundary exactly once',
+      );
+      const worker = await import(pathToFileURL(path.join(
+        process.cwd(),
+        'scripts',
+        'automations',
+        'scheduled-posts-worker.mjs',
+      )).href);
+      assert.deepEqual(
+        worker.planPlatformOutcomes(['facebook'], body.results, null),
+        [{
+          platform: 'facebook',
+          status: 'dispatched',
+          error: null,
+          retryable: false,
+          platformPostId: fixture.providerPostId,
+        }],
+        'the worker consumes the failed-finalizer response as durable success evidence',
+      );
       assert.equal(fixture.getPostPublishedStatus(), 'approved');
       assert.equal(fixture.getAriesPostId(), null);
       assert.ok(fixture.calls.some((call) => /^\s*ROLLBACK\s*$/i.test(call.sql)));

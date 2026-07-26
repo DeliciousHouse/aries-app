@@ -130,13 +130,18 @@ test('deploy workflow force-recreates every docker-compose service', () => {
     .split('\n')
     .filter((line) => !line.trimStart().startsWith('#'));
 
-  // aries-app itself is recreated via the SERVICE_NAME indirection.
+  // aries-app itself is recreated through the sourced fail-closed verifier;
+  // require both the workflow call and the helper's pinned compose command.
   assert.match(deploySource, /^\s*SERVICE_NAME: aries-app$/m);
-  assert.ok(
-    activeDeployLines.some((line) =>
-      line.trimStart().startsWith(`${recreateCommand} "\${SERVICE_NAME}"`),
-    ),
-    'deploy.yml is missing the pinned force-recreate of "${SERVICE_NAME}" (aries-app)',
+  assert.match(
+    deploySource,
+    /replace_application_and_verify "\$\{TARGET_IMAGE\}" "\$\{target_image_id\}" "\$\{SERVICE_NAME\}"/,
+    'deploy.yml is missing the fail-closed application verifier call',
+  );
+  assert.match(
+    schemaFenceSource,
+    /ARIES_APP_IMAGE="\$\{target_image\}" docker compose up -d --no-deps --force-recreate --pull always "\$\{service_name\}"/,
+    'the application verifier is missing the pinned force-recreate command',
   );
 
   // Only lines that ARE the recreate command count as coverage — an echo/log
@@ -202,9 +207,8 @@ test('deploy workflow fences scheduled publishing across schema/app rollout and 
 
   const applySchema = deploySource.indexOf('source ./scripts/release/apply-schema-with-worker-restore.sh');
   const startApp = deploySource.indexOf(
-    'ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always "${SERVICE_NAME}"',
+    'replace_application_and_verify "${TARGET_IMAGE}" "${target_image_id}" "${SERVICE_NAME}"',
   );
-  const healthyGate = deploySource.indexOf('if [[ "${healthy}" != "1" ]]');
   const restartWorker = deploySource.indexOf(
     'replace_scheduled_worker_and_verify "${TARGET_IMAGE}" "${target_image_id}"',
   );
@@ -212,14 +216,23 @@ test('deploy workflow fences scheduled publishing across schema/app rollout and 
   for (const [name, index] of [
     ['scheduled worker stop + target-image schema fence', applySchema],
     ['app rollout', startApp],
-    ['app healthy gate', healthyGate],
     ['scheduled worker restart', restartWorker],
   ] as const) {
     assert.notEqual(index, -1, `deploy workflow is missing required ${name}`);
   }
   assert.ok(applySchema < startApp, 'schema is applied from the target image before the new app starts');
-  assert.ok(startApp < healthyGate, 'new app starts before its health gate');
-  assert.ok(healthyGate < restartWorker, 'scheduled worker restarts only after the app is healthy');
+  assert.ok(startApp < restartWorker, 'scheduled worker restarts only after the app verifier succeeds');
+
+  const helperAppRecreate = schemaFenceSource.indexOf(
+    'ARIES_APP_IMAGE="${target_image}" docker compose up -d --no-deps --force-recreate --pull always "${service_name}"',
+  );
+  const helperAppHealthyGate = schemaFenceSource.indexOf('if [[ "${healthy}" != "1" ]]');
+  assert.notEqual(helperAppRecreate, -1, 'application verifier is missing its recreate command');
+  assert.notEqual(helperAppHealthyGate, -1, 'application verifier is missing its health gate');
+  assert.ok(
+    helperAppRecreate < helperAppHealthyGate,
+    'the application verifier starts the target app before evaluating health',
+  );
 
   const helperRecreate = schemaFenceSource.indexOf(
     'ARIES_APP_IMAGE="${target_image}" docker compose up -d --no-deps --force-recreate --pull always "${scheduled_worker_service}"',
