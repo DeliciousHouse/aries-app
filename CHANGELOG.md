@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.45.0 — refactor(video): hand media execution to Hermes
+
+Aries can now request and ingest video renders through one generic Hermes contract
+without depending on a named media vendor or carrying provider execution state.
+
+### Changed
+
+- Video requests carry a generic render brief and Hermes run identity; provider,
+  model, credentials, retry policy, and provider operation state stay inside Hermes.
+- Production artifact collection and dashboard hydration consume the neutral
+  `video_render` stage while preserving normalized video dimensions and duration.
+- Contract tests now guard active application code, schemas, runtime skills, and
+  coupled adapters against reintroducing provider-specific video identifiers.
+
+### Removed
+
+- The retired provider-specific runtime skill and its lane, attempt, queue, and
+  provider-job state fields have been replaced by the Aries-to-Hermes seam.
+
 ## v0.1.43.0 — fix(publishing): close attribution and ownership races
 
 Scheduled and concurrent publishes now preserve one canonical provider result,
