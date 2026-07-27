@@ -25,7 +25,7 @@ shared state, so the loop resumes cleanly after any interruption.
 | `aries-frontend` | Implement `frontend/` · `components/` (rendered dashboard) fixes | edit + bash | sonnet |
 | `aries-integrations` | Meta Graph · Composio · Hermes port/reconciler · OAuth/token-crypto | edit + bash | sonnet¹ |
 | `aries-test-author` | Add/update `tsx --test` coverage; run `npm run verify` + the focused gate | edit + bash | sonnet |
-| `aries-reviewer` | Pre-PR correctness + security review (`/review`); then rebase, run guardrails, and open a draft PR (`Closes #n`) for the assigned merge-gate lane | read + bash + Skill | opus |
+| `aries-reviewer` | Pre-PR correctness + security via strictly read-only local review (`git fetch origin --prune`, `git diff origin/master...HEAD`, then Read, Grep, and Glob); route must-fix findings to the implementer. On APPROVE, rebase, run guardrails, and open a draft PR (`Closes #n`) for the assigned merge-gate lane | read + bash + Skill | opus |
 
 ¹ `aries-integrations` defaults to sonnet; the orchestrator should run it on **opus** for subtle
 token-race / Graph-API-contract / Hermes-polling bugs.
