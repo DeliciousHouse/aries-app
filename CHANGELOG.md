@@ -21,6 +21,17 @@ without depending on a named media vendor or carrying provider execution state.
 - The retired provider-specific runtime skill and its lane, attempt, queue, and
   provider-job state fields have been replaced by the Aries-to-Hermes seam.
 
+## v0.1.44.1 — chore(runtime): pin the supported Node release
+
+Contributors now get immediate Node 24 guidance before running Aries locally,
+instead of discovering an unsupported runtime only after setup or verification.
+
+### Changed
+
+- The root `.nvmrc` selects Node 24 for compatible version managers.
+- `package.json` declares `>=24 <25`, so package managers warn when installs use
+  a different major release without changing install behavior.
+
 ## v0.1.43.0 — fix(publishing): close attribution and ownership races
 
 Scheduled and concurrent publishes now preserve one canonical provider result,

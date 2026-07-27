@@ -12,7 +12,7 @@ It does not document removed placeholder routes or legacy workflow-engine refere
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 24.x
 - npm
 - PostgreSQL 16
 - Hermes Gateway credentials plus an internal callback secret for live execution
