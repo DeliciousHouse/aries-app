@@ -8,8 +8,9 @@ These agents are the **fix engine** of a two-session loop:
 - **`/aries-qa-loop`** drives *live production* as a first-time user, finds what's broken on the
   golden journey, and files each defect as a GitHub issue labeled **`qa-defect`**.
 - **`/aries-goal`** is the **orchestrator**: it pulls the `qa-defect` queue, routes each issue
-  through this team, and opens a draft PR for the sanctioned reviewer lane. The assigned reviewer
-  deliberately merges only after CI and acceptance criteria are green.
+  through this team, sends every fix through a draft PR and the assigned reviewer lane, and runs
+  until the QA session writes `.qa-loop/VERIFIED.md` (all five gates green in prod) and the
+  `qa-defect` queue is empty.
 
 The orchestrator does the routing; these agents do the work. GitHub issues + PRs are the durable
 shared state, so the loop resumes cleanly after any interruption.
@@ -24,7 +25,7 @@ shared state, so the loop resumes cleanly after any interruption.
 | `aries-frontend` | Implement `frontend/` · `components/` (rendered dashboard) fixes | edit + bash | sonnet |
 | `aries-integrations` | Meta Graph · Composio · Hermes port/reconciler · OAuth/token-crypto | edit + bash | sonnet¹ |
 | `aries-test-author` | Add/update `tsx --test` coverage; run `npm run verify` + the focused gate | edit + bash | sonnet |
-| `aries-reviewer` | Review diff for correctness + security (`/code-review`); then ship a draft PR (`Closes #n`) for the sanctioned reviewer lane | read + bash + Skill | opus |
+| `aries-reviewer` | Pre-PR correctness + security review (`/review`); then rebase, run guardrails, and open a draft PR (`Closes #n`) for the assigned merge-gate lane | read + bash + Skill | opus |
 
 ¹ `aries-integrations` defaults to sonnet; the orchestrator should run it on **opus** for subtle
 token-race / Graph-API-contract / Hermes-polling bugs.
@@ -41,8 +42,8 @@ groomer (queue → ordered)
   → planner (issue → scoped plan + routing)
     → backend | frontend | integrations (implement on fix/<n>-<slug>)
       → test-author (regression test + npm run verify + focused gate)
-        → reviewer (correctness+security review → guardrails:agent → draft PR Closes #n)
-          → assigned reviewer lane → CI full-suite green → deliberate merge → Deploy → QA loop re-verifies in prod
+        → reviewer (correctness+security review → rebase → guardrails:agent → draft PR Closes #n)
+          → CI full-suite green → assigned reviewer deliberately squash-merges → Deploy → QA loop re-verifies in prod
 ```
 
 ## Conventions every agent honors (from `CLAUDE.md`)
@@ -51,7 +52,7 @@ groomer (queue → ordered)
 - **`npm run verify` green before any push** — the canonical fast regression suite (runs
   `guardrails:agent` first).
 - **`npm run guardrails:agent` before opening a PR** — warns on no-unique-diff / duplicate work.
-- **Branch off `master`, never commit on `master`** — one issue → one `fix/<n>-<slug>` (or `feat/`) branch.
+- **Start with `git fetch origin --prune` and branch only from `origin/master`** — verify base distance before editing; one issue → one `fix/<n>-<slug>` (or `feat/`) branch, never local `master`.
 - **Conventional Commits with a scope** — e.g. `fix(integrations): …`.
 - **Resumability rule** — never discard partial artifacts on a transient/rate-limit failure; persist,
   surface, let the orchestrator retry.
@@ -66,9 +67,12 @@ groomer (queue → ordered)
 - Work queue: **`qa-defect`** (issues filed by the QA loop; the groomer also adds `gate:*` / `sev:*`).
 - The retired `agent:fix` and `agent:auto-merge` labels have no workflow consumer and must not be
   used as routing or merge gates. Hermes Kanban is the canonical dev-team queue.
-- Every implementation PR opens as a **draft**. The sanctioned intake assigns one reviewer lane;
-  only that lane marks the PR ready and merges deliberately after required CI and acceptance
-  criteria are satisfied. This local team never enables auto-merge or merges its own PR.
+- Every implementation PR opens as a **draft**. Never enable auto-merge and never add
+  `agent:auto-merge`.
+- The sanctioned review intake assigns exactly one merge authority: even PR numbers go to
+  `dev-reviewer`, odd PR numbers to `dev-reviewer-2`. That reviewer waits for the required
+  `full-suite` check, judges the acceptance criteria, marks the PR ready, and deliberately
+  squash-merges. The other lane does not touch the PR.
 - Fixes auto-close their issue via `Closes #<n>`; **no agent closes a `qa-defect` issue by hand** —
   the QA session verifies in prod.
 
