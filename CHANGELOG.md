@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.43.1 — docs(testing): scope local card verification
+
+Contributors can now focus local verification on card-relevant tests plus the
+canonical guardrail suite while the complete test suite remains the CI merge gate.
+
+### Changed
+
+- Repository guidance now requires tests covering each changed module and affected
+  integrations followed by `npm run verify`, without requiring the full 498-file
+  suite before a draft pull request.
+
 ## v0.1.43.0 — fix(publishing): close attribution and ownership races
 
 Scheduled and concurrent publishes now preserve one canonical provider result,
