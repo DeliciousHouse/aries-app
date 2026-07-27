@@ -7,6 +7,13 @@ All notable changes to this project will be documented in this file.
 Aries can now request and ingest video renders through one generic Hermes contract
 without depending on a named media vendor or carrying provider execution state.
 
+### Added
+
+- Versioned v2 video contract projections now validate the same submission,
+  authenticated callback, and execution-run fields used by the live Hermes runtime.
+- Self-host upgrades install the managed `video-render-runtime` skill and retire only
+  its predecessor while leaving unrelated user-managed skills untouched.
+
 ### Changed
 
 - Video requests carry a generic render brief and Hermes run identity; provider,
@@ -15,6 +22,15 @@ without depending on a named media vendor or carrying provider execution state.
   `video_render` stage while preserving normalized video dimensions and duration.
 - Contract tests now guard active application code, schemas, runtime skills, and
   coupled adapters against reintroducing provider-specific video identifiers.
+
+### Fixed
+
+- Video callbacks now durably ingest `output.artifacts[]`, preserve completed clips
+  from retryable failures, fail loudly when all reported media is unusable, and serve
+  accepted renders through the dashboard asset route.
+- In-flight runs written under the predecessor step filename remain readable, and
+  every terminal execution state is immutable against later callback transitions.
+- Hermes image harvesting recognizes current `image_render_` basename and URL forms.
 
 ### Removed
 
