@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -15,6 +15,62 @@ export type SocialContentVideoIngestResult = {
   rewrites: MediaRewrite[];
   skipped: Array<{ path: string; reason: 'not_allowed' | 'missing' | 'invalid' }>;
 };
+
+export type SocialContentStageMediaIngestReport = {
+  requested: number;
+  ingested: number;
+  skipped: number;
+  rewrites: MediaRewrite[];
+  skipDetails: SocialContentVideoIngestResult['skipped'];
+};
+
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif']);
+const VIDEO_EXTENSIONS = new Set(['mp4']);
+const HERMES_IMAGE_PREFIXES = ['openai_codex_', 'openai_gpt_', 'gpt-image-', 'image_render_'] as const;
+
+function mediaPathParts(value: unknown): { pathPart: string; basename: string; extension: string } | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().slice(0, 1024);
+  if (!trimmed || /(^|[\\/])\.\.([\\/]|$)/.test(trimmed)) return null;
+  const queryIndex = trimmed.indexOf('?');
+  const fragmentIndex = trimmed.indexOf('#');
+  const cutAt = queryIndex === -1
+    ? fragmentIndex
+    : fragmentIndex === -1
+      ? queryIndex
+      : Math.min(queryIndex, fragmentIndex);
+  const pathPart = cutAt === -1 ? trimmed : trimmed.slice(0, cutAt);
+  const lastSlash = Math.max(pathPart.lastIndexOf('/'), pathPart.lastIndexOf('\\'));
+  const basename = lastSlash === -1 ? pathPart : pathPart.slice(lastSlash + 1);
+  const dot = basename.lastIndexOf('.');
+  if (!basename || dot === -1) return null;
+  return { pathPart, basename, extension: basename.slice(dot + 1).toLowerCase() };
+}
+
+export function isHermesCacheImagePath(value: unknown): boolean {
+  const parts = mediaPathParts(value);
+  if (!parts || !IMAGE_EXTENSIONS.has(parts.extension)) return false;
+  const lowerPath = parts.pathPart.toLowerCase();
+  const lowerBasename = parts.basename.toLowerCase();
+  return (
+    lowerPath.includes('cache/images')
+    || lowerPath.includes('cache\\images')
+    || lowerPath.includes('hermes-media')
+    || HERMES_IMAGE_PREFIXES.some((prefix) => lowerBasename.startsWith(prefix))
+  );
+}
+
+export function isHermesCacheVideoPath(value: unknown): boolean {
+  const parts = mediaPathParts(value);
+  if (!parts || !VIDEO_EXTENSIONS.has(parts.extension)) return false;
+  const lowerPath = parts.pathPart.toLowerCase();
+  return (
+    lowerPath.includes('cache/videos')
+    || lowerPath.includes('cache\\videos')
+    || lowerPath.includes('hermes-media')
+    || parts.basename.toLowerCase().startsWith('video_render_')
+  );
+}
 
 function recordValue(value: unknown): UnknownRecord | null {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -221,6 +277,51 @@ function ingestOutputRecord(jobId: string, output: UnknownRecord, result: Social
   }
 }
 
+function ingestCanonicalArtifacts(
+  jobId: string,
+  output: unknown,
+  result: SocialContentVideoIngestResult,
+): { requested: number; ingested: number } {
+  let requested = 0;
+  let ingested = 0;
+  const singleRecord = recordValue(output);
+  const records = Array.isArray(output)
+    ? recordArray(output)
+    : singleRecord
+      ? [singleRecord]
+      : [];
+
+  for (const record of records) {
+    for (const artifact of recordArray(record.artifacts)) {
+      const sourcePath = stringValue(artifact.path);
+      const mimeType = stringValue(artifact.mime_type).toLowerCase();
+      if (!sourcePath || (mimeType !== 'video/mp4' && path.extname(sourcePath).toLowerCase() !== '.mp4')) {
+        continue;
+      }
+      requested += 1;
+      const platformSlug = slug(stringValue(artifact.platform_slug), 'platform');
+      const familyId = slug(stringValue(artifact.family_id) || stringValue(artifact.id), 'variant');
+      const baseName = `${platformSlug}-${familyId}`;
+      const resolved = resolveAllowedSource(sourcePath, exactAllowedVideoDestinations(jobId, baseName));
+      if ('reason' in resolved) {
+        result.skipped.push({ path: sourcePath, reason: resolved.reason });
+        continue;
+      }
+      if (path.extname(resolved.resolved).toLowerCase() !== '.mp4') {
+        result.skipped.push({ path: sourcePath, reason: 'invalid' });
+        continue;
+      }
+      const destination = copyDeterministic(resolved.resolved, videoDestination(jobId, baseName), result);
+      artifact.path = destination;
+      artifact.url = `/api/marketing/jobs/${encodeURIComponent(jobId)}/assets/video-${platformSlug}-${familyId}`;
+      artifact.mime_type = 'video/mp4';
+      artifact.bytes = statSync(destination).size;
+      ingested += 1;
+    }
+  }
+  return { requested, ingested };
+}
+
 export function ingestSocialContentVideoRenderOutput(
   jobId: string,
   output: unknown,
@@ -250,4 +351,25 @@ export function ingestSocialContentVideoRenderOutput(
   }
 
   return result;
+}
+
+export async function ingestSocialContentStageMedia(input: {
+  jobId: string;
+  stage: string | null | undefined;
+  output: unknown;
+}): Promise<SocialContentStageMediaIngestReport> {
+  if (input.stage !== 'video_render' || !input.jobId.trim()) {
+    return { requested: 0, ingested: 0, skipped: 0, rewrites: [], skipDetails: [] };
+  }
+
+  const result = ingestSocialContentVideoRenderOutput(input.jobId, input.output);
+  const legacyVideosIngested = result.rewrites.filter((rewrite) => path.extname(rewrite.to).toLowerCase() === '.mp4').length;
+  const canonical = ingestCanonicalArtifacts(input.jobId, input.output, result);
+  return {
+    requested: canonical.requested,
+    ingested: canonical.ingested + legacyVideosIngested,
+    skipped: result.skipped.length,
+    rewrites: result.rewrites,
+    skipDetails: result.skipped,
+  };
 }

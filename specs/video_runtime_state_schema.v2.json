@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aries.example/schemas/video-runtime-state-schema-v2.json",
+  "title": "Aries video runtime execution-run projection",
+  "description": "The video runtime does not persist a parallel state machine. This schema documents the video-owned projection of the live ExecutionRunRecord written by backend/execution/run-store.ts.",
+  "x-aries-contract-version": "2.0.0",
+  "x-aries-state-source": "ExecutionRunRecord",
+  "x-terminal-origin-rule": "completed, failed, and cancelled records are immutable for status, result, and error; no transition out of any terminal origin is allowed",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_name",
+    "schema_version",
+    "aries_run_id",
+    "provider",
+    "domain",
+    "workflow_key",
+    "action",
+    "status",
+    "tenant_id",
+    "marketing_job_id",
+    "event_ids",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_name": { "const": "aries_execution_run" },
+    "schema_version": { "const": 1 },
+    "aries_run_id": { "type": "string", "pattern": "^arun_[0-9a-fA-F-]{36}$" },
+    "external_run_id": { "type": ["string", "null"] },
+    "provider": { "const": "hermes" },
+    "domain": { "const": "marketing" },
+    "workflow_key": { "const": "social_content_weekly" },
+    "action": { "enum": ["run", "resume"] },
+    "status": { "enum": ["queued", "submitted", "running", "awaiting_approval", "completed", "failed", "cancelled"] },
+    "tenant_id": { "type": "string", "minLength": 1 },
+    "marketing_job_id": { "type": "string", "pattern": "^mkt_[0-9a-fA-F-]{36}$" },
+    "stage": { "type": ["string", "null"] },
+    "workflow_step_id": { "type": ["string", "null"] },
+    "event_ids": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "last_error": {
+      "type": ["object", "null"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "retryable": { "type": "boolean" }
+      }
+    },
+    "result": {}
+  }
+}

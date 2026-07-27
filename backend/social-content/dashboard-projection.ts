@@ -381,7 +381,15 @@ function latestSocialProjection(runtimeDoc: SocialContentJobRuntimeDocument): So
     if (videoScripts.length === 0 && plan.video_scripts.length > 0) videoScripts = plan.video_scripts;
   }
 
-  const hasProjection = windowDays !== null || posts.length > 0 || imageCreatives.length > 0 || videoScripts.length > 0;
+  // A direct video-render callback is itself dashboard-worthy even when a
+  // minimal/in-flight job has not persisted the broader weekly-plan projection.
+  const hasRenderedVideo = recordArray(runtime?.stages.video_render?.output?.artifacts).length > 0
+    || (runtime?.stages.video_render?.artifacts.length ?? 0) > 0;
+  const hasProjection = hasRenderedVideo
+    || windowDays !== null
+    || posts.length > 0
+    || imageCreatives.length > 0
+    || videoScripts.length > 0;
   if (!hasProjection) return null;
   return {
     summary,

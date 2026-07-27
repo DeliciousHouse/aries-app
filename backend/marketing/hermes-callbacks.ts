@@ -11,7 +11,10 @@ import {
   reconcileSocialContentIntermediateStages,
   socialContentStageFromCallbackStage,
 } from '@/backend/social-content/runtime-state';
-import { ingestSocialContentVideoRenderOutput } from '@/backend/social-content/media-ingest';
+import {
+  ingestSocialContentStageMedia as ingestStageMedia,
+  type SocialContentStageMediaIngestReport,
+} from '@/backend/social-content/media-ingest';
 import type { SocialContentApprovalStep, SocialContentArtifact, SocialContentStage } from '@/backend/social-content/types';
 
 import {
@@ -128,7 +131,7 @@ const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp', 'gif'] as const;
 const HERMES_CACHE_SEGMENTS = ['cache/images', 'cache\\images', 'hermes-media'] as const;
 
 /** Filename prefixes Hermes uses when writing generated images. */
-const HERMES_FILENAME_PREFIXES = ['openai_codex_', 'openai_gpt_', 'gpt-image-'] as const;
+const HERMES_FILENAME_PREFIXES = ['openai_codex_', 'openai_gpt_', 'gpt-image-', 'image_render_'] as const;
 
 /**
  * Returns true when the string value looks like a Hermes-generated image path
@@ -137,7 +140,7 @@ const HERMES_FILENAME_PREFIXES = ['openai_codex_', 'openai_gpt_', 'gpt-image-'] 
  * Only operates on strings ≤ 1024 chars with a recognized image extension.
  * Uses explicit indexOf / startsWith — no runtime regex.
  */
-function isHermesCacheImagePath(value: unknown): boolean {
+export function isHermesCacheImagePath(value: unknown): boolean {
   if (typeof value !== 'string') return false;
   const trimmed = value.trim().slice(0, 1024);
   if (!trimmed) return false;
@@ -768,21 +771,26 @@ function summarizeVideoIngestSkips(
   };
 }
 
-function ingestSocialContentStageMedia(
+async function ingestSocialContentStageMedia(
   run: ExecutionRunRecord,
   payload: HermesRunCallbackPayload,
-): void {
+): Promise<SocialContentStageMediaIngestReport | null> {
   if (!isSocialContentRun(run) || !run.marketing_job_id || payload.stage !== 'video_render') {
-    return;
+    return null;
   }
 
-  const result = ingestSocialContentVideoRenderOutput(run.marketing_job_id, payload.output);
-  if (result.skipped.length > 0) {
+  const result = await ingestStageMedia({
+    jobId: run.marketing_job_id,
+    stage: payload.stage,
+    output: payload.output,
+  });
+  if (result.skipDetails.length > 0) {
     console.warn('[social-content-video-ingest] skipped media during Hermes callback ingest', {
       jobId: run.marketing_job_id,
-      skipped: summarizeVideoIngestSkips(result.skipped),
+      skipped: summarizeVideoIngestSkips(result.skipDetails),
     });
   }
+  return result;
 }
 
 /**
@@ -1925,6 +1933,37 @@ async function applyHermesMarketingCallbackInner(
     return;
   }
 
+  // Ingest video bytes before every terminal branch, including failures, so a
+  // retryable/rate-limited callback cannot discard variants that completed
+  // before the upstream failure.
+  const videoIngestReport = await ingestSocialContentStageMedia(run, payload);
+  const requestedVideoCount = typeof doc.inputs?.request?.videoRenderCount === 'number'
+    ? doc.inputs.request.videoRenderCount
+    : 0;
+  if (
+    payload.stage === 'video_render'
+    && (payload.status === 'completed' || payload.status === 'requires_approval')
+    && requestedVideoCount > 0
+    && (videoIngestReport?.ingested ?? 0) === 0
+  ) {
+    const errorMessage =
+      'Video render completed without any ingestible video artifact. ' +
+      'Hermes must return an allowed cache path for every completed video.';
+    recordStageFailure(doc, targetStage, {
+      code: 'hermes_video_artifact_ingest_failed',
+      message: errorMessage,
+      retryable: true,
+    });
+    markSocialContentStageFailed(
+      doc,
+      socialContentStageFromCallbackStage(payload.stage) ?? 'video_render',
+      errorMessage,
+      firstOutputRecord(payload),
+    );
+    saveSocialContentJobRuntime(doc.job_id, doc);
+    return;
+  }
+
   if (payload.status === 'failed' || payload.status === 'cancelled') {
     if (isSocialContentRun(run) && isHermesMediaSetupError(payload)) {
       const error = {
@@ -1991,7 +2030,6 @@ async function applyHermesMarketingCallbackInner(
   }
 
   if (payload.status === 'requires_approval') {
-    ingestSocialContentStageMedia(run, payload);
     const socialApprovalStep = isSocialContentRun(run) ? normalizeSocialApprovalStep(payload) : null;
     const completedSocialStage = isSocialContentRun(run)
       ? socialContentStageFromCallbackStage(payload.stage) ?? socialStageForMarketingStage(targetStage)
@@ -2186,7 +2224,6 @@ async function applyHermesMarketingCallbackInner(
     // doc.stages.production.primary_output. Ingesting here would read a still-
     // null primary_output and silently insert zero rows.
     const isProductionCompletion = payload.stage === 'production' || targetStage === 'production';
-    ingestSocialContentStageMedia(run, payload);
     const multiStage = extractMultiStageOutputs(payload);
     if (multiStage) {
       for (const stage of STAGE_ORDER) {

@@ -2,7 +2,8 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
 import pool from '@/lib/db';
 import { hashCallbackToken } from '@/lib/internal-callback-auth';
-import { PROTOCOL_VERSION } from '@aries/hermes-protocol';
+import { HermesRunSubmissionSchema, PROTOCOL_VERSION } from '@aries/hermes-protocol';
+import { validateVideoRenderHermesSubmission } from '@/backend/video-runtime/hermes-contract';
 import {
   createExecutionRunRecord,
   isTerminalExecutionStatus,
@@ -171,6 +172,17 @@ function tryParseJson(text: string): unknown {
   } catch {
     return null;
   }
+}
+
+function omitNullProtocolFields(payload: Record<string, unknown>): Record<string, unknown> {
+  const normalized = Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== null));
+  const callbackContext = normalized.callback_context;
+  if (callbackContext && typeof callbackContext === 'object' && !Array.isArray(callbackContext)) {
+    normalized.callback_context = Object.fromEntries(
+      Object.entries(callbackContext as Record<string, unknown>).filter(([, value]) => value !== null),
+    );
+  }
+  return normalized;
 }
 
 function generateIdempotencyKey(ariesRunId: string, workflowVersion: string, tenantId: string): string {
@@ -732,7 +744,21 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     const payload = this.submissionPayload(
       action, run.aries_run_id, resolvedInput, workflowKey, callbackToken, memoryContextSnapshot, productionDoc, tasteProjection,
     );
-    const idempotencyKey = typeof payload.idempotency_key === 'string' ? payload.idempotency_key : '';
+    // Validate at the transport chokepoint so workflow-specific media contracts
+    // remain projections of the shared Hermes wire schema, never parallel
+    // request envelopes that drift from `/v1/runs`.
+    let wirePayload = HermesRunSubmissionSchema.parse(omitNullProtocolFields(payload));
+    const rawRequestedVideoCount = resolvedInput.doc?.inputs?.request?.videoRenderCount;
+    const requestedVideoCount = typeof rawRequestedVideoCount === 'number' ? rawRequestedVideoCount : 0;
+    if (
+      requestedVideoCount > 0
+      && resolvedInput.stage === 'production'
+      && typeof wirePayload.job_id === 'string'
+      && wirePayload.job_id.startsWith('mkt_')
+    ) {
+      wirePayload = validateVideoRenderHermesSubmission(wirePayload);
+    }
+    const idempotencyKey = wirePayload.idempotency_key ?? '';
 
     // Route this stage's submission to its dedicated Hermes profile gateway.
     // Defaults to HERMES_GATEWAY_URL when per-profile vars are unset.
@@ -747,7 +773,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
           'content-type': 'application/json',
           'idempotency-key': idempotencyKey,
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(wirePayload),
       });
     } catch (error) {
       const message = 'Hermes gateway is unreachable.';
@@ -764,7 +790,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         status: response.status,
         aries_run_id: run.aries_run_id,
         response_body: responseBody.slice(0, 1000),
-        payload_keys: Object.keys(payload),
+        payload_keys: Object.keys(wirePayload),
         idempotency_key_present: idempotencyKey.length > 0,
       });
       const message = `Hermes gateway returned HTTP ${response.status} on /v1/runs.`;
@@ -1365,6 +1391,11 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         input: promptWithMemory,
         instructions: this.instructions(request.workflow_key, 'research'),
         session_id: this.sessionKey(),
+        workflow_key: request.workflow_key,
+        action: 'run',
+        aries_run_id: request.aries_run_id,
+        job_id: request.job_id,
+        tenant_id: request.tenant_id,
         callback_url: request.callback_url,
         callback_auth: callbackAuth,
         callback_context: {
@@ -1407,6 +1438,11 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       input: promptWithMemory,
       instructions: this.instructions(workflowKey),
       session_id: this.sessionKey(),
+      workflow_key: workflowKey,
+      action,
+      aries_run_id: ariesRunId,
+      job_id: input.jobId ?? null,
+      tenant_id: input.tenantId ?? null,
       callback_url: this.callbackUrl(),
       callback_auth: callbackAuth,
       callback_context: {

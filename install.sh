@@ -272,10 +272,14 @@ mkdir -p data \
   hermes-data/cache/videos \
   hermes-data/output \
   hermes-data/skills
-# Seed the marketing agent skills into the Hermes data dir (best-effort; only
-# when the target is still empty so a re-run never clobbers gateway state).
+# Seed all bundled skills only for a fresh volume. Upgrades below synchronize
+# only Aries-managed replacements, so unrelated user skills remain untouched.
 if [ -d skills ] && [ -z "$(ls -A hermes-data/skills 2>/dev/null)" ]; then
   cp -R skills/. hermes-data/skills/ || warn "could not seed skills/ into hermes-data (continuing)"
+fi
+if [ -x scripts/upgrade-hermes-skills.sh ]; then
+  scripts/upgrade-hermes-skills.sh skills hermes-data/skills \
+    || warn "could not upgrade Aries-managed Hermes skills (continuing)"
 fi
 # The app container runs as uid 1004 and only needs read access to the caches.
 chmod -R a+rX hermes-data data 2>/dev/null || true

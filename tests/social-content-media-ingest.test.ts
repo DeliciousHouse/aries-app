@@ -168,3 +168,57 @@ test('ingestSocialContentVideoRenderOutput allows already-ingested exact destina
     assert.equal(variants[1].thumbnail_path, otherJobPosterPath);
   });
 });
+
+test('Hermes cache classifiers accept current image basenames and provider-neutral video paths', async () => {
+  const { isHermesCacheImagePath, isHermesCacheVideoPath } = await import('../backend/social-content/media-ingest');
+
+  assert.equal(isHermesCacheImagePath('/home/node/.hermes/cache/images/image_render_20260727_abc123.png'), true);
+  assert.equal(isHermesCacheImagePath('https://aries.example.com/api/internal/hermes/media/image_render_20260727_abc123.png'), true);
+  assert.equal(isHermesCacheVideoPath('/home/node/.hermes/cache/videos/video_render_20260727_abc123.mp4'), true);
+  assert.equal(isHermesCacheVideoPath('/home/node/.hermes/cache/videos/../private.mp4'), false);
+});
+
+test('ingestSocialContentStageMedia copies callback output.artifacts videos and rewrites them to dashboard-served URLs', async () => {
+  await withMediaEnv(async ({ dataRoot, hermesRoot }) => {
+    const { ingestSocialContentStageMedia } = await import('../backend/social-content/media-ingest');
+    const source = path.join(hermesRoot, 'cache', 'videos', 'video_render_20260727_contract.mp4');
+    await mkdir(path.dirname(source), { recursive: true });
+    await writeFile(source, Buffer.from('provider-neutral-video'));
+    const jobId = 'mkt_123e4567-e89b-42d3-a456-426614174000';
+    const output: unknown[] = [{
+      artifacts: [{
+        id: 'clip-primary',
+        path: source,
+        mime_type: 'video/mp4',
+        platform_slug: 'instagram_reels',
+        family_id: 'weekly_primary',
+        width: 1080,
+        height: 1920,
+        duration_seconds: 6,
+        bytes: 22,
+      }],
+    }];
+
+    const report = await ingestSocialContentStageMedia({ jobId, stage: 'video_render', output });
+
+    assert.equal(report.requested, 1);
+    assert.equal(report.ingested, 1);
+    assert.equal(report.skipped, 0);
+    const artifact = (output[0] as { artifacts: Array<Record<string, unknown>> }).artifacts[0];
+    assert.equal(
+      artifact.url,
+      `/api/marketing/jobs/${jobId}/assets/video-instagram-reels-weekly-primary`,
+    );
+    const expectedPath = path.join(
+      dataRoot,
+      'generated',
+      'draft',
+      'jobs',
+      jobId,
+      'videos',
+      'instagram-reels-weekly-primary.mp4',
+    );
+    assert.equal(artifact.path, expectedPath);
+    assert.equal(await readFile(expectedPath, 'utf8'), 'provider-neutral-video');
+  });
+});

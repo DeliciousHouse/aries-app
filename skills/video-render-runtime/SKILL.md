@@ -1,64 +1,51 @@
 ---
 name: video-render-runtime
-description: Submit provider-neutral video renders to Hermes and normalize artifacts. Use when Aries requests a video render, records Hermes run state, or ingests completed video metadata.
+description: Use when Hermes executes Aries video render requests and callbacks.
+version: 2.0.0
+status: active
+contract: contract.json
 ---
 
-# Video Render Runtime
+# Provider-neutral video render runtime
 
-Use this skill only at the Aries-to-Hermes execution seam. Aries describes the render it needs; Hermes selects and operates the downstream media provider.
+Use this skill when an Aries `social_content_weekly` run asks Hermes to render video. Aries owns the creative brief, tenant/job/run correlation, approval policy, and artifact acceptance. Hermes owns provider and model selection, credential use, retries, and execution.
 
-## Ownership boundary
+## Authoritative protocol
 
-Aries owns:
+- Validate the outbound payload as `HermesRunSubmissionSchema`.
+- POST the exact payload to Hermes `/v1/runs`; do not introduce a second transport envelope.
+- Send terminal results using `HermesRunCallbackPayloadSchema` to the supplied `callback_url`.
+- The versioned projection is `../../specs/video_job_contract_spec.v2.json`.
+- Aries runtime state is the existing `aries_execution_run` record. Do not persist a separate video state machine.
 
-- tenant and job identity
-- the generic render brief and media constraints
-- idempotency and the Aries execution-run record
-- the authenticated Hermes callback/reconciliation path
-- durable ingestion of completed artifacts and approval state
+## Source safety
 
-Hermes owns:
+Input assets must use `{ "type": "https_url", "url": "https://..." }`. Reject local paths, `file:` URLs, credentials in URLs, traversal segments, loopback hosts, link-local hosts, and RFC1918 addresses. Never fetch a source that fails those checks.
 
-- downstream provider and model selection
-- provider credentials, endpoints, request translation, polling, and retries
-- localization of generated media into the Hermes video cache
-- reporting normalized completion or failure metadata to Aries
+## Execution
 
-Never place downstream provider names, model identifiers, credentials, API hosts, operation handles, or provider retry policy in an Aries request or persisted Aries state.
+1. Read the serialized `video.generate` media request from the Hermes submission `input` string.
+2. Keep `aries_run_id`, production `mkt_<uuid>` `job_id`, and `tenant_id` unchanged.
+3. Select the execution provider/model within Hermes policy. Do not return provider credentials or provider-specific identifiers to Aries.
+4. Preserve each completed artifact immediately. If a later render is rate-limited or fails, return the completed subset in the failed callback `output` and mark the error `retryable` when appropriate.
+5. Emit each video artifact consistently:
+   - `id`: stable logical artifact id
+   - `path`: absolute path under the configured Hermes video cache
+   - `mime_type`: `video/mp4`
+   - `bytes`: non-negative byte count
+   - optional `platform_slug`, `family_id`, dimensions, and duration
+6. Use `stage: "video_render"`. Bind terminal outcomes exactly:
+   - completed → callback `status: "completed"`
+   - failed → callback `status: "failed"` with `error`
+   - cancelled → callback `status: "cancelled"`
+7. Authenticate the callback exactly as instructed by `callback_auth`. Never echo the shared secret or callback token in `output`, logs, or artifacts.
 
-## Request contract
+## Verification
 
-Before submission, create the Aries execution-run record. Submit one generic request containing:
+Before callback delivery, verify:
 
-- `job_id`, `correlation_id`, and `tenant_id`
-- `execution_provider: "hermes"`
-- a stable `idempotency_key`
-- `render_request.prompt`
-- `render_request.video` constraints such as duration and aspect ratio
-- optional source `assets`
-- the authenticated Aries run-ingestion URL
-
-The machine-checkable request and state shapes live in:
-
-- `specs/video_job_contract_spec.v1.json`
-- `specs/video_runtime_state_schema.v1.json`
-
-## Completion contract
-
-Treat Hermes run ingestion as the execution source of truth. A completed video artifact should expose only normalized media metadata Aries needs:
-
-- `uri` or localized `path`
-- `mime_type` (`video/mp4`)
-- `duration_seconds`
-- `width_px` and `height_px`
-- optional `bytes` and `sha256`
-
-Do not persist raw downstream provider responses. Preserve partial completed artifacts when Hermes reports a retryable or rate-limited failure, and let the existing Hermes execution lifecycle determine retries.
-
-## Approval and ingestion
-
-1. Keep the request idempotent.
-2. Ingest localized video bytes into durable Aries storage before exposing the asset.
-3. Require the existing video-render approval checkpoint before publishing.
-4. Fail loudly when a requested render reaches a terminal Hermes state without a usable video artifact.
-5. Never bypass tenant checks or expose raw runtime paths to the browser.
+- the outbound ownership fields match `callback_context`;
+- no provider/model selection fields were added to the Aries payload;
+- every local artifact path exists, is inside the configured Hermes cache, and reports the actual byte count;
+- failed retryable runs retain any completed artifacts;
+- callback `event_id` is stable across delivery retries.

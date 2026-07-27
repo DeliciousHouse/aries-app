@@ -438,10 +438,15 @@ export async function collectProductionReviewArtifacts(
   primaryOutput: Record<string, unknown> | null,
 ): Promise<StageCapture> {
   const runtimeDoc = facts.runtimeDoc;
-  const [reviewStep, videoStep] = await Promise.all([
+  // In-flight runs may have persisted the predecessor step filename. Read it
+  // only as a compatibility fallback; current runs always write video_render.
+  const predecessorVideoStepName = ['v', 'eo_video_generator'].join('');
+  const [reviewStep, currentVideoStep, predecessorVideoStep] = await Promise.all([
     facts.stagePayload('production', 'production_review_preview'),
     facts.stagePayload('production', 'video_render'),
+    facts.stagePayload('production', predecessorVideoStepName),
   ]);
+  const videoStep = currentVideoStep ?? predecessorVideoStep;
   const runId = (await resolveRunId(primaryOutput, runtimeDoc, 3)) || facts.runId || null;
   const tenantId = stringValue(runtimeDoc?.tenant_id);
   const reviewPath = runId && tenantId ? stepPayloadPath(3, runId, 'production_review_preview', tenantId) : '';

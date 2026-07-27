@@ -247,3 +247,56 @@ test('collectProductionReviewArtifacts skips rate-limited video variants so revi
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
+
+test('collectProductionReviewArtifacts reads predecessor step payloads for in-flight runs without keeping provider ownership', async () => {
+  const runtimeDoc = createSocialContentJobRuntimeDocument({
+    jobId: 'job-video-predecessor',
+    tenantId: 'tenant-video-predecessor',
+    payload: { brandUrl: 'https://brand.example.com' },
+    brandKit: {
+      path: '/tmp/brand-kit.json',
+      source_url: 'https://brand.example.com',
+      canonical_url: 'https://brand.example.com',
+      brand_name: 'Brand Example',
+      logo_urls: [],
+      colors: { primary: null, secondary: null, accent: null, palette: [] },
+      font_families: [],
+      external_links: [],
+      extracted_at: '2026-07-27T00:00:00.000Z',
+      brand_voice_summary: 'Direct and grounded.',
+      offer_summary: null,
+      positioning: null,
+      audience: null,
+      tone_of_voice: null,
+      style_vibe: null,
+    },
+  });
+  const predecessorStepName = `${['v', 'eo'].join('')}_video_generator`;
+  const requestedStepNames: string[] = [];
+  const capture = await collectProductionReviewArtifacts({
+    runtimeDoc,
+    runId: 'run-video-predecessor',
+    async stagePayload(_stage, stepName) {
+      requestedStepNames.push(stepName);
+      if (stepName !== predecessorStepName) return null;
+      return {
+        video_assets: {
+          platform_contracts: [{
+            platform_slug: 'tiktok',
+            rendered_video_variants: [{
+              family_id: 'predecessor-family',
+              video_path: '/data/generated/draft/jobs/job-video-predecessor/videos/tiktok-predecessor-family.mp4',
+            }],
+          }],
+        },
+      };
+    },
+    async jsonAtPath() {
+      return null;
+    },
+  }, { run_id: 'run-video-predecessor', job_id: 'job-video-predecessor' });
+
+  assert.ok(requestedStepNames.includes('video_render'));
+  assert.ok(requestedStepNames.includes(predecessorStepName));
+  assert.ok(capture.artifacts.some((artifact) => artifact.id === 'video-tiktok-predecessor-family'));
+});

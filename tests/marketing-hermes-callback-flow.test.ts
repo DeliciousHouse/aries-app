@@ -6,31 +6,37 @@ import test from 'node:test';
 
 async function withRuntimeEnv<T>(run: () => Promise<T>): Promise<T> {
   const previousDataRoot = process.env.DATA_ROOT;
+  const previousHermesCacheDir = process.env.HERMES_CACHE_DIR;
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-marketing-hermes-callback-'));
 
   process.env.DATA_ROOT = dataRoot;
+  process.env.HERMES_CACHE_DIR = path.join(dataRoot, 'hermes-cache');
   try {
     return await run();
   } finally {
     if (previousDataRoot === undefined) delete process.env.DATA_ROOT;
     else process.env.DATA_ROOT = previousDataRoot;
+    if (previousHermesCacheDir === undefined) delete process.env.HERMES_CACHE_DIR;
+    else process.env.HERMES_CACHE_DIR = previousHermesCacheDir;
     await rm(dataRoot, { recursive: true, force: true });
   }
 }
 
-async function seedMarketingJob() {
+async function seedMarketingJob(options: { jobId?: string; videoRenderCount?: number } = {}) {
   const {
     createSocialContentJobRuntimeDocument,
     saveSocialContentJobRuntime,
   } = await import('../backend/marketing/runtime-state');
 
   const doc = createSocialContentJobRuntimeDocument({
-    jobId: 'job-hermes-callback',
+    jobId: options.jobId ?? 'job-hermes-callback',
     tenantId: 'tenant-hermes',
     payload: {
       brandUrl: 'https://brand.example',
       businessType: 'performance marketing agency',
       competitorUrl: 'https://betterup.com',
+      jobType: 'weekly_social_content',
+      videoRenderCount: options.videoRenderCount ?? 0,
     },
     brandKit: {
       path: '/tmp/brand-kit.json',
@@ -299,6 +305,44 @@ test('execution run records ignore late terminal callbacks after completion', as
       'evt-run-failed-late',
       'evt-run-cancelled-late',
     ]);
+  });
+});
+
+test('execution run records reject every transition out of every terminal origin', async () => {
+  await withRuntimeEnv(async () => {
+    const {
+      createExecutionRunRecord,
+      loadExecutionRunRecord,
+      markExecutionRunEventApplied,
+    } = await import('../backend/execution/run-store');
+    const terminalOrigins = ['completed', 'failed', 'cancelled'] as const;
+    const attemptedTargets = ['submitted', 'running', 'awaiting_approval', 'completed', 'failed', 'cancelled'] as const;
+
+    for (const origin of terminalOrigins) {
+      const run = createExecutionRunRecord({
+        provider: 'hermes',
+        domain: 'route',
+        workflowKey: 'terminal_transition_matrix',
+        action: 'run',
+        tenantId: 'tenant-terminal-matrix',
+      });
+      markExecutionRunEventApplied(run.aries_run_id, {
+        eventId: `evt-origin-${origin}`,
+        status: origin,
+        result: { origin },
+      });
+
+      for (const target of attemptedTargets) {
+        markExecutionRunEventApplied(run.aries_run_id, {
+          eventId: `evt-${origin}-to-${target}`,
+          status: target,
+          result: { target },
+        });
+        const record = loadExecutionRunRecord(run.aries_run_id);
+        assert.equal(record?.status, origin, `${origin} must not transition to ${target}`);
+        assert.deepEqual(record?.result, { origin });
+      }
+    }
   });
 });
 
@@ -592,5 +636,270 @@ test('Hermes one-shot multi-stage completion advances social-content runtime sta
     assert.equal(runtime?.stages?.copy_production?.status, 'completed');
     assert.equal(runtime?.stages?.publish_review?.status, 'completed');
     assert.equal(runtime?.stages?.completed?.status, 'completed');
+  });
+});
+
+test('provider-neutral video run crosses submission, authenticated callback, durable ingestion, and dashboard projection', async () => {
+  await withRuntimeEnv(async () => {
+    const { HermesMarketingPort } = await import('../backend/marketing/ports/hermes');
+    const { parseHermesRunCallbackPayload, handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
+    const { hashCallbackToken, verifyCallbackToken, verifyInternalCallbackRequest } = await import('../lib/internal-callback-auth');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { buildSocialContentDashboardProjection } = await import('../backend/social-content/dashboard-projection');
+    const { validateVideoRenderHermesSubmission } = await import('../backend/video-runtime/hermes-contract');
+    const { handleGetMarketingJobAsset } = await import('../app/api/marketing/jobs/[jobId]/assets/[assetId]/handler');
+
+    const jobId = 'mkt_123e4567-e89b-42d3-a456-426614174000';
+    const doc = await seedMarketingJob({ jobId, videoRenderCount: 1 });
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const fetchImpl = async (url: string | URL, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init ?? {} });
+      return new Response(JSON.stringify({ run_id: 'hermes-video-runtime-1', status: 'started' }), {
+        status: 202,
+        headers: { 'content-type': 'application/json' },
+      });
+    };
+    const port = new HermesMarketingPort(
+      {
+        HERMES_GATEWAY_URL: 'https://hermes.example.com',
+        HERMES_API_SERVER_KEY: 'test-key',
+        HERMES_POLL_BRIDGE_ENABLED: '0',
+        INTERNAL_API_SECRET: 'internal-video-secret',
+        APP_BASE_URL: 'https://aries.example.com',
+      },
+      fetchImpl,
+      async () => {},
+      async () => ({ refreshed: false, enriched: false }),
+    );
+
+    const submitted = await port.submitNextStage({
+      jobId,
+      tenantId: doc.tenant_id,
+      doc,
+      stage: 'production',
+    });
+    assert.equal(submitted.kind, 'submitted');
+    assert.equal(calls.length, 1);
+    const body = JSON.parse(String(calls[0].init.body)) as Record<string, unknown>;
+    assert.equal(body.job_id, jobId);
+    const validated = validateVideoRenderHermesSubmission(body);
+    assert.equal(validated.job_id, jobId);
+    assert.equal(JSON.stringify(body).includes('media_provider'), false);
+
+    const source = path.join(
+      process.env.HERMES_CACHE_DIR as string,
+      'cache',
+      'videos',
+      'video_render_20260727_integration.mp4',
+    );
+    await mkdir(path.dirname(source), { recursive: true });
+    await writeFile(source, Buffer.from('integration-video'));
+
+    const callbackToken = String((body.callback_auth as Record<string, unknown>).callback_token);
+    const callbackPayload = {
+      event_id: 'evt-video-runtime-integration',
+      aries_run_id: submitted.kind === 'submitted' ? submitted.ariesRunId : '',
+      hermes_run_id: 'hermes-video-runtime-1',
+      status: 'requires_approval',
+      stage: 'video_render',
+      approval: {
+        stage: 'publish',
+        approval_step: 'approve_video_render',
+        workflow_step_id: 'approve_stage_3',
+        prompt: 'Review the rendered video.',
+        resume_token: 'video-runtime-review-token',
+      },
+      output: [{
+        artifacts: [{
+          id: 'clip-primary',
+          path: source,
+          mime_type: 'video/mp4',
+          platform_slug: 'instagram_reels',
+          family_id: 'weekly_primary',
+          width: 1080,
+          height: 1920,
+          duration_seconds: 6,
+          bytes: 17,
+        }],
+      }],
+    };
+    const parsedCallback = parseHermesRunCallbackPayload(callbackPayload);
+    if (!parsedCallback) {
+      throw new Error('expected video callback to satisfy the shared Hermes callback schema');
+    }
+    const request = new Request('https://aries.example.com/api/internal/hermes/runs', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer internal-video-secret',
+        'x-aries-callback-token': callbackToken,
+      },
+    });
+    assert.deepEqual(verifyInternalCallbackRequest(request, { INTERNAL_API_SECRET: 'internal-video-secret' }), { ok: true });
+    assert.deepEqual(await verifyCallbackToken(parsedCallback.aries_run_id, callbackToken, {
+      async query(_sql: string, params: unknown[]) {
+        assert.equal(params[0], hashCallbackToken(callbackToken));
+        return {
+          rows: [{ token_hash: hashCallbackToken(callbackToken), aries_run_id: parsedCallback.aries_run_id }],
+          rowCount: 1,
+        };
+      },
+    }), { ok: true });
+
+    const callbackResult = await handleHermesRunCallback(parsedCallback);
+    assert.equal(callbackResult.status, 'accepted', JSON.stringify(callbackResult));
+    const after = await loadSocialContentJobRuntime(jobId);
+    const videoOutput = (after?.social_content_runtime as {
+      stages?: Record<string, { output?: { artifacts?: Array<Record<string, unknown>> } }>;
+    } | undefined)?.stages?.video_render?.output;
+    assert.ok(videoOutput?.artifacts?.[0]);
+    assert.match(String(videoOutput.artifacts[0].path), /instagram-reels-weekly-primary\.mp4$/);
+    assert.equal(
+      videoOutput.artifacts[0].url,
+      `/api/marketing/jobs/${jobId}/assets/video-instagram-reels-weekly-primary`,
+    );
+
+    const dashboard = buildSocialContentDashboardProjection(after!, {
+      post: null,
+      posts: [],
+      assets: [],
+      publishItems: [],
+      calendarEvents: [],
+      statuses: {
+        countsByStatus: {
+          draft: 0,
+          in_review: 0,
+          ready: 0,
+          ready_to_publish: 0,
+          published_to_meta_paused: 0,
+          scheduled: 0,
+          live: 0,
+        },
+      },
+    });
+    const dashboardVideo = dashboard.assets.find((asset) => asset.type === 'video_ad');
+    assert.ok(dashboardVideo, 'expected a dashboard-visible video asset');
+    assert.equal(dashboardVideo?.previewUrl, videoOutput.artifacts[0].url);
+    const assetId = String(dashboardVideo?.previewUrl).split('/').at(-1) as string;
+    const assetResponse = await handleGetMarketingJobAsset(
+      jobId,
+      assetId,
+      new Request(`https://aries.example.com${dashboardVideo?.previewUrl}`),
+      async () => ({
+        userId: 'user-video-integration',
+        tenantId: doc.tenant_id,
+        tenantSlug: 'tenant-hermes',
+        role: 'tenant_admin',
+      }),
+    );
+    assert.equal(assetResponse.status, 200);
+    assert.equal(Buffer.from(await assetResponse.arrayBuffer()).toString('utf8'), 'integration-video');
+  });
+});
+
+test('retryable failed video callback preserves completed partial artifacts before surfacing the failure', async () => {
+  await withRuntimeEnv(async () => {
+    const { createExecutionRunRecord } = await import('../backend/execution/run-store');
+    const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
+    const jobId = 'mkt_123e4567-e89b-42d3-a456-426614174002';
+    const doc = await seedMarketingJob({ jobId, videoRenderCount: 2 });
+    const source = path.join(process.env.HERMES_CACHE_DIR as string, 'cache', 'videos', 'partial.mp4');
+    await mkdir(path.dirname(source), { recursive: true });
+    await writeFile(source, Buffer.from('partial-video'));
+    const run = createExecutionRunRecord({
+      provider: 'hermes',
+      domain: 'marketing',
+      workflowKey: 'social_content_weekly',
+      action: 'run',
+      tenantId: doc.tenant_id,
+      marketingJobId: jobId,
+      stage: 'production',
+    });
+
+    await handleHermesRunCallback({
+      event_id: 'evt-video-partial-rate-limit',
+      aries_run_id: run.aries_run_id,
+      hermes_run_id: 'hermes-video-partial',
+      status: 'failed',
+      stage: 'video_render',
+      output: [{
+        artifacts: [{
+          id: 'partial-primary',
+          path: source,
+          mime_type: 'video/mp4',
+          platform_slug: 'tiktok',
+          family_id: 'partial_primary',
+          bytes: 13,
+        }],
+      }],
+      error: {
+        code: 'rate_limited',
+        message: 'One render completed before the retryable rate limit.',
+        retryable: true,
+      },
+    });
+
+    const after = await loadSocialContentJobRuntime(jobId);
+    assert.equal(after?.stages.production.status, 'failed');
+    assert.equal(after?.last_error?.code, 'rate_limited');
+    const output = (after?.social_content_runtime as {
+      stages?: Record<string, { output?: { artifacts?: Array<Record<string, unknown>> } }>;
+    } | undefined)?.stages?.video_render?.output;
+    assert.match(String(output?.artifacts?.[0]?.path), /tiktok-partial-primary\.mp4$/);
+    assert.equal(await readFile(String(output?.artifacts?.[0]?.path), 'utf8'), 'partial-video');
+  });
+});
+
+test('successful video callback fails loudly when every reported artifact is outside the ingestion allowlist', async () => {
+  await withRuntimeEnv(async () => {
+    const { createExecutionRunRecord } = await import('../backend/execution/run-store');
+    const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
+
+    const jobId = 'mkt_123e4567-e89b-42d3-a456-426614174003';
+    const doc = await seedMarketingJob({ jobId, videoRenderCount: 1 });
+    const run = createExecutionRunRecord({
+      provider: 'hermes',
+      domain: 'marketing',
+      workflowKey: 'social_content_weekly',
+      action: 'run',
+      marketingJobId: jobId,
+      tenantId: doc.tenant_id,
+      stage: 'production',
+    });
+
+    const result = await handleHermesRunCallback({
+      event_id: 'evt-video-all-skipped',
+      aries_run_id: run.aries_run_id,
+      hermes_run_id: 'hrun-video-all-skipped',
+      status: 'requires_approval',
+      stage: 'video_render',
+      approval: {
+        stage: 'publish',
+        approval_step: 'approve_video_render',
+        workflow_step_id: 'video-render-all-skipped',
+        prompt: 'Approve the completed video render.',
+      },
+      output: [{
+        artifacts: [{
+          id: 'clip-untrusted',
+          path: '/tmp/untrusted-provider-output.mp4',
+          mime_type: 'video/mp4',
+          platform_slug: 'instagram_reels',
+          family_id: 'weekly_primary',
+          bytes: 100,
+        }],
+      }],
+    });
+
+    assert.equal(result.status, 'accepted');
+    const after = await loadSocialContentJobRuntime(jobId);
+    assert.equal(after?.stages.production.status, 'failed');
+    assert.equal(after?.last_error?.code, 'hermes_video_artifact_ingest_failed');
+    const socialRuntime = after?.social_content_runtime as {
+      stages?: { video_render?: { status?: string; summary?: string } };
+    } | undefined;
+    assert.equal(socialRuntime?.stages?.video_render?.status, 'failed');
+    assert.match(String(socialRuntime?.stages?.video_render?.summary), /without any ingestible/i);
   });
 });

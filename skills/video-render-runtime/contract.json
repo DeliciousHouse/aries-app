@@ -1,61 +1,12 @@
 {
-  "skill": "video-render-runtime",
-  "version": "1.0.0",
-  "execution": {
-    "ariesSubmitsTo": "hermes",
-    "ariesOwns": [
-      "tenant and job identity",
-      "generic render brief",
-      "idempotency",
-      "execution run state",
-      "artifact ingestion",
-      "approval state"
-    ],
-    "hermesOwns": [
-      "downstream provider selection",
-      "downstream model selection",
-      "provider authentication",
-      "request translation",
-      "provider execution and retries",
-      "artifact localization"
-    ]
+  "$ref": "../../specs/video_job_contract_spec.v2.json",
+  "projection": {
+    "submission": "HermesRunSubmissionSchema",
+    "callback": "HermesRunCallbackPayloadSchema",
+    "state": "ExecutionRunRecord"
   },
-  "request": {
-    "required": [
-      "job_id",
-      "correlation_id",
-      "tenant_id",
-      "execution_provider",
-      "idempotency_key",
-      "render_request",
-      "callback"
-    ],
-    "executionProvider": "hermes",
-    "renderRequestRequired": [
-      "prompt",
-      "video"
-    ],
-    "forbidden": [
-      "downstream provider",
-      "model identifier",
-      "provider API host",
-      "provider credentials",
-      "provider operation handle",
-      "provider retry policy"
-    ]
-  },
-  "artifact": {
-    "required": [
-      "uri",
-      "mime_type"
-    ],
-    "optional": [
-      "duration_seconds",
-      "width_px",
-      "height_px",
-      "bytes",
-      "sha256"
-    ],
-    "mimeType": "video/mp4"
+  "ownership": {
+    "aries": ["brief", "tenant_id", "job_id", "aries_run_id", "approval_policy", "artifact_acceptance"],
+    "hermes": ["provider_selection", "model_selection", "credentials", "execution", "retry_policy"]
   }
 }

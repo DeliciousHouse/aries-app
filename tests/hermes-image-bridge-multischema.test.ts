@@ -16,7 +16,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { bridgeHermesCreativeAssets } from '@/backend/marketing/hermes-callbacks';
+import {
+  bridgeHermesCreativeAssets,
+  isHermesCacheImagePath,
+} from '@/backend/marketing/hermes-callbacks';
 
 type CanonicalCreative = {
   id: string;
@@ -39,6 +42,18 @@ function withAppBaseUrl(fn: () => void): void {
     else process.env.APP_BASE_URL = prev;
   }
 }
+
+test('Hermes image cache classifier accepts image_render basenames and URL/path forms', () => {
+  assert.equal(isHermesCacheImagePath('image_render_20260727_asset.png'), true);
+  assert.equal(
+    isHermesCacheImagePath('/home/node/.hermes/cache/images/image_render_20260727_asset.png'),
+    true,
+  );
+  assert.equal(
+    isHermesCacheImagePath('https://cdn.example.com/cache/images/image_render_20260727_asset.webp'),
+    true,
+  );
+});
 
 // ---------------------------------------------------------------------------
 // (a) artifacts.creative_assets[] shape
