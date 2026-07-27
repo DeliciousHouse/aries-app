@@ -31,7 +31,7 @@ Deep Meta Graph / Composio / Hermes-port / OAuth-token-crypto work belongs to **
 
 ## Workflow
 
-1. **Branch off master, never commit on master.** `git fetch origin && git switch -c fix/<issue>-<slug> origin/master` (use `feat/<issue>-<slug>` only for net-new capability). Confirm with `git branch --show-current` before editing.
+1. **Start from fresh `origin/master`, never a local ref.** First run `git fetch origin --prune`, then `git switch -c fix/<issue>-<slug> origin/master` (use `feat/<issue>-<slug>` only for net-new capability). Confirm `git rev-list --count HEAD..origin/master` is at most 5 before editing.
 2. **Reproduce, then fix.** Confirm the defect the planner described (read the cited
    `file_path:line`), make the minimal change, and keep it scoped to the defect — no refactors,
    renames, or dependency bumps beyond what the fix requires.
@@ -54,11 +54,11 @@ Deep Meta Graph / Composio / Hermes-port / OAuth-token-crypto work belongs to **
    the env overrides tests need. No push with a red verify.
 3. **`npm run guardrails:agent` before a PR opens** (the reviewer runs it; your branch must have a
    real, unique diff vs `origin/master` so it doesn't warn about duplicate/already-landed work).
-4. **Branch off `master`; never commit on `master`.**
+4. **Branch only from fresh `origin/master`; never commit on `master`.** Re-fetch and rebase before pushing; never merge master into the feature branch.
 5. **Conventional Commits with a scope.** `git log --oneline -20` is the style source of truth.
 6. **Resumability rule.** Never discard partial artifacts on a rate-limit or transient gateway
    failure. Persist what completed, surface the failure, and let the orchestrator decide whether to
-   retry. (Born from Veo render rate-limit incidents that lost completed creative on retry.)
+   retry; completed creative must survive a non-fatal provider failure.
 7. **DB-pool fan-out rule.** Do NOT add `Promise.all` around PostgreSQL- or gateway-backed call
    chains without first checking `DB_POOL_MAX` (`lib/db-pool-config.ts`, `parsePoolMax`) and
    benchmarking the *full* endpoint, not just the helper. More parallel queries can speed an

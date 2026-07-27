@@ -32,6 +32,11 @@ npm run test
 npm run verify
 ```
 
+On Windows Git Bash, npm dispatches package scripts through `cmd`, so scripts with leading inline
+environment assignments must be run as their underlying command. For the full suite, use
+`APP_BASE_URL=https://aries.example.com ./node_modules/.bin/tsx --test --test-concurrency=1 'tests/*.test.ts' 'tests/**/*.test.ts'`
+instead of `npm run test`.
+
 ## Pull Request Rules
 
 - Keep PRs small and focused.
@@ -52,7 +57,8 @@ Changes to these areas require maintainer/security review:
 - `backend/auth/**`
 - `backend/integrations/**`
 - `backend/execution/**`
-- `lib/db/**`
+- `lib/db.ts`
+- `lib/db-pool-config.ts`
 - `.github/workflows/**`
 - `docker-compose*.yml`
 - `Dockerfile`

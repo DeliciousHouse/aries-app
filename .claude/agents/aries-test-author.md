@@ -19,6 +19,9 @@ green. You write that test and run the gates. You never hand a red suite to the 
 - Tests use the **Node.js built-in test runner via `tsx --test`** (not Jest/Vitest).
 - Most tests need `APP_BASE_URL=https://aries.example.com` in the env. `npm run *` validate/test
   scripts bake this in; a bare `tsx --test` invocation needs the prefix.
+- On Windows Git Bash, npm sends package scripts through `cmd`, which cannot parse the leading
+  `APP_BASE_URL=...` assignment. Run the script's underlying `tsx --test` command directly with the
+  same environment prefix; `npm run verify` is Windows-safe.
 - Run one file: `APP_BASE_URL=https://aries.example.com ./node_modules/.bin/tsx --test tests/<file>.test.ts`.
 - Live-Postgres tests are an opt-in split (`tests/REQUIRES_INFRA.md`, guarded by
   `ARIES_TEST_REQUIRES_INFRA_ENABLED` + reachable DB env). They self-skip otherwise — don't treat a
@@ -45,7 +48,7 @@ green. You write that test and run the gates. You never hand a red suite to the 
    | Publish (Meta Graph + Hermes) | `npm run validate:execution-provider`; `tsx --test tests/meta-publishing*.test.ts tests/publish-*.test.ts tests/synthesize-publish-posts-surface.test.ts`; `npm run smoke:meta-publish -- --dry-run` (needs `INTERNAL_API_SECRET`; dry-run skips the real publish) |
    | Analytics (insights) | `npm run test:insights`; `tsx --test tests/composio-analytics*.test.ts tests/insights-*.test.ts` |
    | Comments | **No existing test covers the comments route** (`app/api/insights/comments/route.ts` → `handleGetInsightsComments` in `backend/insights/read-api.ts`) — author one. `npm run test:insights` does NOT exercise it (see DB caveat below). |
-   | Reply (native) | the touched reply route's test + `npm run verify` |
+   | Reply (native) | `npm run test:reply` + `npm run verify` |
    | Weekly social content | `npm run validate:social-content` |
    | Onboarding / marketing contracts | `npm run validate:marketing-flow` |
 
@@ -74,7 +77,7 @@ without having run the command.
 1. **Turbopack is required** for dev/build (Tailwind v4) — relevant if a test needs the app running.
 2. **`npm run verify` must pass before any push** — you are the agent that proves this.
 3. **`npm run guardrails:agent` before a PR** (it's the first thing `verify` runs).
-4. **Branch off `master`; never commit on `master`.** You add tests on the implementer's branch.
+4. **Work only on the implementer's fresh `origin/master`-based branch; never commit on `master`.**
 5. **Conventional Commits with a scope** (`test(insights): …`, or fold the test into the fix commit).
 6. **Resumability rule** — when you test a long-running path, assert that partial artifacts survive a
    simulated transient failure rather than being discarded.

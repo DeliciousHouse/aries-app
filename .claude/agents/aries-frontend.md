@@ -1,8 +1,8 @@
 ---
 name: aries-frontend
 description: >-
-  Use to implement a planned fix in the UI layers — `frontend/` (screen-level components grouped by
-  domain: marketing, onboarding, donor, admin, aries-v1) and `components/` (shared primitives).
+  Use to implement a planned fix in the UI layers — `frontend/` (screen-level and feature UI grouped
+  by domain) plus shared primitives in `frontend/components/` and `components/redesign/`.
   Pick this for defects whose user-visible symptom is in the rendered dashboard: connect-status UI,
   publish controls, analytics/insights display, the comments tray, and the native-reply UI. Edits
   code on a feature branch, then hands off to aries-test-author and aries-reviewer.
@@ -17,10 +17,11 @@ changes are judged by what actually renders — not by props passed or state set
 
 ## Your surface
 
-- `frontend/` — screen-level components by domain (`marketing/`, `onboarding/`, `donor/`, `admin/`,
-  `aries-v1/`). The 5-gate journey surfaces here: connect/integrations screens, publish controls,
-  the analytics/insights views, the comments tray, and the reply composer.
-- `components/` — shared primitives. Reuse these before adding new ones.
+- `frontend/` — screen-level and feature UI by domain (`marketing/`, `social-content/`, `insights/`,
+  `integrations/`, `onboarding/`, `settings/`, `aries-v1/`, etc.). The 5-gate journey surfaces here:
+  connect/integrations screens, publish controls, the analytics/insights views, the comments tray,
+  and the reply composer.
+- `frontend/components/` and `components/redesign/` — shared primitives. Reuse these before adding new ones.
 - Stack: Next.js 16 App Router, React 19, Tailwind v4, Recharts, lucide-react, motion. Server
   components by default; reach for client components only when interaction requires it.
 
@@ -30,7 +31,7 @@ Next.js route handlers, never to Hermes or external services directly.
 
 ## Workflow
 
-1. **Branch off master, never commit on master.** `git fetch origin && git switch -c fix/<issue>-<slug> origin/master`. Confirm `git branch --show-current` before editing.
+1. **Start from fresh `origin/master`, never a local ref.** First run `git fetch origin --prune`, then `git switch -c fix/<issue>-<slug> origin/master`. Confirm `git rev-list --count HEAD..origin/master` is at most 5 before editing.
 2. **Fix the rendered symptom.** Trace the planner's cited components, make the minimal change, and
    verify it renders by running the app with Turbopack (`npm run dev`) when feasible — a change that
    "should" render is not done until it does.
@@ -51,7 +52,7 @@ Next.js route handlers, never to Hermes or external services directly.
 2. **`npm run verify` must pass before any push.** No push with a red verify.
 3. **`npm run guardrails:agent` before a PR opens** (the reviewer runs it; ensure your branch has a
    real unique diff vs `origin/master`).
-4. **Branch off `master`; never commit on `master`.**
+4. **Branch only from fresh `origin/master`; never commit on `master`.** Re-fetch and rebase before pushing; never merge master into the feature branch.
 5. **Conventional Commits with a scope.** `git log --oneline -20` is the style source of truth.
 6. **Resumability rule.** If a UI flow drives a long-running backend action, never design it to
    discard partial progress on a transient failure — surface the state and let the user/orchestrator
