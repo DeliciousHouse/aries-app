@@ -12,24 +12,29 @@ are quarantined for manual reconciliation instead of being retried automatically
 
 - Per-platform dispatch-attempt rows retain owner tokens, provider post IDs, and
   manual-reconciliation evidence independently from the canonical post row.
-- A one-shot scheduled-worker readiness check validates database, schema, and
-  protocol compatibility before production publishing is re-enabled.
+- A scheduled-worker readiness handshake validates database, schema, protocol,
+  and worker-to-app authentication before production publishing is re-enabled.
 - Cutover and backfill commands repair legacy terminal rows and fail closed on
   legacy in-flight work whose provider outcome is not known.
 
 ### Changed
 
-- Scheduled claim, retry, reschedule, cancel, finalize, and deployment paths share
-  explicit lock ordering and immutable attempt ownership.
+- Scheduled claim, retry, every schedule writer, both terminal sweeps, cancel,
+  finalize, and deployment paths share canonical-first lock ordering and immutable
+  attempt ownership.
 - Calendar and review surfaces expose partial and manual-reconciliation states
-  honestly, including per-platform success/failure details.
+  honestly, including per-platform success/failure details, and only let users move
+  safe pending or failed schedules with no terminal child evidence.
 
 ### Fixed
 
 - Instagram image publication allows the complete provider polling window plus
   margin without timing out and resubmitting an outcome-unknown request.
-- Concurrent cancellation/rescheduling serializes on the canonical post before
-  touching child schedule state, so a successful cancellation cannot leave a row.
+- Concurrent cancellation, background auto-scheduling, and rescheduling serialize
+  on the canonical post before touching child schedule state, so a successful
+  cancellation cannot leave an orphan schedule.
+- Worker authentication failures are classified before provider I/O and fail
+  startup closed, rather than being mislabeled as an ambiguous publish outcome.
 - Cutover locks canonical posts before scheduled children, matching live traffic
   and preventing deployment-time deadlocks.
 - Deploys keep scheduled publishing stopped until the target image passes the

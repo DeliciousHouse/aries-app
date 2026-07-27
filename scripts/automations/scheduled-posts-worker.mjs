@@ -118,7 +118,7 @@ function buildPool() {
 export const CLAIM_ROW_SQL = `SELECT sp.id, sp.post_id, sp.tenant_id, sp.target_platforms,
             sp.surface, sp.media_type,
             sp.width_px, sp.height_px, sp.duration_seconds,
-            p.caption, p.platform_post_id
+            p.id AS canonical_post_id, p.caption, p.platform_post_id
      FROM scheduled_posts sp
      LEFT JOIN posts p ON p.id = sp.post_id
      WHERE sp.id = $1
@@ -449,6 +449,42 @@ async function lockCanonicalPost(client, postId, tenantId) {
   return result.rowCount === 1;
 }
 
+/** Fail a legacy orphan before provider I/O; the canonical row no longer exists. */
+async function failOrphanedSchedule(client, rowId) {
+  const result = await client.query(
+    `WITH orphaned_owner AS (
+       UPDATE scheduled_posts owner
+          SET dispatch_status = 'failed',
+              dispatch_attempt_token = NULL,
+              dispatch_claimed_at = NULL,
+              dispatch_started_at = NULL,
+              error_at = now(),
+              error_message = 'orphaned_schedule: canonical post missing; provider was not called',
+              updated_at = now()
+        WHERE owner.id = $1
+          AND NOT EXISTS (
+            SELECT 1 FROM posts post
+             WHERE post.id = owner.post_id
+               AND post.tenant_id = owner.tenant_id
+          )
+        RETURNING owner.id, owner.error_message
+     ), failed_children AS (
+       UPDATE scheduled_post_dispatches dispatch
+          SET status = 'failed',
+              error_at = now(),
+              error_message = orphaned_owner.error_message,
+              updated_at = now()
+         FROM orphaned_owner
+        WHERE dispatch.scheduled_post_id = orphaned_owner.id
+          AND dispatch.status IN ('pending', 'in_flight')
+        RETURNING dispatch.id
+     )
+     SELECT count(*)::int AS quarantined FROM orphaned_owner`,
+    [rowId],
+  );
+  return Number(result.rows[0]?.quarantined ?? 0) === 1;
+}
+
 /** Validate and lock the active parent generation after the canonical post. */
 async function lockActiveAttempt(client, rowId, attemptToken) {
   const result = await client.query(
@@ -611,6 +647,41 @@ async function syncCanonicalPublishedState(client, rowId, postId, tenantId, atte
   return result.rowCount === 1;
 }
 
+/** Mirror a terminal non-publish outcome without demoting confirmed live truth. */
+async function syncCanonicalTerminalState(
+  client,
+  rowId,
+  postId,
+  tenantId,
+  attemptToken,
+  terminalStatus,
+) {
+  await client.query(
+    `UPDATE posts
+        SET published_status = CASE
+              WHEN $5 = 'manual_reconciliation' THEN 'unverified'
+              ELSE 'failed'
+            END,
+            updated_at = now()
+      WHERE posts.id = $2
+        AND posts.tenant_id = $3
+        AND posts.published_status <> 'published'
+        AND EXISTS (
+          SELECT 1 FROM scheduled_posts owner
+           WHERE owner.id = $1
+             AND owner.dispatch_status = 'in_flight'
+             AND owner.dispatch_attempt_token = $4
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM scheduled_post_dispatches dispatch
+           WHERE dispatch.scheduled_post_id = $1
+             AND dispatch.status = 'dispatched'
+        )
+      RETURNING posts.id`,
+    [rowId, postId, tenantId, attemptToken, terminalStatus],
+  );
+}
+
 // --- Retry backoff ----------------------------------------------------------
 
 // Platform rate-limit signatures. FB error 368 ("We limit how often you can
@@ -649,7 +720,7 @@ async function setNextAttemptAt(client, rowId, backoffMinutes) {
 }
 
 /** Recompute and persist the parent rollup from the child rows. */
-async function syncParentRollup(client, rowId, attemptToken) {
+async function syncParentRollup(client, rowId, postId, tenantId, attemptToken) {
   const childResult = await client.query(
     `SELECT status, error_message FROM scheduled_post_dispatches WHERE scheduled_post_id = $1`,
     [rowId],
@@ -659,6 +730,16 @@ async function syncParentRollup(client, rowId, attemptToken) {
   const firstError = childResult.rows.find(
     (r) => (r.status === 'failed' || r.status === 'manual_reconciliation') && r.error_message,
   )?.error_message ?? null;
+  if (rolled === 'failed' || rolled === 'manual_reconciliation') {
+    await syncCanonicalTerminalState(
+      client,
+      rowId,
+      postId,
+      tenantId,
+      attemptToken,
+      rolled,
+    );
+  }
   const result = await client.query(
     `UPDATE scheduled_posts
      SET dispatch_status = $2,
@@ -746,7 +827,7 @@ export function planPlatformOutcomes(platforms, results, transportError) {
  * `results` array carries each platform's known outcome. Returns { results, transportError } —
  * transportError is set only when no per-platform breakdown is available.
  */
-async function dispatchOnce(row, attemptToken, baseUrl, secret) {
+export async function dispatchOnce(row, attemptToken, baseUrl, secret) {
   const platforms = Array.isArray(row.target_platforms) ? row.target_platforms : [];
   const content = row.caption || '';
   const tenantId = String(row.tenant_id);
@@ -919,6 +1000,16 @@ export async function tick(pool, { shouldStop = () => false } = {}) {
           await client.query('ROLLBACK');
           continue;
         }
+        if (
+          Object.prototype.hasOwnProperty.call(row, 'canonical_post_id')
+          && row.canonical_post_id === null
+        ) {
+          const quarantined = await failOrphanedSchedule(client, rowId);
+          await client.query('COMMIT');
+          report.failed += quarantined ? 1 : 0;
+          report.skipped += quarantined ? 0 : 1;
+          continue;
+        }
         if (shouldStop()) {
           report.skipped += ids.length - rowIndex;
           await client.query('ROLLBACK');
@@ -1027,7 +1118,13 @@ export async function tick(pool, { shouldStop = () => false } = {}) {
           );
         }
         const rolled = ownsAttempt
-          ? await syncParentRollup(fc, rowId, attemptToken)
+          ? await syncParentRollup(
+            fc,
+            rowId,
+            row.post_id,
+            row.tenant_id,
+            attemptToken,
+          )
           : null;
         if (rolled === null) {
           // A newer reclaim owns this row. Commit the no-op conditional writes

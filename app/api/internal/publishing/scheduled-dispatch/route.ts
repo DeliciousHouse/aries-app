@@ -627,10 +627,20 @@ export async function GET(req: Request): Promise<Response> {
   });
 }
 
-export async function POST(req: Request): Promise<Response> {
+export interface ScheduledDispatchPostDeps {
+  db?: DispatchDatabase;
+  dispatchPublish?: typeof dispatchPublish;
+}
+
+export async function handleScheduledDispatchPost(
+  req: Request,
+  deps: ScheduledDispatchPostDeps = {},
+): Promise<Response> {
   const authFailure = internalAuthFailureResponse(req);
   if (authFailure) return authFailure;
 
+  const db = deps.db ?? pool;
+  const publish = deps.dispatchPublish ?? dispatchPublish;
   const body = await readBody(req);
   const tenantId = typeof body.tenant_id === 'string' ? body.tenant_id.trim() : '';
   if (!tenantId) {
@@ -657,7 +667,7 @@ export async function POST(req: Request): Promise<Response> {
     let providerClaim: { owned: boolean; claimed: boolean };
     try {
       providerClaim = await claimScheduledDispatchProviderSubmission({
-        db: pool,
+        db,
         tenantId,
         postId,
         scheduledPostId,
@@ -729,7 +739,7 @@ export async function POST(req: Request): Promise<Response> {
     : [];
 
   if (rawMediaUrls.length === 0 && postId) {
-    rawMediaUrls = await resolveMediaUrls(postId, tenantId, pool, mediaType);
+    rawMediaUrls = await resolveMediaUrls(postId, tenantId, db, mediaType);
   }
 
   // A video post with no video asset can never publish — fail it terminally
@@ -780,7 +790,7 @@ export async function POST(req: Request): Promise<Response> {
   // Unattended-publish guards (duplicate caption + same-platform spacing).
   // Resolved once per request; fail-open (empty map) on any error.
   const publishGuards = postId
-    ? await resolvePublishGuards({ db: pool, tenantId, postId, platforms, content, surface })
+    ? await resolvePublishGuards({ db, tenantId, postId, platforms, content, surface })
     : new Map<string, PublishGuardVerdict>();
 
   for (const platform of platforms) {
@@ -821,7 +831,7 @@ export async function POST(req: Request): Promise<Response> {
       continue;
     }
     try {
-      const published = await dispatchPublish({
+      const published = await publish({
         tenantId,
         provider: platform,
         content,
@@ -862,7 +872,7 @@ export async function POST(req: Request): Promise<Response> {
   if (postId) {
     try {
       const finalized = await finalizeScheduledDispatchAttempt({
-        db: pool,
+        db,
         tenantId,
         postId,
         scheduledPostId,
@@ -924,4 +934,8 @@ export async function POST(req: Request): Promise<Response> {
     status,
     headers: { 'content-type': 'application/json' },
   });
+}
+
+export async function POST(req: Request): Promise<Response> {
+  return handleScheduledDispatchPost(req);
 }

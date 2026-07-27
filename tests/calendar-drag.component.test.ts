@@ -242,3 +242,85 @@ test('CalendarPresenter drag wiring calls onSchedule with the correct target dat
   assert.equal(calls[0].kind, 'event');
   assert.equal(calls[0].targetDayKey, '2026-04-22');
 });
+
+test('CalendarPresenter hides every schedule mutation for dispatched child evidence', async () => {
+  const { render, fireEvent, cleanup } = await import('@testing-library/react');
+  const model = createCalendarViewModel({
+    scheduledPosts: [buildScheduledPost({
+      dispatchStatus: 'pending',
+      dispatches: [{
+        platform: 'facebook',
+        status: 'dispatched',
+        dispatchedAt: '2026-04-15T14:01:00.000Z',
+        errorAt: null,
+        errorMessage: null,
+      }],
+    })],
+    posts: [],
+    timeZone: 'America/New_York',
+  });
+  const { default: CalendarPresenter } = await import(
+    '../frontend/aries-v1/presenters/calendar-presenter'
+  );
+
+  const { container } = render(React.createElement(CalendarPresenter, { model }));
+  try {
+    const tile = container.querySelector('[data-testid="tile-901"]');
+    assert.ok(tile);
+    assert.equal(tile.getAttribute('aria-disabled'), 'true');
+    fireEvent.click(tile);
+    const actionLabels = Array.from(container.querySelectorAll('button'))
+      .map((button) => button.textContent?.trim());
+    assert.equal(actionLabels.includes('Reschedule'), false);
+    assert.equal(actionLabels.includes('Publish now'), false);
+    assert.equal(actionLabels.includes('Cancel'), false);
+  } finally {
+    cleanup();
+  }
+});
+
+test('CalendarPresenter exposes only server-safe actions for pending and failed parents', async () => {
+  const { render, fireEvent, cleanup } = await import('@testing-library/react');
+  const { default: CalendarPresenter } = await import(
+    '../frontend/aries-v1/presenters/calendar-presenter'
+  );
+
+  for (const scenario of [
+    {
+      name: 'safe pending',
+      dispatchStatus: 'pending',
+      expected: ['Reschedule', 'Publish now', 'Cancel'],
+    },
+    {
+      name: 'safe failed',
+      dispatchStatus: 'failed',
+      expected: ['Reschedule', 'Publish now'],
+    },
+  ]) {
+    const model = createCalendarViewModel({
+      scheduledPosts: [buildScheduledPost({
+        dispatchStatus: scenario.dispatchStatus,
+        dispatches: [],
+      })],
+      posts: [],
+      timeZone: 'America/New_York',
+    });
+    const { container } = render(React.createElement(CalendarPresenter, { model }));
+    try {
+      const tile = container.querySelector('[data-testid="tile-901"]');
+      assert.ok(tile, scenario.name);
+      fireEvent.click(tile);
+      const actionLabels = Array.from(container.querySelectorAll('button'))
+        .map((button) => button.textContent?.trim());
+      for (const label of ['Reschedule', 'Publish now', 'Cancel']) {
+        assert.equal(
+          actionLabels.includes(label),
+          scenario.expected.includes(label),
+          `${scenario.name}: ${label}`,
+        );
+      }
+    } finally {
+      cleanup();
+    }
+  }
+});
