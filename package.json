@@ -1,6 +1,6 @@
 {
   "name": "aries-platform-bootstrap-runtime",
-  "version": "0.1.43.0",
+  "version": "0.1.44.1",
   "description": "Next.js application for weekly social content automation: connect platforms, generate and review a week of content, and publish on a schedule.",
   "license": "Apache-2.0",
   "repository": {
@@ -12,6 +12,9 @@
   },
   "homepage": "https://github.com/DeliciousHouse/aries-app#readme",
   "private": true,
+  "engines": {
+    "node": ">=24 <25"
+  },
   "scripts": {
     "dev": "next dev -p 3000 --turbopack",
     "build": "next build",
@@ -61,15 +64,15 @@
     "date-fns-tz": "^3.2.0",
     "dotenv": "^17.3.1",
     "html-to-image": "^1.11.13",
-    "lucide-react": "^1.25.0",
+    "lucide-react": "^1.27.0",
     "motion": "^12.42.0",
-    "next": "16.2.11",
+    "next": "16.2.12",
     "next-auth": "^5.0.0-beta.32",
     "pg": "^8.22.0",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7",
+    "react-dom": "^19.2.8",
     "recharts": "^3.9.2",
-    "resend": "^6.17.2",
+    "resend": "^6.18.0",
     "sharp": "^0.35.3",
     "tailwind-merge": "^3.6.0",
     "tailwindcss-animate": "^1.0.7",
@@ -89,7 +92,7 @@
     "@types/react-test-renderer": "^19.1.0",
     "autoprefixer": "^10.5.4",
     "jsdom": "^29.1.1",
-    "postcss": "^8.5.20",
+    "postcss": "^8.5.23",
     "react-test-renderer": "^19.2.8",
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3"
