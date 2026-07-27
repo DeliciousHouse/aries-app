@@ -225,6 +225,7 @@ test('dead-campaign sweep semantics against real Postgres (rolled back)', async 
         dispatchStatus: string;
         campaignEnd: string | null;
         updatedAt?: string;
+        dispatchClaimedAt?: string;
         platformPostId?: string | null;
       }): Promise<{ postId: number; spId: number }> {
         const post = await client.query(
@@ -235,8 +236,9 @@ test('dead-campaign sweep semantics against real Postgres (rolled back)', async 
         const postId = (post.rows[0] as { id: number }).id;
         const sp = await client.query(
           `INSERT INTO scheduled_posts
-             (post_id, tenant_id, scheduled_for, target_platforms, campaign_end_date, dispatch_status, updated_at)
-           VALUES ($1, $2, now() - interval '3 days', '{facebook}', $3, $4, $5)
+             (post_id, tenant_id, scheduled_for, target_platforms, campaign_end_date,
+              dispatch_status, updated_at, dispatch_claimed_at)
+           VALUES ($1, $2, now() - interval '3 days', '{facebook}', $3, $4, $5, $6)
            RETURNING id`,
           [
             postId,
@@ -244,6 +246,7 @@ test('dead-campaign sweep semantics against real Postgres (rolled back)', async 
             opts.campaignEnd,
             opts.dispatchStatus,
             opts.updatedAt ?? new Date().toISOString(),
+            opts.dispatchClaimedAt ?? new Date().toISOString(),
           ],
         );
         return { postId, spId: (sp.rows[0] as { id: number }).id };
@@ -267,6 +270,7 @@ test('dead-campaign sweep semantics against real Postgres (rolled back)', async 
         dispatchStatus: 'in_flight',
         campaignEnd: past,
         updatedAt: staleUpdated,
+        dispatchClaimedAt: staleUpdated,
       });
       // 6. pending + past end but the post already reached Meta -> row swept,
       //    post NOT expired (the platform_post_id guard).

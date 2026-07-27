@@ -468,7 +468,7 @@ export default function CalendarPresenter({
                       </button>
                     ) : null}
                     {selectedEvent.jobId &&
-                    !selectedEvent.manualReviewRequired &&
+                    selectedEvent.reschedulable &&
                     (selectedEvent.dispatchStatus === 'pending' ||
                       selectedEvent.dispatchStatus === 'failed') ? (
                       <PublishNowButton
@@ -481,9 +481,8 @@ export default function CalendarPresenter({
                       />
                     ) : null}
                     {selectedEvent.jobId &&
-                    !selectedEvent.manualReviewRequired &&
-                    (selectedEvent.dispatchStatus === 'pending' ||
-                      selectedEvent.dispatchStatus === 'in_flight') ? (
+                    selectedEvent.reschedulable &&
+                    selectedEvent.dispatchStatus === 'pending' ? (
                       <CancelScheduleButton
                         jobId={selectedEvent.jobId}
                         postId={selectedEvent.postId}

@@ -234,9 +234,12 @@ export async function upsertScheduledPost(
   input: UpsertScheduledPostInput,
   options: { canonicalLockHeld?: boolean } = {},
 ): Promise<ScheduledPostRecord> {
-  if (typeof queryable.connect !== 'function') {
-    // Route callers can attest that their transaction already locked canonical
-    // first; transaction clients from any other caller still lock here.
+  const transactionBound = typeof (queryable as { release?: unknown }).release === 'function';
+  if (typeof queryable.connect !== 'function' || transactionBound) {
+    // pg PoolClient inherits connect() from ClientBase, so release() is the
+    // reliable signal that this is already transaction-bound rather than a
+    // pool. Route callers can attest that canonical is already locked; other
+    // transaction clients acquire it here before touching the schedule owner.
     return upsertScheduledPostInCanonicalTransaction(queryable, input, options);
   }
 

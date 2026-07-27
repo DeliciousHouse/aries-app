@@ -158,8 +158,8 @@ export type MetaPublishFailureKind = 'transient' | 'permanent' | 'auth' | 'outco
  * Classify a thrown publish error into the 4-class taxonomy. Precedence:
  * outcome-unknown (never retry) → auth (reconnect) → transient (retryable) →
  * permanent (terminal). A non-MetaPublishError throw is treated as permanent
- * here; the dispatch route independently treats raw non-Meta throws as
- * retryable at the call site — that route behavior is unchanged by this fn.
+ * here; the scheduled-dispatch route applies its stricter provider-boundary
+ * classifier and quarantines an unclassified throw as outcome-unknown.
  */
 export function classifyMetaPublishFailureKind(error: unknown): MetaPublishFailureKind {
   if (error instanceof MetaPublishError && error.outcomeUnknown) {

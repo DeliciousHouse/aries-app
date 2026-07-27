@@ -3,7 +3,11 @@ import test from 'node:test';
 
 import { handleDeleteSocialContentPost } from '../app/api/social-content/jobs/[jobId]/posts/[postId]/route';
 import { handlePatchScheduleSocialContentPost } from '../app/api/social-content/jobs/[jobId]/posts/[postId]/schedule/route';
-import { autoSchedulePosts } from '../backend/marketing/auto-schedule';
+import {
+  autoDefaultCadenceSchedulePosts,
+  autoSchedulePosts,
+} from '../backend/marketing/auto-schedule';
+import { upsertScheduledPost } from '../backend/social-content/scheduled-posts';
 
 class Mutex {
   private locked = false;
@@ -43,6 +47,7 @@ class ScheduleDeleteRaceDb {
   parentExists = true;
   scheduledExists = false;
   deleteGate = makeGate();
+  scheduleCanonicalAttempted = makeGate();
 
   async connect(role: 'schedule' | 'delete'): Promise<RaceClient> {
     return new RaceClient(this, role);
@@ -78,6 +83,9 @@ class RaceClient {
     }
     if (/FROM posts[\s\S]*FOR UPDATE/i.test(text)) {
       const firstCanonicalLock = this.releaseParent === null;
+      if (firstCanonicalLock && this.role === 'schedule') {
+        this.db.scheduleCanonicalAttempted.signalEntered();
+      }
       if (firstCanonicalLock) this.releaseParent = await this.db.parentLock.acquire();
       if (this.role === 'delete' && firstCanonicalLock) {
         this.db.deleteGate.signalEntered();
@@ -178,6 +186,7 @@ test('canonical delete racing first schedule creation leaves no orphan or claima
     },
   );
 
+  await db.scheduleCanonicalAttempted.entered;
   db.deleteGate.signalRelease();
   const [deleteResponse, scheduleResponse] = await Promise.all([deleting, scheduling]);
 
@@ -192,6 +201,7 @@ class BackgroundScheduleDeleteRaceDb {
   parentExists = true;
   scheduledExists = false;
   deleteObservedNoSchedule = makeGate();
+  backgroundCanonicalAttempted = makeGate();
 
   async connect(role: 'background' | 'delete'): Promise<BackgroundRaceClient> {
     return new BackgroundRaceClient(this, role);
@@ -245,6 +255,9 @@ class BackgroundRaceClient {
       return { rows: [], rowCount: 0 };
     }
     if (/FROM posts[\s\S]*FOR UPDATE/i.test(text)) {
+      if (!this.releaseCanonical && this.role === 'background') {
+        this.db.backgroundCanonicalAttempted.signalEntered();
+      }
       if (!this.releaseCanonical) this.releaseCanonical = await this.db.canonicalLock.acquire();
       if (!this.db.parentExists) return { rows: [], rowCount: 0 };
       return {
@@ -291,42 +304,85 @@ class BackgroundRaceClient {
   release(): void {}
 }
 
-test('background auto-schedule racing canonical delete cannot create an orphan owner', async () => {
-  const db = new BackgroundScheduleDeleteRaceDb();
-  const deleteQueryable = {
-    query: async () => { throw new Error('delete must use a dedicated transaction client'); },
-    connect: () => db.connect('delete'),
-  };
-  const backgroundQueryable = {
-    query: (sql: string, params?: unknown[]) => db.query(sql, params),
-    connect: () => db.connect('background'),
-  };
+type BackgroundWriterResult = { scheduled: number; errors: unknown[] };
+type BackgroundQueryable = NonNullable<Parameters<typeof autoSchedulePosts>[0]['queryable']>;
 
-  const deleting = handleDeleteSocialContentPost('job-background-race', '42', {
-    tenantContextLoader: tenantLoader(),
-    queryable: deleteQueryable as never,
-    publishApprovalResolver: async () => true,
+const backgroundWriters: Array<{
+  name: string;
+  run: (queryable: BackgroundQueryable) => Promise<BackgroundWriterResult>;
+}> = [
+  {
+    name: 'recommended-day auto-schedule',
+    run: (queryable) => autoSchedulePosts({
+      jobId: 'job-background-race',
+      tenantId: 15,
+      tenantTimezone: 'UTC',
+      campaignStart: new Date('2026-07-27T00:00:00.000Z'),
+      campaignEnd: new Date('2026-07-30T23:59:59.000Z'),
+      rows: [{ postId: 42, platform: 'facebook', recommendedDay: 'Monday' }],
+      queryable,
+      now: new Date('2026-07-26T00:00:00.000Z'),
+    }),
+  },
+  {
+    name: 'default-cadence auto-schedule',
+    run: (queryable) => autoDefaultCadenceSchedulePosts({
+      jobId: 'job-background-race',
+      tenantId: 15,
+      tenantTimezone: 'UTC',
+      campaignStart: new Date('2026-07-27T00:00:00.000Z'),
+      campaignEnd: new Date('2026-07-30T23:59:59.000Z'),
+      rows: [{ postId: 42, platform: 'facebook', ordinal: 1 }],
+      queryable,
+      now: new Date('2026-07-26T00:00:00.000Z'),
+    }),
+  },
+  {
+    name: 'direct scheduled-post helper',
+    run: async (queryable) => {
+      try {
+        await upsertScheduledPost(queryable, {
+          tenantId: 15,
+          postId: 42,
+          scheduledFor: new Date('2026-07-27T12:00:00.000Z'),
+          platforms: ['facebook'],
+        });
+        return { scheduled: 1, errors: [] };
+      } catch (error) {
+        return { scheduled: 0, errors: [error] };
+      }
+    },
+  },
+];
+
+for (const writer of backgroundWriters) {
+  test(`${writer.name} reaches canonical lock before delete release and cannot create an orphan`, async () => {
+    const db = new BackgroundScheduleDeleteRaceDb();
+    const deleteQueryable = {
+      query: async () => { throw new Error('delete must use a dedicated transaction client'); },
+      connect: () => db.connect('delete'),
+    };
+    const backgroundQueryable = {
+      query: (sql: string, params?: unknown[]) => db.query(sql, params),
+      connect: () => db.connect('background'),
+    };
+
+    const deleting = handleDeleteSocialContentPost('job-background-race', '42', {
+      tenantContextLoader: tenantLoader(),
+      queryable: deleteQueryable as never,
+      publishApprovalResolver: async () => true,
+    });
+    await db.deleteObservedNoSchedule.entered;
+
+    const scheduling = writer.run(backgroundQueryable as unknown as BackgroundQueryable);
+    await db.backgroundCanonicalAttempted.entered;
+    db.deleteObservedNoSchedule.signalRelease();
+    const [deleteResponse, scheduleResult] = await Promise.all([deleting, scheduling]);
+
+    assert.equal(deleteResponse.status, 200);
+    assert.equal(scheduleResult.scheduled, 0, 'the writer rechecks canonical existence under lock');
+    assert.equal(scheduleResult.errors.length, 1);
+    assert.equal(db.parentExists, false);
+    assert.equal(db.scheduledExists, false, 'no orphan schedule can survive canonical deletion');
   });
-  await db.deleteObservedNoSchedule.entered;
-
-  const scheduling = autoSchedulePosts({
-    jobId: 'job-background-race',
-    tenantId: 15,
-    tenantTimezone: 'UTC',
-    campaignStart: new Date('2026-07-27T00:00:00.000Z'),
-    campaignEnd: new Date('2026-07-30T23:59:59.000Z'),
-    rows: [{ postId: 42, platform: 'facebook', recommendedDay: 'Monday' }],
-    queryable: backgroundQueryable as never,
-    now: new Date('2026-07-26T00:00:00.000Z'),
-  });
-
-  await new Promise((resolve) => setTimeout(resolve, 10));
-  db.deleteObservedNoSchedule.signalRelease();
-  const [deleteResponse, scheduleResult] = await Promise.all([deleting, scheduling]);
-
-  assert.equal(deleteResponse.status, 200);
-  assert.equal(scheduleResult.scheduled, 0, 'the background writer rechecks canonical existence under lock');
-  assert.equal(scheduleResult.errors.length, 1);
-  assert.equal(db.parentExists, false);
-  assert.equal(db.scheduledExists, false, 'no orphan schedule can survive canonical deletion');
-});
+}

@@ -161,6 +161,9 @@ class FakeClient {
           {
             id: row.id,
             post_id: row.post_id,
+            canonical_post_id: store.posts.find(
+              (post) => post.id === row.post_id && post.tenant_id === row.tenant_id,
+            )?.id ?? null,
             tenant_id: row.tenant_id,
             target_platforms: row.target_platforms,
             caption: row.caption,
@@ -310,11 +313,12 @@ class FakeClient {
     }
 
     if (s.startsWith('UPDATE posts')) {
-      const [scheduledPostId, postId, tenantId, attemptToken] = params as [
+      const [scheduledPostId, postId, tenantId, attemptToken, terminalStatus] = params as [
         number,
         number,
         number,
         string,
+        string | undefined,
       ];
       const owner = store.scheduled.find(
         (row) => row.id === scheduledPostId
@@ -329,11 +333,34 @@ class FakeClient {
           && child.status === 'dispatched'
           && child.platform_post_id !== null,
       );
+      if (owner && post && terminalStatus) {
+        if (!firstSuccess && post.published_status !== 'published') {
+          post.published_status = terminalStatus === 'manual_reconciliation' ? 'unverified' : 'failed';
+        }
+        return { rows: [{ id: post.id }], rowCount: 1 };
+      }
       if (!owner || !post || !firstSuccess) return { rows: [], rowCount: 0 };
       post.published_status = 'published';
       post.platform_post_id ??= firstSuccess.platform_post_id;
       post.published_at ??= new Date().toISOString();
       return { rows: [{ id: post.id }], rowCount: 1 };
+    }
+
+    if (s.startsWith('WITH orphaned_owner AS')) {
+      const id = Number(params[0]);
+      const row = store.scheduled.find((candidate) => candidate.id === id);
+      if (!row) return { rows: [{ quarantined: 0 }], rowCount: 1 };
+      row.dispatch_status = 'failed';
+      row.error_at = new Date().toISOString();
+      row.error_message = 'orphaned_schedule: canonical post missing; provider was not called';
+      for (const child of store.children) {
+        if (child.scheduled_post_id === id && (child.status === 'pending' || child.status === 'in_flight')) {
+          child.status = 'failed';
+          child.error_at = new Date().toISOString();
+          child.error_message = row.error_message;
+        }
+      }
+      return { rows: [{ quarantined: 1 }], rowCount: 1 };
     }
 
     if (s.startsWith('WITH released_owner AS')) {
@@ -525,6 +552,7 @@ test('worker sends one internal request and fails closed on ambiguous transport 
     assert.equal(row.dispatch_status, 'manual_reconciliation');
     assert.match(row.error_message ?? '', /publish_outcome_unknown/);
     assert.ok(db.children.every((c) => c.status === 'manual_reconciliation'));
+    assert.equal(db.posts[0]!.published_status, 'unverified');
 
     globalThis.fetch = (async () => {
       fetchCalls += 1;
@@ -536,6 +564,93 @@ test('worker sends one internal request and fails closed on ambiguous transport 
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+test('known terminal provider rejection marks canonical delivery failed', async () => {
+  const { tick } = await loadWorker();
+  const db = new FakeDb();
+  seedDueRow(db);
+  process.env.APP_BASE_URL = 'https://aries.example.test';
+  process.env.INTERNAL_API_SECRET = 'test-secret';
+
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      results: [
+        { provider: 'facebook', ok: false, retryable: false, kind: 'validation', error: 'invalid media' },
+        { provider: 'instagram', ok: false, retryable: false, kind: 'validation', error: 'invalid media' },
+      ],
+    }), { status: 422, headers: { 'content-type': 'application/json' } })) as typeof fetch;
+
+    await tick(makePool(db));
+    assert.equal(db.scheduled[0]!.dispatch_status, 'failed');
+    assert.equal(db.posts[0]!.published_status, 'failed');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('legacy orphaned schedules fail before provider I/O instead of remaining in flight', async () => {
+  const { tick } = await loadWorker();
+  const db = new FakeDb();
+  seedDueRow(db);
+  db.posts = [];
+  process.env.APP_BASE_URL = 'https://aries.example.test';
+  process.env.INTERNAL_API_SECRET = 'test-secret';
+
+  let fetchCalls = 0;
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => {
+      fetchCalls += 1;
+      throw new Error('orphan must not reach provider boundary');
+    }) as typeof fetch;
+
+    await tick(makePool(db));
+    assert.equal(fetchCalls, 0);
+    assert.equal(db.scheduled[0]!.dispatch_status, 'failed');
+    assert.match(db.scheduled[0]!.error_message ?? '', /orphaned_schedule/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('transaction-bound pg-like clients are not mistaken for pools', async () => {
+  let connectCalls = 0;
+  const queryable = {
+    release: () => {},
+    connect: async () => {
+      connectCalls += 1;
+      throw new Error('already-connected client must not reconnect');
+    },
+    query: async (sql: string) => {
+      if (sql.includes('FROM posts') && sql.includes('FOR UPDATE')) {
+        return { rows: [{ id: 101 }], rowCount: 1 };
+      }
+      if (sql.trim().startsWith('WITH existing AS')) {
+        return {
+          rows: [{
+            id: 1,
+            post_id: 101,
+            tenant_id: 7,
+            scheduled_for: new Date('2026-07-27T12:00:00.000Z'),
+            target_platforms: ['facebook'],
+            updated_at: new Date('2026-07-26T12:00:00.000Z'),
+          }],
+          rowCount: 1,
+        };
+      }
+      throw new Error(`unexpected SQL: ${sql.slice(0, 40)}`);
+    },
+  };
+
+  await upsertScheduledPost(queryable as never, {
+    tenantId: 7,
+    postId: 101,
+    scheduledFor: new Date('2026-07-27T12:00:00.000Z'),
+    platforms: ['facebook'],
+  });
+  assert.equal(connectCalls, 0);
 });
 
 test('known Facebook success survives route finalization failure and a later Instagram unknown outcome', async () => {
