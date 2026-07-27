@@ -124,6 +124,11 @@ export function createCalendarViewModel(input: CalendarViewModelInput): Calendar
       const manualReviewRequired =
         post.dispatchStatus === 'manual_reconciliation'
         || post.dispatches.some((dispatch) => dispatch.status === 'manual_reconciliation');
+      const hasTerminalChildEvidence = post.dispatches.some(
+        (dispatch) => dispatch.status === 'dispatched' || dispatch.status === 'manual_reconciliation',
+      );
+      const safeParentState = post.dispatchStatus === 'pending'
+        || post.dispatchStatus === 'failed';
       return {
         id: post.id,
         postId: post.postId,
@@ -135,7 +140,11 @@ export function createCalendarViewModel(input: CalendarViewModelInput): Calendar
         scheduledForIso: post.scheduledFor,
         status: dispatchStatusToEventStatus(post.dispatchStatus),
         dispatchStatus: post.dispatchStatus,
-        reschedulable: !manualReviewRequired,
+        // Match the schedule route/upsert safety predicate exactly: only pending
+        // or failed parents with no child evidence of a possibly-live publish can
+        // be moved. A dispatched child blocks drag even when a partial cross-post
+        // keeps the parent pending.
+        reschedulable: safeParentState && !hasTerminalChildEvidence,
         manualReviewRequired,
         manualReviewMessage: manualReviewRequired
           ? 'Manual review required: verify whether this post is already live on each platform before making scheduling changes.'

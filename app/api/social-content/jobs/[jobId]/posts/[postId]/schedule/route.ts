@@ -260,7 +260,7 @@ export async function handlePatchScheduleSocialContentPost(
       widthPx: postWidthPx,
       heightPx: postHeightPx,
       durationSeconds: postDurationSeconds,
-    });
+    }, { canonicalLockHeld: true });
 
     if (transactionEnabled) {
       await client.query('COMMIT', []);

@@ -61,15 +61,16 @@ const SWEEP_SQL = extractExportedSql('SWEEP_DEAD_CAMPAIGN_SQL');
 test('sweep selects only permanently-unclaimable rows: past-end pending, or past-end STALE in_flight', () => {
   assert.match(
     SWEEP_SQL,
-    /campaign_end_date IS NOT NULL AND campaign_end_date < NOW\(\)/,
+    /owner\.campaign_end_date IS NOT NULL\s+AND owner\.campaign_end_date < NOW\(\)/,
     'the dead CTE must require a PASSED campaign_end_date (NULL = weekly legacy, never swept)',
   );
   assert.match(
     SWEEP_SQL,
-    /dispatch_status = 'pending'\s+OR \(dispatch_status = 'in_flight'\s+AND dispatch_started_at IS NULL\s+AND dispatch_claimed_at < \$2\)/,
+    /owner\.dispatch_status = 'pending'\s+OR \(owner\.dispatch_status = 'in_flight'\s+AND owner\.dispatch_started_at IS NULL\s+AND owner\.dispatch_claimed_at < \$2\)/,
     'pending rows sweep immediately; only never-started stale in_flight rows sweep, while unknown provider outcomes remain quarantined',
   );
-  assert.match(SWEEP_SQL, /FOR UPDATE SKIP LOCKED/, 'the dead CTE must skip rows locked by a concurrent claim');
+  assert.match(SWEEP_SQL, /FOR UPDATE OF post SKIP LOCKED/, 'the sweep locks canonical posts before scheduled owners');
+  assert.match(SWEEP_SQL, /FOR UPDATE OF owner SKIP LOCKED/, 'the dead CTE skips scheduled owners locked by a concurrent claim');
 });
 
 test('sweep mutating arm re-checks the FULL predicate (draft-expiry pattern) and writes the existing terminal vocabulary', () => {
@@ -150,7 +151,7 @@ test('tick() reports sweep counts and continues dispatch when the sweep errors',
   // Case A: sweep returns counts, no due rows -> report.expired wired through.
   const poolA = {
     query: async (sql: string) => {
-      if (sql.trimStart().startsWith('WITH dead AS')) {
+      if (sql.includes('campaign_window_passed: campaign_end_date')) {
         return { rows: [{ swept: 3, posts_expired: 2 }], rowCount: 1 };
       }
       return { rows: [], rowCount: 0 }; // DUE_ROWS_SQL: nothing due
@@ -167,7 +168,7 @@ test('tick() reports sweep counts and continues dispatch when the sweep errors',
   let dueScanned = false;
   const poolB = {
     query: async (sql: string) => {
-      if (sql.trimStart().startsWith('WITH dead AS')) {
+      if (sql.includes('campaign_window_passed: campaign_end_date')) {
         throw new Error('sweep exploded');
       }
       dueScanned = true;

@@ -1,10 +1,7 @@
 import { isLinkedInEnabled, isRedditEnabled, isXEnabled, isYouTubeEnabled } from '@/backend/integrations/providers/integration-config';
 
-export type ScheduledPostQueryable = {
-  query: (
-    sql: string,
-    params: unknown[],
-  ) => Promise<{
+type ScheduledPostQueryExecutor = {
+  query: (sql: string, params: unknown[]) => Promise<{
     rows: Array<{
       id: string | number | bigint;
       post_id: string | number | bigint;
@@ -15,6 +12,15 @@ export type ScheduledPostQueryable = {
     }>;
     rowCount: number | null;
   }>;
+};
+
+export type ScheduledPostQueryable = ScheduledPostQueryExecutor & {
+  /**
+   * Pools expose connect(); transaction-bound clients do not. Direct callers
+   * provide a pool so this helper can own a canonical-first transaction;
+   * callers already inside a transaction may pass that transaction client.
+   */
+  connect?: () => Promise<ScheduledPostQueryExecutor & { release: () => void }>;
 };
 
 export interface UpsertScheduledPostInput {
@@ -123,10 +129,29 @@ function normalizeTimestamp(value: string | Date): string {
   return typeof value === 'string' ? value : value.toISOString();
 }
 
-export async function upsertScheduledPost(
+async function upsertScheduledPostInCanonicalTransaction(
   queryable: ScheduledPostQueryable,
   input: UpsertScheduledPostInput,
+  { canonicalLockHeld = false }: { canonicalLockHeld?: boolean } = {},
 ): Promise<ScheduledPostRecord> {
+  // Every writer locks the canonical post before inspecting or mutating its
+  // scheduled owner. This is deliberately a separate statement inside the
+  // transaction: a same-statement CTE snapshot can still race a canonical
+  // delete, while this row lock serializes both writers.
+  if (!canonicalLockHeld) {
+    const canonical = await queryable.query(
+      `SELECT id
+         FROM posts
+        WHERE id = $1
+          AND tenant_id = $2
+        FOR UPDATE`,
+      [input.postId, input.tenantId],
+    );
+    if ((canonical.rowCount ?? canonical.rows.length) === 0 || canonical.rows.length === 0) {
+      throw new ScheduledPostTenantMismatchError(input.tenantId, input.postId);
+    }
+  }
+
   const result = await queryable.query(UPSERT_SCHEDULED_POST_SQL, [
     input.postId,
     input.tenantId,
@@ -202,6 +227,37 @@ export async function upsertScheduledPost(
     platforms: Array.isArray(row.target_platforms) ? row.target_platforms : [],
     updatedAt: normalizeTimestamp(row.updated_at),
   };
+}
+
+export async function upsertScheduledPost(
+  queryable: ScheduledPostQueryable,
+  input: UpsertScheduledPostInput,
+  options: { canonicalLockHeld?: boolean } = {},
+): Promise<ScheduledPostRecord> {
+  if (typeof queryable.connect !== 'function') {
+    // Route callers can attest that their transaction already locked canonical
+    // first; transaction clients from any other caller still lock here.
+    return upsertScheduledPostInCanonicalTransaction(queryable, input, options);
+  }
+
+  const client = await queryable.connect();
+  let transactionFinished = false;
+  try {
+    await client.query('BEGIN', []);
+    // Pool callers cannot bypass the canonical lock: this helper owns both the
+    // transaction and its lock order regardless of a caller-supplied option.
+    const record = await upsertScheduledPostInCanonicalTransaction(client, input);
+    await client.query('COMMIT', []);
+    transactionFinished = true;
+    return record;
+  } catch (error) {
+    if (!transactionFinished) {
+      await client.query('ROLLBACK', []).catch(() => {});
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export class ScheduledPostInFlightError extends Error {

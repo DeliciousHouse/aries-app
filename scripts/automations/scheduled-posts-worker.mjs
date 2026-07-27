@@ -221,22 +221,41 @@ export const RELEASE_PRE_PROVIDER_CLAIM_SQL = `WITH released_owner AS (
 //     ($2, same cutoff as CLAIM_ROW_SQL), so a live publish that crossed the
 //     deadline mid-flight still writes its own real outcome.
 //   - Every mutating arm re-checks the full predicate (draft-expiry-sweep
-//     pattern) and the dead CTE takes FOR UPDATE SKIP LOCKED, so a row being
-//     claimed/finished concurrently is skipped, never clobbered. Idempotent:
-//     a swept row no longer matches.
+//     pattern). The canonical CTE locks posts first, then dead locks the owner,
+//     both with SKIP LOCKED, so a concurrent schedule/delete/publish is skipped,
+//     never clobbered. Idempotent: a swept row no longer matches.
 // $1 = batch limit, $2 = stale-in_flight cutoff timestamp.
-export const SWEEP_DEAD_CAMPAIGN_SQL = `WITH dead AS (
-     SELECT id, post_id FROM scheduled_posts
-      WHERE campaign_end_date IS NOT NULL AND campaign_end_date < NOW()
-        AND (dispatch_status = 'pending'
-             OR (dispatch_status = 'in_flight'
-             AND dispatch_started_at IS NULL
-             AND dispatch_claimed_at < $2))
-      ORDER BY scheduled_for
-      LIMIT $1
-      FOR UPDATE SKIP LOCKED
-   ),
-   marked AS (
+export const SWEEP_DEAD_CAMPAIGN_SQL = `
+WITH canonical AS MATERIALIZED (
+  SELECT post.id, owner.scheduled_for
+  FROM posts post
+  JOIN scheduled_posts owner
+    ON owner.post_id = post.id
+   AND owner.tenant_id = post.tenant_id
+  WHERE owner.campaign_end_date IS NOT NULL
+    AND owner.campaign_end_date < NOW()
+    AND (owner.dispatch_status = 'pending'
+         OR (owner.dispatch_status = 'in_flight'
+         AND owner.dispatch_started_at IS NULL
+         AND owner.dispatch_claimed_at < $2))
+  ORDER BY owner.scheduled_for ASC
+  LIMIT $1
+  FOR UPDATE OF post SKIP LOCKED
+),
+dead AS MATERIALIZED (
+  SELECT owner.id, owner.post_id
+  FROM scheduled_posts owner
+  JOIN canonical ON canonical.id = owner.post_id
+  WHERE owner.campaign_end_date IS NOT NULL
+    AND owner.campaign_end_date < NOW()
+    AND (owner.dispatch_status = 'pending'
+         OR (owner.dispatch_status = 'in_flight'
+         AND owner.dispatch_started_at IS NULL
+         AND owner.dispatch_claimed_at < $2))
+  ORDER BY owner.scheduled_for ASC
+  FOR UPDATE OF owner SKIP LOCKED
+),
+marked AS (
      UPDATE scheduled_posts sp
         SET dispatch_status = 'failed',
             error_at = now(),
@@ -312,18 +331,31 @@ export async function sweepDeadCampaignRows(pool) {
 // A started provider request is a point of no safe automatic return: after a
 // worker/app crash the provider may have accepted the publish even when no
 // response or platform id reached Aries. Stale started attempts are therefore
-// terminally quarantined for an operator instead of entering stale reclaim.
-export const SWEEP_AMBIGUOUS_DISPATCH_SQL = `WITH ambiguous AS (
-    SELECT id, post_id
-      FROM scheduled_posts
-     WHERE dispatch_status = 'in_flight'
-       AND dispatch_started_at IS NOT NULL
-       AND dispatch_claimed_at < $2
-     ORDER BY dispatch_claimed_at
-     LIMIT $1
-     FOR UPDATE SKIP LOCKED
-  ),
-  marked_children AS (
+export const SWEEP_AMBIGUOUS_DISPATCH_SQL = `
+WITH canonical AS MATERIALIZED (
+  SELECT post.id, owner.dispatch_claimed_at
+  FROM posts post
+  JOIN scheduled_posts owner
+    ON owner.post_id = post.id
+   AND owner.tenant_id = post.tenant_id
+  WHERE owner.dispatch_status = 'in_flight'
+    AND owner.dispatch_started_at IS NOT NULL
+    AND owner.dispatch_claimed_at < $2::timestamptz
+  ORDER BY owner.dispatch_claimed_at ASC
+  LIMIT $1
+  FOR UPDATE OF post SKIP LOCKED
+),
+ambiguous AS MATERIALIZED (
+  SELECT owner.id, owner.post_id
+  FROM scheduled_posts owner
+  JOIN canonical ON canonical.id = owner.post_id
+  WHERE owner.dispatch_status = 'in_flight'
+    AND owner.dispatch_started_at IS NOT NULL
+    AND owner.dispatch_claimed_at < $2::timestamptz
+  ORDER BY owner.dispatch_claimed_at ASC
+  FOR UPDATE OF owner SKIP LOCKED
+),
+marked_children AS (
     UPDATE scheduled_post_dispatches dispatch
        SET status = 'manual_reconciliation',
            error_at = now(),
@@ -776,7 +808,8 @@ async function dispatchOnce(row, attemptToken, baseUrl, secret) {
   const knownPreProviderFailure =
     res.status === 401 ||
     res.status === 403 ||
-    parsed?.error === 'dispatch_ownership_unavailable';
+    parsed?.error === 'dispatch_ownership_unavailable' ||
+    parsed?.error === 'internal_api_secret_not_configured';
   if (knownPreProviderFailure) {
     const error = parsed?.error || `dispatch ${res.status}: provider was not reached`;
     return {
@@ -1115,7 +1148,14 @@ export const WORKER_READINESS_SQL = `
       ) AS protocol_ready
 `;
 
-export async function runWorkerReadinessCheck(pool) {
+export async function runWorkerReadinessCheck(
+  pool,
+  {
+    fetchImpl = fetch,
+    baseUrl = resolveAppBaseUrl(),
+    secret = resolveInternalSecret(),
+  } = {},
+) {
   const result = await pool.query(WORKER_READINESS_SQL);
   const readiness = result.rows[0];
   if (readiness?.schema_ready !== true) {
@@ -1123,6 +1163,44 @@ export async function runWorkerReadinessCheck(pool) {
   }
   if (readiness?.protocol_ready !== true) {
     throw new Error('scheduled_worker_protocol_not_ready');
+  }
+
+  const normalizedBaseUrl = typeof baseUrl === 'string' ? baseUrl.trim().replace(/\/$/, '') : '';
+  if (!normalizedBaseUrl) {
+    throw new Error('scheduled_worker_app_base_url_not_configured');
+  }
+  const normalizedSecret = typeof secret === 'string' ? secret.trim() : '';
+  if (!normalizedSecret) {
+    throw new Error('scheduled_worker_internal_api_secret_not_configured');
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
+  let response;
+  try {
+    response = await fetchImpl(
+      `${normalizedBaseUrl}/api/internal/publishing/scheduled-dispatch`,
+      {
+        method: 'GET',
+        headers: { authorization: `Bearer ${normalizedSecret}` },
+        signal: controller.signal,
+      },
+    );
+  } catch (error) {
+    throw new Error(`scheduled_worker_auth_unreachable:${String(error?.message || error)}`);
+  } finally {
+    clearTimeout(timer);
+  }
+
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    // The status remains diagnostic even when a proxy returns a non-JSON body.
+  }
+  if (!response.ok || body?.status !== 'ready') {
+    const reason = typeof body?.error === 'string' ? body.error : 'unexpected_response';
+    throw new Error(`scheduled_worker_auth_not_ready:${response.status}:${reason}`);
   }
 }
 
@@ -1149,13 +1227,16 @@ export function installScheduledPostsWorkerSignalHandlers(
 
 async function main() {
   const pool = buildPool();
-  if (process.env.ARIES_SCHEDULED_POSTS_READINESS_CHECK?.trim() === '1') {
-    try {
-      await runWorkerReadinessCheck(pool);
-      console.log('[scheduled-posts-worker] readiness ok');
-    } finally {
-      if (typeof pool.end === 'function') await pool.end();
-    }
+  const readinessOnly = process.env.ARIES_SCHEDULED_POSTS_READINESS_CHECK?.trim() === '1';
+  try {
+    await runWorkerReadinessCheck(pool);
+  } catch (error) {
+    if (typeof pool.end === 'function') await pool.end();
+    throw error;
+  }
+  if (readinessOnly) {
+    console.log('[scheduled-posts-worker] readiness ok');
+    if (typeof pool.end === 'function') await pool.end();
     return;
   }
   const runtime = createScheduledPostsWorkerRuntime(pool);
