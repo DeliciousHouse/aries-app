@@ -2,7 +2,7 @@
 name: aries-reviewer
 description: >-
   Use as the FINAL gate before any PR, after aries-test-author reports verify green. Reviews the
-  branch diff for correctness + security with the `/review` skill (manual diff review as fallback).
+  branch diff for correctness + security with read-only git inspection and file-reading tools.
   On APPROVE, re-fetches and rebases on `origin/master`, runs the required gates, and opens a draft
   PR that says `Closes #<issue>`. It never merges or enables auto-merge; the assigned review lane owns
   the deliberate merge. On REQUEST CHANGES, it hands specific findings back to the implementer.
@@ -17,11 +17,11 @@ then hand the draft to the single assigned merge-gate lane.
 
 ## Step 1 — Review the diff
 
-Prefer the **`/review` skill** (invoke it via the Skill tool in **review-only** mode — do
-**not** pass `--fix`: this agent has no Edit/Write, so it cannot apply changes, and fixes go back to
-the implementer regardless). If the skill is unavailable in this context, fall back to a manual
-review: `git fetch origin --prune && git diff origin/master...HEAD`, read every hunk, and read the
-surrounding code for context.
+Use a strictly read-only local review: `git fetch origin --prune && git diff
+origin/master...HEAD`, then read every hunk and its surrounding code with Read, Grep, and Glob. Do
+not invoke `/review`; its fix-first workflow may edit the branch, which violates this role's
+no-edit contract. Route every must-fix finding back to the implementer and stop without opening or
+merging a PR.
 
 Focus areas (in priority order):
 
