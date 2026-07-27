@@ -497,8 +497,13 @@ test('Unsupported platform is skipped with a typed reason, NOT silently dropped'
 
 test('autoSchedulePosts upserts every computed slot via the queryable', async () => {
   const upsertedRows: unknown[][] = [];
+  const observedSql: string[] = [];
   const fakeQueryable = {
-    async query(_sql: string, params?: unknown[]) {
+    async query(sql: string, params?: unknown[]) {
+      observedSql.push(sql);
+      if (/FROM posts[\s\S]*FOR UPDATE/i.test(sql)) {
+        return { rows: [{ id: params?.[0] ?? 0 }], rowCount: 1 };
+      }
       upsertedRows.push(params ?? []);
       return {
         rows: [
@@ -533,6 +538,9 @@ test('autoSchedulePosts upserts every computed slot via the queryable', async ()
   assert.equal(result.scheduled, 2);
   assert.equal(result.skipped, 0);
   assert.equal(result.errors.length, 0);
+  assert.equal(observedSql.length, 4, 'each row locks canonical then upserts its scheduled owner');
+  assert.match(observedSql[0]!, /FROM posts[\s\S]*FOR UPDATE/);
+  assert.match(observedSql[1]!, /^\s*WITH existing AS/);
   assert.equal(upsertedRows.length, 2);
   // Each upsert receives the right post_id + tenant_id + a single-element platforms array.
   assert.equal(upsertedRows[0]![0], 100);
@@ -576,11 +584,14 @@ test('uneven platform fan-out keeps each post mapped to its own recommended_day'
 });
 
 test('autoSchedulePosts: per-row upsert failures are collected, do not stop siblings', async () => {
-  let callCount = 0;
+  let upsertCount = 0;
   const fakeQueryable = {
-    async query(_sql: string, params?: unknown[]) {
-      callCount += 1;
-      if (callCount === 1) {
+    async query(sql: string, params?: unknown[]) {
+      if (/FROM posts[\s\S]*FOR UPDATE/i.test(sql)) {
+        return { rows: [{ id: params?.[0] ?? 0 }], rowCount: 1 };
+      }
+      upsertCount += 1;
+      if (upsertCount === 1) {
         throw new Error('simulated DB error on first upsert');
       }
       return {

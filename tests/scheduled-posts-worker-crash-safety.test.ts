@@ -356,7 +356,7 @@ class FakeClient {
       return { rows: [{ released: 1 }], rowCount: 1 };
     }
 
-    if (s.startsWith('WITH ambiguous AS')) {
+    if (s.startsWith('WITH canonical AS MATERIALIZED') && s.includes('owner.dispatch_claimed_at')) {
       const cutoff = String(params[1]);
       let swept = 0;
       for (const row of store.scheduled) {
@@ -383,7 +383,7 @@ class FakeClient {
       return { rows: [{ swept }], rowCount: 1 };
     }
 
-    if (s.startsWith('WITH dead AS')) {
+    if (s.startsWith('WITH canonical AS MATERIALIZED') && s.includes('owner.scheduled_for')) {
       // Dead-campaign sweep. No row in this fake carries a campaign_end_date,
       // so the sweep is always a structural no-op here; its real semantics are
       // covered by scheduled-posts-worker-campaign-sweep.test.ts.
@@ -843,6 +843,31 @@ test('a known pre-provider 401 response is retryable and never quarantined as an
     globalThis.fetch = (async () => new Response(
       JSON.stringify({ error: 'invalid_internal_auth' }),
       { status: 401, headers: { 'content-type': 'application/json' } },
+    )) as typeof fetch;
+
+    await tick(makePool(db));
+
+    assert.equal(db.scheduled[0]!.dispatch_status, 'pending');
+    assert.ok(db.children.every((child) => child.status === 'pending'));
+    assert.equal(db.scheduled[0]!.next_attempt_backoff_minutes, 10);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('an app with no internal secret is pre-provider retryable and never marked manual', async () => {
+  const { tick } = await loadWorker();
+  const db = new FakeDb();
+  seedDueRow(db);
+
+  process.env.APP_BASE_URL = 'https://aries.example.test';
+  process.env.INTERNAL_API_SECRET = 'worker-secret';
+
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => new Response(
+      JSON.stringify({ error: 'internal_api_secret_not_configured' }),
+      { status: 503, headers: { 'content-type': 'application/json' } },
     )) as typeof fetch;
 
     await tick(makePool(db));
