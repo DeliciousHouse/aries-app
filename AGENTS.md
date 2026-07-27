@@ -17,7 +17,7 @@ This repository is for `aries-app` only.
 - Brendan is the final decision-maker.
 - Make low-risk, reversible `aries-app` changes without prior escalation, but still use the normal branch/PR process.
 - Push local work when it is ready for review, but never push directly to `master`.
-- Every pushed branch must have a corresponding pull request created before the task is considered complete.
+- Every pushed branch must have a corresponding draft pull request before the task is considered complete.
 - Escalate high-risk, destructive, expensive, or scope-changing changes before acting.
 
 ## Truth order
@@ -31,10 +31,19 @@ Do not let remembered context override the current repository.
 
 ## Startup sequence
 
-1. Run `npm run workspace:verify` when relevant.
-2. Confirm the request belongs to `aries-app`.
-3. Read the smallest set of repo files needed.
-4. Act when the next step is clear, otherwise ask the narrowest unlocking question.
+1. Run `git fetch origin --prune` before any other git operation.
+2. Create the branch/worktree only from fresh `origin/master`; the creation command must contain the literal string `origin/`, never a local ref.
+3. Run `git rev-list --count HEAD..origin/master` before editing. If the distance is greater than 5, stop and rebase or recreate the worktree.
+4. Run `npm run workspace:verify` when relevant.
+5. Confirm the request belongs to `aries-app`.
+6. Read the smallest set of repo files needed.
+7. Act when the next step is clear, otherwise ask the narrowest unlocking question.
+
+## Git and worktrees
+
+- Immediately before pushing, re-fetch and `git rebase origin/master`; never merge master into a feature branch. Confirm the base distance is 0, run the canonical `npm run verify` gate, and use `--force-with-lease` after a rebase, never bare `--force`.
+- Commit at logical checkpoints and never end a session with a dirty worktree. Uncommitted work has no reflog and cannot be recovered.
+- The reviewer who merges a PR removes its worktree and local branch, fetches with `--prune`, and runs `git worktree prune`.
 
 ## Validation
 
@@ -62,8 +71,8 @@ Testing: For each card, run the tests covering every changed file or module plus
 ## Learned Workspace Facts
 
 - The current product direction is Hermes-native weekly social content: public UI should say posts, weekly posts, social content, or social media content, and avoid campaign except for Meta Ads API objects.
-- Weekly social-content defaults are 7 days, 3 static posts, up to 2 image creatives, 1 video script, and 0 rendered videos until explicit approval.
-- Social-content execution should submit Hermes runs asynchronously and rely on authenticated, idempotent callbacks at `/api/internal/hermes/runs`; it should not poll Hermes to terminal completion.
+- Weekly social-content defaults are 7 days, 7 static posts, 1 image story, 6 image creatives, 1 video script, and 0 rendered videos.
+- Social-content execution submits Hermes runs asynchronously. The standing Aries reconciler polls them to terminal completion and passes results through the idempotent ingestion handler; `/api/internal/hermes/runs` remains the secret-authenticated ingestion seam, but Hermes does not invoke the submitted callback URL.
 - Hermes social-content workflows should use `social_content_weekly` with version `2026-05-social-content-weekly-v2`; new social-content code should not depend on Lobster/OpenClaw.
 - Aries should pass abstract media-generation requests to Hermes; Hermes owns provider execution and raw OpenAI/ChatGPT token usage for weekly social content.
 - Required video work must use the index-managed `skills/video-render-runtime/SKILL.md` provider-neutral contract; Aries must not select a video provider or model.
