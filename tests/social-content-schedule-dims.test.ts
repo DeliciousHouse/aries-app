@@ -204,8 +204,9 @@ test('upsertScheduledPost: dims passed as params $8/$9/$10', async () => {
     durationSeconds: 20,
   });
 
-  assert.equal(captured.length, 1);
-  const p = captured[0]!.params;
+  assert.equal(captured.length, 2, 'canonical lock runs before the scheduled-owner upsert');
+  assert.match(captured[0]!.sql, /FROM posts[\s\S]*FOR UPDATE/);
+  const p = captured.find((call) => call.sql.trim().startsWith('WITH existing AS'))!.params;
   // $8=widthPx, $9=heightPx, $10=durationSeconds (0-based: p[7], p[8], p[9])
   assert.equal(p[7], 1080, '$8 widthPx=1080');
   assert.equal(p[8], 1920, '$9 heightPx=1920');
@@ -236,7 +237,7 @@ test('upsertScheduledPost: null dims map to null params', async () => {
     platforms: [],
   });
 
-  const p = captured[0]!.params;
+  const p = captured.find((call) => call.sql.trim().startsWith('WITH existing AS'))!.params;
   assert.equal(p[7], null, 'widthPx defaults to null');
   assert.equal(p[8], null, 'heightPx defaults to null');
   assert.equal(p[9], null, 'durationSeconds defaults to null');
@@ -248,6 +249,9 @@ test('upsertScheduledPost: an in-flight publish cannot be rescheduled or mutate 
   const mockQueryable = {
     query: async (sql: string, params: unknown[]) => {
       captured.push({ sql, params });
+      if (/FROM posts[\s\S]*FOR UPDATE/i.test(sql)) {
+        return { rows: [{ id: 42 }], rowCount: 1 };
+      }
       if (sql.trim().startsWith('WITH existing AS')) {
         // The parent-lock CTE returns no row when the live attempt owns this schedule.
         return { rows: [], rowCount: 0 };
@@ -308,8 +312,9 @@ test('upsertScheduledPost: safe pending/failed reschedule atomically rearms owne
     platforms: ['facebook', 'instagram'],
   });
 
-  assert.equal(captured.length, 1, 'rearm is one atomic SQL statement');
-  const sql = captured[0]!.sql;
+  assert.equal(captured.length, 2, 'canonical lock plus one atomic scheduled-owner statement');
+  assert.match(captured[0]!.sql, /FROM posts[\s\S]*FOR UPDATE/);
+  const sql = captured.find((call) => call.sql.trim().startsWith('WITH existing AS'))!.sql;
   assert.match(sql, /SELECT id, tenant_id, dispatch_status[\s\S]*FOR UPDATE/);
   assert.match(sql, /DELETE FROM scheduled_post_dispatches/);
   assert.match(sql, /dispatch_status = 'pending'/);
@@ -345,6 +350,9 @@ test('upsertScheduledPost: pending parent with manual child evidence is review-o
   const mockQueryable = {
     query: async (sql: string, params: unknown[]) => {
       captured.push({ sql, params });
+      if (/FROM posts[\s\S]*FOR UPDATE/i.test(sql)) {
+        return { rows: [{ id: 42 }], rowCount: 1 };
+      }
       if (sql.trim().startsWith('WITH existing AS')) {
         return { rows: [], rowCount: 0 };
       }
@@ -368,7 +376,7 @@ test('upsertScheduledPost: pending parent with manual child evidence is review-o
     ScheduledPostManualReconciliationError,
   );
 
-  const atomicSql = captured[0]!.sql;
+  const atomicSql = captured.find((call) => call.sql.trim().startsWith('WITH existing AS'))!.sql;
   assert.match(atomicSql, /terminal_dispatch_evidence AS MATERIALIZED/);
   assert.match(atomicSql, /status IN \('dispatched', 'manual_reconciliation'\)/);
   assert.match(
@@ -381,7 +389,7 @@ test('upsertScheduledPost: pending parent with manual child evidence is review-o
     /UPDATE scheduled_posts[\s\S]*NOT EXISTS \(SELECT 1 FROM terminal_dispatch_evidence\)/,
     'manual evidence must also gate provider-fence reset',
   );
-  assert.equal(captured.length, 2, 'rejected reschedule performs no follow-up mutation');
+  assert.equal(captured.length, 3, 'rejected reschedule performs no follow-up mutation after lock and diagnosis');
 });
 
 test('upsertScheduledPost: pending parent with dispatched child evidence cannot be rearmed', async () => {
@@ -390,6 +398,9 @@ test('upsertScheduledPost: pending parent with dispatched child evidence cannot 
   const mockQueryable = {
     query: async (sql: string, params: unknown[]) => {
       captured.push({ sql, params });
+      if (/FROM posts[\s\S]*FOR UPDATE/i.test(sql)) {
+        return { rows: [{ id: 42 }], rowCount: 1 };
+      }
       if (sql.trim().startsWith('WITH existing AS')) {
         return { rows: [], rowCount: 0 };
       }
@@ -416,7 +427,7 @@ test('upsertScheduledPost: pending parent with dispatched child evidence cannot 
     /scheduled_post_dispatch_evidence/,
   );
 
-  const atomicSql = captured[0]!.sql;
+  const atomicSql = captured.find((call) => call.sql.trim().startsWith('WITH existing AS'))!.sql;
   assert.match(
     atomicSql,
     /terminal_dispatch_evidence AS MATERIALIZED[\s\S]*status IN \('dispatched', 'manual_reconciliation'\)/,
@@ -429,5 +440,5 @@ test('upsertScheduledPost: pending parent with dispatched child evidence cannot 
     atomicSql,
     /UPDATE scheduled_posts[\s\S]*NOT EXISTS \(SELECT 1 FROM terminal_dispatch_evidence\)/,
   );
-  assert.equal(captured.length, 2, 'rejected reschedule performs no follow-up mutation');
+  assert.equal(captured.length, 3, 'rejected reschedule performs no follow-up mutation after lock and diagnosis');
 });

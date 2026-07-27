@@ -607,7 +607,7 @@ export async function finalizeScheduledDispatchAttempt(args: {
   });
 }
 
-export async function POST(req: Request): Promise<Response> {
+function internalAuthFailureResponse(req: Request): Response | null {
   const authResult = verifyInternalCallbackRequest(req);
   if (!authResult.ok) {
     return new Response(JSON.stringify({ error: authResult.reason }), {
@@ -615,6 +615,21 @@ export async function POST(req: Request): Promise<Response> {
       headers: { 'content-type': 'application/json' },
     });
   }
+  return null;
+}
+
+export async function GET(req: Request): Promise<Response> {
+  const authFailure = internalAuthFailureResponse(req);
+  if (authFailure) return authFailure;
+  return new Response(JSON.stringify({ status: 'ready' }), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+export async function POST(req: Request): Promise<Response> {
+  const authFailure = internalAuthFailureResponse(req);
+  if (authFailure) return authFailure;
 
   const body = await readBody(req);
   const tenantId = typeof body.tenant_id === 'string' ? body.tenant_id.trim() : '';
