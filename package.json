@@ -89,7 +89,7 @@
     "@types/react-test-renderer": "^19.1.0",
     "autoprefixer": "^10.5.4",
     "jsdom": "^29.1.1",
-    "postcss": "^8.5.20",
+    "postcss": "^8.5.23",
     "react-test-renderer": "^19.2.7",
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3"
