@@ -13,13 +13,17 @@ Browser
   -> Next.js pages (app/*)
   -> Next.js route handlers (app/api/*)
       -> Aries backend services (backend/*, lib/*)
- -> Hermes Gateway for workflow execution callbacks
-          -> PostgreSQL + runtime files under DATA_ROOT for state and read models
+          -> Hermes Gateway for workflow submission
+Hermes reconciler
+  -> Hermes Gateway for run polling
+  -> idempotent Aries ingestion
+Aries backend services
+  -> PostgreSQL + runtime files under DATA_ROOT for state and read models
 ```
 
 **Key architectural rules:**
 - Aries owns the browser boundary. The UI talks only to Next.js route handlers.
-- Long-running/workflow execution is delegated through Hermes callbacks — never exposed directly to the browser.
+- Long-running workflow execution is submitted to Hermes and durably polled by the Aries reconciler — never exposed directly to the browser.
 - Route handlers return frontend-safe payloads; never leak raw runtime files or internal workflow details.
 - All marketing, integrations, and approval flows are tenant-aware and validated server-side.
 
@@ -29,7 +33,7 @@ Browser
 
 ### Execution Provider Pattern
 
-Hermes is the sole execution provider (`ARIES_EXECUTION_PROVIDER=hermes`, `ARIES_MARKETING_EXECUTION_PROVIDER=hermes`; these env vars are retained as forward-compatible selectors). Aries creates an execution run record before submitting to Hermes, passes `${APP_BASE_URL}/api/internal/hermes/runs` as the callback URL, and authenticates callbacks with `INTERNAL_API_SECRET`. Hermes callbacks are idempotent and are the source of truth for marketing progress. The execution-provider seam (`backend/execution/`, `backend/marketing/execution-port.ts`) is kept as a single-provider abstraction.
+Hermes is the sole execution provider (`ARIES_EXECUTION_PROVIDER=hermes`, `ARIES_MARKETING_EXECUTION_PROVIDER=hermes`; these env vars are retained as forward-compatible selectors). Aries creates an execution run record before submitting to Hermes. The standing reconciler polls Hermes and passes terminal results through the idempotent ingestion handler; `/api/internal/hermes/runs` remains the secret-authenticated ingestion seam, but Hermes does not invoke the submitted `callback_url`. The execution-provider seam (`backend/execution/`, `backend/marketing/execution-port.ts`) is kept as a single-provider abstraction. Aries submits generic media-render requests and Hermes owns provider selection and execution.
 
 ### Marketing Pipeline (4-Stage Workflow)
 
@@ -49,11 +53,19 @@ Each stage can pause for human approval. `backend/marketing/orchestrator.ts` dri
 
 Auth uses next-auth v5 (`auth.ts` at repo root) with Credentials + Google providers. Sessions are enriched with tenant claims (`tenantId`, `tenantSlug`, `role`) via JWT callbacks. `lib/tenant-context.ts` provides `getTenantContext()` which first checks session claims, then falls back to a DB lookup. Tenant roles: `tenant_admin`, `tenant_analyst`, `tenant_viewer`. All authenticated API routes should resolve tenant context server-side.
 
+## Git & Worktree Discipline
+
+- The first action of every task is `git fetch origin --prune`. Create branches and worktrees only from fresh `origin/master`, never a local ref; the creation command must contain the literal string `origin/`.
+- Before editing, run `git rev-list --count HEAD..origin/master`. If the branch is more than 5 commits behind, stop and rebase or recreate it first.
+- Immediately before pushing, re-fetch, `git rebase origin/master` (never merge master into a feature branch), confirm the base distance is 0, and run `npm run verify`. Push a rebased branch with `--force-with-lease`, never bare `--force`.
+- Commit at logical checkpoints and never end a session with a dirty worktree; uncommitted work has no reflog and cannot be recovered.
+- The reviewer who merges the PR removes its worktree, deletes the local branch, fetches with `--prune`, and runs `git worktree prune`.
+
 ## Build and Dev Commands
 
-> **Turbopack is required.** `npm run dev` passes `--turbo`; running `next dev` without it silently breaks Tailwind v4 styling. Same applies to `next build`.
+> **Turbopack is required.** `npm run dev` passes `--turbopack`; running `next dev` without it silently breaks Tailwind v4 styling. The `build` script does not pass the flag, so use `next build --turbopack` when invoking Next directly.
 
-> **Pre-push gate:** `npm run verify` is the canonical fast regression suite and bakes in the env overrides tests need. Run it before pushing any change that touches routes, backend, or lib.
+> **Pre-push gate:** `npm run verify` is the canonical fast regression suite and bakes in the env overrides tests need. Run it before every push.
 
 ```bash
 # Install (force dev mode — system may have NODE_ENV=production)
@@ -65,14 +77,14 @@ npm run dev
 # Type check
 npm run typecheck
 
-# Lint (typecheck + banned pattern check)
+# Lint (typecheck + banned-pattern, repo-boundary, and protocol-drift checks)
 npm run lint
 
 # Quick regression suite (deterministic env overrides built in)
 npm run verify
 
 # Run all tests
-APP_BASE_URL=https://aries.example.com tsx --test tests/*.test.ts tests/**/*.test.ts
+npm run test
 
 # Run a single test file
 APP_BASE_URL=https://aries.example.com ./node_modules/.bin/tsx --test tests/some-test.test.ts
@@ -93,9 +105,10 @@ npm run precheck
 **Test environment notes:**
 - Tests use Node.js built-in test runner via `tsx --test` (not Jest/Vitest).
 - Many tests require `APP_BASE_URL=https://aries.example.com` to be set.
+- On Windows, npm runs package scripts through `cmd`, so scripts beginning with inline environment assignments (`test`, `typecheck`, `lint`, and focused validators) do not parse. Run their underlying binaries with the same environment prefix from Git Bash; `npm run verify` and `npm run build` are Windows-safe.
 - `npm run verify` wraps the fast regression suite with all needed env overrides and runs `npm run guardrails:agent` first.
-- `npm run test:concurrent` runs the full TypeScript test set with `--test-concurrency=8`; use it before shipping work that changes routes, backend services, process management, or shared helpers.
-- `npm run validate:execution-provider` is the focused Hermes callback/execution-port gate.
+- `npm run test:concurrent` runs the concurrency-sensitive regression set with `--test-concurrency=8`; use it before shipping work that changes routes, backend services, process management, or shared helpers.
+- `npm run validate:execution-provider` is the focused Hermes submission, polling, and idempotent-ingestion gate.
 - `npm run validate:social-content` is the focused weekly social-content gate.
 - **Headless rendered-UI QA**: `scripts/qa/seed-qa-tenant.ts` + `scripts/qa/mint-qa-session.ts` mint a real Auth.js session for the passwordless `aries-qa-sandbox` bot (pinned identity, 12h TTL cap) so gstack `/browse` can screenshot/drive the live authenticated app from this host — see `docs/qa/headless-qa-sandbox.md`.
 
@@ -114,7 +127,7 @@ These rules are here because they already bit this repo.
 Non-obvious layout notes (the rest is discoverable by browsing):
 
 - `backend/` vs `lib/` — `backend/` holds domain logic (marketing orchestrator, onboarding, execution port, approval store); `lib/` is for shared runtime helpers consumed by both `app/` and `backend/` (DB pool, auth, tenant context, runtime path resolution). Route handlers should import domain code from `backend/`, not inline it.
-- `frontend/` vs `components/` — `frontend/` is screen-level components grouped by domain (`marketing/`, `onboarding/`, `donor/`, `admin/`, `aries-v1/`); `components/` is shared primitives.
+- `frontend/` vs `components/` — `frontend/` is screen-level and feature UI grouped by domain (`marketing/`, `social-content/`, `insights/`, `integrations/`, `onboarding/`, `settings/`, `aries-v1/`, etc.). Shared primitives live in `frontend/components/` and `components/redesign/`.
 - `backend/execution/` — the Hermes execution surface (`provider-factory`, `providers/hermes`, `workflow-catalog`, `route-helpers`) consumed by route handlers; `backend/marketing/execution-port.ts` is the marketing-pipeline Hermes port.
 - `specs/` — resolved via `lib/runtime-paths.ts`, not imported directly by path.
 - `skills/` — marketing agent skill definitions (campaign-planner, creative-director, research, etc.) executed by the gateway, not TypeScript modules.
@@ -127,6 +140,7 @@ Non-obvious layout notes (the rest is discoverable by browsing):
   - `gc-missing-hermes-assets-worker.ts` — marks `creative_assets` rows `orphaned_at` once their Hermes image-cache file has been evicted, so the dashboard stops emitting dead `/api/internal/hermes/media/<id>` URLs that 404 (the Posts-page preview-404 symptom, qa-defect #599). DB-only mark via `runGcMissingHermesAssets` (`scripts/gc-missing-hermes-assets.ts`); `queryProductionCreativeAssets` already filters `orphaned_at IS NULL`, so an orphaned row stops being surfaced (no URL emitted → no 404). Needs the read-only Hermes image-cache mount (`HERMES_IMAGE_CACHE_MOUNT`) to tell "evicted" from "unreadable" — without it the sweep is a fail-safe no-op. The `aries-hermes-gc-worker` service is `tsx`-run, gated by `ARIES_HERMES_GC_ENABLED` (default OFF — ships dormant). Only ever touches `storage_kind='runtime_asset'` rows older than the grace window (default 7d); `ingested_asset` uploads/composed stories are never touched; idempotent.
   - `usage-rollup-worker.ts` — AA-161 usage time-series layer: refreshes the hourly/daily/monthly rollups over `task_execution_log` (`backend/telemetry/usage-rollups.ts`) and then applies the retention policy (`backend/telemetry/usage-retention.ts`) every `ARIES_USAGE_ROLLUP_INTERVAL_MS` (default 1h). Postgres has no scheduler in this stack (no `pg_cron`, no Timescale), so "refresh the aggregates on a cadence" is a sidecar here. DB-only; `aries-usage-rollup-worker` service, `tsx`-run, gated by `ARIES_USAGE_ROLLUP_ENABLED` (default OFF — ships dormant), with retention behind its own second flag. Rolls up BEFORE it purges, and the purge refuses to touch anything at or above the rollup watermark.
   - `feedback-retry-sweep-worker.ts` — heals customer incident reports (SC-70 port, AA-51) whose Jira delivery is incomplete: parked `pending_retry` rows, attach-only completions, and stale `pending` rows stranded by a crash, via atomic `FOR UPDATE SKIP LOCKED` claims + the search-before-create idempotency label `aries-sub-<id>` (`backend/feedback/retry-sweep.ts`; `aries-feedback-retry-worker` service, `tsx`-run). Gated by `ARIES_FEEDBACK_RETRY_ENABLED` (default **ON** — unlike the other sidecars it is inherently dormant without `JIRA_*` config: one info line, no DB writes; default-on is what lets parked reports heal the moment config lands). Tick interval `FEEDBACK_RETRY_INTERVAL_MINUTES` (default 5).
+  - `composio-connection-reconciler-worker.ts` — refreshes recently pending Composio connections until their provider state settles (`backend/integrations/composio/reconcile-pending-connections.ts`; `aries-composio-reconciler-worker` service, `tsx`-run). Gated by `ARIES_COMPOSIO_RECONCILER_ENABLED` (default OFF).
 - `DOCKER.md` — container build/runtime profiles and the 50-concurrent smoke check referenced by guardrail #4.
 
 ## Tech Stack Notes
