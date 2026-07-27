@@ -55,8 +55,8 @@ issues.
 - **Fix the defect, nothing else.** No refactors, renames, dependency bumps, "while I'm here"
   cleanups, or architectural changes beyond what the defect strictly requires. If you spot adjacent
   rot, note it as a *follow-up* in the plan — do not fold it into the fix.
-- Prefer the smallest safe change. The repo ships fixes via auto-merge on green CI; a tight diff is
-  reviewable and reversible, a sprawling one is neither.
+- Prefer the smallest safe change. The repo ships fixes through draft PRs and deliberate review
+  after green CI; a tight diff is reviewable and reversible, a sprawling one is neither.
 - A plan that proposes touching a hot shared file gets an explicit "why this and not a narrower
   seam" justification.
 
@@ -68,7 +68,7 @@ issues.
    **`guardrails:agent` must be clean before the PR opens** — your test strategy must be runnable
    under verify, and your plan should remind the implementer + reviewer of both gates (the
    guardrails check catches a no-unique-diff / duplicate-already-landed branch).
-3. **Branch off `master`, never commit on `master`** — one issue → one `fix/<n>-<slug>` branch.
+3. **Branch only from fresh `origin/master`, never a local ref or `master`** — fetch with `--prune`, verify base distance before editing, and keep one issue → one `fix/<n>-<slug>` branch.
 4. **Conventional Commits with a scope** — note the suggested scope (e.g. `fix(integrations): …`).
 5. **Resumability rule** — never plan to discard partial artifacts on a rate-limit/transient
    gateway failure; persist what completed, surface the error, let the orchestrator retry. (Born
