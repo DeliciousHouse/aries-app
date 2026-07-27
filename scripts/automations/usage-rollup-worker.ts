@@ -70,6 +70,7 @@ function summarizeRollup(report: UsageRollupReport): Record<string, unknown> {
     monthly_rows: report.monthlyRows,
     rolled_through: report.rolledThrough,
     truncated: report.truncated,
+    daily_company_usage_refreshed: report.dailyCompanyUsageRefreshed,
   };
 }
 

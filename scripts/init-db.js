@@ -1684,6 +1684,54 @@ async function initDb() {
           end_time,
           recorded_at
         FROM task_execution_log;
+
+      -- AA-162: coarse per-company-per-day surface for dashboards and chargeback,
+      -- so neither has to touch the raw log. usage_rollup_daily keeps the same day
+      -- at day x tenant x user x engine x task_key (right for drilling into a
+      -- bill); this is "show this customer their month". Mirrors
+      -- migrations/20260728000000_daily_company_usage.sql.
+      --
+      -- A MATERIALIZED VIEW is right HERE (unlike over the raw log) because its
+      -- source is usage_rollup_daily: already aggregated, small, and never touched
+      -- by the retention sweep — so a full refresh is cheap and the history is
+      -- permanent. Refreshed CONCURRENTLY at the end of each rollup pass by the
+      -- aries-usage-rollup-worker sidecar.
+      --
+      -- COGS reads 0/NULL today and that is truthful: cost_cents is a hard 0 on
+      -- the zero-cost engines and NULL on every AI row (Hermes does not report
+      -- usage back yet, and no cost is ever synthesized from a price table). That
+      -- is why ai_tasks / tasks_with_usage_reported ride alongside the sums — they
+      -- are what distinguishes "$0 spent" from "nothing reported its spend".
+      CREATE MATERIALIZED VIEW IF NOT EXISTS daily_company_usage AS
+        SELECT
+          tenant_id AS company_id,
+          (bucket_start AT TIME ZONE 'UTC')::date AS usage_date,
+          -- Total executions LOGGED, retries included. settled_tasks and retries
+          -- sit beside it because one logical task that retried twice is three
+          -- rows (the AA-158 retry axis) and a chargeback must pick its own
+          -- definition.
+          sum(events)::bigint                    AS total_tasks,
+          (sum(succeeded) + sum(failed))::bigint AS settled_tasks,
+          sum(retries)::bigint                   AS retries,
+          sum(ai_events)::bigint                 AS ai_tasks,
+          sum(ai_events_with_usage)::bigint      AS tasks_with_usage_reported,
+          sum(prompt_tokens)::bigint             AS total_prompt_tokens,
+          sum(completion_tokens)::bigint         AS total_completion_tokens,
+          sum(total_tokens)::bigint              AS total_tokens,
+          sum(duration_ms_sum)::bigint           AS total_duration_ms,
+          sum(cpu_ms_sum)::bigint                AS total_cpu_ms,
+          sum(cost_cents)                        AS total_cogs_cents,
+          max(updated_at)                        AS source_updated_at
+        FROM usage_rollup_daily
+        GROUP BY 1, 2;
+      -- REQUIRED by REFRESH ... CONCURRENTLY, which refuses to run without a
+      -- unique index — not an optional performance index. Leading company_id also
+      -- serves the "one customer, one billing period" read.
+      -- company_id 0 is the AA-161 "not scoped" sentinel (system sweeps, cron,
+      -- callbacks); it is kept so totals reconcile against the raw log, and a
+      -- customer-facing surface should exclude it explicitly.
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_company_usage_company_date
+        ON daily_company_usage (company_id, usage_date);
     `);
 
     // Idempotent backfill: one membership per user that has an org pointer today

@@ -193,6 +193,18 @@ function derivedRollupSql(table: string, unit: 'day' | 'month'): string {
 export const ROLLUP_DAILY_SQL = derivedRollupSql('usage_rollup_daily', 'day');
 export const ROLLUP_MONTHLY_SQL = derivedRollupSql('usage_rollup_monthly', 'month');
 
+/**
+ * AA-162: rebuild the coarse per-company-per-day surface dashboards and
+ * chargeback read, so neither has to touch the raw log.
+ *
+ * CONCURRENTLY keeps those readers unblocked during the rebuild. It requires the
+ * unique index idx_daily_company_usage_company_date and CANNOT run inside a
+ * transaction block — hence its own statement, issued outside any BEGIN, after
+ * the rollup rows are already durable.
+ */
+export const REFRESH_DAILY_COMPANY_USAGE_SQL =
+  'REFRESH MATERIALIZED VIEW CONCURRENTLY daily_company_usage';
+
 // ---------------------------------------------------------------------------
 // Pass
 // ---------------------------------------------------------------------------
@@ -226,6 +238,13 @@ export type UsageRollupReport = {
    * widened without widening this one — hence loud rather than silent.
    */
   backfillClamped: boolean;
+  /**
+   * AA-162. True when the daily_company_usage materialized view was rebuilt this
+   * pass; false when there was nothing new to project or the refresh failed (it
+   * is best-effort — the rollup rows are already durable and the next pass with
+   * new data retries it).
+   */
+  dailyCompanyUsageRefreshed: boolean;
 };
 
 function floorToHour(date: Date): Date {
@@ -281,6 +300,7 @@ export async function runUsageRollup(
     rolledThrough: null,
     truncated: false,
     backfillClamped: false,
+    dailyCompanyUsageRefreshed: false,
   };
 
   // Exclusive upper bound: the boundary of the hour currently in progress.
@@ -342,6 +362,23 @@ export async function runUsageRollup(
   // rather than skipping it.
   await db.query(UPSERT_WATERMARK_SQL, [ROLLUP_STATE_ID, toIso]);
   report.rolledThrough = toIso;
+
+  // AA-162: project the new daily rows onto the per-company surface. Skipped when
+  // the pass changed no daily bucket — the view would rebuild to the same bytes.
+  if (report.dailyRows > 0) {
+    try {
+      await db.query(REFRESH_DAILY_COMPANY_USAGE_SQL);
+      report.dailyCompanyUsageRefreshed = true;
+    } catch (error) {
+      // Best-effort by design: the rollup tables are the source of truth and are
+      // already committed, so a failed refresh costs freshness on a dashboard,
+      // never usage data. Loud, because a persistently stale view would otherwise
+      // look like "this customer used nothing".
+      console.warn('[usage-rollups] daily_company_usage refresh failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
 
   return report;
 }

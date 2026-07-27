@@ -118,11 +118,17 @@ const steps = [
     // only moves forward, buckets are UTC, and the retention sweep can never
     // delete a raw row the rollup has not reached (fail-closed with no
     // watermark). Fully in-memory (injected db).
-    name: 'usage rollups + retention (AA-161)',
+    name: 'usage rollups + retention + company daily view (AA-161/AA-162)',
     args: [
       '--test',
       'tests/telemetry/usage-rollup.test.ts',
       'tests/telemetry/usage-retention.test.ts',
+      // AA-162: the per-company daily surface. Pins the CONCURRENT refresh (a
+      // plain one would lock out the dashboards it serves), that it runs only
+      // after the rollup rows are durable and only when something changed, that
+      // a refresh failure degrades to a stale view rather than a failed pass,
+      // and that COGS is never synthesized from a price table.
+      'tests/telemetry/daily-company-usage.test.ts',
     ],
   },
   {

@@ -20,7 +20,11 @@ import { runUsageRollup } from '../backend/telemetry/usage-rollups';
 //   3. re-rolling an overlapping window CONVERGES instead of double counting;
 //   4. day/month buckets are UTC regardless of the session TimeZone;
 //   5. the retention sweep never deletes a raw row inside the re-roll window,
-//      and daily aggregates survive the purge of the rows they came from.
+//      and daily aggregates survive the purge of the rows they came from;
+//   6. (AA-162) the daily_company_usage materialized view reconciles exactly
+//      against the grain it projects and carries the denominators that qualify a
+//      $0 COGS, and it has the UNIQUE index without which the sidecar's
+//      REFRESH ... CONCURRENTLY would fail on every tick.
 
 const TENANT = 990161; // scoped to this test; the whole transaction is rolled back
 
@@ -101,6 +105,46 @@ test('usage rollups + retention against real Postgres', async (t) => {
     );
     assert.equal(Number(bounds.rows[0].bad_days), 0);
     assert.equal(Number(bounds.rows[0].bad_months), 0);
+
+    // AA-162: the per-company surface must reconcile exactly against the grain it
+    // projects, and must carry the denominators that qualify a $0 COGS.
+    //
+    // A plain REFRESH is used here because REFRESH ... CONCURRENTLY cannot run
+    // inside a transaction block, and this whole test is one rolled-back
+    // transaction. What CONCURRENTLY additionally needs is the unique index,
+    // which is asserted separately below.
+    await client.query('REFRESH MATERIALIZED VIEW daily_company_usage');
+    const company = await client.query(
+      `SELECT total_tasks, settled_tasks, retries, ai_tasks, tasks_with_usage_reported,
+              total_tokens, total_duration_ms, total_cogs_cents
+         FROM daily_company_usage
+        WHERE company_id = $1`,
+      [TENANT],
+    );
+    assert.equal(company.rows.length, 1, 'one row per company per day');
+    const day = company.rows[0];
+    assert.equal(Number(day.total_tasks), 2, 'both AI attempts, retries included');
+    assert.equal(Number(day.settled_tasks), 1, 'the retry is not a settled task');
+    assert.equal(Number(day.retries), 1);
+    assert.equal(Number(day.ai_tasks), 2);
+    // The whole point of the denominator: 2 AI tasks, 1 reported usage. A
+    // chargeback reading total_cogs_cents alone would bill this day as $0.
+    assert.equal(Number(day.tasks_with_usage_reported), 1);
+    assert.equal(Number(day.total_tokens), 120);
+    assert.equal(Number(day.total_duration_ms), 1200);
+    assert.equal(Number(day.total_cogs_cents), 4.5);
+
+    const uniqueIndex = await client.query(
+      `SELECT indexdef FROM pg_indexes
+        WHERE tablename = 'daily_company_usage'
+          AND indexname = 'idx_daily_company_usage_company_date'`,
+    );
+    assert.equal(uniqueIndex.rows.length, 1, 'the MV has its index');
+    assert.match(
+      String(uniqueIndex.rows[0].indexdef),
+      /CREATE UNIQUE INDEX/,
+      'REFRESH ... CONCURRENTLY refuses to run without a UNIQUE index',
+    );
 
     const dailyBefore = await client.query(
       `SELECT sum(events)::bigint AS events, sum(total_tokens)::bigint AS tokens

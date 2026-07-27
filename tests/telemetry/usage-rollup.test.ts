@@ -156,11 +156,14 @@ test('skips entirely when there is no closed hour past the watermark', async () 
 });
 
 test('advances the watermark only after all three grains have landed', async () => {
-  const db = fakeDb((sql) =>
-    sql.includes('FROM usage_rollup_state')
-      ? { rows: [{ rolled_through: '2026-07-27T09:00:00.000Z' }] }
-      : undefined,
-  );
+  const db = fakeDb((sql) => {
+    if (sql.includes('FROM usage_rollup_state')) {
+      return { rows: [{ rolled_through: '2026-07-27T09:00:00.000Z' }] };
+    }
+    // A non-zero daily rowCount is what triggers the AA-162 refresh.
+    if (sql.includes('INSERT INTO usage_rollup_daily')) return { rowCount: 4 };
+    return undefined;
+  });
 
   await runUsageRollup(db, { now: at('2026-07-27T10:37:00.000Z') });
 
@@ -170,13 +173,15 @@ test('advances the watermark only after all three grains have landed', async () 
       if (c.sql.includes('INSERT INTO usage_rollup_daily')) return 'daily';
       if (c.sql.includes('INSERT INTO usage_rollup_monthly')) return 'monthly';
       if (c.sql.includes('INSERT INTO usage_rollup_state')) return 'watermark';
+      if (c.sql.includes('REFRESH MATERIALIZED VIEW')) return 'refresh';
       return null;
     })
     .filter(Boolean);
 
   // A crash mid-pass must leave the watermark where it was, so the next pass
-  // redoes the window (idempotently) rather than skipping it.
-  assert.deepEqual(order, ['hourly', 'daily', 'monthly', 'watermark']);
+  // redoes the window (idempotently) rather than skipping it. The AA-162 refresh
+  // comes last: it projects rows that are already durable.
+  assert.deepEqual(order, ['hourly', 'daily', 'monthly', 'watermark', 'refresh']);
 });
 
 test('every grain UPSERTs by replacement, never by accumulation', () => {
