@@ -1,18 +1,17 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "video_runtime_state_schema.v1.json",
-  "title": "Video Runtime State Schema v1 (Parallel Veo Lane)",
-  "description": "Canonical persisted runtime-state record for Veo parallel lane jobs.",
+  "title": "Video Runtime State Schema v1 (Hermes Execution)",
+  "description": "Canonical Aries state for a provider-neutral video render submitted to Hermes. Downstream provider state remains internal to Hermes.",
   "type": "object",
   "required": [
     "schema_version",
     "record_type",
     "job_id",
     "tenant_id",
-    "lane",
-    "lane_status",
+    "execution_provider",
+    "run_status",
     "current_phase",
-    "attempt",
     "created_at",
     "updated_at",
     "history"
@@ -33,11 +32,16 @@
       "type": "string",
       "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{1,63}$"
     },
-    "lane": {
+    "execution_provider": {
       "type": "string",
-      "const": "veo_parallel"
+      "const": "hermes"
     },
-    "lane_status": {
+    "hermes_run_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "run_status": {
       "type": "string",
       "enum": [
         "active",
@@ -46,22 +50,6 @@
     },
     "current_phase": {
       "$ref": "#/$defs/runtimePhase"
-    },
-    "attempt": {
-      "type": "integer",
-      "minimum": 1,
-      "maximum": 10
-    },
-    "max_attempts": {
-      "type": "integer",
-      "minimum": 1,
-      "maximum": 10,
-      "default": 3
-    },
-    "provider_job_ref": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 256
     },
     "created_at": {
       "$ref": "#/$defs/isoDateTime"
@@ -90,31 +78,6 @@
     },
     "error": {
       "$ref": "#/$defs/errorEnvelope"
-    },
-    "locks": {
-      "type": "array",
-      "maxItems": 10,
-      "items": {
-        "type": "object",
-        "required": [
-          "name",
-          "acquired_at"
-        ],
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 64
-          },
-          "acquired_at": {
-            "$ref": "#/$defs/isoDateTime"
-          },
-          "expires_at": {
-            "$ref": "#/$defs/isoDateTime"
-          }
-        },
-        "additionalProperties": false
-      }
     }
   },
   "additionalProperties": false,
@@ -131,10 +94,8 @@
       "type": "string",
       "enum": [
         "submitted",
-        "queued",
-        "provisioning",
+        "accepted",
         "rendering",
-        "postprocessing",
         "succeeded",
         "failed",
         "cancelled"
@@ -161,9 +122,8 @@
         "actor": {
           "type": "string",
           "enum": [
-            "backend",
-            "worker",
-            "watchdog",
+            "aries",
+            "hermes",
             "operator"
           ]
         },
@@ -178,29 +138,19 @@
           "not": {
             "properties": {
               "from_phase": {
-                "const": "succeeded"
+                "enum": [
+                  "succeeded",
+                  "failed",
+                  "cancelled"
+                ]
               },
               "to_phase": {
                 "not": {
-                  "const": "succeeded"
-                }
-              }
-            },
-            "required": [
-              "from_phase",
-              "to_phase"
-            ]
-          }
-        },
-        {
-          "not": {
-            "properties": {
-              "from_phase": {
-                "const": "failed"
-              },
-              "to_phase": {
-                "not": {
-                  "const": "failed"
+                  "enum": [
+                    "succeeded",
+                    "failed",
+                    "cancelled"
+                  ]
                 }
               }
             },
@@ -212,25 +162,33 @@
         }
       ]
     },
-    "resultEnvelope": {
+    "videoArtifact": {
       "type": "object",
       "required": [
         "uri",
-        "mime_type",
-        "created_at"
+        "mime_type"
       ],
       "properties": {
         "uri": {
           "type": "string",
-          "format": "uri",
-          "pattern": "^https://"
+          "minLength": 1,
+          "maxLength": 2048
         },
         "mime_type": {
           "type": "string",
           "const": "video/mp4"
         },
-        "created_at": {
-          "$ref": "#/$defs/isoDateTime"
+        "duration_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "width_px": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height_px": {
+          "type": "integer",
+          "minimum": 1
         },
         "bytes": {
           "type": "integer",
@@ -239,6 +197,26 @@
         "sha256": {
           "type": "string",
           "pattern": "^[a-fA-F0-9]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "resultEnvelope": {
+      "type": "object",
+      "required": [
+        "artifacts",
+        "created_at"
+      ],
+      "properties": {
+        "artifacts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/videoArtifact"
+          }
+        },
+        "created_at": {
+          "$ref": "#/$defs/isoDateTime"
         }
       },
       "additionalProperties": false
@@ -279,9 +257,7 @@
       "if": {
         "properties": {
           "current_phase": {
-            "enum": [
-              "succeeded"
-            ]
+            "const": "succeeded"
           }
         },
         "required": [
@@ -290,7 +266,7 @@
       },
       "then": {
         "properties": {
-          "lane_status": {
+          "run_status": {
             "const": "terminal"
           }
         },
@@ -320,7 +296,7 @@
       },
       "then": {
         "properties": {
-          "lane_status": {
+          "run_status": {
             "const": "terminal"
           }
         },

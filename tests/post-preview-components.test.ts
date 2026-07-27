@@ -152,6 +152,13 @@ test('source: no preview file uses user-facing campaign copy', () => {
   }
 });
 
+test('source: no preview file contains retired video-provider identifiers', () => {
+  const retiredVideoProviderIdentifier = /\bveo(?:[_-]|\b)/i;
+  for (const file of POST_PREVIEW_FILES) {
+    assert.doesNotMatch(readSource(file), retiredVideoProviderIdentifier, `${file} must stay provider-neutral`);
+  }
+});
+
 test('InstagramFeedSingle: renders 4:5 by default with platform/post-type markers', async () => {
   const root = await renderTree(
     React.createElement(InstagramFeedSingle, {

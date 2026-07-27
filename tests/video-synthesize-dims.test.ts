@@ -187,7 +187,7 @@ test('dims: creative_asset with integer dims is faithfully passed through', asyn
   await withDataRoot(async () => {
     process.env.ARIES_VIDEO_PUBLISH_ENABLED = '1';
     const { pool, inserts } = makeDimsPool([
-      // Exact dims from Hermes Veo contract (media_type 'video' — see gate note above)
+      // Exact dims from the generic Hermes video render contract (media_type 'video' — see gate note above)
       { id: 'uuid-v', source_asset_id: 'vid_1', media_type: 'video', width_px: 720, height_px: 1280, duration_seconds: 7.5 },
     ]);
     const schedule = [

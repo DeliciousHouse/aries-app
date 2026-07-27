@@ -128,7 +128,7 @@ const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp', 'gif'] as const;
 const HERMES_CACHE_SEGMENTS = ['cache/images', 'cache\\images', 'hermes-media'] as const;
 
 /** Filename prefixes Hermes uses when writing generated images. */
-const HERMES_FILENAME_PREFIXES = ['openai_codex_', 'openai_gpt_', 'gpt-image-', 'veo_render_'] as const;
+const HERMES_FILENAME_PREFIXES = ['openai_codex_', 'openai_gpt_', 'gpt-image-'] as const;
 
 /**
  * Returns true when the string value looks like a Hermes-generated image path

@@ -647,7 +647,7 @@ async function rawPublishReviewBundle(runtimeDoc: SocialContentJobRuntimeDocumen
   return await extractPublishReviewBundle(runtimeDoc)
 }
 
-function collectVeoVideoPaths(
+function collectVideoRenderPaths(
   ...sources: Array<Record<string, unknown> | null | undefined>
 ): string[] {
   const seen = new Set<string>()
@@ -2267,7 +2267,7 @@ async function buildSocialContentJobContentInternal(context: SocialContentBuildC
     const imagePath = stringValue(publishPackage.image_path)
     const fallbackSvgPath = stringValue(publishPackage.fallback_svg_path)
     const reviewPackagePath = stringValue(publishPackage.review_package_path)
-    const videoPaths = collectVeoVideoPaths(readJsonIfExists(contractPath), publishPackage)
+    const videoPaths = collectVideoRenderPaths(readJsonIfExists(contractPath), publishPackage)
     if (reviewPackagePath) {
       reviewPackagePaths.add(reviewPackagePath)
     }
@@ -2457,7 +2457,7 @@ async function buildSocialContentJobContentInternal(context: SocialContentBuildC
       const copyPath = stringValue(assetPaths.copy_path)
       const imagePath = stringValue(assetPaths.image_path || assetPaths.poster_image_path)
       const landingPath = stringValue(assetPaths.landing_page_path)
-      const reviewVideoPaths = collectVeoVideoPaths(
+      const reviewVideoPaths = collectVideoRenderPaths(
         assetPaths,
         entry,
         readJsonIfExists(stringValue(entry.contract_path) || stringValue(assetPaths.contract_path)),

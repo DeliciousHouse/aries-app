@@ -440,13 +440,13 @@ export async function collectProductionReviewArtifacts(
   const runtimeDoc = facts.runtimeDoc;
   const [reviewStep, videoStep] = await Promise.all([
     facts.stagePayload('production', 'production_review_preview'),
-    facts.stagePayload('production', 'veo_video_generator'),
+    facts.stagePayload('production', 'video_render'),
   ]);
   const runId = (await resolveRunId(primaryOutput, runtimeDoc, 3)) || facts.runId || null;
   const tenantId = stringValue(runtimeDoc?.tenant_id);
   const reviewPath = runId && tenantId ? stepPayloadPath(3, runId, 'production_review_preview', tenantId) : '';
   const finalizePath = runId && tenantId ? stepPayloadPath(3, runId, 'creative_director_finalize', tenantId) : '';
-  const videoPath = runId && tenantId ? stepPayloadPath(3, runId, 'veo_video_generator', tenantId) : '';
+  const videoPath = runId && tenantId ? stepPayloadPath(3, runId, 'video_render', tenantId) : '';
   const review = reviewStep || (reviewPath ? await facts.jsonAtPath(reviewPath) : null);
   const video = videoStep || (videoPath ? await facts.jsonAtPath(videoPath) : null);
   const jobId = runtimeDoc?.job_id || stringValue(primaryOutput?.job_id) || null;
@@ -473,7 +473,7 @@ export async function collectProductionReviewArtifacts(
     outputs: {
       production_review_path: reviewPath || null,
       production_finalize_path: finalizePath || null,
-      video_generator_path: videoPath || null,
+      video_render_path: videoPath || null,
       review,
       video,
     },

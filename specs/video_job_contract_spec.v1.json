@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "video_job_contract_spec.v1.json",
-  "title": "Video Job Contract Spec v1 (Parallel Veo Lane)",
-  "description": "Machine-checkable contract for creating and exchanging parallel Veo video generation jobs.",
+  "title": "Video Job Contract Spec v1 (Aries to Hermes)",
+  "description": "Provider-neutral contract for Aries to request video rendering from Hermes. Hermes owns downstream provider selection and execution.",
   "type": "object",
   "required": [
     "schema_version",
@@ -62,7 +62,9 @@
           ]
         },
         "uri": {
-          "$ref": "#/$defs/httpUrl"
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
         },
         "mime_type": {
           "type": "string",
@@ -76,41 +78,30 @@
       "type": "object",
       "required": [
         "duration_seconds",
-        "fps",
-        "aspect_ratio",
-        "resolution"
+        "aspect_ratio"
       ],
       "properties": {
         "duration_seconds": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 30
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 600
         },
         "fps": {
           "type": "integer",
-          "enum": [
-            24,
-            25,
-            30,
-            60
-          ]
+          "minimum": 1,
+          "maximum": 120
         },
         "aspect_ratio": {
           "type": "string",
-          "enum": [
-            "16:9",
-            "9:16",
-            "1:1",
-            "4:3"
-          ]
+          "pattern": "^[1-9][0-9]*:[1-9][0-9]*$"
         },
-        "resolution": {
-          "type": "string",
-          "enum": [
-            "720p",
-            "1080p",
-            "1440p"
-          ]
+        "width_px": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height_px": {
+          "type": "integer",
+          "minimum": 1
         },
         "seed": {
           "type": "integer",
@@ -120,52 +111,13 @@
       },
       "additionalProperties": false
     },
-    "jobCreateRequest": {
+    "renderRequest": {
       "type": "object",
       "required": [
-        "job_id",
-        "correlation_id",
-        "tenant_id",
-        "lane",
-        "created_at",
-        "priority",
-        "idempotency_key",
         "prompt",
-        "video",
-        "callback"
+        "video"
       ],
       "properties": {
-        "job_id": {
-          "$ref": "#/$defs/uuid"
-        },
-        "correlation_id": {
-          "$ref": "#/$defs/uuid"
-        },
-        "tenant_id": {
-          "type": "string",
-          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{1,63}$"
-        },
-        "lane": {
-          "type": "string",
-          "const": "veo_parallel"
-        },
-        "created_at": {
-          "$ref": "#/$defs/isoDateTime"
-        },
-        "priority": {
-          "type": "string",
-          "enum": [
-            "low",
-            "normal",
-            "high",
-            "urgent"
-          ]
-        },
-        "idempotency_key": {
-          "type": "string",
-          "minLength": 8,
-          "maxLength": 128
-        },
         "prompt": {
           "type": "string",
           "minLength": 1,
@@ -184,6 +136,57 @@
         },
         "video": {
           "$ref": "#/$defs/videoParams"
+        }
+      },
+      "additionalProperties": false
+    },
+    "jobCreateRequest": {
+      "type": "object",
+      "required": [
+        "job_id",
+        "correlation_id",
+        "tenant_id",
+        "execution_provider",
+        "created_at",
+        "priority",
+        "idempotency_key",
+        "render_request",
+        "callback"
+      ],
+      "properties": {
+        "job_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "correlation_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "tenant_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{1,63}$"
+        },
+        "execution_provider": {
+          "type": "string",
+          "const": "hermes"
+        },
+        "created_at": {
+          "$ref": "#/$defs/isoDateTime"
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "low",
+            "normal",
+            "high",
+            "urgent"
+          ]
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128
+        },
+        "render_request": {
+          "$ref": "#/$defs/renderRequest"
         },
         "callback": {
           "type": "object",
@@ -197,11 +200,7 @@
             },
             "auth_mode": {
               "type": "string",
-              "enum": [
-                "hmac_sha256",
-                "bearer",
-                "none"
-              ]
+              "const": "internal_secret"
             },
             "timeout_ms": {
               "type": "integer",
@@ -211,12 +210,6 @@
             }
           },
           "additionalProperties": false
-        },
-        "max_attempts": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 10,
-          "default": 3
         }
       },
       "additionalProperties": false
@@ -226,7 +219,7 @@
       "required": [
         "accepted",
         "job_id",
-        "queue_name",
+        "hermes_run_id",
         "runtime_state_ref",
         "accepted_at"
       ],
@@ -238,10 +231,10 @@
         "job_id": {
           "$ref": "#/$defs/uuid"
         },
-        "queue_name": {
+        "hermes_run_id": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 128
+          "maxLength": 256
         },
         "runtime_state_ref": {
           "type": "string",
@@ -254,11 +247,47 @@
       },
       "additionalProperties": false
     },
+    "videoArtifact": {
+      "type": "object",
+      "required": [
+        "uri",
+        "mime_type"
+      ],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "mime_type": {
+          "type": "string",
+          "const": "video/mp4"
+        },
+        "duration_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "width_px": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height_px": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-fA-F0-9]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
     "terminalEvent": {
       "type": "object",
       "required": [
         "event_type",
         "job_id",
+        "hermes_run_id",
         "emitted_at",
         "runtime_phase"
       ],
@@ -274,6 +303,11 @@
         "job_id": {
           "$ref": "#/$defs/uuid"
         },
+        "hermes_run_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
         "emitted_at": {
           "$ref": "#/$defs/isoDateTime"
         },
@@ -288,20 +322,15 @@
         "output": {
           "type": "object",
           "required": [
-            "uri",
-            "mime_type"
+            "artifacts"
           ],
           "properties": {
-            "uri": {
-              "$ref": "#/$defs/httpUrl"
-            },
-            "mime_type": {
-              "type": "string",
-              "const": "video/mp4"
-            },
-            "duration_seconds": {
-              "type": "number",
-              "exclusiveMinimum": 0
+            "artifacts": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/videoArtifact"
+              }
             }
           },
           "additionalProperties": false
@@ -337,7 +366,10 @@
               "event_type": {
                 "const": "video_job.completed"
               }
-            }
+            },
+            "required": [
+              "event_type"
+            ]
           },
           "then": {
             "required": [

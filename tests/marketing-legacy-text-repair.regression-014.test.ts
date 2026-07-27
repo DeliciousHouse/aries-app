@@ -67,3 +67,9 @@ test('business-profile view repairs stale display text before returning API data
   assert.match(businessProfileSource, /const effectiveStyleVibe = repairLegacyMarketingText\(/);
   assert.match(businessProfileSource, /const effectiveNotes = repairLegacyMarketingText\(/);
 });
+
+test('marketing text repair sources contain no retired video-provider identifiers', () => {
+  const retiredVideoProviderIdentifier = /\bveo(?:[_-]|\b)/i;
+  assert.doesNotMatch(workspaceStoreSource, retiredVideoProviderIdentifier);
+  assert.doesNotMatch(businessProfileSource, retiredVideoProviderIdentifier);
+});
