@@ -13,13 +13,17 @@ Browser
   -> Next.js pages (app/*)
   -> Next.js route handlers (app/api/*)
       -> Aries backend services (backend/*, lib/*)
- -> Hermes Gateway for workflow execution callbacks
-          -> PostgreSQL + runtime files under DATA_ROOT for state and read models
+          -> Hermes Gateway for workflow submission
+Hermes reconciler
+  -> Hermes Gateway for run polling
+  -> idempotent Aries ingestion
+Aries backend services
+  -> PostgreSQL + runtime files under DATA_ROOT for state and read models
 ```
 
 **Key architectural rules:**
 - Aries owns the browser boundary. The UI talks only to Next.js route handlers.
-- Long-running/workflow execution is delegated through Hermes callbacks — never exposed directly to the browser.
+- Long-running workflow execution is submitted to Hermes and durably polled by the Aries reconciler — never exposed directly to the browser.
 - Route handlers return frontend-safe payloads; never leak raw runtime files or internal workflow details.
 - All marketing, integrations, and approval flows are tenant-aware and validated server-side.
 
@@ -29,7 +33,7 @@ Browser
 
 ### Execution Provider Pattern
 
-Hermes is the sole execution provider (`ARIES_EXECUTION_PROVIDER=hermes`, `ARIES_MARKETING_EXECUTION_PROVIDER=hermes`; these env vars are retained as forward-compatible selectors). Aries creates an execution run record before submitting to Hermes, passes `${APP_BASE_URL}/api/internal/hermes/runs` as the callback URL, and authenticates callbacks with `INTERNAL_API_SECRET`. Hermes callbacks are idempotent and are the source of truth for marketing progress. The execution-provider seam (`backend/execution/`, `backend/marketing/execution-port.ts`) is kept as a single-provider abstraction.
+Hermes is the sole execution provider (`ARIES_EXECUTION_PROVIDER=hermes`, `ARIES_MARKETING_EXECUTION_PROVIDER=hermes`; these env vars are retained as forward-compatible selectors). Aries creates an execution run record before submitting to Hermes. The standing reconciler polls Hermes and passes terminal results through the idempotent ingestion handler; `/api/internal/hermes/runs` remains the secret-authenticated ingestion seam, but Hermes does not invoke the submitted `callback_url`. The execution-provider seam (`backend/execution/`, `backend/marketing/execution-port.ts`) is kept as a single-provider abstraction. Aries submits generic media-render requests and Hermes owns provider selection and execution.
 
 ### Marketing Pipeline (4-Stage Workflow)
 
@@ -41,17 +45,25 @@ The core domain flow is a 4-stage marketing pipeline executed by Hermes:
 
 Each stage can pause for human approval. `backend/marketing/orchestrator.ts` drives the pipeline: starts stages via the Hermes execution port, collects artifacts, manages approval checkpoints, and records state transitions. Approval records are persisted via `backend/marketing/approval-store.ts`.
 
-**Resumability rule:** Stages must preserve partial artifacts on rate-limit or transient gateway failures so a resume can pick up where it left off. Do not discard work on a non-fatal stage error — persist what completed, surface the failure, and let the orchestrator decide whether to retry. This rule exists because of past Veo render rate-limit incidents that lost completed creative on retry.
+**Resumability rule:** Stages must preserve partial artifacts on rate-limit or transient gateway failures so a resume can pick up where it left off. Do not discard work on a non-fatal stage error — persist what completed, surface the failure, and let the orchestrator decide whether to retry. Partial artifacts must survive provider rate limits and transient gateway failures so completed creative is not lost on retry.
 
 ### Auth & Tenant Model
 
 Auth uses next-auth v5 (`auth.ts` at repo root) with Credentials + Google providers. Sessions are enriched with tenant claims (`tenantId`, `tenantSlug`, `role`) via JWT callbacks. `lib/tenant-context.ts` provides `getTenantContext()` which first checks session claims, then falls back to a DB lookup. Tenant roles: `tenant_admin`, `tenant_analyst`, `tenant_viewer`. All authenticated API routes should resolve tenant context server-side.
 
+## Git & Worktree Discipline
+
+- The first action of every task is `git fetch origin --prune`. Create branches and worktrees only from fresh `origin/master`, never a local ref; the creation command must contain the literal string `origin/`.
+- Before editing, run `git rev-list --count HEAD..origin/master`. If the branch is more than 5 commits behind, stop and rebase or recreate it first.
+- Immediately before pushing, re-fetch, `git rebase origin/master` (never merge master into a feature branch), confirm the base distance is 0, and run `npm run verify`. Push a rebased branch with `--force-with-lease`, never bare `--force`.
+- Commit at logical checkpoints and never end a session with a dirty worktree; uncommitted work has no reflog and cannot be recovered.
+- The reviewer who merges the PR removes its worktree, deletes the local branch, fetches with `--prune`, and runs `git worktree prune`.
+
 ## Build and Dev Commands
 
-> **Turbopack is required.** `npm run dev` passes `--turbo`; running `next dev` without it silently breaks Tailwind v4 styling. Same applies to `next build`.
+> **Turbopack is required.** `npm run dev` passes `--turbopack`; running `next dev` without it silently breaks Tailwind v4 styling. The `build` script does not pass the flag, so use `next build --turbopack` when invoking Next directly.
 
-> **Pre-push gate:** `npm run verify` is the canonical fast regression suite and bakes in the env overrides tests need. Run it before pushing any change that touches routes, backend, or lib.
+> **Pre-push gate:** `npm run verify` is the canonical fast regression suite and bakes in the env overrides tests need. Run it before every push.
 
 ```bash
 # Install (force dev mode — system may have NODE_ENV=production)
@@ -63,14 +75,14 @@ npm run dev
 # Type check
 npm run typecheck
 
-# Lint (typecheck + banned pattern check)
+# Lint (typecheck + banned-pattern, repo-boundary, and protocol-drift checks)
 npm run lint
 
 # Quick regression suite (deterministic env overrides built in)
 npm run verify
 
 # Run all tests
-APP_BASE_URL=https://aries.example.com tsx --test tests/*.test.ts tests/**/*.test.ts
+npm run test
 
 # Run a single test file
 APP_BASE_URL=https://aries.example.com ./node_modules/.bin/tsx --test tests/some-test.test.ts
@@ -91,9 +103,10 @@ npm run precheck
 **Test environment notes:**
 - Tests use Node.js built-in test runner via `tsx --test` (not Jest/Vitest).
 - Many tests require `APP_BASE_URL=https://aries.example.com` to be set.
+- On Windows, npm runs package scripts through `cmd`, so scripts beginning with inline environment assignments (`test`, `typecheck`, `lint`, and focused validators) do not parse. Run their underlying binaries with the same environment prefix from Git Bash; `npm run verify` and `npm run build` are Windows-safe.
 - `npm run verify` wraps the fast regression suite with all needed env overrides and runs `npm run guardrails:agent` first.
-- `npm run test:concurrent` runs the full TypeScript test set with `--test-concurrency=8`; use it before shipping work that changes routes, backend services, process management, or shared helpers.
-- `npm run validate:execution-provider` is the focused Hermes callback/execution-port gate.
+- `npm run test:concurrent` runs the concurrency-sensitive regression set with `--test-concurrency=8`; use it before shipping work that changes routes, backend services, process management, or shared helpers.
+- `npm run validate:execution-provider` is the focused Hermes submission, polling, and idempotent-ingestion gate.
 - `npm run validate:social-content` is the focused weekly social-content gate.
 - **Headless rendered-UI QA**: `scripts/qa/seed-qa-tenant.ts` + `scripts/qa/mint-qa-session.ts` mint a real Auth.js session for the passwordless `aries-qa-sandbox` bot (pinned identity, 12h TTL cap) so gstack `/browse` can screenshot/drive the live authenticated app from this host — see `docs/qa/headless-qa-sandbox.md`.
 
@@ -112,11 +125,11 @@ These rules are here because they already bit this repo.
 Non-obvious layout notes (the rest is discoverable by browsing):
 
 - `backend/` vs `lib/` — `backend/` holds domain logic (marketing orchestrator, onboarding, execution port, approval store); `lib/` is for shared runtime helpers consumed by both `app/` and `backend/` (DB pool, auth, tenant context, runtime path resolution). Route handlers should import domain code from `backend/`, not inline it.
-- `frontend/` vs `components/` — `frontend/` is screen-level components grouped by domain (`marketing/`, `onboarding/`, `donor/`, `admin/`, `aries-v1/`); `components/` is shared primitives.
+- `frontend/` vs `components/` — `frontend/` is screen-level and feature UI grouped by domain (`marketing/`, `social-content/`, `insights/`, `integrations/`, `onboarding/`, `settings/`, `aries-v1/`, etc.). Shared primitives live in `frontend/components/` and `components/redesign/`.
 - `backend/execution/` — the Hermes execution surface (`provider-factory`, `providers/hermes`, `workflow-catalog`, `route-helpers`) consumed by route handlers; `backend/marketing/execution-port.ts` is the marketing-pipeline Hermes port.
 - `specs/` — resolved via `lib/runtime-paths.ts`, not imported directly by path.
 - `skills/` — marketing agent skill definitions (campaign-planner, creative-director, research, etc.) executed by the gateway, not TypeScript modules.
-- `scripts/automations/` — holds seven long-lived sidecar workers, each self-scheduling via `setInterval` and each run as a single-replica `restart: unless-stopped` service in `docker-compose.yml` (the app-calling ones point `APP_BASE_URL` at the in-network `http://aries-app:3000` to skip the public DNS+TLS round-trip; no external cron required). The Deploy workflow force-recreates every one of these compose services onto the freshly built image after the app health check and then verifies each sidecar is running the target image ID (non-fatal, `::warning::` + step summary); `tests/deploy-manifest-parity.test.ts` (in `npm run verify` and CI) fails when a compose service is added without a matching force-recreate block in `.github/workflows/deploy.yml` — a worker omitted there keeps running a stale image across every deploy (the 2026-06-09 insights-sync incident):
+- `scripts/automations/` — holds eight long-lived sidecar workers, each self-scheduling via `setInterval` and each run as a single-replica `restart: unless-stopped` service in `docker-compose.yml` (the app-calling ones point `APP_BASE_URL` at the in-network `http://aries-app:3000` to skip the public DNS+TLS round-trip; no external cron required). The Deploy workflow force-recreates every one of these compose services onto the freshly built image after the app health check and then verifies each sidecar is running the target image ID (non-fatal, `::warning::` + step summary); `tests/deploy-manifest-parity.test.ts` (in `npm run verify` and CI) fails when a compose service is added without a matching force-recreate block in `.github/workflows/deploy.yml` — a worker omitted there keeps running a stale image across every deploy (the 2026-06-09 insights-sync incident):
   - `scheduled-posts-worker.mjs` — drains the `scheduled_posts` table and POSTs due rows to `/api/internal/publishing/scheduled-dispatch` every 60 seconds (`aries-scheduled-posts-worker` service). This is the publish back-half.
   - `weekly-job-trigger-worker.ts` — atomically claims due rows in the `marketing_schedule` table and starts a `weekly_social_content` job per opted-in tenant via `POST /api/internal/marketing/weekly-trigger` (`aries-weekly-trigger-worker` service, `tsx`-run). Gated by `ARIES_WEEKLY_TRIGGER_ENABLED` (default OFF — ships dormant); tick interval is `ARIES_WEEKLY_TRIGGER_INTERVAL_MS` (default 15 min). Cadence rows are managed with the `scripts/marketing/upsert-marketing-schedule.ts` CLI. The `marketing_schedule` table (one row per tenant: `day_of_week`, `hour_of_day`, `timezone`, `enabled`, `last_triggered_at` claim marker) ships in `scripts/init-db.js` (applied on container start) plus `migrations/` for record.
   - `draft-expiry-sweep-worker.ts` — expires STRANDED pre-publish posts (no `scheduled_posts` row, `published_at IS NULL`, `platform_post_id IS NULL` (never reached Meta), canonical `published_status` in `draft`/`in_review`/`approved`, `updated_at` older than the age window) by setting `published_status='expired'` (and the legacy `status` mirror), so the unscheduled-approved backlog the dashboard "backlog tray" surfaces stops growing without bound once the weekly trigger fans out (the "36 stranded approved IG posts" symptom). Keys on the canonical `published_status`, NOT the legacy `status` mirror (which defaults to `'draft'` on Meta-native-scheduled posts → would false-positive-expire a live post). DB-only (no app round-trip); idempotent + batched; logic in `backend/marketing/draft-expiry-sweep.ts`. The `aries-draft-expiry-sweep-worker` service is `tsx`-run, gated by `ARIES_DRAFT_EXPIRY_ENABLED` (default OFF — ships dormant). It is the complement of the stale-run reaper, which reaps stranded *job docs on disk*; this sweep expires stranded *post rows in the DB*.
@@ -124,6 +137,7 @@ Non-obvious layout notes (the rest is discoverable by browsing):
   - `honcho-performance-worker.ts` — delayed performance→Honcho memory leg: 24h–30d after publish it reads stored `insights_post_metrics_daily` snapshots (never fetches Meta) and writes `research_conclusion` events via `recordPerformanceEvent` (`aries-honcho-performance-worker` service, `tsx`-run; gated by `HONCHO_WRITE_PUBLISH_ENABLED`).
   - `gc-missing-hermes-assets-worker.ts` — marks `creative_assets` rows `orphaned_at` once their Hermes image-cache file has been evicted, so the dashboard stops emitting dead `/api/internal/hermes/media/<id>` URLs that 404 (the Posts-page preview-404 symptom, qa-defect #599). DB-only mark via `runGcMissingHermesAssets` (`scripts/gc-missing-hermes-assets.ts`); `queryProductionCreativeAssets` already filters `orphaned_at IS NULL`, so an orphaned row stops being surfaced (no URL emitted → no 404). Needs the read-only Hermes image-cache mount (`HERMES_IMAGE_CACHE_MOUNT`) to tell "evicted" from "unreadable" — without it the sweep is a fail-safe no-op. The `aries-hermes-gc-worker` service is `tsx`-run, gated by `ARIES_HERMES_GC_ENABLED` (default OFF — ships dormant). Only ever touches `storage_kind='runtime_asset'` rows older than the grace window (default 7d); `ingested_asset` uploads/composed stories are never touched; idempotent.
   - `feedback-retry-sweep-worker.ts` — heals customer incident reports (SC-70 port, AA-51) whose Jira delivery is incomplete: parked `pending_retry` rows, attach-only completions, and stale `pending` rows stranded by a crash, via atomic `FOR UPDATE SKIP LOCKED` claims + the search-before-create idempotency label `aries-sub-<id>` (`backend/feedback/retry-sweep.ts`; `aries-feedback-retry-worker` service, `tsx`-run). Gated by `ARIES_FEEDBACK_RETRY_ENABLED` (default **ON** — unlike the other sidecars it is inherently dormant without `JIRA_*` config: one info line, no DB writes; default-on is what lets parked reports heal the moment config lands). Tick interval `FEEDBACK_RETRY_INTERVAL_MINUTES` (default 5).
+  - `composio-connection-reconciler-worker.ts` — refreshes recently pending Composio connections until their provider state settles (`backend/integrations/composio/reconcile-pending-connections.ts`; `aries-composio-reconciler-worker` service, `tsx`-run). Gated by `ARIES_COMPOSIO_RECONCILER_ENABLED` (default OFF).
 - `DOCKER.md` — container build/runtime profiles and the 50-concurrent smoke check referenced by guardrail #4.
 
 ## Tech Stack Notes

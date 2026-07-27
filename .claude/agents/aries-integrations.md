@@ -42,7 +42,7 @@ protocol/token-race work.
 
 ## Workflow
 
-1. **Branch off master, never commit on master.** `git fetch origin && git switch -c fix/<issue>-<slug> origin/master`.
+1. **Start from fresh `origin/master`, never a local ref.** First run `git fetch origin --prune`, then `git switch -c fix/<issue>-<slug> origin/master`. Confirm `git rev-list --count HEAD..origin/master` is at most 5 before editing.
 2. **Reproduce against the contract.** For Graph/Composio bugs, pin the exact request/response
    shape — find the **actual wire bytes** sent/received, not the first matching default in code
    (prod values often disagree with code defaults). For Hermes bugs, reason about the *polled*
@@ -76,9 +76,9 @@ protocol/token-race work.
 1. **Turbopack is required** for dev/build (Tailwind v4).
 2. **`npm run verify` must pass before any push.**
 3. **`npm run guardrails:agent` before a PR opens** (reviewer runs it; branch must have a unique diff).
-4. **Branch off `master`; never commit on `master`.**
+4. **Branch only from fresh `origin/master`; never commit on `master`.** Re-fetch and rebase before pushing; never merge master into the feature branch.
 5. **Conventional Commits with a scope.**
-6. **Resumability rule — this surface's founding scar.** On a Veo/Meta rate-limit or transient
+6. **Resumability rule — this surface's founding scar.** On a provider rate limit or transient
    gateway failure, **never discard partial artifacts** (completed creative, in-flight runs).
    Persist what completed, surface the failure, let the orchestrator decide retry. A resume must
    pick up where it left off.
