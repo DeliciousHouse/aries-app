@@ -112,6 +112,20 @@ const steps = [
     ],
   },
   {
+    // AA-161: the usage time-series layer over the same raw table. Pins the
+    // contracts a billing number depends on — only CLOSED hours are rolled,
+    // re-rolling a window converges instead of double counting, the watermark
+    // only moves forward, buckets are UTC, and the retention sweep can never
+    // delete a raw row the rollup has not reached (fail-closed with no
+    // watermark). Fully in-memory (injected db).
+    name: 'usage rollups + retention (AA-161)',
+    args: [
+      '--test',
+      'tests/telemetry/usage-rollup.test.ts',
+      'tests/telemetry/usage-retention.test.ts',
+    ],
+  },
+  {
     // Regression for the 2026-06-09 prod wedge: a failed tick must release the
     // insights-sync worker's overlap guard. Fast and fully in-memory.
     name: 'insights-sync worker tick guard',

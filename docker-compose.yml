@@ -896,6 +896,46 @@ services:
     networks:
       - docker_stack
 
+  # AA-161 usage rollup + retention — refreshes the hourly/daily/monthly usage
+  # aggregates over task_execution_log and applies the retention policy. Postgres
+  # has no scheduler in this stack (no pg_cron, no Timescale), so the "refresh the
+  # rollups on a cadence" half of the time-series schema is this sidecar. DB-only;
+  # single replica. Two independent gates, both default OFF: the worker idles
+  # cleanly without ARIES_USAGE_ROLLUP_ENABLED, and aggregation runs with nothing
+  # ever deleted until ARIES_USAGE_RETENTION_ENABLED is also set. Enable retention
+  # with ARIES_USAGE_RETENTION_DRY_RUN=1 for one observation cycle first — it is
+  # the only destructive half. Rolls up BEFORE it purges, and the purge refuses to
+  # delete anything at or above the rollup watermark, so raw usage can never be
+  # destroyed before it has been aggregated.
+  aries-usage-rollup-worker:
+    image: ${ARIES_APP_IMAGE:-aries-app:local}
+    command: ["node_modules/.bin/tsx", "scripts/automations/usage-rollup-worker.ts"]
+    depends_on:
+      aries-app:
+        condition: service_healthy
+    environment:
+      HOME: /home/node
+      NODE_ENV: production
+      CODE_ROOT: /app
+      DATA_ROOT: /data
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_POOL_MAX: 3
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      ARIES_USAGE_ROLLUP_ENABLED: ${ARIES_USAGE_ROLLUP_ENABLED:-0}
+      ARIES_USAGE_ROLLUP_INTERVAL_MS: ${ARIES_USAGE_ROLLUP_INTERVAL_MS:-3600000}
+      ARIES_USAGE_ROLLUP_MAX_HOURS_PER_PASS: ${ARIES_USAGE_ROLLUP_MAX_HOURS_PER_PASS:-168}
+      ARIES_USAGE_ROLLUP_MAX_BACKFILL_DAYS: ${ARIES_USAGE_ROLLUP_MAX_BACKFILL_DAYS:-90}
+      ARIES_USAGE_RETENTION_ENABLED: ${ARIES_USAGE_RETENTION_ENABLED:-0}
+      ARIES_USAGE_RETENTION_DRY_RUN: ${ARIES_USAGE_RETENTION_DRY_RUN:-0}
+      ARIES_USAGE_RAW_RETENTION_DAYS: ${ARIES_USAGE_RAW_RETENTION_DAYS:-90}
+      ARIES_USAGE_HOURLY_RETENTION_DAYS: ${ARIES_USAGE_HOURLY_RETENTION_DAYS:-400}
+    restart: unless-stopped
+    networks:
+      - docker_stack
+
 volumes:
   aries-autoheal-state:
 

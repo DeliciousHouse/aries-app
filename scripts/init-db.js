@@ -1532,6 +1532,158 @@ async function initDb() {
       -- Serves "show me every attempt of this task", the retry-cost question.
       CREATE INDEX IF NOT EXISTS idx_task_execution_log_task_id
         ON task_execution_log (task_id) WHERE task_id IS NOT NULL;
+
+      -- AA-161: usage time-series aggregation + retention over the SAME raw
+      -- table (no second raw write path). Vocabulary map from the ticket:
+      -- usage_events -> task_execution_log, company_id -> tenant_id,
+      -- created_at -> started_at. Mirrors
+      -- migrations/20260727000000_usage_timeseries_rollups.sql.
+      --
+      -- Rollup TABLES, not MATERIALIZED VIEWs: an MV can only refresh whole (a
+      -- full rescan of a high-volume log each time) and is destroyed by the
+      -- 90-day raw purge, while daily aggregates must be kept indefinitely.
+      --
+      -- The two indexes below are the AC-2 filter set the existing single-axis
+      -- indexes do NOT serve: the tenant+engine+time billing query, and the pure
+      -- time-range scan the rollup and the retention delete run across all tenants.
+      CREATE INDEX IF NOT EXISTS idx_task_execution_log_tenant_engine_started
+        ON task_execution_log (tenant_id, execution_engine, started_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_task_execution_log_started_at
+        ON task_execution_log (started_at);
+
+      -- Rollup grain: bucket + tenant + user + engine + task_key. tenant_id and
+      -- user_id are NOT NULL here (they are nullable on the raw row) because a
+      -- NULL inside a PRIMARY KEY breaks UPSERT idempotency — NULL <> NULL, so
+      -- every pass would insert a duplicate userless row instead of updating one.
+      -- They are COALESCEd to the sentinel 0, which the id sequences (starting at
+      -- 1) can never collide with; 0 means "not scoped".
+      -- Token columns stay NULLable: NULL is "not reported" (Hermes does not
+      -- report usage yet), never "free". ai_events vs ai_events_with_usage is the
+      -- denominator that keeps a $0 report from being misread as "no spend".
+      CREATE TABLE IF NOT EXISTS usage_rollup_hourly (
+        bucket_start         TIMESTAMPTZ NOT NULL,
+        tenant_id            INTEGER     NOT NULL,
+        user_id              INTEGER     NOT NULL,
+        execution_engine     TEXT        NOT NULL,
+        task_key             TEXT        NOT NULL,
+        events               BIGINT      NOT NULL,
+        succeeded            BIGINT      NOT NULL,
+        failed               BIGINT      NOT NULL,
+        retries              BIGINT      NOT NULL,
+        ai_events            BIGINT      NOT NULL,
+        ai_events_with_usage BIGINT      NOT NULL,
+        prompt_tokens        BIGINT,
+        completion_tokens    BIGINT,
+        total_tokens         BIGINT,
+        cost_cents           NUMERIC(16,4),
+        duration_ms_sum      BIGINT,
+        cpu_ms_sum           BIGINT,
+        first_event_at       TIMESTAMPTZ,
+        last_event_at        TIMESTAMPTZ,
+        updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (bucket_start, tenant_id, user_id, execution_engine, task_key)
+      );
+      CREATE TABLE IF NOT EXISTS usage_rollup_daily (
+        bucket_start         TIMESTAMPTZ NOT NULL,
+        tenant_id            INTEGER     NOT NULL,
+        user_id              INTEGER     NOT NULL,
+        execution_engine     TEXT        NOT NULL,
+        task_key             TEXT        NOT NULL,
+        events               BIGINT      NOT NULL,
+        succeeded            BIGINT      NOT NULL,
+        failed               BIGINT      NOT NULL,
+        retries              BIGINT      NOT NULL,
+        ai_events            BIGINT      NOT NULL,
+        ai_events_with_usage BIGINT      NOT NULL,
+        prompt_tokens        BIGINT,
+        completion_tokens    BIGINT,
+        total_tokens         BIGINT,
+        cost_cents           NUMERIC(16,4),
+        duration_ms_sum      BIGINT,
+        cpu_ms_sum           BIGINT,
+        first_event_at       TIMESTAMPTZ,
+        last_event_at        TIMESTAMPTZ,
+        updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (bucket_start, tenant_id, user_id, execution_engine, task_key)
+      );
+      CREATE TABLE IF NOT EXISTS usage_rollup_monthly (
+        bucket_start         TIMESTAMPTZ NOT NULL,
+        tenant_id            INTEGER     NOT NULL,
+        user_id              INTEGER     NOT NULL,
+        execution_engine     TEXT        NOT NULL,
+        task_key             TEXT        NOT NULL,
+        events               BIGINT      NOT NULL,
+        succeeded            BIGINT      NOT NULL,
+        failed               BIGINT      NOT NULL,
+        retries              BIGINT      NOT NULL,
+        ai_events            BIGINT      NOT NULL,
+        ai_events_with_usage BIGINT      NOT NULL,
+        prompt_tokens        BIGINT,
+        completion_tokens    BIGINT,
+        total_tokens         BIGINT,
+        cost_cents           NUMERIC(16,4),
+        duration_ms_sum      BIGINT,
+        cpu_ms_sum           BIGINT,
+        first_event_at       TIMESTAMPTZ,
+        last_event_at        TIMESTAMPTZ,
+        updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (bucket_start, tenant_id, user_id, execution_engine, task_key)
+      );
+      -- Reporting reads are "one company, one period"; the PK's leading
+      -- bucket_start cannot serve them.
+      CREATE INDEX IF NOT EXISTS idx_usage_rollup_hourly_tenant_bucket
+        ON usage_rollup_hourly (tenant_id, bucket_start DESC);
+      CREATE INDEX IF NOT EXISTS idx_usage_rollup_daily_tenant_bucket
+        ON usage_rollup_daily (tenant_id, bucket_start DESC);
+      CREATE INDEX IF NOT EXISTS idx_usage_rollup_monthly_tenant_bucket
+        ON usage_rollup_monthly (tenant_id, bucket_start DESC);
+      -- Per-user billing slice. Partial: user_id is the 0 sentinel on most rows.
+      CREATE INDEX IF NOT EXISTS idx_usage_rollup_daily_user_bucket
+        ON usage_rollup_daily (user_id, bucket_start DESC) WHERE user_id <> 0;
+
+      -- One row (id='hourly') holding the exclusive upper bound of the last
+      -- rolled window, so each pass scans only new events. It is ALSO the
+      -- retention interlock: the purge never deletes a raw row at or above
+      -- (rolled_through - reroll overlap), so an un-aggregated row can never be
+      -- destroyed and a rollup can never be recomputed from rows already gone.
+      CREATE TABLE IF NOT EXISTS usage_rollup_state (
+        id             TEXT PRIMARY KEY,
+        rolled_through TIMESTAMPTZ NOT NULL,
+        updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      -- The ticket's vocabulary resolved onto the real table, so reporting SQL
+      -- written against the spec runs unchanged without a second raw write path.
+      -- Explicit column list with the aliases leading: CREATE OR REPLACE VIEW may
+      -- only APPEND columns, so a future raw column goes at the END of this list
+      -- and the replace still succeeds (SELECT * would break every re-run).
+      CREATE OR REPLACE VIEW usage_events AS
+        SELECT
+          tenant_id  AS company_id,
+          started_at AS created_at,
+          id,
+          tenant_id,
+          user_id,
+          task_id,
+          execution_engine,
+          task_key,
+          status,
+          attempt_number,
+          error_code,
+          duration_ms,
+          cpu_ms,
+          model_requested,
+          model_reported,
+          target_profile,
+          external_run_id,
+          prompt_tokens,
+          completion_tokens,
+          total_tokens,
+          cost_cents,
+          started_at,
+          end_time,
+          recorded_at
+        FROM task_execution_log;
     `);
 
     // Idempotent backfill: one membership per user that has an org pointer today
