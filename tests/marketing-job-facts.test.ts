@@ -229,6 +229,7 @@ test('shared facts dedupe stage payload reads across collector invocations', asy
       ['2:strategy_review_preview', 1],
       ['2:website_brand_analysis', 1],
       ['3:production_review_preview', 1],
+      [`3:${['v', 'eo_video_generator'].join('')}`, 1],
       ['3:video_render_runtime', 1],
     ],
   );

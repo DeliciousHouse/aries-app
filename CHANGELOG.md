@@ -30,6 +30,8 @@ Hermes without selecting a provider or model inside the application.
   collector retains read-only compatibility with persisted predecessor payloads.
 - Public source validation rejects alternate private-IP spellings, pins bounded GETs
   to DNS-approved addresses, and validates every manual redirect hop.
+- Approval-record file access rejects traversal and absolute identifiers before any
+  filesystem read, closing the CodeQL path-injection boundary.
 
 ### Removed
 
