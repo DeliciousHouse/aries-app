@@ -56,12 +56,18 @@ test('ingestSocialContentVideoRenderOutput copies allowed Hermes media into the 
     assert.equal(result.skipped.length, 0);
 
     const variant = (output[0] as any).video_assets.platform_contracts[0].rendered_video_variants[0];
-    const expectedVideoPath = path.join(dataRoot, 'generated', 'draft', 'jobs', jobId, 'videos', 'tiktok-launch-cut.mp4');
-    const expectedPosterPath = path.join(dataRoot, 'generated', 'draft', 'jobs', jobId, 'videos', 'tiktok-launch-cut-poster.png');
+    const expectedVideoDir = path.join(dataRoot, 'generated', 'draft', 'jobs', jobId, 'videos');
+    assert.equal(path.dirname(variant.video_path), expectedVideoDir);
+    assert.match(path.basename(variant.video_path), /^tiktok-launch-cut-[0-9a-f]{32}\.mp4$/);
+    const servedBaseName = path.basename(variant.video_path, '.mp4');
+    const expectedVideoPath = path.join(expectedVideoDir, `${servedBaseName}.mp4`);
+    const expectedPosterPath = path.join(expectedVideoDir, `${servedBaseName}-poster.png`);
 
     assert.equal(variant.video_path, expectedVideoPath);
     assert.equal(variant.poster_path, expectedPosterPath);
     assert.equal(variant.thumbnail_path, expectedPosterPath);
+    assert.equal(variant.video_url, `/api/marketing/jobs/${jobId}/assets/video-${servedBaseName}`);
+    assert.equal(variant.poster_url, `/api/marketing/jobs/${jobId}/assets/video-${servedBaseName}-poster`);
     assert.deepEqual(await readFile(expectedVideoPath), Buffer.from('fake-mp4-bytes'));
     assert.deepEqual(await readFile(expectedPosterPath), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
   });
@@ -165,6 +171,8 @@ test('ingestSocialContentVideoRenderOutput allows already-ingested exact destina
     assert.equal(variants[0].video_path, expectedVideoPath);
     assert.equal(variants[0].thumbnail_path, expectedPosterPath);
     assert.equal(variants[0].poster_path, expectedPosterPath);
+    assert.equal(variants[0].video_url, `/api/marketing/jobs/${jobId}/assets/video-tiktok-launch-cut`);
+    assert.equal(variants[0].poster_url, `/api/marketing/jobs/${jobId}/assets/video-tiktok-launch-cut-poster`);
     assert.equal(variants[1].thumbnail_path, otherJobPosterPath);
   });
 });

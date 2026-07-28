@@ -180,12 +180,19 @@ function servedAssetUrl(jobId: string, assetId: string): string {
   return `/api/marketing/jobs/${encodeURIComponent(jobId)}/assets/${encodeURIComponent(assetId)}`;
 }
 
-function exactAllowedVideoDestinations(jobId: string, baseName: string): string[] {
-  return [videoDestination(jobId, baseName)];
+function exactAllowedVideoDestinations(jobId: string, ...baseNames: string[]): string[] {
+  return baseNames.map((baseName) => videoDestination(jobId, baseName));
 }
 
-function exactAllowedPosterDestinations(jobId: string, baseName: string): string[] {
-  return ['.jpg', '.jpeg', '.png', '.webp'].map((ext) => posterDestination(jobId, baseName, ext));
+function exactAllowedPosterDestinations(jobId: string, ...baseNames: string[]): string[] {
+  return baseNames.flatMap((baseName) => (
+    ['.jpg', '.jpeg', '.png', '.webp'].map((ext) => posterDestination(jobId, baseName, ext))
+  ));
+}
+
+function exactDestinationPath(resolvedPath: string, candidates: string[]): string | null {
+  const normalized = path.resolve(resolvedPath);
+  return candidates.find((candidate) => path.resolve(candidate) === normalized) ?? null;
 }
 
 function copyDeterministic(source: string, destination: string, result: SocialContentVideoIngestResult): string {
@@ -216,6 +223,7 @@ function ingestVariantMedia(jobId: string, contract: UnknownRecord, variant: Unk
     'platform',
   );
   const familyId = slug(rawFamily, 'variant');
+  const legacyBaseName = `${platformSlug}-${familyId}`;
   const baseName = videoFilesystemKey([rawPlatform || platformSlug, rawFamily || familyId], `${platformSlug}-${familyId}`);
 
   const videoRef = firstDefinedPath(variant, [
@@ -226,13 +234,19 @@ function ingestVariantMedia(jobId: string, contract: UnknownRecord, variant: Unk
   ]);
   if (videoRef) {
     result.reportedCount += 1;
-    const resolved = resolveAllowedSource(videoRef.value, exactAllowedVideoDestinations(jobId, baseName));
+    const allowedDestinations = exactAllowedVideoDestinations(jobId, baseName, legacyBaseName);
+    const resolved = resolveAllowedSource(videoRef.value, allowedDestinations);
     if ('reason' in resolved) {
       result.skipped.push({ path: videoRef.value, reason: resolved.reason });
     } else if (path.extname(resolved.resolved).toLowerCase() === '.mp4') {
-      const destination = copyDeterministic(resolved.resolved, videoDestination(jobId, baseName), result);
+      const destination = copyDeterministic(
+        resolved.resolved,
+        exactDestinationPath(resolved.resolved, allowedDestinations) ?? videoDestination(jobId, baseName),
+        result,
+      );
+      const servedBaseName = path.basename(destination, '.mp4');
       variant[videoRef.key] = destination;
-      variant.video_url = servedAssetUrl(jobId, `video-${baseName}`);
+      variant.video_url = servedAssetUrl(jobId, `video-${servedBaseName}`);
       result.ingestedCount += 1;
     } else {
       result.skipped.push({ path: videoRef.value, reason: 'invalid' });
@@ -247,15 +261,21 @@ function ingestVariantMedia(jobId: string, contract: UnknownRecord, variant: Unk
     'thumbnail_image_path',
   ]);
   if (posterRef) {
-    const resolved = resolveAllowedSource(posterRef.value, exactAllowedPosterDestinations(jobId, baseName));
+    const allowedDestinations = exactAllowedPosterDestinations(jobId, baseName, legacyBaseName);
+    const resolved = resolveAllowedSource(posterRef.value, allowedDestinations);
     const ext = 'resolved' in resolved ? path.extname(resolved.resolved).toLowerCase() : '';
     if ('resolved' in resolved && (ext === '.jpg' || ext === '.jpeg' || ext === '.png' || ext === '.webp')) {
-      const destination = copyDeterministic(resolved.resolved, posterDestination(jobId, baseName, ext), result);
+      const destination = copyDeterministic(
+        resolved.resolved,
+        exactDestinationPath(resolved.resolved, allowedDestinations) ?? posterDestination(jobId, baseName, ext),
+        result,
+      );
+      const servedBaseName = path.basename(destination, ext).replace(/-poster$/, '');
       variant[posterRef.key] = destination;
       if (posterRef.key.startsWith('thumbnail')) {
         variant.poster_path = destination;
       }
-      variant.poster_url = servedAssetUrl(jobId, `video-${baseName}-poster`);
+      variant.poster_url = servedAssetUrl(jobId, `video-${servedBaseName}-poster`);
     } else {
       result.skipped.push({ path: posterRef.value, reason: 'reason' in resolved ? resolved.reason : 'invalid' });
     }
@@ -296,8 +316,10 @@ function ingestCanonicalArtifact(
     rawFamily,
     'variant',
   );
+  const legacyBaseName = `${platformSlug}-${familyId}`;
   const baseName = videoFilesystemKey([rawPlatform || platformSlug, rawFamily || familyId], `${platformSlug}-${familyId}`);
-  const resolved = resolveAllowedSource(sourcePath, exactAllowedVideoDestinations(jobId, baseName));
+  const allowedDestinations = exactAllowedVideoDestinations(jobId, baseName, legacyBaseName);
+  const resolved = resolveAllowedSource(sourcePath, allowedDestinations);
   if ('reason' in resolved) {
     result.skipped.push({ path: sourcePath, reason: resolved.reason });
     return;
@@ -307,8 +329,12 @@ function ingestCanonicalArtifact(
     return;
   }
 
-  const destination = copyDeterministic(resolved.resolved, videoDestination(jobId, baseName), result);
-  const servedAssetId = `video-${baseName}`;
+  const destination = copyDeterministic(
+    resolved.resolved,
+    exactDestinationPath(resolved.resolved, allowedDestinations) ?? videoDestination(jobId, baseName),
+    result,
+  );
+  const servedAssetId = `video-${path.basename(destination, '.mp4')}`;
   artifact.id = stringValue(artifact.id) || servedAssetId;
   artifact.path = destination;
   artifact.video_path = destination;
