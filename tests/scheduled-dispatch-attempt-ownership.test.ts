@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import test from 'node:test';
+import { pathToFileURL } from 'node:url';
 
-import { POST } from '../app/api/internal/publishing/scheduled-dispatch/route';
+import {
+  POST,
+  handleScheduledDispatchPost,
+} from '../app/api/internal/publishing/scheduled-dispatch/route';
 import { encryptOAuthSecret } from '../backend/integrations/oauth-token-crypto';
 import pool from '../lib/db';
 
@@ -12,6 +17,7 @@ type DispatchFixtureOptions = {
   finalizeOwned?: boolean;
   insightExists?: boolean;
   providerPostId?: string;
+  insightsWriteFails?: boolean;
 };
 
 function makeRequest(secret: string, attemptToken: string): Request {
@@ -38,18 +44,56 @@ function makeRequest(secret: string, attemptToken: string): Request {
 function installDispatchFixture(options: DispatchFixtureOptions) {
   const calls: QueryCall[] = [];
   let ariesPostId: string | null = null;
+  let postPublishedStatus = 'approved';
+  let transactionSnapshot: { ariesPostId: string | null; postPublishedStatus: string } | null = null;
+  let ownerLockReads = 0;
+  let dispatchStartedAt: string | null = null;
   const originalQuery = pool.query.bind(pool);
+  const originalConnect = pool.connect.bind(pool);
   const providerPostId = options.providerPostId ?? 'fb_canonical_901';
 
-  (pool as typeof pool & { query: typeof pool.query }).query = (async (
+  const query = (async (
     sql: unknown,
     params: unknown[] = [],
   ) => {
     const text = String(sql);
     calls.push({ sql: text, params });
 
-    if (/^\s*SELECT 1 AS owned[\s\S]*FROM scheduled_posts/i.test(text)) {
-      return { rows: options.owned ? [{ owned: 1 }] : [], rowCount: options.owned ? 1 : 0 };
+    if (/^\s*BEGIN\s*$/i.test(text)) {
+      transactionSnapshot = { ariesPostId, postPublishedStatus };
+      return { rows: [], rowCount: 0 };
+    }
+    if (/^\s*COMMIT\s*$/i.test(text)) {
+      transactionSnapshot = null;
+      return { rows: [], rowCount: 0 };
+    }
+    if (/^\s*ROLLBACK\s*$/i.test(text)) {
+      if (transactionSnapshot) {
+        ariesPostId = transactionSnapshot.ariesPostId;
+        postPublishedStatus = transactionSnapshot.postPublishedStatus;
+      }
+      transactionSnapshot = null;
+      return { rows: [], rowCount: 0 };
+    }
+    if (/FROM scheduled_posts[\s\S]*FOR UPDATE/i.test(text)) {
+      ownerLockReads += 1;
+      const attemptToken = !options.owned
+        ? 'attempt-new-owner'
+        : options.finalizeOwned === false && ownerLockReads > 1
+          ? 'attempt-new-owner'
+          : 'attempt-current';
+      return {
+        rows: [{
+          dispatch_status: 'in_flight',
+          dispatch_attempt_token: attemptToken,
+          dispatch_started_at: dispatchStartedAt,
+        }],
+        rowCount: 1,
+      };
+    }
+    if (/UPDATE scheduled_posts[\s\S]*dispatch_started_at/i.test(text)) {
+      dispatchStartedAt = new Date().toISOString();
+      return { rows: [{ dispatch_started_at: dispatchStartedAt }], rowCount: 1 };
     }
     if (/OAUTH_TOKENS|OAUTH_CONNECTIONS/i.test(text)) {
       return {
@@ -61,20 +105,26 @@ function installDispatchFixture(options: DispatchFixtureOptions) {
         rowCount: 1,
       };
     }
+    if (/SELECT[\s\S]+FROM posts[\s\S]+FOR UPDATE/i.test(text)) {
+      return { rows: [{ id: 901 }], rowCount: 1 };
+    }
     if (/SELECT DISTINCT platform FROM posts|SELECT platform, max\(published_at\)/i.test(text)) {
       return { rows: [], rowCount: 0 };
     }
     if (/UPDATE posts/i.test(text)) {
-      const token = params[4];
-      const ownsConditionalUpdate = options.finalizeOwned === false
-        ? false
-        : options.owned && token === 'attempt-current';
+      postPublishedStatus = String(params[2] ?? 'failed');
       return {
-        rows: ownsConditionalUpdate ? [{ job_id: null }] : [],
-        rowCount: ownsConditionalUpdate ? 1 : 0,
+        rows: [{ job_id: null }],
+        rowCount: 1,
       };
     }
+    if (/UPDATE scheduled_post_dispatches/i.test(text)) {
+      return { rows: [{ platform: params[1] }], rowCount: options.owned ? 1 : 0 };
+    }
     if (/UPDATE insights_posts/i.test(text)) {
+      if (options.insightsWriteFails) {
+        throw new Error('injected Insights attribution failure');
+      }
       if (options.insightExists && params[3] === providerPostId) {
         ariesPostId = String(params[0]);
         return { rows: [], rowCount: 1 };
@@ -84,12 +134,20 @@ function installDispatchFixture(options: DispatchFixtureOptions) {
     return { rows: [], rowCount: 0 };
   }) as unknown as typeof pool.query;
 
+  (pool as typeof pool & { query: typeof pool.query }).query = query;
+  (pool as typeof pool & { connect: typeof pool.connect }).connect = (async () => ({
+    query,
+    release() {},
+  })) as unknown as typeof pool.connect;
+
   return {
     calls,
     providerPostId,
     getAriesPostId: () => ariesPostId,
+    getPostPublishedStatus: () => postPublishedStatus,
     restore: () => {
       (pool as typeof pool & { query: typeof pool.query }).query = originalQuery;
+      (pool as typeof pool & { connect: typeof pool.connect }).connect = originalConnect;
     },
   };
 }
@@ -152,11 +210,21 @@ test('request that loses ownership during provider I/O cannot mutate aggregate, 
 
     try {
       const response = await POST(makeRequest(secret, 'attempt-current'));
-      assert.equal(response.status, 202, 'the provider may already have accepted the publish');
+      const body = (await response.json()) as {
+        status: string;
+        results: Array<{ kind?: string; retryable?: boolean }>;
+      };
+      assert.equal(response.status, 409, 'the provider may already have accepted the publish');
+      assert.equal(body.status, 'finalization_failed');
+      assert.equal(body.results[0]?.kind, 'outcome_unknown');
+      assert.equal(body.results[0]?.retryable, false);
 
       const aggregateUpdate = fixture.calls.find((call) => /UPDATE posts/i.test(call.sql));
-      assert.ok(aggregateUpdate, 'post-publish finalization must attempt the ownership-fenced aggregate write');
-      assert.match(aggregateUpdate.sql, /owner\.dispatch_attempt_token = \$5/);
+      assert.equal(aggregateUpdate, undefined, 'post-publish finalization must recheck ownership before aggregate writes');
+      assert.ok(
+        fixture.calls.some((call) => /FROM scheduled_posts[\s\S]*FOR UPDATE/i.test(call.sql)),
+        'post-publish finalization serializes on the scheduled owner row',
+      );
       assert.equal(
         fixture.calls.some((call) => /UPDATE insights_posts/i.test(call.sql)),
         false,
@@ -167,6 +235,43 @@ test('request that loses ownership during provider I/O cannot mutate aggregate, 
         false,
         'the dispatch route never writes child winner state; only the token-fenced worker does',
       );
+    } finally {
+      globalThis.fetch = originalFetch;
+      fixture.restore();
+    }
+  });
+});
+
+test('response loss after the provider POST is returned as explicit outcome_unknown and never retryable', async () => {
+  await withDispatchEnv(async (secret) => {
+    const fixture = installDispatchFixture({ owned: true, insightExists: false });
+    const originalFetch = globalThis.fetch;
+    let providerCalls = 0;
+    globalThis.fetch = (async () => {
+      providerCalls += 1;
+      if (providerCalls === 1) {
+        return new Response(JSON.stringify({ id: 'fb_uploaded_media_1' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      throw new Error('socket closed after provider accepted request bytes');
+    }) as typeof fetch;
+
+    try {
+      const response = await POST(makeRequest(secret, 'attempt-current'));
+      const body = (await response.json()) as {
+        status: string;
+        results: Array<{ provider: string; ok: boolean; retryable?: boolean; kind?: string }>;
+      };
+
+      assert.equal(response.status, 422);
+      assert.equal(body.status, 'error');
+      assert.equal(body.results[0]?.provider, 'facebook');
+      assert.equal(body.results[0]?.kind, 'outcome_unknown');
+      assert.equal(body.results[0]?.retryable, false);
+      assert.equal(fixture.getPostPublishedStatus(), 'unverified');
+      assert.equal(fixture.calls.some((call) => /UPDATE insights_posts/i.test(call.sql)), false);
     } finally {
       globalThis.fetch = originalFetch;
       fixture.restore();
@@ -195,6 +300,7 @@ test('owned scheduled dispatch stamps an already-existing matching Insights row 
       assert.equal(body.status, 'ok');
       assert.equal(body.results[0]?.platformPostId, fixture.providerPostId);
       assert.equal(fixture.getAriesPostId(), '901', 'the dispatch route itself must stamp aries_post_id');
+      assert.equal(fixture.getPostPublishedStatus(), 'published');
       const stamp = fixture.calls.find((call) => /UPDATE insights_posts/i.test(call.sql));
       assert.ok(stamp, 'dispatch-time finalization must execute the additive Insights UPDATE');
       assert.deepEqual(stamp.params, ['901', 15, 'facebook', fixture.providerPostId]);
@@ -227,6 +333,207 @@ test('owned scheduled dispatch succeeds when the Insights row is absent and leav
       );
     } finally {
       globalThis.fetch = originalFetch;
+      fixture.restore();
+    }
+  });
+});
+
+test('confirmed provider success survives Insights finalization failure for worker reconciliation', async () => {
+  await withDispatchEnv(async (secret) => {
+    const fixture = installDispatchFixture({
+      owned: true,
+      insightExists: true,
+      insightsWriteFails: true,
+    });
+    const originalFetch = globalThis.fetch;
+    let finalPublishPosts = 0;
+    globalThis.fetch = (async (input) => {
+      if (String(input).endsWith('/feed')) finalPublishPosts += 1;
+      return new Response(JSON.stringify({ id: fixture.providerPostId, post_id: fixture.providerPostId }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    try {
+      const response = await POST(makeRequest(secret, 'attempt-current'));
+      const body = (await response.json()) as {
+        status: string;
+        results: Array<{
+          ok: boolean;
+          platformPostId?: string;
+          kind?: string;
+          retryable?: boolean;
+        }>;
+      };
+
+      assert.equal(response.status, 503);
+      assert.equal(body.status, 'finalization_failed');
+      assert.equal(body.results[0]?.ok, true, 'confirmed provider success remains confirmed');
+      assert.equal(body.results[0]?.platformPostId, fixture.providerPostId);
+      assert.equal(body.results[0]?.kind, undefined);
+      assert.equal(body.results[0]?.retryable, undefined);
+      assert.equal(
+        finalPublishPosts,
+        1,
+        'the route crosses the non-idempotent provider publish boundary exactly once',
+      );
+      const worker = await import(pathToFileURL(path.join(
+        process.cwd(),
+        'scripts',
+        'automations',
+        'scheduled-posts-worker.mjs',
+      )).href);
+      assert.deepEqual(
+        worker.planPlatformOutcomes(['facebook'], body.results, null),
+        [{
+          platform: 'facebook',
+          status: 'dispatched',
+          error: null,
+          retryable: false,
+          platformPostId: fixture.providerPostId,
+        }],
+        'the worker consumes the failed-finalizer response as durable success evidence',
+      );
+      assert.equal(fixture.getPostPublishedStatus(), 'approved');
+      assert.equal(fixture.getAriesPostId(), null);
+      assert.ok(fixture.calls.some((call) => /^\s*ROLLBACK\s*$/i.test(call.sql)));
+    } finally {
+      globalThis.fetch = originalFetch;
+      fixture.restore();
+    }
+  });
+});
+
+test('concurrent requests for one attempt token cross provider I/O exactly once', async () => {
+  await withDispatchEnv(async (secret) => {
+    const fixture = installDispatchFixture({ owned: true, insightExists: false });
+    const originalFetch = globalThis.fetch;
+    let fetchCalls = 0;
+    let signalProviderStarted!: () => void;
+    const providerStarted = new Promise<void>((resolve) => {
+      signalProviderStarted = resolve;
+    });
+    let releaseProvider!: () => void;
+    const providerRelease = new Promise<void>((resolve) => {
+      releaseProvider = resolve;
+    });
+    globalThis.fetch = (async () => {
+      fetchCalls += 1;
+      signalProviderStarted();
+      await providerRelease;
+      return new Response(JSON.stringify({ id: fixture.providerPostId, post_id: fixture.providerPostId }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    try {
+      const first = POST(makeRequest(secret, 'attempt-current'));
+      await providerStarted;
+      const duplicate = await POST(makeRequest(secret, 'attempt-current'));
+      const duplicateBody = (await duplicate.json()) as { status?: string };
+
+      assert.equal(duplicate.status, 409);
+      assert.equal(duplicateBody.status, 'attempt_already_started');
+      assert.equal(fetchCalls, 1, 'the duplicate request is fenced before provider I/O');
+
+      releaseProvider();
+      assert.equal((await first).status, 202);
+    } finally {
+      globalThis.fetch = originalFetch;
+      fixture.restore();
+    }
+  });
+});
+
+test('multi-platform provider ids are token-fenced into durable child rows before the response', async () => {
+  await withDispatchEnv(async (secret) => {
+    const fixture = installDispatchFixture({ owned: true, insightExists: false });
+    const request = new Request('https://aries.example.com/api/internal/publishing/scheduled-dispatch', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: ['Bearer', secret].join(' '),
+      },
+      body: JSON.stringify({
+        tenant_id: '15',
+        post_id: '901',
+        scheduled_post_id: '71',
+        dispatch_attempt_token: 'attempt-current',
+        platforms: ['facebook', 'instagram'],
+        content: 'Durable cross-post evidence',
+        media_urls: ['https://cdn.example.com/post.jpg'],
+      }),
+    });
+
+    try {
+      const response = await handleScheduledDispatchPost(request, {
+        dispatchPublish: (async ({ provider }: { provider: string }) => ({
+          platformPostId: provider === 'facebook' ? 'fb_durable_901' : 'ig_durable_901',
+        })) as never,
+      });
+      assert.equal(response.status, 202);
+      const durableWrites = fixture.calls.filter((call) => /UPDATE scheduled_post_dispatches/i.test(call.sql));
+      assert.deepEqual(
+        durableWrites.map((call) => call.params.slice(1, 3)),
+        [
+          ['facebook', 'fb_durable_901'],
+          ['instagram', 'ig_durable_901'],
+        ],
+      );
+      assert.ok(
+        durableWrites.every((call) => call.sql.includes('dispatch_attempt_token')),
+        'each provider id write is fenced to the immutable worker attempt',
+      );
+    } finally {
+      fixture.restore();
+    }
+  });
+});
+
+test('throwing media preflight stays before the provider fence and returns a safe retry result', async () => {
+  await withDispatchEnv(async (secret) => {
+    const fixture = installDispatchFixture({ owned: true, insightExists: false });
+    let providerCalls = 0;
+    const request = new Request('https://aries.example.com/api/internal/publishing/scheduled-dispatch', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: ['Bearer', secret].join(' '),
+      },
+      body: JSON.stringify({
+        tenant_id: '15',
+        post_id: '901',
+        scheduled_post_id: '71',
+        dispatch_attempt_token: 'attempt-current',
+        platforms: ['facebook'],
+        content: 'Preflight must fail safely',
+      }),
+    });
+
+    try {
+      const response = await handleScheduledDispatchPost(request, {
+        resolveMediaUrls: async () => { throw new Error('injected media lookup failure'); },
+        dispatchPublish: (async () => {
+          providerCalls += 1;
+          return { platformPostId: 'must-not-publish' };
+        }) as never,
+      });
+      const body = (await response.json()) as {
+        results: Array<{ kind?: string; retryable?: boolean; error?: string }>;
+      };
+      assert.equal(response.status, 503);
+      assert.equal(providerCalls, 0);
+      assert.equal(body.results[0]?.kind, 'pre_provider');
+      assert.equal(body.results[0]?.retryable, true);
+      assert.match(body.results[0]?.error ?? '', /media lookup failure/);
+      assert.equal(
+        fixture.calls.some((call) => /UPDATE scheduled_posts[\s\S]*dispatch_started_at/i.test(call.sql)),
+        false,
+        'fallible media/signing preflight must finish before the durable provider fence',
+      );
+    } finally {
       fixture.restore();
     }
   });

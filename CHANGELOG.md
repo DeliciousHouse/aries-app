@@ -2,6 +2,48 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.46.0 — fix(publishing): make scheduled delivery fail closed
+
+Scheduled publishing now treats provider submission as a fenced, durable attempt:
+workers recover confirmed successes without posting twice, while genuinely unknown
+outcomes are quarantined for manual reconciliation instead of automatic replay.
+
+### Added
+
+- Per-platform dispatch-attempt rows retain owner tokens, provider post IDs, and
+  manual-reconciliation evidence independently from the canonical post row.
+- A scheduled-worker readiness handshake validates database, schema, protocol,
+  and worker-to-app authentication before production publishing is re-enabled.
+- Cutover and backfill commands repair legacy terminal rows and fail closed on
+  legacy in-flight work whose provider outcome is not known.
+- Deployment restore proof detects unresolved legacy in-flight claims after the
+  old worker stops, while bounded one-shot readiness cleans up hung containers.
+
+### Changed
+
+- Scheduled claim, retry, schedule writers, terminal sweeps, cancel, finalize,
+  and deployment paths share canonical-first lock ordering and immutable attempt
+  ownership.
+- Calendar and review surfaces expose partial and manual-reconciliation states,
+  including per-platform evidence, and allow moves only for safe pending or failed
+  schedules with no terminal child evidence.
+
+### Fixed
+
+- Stale started attempts inspect every durable child: confirmed provider IDs keep
+  canonical publish truth monotonic, complete fan-out rolls forward to dispatched,
+  and only unresolved children are quarantined without another provider call.
+- Direct schema execution never rearms an unsafe legacy worker after restore-safety
+  proof fails, even when the additive schema command itself succeeds.
+- Instagram image publication allows the provider polling window plus margin
+  without timing out and resubmitting an outcome-unknown request.
+- Concurrent cancellation, auto-scheduling, and rescheduling serialize on the
+  canonical post, preventing successful cancellation from leaving orphan schedules.
+- Worker authentication and media preflight failures remain before provider I/O;
+  ambiguous transport outcomes preserve durable evidence and are never replayed.
+- Production deploys keep publishing stopped through additive schema, app health,
+  worker functional readiness, and post-health cutover verification.
+
 ## v0.1.44.1 — chore(runtime): pin the supported Node release
 
 Contributors now get immediate Node 24 guidance before running Aries locally,

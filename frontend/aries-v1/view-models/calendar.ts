@@ -33,6 +33,9 @@ export interface CalendarEvent {
   scheduledForIso: string;
   status: CalendarEventStatus;
   dispatchStatus: string;
+  reschedulable: boolean;
+  manualReviewRequired: boolean;
+  manualReviewMessage: string | null;
   href: string;
   timestamp: number;
   /** YYYY-MM-DD key computed in the tenant timezone. */
@@ -81,6 +84,7 @@ function dispatchStatusToEventStatus(dispatchStatus: string): CalendarEventStatu
     case 'dispatched':
       return 'live';
     case 'failed':
+    case 'manual_reconciliation':
       return 'changes_requested';
     case 'in_flight':
       return 'scheduled';
@@ -117,6 +121,14 @@ export function createCalendarViewModel(input: CalendarViewModelInput): Calendar
       if (!dayKey) {
         return null;
       }
+      const manualReviewRequired =
+        post.dispatchStatus === 'manual_reconciliation'
+        || post.dispatches.some((dispatch) => dispatch.status === 'manual_reconciliation');
+      const hasTerminalChildEvidence = post.dispatches.some(
+        (dispatch) => dispatch.status === 'dispatched' || dispatch.status === 'manual_reconciliation',
+      );
+      const safeParentState = post.dispatchStatus === 'pending'
+        || post.dispatchStatus === 'failed';
       return {
         id: post.id,
         postId: post.postId,
@@ -128,6 +140,15 @@ export function createCalendarViewModel(input: CalendarViewModelInput): Calendar
         scheduledForIso: post.scheduledFor,
         status: dispatchStatusToEventStatus(post.dispatchStatus),
         dispatchStatus: post.dispatchStatus,
+        // Match the schedule route/upsert safety predicate exactly: only pending
+        // or failed parents with no child evidence of a possibly-live publish can
+        // be moved. A dispatched child blocks drag even when a partial cross-post
+        // keeps the parent pending.
+        reschedulable: safeParentState && !hasTerminalChildEvidence,
+        manualReviewRequired,
+        manualReviewMessage: manualReviewRequired
+          ? 'Manual review required: verify whether this post is already live on each platform before making scheduling changes.'
+          : null,
         href: post.jobId ? `/dashboard/social-content/${post.jobId}` : '/dashboard/calendar',
         timestamp,
         dayKey,
@@ -139,7 +160,10 @@ export function createCalendarViewModel(input: CalendarViewModelInput): Calendar
 
   const unscheduled = input.unscheduledPosts ?? [];
 
-  const failedCount = events.filter((event) => event.dispatchStatus === 'failed').length;
+  const failedCount = events.filter(
+    (event) => event.dispatchStatus === 'failed' && !event.manualReviewRequired,
+  ).length;
+  const manualReviewCount = events.filter((event) => event.manualReviewRequired).length;
   const dispatchedCount = events.filter((event) => event.dispatchStatus === 'dispatched').length;
 
   return {
@@ -186,6 +210,15 @@ export function createCalendarViewModel(input: CalendarViewModelInput): Calendar
               ? 'These posts failed to publish — review the per-platform error.'
               : 'No queued posts have failed dispatch.',
           tone: failedCount > 0 ? 'watch' : 'good',
+        },
+        {
+          label: 'Manual review',
+          value: String(manualReviewCount),
+          detail:
+            manualReviewCount > 0
+              ? 'These outcomes are unconfirmed and may already be live — verify each platform before scheduling changes.'
+              : 'No queued posts need manual provider-outcome review.',
+          tone: manualReviewCount > 0 ? 'watch' : 'good',
         },
       ],
     },

@@ -2,10 +2,12 @@ import { NextResponse } from 'next/server';
 
 import pool from '@/lib/db';
 import {
-  ScheduledPostInFlightError,
-  ScheduledPostTenantMismatchError,
   normalizeTargetPlatforms,
   parseScheduledForIso,
+  ScheduledPostDispatchEvidenceError,
+  ScheduledPostInFlightError,
+  ScheduledPostManualReconciliationError,
+  ScheduledPostTenantMismatchError,
   upsertScheduledPost,
   type ScheduledPostQueryable,
 } from '@/backend/social-content/scheduled-posts';
@@ -81,7 +83,9 @@ type PostLookupQueryable = {
   }>;
 };
 
-export type ScheduleRouteQueryable = ScheduledPostQueryable & PostLookupQueryable;
+export type ScheduleRouteQueryable = ScheduledPostQueryable & PostLookupQueryable & {
+  connect?: () => Promise<ScheduleRouteQueryable & { release: () => void }>;
+};
 
 interface ScheduleRouteOptions {
   tenantContextLoader?: TenantContextLoader;
@@ -166,19 +170,30 @@ export async function handlePatchScheduleSocialContentPost(
     );
   }
 
-  const ownsPool = !options.queryable;
-  const pooled = options.queryable ? null : await pool.connect();
+  const connectionSource = options.queryable ?? pool;
+  const pooled = connectionSource.connect ? await connectionSource.connect() : null;
   const wrapPooled: ScheduleRouteQueryable = {
-    query: ((sql: string, params: unknown[]) => pooled!.query(sql, params)) as unknown as ScheduleRouteQueryable['query'],
+    query: ((sql: string, params: unknown[]) =>
+      (pooled as unknown as ScheduleRouteQueryable).query(sql, params)) as ScheduleRouteQueryable['query'],
   };
-  const client: ScheduleRouteQueryable = options.queryable ?? wrapPooled;
+  const client: ScheduleRouteQueryable = pooled ? wrapPooled : options.queryable!;
+  const transactionEnabled = pooled !== null;
+  let transactionFinished = !transactionEnabled;
 
   try {
+    if (transactionEnabled) await client.query('BEGIN', []);
     const lookup = await client.query(
-      'SELECT id, tenant_id, surface, media_type, width_px, height_px, duration_seconds FROM posts WHERE id = $1 AND tenant_id = $2 LIMIT 1',
+      `SELECT id, tenant_id, surface, media_type, width_px, height_px, duration_seconds
+         FROM posts
+        WHERE id = $1 AND tenant_id = $2
+        FOR UPDATE`,
       [postIdInt, tenantId],
     );
     if ((lookup.rowCount ?? lookup.rows.length) === 0 || lookup.rows.length === 0) {
+      if (transactionEnabled) {
+        await client.query('COMMIT', []);
+        transactionFinished = true;
+      }
       console.warn('[social-content-schedule]', {
         jobId,
         postId,
@@ -217,6 +232,10 @@ export async function handlePatchScheduleSocialContentPost(
       tenantId: String(tenantResult.tenantContext.tenantId),
     });
     if (!hasApproval) {
+      if (transactionEnabled) {
+        await client.query('COMMIT', []);
+        transactionFinished = true;
+      }
       console.warn('[social-content-schedule]', {
         jobId,
         postId,
@@ -241,7 +260,12 @@ export async function handlePatchScheduleSocialContentPost(
       widthPx: postWidthPx,
       heightPx: postHeightPx,
       durationSeconds: postDurationSeconds,
-    });
+    }, { canonicalLockHeld: true });
+
+    if (transactionEnabled) {
+      await client.query('COMMIT', []);
+      transactionFinished = true;
+    }
 
     scheduleScheduledPostHonchoWrite({
       tenantCtx: {
@@ -267,9 +291,28 @@ export async function handlePatchScheduleSocialContentPost(
       { status: 200 },
     );
   } catch (error) {
+    if (!transactionFinished) await client.query('ROLLBACK', []).catch(() => {});
     if (error instanceof ScheduledPostInFlightError) {
       return NextResponse.json(
-        { error: 'Scheduled post is currently publishing.', reason: 'scheduled_post_in_flight' },
+        { error: 'This post is already being published.', reason: 'scheduled_post_in_flight' },
+        { status: 409 },
+      );
+    }
+    if (error instanceof ScheduledPostManualReconciliationError) {
+      return NextResponse.json(
+        {
+          error: 'This post may already be live and must be checked manually before rescheduling.',
+          reason: 'scheduled_post_manual_reconciliation',
+        },
+        { status: 409 },
+      );
+    }
+    if (error instanceof ScheduledPostDispatchEvidenceError) {
+      return NextResponse.json(
+        {
+          error: 'This post has already been published to at least one platform and cannot be queued again.',
+          reason: 'scheduled_post_dispatch_evidence',
+        },
         { status: 409 },
       );
     }
@@ -287,7 +330,7 @@ export async function handlePatchScheduleSocialContentPost(
       { status: 500 },
     );
   } finally {
-    if (ownsPool && pooled) {
+    if (pooled) {
       pooled.release();
     }
   }
@@ -306,6 +349,7 @@ type DeleteScheduleQueryable = {
     sql: string,
     params: unknown[],
   ) => Promise<{ rows: Array<Record<string, unknown>>; rowCount: number | null }>;
+  connect?: () => Promise<DeleteScheduleQueryable & { release: () => void }>;
 };
 
 interface DeleteScheduleOptions {
@@ -335,19 +379,28 @@ export async function handleDeleteScheduleSocialContentPost(
     return NextResponse.json(POST_NOT_FOUND, { status: 404 });
   }
 
-  const ownsPool = !options.queryable;
-  const pooled = options.queryable ? null : await pool.connect();
+  const connectionSource = options.queryable ?? pool;
+  const pooled = connectionSource.connect ? await connectionSource.connect() : null;
   const wrapPooled: DeleteScheduleQueryable = {
     query: ((sql: string, params: unknown[]) => pooled!.query(sql, params)) as unknown as DeleteScheduleQueryable['query'],
   };
-  const client: DeleteScheduleQueryable = options.queryable ?? wrapPooled;
+  const client: DeleteScheduleQueryable = pooled ? wrapPooled : options.queryable!;
+  let transactionFinished = false;
 
   try {
+    await client.query('BEGIN', []);
     const lookup = await client.query(
-      'SELECT id, tenant_id FROM posts WHERE id = $1 AND tenant_id = $2 LIMIT 1',
+      `SELECT id, tenant_id
+         FROM posts
+        WHERE id = $1
+          AND tenant_id = $2
+        LIMIT 1
+        FOR UPDATE`,
       [postIdInt, tenantId],
     );
     if ((lookup.rowCount ?? lookup.rows.length) === 0 || lookup.rows.length === 0) {
+      await client.query('COMMIT', []);
+      transactionFinished = true;
       return NextResponse.json(POST_NOT_FOUND, { status: 404 });
     }
 
@@ -357,37 +410,79 @@ export async function handleDeleteScheduleSocialContentPost(
       tenantId: String(tenantResult.tenantContext.tenantId),
     });
     if (!hasApproval) {
+      await client.query('COMMIT', []);
+      transactionFinished = true;
       return NextResponse.json(PUBLISH_REQUIRES_APPROVAL, { status: 409 });
     }
 
-    // Refuse to cancel a row that the worker has already claimed and started dispatching.
-    const inFlightCheck = await client.query(
-      "SELECT dispatch_status FROM scheduled_posts WHERE post_id = $1 AND tenant_id = $2 LIMIT 1",
+    // Serialize cancellation against the worker's parent-row claim. Whichever
+    // transaction gets this lock first determines the only valid outcome.
+    const scheduledOwner = await client.query(
+      `SELECT id,
+              dispatch_status,
+              EXISTS (
+                SELECT 1
+                  FROM scheduled_post_dispatches dispatch
+                 WHERE dispatch.scheduled_post_id = scheduled_posts.id
+                   AND dispatch.status IN ('dispatched', 'manual_reconciliation')
+              ) AS has_terminal_dispatch_evidence
+         FROM scheduled_posts
+        WHERE post_id = $1 AND tenant_id = $2
+        FOR UPDATE`,
       [postIdInt, tenantId],
     );
-    if (inFlightCheck.rows.length > 0 && inFlightCheck.rows[0]!['dispatch_status'] === 'in_flight') {
-      return NextResponse.json(
-        { error: 'Dispatch is in progress — cannot cancel mid-flight.', reason: 'dispatch_in_flight' },
-        { status: 409 },
-      );
-    }
-
-    const del = await client.query(
-      'DELETE FROM scheduled_posts WHERE post_id = $1 AND tenant_id = $2',
-      [postIdInt, tenantId],
-    );
-    if ((del.rowCount ?? 0) === 0) {
+    if (scheduledOwner.rows.length === 0) {
+      await client.query('COMMIT', []);
+      transactionFinished = true;
       return NextResponse.json(
         { error: 'Scheduled post not found.', reason: 'scheduled_post_not_found' },
         { status: 404 },
       );
     }
+    const dispatchStatus = scheduledOwner.rows[0]!['dispatch_status'];
+    const hasTerminalDispatchEvidence = scheduledOwner.rows[0]!['has_terminal_dispatch_evidence'] === true;
+    const isSafelyCancellable = dispatchStatus === 'pending' || dispatchStatus === 'failed';
+    if (!isSafelyCancellable || hasTerminalDispatchEvidence) {
+      await client.query('COMMIT', []);
+      transactionFinished = true;
+      return NextResponse.json(
+        dispatchStatus === 'in_flight'
+          ? { error: 'Dispatch is in progress — cannot cancel mid-flight.', reason: 'dispatch_in_flight' }
+          : { error: 'Scheduled post is not cancellable.', reason: 'dispatch_not_cancellable' },
+        { status: 409 },
+      );
+    }
+
+    const del = await client.query(
+      `DELETE FROM scheduled_posts
+        WHERE id = $1::bigint
+          AND dispatch_status IN ('pending', 'failed')
+          AND NOT EXISTS (
+            SELECT 1
+              FROM scheduled_post_dispatches dispatch
+             WHERE dispatch.scheduled_post_id = scheduled_posts.id
+               AND dispatch.status IN ('dispatched', 'manual_reconciliation')
+          )`,
+      [scheduledOwner.rows[0]!['id']],
+    );
+    if ((del.rowCount ?? 0) === 0) {
+      await client.query('ROLLBACK', []);
+      transactionFinished = true;
+      return NextResponse.json(
+        { error: 'Dispatch changed while cancellation was pending.', reason: 'dispatch_in_flight' },
+        { status: 409 },
+      );
+    }
+
+    await client.query('COMMIT', []);
+    transactionFinished = true;
 
     return NextResponse.json(
       { jobId, postId, deletedAt: new Date().toISOString() },
       { status: 200 },
     );
   } catch (error) {
+    if (!transactionFinished) await client.query('ROLLBACK', []).catch(() => {});
     const message = error instanceof Error ? error.message : String(error);
     console.error('[social-content-schedule-delete]', { jobId, postId, error: message });
     return NextResponse.json(
@@ -395,7 +490,7 @@ export async function handleDeleteScheduleSocialContentPost(
       { status: 500 },
     );
   } finally {
-    if (ownsPool && pooled) {
+    if (pooled) {
       pooled.release();
     }
   }

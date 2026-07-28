@@ -6,6 +6,10 @@ import { test } from 'node:test';
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DDL = fs.readFileSync(path.join(PROJECT_ROOT, 'scripts', 'init-db.js'), 'utf8');
+const SCHEDULED_DISPATCH_MIGRATION = fs.readFileSync(
+  path.join(PROJECT_ROOT, 'migrations', '20260724000000_scheduled_dispatch_submission_fence.sql'),
+  'utf8',
+);
 
 // A fresh DB provisioned from init-db.js must match the prod posts table.
 // Prod posts carries these columns (information_schema diff, 2026-05-20);
@@ -45,7 +49,20 @@ test('init-db.js indexes posts.job_id for the scheduled-dispatch media lookup', 
 test('init-db.js keeps the posts.status check constraint in sync with prod', () => {
   assert.match(
     DDL,
-    /posts_status_check CHECK \(status IN \([^)]*'published'[^)]*'failed'[^)]*\)\)/,
+    /posts_status_check[\s\S]{0,200}\$check\$status IN \([^)]*'published'[^)]*'failed'[^)]*\)\$check\$/,
     'posts.status check constraint must mirror prod',
+  );
+});
+
+test('schema bootstrap remains additive and leaves legacy in-flight evidence untouched', () => {
+  assert.doesNotMatch(
+    DDL,
+    /quarantineLegacyScheduledDispatches/,
+    'old application containers may still own traffic during schema bootstrap, so init-db must not run the data cutover',
+  );
+  assert.doesNotMatch(
+    SCHEDULED_DISPATCH_MIGRATION,
+    /UPDATE\s+(scheduled_posts|scheduled_post_dispatches|posts)\b/i,
+    'the additive migration must not expose manual-reconciliation rows to an old app that can delete them',
   );
 });

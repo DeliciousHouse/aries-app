@@ -61,15 +61,16 @@ const SWEEP_SQL = extractExportedSql('SWEEP_DEAD_CAMPAIGN_SQL');
 test('sweep selects only permanently-unclaimable rows: past-end pending, or past-end STALE in_flight', () => {
   assert.match(
     SWEEP_SQL,
-    /campaign_end_date IS NOT NULL AND campaign_end_date < NOW\(\)/,
+    /owner\.campaign_end_date IS NOT NULL\s+AND owner\.campaign_end_date < NOW\(\)/,
     'the dead CTE must require a PASSED campaign_end_date (NULL = weekly legacy, never swept)',
   );
   assert.match(
     SWEEP_SQL,
-    /dispatch_status = 'pending'\s+OR \(dispatch_status = 'in_flight' AND dispatch_claimed_at < \$2\)/,
-    'pending rows sweep immediately; in_flight rows only past the stale-reclaim cutoff ($2) so a live publish crossing the deadline still writes its own outcome',
+    /owner\.dispatch_status = 'pending'\s+OR \(owner\.dispatch_status = 'in_flight'\s+AND owner\.dispatch_started_at IS NULL\s+AND owner\.dispatch_claimed_at < \$2\)/,
+    'pending rows sweep immediately; only never-started stale in_flight rows sweep, while unknown provider outcomes remain quarantined',
   );
-  assert.match(SWEEP_SQL, /FOR UPDATE SKIP LOCKED/, 'the dead CTE must skip rows locked by a concurrent claim');
+  assert.match(SWEEP_SQL, /FOR UPDATE OF post SKIP LOCKED/, 'the sweep locks canonical posts before scheduled owners');
+  assert.match(SWEEP_SQL, /FOR UPDATE OF owner SKIP LOCKED/, 'the dead CTE skips scheduled owners locked by a concurrent claim');
 });
 
 test('sweep mutating arm re-checks the FULL predicate (draft-expiry pattern) and writes the existing terminal vocabulary', () => {
@@ -77,7 +78,7 @@ test('sweep mutating arm re-checks the FULL predicate (draft-expiry pattern) and
   // finished between the CTE SELECT and the UPDATE is skipped, not clobbered.
   assert.match(
     SWEEP_SQL,
-    /WHERE sp\.id = d\.id\s+AND sp\.campaign_end_date IS NOT NULL AND sp\.campaign_end_date < NOW\(\)\s+AND \(sp\.dispatch_status = 'pending'\s+OR \(sp\.dispatch_status = 'in_flight' AND sp\.dispatch_claimed_at < \$2\)\)/,
+    /WHERE sp\.id = d\.id\s+AND sp\.campaign_end_date IS NOT NULL AND sp\.campaign_end_date < NOW\(\)\s+AND \(sp\.dispatch_status = 'pending'\s+OR \(sp\.dispatch_status = 'in_flight'\s+AND sp\.dispatch_started_at IS NULL\s+AND sp\.dispatch_claimed_at < \$2\)\)/,
     'the parent UPDATE must re-check the full dead predicate in its own WHERE',
   );
   assert.match(
@@ -150,7 +151,7 @@ test('tick() reports sweep counts and continues dispatch when the sweep errors',
   // Case A: sweep returns counts, no due rows -> report.expired wired through.
   const poolA = {
     query: async (sql: string) => {
-      if (sql.trimStart().startsWith('WITH dead AS')) {
+      if (sql.includes('campaign_window_passed: campaign_end_date')) {
         return { rows: [{ swept: 3, posts_expired: 2 }], rowCount: 1 };
       }
       return { rows: [], rowCount: 0 }; // DUE_ROWS_SQL: nothing due
@@ -167,7 +168,7 @@ test('tick() reports sweep counts and continues dispatch when the sweep errors',
   let dueScanned = false;
   const poolB = {
     query: async (sql: string) => {
-      if (sql.trimStart().startsWith('WITH dead AS')) {
+      if (sql.includes('campaign_window_passed: campaign_end_date')) {
         throw new Error('sweep exploded');
       }
       dueScanned = true;
@@ -224,6 +225,7 @@ test('dead-campaign sweep semantics against real Postgres (rolled back)', async 
         dispatchStatus: string;
         campaignEnd: string | null;
         updatedAt?: string;
+        dispatchClaimedAt?: string;
         platformPostId?: string | null;
       }): Promise<{ postId: number; spId: number }> {
         const post = await client.query(
@@ -234,8 +236,9 @@ test('dead-campaign sweep semantics against real Postgres (rolled back)', async 
         const postId = (post.rows[0] as { id: number }).id;
         const sp = await client.query(
           `INSERT INTO scheduled_posts
-             (post_id, tenant_id, scheduled_for, target_platforms, campaign_end_date, dispatch_status, updated_at)
-           VALUES ($1, $2, now() - interval '3 days', '{facebook}', $3, $4, $5)
+             (post_id, tenant_id, scheduled_for, target_platforms, campaign_end_date,
+              dispatch_status, updated_at, dispatch_claimed_at)
+           VALUES ($1, $2, now() - interval '3 days', '{facebook}', $3, $4, $5, $6)
            RETURNING id`,
           [
             postId,
@@ -243,6 +246,7 @@ test('dead-campaign sweep semantics against real Postgres (rolled back)', async 
             opts.campaignEnd,
             opts.dispatchStatus,
             opts.updatedAt ?? new Date().toISOString(),
+            opts.dispatchClaimedAt ?? new Date().toISOString(),
           ],
         );
         return { postId, spId: (sp.rows[0] as { id: number }).id };
@@ -266,6 +270,7 @@ test('dead-campaign sweep semantics against real Postgres (rolled back)', async 
         dispatchStatus: 'in_flight',
         campaignEnd: past,
         updatedAt: staleUpdated,
+        dispatchClaimedAt: staleUpdated,
       });
       // 6. pending + past end but the post already reached Meta -> row swept,
       //    post NOT expired (the platform_post_id guard).

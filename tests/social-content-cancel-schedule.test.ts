@@ -25,22 +25,35 @@ function tenantLoader(tenantId: number) {
 function buildScheduleQueryable(opts: {
   postExists?: boolean;
   scheduledDispatchStatus?: string | null;
+  hasManualChild?: boolean;
+  hasDispatchedChild?: boolean;
   deleteRowCount?: number;
 }) {
   const calls: { sql: string; params: unknown[] }[] = [];
-  const query = async (sql: string, params: unknown[]): Promise<QueryResult> => {
+  const query = async (sql: string, params: unknown[] = []): Promise<QueryResult> => {
     const trimmed = sql.trim();
     calls.push({ sql: trimmed, params });
+    if (trimmed === 'BEGIN' || trimmed === 'COMMIT' || trimmed === 'ROLLBACK') {
+      return { rows: [], rowCount: 0 };
+    }
     if (trimmed.startsWith('SELECT id, tenant_id')) {
       if (!opts.postExists) return { rows: [], rowCount: 0 };
       const [postId, tenantId] = params as [number, number];
       return { rows: [{ id: postId, tenant_id: tenantId }], rowCount: 1 };
     }
-    if (trimmed.startsWith('SELECT dispatch_status FROM scheduled_posts')) {
+    if (/^SELECT id,\s+dispatch_status/.test(trimmed)) {
       if (opts.scheduledDispatchStatus === null || opts.scheduledDispatchStatus === undefined) {
         return { rows: [], rowCount: 0 };
       }
-      return { rows: [{ dispatch_status: opts.scheduledDispatchStatus }], rowCount: 1 };
+      return {
+        rows: [{
+          id: 71,
+          dispatch_status: opts.scheduledDispatchStatus,
+          has_manual_reconciliation: opts.hasManualChild ?? false,
+          has_terminal_dispatch_evidence: Boolean(opts.hasManualChild || opts.hasDispatchedChild),
+        }],
+        rowCount: 1,
+      };
     }
     if (trimmed.startsWith('DELETE FROM scheduled_posts')) {
       const rowCount = opts.deleteRowCount ?? 1;
@@ -56,21 +69,34 @@ function buildScheduleQueryable(opts: {
 function buildPostQueryable(opts: {
   postExists?: boolean;
   scheduledDispatchStatus?: string | null;
+  hasManualChild?: boolean;
+  hasDispatchedChild?: boolean;
 }) {
   const calls: { sql: string; params: unknown[] }[] = [];
-  const query = async (sql: string, params: unknown[]): Promise<QueryResult> => {
+  const query = async (sql: string, params: unknown[] = []): Promise<QueryResult> => {
     const trimmed = sql.trim();
     calls.push({ sql: trimmed, params });
+    if (trimmed === 'BEGIN' || trimmed === 'COMMIT' || trimmed === 'ROLLBACK') {
+      return { rows: [], rowCount: 0 };
+    }
     if (trimmed.startsWith('SELECT id, tenant_id')) {
       if (!opts.postExists) return { rows: [], rowCount: 0 };
       const [postId, tenantId] = params as [number, number];
       return { rows: [{ id: postId, tenant_id: tenantId }], rowCount: 1 };
     }
-    if (trimmed.startsWith('SELECT dispatch_status FROM scheduled_posts')) {
+    if (/^SELECT id,\s+dispatch_status/.test(trimmed)) {
       if (opts.scheduledDispatchStatus === null || opts.scheduledDispatchStatus === undefined) {
         return { rows: [], rowCount: 0 };
       }
-      return { rows: [{ dispatch_status: opts.scheduledDispatchStatus }], rowCount: 1 };
+      return {
+        rows: [{
+          id: 71,
+          dispatch_status: opts.scheduledDispatchStatus,
+          has_manual_reconciliation: opts.hasManualChild ?? false,
+          has_terminal_dispatch_evidence: Boolean(opts.hasManualChild || opts.hasDispatchedChild),
+        }],
+        rowCount: 1,
+      };
     }
     if (trimmed.startsWith('DELETE FROM scheduled_posts')) {
       const hadRow = opts.scheduledDispatchStatus !== null && opts.scheduledDispatchStatus !== undefined;
@@ -104,6 +130,25 @@ test('DELETE schedule happy path: pending row, returns 200 + row gone', async ()
   assert.ok(typeof body.deletedAt === 'string', 'deletedAt must be a string');
   const deleteCall = calls.find((c) => c.sql.startsWith('DELETE FROM scheduled_posts'));
   assert.ok(deleteCall, 'must issue DELETE FROM scheduled_posts');
+  assert.match(deleteCall.sql, /NOT EXISTS[\s\S]*status IN \('dispatched', 'manual_reconciliation'\)/);
+});
+
+test('DELETE schedule allows a known failed row with no live or ambiguous evidence', async () => {
+  const { queryable, calls } = buildScheduleQueryable({
+    postExists: true,
+    scheduledDispatchStatus: 'failed',
+    deleteRowCount: 1,
+  });
+  const response = await handleDeleteScheduleSocialContentPost('job-abc', '42', {
+    tenantContextLoader: tenantLoader(15),
+    queryable,
+    publishApprovalResolver: async () => true,
+  });
+
+  assert.equal(response.status, 200);
+  const deleteCall = calls.find((call) => call.sql.startsWith('DELETE FROM scheduled_posts'));
+  assert.ok(deleteCall);
+  assert.match(deleteCall.sql, /dispatch_status IN \('pending', 'failed'\)/);
 });
 
 test('DELETE schedule cross-tenant: returns 404', async () => {
@@ -134,6 +179,69 @@ test('DELETE schedule in_flight: returns 409 with dispatch_in_flight', async () 
   assert.equal(response.status, 409);
   const body = (await response.json()) as { reason: string };
   assert.equal(body.reason, 'dispatch_in_flight');
+});
+
+test('DELETE schedule preserves manual-reconciliation evidence', async () => {
+  const { queryable, calls } = buildScheduleQueryable({
+    postExists: true,
+    scheduledDispatchStatus: 'manual_reconciliation',
+  });
+  const response = await handleDeleteScheduleSocialContentPost(
+    'job-abc',
+    '42',
+    {
+      tenantContextLoader: tenantLoader(15),
+      queryable,
+      publishApprovalResolver: async () => true,
+    },
+  );
+  assert.equal(response.status, 409);
+  const body = (await response.json()) as { reason: string };
+  assert.equal(body.reason, 'dispatch_not_cancellable');
+  assert.equal(calls.some((call) => call.sql.startsWith('DELETE FROM scheduled_posts')), false);
+});
+
+test('DELETE schedule preserves manual child evidence when the parent is still pending', async () => {
+  const { queryable, calls } = buildScheduleQueryable({
+    postExists: true,
+    scheduledDispatchStatus: 'pending',
+    hasManualChild: true,
+  });
+  const response = await handleDeleteScheduleSocialContentPost('job-abc', '42', {
+    tenantContextLoader: tenantLoader(15),
+    queryable,
+    publishApprovalResolver: async () => true,
+  });
+  assert.equal(response.status, 409);
+  const body = (await response.json()) as { reason: string };
+  assert.equal(body.reason, 'dispatch_not_cancellable');
+  const ownerLock = calls.find((call) => /^SELECT id,\s+dispatch_status/.test(call.sql));
+  assert.ok(ownerLock);
+  assert.match(ownerLock.sql, /EXISTS[\s\S]*status IN \('dispatched', 'manual_reconciliation'\)/);
+  assert.equal(calls.some((call) => call.sql.startsWith('DELETE FROM scheduled_posts')), false);
+});
+
+test('DELETE schedule preserves dispatched child evidence when the parent is still pending', async () => {
+  const { queryable, calls } = buildScheduleQueryable({
+    postExists: true,
+    scheduledDispatchStatus: 'pending',
+    hasDispatchedChild: true,
+  });
+  const response = await handleDeleteScheduleSocialContentPost('job-abc', '42', {
+    tenantContextLoader: tenantLoader(15),
+    queryable,
+    publishApprovalResolver: async () => true,
+  });
+  assert.equal(response.status, 409);
+  const body = (await response.json()) as { reason: string };
+  assert.equal(body.reason, 'dispatch_not_cancellable');
+  const ownerLock = calls.find((call) => /^SELECT id,\s+dispatch_status/.test(call.sql));
+  assert.ok(ownerLock);
+  assert.match(
+    ownerLock.sql,
+    /EXISTS[\s\S]*status IN \('dispatched', 'manual_reconciliation'\)[\s\S]*has_terminal_dispatch_evidence/,
+  );
+  assert.equal(calls.some((call) => call.sql.startsWith('DELETE FROM scheduled_posts')), false);
 });
 
 test('DELETE schedule no-publish-approval: returns 409 with publish_requires_approval', async () => {
@@ -171,8 +279,93 @@ test('DELETE post cascade: both rows gone, returns 200 with scheduledPostDeleted
   assert.equal(body.postDeleted, true);
   const schedDel = calls.find((c) => c.sql.startsWith('DELETE FROM scheduled_posts'));
   assert.ok(schedDel, 'must DELETE scheduled_posts row');
+  assert.match(schedDel.sql, /NOT EXISTS[\s\S]*status IN \('dispatched', 'manual_reconciliation'\)/);
   const postDel = calls.find((c) => c.sql.startsWith('DELETE FROM posts'));
   assert.ok(postDel, 'must DELETE posts row');
+});
+
+test('DELETE post allows a known failed schedule with no live or ambiguous evidence', async () => {
+  const { queryable, calls } = buildPostQueryable({
+    postExists: true,
+    scheduledDispatchStatus: 'failed',
+  });
+  const response = await handleDeleteSocialContentPost('job-abc', '42', {
+    tenantContextLoader: tenantLoader(15),
+    queryable,
+    publishApprovalResolver: async () => true,
+  });
+
+  assert.equal(response.status, 200);
+  const scheduleDelete = calls.find((call) => call.sql.startsWith('DELETE FROM scheduled_posts'));
+  assert.ok(scheduleDelete);
+  assert.match(scheduleDelete.sql, /dispatch_status IN \('pending', 'failed'\)/);
+  assert.ok(calls.some((call) => call.sql.startsWith('DELETE FROM posts')));
+});
+
+test('DELETE post preserves manual-reconciliation evidence and canonical content', async () => {
+  const { queryable, calls } = buildPostQueryable({
+    postExists: true,
+    scheduledDispatchStatus: 'manual_reconciliation',
+  });
+  const response = await handleDeleteSocialContentPost(
+    'job-abc',
+    '42',
+    {
+      tenantContextLoader: tenantLoader(15),
+      queryable,
+      publishApprovalResolver: async () => true,
+    },
+  );
+  assert.equal(response.status, 409);
+  const body = (await response.json()) as { reason: string };
+  assert.equal(body.reason, 'dispatch_not_cancellable');
+  assert.equal(calls.some((call) => call.sql.startsWith('DELETE FROM scheduled_posts')), false);
+  assert.equal(calls.some((call) => call.sql.startsWith('DELETE FROM posts')), false);
+});
+
+test('DELETE post preserves manual child evidence and canonical content when parent is pending', async () => {
+  const { queryable, calls } = buildPostQueryable({
+    postExists: true,
+    scheduledDispatchStatus: 'pending',
+    hasManualChild: true,
+  });
+  const response = await handleDeleteSocialContentPost('job-abc', '42', {
+    tenantContextLoader: tenantLoader(15),
+    queryable,
+    publishApprovalResolver: async () => true,
+  });
+  assert.equal(response.status, 409);
+  const body = (await response.json()) as { reason: string };
+  assert.equal(body.reason, 'dispatch_not_cancellable');
+  const ownerLock = calls.find((call) => /^SELECT id,\s+dispatch_status/.test(call.sql));
+  assert.ok(ownerLock);
+  assert.match(ownerLock.sql, /EXISTS[\s\S]*status IN \('dispatched', 'manual_reconciliation'\)/);
+  assert.equal(calls.some((call) => call.sql.startsWith('DELETE FROM scheduled_posts')), false);
+  assert.equal(calls.some((call) => call.sql.startsWith('DELETE FROM posts')), false);
+});
+
+test('DELETE post preserves dispatched child evidence and canonical content when parent is pending', async () => {
+  const { queryable, calls } = buildPostQueryable({
+    postExists: true,
+    scheduledDispatchStatus: 'pending',
+    hasDispatchedChild: true,
+  });
+  const response = await handleDeleteSocialContentPost('job-abc', '42', {
+    tenantContextLoader: tenantLoader(15),
+    queryable,
+    publishApprovalResolver: async () => true,
+  });
+  assert.equal(response.status, 409);
+  const body = (await response.json()) as { reason: string };
+  assert.equal(body.reason, 'dispatch_not_cancellable');
+  const ownerLock = calls.find((call) => /^SELECT id,\s+dispatch_status/.test(call.sql));
+  assert.ok(ownerLock);
+  assert.match(
+    ownerLock.sql,
+    /EXISTS[\s\S]*status IN \('dispatched', 'manual_reconciliation'\)[\s\S]*has_terminal_dispatch_evidence/,
+  );
+  assert.equal(calls.some((call) => call.sql.startsWith('DELETE FROM scheduled_posts')), false);
+  assert.equal(calls.some((call) => call.sql.startsWith('DELETE FROM posts')), false);
 });
 
 test('DELETE post idempotent: already-gone post returns 404 not 500', async () => {
