@@ -109,7 +109,7 @@ test('production sweeps execute against PostgreSQL in canonical-first order with
         dispatch_status TEXT NOT NULL,
         dispatch_claimed_at TIMESTAMPTZ,
         dispatch_started_at TIMESTAMPTZ,
-        dispatch_attempt_token UUID,
+        dispatch_attempt_token TEXT,
         dispatched_at TIMESTAMPTZ,
         error_at TIMESTAMPTZ,
         error_message TEXT,

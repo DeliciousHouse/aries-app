@@ -370,3 +370,31 @@ test('cutover runner logs every defined quarantine count from the helper contrac
   }
   assert.doesNotMatch(source, /result\.quarantined/);
 });
+
+test('PostgreSQL safety fixtures use production TEXT tokens and feedback-postgres runs the real cutover CTE', () => {
+  const claimFixture = readFileSync(
+    path.join(REPO_ROOT, 'tests', 'scheduled-worker-claim-lock-order.test.ts'),
+    'utf8',
+  );
+  const sweepFixture = readFileSync(
+    path.join(REPO_ROOT, 'tests', 'scheduled-worker-sweep-lock-order.test.ts'),
+    'utf8',
+  );
+  for (const fixture of [claimFixture, sweepFixture]) {
+    assert.match(fixture, /dispatch_attempt_token TEXT/);
+    assert.doesNotMatch(fixture, /dispatch_attempt_token UUID/);
+  }
+
+  const workflow = readFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'tests.yml'), 'utf8');
+  assert.match(
+    workflow,
+    /feedback-postgres:[\s\S]*tests\/scheduled-dispatch-cutover\.requires-infra\.test\.ts/,
+  );
+
+  const postgresCutover = readFileSync(
+    path.join(REPO_ROOT, 'tests', 'scheduled-dispatch-cutover.requires-infra.test.ts'),
+    'utf8',
+  );
+  assert.match(postgresCutover, /quarantineLegacyScheduledDispatches/);
+  assert.match(postgresCutover, /dispatch_attempt_token TEXT/);
+});

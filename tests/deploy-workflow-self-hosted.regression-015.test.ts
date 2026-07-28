@@ -224,6 +224,14 @@ if [[ "$*" == "inspect -f {{.Image}} old-app-container" ]]; then
   printf 'sha-old-app\\n'
   exit 0
 fi
+if [[ "$*" == "inspect old-worker-container" ]]; then
+  printf '%s\\n' '[{"Id":"old-worker-container","Name":"/aries-scheduled-posts-worker-1","Image":"sha-old-worker","Config":{"Image":"ghcr.io/example/aries:old"},"HostConfig":{},"NetworkSettings":{"Networks":{}}}]'
+  exit 0
+fi
+if [[ "$*" == "inspect old-app-container" ]]; then
+  printf '%s\\n' '[{"Id":"old-app-container","Name":"/aries-app-1","Image":"sha-old-app","Config":{"Image":"ghcr.io/example/aries:old"},"HostConfig":{},"NetworkSettings":{"Networks":{}}}]'
+  exit 0
+fi
 if [[ "$1" == "inspect" ]]; then
   printf 'true\\n'
   exit 0
@@ -260,7 +268,10 @@ exit 0
     const schema = calls.indexOf('compose run --rm --no-deps --entrypoint node aries-app scripts/init-db.js');
     const restoreApp = calls.indexOf('start old-app-container');
     const restoreWorker = calls.indexOf('start old-worker-container');
-    assert.ok(stopApp !== -1 && stopWorker !== -1 && schema !== -1 && restoreApp !== -1 && restoreWorker !== -1);
+    assert.ok(
+      stopApp !== -1 && stopWorker !== -1 && schema !== -1 && restoreApp !== -1 && restoreWorker !== -1,
+      `${calls}\nstderr=${result.stderr}`,
+    );
     assert.ok(
       stopApp < stopWorker && stopWorker < schema && schema < restoreApp && schema < restoreWorker,
       'old mutation traffic is quiesced before worker/schema work and exact containers return only after failure',
@@ -271,7 +282,7 @@ exit 0
   }
 });
 
-test('application quiesce failure restores the old app without stopping its still-running worker', () => {
+test('application quiesce failure does not start an old app before restore safety is proven', () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), 'aries-app-quiesce-failure-'));
   const binDir = path.join(tempRoot, 'bin');
   const logPath = path.join(tempRoot, 'docker.log');
@@ -312,9 +323,10 @@ exit 0
     assert.equal(result.status, 55, `quiesce failure must survive cleanup; stderr=${result.stderr}`);
     const calls = readFileSync(logPath, 'utf8');
     assert.match(calls, /compose stop aries-app/);
-    assert.match(calls, /start old-app-container/);
+    assert.doesNotMatch(calls, /start old-app-container/);
     assert.doesNotMatch(calls, /compose stop aries-scheduled-posts-worker/);
     assert.doesNotMatch(calls, /start old-worker-container/);
+    assert.match(`${result.stdout}\n${result.stderr}`, /mutation traffic remains quiesced/i);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -791,6 +803,184 @@ replace_application_and_verify 'ghcr.io/example/aries:target' 'sha-target' 'arie
       `${result.stdout}\n${result.stderr}`,
       /protocol boundary crossed; refusing to restore the previous scheduled worker/i,
     );
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('a stopped old worker still requires restore proof before a quiesced old app can return', () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), 'aries-stopped-worker-unsafe-app-'));
+  const binDir = path.join(tempRoot, 'bin');
+  const logPath = path.join(tempRoot, 'docker.log');
+  const fakeDocker = path.join(binDir, 'docker');
+  try {
+    mkdirSync(binDir);
+    writeFileSync(fakeDocker, `#!/usr/bin/env bash
+set -u
+printf '%s\\n' "$*" >> "\${DOCKER_LOG}"
+if [[ "$*" == "compose ps -q aries-scheduled-posts-worker" ]]; then printf 'old-worker-container\\n'; exit 0; fi
+if [[ "$*" == "inspect -f {{.State.Running}} old-worker-container" ]]; then printf 'false\\n'; exit 0; fi
+if [[ "$*" == "inspect -f {{.Image}} old-worker-container" ]]; then printf 'sha-old-worker\\n'; exit 0; fi
+if [[ "$*" == "inspect old-worker-container" ]]; then
+  printf '%s\\n' '[{"Id":"old-worker-container","Name":"/aries-scheduled-posts-worker-1","Image":"sha-old-worker","Config":{"Image":"ghcr.io/example/aries:old"},"HostConfig":{},"NetworkSettings":{"Networks":{}}}]'; exit 0
+fi
+if [[ "$*" == "compose ps -q aries-app" ]]; then printf 'old-app-container\\n'; exit 0; fi
+if [[ "$*" == "inspect -f {{.State.Running}} old-app-container" ]]; then printf 'true\\n'; exit 0; fi
+if [[ "$*" == "inspect -f {{.Image}} old-app-container" ]]; then printf 'sha-old-app\\n'; exit 0; fi
+if [[ "$*" == "inspect old-app-container" ]]; then
+  printf '%s\\n' '[{"Id":"old-app-container","Name":"/aries-app-1","Image":"sha-old-app","Config":{"Image":"ghcr.io/example/aries:old"},"HostConfig":{},"NetworkSettings":{"Networks":{}}}]'; exit 0
+fi
+if [[ "$*" == *"scripts/release/assert-no-unresolved-scheduled-claims.mjs"* ]]; then exit 65; fi
+if [[ "$*" == *"scripts/init-db.js"* ]]; then exit 42; fi
+exit 0
+`, { mode: 0o755 });
+    chmodSync(fakeDocker, 0o755);
+
+    const result = spawnSync(
+      'bash',
+      [path.join(PROJECT_ROOT, 'scripts', 'release', 'apply-schema-with-worker-restore.sh')],
+      {
+        cwd: PROJECT_ROOT,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          TARGET_IMAGE: 'ghcr.io/example/aries:target',
+          ARIES_QUIESCE_APPLICATION_DURING_SCHEMA: '1',
+          DOCKER_LOG: logPath,
+          PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+        },
+      },
+    );
+
+    assert.notEqual(result.status, 0);
+    const calls = readFileSync(logPath, 'utf8');
+    assert.match(calls, /scripts\/release\/assert-no-unresolved-scheduled-claims\.mjs/);
+    assert.doesNotMatch(calls, /start old-app-container/);
+    assert.doesNotMatch(calls, /start old-worker-container/);
+    assert.match(`${result.stdout}\n${result.stderr}`, /mutation traffic remains quiesced|publishing remains stopped/i);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('rollback starts the old worker only after the exact old app passes functional readiness', () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), 'aries-old-app-ready-before-worker-'));
+  const binDir = path.join(tempRoot, 'bin');
+  const logPath = path.join(tempRoot, 'docker.log');
+  const fakeDocker = path.join(binDir, 'docker');
+  try {
+    mkdirSync(binDir);
+    writeFileSync(fakeDocker, `#!/usr/bin/env bash
+set -u
+printf '%s\\n' "$*" >> "\${DOCKER_LOG}"
+if [[ "$*" == "compose ps -q aries-scheduled-posts-worker" ]]; then printf 'old-worker-container\\n'; exit 0; fi
+if [[ "$*" == "inspect -f {{.State.Running}} old-worker-container" ]]; then printf 'true\\n'; exit 0; fi
+if [[ "$*" == "inspect -f {{.Image}} old-worker-container" ]]; then printf 'sha-old-worker\\n'; exit 0; fi
+if [[ "$*" == "inspect old-worker-container" ]]; then
+  printf '%s\\n' '[{"Id":"old-worker-container","Name":"/aries-scheduled-posts-worker-1","Image":"sha-old-worker","Config":{"Image":"ghcr.io/example/aries:old"},"HostConfig":{},"NetworkSettings":{"Networks":{}}}]'; exit 0
+fi
+if [[ "$*" == "compose ps -q aries-app" ]]; then printf 'old-app-container\\n'; exit 0; fi
+if [[ "$*" == "inspect -f {{.State.Running}} old-app-container" ]]; then printf 'true\\n'; exit 0; fi
+if [[ "$*" == "inspect -f {{.Image}} old-app-container" ]]; then printf 'sha-old-app\\n'; exit 0; fi
+if [[ "$*" == "inspect old-app-container" ]]; then
+  printf '%s\\n' '[{"Id":"old-app-container","Name":"/aries-app-1","Image":"sha-old-app","Config":{"Image":"ghcr.io/example/aries:old","Env":["A=1"]},"HostConfig":{},"NetworkSettings":{"Networks":{}}}]'; exit 0
+fi
+if [[ "$*" == "exec old-app-container wget -qO- --timeout=1 --tries=1 http://127.0.0.1:3000/" ]]; then exit 0; fi
+if [[ "$*" == *"scripts/init-db.js"* ]]; then exit 42; fi
+exit 0
+`, { mode: 0o755 });
+    chmodSync(fakeDocker, 0o755);
+
+    const result = spawnSync(
+      'bash',
+      [path.join(PROJECT_ROOT, 'scripts', 'release', 'apply-schema-with-worker-restore.sh')],
+      {
+        cwd: PROJECT_ROOT,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          TARGET_IMAGE: 'ghcr.io/example/aries:target',
+          ARIES_QUIESCE_APPLICATION_DURING_SCHEMA: '1',
+          ARIES_RESTORED_APPLICATION_READINESS_PROBE_TIMEOUT_SECONDS: '1',
+          DOCKER_LOG: logPath,
+          PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+        },
+      },
+    );
+
+    assert.equal(result.status, 42, result.stderr);
+    const calls = readFileSync(logPath, 'utf8');
+    const appStart = calls.indexOf('start old-app-container');
+    const appReady = calls.indexOf(
+      'exec old-app-container wget -qO- --timeout=1 --tries=1 http://127.0.0.1:3000/',
+    );
+    const workerStart = calls.indexOf('start old-worker-container');
+    assert.ok(appStart !== -1 && appReady > appStart && workerStart > appReady, `${calls}\nstderr=${result.stderr}`);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('restored app readiness timeout converts schema success to rollback failure and never starts the old worker', () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), 'aries-old-app-readiness-timeout-'));
+  const binDir = path.join(tempRoot, 'bin');
+  const logPath = path.join(tempRoot, 'docker.log');
+  const fakeDocker = path.join(binDir, 'docker');
+  try {
+    mkdirSync(binDir);
+    writeFileSync(fakeDocker, `#!/usr/bin/env bash
+set -u
+printf '%s\\n' "$*" >> "\${DOCKER_LOG}"
+if [[ "$*" == "compose ps -q aries-scheduled-posts-worker" ]]; then printf 'old-worker-container\\n'; exit 0; fi
+if [[ "$*" == "inspect -f {{.State.Running}} old-worker-container" ]]; then printf 'true\\n'; exit 0; fi
+if [[ "$*" == "inspect -f {{.Image}} old-worker-container" ]]; then printf 'sha-old-worker\\n'; exit 0; fi
+if [[ "$*" == "inspect old-worker-container" ]]; then
+  printf '%s\\n' '[{"Id":"old-worker-container","Name":"/aries-scheduled-posts-worker-1","Image":"sha-old-worker","Config":{"Image":"ghcr.io/example/aries:old"},"HostConfig":{},"NetworkSettings":{"Networks":{}}}]'; exit 0
+fi
+if [[ "$*" == "compose ps -q aries-app" ]]; then printf 'old-app-container\\n'; exit 0; fi
+if [[ "$*" == "inspect -f {{.State.Running}} old-app-container" ]]; then printf 'true\\n'; exit 0; fi
+if [[ "$*" == "inspect -f {{.Image}} old-app-container" ]]; then printf 'sha-old-app\\n'; exit 0; fi
+if [[ "$*" == "inspect old-app-container" ]]; then
+  printf '%s\\n' '[{"Id":"old-app-container","Name":"/aries-app-1","Image":"sha-old-app","Config":{"Image":"ghcr.io/example/aries:old","Env":["A=1"]},"HostConfig":{},"NetworkSettings":{"Networks":{}}}]'; exit 0
+fi
+if [[ "$*" == "exec old-app-container wget -qO- --timeout=1 --tries=1 http://127.0.0.1:3000/" ]]; then exit 1; fi
+exit 0
+`, { mode: 0o755 });
+    chmodSync(fakeDocker, 0o755);
+
+    const result = spawnSync(
+      'bash',
+      [path.join(PROJECT_ROOT, 'scripts', 'release', 'apply-schema-with-worker-restore.sh')],
+      {
+        cwd: PROJECT_ROOT,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          TARGET_IMAGE: 'ghcr.io/example/aries:target',
+          ARIES_QUIESCE_APPLICATION_DURING_SCHEMA: '1',
+          ARIES_RESTORED_APPLICATION_READINESS_ATTEMPTS: '2',
+          ARIES_RESTORED_APPLICATION_READINESS_SLEEP_SECONDS: '0',
+          ARIES_RESTORED_APPLICATION_READINESS_PROBE_TIMEOUT_SECONDS: '1',
+          DOCKER_LOG: logPath,
+          PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+        },
+      },
+    );
+
+    assert.notEqual(result.status, 0, 'a failed rollback readiness gate must replace an otherwise-zero schema status');
+    const calls = readFileSync(logPath, 'utf8');
+    assert.equal(
+      [
+        ...calls.matchAll(
+          /exec old-app-container wget -qO- --timeout=1 --tries=1 http:\/\/127\.0\.0\.1:3000\//g,
+        ),
+      ].length,
+      2,
+      `the readiness retry bound is enforced; calls=${calls}; stderr=${result.stderr}`,
+    );
+    assert.match(calls, /stop old-app-container/, 'an unready restored app must not remain reachable');
+    assert.doesNotMatch(calls, /start old-worker-container/);
+    assert.match(`${result.stdout}\n${result.stderr}`, /restored application readiness failed|refusing to restore the previous worker/i);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }

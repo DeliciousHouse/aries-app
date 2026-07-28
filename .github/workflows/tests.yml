@@ -63,7 +63,7 @@ jobs:
           tests/feedback-reports-store.requires-infra.test.ts
           tests/scheduled-worker-claim-lock-order.test.ts
           tests/scheduled-worker-sweep-lock-order.test.ts
-
+          tests/scheduled-dispatch-cutover.requires-infra.test.ts
   full-suite:
     needs: feedback-postgres
     runs-on: ubuntu-latest

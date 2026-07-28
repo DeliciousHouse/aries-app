@@ -181,7 +181,7 @@ test('CalendarPresenter renders droppable cells and draggable tiles under jsdom'
   }
 });
 
-test('CalendarPresenter disables manual-reconciliation drag and directs the operator to review evidence', async () => {
+test('CalendarPresenter suppresses Scheduled and every mutation for mixed-child manual reconciliation', async () => {
   const { render, fireEvent, screen, cleanup } = await import('@testing-library/react');
   const model = createCalendarViewModel({
     scheduledPosts: [buildScheduledPost({
@@ -192,6 +192,12 @@ test('CalendarPresenter disables manual-reconciliation drag and directs the oper
         dispatchedAt: null,
         errorAt: '2026-04-15T14:01:00.000Z',
         errorMessage: 'publish outcome unknown',
+      }, {
+        platform: 'instagram',
+        status: 'pending',
+        dispatchedAt: null,
+        errorAt: null,
+        errorMessage: null,
       }],
     })],
     posts: [],
@@ -211,6 +217,12 @@ test('CalendarPresenter disables manual-reconciliation drag and directs the oper
       'the selectable details button must not advertise itself as disabled',
     );
     assert.match(tile.getAttribute('title') ?? '', /manual review required/i);
+    assert.match(tile.textContent ?? '', /manual review/i);
+    assert.doesNotMatch(
+      tile.textContent ?? '',
+      /scheduled/i,
+      'a pending parent must not display the ordinary Scheduled chip over durable unknown-outcome evidence',
+    );
     assert.match(
       tile.getAttribute('aria-label') ?? '',
       /manual review required.*verify whether this post is already live/i,
@@ -218,6 +230,37 @@ test('CalendarPresenter disables manual-reconciliation drag and directs the oper
     );
     fireEvent.click(tile);
     assert.ok(screen.getByText(/verify whether this post is already live/i));
+    const actionLabels = Array.from(container.querySelectorAll('button'))
+      .map((button) => button.textContent?.trim());
+    assert.equal(actionLabels.includes('Reschedule'), false);
+    assert.equal(actionLabels.includes('Publish now'), false);
+    assert.equal(actionLabels.includes('Cancel'), false);
+  } finally {
+    cleanup();
+  }
+});
+
+test('CalendarPresenter makes a jobless queued row non-draggable and exposes no schedule mutation', async () => {
+  const { render, fireEvent, cleanup } = await import('@testing-library/react');
+  const model = createCalendarViewModel({
+    scheduledPosts: [buildScheduledPost({ jobId: null, dispatchStatus: 'pending' })],
+    posts: [],
+    timeZone: 'America/New_York',
+  });
+  const { default: CalendarPresenter } = await import(
+    '../frontend/aries-v1/presenters/calendar-presenter'
+  );
+
+  const { container } = render(React.createElement(CalendarPresenter, { model }));
+  try {
+    const event = model.events[0];
+    assert.equal(event.reschedulable, false, 'the view-model must match the hook jobId precondition');
+    assert.equal(resolveDragSchedule({ kind: 'event', event }, '2026-04-20'), null);
+
+    const tile = container.querySelector('[data-testid="tile-901"]');
+    assert.ok(tile);
+    assert.match(tile.getAttribute('aria-label') ?? '', /rescheduling unavailable/i);
+    fireEvent.click(tile);
     const actionLabels = Array.from(container.querySelectorAll('button'))
       .map((button) => button.textContent?.trim());
     assert.equal(actionLabels.includes('Reschedule'), false);

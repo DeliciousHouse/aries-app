@@ -138,13 +138,15 @@ export function createCalendarViewModel(input: CalendarViewModelInput): Calendar
         targetPlatforms: post.targetPlatforms,
         scheduledFor: scheduledPostLabel(post.scheduledFor, timeZone),
         scheduledForIso: post.scheduledFor,
-        status: dispatchStatusToEventStatus(post.dispatchStatus),
+        status: manualReviewRequired
+          ? 'changes_requested'
+          : dispatchStatusToEventStatus(post.dispatchStatus),
         dispatchStatus: post.dispatchStatus,
         // Match the schedule route/upsert safety predicate exactly: only pending
         // or failed parents with no child evidence of a possibly-live publish can
         // be moved. A dispatched child blocks drag even when a partial cross-post
         // keeps the parent pending.
-        reschedulable: safeParentState && !hasTerminalChildEvidence,
+        reschedulable: Boolean(post.jobId) && safeParentState && !hasTerminalChildEvidence,
         manualReviewRequired,
         manualReviewMessage: manualReviewRequired
           ? 'Manual review required: verify whether this post is already live on each platform before making scheduling changes.'

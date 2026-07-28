@@ -957,6 +957,11 @@ function CalendarTile({
         >
           {event.title}
         </span>
+        {event.manualReviewRequired ? (
+          <span className="mt-2 block text-[8px] font-bold uppercase tracking-wider text-amber-100">
+            Manual review
+          </span>
+        ) : null}
       </button>
     );
   }
@@ -984,7 +989,7 @@ function CalendarTile({
             event.status,
           )}`}
         >
-          {formatDispatchStatusChip(event.dispatchStatus)}
+          {event.manualReviewRequired ? 'Manual review' : formatDispatchStatusChip(event.dispatchStatus)}
         </span>
       </div>
       <h3 className="mb-1 text-[11px] font-bold leading-tight text-white">{event.title}</h3>

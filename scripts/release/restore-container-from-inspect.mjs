@@ -2,6 +2,7 @@
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import process from 'node:process';
+import { isDeepStrictEqual } from 'node:util';
 import { pathToFileURL } from 'node:url';
 
 function clone(value) {
@@ -43,6 +44,13 @@ export function buildContainerCreateRequest(snapshot) {
   }
 
   return { name, request };
+}
+
+export function containerMatchesInspectSnapshot(expectedSnapshot, actualSnapshot) {
+  return isDeepStrictEqual(
+    buildContainerCreateRequest(actualSnapshot),
+    buildContainerCreateRequest(expectedSnapshot),
+  );
 }
 
 function dockerSocketPath() {
@@ -112,16 +120,37 @@ export async function restoreContainerFromInspect(snapshotPath) {
   return created.Id;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+async function readStandardInput() {
+  const chunks = [];
+  for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+async function runCli() {
+  if (process.argv[2] === '--verify') {
+    const snapshotPath = process.argv[3];
+    if (!snapshotPath) {
+      throw new Error('usage: restore-container-from-inspect.mjs --verify <snapshot.json> < current-inspect.json');
+    }
+    const expected = JSON.parse(await fs.readFile(snapshotPath, 'utf8'));
+    const actual = JSON.parse(await readStandardInput());
+    if (!containerMatchesInspectSnapshot(expected, actual)) {
+      throw new Error('running container image/configuration does not match the inspect snapshot');
+    }
+    return;
+  }
+
   const snapshotPath = process.argv[2];
   if (!snapshotPath) {
-    console.error('usage: restore-container-from-inspect.mjs <docker-inspect-snapshot.json>');
-    process.exit(2);
+    throw new Error('usage: restore-container-from-inspect.mjs <docker-inspect-snapshot.json>');
   }
-  restoreContainerFromInspect(snapshotPath)
-    .then((containerId) => process.stdout.write(`${containerId}\n`))
-    .catch((error) => {
-      console.error(`Exact container restore failed: ${error instanceof Error ? error.message : String(error)}`);
-      process.exit(1);
-    });
+  const containerId = await restoreContainerFromInspect(snapshotPath);
+  process.stdout.write(`${containerId}\n`);
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  runCli().catch((error) => {
+    console.error(`Exact container restore failed: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  });
 }

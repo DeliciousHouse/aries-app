@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildContainerCreateRequest } from '../scripts/release/restore-container-from-inspect.mjs';
+import {
+  buildContainerCreateRequest,
+  containerMatchesInspectSnapshot,
+} from '../scripts/release/restore-container-from-inspect.mjs';
 
 test('exact worker restore request preserves immutable image and container configuration', () => {
   const snapshot = [{
@@ -66,5 +69,27 @@ test('exact worker restore rejects snapshots without an immutable image identity
   assert.throws(
     () => buildContainerCreateRequest([{ Name: '/worker', Config: {}, HostConfig: {} }]),
     /immutable image id/,
+  );
+});
+
+test('restored container verification rejects image or configuration drift from the snapshot', () => {
+  const snapshot = [{
+    Name: '/aries-app-1',
+    Image: 'sha256:old-app-image',
+    Config: { Image: 'ghcr.io/example/aries:old', Env: ['A=1'], Cmd: ['node', 'server.js'] },
+    HostConfig: { Binds: ['/srv/aries/.env:/app/.env:ro'] },
+    NetworkSettings: { Networks: { aries_default: { Aliases: ['aries-app'] } } },
+  }];
+  assert.equal(containerMatchesInspectSnapshot(snapshot, snapshot), true);
+  assert.equal(
+    containerMatchesInspectSnapshot(snapshot, [{
+      ...snapshot[0],
+      Config: { ...snapshot[0].Config, Env: ['A=changed'] },
+    }]),
+    false,
+  );
+  assert.equal(
+    containerMatchesInspectSnapshot(snapshot, [{ ...snapshot[0], Image: 'sha256:wrong-image' }]),
+    false,
   );
 });

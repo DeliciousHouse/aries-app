@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.46.1 — fix(publishing): close rollback and calendar safety gaps
+
+Scheduled publishing now keeps rollback traffic and calendar controls fail-closed
+when legacy provider outcomes, application readiness, or durable ownership are uncertain.
+
+### Changed
+
+- Pre-fence application rollback requires the same durable restore-safety proof even
+  when the old scheduled worker was already stopped.
+- The old worker restarts only after the exact old application image and configuration
+  pass a bounded functional readiness probe; failed probes stop the app and worker.
+- Manual-reconciliation calendar tiles show their exceptional state visibly, and rows
+  without a durable job identity cannot expose rescheduling controls.
+- The authoritative PostgreSQL CI lane executes the production legacy quarantine CTE
+  against production-compatible `TEXT` dispatch-attempt tokens.
+
 ## v0.1.46.0 — fix(publishing): make scheduled delivery fail closed
 
 Scheduled publishing now treats provider submission as a fenced, durable attempt:

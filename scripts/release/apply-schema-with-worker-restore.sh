@@ -78,7 +78,9 @@ scheduled_worker_cutover_complete=false
 scheduled_worker_protocol_boundary_crossed=false
 scheduled_worker_rollout_started=false
 pre_boundary_restore_proven_safe=true
-if [[ "${previous_scheduled_worker_was_running}" == "true" ]]; then
+if [[ "${previous_scheduled_worker_was_running}" == "true" \
+      || ( "${quiesce_application_during_schema}" == "1" \
+           && "${previous_application_was_running}" == "true" ) ]]; then
   pre_boundary_restore_proven_safe=false
 fi
 
@@ -98,11 +100,73 @@ cleanup_application_snapshot() {
 
 restore_container_from_snapshot() {
   local snapshot_path=$1
+  local node_snapshot_path="${snapshot_path}"
+  local helper_path="${helper_dir}/restore-container-from-inspect.mjs"
+  if command -v cygpath >/dev/null 2>&1; then
+    node_snapshot_path="$(cygpath -w "${snapshot_path}")"
+    helper_path="$(cygpath -w "${helper_path}")"
+  fi
   if [[ -n "${RESTORE_CONTAINER_COMMAND:-}" ]]; then
     "${RESTORE_CONTAINER_COMMAND}" "${snapshot_path}"
   else
-    node "${helper_dir}/restore-container-from-inspect.mjs" "${snapshot_path}"
+    node "${helper_path}" "${node_snapshot_path}"
   fi
+}
+
+verify_container_matches_snapshot() {
+  local snapshot_path=$1
+  local container_id=$2
+  local node_snapshot_path="${snapshot_path}"
+  local helper_path="${helper_dir}/restore-container-from-inspect.mjs"
+  if command -v cygpath >/dev/null 2>&1; then
+    node_snapshot_path="$(cygpath -w "${snapshot_path}")"
+    helper_path="$(cygpath -w "${helper_path}")"
+  fi
+  if [[ -n "${RESTORE_CONTAINER_VERIFY_COMMAND:-}" ]]; then
+    "${RESTORE_CONTAINER_VERIFY_COMMAND}" "${snapshot_path}" "${container_id}"
+  else
+    docker inspect "${container_id}" \
+      | node "${helper_path}" --verify "${node_snapshot_path}"
+  fi
+}
+
+wait_for_restored_application_readiness() {
+  local container_id=$1
+  local attempts="${ARIES_RESTORED_APPLICATION_READINESS_ATTEMPTS:-30}"
+  local sleep_seconds="${ARIES_RESTORED_APPLICATION_READINESS_SLEEP_SECONDS:-5}"
+  local probe_timeout_seconds="${ARIES_RESTORED_APPLICATION_READINESS_PROBE_TIMEOUT_SECONDS:-5}"
+  local attempt health_status
+
+  if ! [[ "${attempts}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "ERROR: ARIES_RESTORED_APPLICATION_READINESS_ATTEMPTS must be a positive integer." >&2
+    return 1
+  fi
+  if ! [[ "${sleep_seconds}" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: ARIES_RESTORED_APPLICATION_READINESS_SLEEP_SECONDS must be a non-negative integer." >&2
+    return 1
+  fi
+  if ! [[ "${probe_timeout_seconds}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "ERROR: ARIES_RESTORED_APPLICATION_READINESS_PROBE_TIMEOUT_SECONDS must be a positive integer." >&2
+    return 1
+  fi
+
+  for attempt in $(seq 1 "${attempts}"); do
+    health_status="$(
+      docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
+        "${container_id}" 2>/dev/null || echo unknown
+    )"
+    if [[ "${health_status}" != "unhealthy" ]] \
+        && docker exec "${container_id}" wget -qO- --timeout="${probe_timeout_seconds}" --tries=1 \
+          "http://127.0.0.1:${PORT:-3000}/" >/dev/null 2>&1; then
+      return 0
+    fi
+    if [[ "${attempt}" -lt "${attempts}" ]]; then
+      sleep "${sleep_seconds}"
+    fi
+  done
+
+  echo "ERROR: restored application readiness failed after ${attempts} attempts; publishing remains stopped." >&2
+  return 1
 }
 
 restore_previous_application_if_safe() {
@@ -116,11 +180,10 @@ restore_previous_application_if_safe() {
     echo "ERROR: scheduled-worker protocol boundary crossed; refusing to restore the pre-fence application. Only the compatible app may accept traffic." >&2
     return 0
   fi
-  if [[ "${scheduled_worker_rollout_started}" == "true" \
-        && "${pre_boundary_restore_proven_safe}" != "true" ]]; then
+  if [[ "${pre_boundary_restore_proven_safe}" != "true" ]]; then
     echo "ERROR: refusing to restore the previous application because unresolved pre-boundary provider claims may exist. Mutation traffic remains quiesced." >&2
     ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose stop "${application_service}" >/dev/null || true
-    return 0
+    return 1
   fi
 
   local restore_id="${previous_application_id}"
@@ -147,6 +210,17 @@ restore_previous_application_if_safe() {
         || -z "${previous_application_image_id}" \
         || "${restored_image_id}" != "${previous_application_image_id}" ]]; then
     echo "ERROR: restored application verification failed (running=${restored_running}, image=${restored_image_id}); manual recovery required." >&2
+    docker stop "${restore_id}" >/dev/null 2>&1 || true
+    return 1
+  fi
+  if [[ -z "${previous_application_snapshot}" || ! -s "${previous_application_snapshot}" ]] \
+      || ! verify_container_matches_snapshot "${previous_application_snapshot}" "${restore_id}"; then
+    echo "ERROR: restored application configuration does not match the exact pre-rollout snapshot; manual recovery required." >&2
+    docker stop "${restore_id}" >/dev/null 2>&1 || true
+    return 1
+  fi
+  if ! wait_for_restored_application_readiness "${restore_id}"; then
+    docker stop "${restore_id}" >/dev/null 2>&1 || true
     return 1
   fi
   echo "Restored exact pre-rollout application ${restore_id}." >&2
@@ -154,10 +228,15 @@ restore_previous_application_if_safe() {
 
 restore_previous_scheduled_worker_on_exit() {
   local original_status=$?
+  local rollback_status="${original_status}"
   trap - EXIT
   set +e
 
-  restore_previous_application_if_safe || true
+  local restored_application_ready=true
+  if ! restore_previous_application_if_safe; then
+    restored_application_ready=false
+    if [[ "${rollback_status}" == "0" ]]; then rollback_status=1; fi
+  fi
 
   if [[ "${scheduled_worker_rollout_started}" == "true" \
         && "${scheduled_worker_cutover_complete}" != "true" \
@@ -183,6 +262,12 @@ restore_previous_scheduled_worker_on_exit() {
   elif [[ "${scheduled_worker_rollout_started}" == "true" \
           && "${scheduled_worker_cutover_complete}" != "true" \
           && "${previous_scheduled_worker_was_running}" == "true" \
+          && "${restored_application_ready}" != "true" ]]; then
+    echo "ERROR: refusing to restore the previous worker until the exact pre-rollout application is ready. Publishing remains stopped." >&2
+    ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose stop "${scheduled_worker_service}" >/dev/null || true
+  elif [[ "${scheduled_worker_rollout_started}" == "true" \
+          && "${scheduled_worker_cutover_complete}" != "true" \
+          && "${previous_scheduled_worker_was_running}" == "true" \
           && -n "${previous_scheduled_worker_id}" ]]; then
     echo "ERROR: scheduled-worker cutover failed; restoring exact pre-rollout worker state." >&2
 
@@ -193,9 +278,10 @@ restore_previous_scheduled_worker_on_exit() {
     if [[ -n "${current_worker_id}" && "${current_worker_id}" != "${previous_scheduled_worker_id}" ]]; then
       if ! docker rm -f "${current_worker_id}" >/dev/null; then
         echo "ERROR: could not remove failed replacement worker ${current_worker_id}; manual recovery required." >&2
+        if [[ "${rollback_status}" == "0" ]]; then rollback_status=1; fi
         cleanup_scheduled_worker_snapshot
         cleanup_application_snapshot
-        return "${original_status}"
+        exit "${rollback_status}"
       fi
     fi
 
@@ -203,21 +289,24 @@ restore_previous_scheduled_worker_on_exit() {
     if ! docker inspect "${previous_scheduled_worker_id}" >/dev/null 2>&1; then
       if [[ -z "${previous_scheduled_worker_snapshot}" || ! -s "${previous_scheduled_worker_snapshot}" ]]; then
         echo "ERROR: pre-rollout worker was destroyed and no exact snapshot is available; manual recovery required." >&2
+        if [[ "${rollback_status}" == "0" ]]; then rollback_status=1; fi
         cleanup_scheduled_worker_snapshot
         cleanup_application_snapshot
-        return "${original_status}"
+        exit "${rollback_status}"
       fi
       restore_id="$(restore_container_from_snapshot "${previous_scheduled_worker_snapshot}")"
       if [[ -z "${restore_id}" ]]; then
         echo "ERROR: exact pre-rollout worker recreation returned no container id; manual recovery required." >&2
+        if [[ "${rollback_status}" == "0" ]]; then rollback_status=1; fi
         cleanup_scheduled_worker_snapshot
         cleanup_application_snapshot
-        return "${original_status}"
+        exit "${rollback_status}"
       fi
     fi
 
     if ! docker start "${restore_id}" >/dev/null; then
       echo "ERROR: failed to start restored pre-rollout worker ${restore_id}; manual recovery required." >&2
+      if [[ "${rollback_status}" == "0" ]]; then rollback_status=1; fi
     else
       local restored_running restored_image_id
       restored_running="$(docker inspect -f '{{.State.Running}}' "${restore_id}" 2>/dev/null || echo false)"
@@ -226,6 +315,7 @@ restore_previous_scheduled_worker_on_exit() {
             || -z "${previous_scheduled_worker_image_id}" \
             || "${restored_image_id}" != "${previous_scheduled_worker_image_id}" ]]; then
         echo "ERROR: restored worker verification failed (running=${restored_running}, image=${restored_image_id}); manual recovery required." >&2
+        if [[ "${rollback_status}" == "0" ]]; then rollback_status=1; fi
       else
         echo "Restored exact pre-rollout scheduled worker ${restore_id}." >&2
       fi
@@ -234,7 +324,7 @@ restore_previous_scheduled_worker_on_exit() {
 
   cleanup_scheduled_worker_snapshot
   cleanup_application_snapshot
-  return "${original_status}"
+  exit "${rollback_status}"
 }
 
 complete_scheduled_worker_cutover() {
@@ -267,8 +357,7 @@ prepare_scheduled_worker_replacement() {
 prove_pre_boundary_restore_safe() {
   local proof_timeout_seconds="${ARIES_SCHEDULED_WORKER_RESTORE_PROOF_TIMEOUT_SECONDS:-120}"
   local proof_container_name="aries-scheduled-worker-restore-proof-$$"
-  if [[ "${previous_scheduled_worker_was_running}" != "true" ]]; then
-    pre_boundary_restore_proven_safe=true
+  if [[ "${pre_boundary_restore_proven_safe}" == "true" ]]; then
     return 0
   fi
   if ! [[ "${proof_timeout_seconds}" =~ ^[1-9][0-9]*$ ]]; then
@@ -288,7 +377,7 @@ prove_pre_boundary_restore_safe() {
 
   docker rm -f "${proof_container_name}" >/dev/null 2>&1 || true
   pre_boundary_restore_proven_safe=false
-  echo "ERROR: refusing to restore the previous worker because unresolved provider claims could not be ruled out. Publishing remains stopped." >&2
+  echo "ERROR: refusing to restore the previous application or worker because unresolved provider claims could not be ruled out. Publishing remains stopped." >&2
   return 1
 }
 
@@ -439,27 +528,15 @@ PGOPTIONS="-c lock_timeout=5s -c statement_timeout=120s" \
   timeout --signal=TERM 180s \
   docker compose run --rm --no-deps --entrypoint node aries-app scripts/init-db.js
 
-# Direct execution is a schema-only smoke path. It must restore the exact old
-# worker on success too; only a sourced full deploy replaces and verifies it.
+# Direct execution is a schema-only smoke path. Its EXIT trap restores the
+# exact old application first, waits for readiness, and only then restores the
+# exact old worker. A sourced full deploy replaces and verifies both instead.
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
-  if [[ "${previous_scheduled_worker_was_running}" == "true" \
-        && "${pre_boundary_restore_proven_safe}" != "true" ]]; then
-    echo "ERROR: direct schema execution completed, but unresolved pre-boundary provider claims may exist; refusing to restart the legacy worker. Publishing remains stopped." >&2
+  if [[ "${pre_boundary_restore_proven_safe}" != "true" ]]; then
+    echo "ERROR: direct schema execution completed, but unresolved pre-boundary provider claims may exist; refusing to restore the legacy application or worker. Publishing remains stopped." >&2
     # Deliberately leave the EXIT trap armed: it performs the final defensive
     # stop and preserves this nonzero result instead of rearming an unsafe
     # pre-boundary image after additive DDL succeeds.
     exit 1
   fi
-  if [[ "${previous_scheduled_worker_was_running}" == "true" \
-        && -n "${previous_scheduled_worker_id}" ]]; then
-    docker start "${previous_scheduled_worker_id}" >/dev/null
-    direct_running="$(docker inspect -f '{{.State.Running}}' "${previous_scheduled_worker_id}")"
-    direct_image_id="$(docker inspect -f '{{.Image}}' "${previous_scheduled_worker_id}")"
-    if [[ "${direct_running}" != "true" \
-          || "${direct_image_id}" != "${previous_scheduled_worker_image_id}" ]]; then
-      echo "ERROR: schema-only worker restore verification failed." >&2
-      exit 1
-    fi
-  fi
-  complete_scheduled_worker_cutover
 fi

@@ -156,6 +156,11 @@ test('calendar rescheduling matches the server safe-state predicate', () => {
   }> = [
     { name: 'safe pending parent', row: { dispatchStatus: 'pending', dispatches: [] }, expected: true },
     { name: 'safe failed parent', row: { dispatchStatus: 'failed', dispatches: [] }, expected: true },
+    {
+      name: 'jobless pending parent cannot satisfy the executable reschedule contract',
+      row: { jobId: null, dispatchStatus: 'pending', dispatches: [] },
+      expected: false,
+    },
     { name: 'in-flight parent', row: { dispatchStatus: 'in_flight', dispatches: [] }, expected: false },
     { name: 'dispatched parent', row: { dispatchStatus: 'dispatched', dispatches: [] }, expected: false },
     { name: 'manual parent', row: { dispatchStatus: 'manual_reconciliation', dispatches: [] }, expected: false },

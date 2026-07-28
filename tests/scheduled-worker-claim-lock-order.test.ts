@@ -60,7 +60,7 @@ test('real claim and release SQL serialize on canonical post before scheduled ow
         scheduled_for TIMESTAMPTZ NOT NULL,
         campaign_end_date TIMESTAMPTZ,
         dispatch_status TEXT NOT NULL,
-        dispatch_attempt_token UUID,
+        dispatch_attempt_token TEXT,
         dispatch_claimed_at TIMESTAMPTZ,
         dispatch_started_at TIMESTAMPTZ,
         next_attempt_at TIMESTAMPTZ,
