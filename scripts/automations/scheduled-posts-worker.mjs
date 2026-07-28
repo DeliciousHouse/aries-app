@@ -116,52 +116,52 @@ function buildPool() {
 // The stale-in_flight reclaim arm deliberately ignores next_attempt_at: a
 // crashed worker pass is not a backoff.
 export const CLAIM_ROW_SQL = `WITH canonical AS MATERIALIZED (
-    SELECT post.id,
-           post.tenant_id,
-           post.caption,
-           post.platform_post_id
-      FROM posts post
+    SELECT p.id,
+           p.tenant_id,
+           p.caption,
+           p.platform_post_id
+      FROM posts p
       JOIN scheduled_posts owner
-        ON owner.post_id = post.id
-       AND owner.tenant_id = post.tenant_id
+        ON owner.post_id = p.id
+       AND owner.tenant_id = p.tenant_id
      WHERE owner.id = $1
-     FOR UPDATE OF post SKIP LOCKED
+     FOR UPDATE OF p SKIP LOCKED
   ), locked_owner AS MATERIALIZED (
-    SELECT owner.id,
-           owner.post_id,
-           owner.tenant_id,
-           owner.target_platforms,
-           owner.surface,
-           owner.media_type,
-           owner.width_px,
-           owner.height_px,
-           owner.duration_seconds,
+    SELECT sp.id,
+           sp.post_id,
+           sp.tenant_id,
+           sp.target_platforms,
+           sp.surface,
+           sp.media_type,
+           sp.width_px,
+           sp.height_px,
+           sp.duration_seconds,
            canonical.id AS canonical_post_id,
            canonical.caption,
            canonical.platform_post_id
-      FROM scheduled_posts owner
+      FROM scheduled_posts sp
       LEFT JOIN canonical
-        ON canonical.id = owner.post_id
-       AND canonical.tenant_id = owner.tenant_id
-     WHERE owner.id = $1
+        ON canonical.id = sp.post_id
+       AND canonical.tenant_id = sp.tenant_id
+     WHERE sp.id = $1
        AND (
          canonical.id IS NOT NULL
          OR NOT EXISTS (
            SELECT 1
              FROM posts existing_post
-            WHERE existing_post.id = owner.post_id
-              AND existing_post.tenant_id = owner.tenant_id
+            WHERE existing_post.id = sp.post_id
+              AND existing_post.tenant_id = sp.tenant_id
          )
        )
        AND (
-         (owner.dispatch_status = 'pending'
-          AND (owner.next_attempt_at IS NULL OR owner.next_attempt_at <= NOW()))
-         OR (owner.dispatch_status = 'in_flight'
-             AND owner.dispatch_started_at IS NULL
-             AND owner.dispatch_claimed_at < $2)
+         (sp.dispatch_status = 'pending'
+          AND (sp.next_attempt_at IS NULL OR sp.next_attempt_at <= NOW()))
+         OR (sp.dispatch_status = 'in_flight'
+             AND sp.dispatch_started_at IS NULL
+             AND sp.dispatch_claimed_at < $2)
        )
-       AND (owner.campaign_end_date IS NULL OR owner.campaign_end_date >= NOW())
-     FOR UPDATE OF owner SKIP LOCKED
+       AND (sp.campaign_end_date IS NULL OR sp.campaign_end_date >= NOW())
+     FOR UPDATE OF sp SKIP LOCKED
   )
   SELECT * FROM locked_owner`;
 

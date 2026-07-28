@@ -31,8 +31,8 @@ const CLAIM_ROW_SQL = extractClaimRowSql();
 test('worker claimRow SQL selects p.caption and never p.content', () => {
   assert.match(CLAIM_ROW_SQL, /\bp\.caption\b/, 'claim SQL must select p.caption');
   assert.doesNotMatch(CLAIM_ROW_SQL, /\bp\.content\b/, 'claim SQL must not select the dropped p.content column');
-  // Sanity: the join the caption column comes from is still present.
-  assert.match(CLAIM_ROW_SQL, /JOIN posts p ON p\.id = sp\.post_id/);
+  // Sanity: the canonical-first CTE locks the posts row that supplies caption.
+  assert.match(CLAIM_ROW_SQL, /FROM posts p[\s\S]*FOR UPDATE OF p SKIP LOCKED/);
 });
 
 test('init-db.js posts table declares caption TEXT NOT NULL, not content', () => {
