@@ -18,6 +18,7 @@ import {
   derivePostingTimesNow,
   type PostingTimeView,
 } from '@/lib/api/posting-times';
+import { fetchBillingQuota, type QuotaSummary } from '@/lib/api/billing-quota';
 import { platformLabel } from '@/frontend/insights/tokens';
 
 type WorkspaceRole = 'tenant_admin' | 'tenant_analyst' | 'tenant_viewer';
@@ -274,6 +275,32 @@ export default function AriesSettingsScreen() {
         setPostingTimesLoadError(result.message);
       }
       setPostingTimesLoaded(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Usage & capacity card (AA-164). Loaded independently of the `ready` gate,
+  // same as the cards above.
+  const [quota, setQuota] = useState<QuotaSummary | null>(null);
+  const [quotaCanPurchase, setQuotaCanPurchase] = useState(false);
+  const [quotaPurchaseEnabled, setQuotaPurchaseEnabled] = useState(false);
+  const [quotaLoaded, setQuotaLoaded] = useState(false);
+  const [quotaLoadError, setQuotaLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchBillingQuota().then((result) => {
+      if (cancelled) return;
+      if (result.status === 'ok') {
+        setQuota(result.quota);
+        setQuotaCanPurchase(result.canPurchase);
+        setQuotaPurchaseEnabled(result.purchaseEnabled);
+      } else {
+        setQuotaLoadError(result.message);
+      }
+      setQuotaLoaded(true);
     });
     return () => {
       cancelled = true;
@@ -935,6 +962,99 @@ export default function AriesSettingsScreen() {
                     {scheduleSaving ? 'Saving…' : 'Save generation schedule'}
                   </button>
                 </div>
+              ) : null}
+            </>
+          )}
+        </div>
+      </ShellPanel>
+
+      <ShellPanel eyebrow="Usage & capacity" title="What you've used this month">
+        <div className="space-y-4">
+          {!quotaLoaded ? (
+            <p className="text-sm text-white/60">Loading usage…</p>
+          ) : quotaLoadError || !quota ? (
+            <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
+              {quotaLoadError ?? 'Could not load your usage.'}
+            </div>
+          ) : !quota.metered ? (
+            // Never draw an empty progress bar here: usage isn't being recorded
+            // yet, and a confident "0% used" would be a wrong number rather than
+            // a missing one.
+            <p className="text-sm leading-7 text-white/58">
+              Usage tracking isn&apos;t switched on for your workspace yet, so there&apos;s nothing
+              to show. Your plan is <span className="text-white">{quota.tierLabel}</span>.
+            </p>
+          ) : quota.totalAllowance === null ? (
+            <p className="text-sm leading-7 text-white/58">
+              Your <span className="text-white">{quota.tierLabel}</span> plan has no monthly cap.
+              You&apos;ve run{' '}
+              <span className="text-white">{quota.used?.toLocaleString('en-US')}</span> tasks this
+              month.
+            </p>
+          ) : (
+            <>
+              <div className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 text-white">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <p className="text-sm font-medium">
+                    {quota.used?.toLocaleString('en-US')} of{' '}
+                    {quota.totalAllowance.toLocaleString('en-US')} tasks
+                  </p>
+                  <p
+                    className={`text-sm font-semibold ${
+                      (quota.percentUsed ?? 0) >= 95
+                        ? 'text-red-300'
+                        : (quota.percentUsed ?? 0) >= 80
+                          ? 'text-amber-300'
+                          : 'text-white/70'
+                    }`}
+                  >
+                    {quota.percentUsed}% used
+                  </p>
+                </div>
+                <div
+                  className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/10"
+                  role="progressbar"
+                  aria-valuenow={quota.percentUsed ?? 0}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label="Monthly capacity used"
+                >
+                  {/* Width is clamped so an overage doesn't overflow the track,
+                      while the percentage above still reports the true figure. */}
+                  <div
+                    className={`h-full rounded-full ${
+                      (quota.percentUsed ?? 0) >= 95
+                        ? 'bg-red-400'
+                        : (quota.percentUsed ?? 0) >= 80
+                          ? 'bg-amber-400'
+                          : 'bg-white/45'
+                    }`}
+                    style={{ width: `${Math.min(100, Math.max(0, quota.percentUsed ?? 0))}%` }}
+                  />
+                </div>
+                <p className="mt-3 text-sm leading-7 text-white/58">
+                  {quota.tierLabel} · {quota.remaining?.toLocaleString('en-US')} left
+                  {quota.purchasedCredits > 0
+                    ? ` · includes ${quota.purchasedCredits.toLocaleString('en-US')} purchased`
+                    : ''}
+                </p>
+              </div>
+              {quotaCanPurchase ? (
+                quotaPurchaseEnabled ? (
+                  <button
+                    type="button"
+                    className="rounded-full bg-white/10 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-white/16"
+                  >
+                    Buy more capacity
+                  </button>
+                ) : (
+                  // No payment gateway is connected, so there is no checkout to
+                  // send anyone to. Say that plainly rather than rendering a
+                  // button that cannot complete.
+                  <p className="text-sm leading-7 text-white/58">
+                    Need more capacity this month? Contact us and we&apos;ll top up your workspace.
+                  </p>
+                )
               ) : null}
             </>
           )}

@@ -1792,6 +1792,53 @@ async function initDb() {
         ON CONFLICT (company_id) DO NOTHING;
     `);
 
+    // AA-164: purchased task credits + quota-alert dedupe. Mirrors
+    // migrations/20260730000000_company_credits_and_quota_alerts.sql.
+    //
+    // Credits are TASK credits — the unit AA-163 enforces on. A token balance
+    // would be unspendable and a token percentage would never move, because
+    // every AI row has NULL tokens until Hermes reports usage.
+    //
+    // Append-only: a balance is a SUM over unexpired rows, never a mutable
+    // counter (a decrement-in-place column loses its audit trail the moment two
+    // writers race). Credits stack on top of the monthly allowance and do NOT
+    // reset with the calendar month — voiding paid capacity at a month boundary
+    // would be taking money for nothing.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS company_credit_ledger (
+        id                BIGSERIAL PRIMARY KEY,
+        company_id        INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        -- Signed: a negative row reverses a mistake by appending its inverse
+        -- rather than editing history.
+        credits           BIGINT  NOT NULL CHECK (credits <> 0),
+        source            TEXT    NOT NULL CHECK (source IN ('purchase','grant','correction')),
+        -- Payment-gateway event id. The partial UNIQUE below is what makes
+        -- fulfillment idempotent — gateways redeliver, and double-crediting one
+        -- payment is a money bug. NULL for manual grants.
+        external_event_id TEXT,
+        note              TEXT,
+        granted_by        TEXT,
+        expires_at        TIMESTAMPTZ,
+        created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_company_credit_ledger_external_event
+        ON company_credit_ledger (external_event_id) WHERE external_event_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_company_credit_ledger_company_created
+        ON company_credit_ledger (company_id, created_at DESC);
+
+      -- The PRIMARY KEY IS the dedupe key: the alert sweep runs on every hourly
+      -- rollup tick, so without it a company sitting at 96% would be emailed
+      -- every hour until the month turned over.
+      CREATE TABLE IF NOT EXISTS usage_alert_notifications (
+        company_id   INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        period_start DATE    NOT NULL,
+        threshold    INTEGER NOT NULL CHECK (threshold IN (80, 95)),
+        recipients   INTEGER NOT NULL DEFAULT 0,
+        sent_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (company_id, period_start, threshold)
+      );
+    `);
+
     // Idempotent backfill: one membership per user that has an org pointer today
     // (Eng findings 1c + 2). status from the pending sentinel; role from the
     // current global users.role; last_active_at from the (user,org) invitation's

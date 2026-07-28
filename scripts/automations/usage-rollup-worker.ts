@@ -35,6 +35,7 @@ import {
   usageRetentionEnabled,
   usageRollupEnabled,
 } from '@/backend/telemetry/usage-rollup-env';
+import { runQuotaThresholdAlerts } from '@/backend/billing/quota-alerts';
 import {
   runUsageRetentionSweep,
   type UsageRetentionReport,
@@ -131,6 +132,19 @@ export async function tickSafe(pool: pg.Pool): Promise<void> {
         from: rollup.from,
         to: rollup.to,
       });
+    }
+
+    // AA-164: quota-threshold alerts ride this tick — it already recomputes the
+    // numbers an alert needs, so a separate schedule would add operations
+    // surface for no extra freshness. Isolated: an email outage must not stop
+    // aggregation or retention.
+    try {
+      const alerts = await runQuotaThresholdAlerts(pool);
+      if (alerts.alertsSent > 0 || alerts.errors > 0) {
+        console.log(`[usage-rollup-worker] quota alerts ${JSON.stringify(alerts)}`);
+      }
+    } catch (error) {
+      console.error('[usage-rollup-worker] quota alert error', error);
     }
 
     if (!usageRetentionEnabled()) {

@@ -30,10 +30,10 @@
 
 import { pool } from '@/lib/db';
 
+import { loadCreditBalance } from './credit-ledger';
 import {
   DEFAULT_PLAN_TIER,
-  parseAllowance,
-  rateCardForTier,
+  resolveIncludedAllowance,
   type PlanTier,
   isPlanTier,
 } from './rate-cards';
@@ -58,6 +58,7 @@ export type PlanAllowReason =
   | 'usage_not_metered'
   | 'usage_unavailable'
   | 'subscription_unavailable'
+  | 'credits_unavailable'
   | 'within_allowance';
 
 export type PlanEnforcementDecision =
@@ -205,18 +206,9 @@ export async function assertUsageWithinPlan(
     if (row && isPlanTier(row.tier_key)) {
       tier = row.tier_key;
     }
-    const card = rateCardForTier(tier);
-    if (row) {
-      const override = parseAllowance(
-        metric === 'tasks' ? row.monthly_task_allowance_override : row.monthly_token_allowance_override,
-      );
-      const carded = parseAllowance(
-        metric === 'tasks' ? row.monthly_task_allowance : row.monthly_token_allowance,
-      );
-      allowance = override ?? carded;
-    } else {
-      allowance = metric === 'tasks' ? card.monthlyTaskAllowance : card.monthlyTokenAllowance;
-    }
+    // Shared with the dashboard summary, so the number a customer is SHOWN and
+    // the number they are CUT OFF at cannot drift apart.
+    allowance = resolveIncludedAllowance(row, metric, tier);
   } catch (error) {
     console.warn('[plan-gate] subscription lookup failed — allowing', {
       companyId: company,
@@ -229,6 +221,20 @@ export async function assertUsageWithinPlan(
   // zero that would deny everything.
   if (allowance === null) {
     return allow('unlimited_allowance', { tier });
+  }
+
+  // AA-164: purchased credits stack on top of the monthly allowance and do not
+  // reset with the calendar month. Fail-open on an unreadable balance — a
+  // customer who just paid for capacity must never be denied because the ledger
+  // read hiccuped.
+  try {
+    allowance += await loadCreditBalance(company, db);
+  } catch (error) {
+    console.warn('[plan-gate] credit balance lookup failed — allowing', {
+      companyId: company,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return allow('credits_unavailable', { tier, allowance });
   }
 
   // 2. Period-to-date consumption.

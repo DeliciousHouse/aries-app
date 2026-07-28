@@ -51,8 +51,13 @@ function db({
   tokensUsed = null as number | string | null,
   metered = true,
   subscriptionRow = true,
+  credits = 0 as number | string,
 }) {
   return fakeDb((sql) => {
+    // AA-164: purchased credits stack on top of the monthly allowance.
+    if (sql.includes('FROM company_credit_ledger')) {
+      return { rows: [{ balance: credits }] };
+    }
     if (sql.includes('FROM company_subscriptions')) {
       return {
         rows: subscriptionRow
@@ -243,6 +248,7 @@ test('a usage lookup failure allows', async () => {
         ],
       };
     }
+    if (sql.includes('FROM company_credit_ledger')) return { rows: [{ balance: '0' }] };
     throw new Error('deadlock detected');
   });
 
@@ -269,6 +275,54 @@ test('the period start is what the usage query filters on', async () => {
 
   const usageCall = handle.calls.find((c) => c.sql.includes('rolled_through'));
   assert.deepEqual(usageCall?.params, [7, '2026-07-01']);
+});
+
+test('purchased credits stack on top of the monthly allowance (AA-164)', async () => {
+  // Over the included 1000, but they bought 500 more — this must go through, or
+  // we took their money and kept the door shut.
+  const topped = db({ taskAllowance: 1000, tasksUsed: 1200, credits: '500' });
+  const allowed = await assertUsageWithinPlan(7, { db: topped, env: ON });
+  assert.equal(allowed.allowed, true);
+  assert.equal(allowed.allowed && allowed.allowance, 1500);
+
+  // Credits spent too: back to denied.
+  const spent = db({ taskAllowance: 1000, tasksUsed: 1500, credits: '500' });
+  const denied = await assertUsageWithinPlan(7, { db: spent, env: ON });
+  assert.equal(denied.allowed, false);
+  assert.equal(!denied.allowed && denied.allowance, 1500);
+});
+
+test('an unreadable credit balance allows rather than denying a paying customer', async () => {
+  const handle = fakeDb((sql) => {
+    if (sql.includes('FROM company_subscriptions')) {
+      return {
+        rows: [
+          {
+            tier_key: 'starter',
+            monthly_task_allowance_override: null,
+            monthly_token_allowance_override: null,
+            monthly_task_allowance: 1000,
+            monthly_token_allowance: 2000000,
+          },
+        ],
+      };
+    }
+    if (sql.includes('FROM company_credit_ledger')) throw new Error('connection terminated');
+    return undefined;
+  });
+
+  const decision = await assertUsageWithinPlan(7, { db: handle, env: ON });
+
+  assert.equal(decision.allowed, true);
+  assert.equal(decision.allowed && decision.reason, 'credits_unavailable');
+});
+
+test('an unlimited tier never reads the credit ledger', async () => {
+  const handle = db({ tier: 'enterprise', taskAllowance: null as unknown as number });
+
+  await assertUsageWithinPlan(7, { db: handle, env: ON });
+
+  assert.equal(handle.calls.filter((c) => c.sql.includes('company_credit_ledger')).length, 0);
 });
 
 test('the throwing wrapper surfaces the code the route maps to 402', async () => {

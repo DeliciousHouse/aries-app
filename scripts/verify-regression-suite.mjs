@@ -137,12 +137,22 @@ const steps = [
     // fail-open paths (flag off, system work, unmetered usage, DB errors) as hard
     // as the one denial path, plus the 402 mapping and that the gate runs before
     // any job state exists. Fully in-memory (injected db).
-    name: 'plan rate cards + usage entitlement gate (AA-163)',
+    name: 'plan rate cards, usage gate, credits + quota alerts (AA-163/AA-164)',
     args: [
       '--test',
       'tests/billing/rate-cards.test.ts',
       'tests/billing/usage-entitlement.test.ts',
       'tests/billing/plan-gate-wiring.test.ts',
+      // AA-164: the customer-facing half — the credit ledger that a payment
+      // webhook will write to (idempotent under redelivery; corrections are
+      // appended, never edited), the quota summary the dashboard renders
+      // (unmetered reports NULL, never a confident 0%), the 80/95% alerts
+      // (claimed before send, so an hourly sweep can't spam a customer), and
+      // the read route's tenant scoping.
+      'tests/billing/credit-ledger.test.ts',
+      'tests/billing/quota-summary.test.ts',
+      'tests/billing/quota-alerts.test.ts',
+      'tests/billing/quota-route.test.ts',
     ],
   },
   {

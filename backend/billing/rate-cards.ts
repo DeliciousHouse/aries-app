@@ -87,6 +87,34 @@ export function rateCardForTier(tier: unknown): RateCard {
 }
 
 /**
+ * The included monthly allowance for one subscription row, for one metric:
+ * a per-company override beats the tier's card, which is what makes
+ * Enterprise/Custom a negotiated ceiling instead of a bespoke code path.
+ *
+ * Shared by the enforcement gate and the dashboard summary so the number a
+ * customer is shown and the number they are cut off at can never disagree.
+ * Returns null for "unlimited"; a row-less company falls back to the entry
+ * tier's card.
+ */
+export function resolveIncludedAllowance(
+  row: Record<string, unknown> | undefined,
+  metric: 'tasks' | 'tokens',
+  tier: PlanTier,
+): number | null {
+  if (!row) {
+    const card = rateCardForTier(tier);
+    return metric === 'tasks' ? card.monthlyTaskAllowance : card.monthlyTokenAllowance;
+  }
+  const override = parseAllowance(
+    metric === 'tasks' ? row.monthly_task_allowance_override : row.monthly_token_allowance_override,
+  );
+  const carded = parseAllowance(
+    metric === 'tasks' ? row.monthly_task_allowance : row.monthly_token_allowance,
+  );
+  return override ?? carded;
+}
+
+/**
  * A BIGINT arrives from `pg` as a string. Anything that is not a non-negative
  * integer — including NULL — reads as "unlimited", never as a 0 ceiling that
  * would deny every request.

@@ -3,6 +3,7 @@ import test from 'node:test';
 import pg from 'pg';
 
 import { requireDbEnvOrSkip } from '../helpers/requires-infra';
+import { grantCompanyCredits, loadCreditBalance } from '../../backend/billing/credit-ledger';
 import {
   SELECT_CONSUMPTION_SQL,
   SELECT_SUBSCRIPTION_SQL,
@@ -117,6 +118,56 @@ test('plan rate cards + subscriptions against real Postgres', async (t) => {
     assert.equal(usage.rows.length, 1);
     assert.equal(Number(usage.rows[0].tasks_used), 0, 'a brand-new company has consumed nothing');
     assert.ok('rolled_through' in usage.rows[0], 'the metering signal must be selectable');
+
+    // 5. (AA-164) The credit ledger's PARTIAL unique index is the thing an
+    //    in-memory test cannot prove: a redelivered gateway event must credit
+    //    once, while manual grants (NULL event id) must NOT be deduped against
+    //    each other by that same index.
+    const paid = await grantCompanyCredits(
+      { companyId, credits: 500, source: 'purchase', externalEventId: `evt-${companyId}` },
+      client,
+    );
+    assert.equal(paid.applied, true);
+    const replay = await grantCompanyCredits(
+      { companyId, credits: 500, source: 'purchase', externalEventId: `evt-${companyId}` },
+      client,
+    );
+    assert.deepEqual(
+      replay,
+      { applied: false, reason: 'duplicate_event' },
+      'a webhook redelivery must never credit twice',
+    );
+    await grantCompanyCredits({ companyId, credits: 100, source: 'grant' }, client);
+    await grantCompanyCredits({ companyId, credits: 100, source: 'grant' }, client);
+    assert.equal(
+      await loadCreditBalance(companyId, client),
+      700,
+      'manual grants both land; only the gateway event is deduped',
+    );
+
+    // Expired credits leave the balance without leaving the audit trail.
+    await client.query(
+      `INSERT INTO company_credit_ledger (company_id, credits, source, expires_at)
+       VALUES ($1, 9999, 'grant', now() - interval '1 day')`,
+      [companyId],
+    );
+    assert.equal(await loadCreditBalance(companyId, client), 700);
+
+    // The alert dedupe key is a PRIMARY KEY, so a second claim for the same
+    // (company, period, threshold) is refused — that is what stops the hourly
+    // sweep emailing a customer every tick for a month.
+    const claim = await client.query(
+      `INSERT INTO usage_alert_notifications (company_id, period_start, threshold, recipients)
+       VALUES ($1, $2::date, 80, 1) ON CONFLICT DO NOTHING`,
+      [companyId, billingPeriodStart()],
+    );
+    assert.equal(claim.rowCount, 1);
+    const reclaim = await client.query(
+      `INSERT INTO usage_alert_notifications (company_id, period_start, threshold, recipients)
+       VALUES ($1, $2::date, 80, 1) ON CONFLICT DO NOTHING`,
+      [companyId, billingPeriodStart()],
+    );
+    assert.equal(reclaim.rowCount, 0, 'a re-tick must not be able to re-claim the same alert');
   } finally {
     await client.query('ROLLBACK');
     client.release();
