@@ -1732,6 +1732,64 @@ async function initDb() {
       -- customer-facing surface should exclude it explicitly.
       CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_company_usage_company_date
         ON daily_company_usage (company_id, usage_date);
+
+      -- AA-163: tiered plan rate cards + per-company subscriptions. Mirrors
+      -- migrations/20260729000000_plan_rate_cards.sql.
+      --
+      -- The rate card is DECLARATIVE: cost_per_million_tokens_cents records what
+      -- a PM configured and nothing reads it to compute a bill (COGS stays
+      -- sum(cost_cents) from the raw log — no cost is synthesized here).
+      -- Enforcement runs on TASK COUNTS: every AI row has NULL tokens until
+      -- Hermes reports usage, so a token gate would never deny. Both allowances
+      -- are stored so the metric can flip with an env var, no migration.
+      --
+      -- The tier lives on the COMPANY, not on users: users.plan is a per-account
+      -- multi-workspace entitlement on a different axis (Decision 13).
+      -- A NULL allowance means UNLIMITED, which is how Enterprise/Custom works —
+      -- that tier plus the per-company override columns, not a fifth hardcoded tier.
+      CREATE TABLE IF NOT EXISTS plan_rate_cards (
+        tier_key                      TEXT PRIMARY KEY
+          CHECK (tier_key IN ('starter','growth','scale','enterprise')),
+        display_name                  TEXT NOT NULL,
+        monthly_task_allowance        BIGINT,
+        monthly_token_allowance       BIGINT,
+        cost_per_million_tokens_cents NUMERIC(12,4),
+        sort_order                    INTEGER NOT NULL DEFAULT 0,
+        updated_at                    TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS company_subscriptions (
+        company_id                       INTEGER PRIMARY KEY
+          REFERENCES organizations(id) ON DELETE CASCADE,
+        tier_key                         TEXT NOT NULL REFERENCES plan_rate_cards(tier_key),
+        monthly_task_allowance_override  BIGINT,
+        monthly_token_allowance_override BIGINT,
+        assigned_at                      TIMESTAMPTZ NOT NULL DEFAULT now(),
+        assigned_by                      TEXT,
+        updated_at                       TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+
+    // Seeded starting values, tunable by a PM without a deploy. DO NOTHING is
+    // load-bearing: an edited rate must survive every container start, so this
+    // seeds absent rows and never clobbers configured ones.
+    await client.query(`
+      INSERT INTO plan_rate_cards
+        (tier_key, display_name, monthly_task_allowance, monthly_token_allowance, cost_per_million_tokens_cents, sort_order)
+      VALUES
+        ('starter',    'Starter (Small)',      1000,  2000000, 1500.0000, 1),
+        ('growth',     'Growth (Medium)',      5000, 10000000, 1200.0000, 2),
+        ('scale',      'Scale (Large)',       25000, 50000000, 1000.0000, 3),
+        ('enterprise', 'Enterprise (Custom)',  NULL,     NULL,      NULL, 4)
+      ON CONFLICT (tier_key) DO NOTHING;
+    `);
+
+    // Every existing company starts on the entry tier. Idempotent: a company
+    // whose plan has since been changed keeps it.
+    await client.query(`
+      INSERT INTO company_subscriptions (company_id, tier_key, assigned_by)
+        SELECT o.id, 'starter', 'init-db:backfill' FROM organizations o
+        ON CONFLICT (company_id) DO NOTHING;
     `);
 
     // Idempotent backfill: one membership per user that has an org pointer today

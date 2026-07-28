@@ -40,6 +40,8 @@ export const WEBSITE_BRAND_KIT_GENERIC_COPY =
   "We couldn't build a brand kit from this website. Double-check the address and try again.";
 export const BUSINESS_TYPE_MISSING_COPY =
   'Your business type is missing. Add it in Settings → Business profile, then try again.';
+export const PLAN_LIMIT_EXCEEDED_COPY =
+  "You've used up this month's plan allowance. Upgrade your plan or wait for the next billing period to generate more content.";
 
 /**
  * missing_required_fields:<list> entries → the form field that carries the
@@ -69,6 +71,18 @@ export function mapMarketingCreateFailure(rawMessage: string): MarketingCreateFa
   const message = rawMessage.startsWith('needs_brand_kit:')
     ? rawMessage.slice('needs_brand_kit:'.length)
     : rawMessage;
+
+  // AA-163: the plan gate refused before anything was created. 402 matches the
+  // multi-workspace paywall's shape (backend/tenant/entitlements.ts). The inner
+  // tier/metric detail is collapsed out like every other mapping here — it stays
+  // in the server log.
+  if (message.startsWith('plan_limit_exceeded')) {
+    return {
+      status: 402,
+      error: 'plan_limit_exceeded',
+      message: PLAN_LIMIT_EXCEEDED_COPY,
+    };
+  }
 
   if (message === 'brand_url_missing') {
     return {

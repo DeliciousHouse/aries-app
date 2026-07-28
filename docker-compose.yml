@@ -210,6 +210,15 @@ services:
       # and no task changes behavior. Must be set on every service that executes
       # classified work (app + the sweep/sync sidecars below).
       ARIES_TASK_TELEMETRY_ENABLED: ${ARIES_TASK_TELEMETRY_ENABLED:-0}
+      # AA-163 plan gate: refuse to start new content generation once a company
+      # has spent its tier's monthly allowance. Default OFF (no DB round-trip, no
+      # behavior change). Enforced on TASK COUNTS — every AI row has NULL tokens
+      # until Hermes reports usage, so ARIES_PLAN_ENFORCEMENT_METRIC=tokens is
+      # safe but inert until then. Needs ARIES_USAGE_ROLLUP_ENABLED to be on as
+      # well: with no rollup watermark the gate reads usage as unmetered and
+      # allows everything (it never denies on absent data).
+      ARIES_PLAN_ENFORCEMENT_ENABLED: ${ARIES_PLAN_ENFORCEMENT_ENABLED:-0}
+      ARIES_PLAN_ENFORCEMENT_METRIC: ${ARIES_PLAN_ENFORCEMENT_METRIC:-tasks}
       # Multi-workspace membership-aware auth resolution (Phase 1). When ON, the
       # active-workspace pointer is validated against an ACTIVE
       # organization_memberships row (role from the membership; workspaceCount on

@@ -132,6 +132,20 @@ const steps = [
     ],
   },
   {
+    // AA-163: tiered rate cards + the pre-execution plan gate. The gate's risk is
+    // asymmetric — a wrong deny blocks a paying customer — so these pin the
+    // fail-open paths (flag off, system work, unmetered usage, DB errors) as hard
+    // as the one denial path, plus the 402 mapping and that the gate runs before
+    // any job state exists. Fully in-memory (injected db).
+    name: 'plan rate cards + usage entitlement gate (AA-163)',
+    args: [
+      '--test',
+      'tests/billing/rate-cards.test.ts',
+      'tests/billing/usage-entitlement.test.ts',
+      'tests/billing/plan-gate-wiring.test.ts',
+    ],
+  },
+  {
     // Regression for the 2026-06-09 prod wedge: a failed tick must release the
     // insights-sync worker's overlap guard. Fast and fully in-memory.
     name: 'insights-sync worker tick guard',
