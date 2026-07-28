@@ -913,20 +913,28 @@ function CalendarTile({
     data: { kind: 'event', event },
     disabled: !event.reschedulable,
   });
+  const { 'aria-disabled': _disabledState, ...selectableAttributes } = attributes;
   const time = formatTimeInTenantZone(event.scheduledForIso, timeZone);
   const interactionTitle = event.manualReviewRequired
     ? 'Manual review required before scheduling changes'
-    : undefined;
+    : event.reschedulable
+      ? 'Drag to reschedule or select for details'
+      : 'Rescheduling unavailable; select for details';
+  const interactionLabel = `${event.title}. ${
+    event.reschedulable
+      ? 'Drag to reschedule or select for details.'
+      : 'Rescheduling unavailable; select for details.'
+  }`;
 
   if (compact) {
     return (
       <button
         ref={setNodeRef}
-        {...attributes}
+        {...selectableAttributes}
         {...listeners}
         type="button"
         data-testid={`tile-${event.id}`}
-        aria-disabled={!event.reschedulable}
+        aria-label={interactionLabel}
         title={interactionTitle}
         onClick={() => onSelect(event.id)}
         className={`w-full rounded border px-2.5 py-2 text-left text-[9px] transition-all hover:bg-white/[0.05] ${
@@ -954,11 +962,11 @@ function CalendarTile({
   return (
     <button
       ref={setNodeRef}
-      {...attributes}
+      {...selectableAttributes}
       {...listeners}
       type="button"
       data-testid={`tile-${event.id}`}
-      aria-disabled={!event.reschedulable}
+      aria-label={interactionLabel}
       title={interactionTitle}
       onClick={() => onSelect(event.id)}
       className={`w-full rounded-2xl border bg-[#0a0a0a]/80 p-3 text-left shadow-lg transition-all ${

@@ -134,6 +134,11 @@ test('calendar view-model marks child manual-reconciliation evidence as review-o
   assert.equal(model.events[0]!.reschedulable, false);
   assert.equal(model.events[0]!.manualReviewRequired, true);
   assert.match(model.events[0]!.manualReviewMessage ?? '', /verify whether.*live/i);
+  const failedMetric = model.hero.metrics.find((metric) => metric.label === 'Failed dispatch');
+  const manualMetric = model.hero.metrics.find((metric) => metric.label === 'Manual review');
+  assert.equal(failedMetric?.value, '0', 'unknown provider outcomes are not confirmed failures');
+  assert.equal(manualMetric?.value, '1', 'manual reconciliation has its own operator-visible count');
+  assert.match(manualMetric?.detail ?? '', /may already be live/i);
 });
 
 test('calendar rescheduling matches the server safe-state predicate', () => {

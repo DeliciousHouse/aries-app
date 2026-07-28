@@ -161,8 +161,9 @@ export function createCalendarViewModel(input: CalendarViewModelInput): Calendar
   const unscheduled = input.unscheduledPosts ?? [];
 
   const failedCount = events.filter(
-    (event) => event.dispatchStatus === 'failed' || event.manualReviewRequired,
+    (event) => event.dispatchStatus === 'failed' && !event.manualReviewRequired,
   ).length;
+  const manualReviewCount = events.filter((event) => event.manualReviewRequired).length;
   const dispatchedCount = events.filter((event) => event.dispatchStatus === 'dispatched').length;
 
   return {
@@ -209,6 +210,15 @@ export function createCalendarViewModel(input: CalendarViewModelInput): Calendar
               ? 'These posts failed to publish — review the per-platform error.'
               : 'No queued posts have failed dispatch.',
           tone: failedCount > 0 ? 'watch' : 'good',
+        },
+        {
+          label: 'Manual review',
+          value: String(manualReviewCount),
+          detail:
+            manualReviewCount > 0
+              ? 'These outcomes are unconfirmed and may already be live — verify each platform before scheduling changes.'
+              : 'No queued posts need manual provider-outcome review.',
+          tone: manualReviewCount > 0 ? 'watch' : 'good',
         },
       ],
     },

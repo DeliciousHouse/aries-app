@@ -205,7 +205,12 @@ test('CalendarPresenter disables manual-reconciliation drag and directs the oper
   try {
     const tile = container.querySelector('[data-testid="tile-901"]');
     assert.ok(tile);
-    assert.equal(tile.getAttribute('aria-disabled'), 'true');
+    assert.equal(
+      tile.getAttribute('aria-disabled'),
+      null,
+      'the selectable details button must not advertise itself as disabled',
+    );
+    assert.match(tile.getAttribute('title') ?? '', /manual review required/i);
     fireEvent.click(tile);
     assert.ok(screen.getByText(/verify whether this post is already live/i));
     const actionLabels = Array.from(container.querySelectorAll('button'))
@@ -267,7 +272,8 @@ test('CalendarPresenter hides every schedule mutation for dispatched child evide
   try {
     const tile = container.querySelector('[data-testid="tile-901"]');
     assert.ok(tile);
-    assert.equal(tile.getAttribute('aria-disabled'), 'true');
+    assert.equal(tile.getAttribute('aria-disabled'), null);
+    assert.match(tile.getAttribute('aria-label') ?? '', /rescheduling unavailable.*select for details/i);
     fireEvent.click(tile);
     const actionLabels = Array.from(container.querySelectorAll('button'))
       .map((button) => button.textContent?.trim());
