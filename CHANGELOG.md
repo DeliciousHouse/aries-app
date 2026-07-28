@@ -16,6 +16,8 @@ are quarantined for manual reconciliation instead of being retried automatically
   and worker-to-app authentication before production publishing is re-enabled.
 - Cutover and backfill commands repair legacy terminal rows and fail closed on
   legacy in-flight work whose provider outcome is not known.
+- Deployment restore proof detects unresolved legacy in-flight claims after the
+  old worker stops, while bounded one-shot readiness cleans up hung containers.
 
 ### Changed
 
@@ -25,6 +27,8 @@ are quarantined for manual reconciliation instead of being retried automatically
 - Calendar and review surfaces expose partial and manual-reconciliation states
   honestly, including per-platform success/failure details, and only let users move
   safe pending or failed schedules with no terminal child evidence.
+- The calendar counts unconfirmed outcomes separately from confirmed failures and
+  keeps non-reschedulable post details keyboard- and screen-reader-selectable.
 
 ### Fixed
 
@@ -39,6 +43,10 @@ are quarantined for manual reconciliation instead of being retried automatically
   and preventing deployment-time deadlocks.
 - Deploys keep scheduled publishing stopped until the target image passes the
   functional worker readiness command; DB/schema/protocol failures remain closed.
+- Confirmed provider IDs are token-fenced into durable platform rows before the
+  route responds, so a lost Facebook/Instagram response reconciles without reposting.
+- Media lookup, URL signing, and publishing guards complete before the provider
+  fence, so preflight exceptions remain safe to retry.
 
 ## v0.1.44.1 — chore(runtime): pin the supported Node release
 
