@@ -11,7 +11,10 @@ import {
   reconcileSocialContentIntermediateStages,
   socialContentStageFromCallbackStage,
 } from '@/backend/social-content/runtime-state';
-import { ingestSocialContentVideoRenderOutput } from '@/backend/social-content/media-ingest';
+import {
+  ingestSocialContentVideoRenderOutput,
+  type SocialContentVideoIngestResult,
+} from '@/backend/social-content/media-ingest';
 import type { SocialContentApprovalStep, SocialContentArtifact, SocialContentStage } from '@/backend/social-content/types';
 
 import {
@@ -128,7 +131,7 @@ const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp', 'gif'] as const;
 const HERMES_CACHE_SEGMENTS = ['cache/images', 'cache\\images', 'hermes-media'] as const;
 
 /** Filename prefixes Hermes uses when writing generated images. */
-const HERMES_FILENAME_PREFIXES = ['openai_codex_', 'openai_gpt_', 'gpt-image-', 'veo_render_'] as const;
+const HERMES_FILENAME_PREFIXES = ['openai_codex_', 'openai_gpt_', 'gpt-image-', 'video_render_'] as const;
 
 /**
  * Returns true when the string value looks like a Hermes-generated image path
@@ -771,9 +774,9 @@ function summarizeVideoIngestSkips(
 function ingestSocialContentStageMedia(
   run: ExecutionRunRecord,
   payload: HermesRunCallbackPayload,
-): void {
+): SocialContentVideoIngestResult | null {
   if (!isSocialContentRun(run) || !run.marketing_job_id || payload.stage !== 'video_render') {
-    return;
+    return null;
   }
 
   const result = ingestSocialContentVideoRenderOutput(run.marketing_job_id, payload.output);
@@ -783,6 +786,28 @@ function ingestSocialContentStageMedia(
       skipped: summarizeVideoIngestSkips(result.skipped),
     });
   }
+  return result;
+}
+
+function persistAllSkippedVideoFailure(
+  doc: SocialContentJobRuntimeDocument,
+  targetStage: MarketingStage,
+  socialStage: SocialContentStage,
+  payload: HermesRunCallbackPayload,
+  ingestResult: SocialContentVideoIngestResult | null,
+): boolean {
+  if (!ingestResult || ingestResult.reportedCount === 0 || ingestResult.ingestedCount > 0) {
+    return false;
+  }
+  const message = 'Hermes completed video rendering without any ingestible artifacts from approved cache roots.';
+  recordStageFailure(doc, targetStage, {
+    code: 'hermes_video_artifact_ingest_failed',
+    message,
+    retryable: true,
+  });
+  markSocialContentStageFailed(doc, socialStage, message, firstOutputRecord(payload));
+  saveSocialContentJobRuntime(doc.job_id, doc);
+  return true;
 }
 
 /**
@@ -1991,11 +2016,18 @@ async function applyHermesMarketingCallbackInner(
   }
 
   if (payload.status === 'requires_approval') {
-    ingestSocialContentStageMedia(run, payload);
+    const videoIngestResult = ingestSocialContentStageMedia(run, payload);
     const socialApprovalStep = isSocialContentRun(run) ? normalizeSocialApprovalStep(payload) : null;
     const completedSocialStage = isSocialContentRun(run)
       ? socialContentStageFromCallbackStage(payload.stage) ?? socialStageForMarketingStage(targetStage)
       : null;
+
+    if (
+      completedSocialStage
+      && persistAllSkippedVideoFailure(doc, targetStage, completedSocialStage, payload, videoIngestResult)
+    ) {
+      return;
+    }
 
     // Fail loud when Hermes returned an approve_publish checkpoint from the
     // production stage but generated zero actual images (image_creatives have
@@ -2186,7 +2218,19 @@ async function applyHermesMarketingCallbackInner(
     // doc.stages.production.primary_output. Ingesting here would read a still-
     // null primary_output and silently insert zero rows.
     const isProductionCompletion = payload.stage === 'production' || targetStage === 'production';
-    ingestSocialContentStageMedia(run, payload);
+    const videoIngestResult = ingestSocialContentStageMedia(run, payload);
+    if (
+      isSocialContentRun(run)
+      && persistAllSkippedVideoFailure(
+        doc,
+        targetStage,
+        socialContentStageFromCallbackStage(payload.stage) ?? socialStageForMarketingStage(targetStage),
+        payload,
+        videoIngestResult,
+      )
+    ) {
+      return;
+    }
     const multiStage = extractMultiStageOutputs(payload);
     if (multiStage) {
       for (const stage of STAGE_ORDER) {

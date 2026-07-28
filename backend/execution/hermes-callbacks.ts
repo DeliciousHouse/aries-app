@@ -10,6 +10,7 @@ import {
 } from './run-store';
 import { emitTaskExecution } from '../telemetry/task-execution-log';
 import { applyHermesMarketingCallback } from '../marketing/hermes-callbacks';
+import { loadSocialContentJobRuntime } from '../marketing/runtime-state';
 import { SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY } from '../social-content/defaults';
 import { approvalStepFromWorkflowStepId } from '../social-content/runtime-state';
 import {
@@ -249,7 +250,44 @@ export async function handleHermesRunCallback(
         await applyHermesMarketingCallback(run, payload);
       }
 
-      const appliedStatus = executionStatus(payload.status);
+      let appliedStatus = executionStatus(payload.status);
+      let appliedError = payload.error
+        ? {
+            code: payload.error.code ?? 'hermes_callback_error',
+            message: payload.error.message,
+            retryable: payload.error.retryable,
+          }
+        : null;
+
+      // Marketing callback application can fail closed after a nominally
+      // completed/approval-required Hermes delivery (for example when every
+      // reported video artifact falls outside approved cache roots). Persist
+      // that application-level terminal outcome on the execution record too.
+      if (run.domain === 'marketing' && run.marketing_job_id && appliedStatus !== 'cancelled') {
+        const marketingDoc = await loadSocialContentJobRuntime(run.marketing_job_id).catch(() => null);
+        if (marketingDoc?.state === 'failed') {
+          appliedStatus = 'failed';
+          appliedError = marketingDoc.last_error
+            ? {
+                code: marketingDoc.last_error.code,
+                message: marketingDoc.last_error.message,
+                retryable: marketingDoc.last_error.retryable,
+              }
+            : {
+                code: 'marketing_callback_application_failed',
+                message: 'Marketing callback application failed without a recorded error.',
+                retryable: false,
+              };
+        }
+      }
+
+      if (appliedStatus === 'failed' && !appliedError) {
+        appliedError = {
+          code: 'hermes_run_failed',
+          message: `Hermes reported a failed ${payload.stage ?? 'execution'} run without error details.`,
+          retryable: false,
+        };
+      }
 
       markExecutionRunEventApplied(payload.aries_run_id, {
         eventId: payload.event_id,
@@ -257,13 +295,7 @@ export async function handleHermesRunCallback(
         stage: payload.stage,
         result: payload.output ?? (payload.approval ? sanitizeApprovalForRunRecord(payload.approval) : null),
         externalRunId: payload.hermes_run_id,
-        error: payload.error
-          ? {
-              code: payload.error.code ?? 'hermes_callback_error',
-              message: payload.error.message,
-              retryable: payload.error.retryable,
-            }
-          : null,
+        error: appliedError,
       });
 
       // AA-159: this is the ONE post-dedup convergence point for every Hermes
@@ -292,7 +324,7 @@ export async function handleHermesRunCallback(
           errorCode:
             appliedStatus === 'completed'
               ? null
-              : (payload.error?.code ?? (appliedStatus === 'cancelled' ? 'cancelled' : 'hermes_run_failed')),
+              : (appliedError?.code ?? (appliedStatus === 'cancelled' ? 'cancelled' : 'hermes_run_failed')),
           startedAt: Number.isFinite(startedMs) ? new Date(startedMs) : null,
           endTime: new Date(),
           durationMs: durationSinceIso(run.created_at),

@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aries.example/schemas/video-job-contract-spec-v2.json",
+  "title": "Aries provider-neutral video job contract",
+  "description": "A validated projection over HermesRunSubmissionSchema and HermesRunCallbackPayloadSchema. Aries specifies intent and ownership; Hermes selects execution providers and models.",
+  "x-aries-contract-version": "2.0.0",
+  "x-aries-hermes-submission-schema": "HermesRunSubmissionSchema",
+  "x-aries-hermes-callback-schema": "HermesRunCallbackPayloadSchema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["video_brief", "hermes_submission", "terminal_event"],
+  "properties": {
+    "video_brief": { "$ref": "#/$defs/videoBrief" },
+    "hermes_submission": { "$ref": "#/$defs/hermesSubmission" },
+    "terminal_event": { "$ref": "#/$defs/terminalEvent" }
+  },
+  "$defs": {
+    "publicHttpsUrl": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://",
+      "not": {
+        "anyOf": [
+          { "pattern": "^https://[^/]*@" },
+          { "pattern": "^https://(?:localhost(?:[/:]|$)|[^/]+\\.localhost(?:[/:]|$))" },
+          { "pattern": "^https://(?:0\\.|10\\.|127\\.|169\\.254\\.|192\\.168\\.)" },
+          { "pattern": "^https://172\\.(?:1[6-9]|2[0-9]|3[01])\\." },
+          { "pattern": "^https://\\[(?:::|::1|::ffff:(?:0\\.|10\\.|127\\.|169\\.254\\.|172\\.(?:1[6-9]|2[0-9]|3[01])\\.|192\\.168\\.)|f[cd][0-9a-f:]*|fe[89ab][0-9a-f:]*)\\]" },
+          { "pattern": "(?:^|/)\\.\\.(?:/|$)" }
+        ]
+      }
+    },
+    "sourceAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "url"],
+      "properties": {
+        "type": { "const": "https_url" },
+        "url": { "$ref": "#/$defs/publicHttpsUrl" },
+        "mime_type": { "type": "string", "minLength": 1 },
+        "role": { "type": "string", "minLength": 1 }
+      }
+    },
+    "videoBrief": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["prompt", "aspect_ratio", "duration_seconds", "input_assets"],
+      "properties": {
+        "prompt": { "type": "string", "minLength": 1 },
+        "aspect_ratio": { "enum": ["9:16", "16:9", "1:1"] },
+        "duration_seconds": { "type": "integer", "minimum": 1, "maximum": 300 },
+        "input_assets": {
+          "type": "array",
+          "maxItems": 16,
+          "items": { "$ref": "#/$defs/sourceAsset" }
+        }
+      }
+    },
+    "callbackAuth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "secret_ref", "callback_token"],
+      "properties": {
+        "type": { "const": "internal_api_secret_bearer" },
+        "secret_ref": { "const": "INTERNAL_API_SECRET" },
+        "callback_token": { "type": "string", "minLength": 1 }
+      }
+    },
+    "callbackContext": {
+      "type": "object",
+      "required": ["workflow_key", "aries_run_id", "job_id", "tenant_id"],
+      "properties": {
+        "workflow_key": { "const": "social_content_weekly" },
+        "aries_run_id": { "type": "string", "pattern": "^arun_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$" },
+        "job_id": { "type": "string", "pattern": "^mkt_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$" },
+        "tenant_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "hermesSubmission": {
+      "type": "object",
+      "required": ["input", "workflow_key", "action", "aries_run_id", "job_id", "tenant_id", "callback_url", "callback_auth", "callback_context", "idempotency_key", "protocol_version"],
+      "properties": {
+        "input": { "type": "string", "minLength": 1 },
+        "instructions": { "type": "string" },
+        "session_id": { "type": "string" },
+        "workflow_key": { "const": "social_content_weekly" },
+        "workflow_version": { "type": "string" },
+        "action": { "const": "run" },
+        "aries_run_id": { "type": "string", "pattern": "^arun_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$" },
+        "job_id": { "type": "string", "pattern": "^mkt_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$" },
+        "tenant_id": { "type": "string", "minLength": 1 },
+        "callback_url": { "type": "string", "format": "uri", "pattern": "^https://.*/api/internal/hermes/runs$" },
+        "callback_auth": { "$ref": "#/$defs/callbackAuth" },
+        "callback_context": { "$ref": "#/$defs/callbackContext" },
+        "idempotency_key": { "type": "string", "minLength": 1 },
+        "protocol_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" }
+      }
+    },
+    "videoArtifact": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "path", "mime_type", "bytes"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "url": { "type": "string" },
+        "mime_type": { "const": "video/mp4" },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "duration_seconds": { "type": "number", "exclusiveMinimum": 0 },
+        "platform_slug": { "type": "string", "minLength": 1 },
+        "family_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "callback": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["event_id", "aries_run_id", "hermes_run_id", "status", "stage"],
+      "properties": {
+        "event_id": { "type": "string", "minLength": 1 },
+        "aries_run_id": { "type": "string", "minLength": 1 },
+        "hermes_run_id": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["completed", "failed", "cancelled"] },
+        "stage": { "const": "video_render" },
+        "output": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "artifacts": { "type": "array", "items": { "$ref": "#/$defs/videoArtifact" } }
+            }
+          }
+        },
+        "error": {
+          "type": "object",
+          "required": ["message"],
+          "properties": {
+            "code": { "type": "string" },
+            "message": { "type": "string", "minLength": 1 },
+            "retryable": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "terminalEvent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["event_type", "runtime_phase", "callback"],
+          "properties": {
+            "event_type": { "const": "video_render.completed" },
+            "runtime_phase": { "const": "succeeded" },
+            "callback": { "allOf": [{ "$ref": "#/$defs/callback" }, { "properties": { "status": { "const": "completed" } } }] }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["event_type", "runtime_phase", "callback"],
+          "properties": {
+            "event_type": { "const": "video_render.failed" },
+            "runtime_phase": { "const": "failed" },
+            "callback": { "allOf": [{ "$ref": "#/$defs/callback" }, { "properties": { "status": { "const": "failed" } }, "required": ["error"] }] }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["event_type", "runtime_phase", "callback"],
+          "properties": {
+            "event_type": { "const": "video_render.cancelled" },
+            "runtime_phase": { "const": "cancelled" },
+            "callback": { "allOf": [{ "$ref": "#/$defs/callback" }, { "properties": { "status": { "const": "cancelled" } } }] }
+          }
+        }
+      ]
+    }
+  }
+}
