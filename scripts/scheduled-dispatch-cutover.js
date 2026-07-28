@@ -1,5 +1,9 @@
 'use strict';
 
+const {
+  LEGACY_UNKNOWN_OUTCOME_SQL_REGEX,
+} = require('./legacy-scheduled-dispatch-unknown-outcomes.js');
+
 const LEGACY_SCHEDULED_DISPATCH_QUARANTINE_SQL = `
   WITH legacy_transport_ambiguous AS MATERIALIZED (
     SELECT DISTINCT owner.id
@@ -11,9 +15,9 @@ const LEGACY_SCHEDULED_DISPATCH_QUARANTINE_SQL = `
        AND dispatch.status = 'pending'
        AND dispatch.error_message ~ '^(fetch failed after retry:|fetch 5xx retry failed:|dispatch [0-9]+: (unparseable response body|missing per-platform results)|graph_network_error:|graph_api_error:)'
      ) OR (
-       owner.dispatch_status = 'failed'
+       owner.dispatch_status IN ('pending', 'failed')
        AND dispatch.status = 'failed'
-       AND dispatch.error_message ~ '^(video_publish_outcome_unknown|facebook_publish_missing_id|instagram_publish_missing_id)'
+       AND dispatch.error_message ~ '${LEGACY_UNKNOWN_OUTCOME_SQL_REGEX}'
      )
   ), locked_posts AS MATERIALIZED (
     SELECT post.id
@@ -65,7 +69,7 @@ const LEGACY_SCHEDULED_DISPATCH_QUARANTINE_SQL = `
           dispatch.status IN ('pending', 'in_flight')
           OR (
             dispatch.status = 'failed'
-            AND dispatch.error_message ~ '^(video_publish_outcome_unknown|facebook_publish_missing_id|instagram_publish_missing_id)'
+            AND dispatch.error_message ~ '${LEGACY_UNKNOWN_OUTCOME_SQL_REGEX}'
           )
         )
     RETURNING dispatch.id
@@ -98,9 +102,10 @@ const LEGACY_SCHEDULED_DISPATCH_QUARANTINE_SQL = `
 `;
 
 /**
- * Quarantine pre-fence rows after the compatible app is healthy. This includes
- * legacy pending image attempts whose transport error could hide an accepted
- * provider publish; safe pending rows without that evidence remain claimable.
+ * Quarantine pre-fence rows after schema application while app/worker mutation
+ * traffic is quiesced. This includes legacy pending image attempts whose
+ * transport error could hide an accepted provider publish; safe pending rows
+ * without that evidence remain claimable.
  *
  * This deliberately has no durable "already ran" marker. A failed rollout may
  * restore an old worker that creates another legacy in-flight or transport-

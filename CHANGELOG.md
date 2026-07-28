@@ -41,8 +41,13 @@ outcomes are quarantined for manual reconciliation instead of automatic replay.
   canonical post, preventing successful cancellation from leaving orphan schedules.
 - Worker authentication and media preflight failures remain before provider I/O;
   ambiguous transport outcomes preserve durable evidence and are never replayed.
-- Production deploys keep publishing stopped through additive schema, app health,
-  worker functional readiness, and post-health cutover verification.
+- Cutover recognizes every historical outcome-unknown code and quarantines an
+  unsafe failed child even when a retryable sibling keeps its parent pending.
+- Production deploys quiesce old app mutations before stopping the worker, run
+  additive schema and legacy quarantine before exposing the compatible app, and
+  restore exact pre-fence containers only when rollback is proven safe.
+- Manual-review calendar tiles announce their visible status and provider-evidence
+  verification guidance in the accessible name.
 
 ## v0.1.44.1 — chore(runtime): pin the supported Node release
 

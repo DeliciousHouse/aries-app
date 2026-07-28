@@ -209,19 +209,44 @@ test('deploy workflow fences scheduled publishing across schema/app rollout and 
   const startApp = deploySource.indexOf(
     'replace_application_and_verify "${TARGET_IMAGE}" "${target_image_id}" "${SERVICE_NAME}"',
   );
+  const quarantineLegacy = deploySource.indexOf('scripts/run-scheduled-dispatch-cutover.js');
+  const protocolBoundary = deploySource.indexOf('mark_scheduled_worker_protocol_boundary');
   const restartWorker = deploySource.indexOf(
     'replace_scheduled_worker_and_verify "${TARGET_IMAGE}" "${target_image_id}"',
   );
 
   for (const [name, index] of [
     ['scheduled worker stop + target-image schema fence', applySchema],
+    ['legacy dispatch quarantine', quarantineLegacy],
+    ['scheduled-worker protocol boundary', protocolBoundary],
     ['app rollout', startApp],
     ['scheduled worker restart', restartWorker],
   ] as const) {
     assert.notEqual(index, -1, `deploy workflow is missing required ${name}`);
   }
-  assert.ok(applySchema < startApp, 'schema is applied from the target image before the new app starts');
+  assert.ok(
+    applySchema < quarantineLegacy
+      && quarantineLegacy < protocolBoundary
+      && protocolBoundary < startApp,
+    'mutation traffic stays quiesced through schema and quarantine; the compatible app is exposed only afterward',
+  );
   assert.ok(startApp < restartWorker, 'scheduled worker restarts only after the app verifier succeeds');
+
+  const quiesceOptIn = deploySource.indexOf('ARIES_QUIESCE_APPLICATION_DURING_SCHEMA=1');
+  const helperStopApp = schemaFenceSource.indexOf('docker compose stop "${application_service}"');
+  const helperStopWorker = schemaFenceSource.indexOf('docker compose stop "${scheduled_worker_service}"');
+  const helperSchema = schemaFenceSource.indexOf('scripts/init-db.js');
+  for (const [name, index] of [
+    ['deploy mutation-quiesce opt-in', quiesceOptIn],
+    ['application mutation quiesce', helperStopApp],
+    ['scheduled worker stop', helperStopWorker],
+  ] as const) {
+    assert.notEqual(index, -1, `deploy sequence is missing ${name}`);
+  }
+  assert.ok(
+    helperStopApp < helperStopWorker && helperStopWorker < helperSchema,
+    'the old application must stop accepting mutations before the old worker stops and schema work begins',
+  );
 
   const helperAppRecreate = schemaFenceSource.indexOf(
     'ARIES_APP_IMAGE="${target_image}" docker compose up -d --no-deps --force-recreate --pull always "${service_name}"',

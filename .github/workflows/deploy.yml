@@ -324,33 +324,35 @@ jobs:
 
           ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose pull "${SERVICE_NAME}"
 
-          # Scheduled publishing crosses the web/worker boundary. This helper
-          # stops the old worker, applies target-image schema with bounded DB
-          # waits, and restarts the exact old container if schema application
-          # fails (preserving the migration's non-zero exit status).
+          # Scheduled publishing crosses the web/worker boundary. Quiesce the
+          # old app before stopping its worker so authenticated schedule/delete
+          # mutations cannot erase unsafe legacy evidence before quarantine.
+          # The helper applies target-image schema with bounded DB waits and
+          # restores the exact old app/worker only when pre-boundary proof says
+          # that rollback is safe.
+          export ARIES_QUIESCE_APPLICATION_DURING_SCHEMA=1
           TARGET_IMAGE="${TARGET_IMAGE}" source ./scripts/release/apply-schema-with-worker-restore.sh
+          unset ARIES_QUIESCE_APPLICATION_DURING_SCHEMA
 
           # init-db already succeeded in the bounded target-image one-shot above.
           # Skip the runtime's duplicate unbounded init while recreating the app.
           export ARIES_SKIP_DB_INIT=1
 
-          # Once target app execution can begin, the stopped pre-rollout worker
-          # is no longer safe to restore. Mark this fail-closed boundary before
-          # force-recreate so an app startup/health failure cannot rearm stale
-          # publishing code against target schema.
-          mark_scheduled_worker_protocol_boundary
-          target_image_id="$(docker image inspect -f '{{.Id}}' "${TARGET_IMAGE}")"
-          replace_application_and_verify "${TARGET_IMAGE}" "${target_image_id}" "${SERVICE_NAME}"
-          unset ARIES_SKIP_DB_INIT
-
-
-          # Keep legacy in-flight evidence unchanged until the compatible app's
-          # route guards own traffic. The old worker is still stopped, so this
-          # data-only transaction completes before any target worker can claim.
+          # Both the old app and worker remain stopped here. Quarantine unsafe
+          # legacy evidence before any compatible app is exposed, closing the
+          # mutation window rather than relying on lock ordering to win a race.
           PGOPTIONS='-c lock_timeout=5s -c statement_timeout=120s' \
             ARIES_APP_IMAGE="${TARGET_IMAGE}" \
             timeout 180s docker compose run --rm --no-deps --entrypoint node \
               "${SERVICE_NAME}" scripts/run-scheduled-dispatch-cutover.js
+
+          # Quarantine completed under quiescence. Crossing the protocol
+          # boundary now makes old app/worker restore unsafe; every later
+          # failure remains fail closed until the compatible target is healthy.
+          mark_scheduled_worker_protocol_boundary
+          target_image_id="$(docker image inspect -f '{{.Id}}' "${TARGET_IMAGE}")"
+          replace_application_and_verify "${TARGET_IMAGE}" "${target_image_id}" "${SERVICE_NAME}"
+          unset ARIES_SKIP_DB_INIT
 
           # Restart scheduled publishing only after the target app is healthy
           # and data is compatible. After the protocol boundary, every failure

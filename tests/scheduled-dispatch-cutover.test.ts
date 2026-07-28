@@ -26,12 +26,33 @@ const { quarantineLegacyScheduledDispatches } = require('../scripts/scheduled-di
     client: ScheduledDispatchCutoverClient,
   ) => Promise<CutoverResult>;
 };
+const {
+  LEGACY_UNKNOWN_OUTCOME_PREFIXES,
+  LEGACY_UNKNOWN_OUTCOME_SQL_REGEX,
+} = require('../scripts/legacy-scheduled-dispatch-unknown-outcomes.js') as {
+  LEGACY_UNKNOWN_OUTCOME_PREFIXES: readonly string[];
+  LEGACY_UNKNOWN_OUTCOME_SQL_REGEX: string;
+};
+
+const HISTORICAL_UNKNOWN_OUTCOME_PREFIXES = [
+  'video_publish_outcome_unknown',
+  'provider_publish_outcome_unknown',
+  'provider_publish_missing_id',
+  'facebook_video_publish_missing_id',
+  'facebook_video_story_finish_missing_id',
+  'facebook_story_publish_missing_id',
+  'facebook_publish_missing_id',
+  'instagram_publish_missing_id',
+] as const;
 
 type LegacyRow = {
   id: number;
   dispatchStatus: 'pending' | 'in_flight' | 'failed' | 'manual_reconciliation';
   dispatchStartedAt: string | null;
   legacyTransportAmbiguous?: boolean;
+  failedUnknownChild?: boolean;
+  unsafeChildStatus?: 'failed' | 'manual_reconciliation';
+  canonicalStatus?: 'approved' | 'unverified';
 };
 
 class CutoverFixture implements ScheduledDispatchCutoverClient {
@@ -56,10 +77,11 @@ class CutoverFixture implements ScheduledDispatchCutoverClient {
       const recognizesLegacyPendingAmbiguity = normalized.includes('legacy_transport_ambiguous')
         && normalized.includes('graph_network_error')
         && normalized.includes('graph_api_error');
-      const recognizesLegacyFailedAmbiguity = normalized.includes("owner.dispatch_status = 'failed'")
-        && normalized.includes('video_publish_outcome_unknown')
-        && normalized.includes('facebook_publish_missing_id')
-        && normalized.includes('instagram_publish_missing_id');
+      const recognizesLegacyFailedAmbiguity = normalized.includes("dispatch.status = 'failed'")
+        && HISTORICAL_UNKNOWN_OUTCOME_PREFIXES.every((prefix) => normalized.includes(prefix));
+      const recognizesLegacyFailedAmbiguityForPendingParent = normalized.includes(
+        "owner.dispatch_status IN ('pending', 'failed')",
+      ) && HISTORICAL_UNKNOWN_OUTCOME_PREFIXES.every((prefix) => normalized.includes(prefix));
       const legacy = this.rows.filter(
         (row) =>
           (row.dispatchStatus === 'in_flight' && row.dispatchStartedAt === null)
@@ -72,9 +94,18 @@ class CutoverFixture implements ScheduledDispatchCutoverClient {
             recognizesLegacyFailedAmbiguity
             && row.dispatchStatus === 'failed'
             && row.legacyTransportAmbiguous === true
+          )
+          || (
+            recognizesLegacyFailedAmbiguityForPendingParent
+            && row.dispatchStatus === 'pending'
+            && row.failedUnknownChild === true
           ),
       );
-      for (const row of legacy) row.dispatchStatus = 'manual_reconciliation';
+      for (const row of legacy) {
+        row.dispatchStatus = 'manual_reconciliation';
+        row.canonicalStatus = 'unverified';
+        if (row.unsafeChildStatus === 'failed') row.unsafeChildStatus = 'manual_reconciliation';
+      }
       return {
         rows: [{
           scheduled_posts: legacy.length,
@@ -87,6 +118,30 @@ class CutoverFixture implements ScheduledDispatchCutoverClient {
     throw new Error(`unexpected cutover SQL: ${normalized.slice(0, 80)}`);
   }
 }
+
+test('legacy unknown-outcome classification is shared and exhaustive for every pre-fence code', () => {
+  assert.deepEqual(
+    LEGACY_UNKNOWN_OUTCOME_PREFIXES,
+    HISTORICAL_UNKNOWN_OUTCOME_PREFIXES,
+  );
+  const classifier = new RegExp(LEGACY_UNKNOWN_OUTCOME_SQL_REGEX);
+  for (const prefix of HISTORICAL_UNKNOWN_OUTCOME_PREFIXES) {
+    assert.match(`${prefix}: provider response`, classifier, prefix);
+  }
+
+  const cutoverSource = readFileSync(
+    path.join(REPO_ROOT, 'scripts', 'scheduled-dispatch-cutover.js'),
+    'utf8',
+  );
+  const restoreProofSource = readFileSync(
+    path.join(REPO_ROOT, 'scripts', 'release', 'assert-no-unresolved-scheduled-claims.mjs'),
+    'utf8',
+  );
+  for (const source of [cutoverSource, restoreProofSource]) {
+    assert.match(source, /legacy-scheduled-dispatch-unknown-outcomes/);
+    assert.match(source, /LEGACY_UNKNOWN_OUTCOME_SQL_REGEX/);
+  }
+});
 
 test('two deploys quarantine a legacy row created after deploy-one rollback restores the old worker', async () => {
   const fixture = new CutoverFixture();
@@ -182,6 +237,28 @@ test('cutover quarantines legacy failed unknown outcomes but preserves known ter
   assert.equal(fixture.rows[1]?.dispatchStatus, 'failed');
 });
 
+test('cutover quarantines a failed unknown child even when a retryable sibling keeps the parent pending', async () => {
+  const fixture = new CutoverFixture();
+  fixture.rows.push({
+    id: 8,
+    dispatchStatus: 'pending',
+    dispatchStartedAt: null,
+    failedUnknownChild: true,
+    unsafeChildStatus: 'failed',
+    canonicalStatus: 'approved',
+  });
+
+  const result = await quarantineLegacyScheduledDispatches(fixture);
+  assert.deepEqual(result, {
+    scheduledPosts: 1,
+    platformDispatches: 2,
+    postsUnverified: 1,
+  });
+  assert.equal(fixture.rows[0]?.dispatchStatus, 'manual_reconciliation');
+  assert.equal(fixture.rows[0]?.unsafeChildStatus, 'manual_reconciliation');
+  assert.equal(fixture.rows[0]?.canonicalStatus, 'unverified');
+});
+
 class TimedMutex {
   private locked = false;
   private waiters: Array<{
@@ -220,7 +297,7 @@ class TimedMutex {
   }
 }
 
-test('post-health cutover and a live route share canonical-first locks without deadlock or partial outcome', async () => {
+test('cutover and a live route share canonical-first locks without deadlock or partial outcome', async () => {
   const canonical = new TimedMutex();
   const scheduled = new TimedMutex();
   let releaseLive!: () => void;

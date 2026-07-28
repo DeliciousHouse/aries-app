@@ -47,14 +47,14 @@ test('submission-fence migration bounds lock and statement waits locally', () =>
   assert.match(source, /COMMIT;/);
 });
 
-test('fresh db:init installs the provider fence without performing the post-health quarantine', () => {
+test('fresh db:init installs the provider fence without performing the data cutover quarantine', () => {
   const source = readFileSync(path.join(REPO_ROOT, 'scripts/init-db.js'), 'utf8');
   assert.match(source, /ADD COLUMN IF NOT EXISTS dispatch_started_at TIMESTAMPTZ/);
   assert.doesNotMatch(source, /quarantineLegacyScheduledDispatches\(client\)/);
   assert.doesNotMatch(source, /SET dispatch_status = 'manual_reconciliation'/);
 });
 
-test('post-health cutover owns every legacy quarantine write', () => {
+test('quiesced data cutover owns every legacy quarantine write', () => {
   const migration = readFileSync(
     path.join(REPO_ROOT, 'migrations/20260724000000_scheduled_dispatch_submission_fence.sql'),
     'utf8',
@@ -77,7 +77,7 @@ test('post-health cutover owns every legacy quarantine write', () => {
   assert.doesNotMatch(
     cutover,
     /ADD COLUMN IF NOT EXISTS dispatch_started_at/,
-    'post-health cutover is data-only; all provider-fence DDL belongs to pre-app init',
+    'quiesced cutover is data-only; all provider-fence DDL belongs to pre-app init',
   );
   assert.doesNotMatch(migration, /SET dispatch_status = 'manual_reconciliation'/);
 });

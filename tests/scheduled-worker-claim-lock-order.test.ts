@@ -56,11 +56,11 @@ test('real claim and release SQL serialize on canonical post before scheduled ow
         media_type TEXT,
         width_px INTEGER,
         height_px INTEGER,
-        duration_seconds NUMERIC,
+        duration_seconds INTEGER,
         scheduled_for TIMESTAMPTZ NOT NULL,
         campaign_end_date TIMESTAMPTZ,
         dispatch_status TEXT NOT NULL,
-        dispatch_attempt_token TEXT,
+        dispatch_attempt_token UUID,
         dispatch_claimed_at TIMESTAMPTZ,
         dispatch_started_at TIMESTAMPTZ,
         next_attempt_at TIMESTAMPTZ,
@@ -127,7 +127,7 @@ test('real claim and release SQL serialize on canonical post before scheduled ow
     await pool.query(`
       UPDATE scheduled_posts
          SET dispatch_status = 'in_flight',
-             dispatch_attempt_token = 'attempt-release',
+             dispatch_attempt_token = '00000000-0000-4000-8000-000000000071',
              dispatch_claimed_at = now(),
              dispatch_started_at = NULL
        WHERE id = 71
@@ -141,7 +141,7 @@ test('real claim and release SQL serialize on canonical post before scheduled ow
         await route.query('SELECT id FROM posts WHERE id = 42 AND tenant_id = 15 FOR UPDATE');
         const released = await worker.query(
           workerSql.RELEASE_PRE_PROVIDER_CLAIM_SQL,
-          [71, 'attempt-release'],
+          [71, '00000000-0000-4000-8000-000000000071'],
         );
         assert.equal(Number(released.rows[0]?.released ?? 0), 0);
         const owner = await route.query('SELECT dispatch_status FROM scheduled_posts WHERE id = 71 FOR UPDATE');

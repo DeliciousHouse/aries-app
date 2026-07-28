@@ -196,7 +196,7 @@ test('deploy workflow builds and force-recreates the exact commit image', () => 
    );
  });
 
-test('schema failure restores the exact old worker container and preserves the nonzero status', () => {
+test('schema failure restores the exact old app and worker after mutation traffic was quiesced', () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), 'aries-schema-restore-'));
   const binDir = path.join(tempRoot, 'bin');
   const logPath = path.join(tempRoot, 'docker.log');
@@ -210,6 +210,18 @@ set -u
 printf '%s | PGOPTIONS=%s\\n' "$*" "\${PGOPTIONS:-}" >> "\${DOCKER_LOG}"
 if [[ "$*" == "compose ps -q aries-scheduled-posts-worker" ]]; then
   printf 'old-worker-container\\n'
+  exit 0
+fi
+if [[ "$*" == "compose ps -q aries-app" ]]; then
+  printf 'old-app-container\\n'
+  exit 0
+fi
+if [[ "$*" == "inspect -f {{.State.Running}} old-app-container" ]]; then
+  printf 'true\\n'
+  exit 0
+fi
+if [[ "$*" == "inspect -f {{.Image}} old-app-container" ]]; then
+  printf 'sha-old-app\\n'
   exit 0
 fi
 if [[ "$1" == "inspect" ]]; then
@@ -234,6 +246,7 @@ exit 0
         env: {
           ...process.env,
           TARGET_IMAGE: 'ghcr.io/example/aries:target',
+          ARIES_QUIESCE_APPLICATION_DURING_SCHEMA: '1',
           DOCKER_LOG: logPath,
           PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
         },
@@ -242,12 +255,66 @@ exit 0
 
     assert.equal(result.status, 42, `schema exit code must survive restore; stderr=${result.stderr}`);
     const calls = readFileSync(logPath, 'utf8');
-    const stop = calls.indexOf('compose stop aries-scheduled-posts-worker');
+    const stopApp = calls.indexOf('compose stop aries-app');
+    const stopWorker = calls.indexOf('compose stop aries-scheduled-posts-worker');
     const schema = calls.indexOf('compose run --rm --no-deps --entrypoint node aries-app scripts/init-db.js');
-    const restore = calls.indexOf('start old-worker-container');
-    assert.ok(stop !== -1 && schema !== -1 && restore !== -1);
-    assert.ok(stop < schema && schema < restore, 'old worker is restored only after the forced schema failure');
+    const restoreApp = calls.indexOf('start old-app-container');
+    const restoreWorker = calls.indexOf('start old-worker-container');
+    assert.ok(stopApp !== -1 && stopWorker !== -1 && schema !== -1 && restoreApp !== -1 && restoreWorker !== -1);
+    assert.ok(
+      stopApp < stopWorker && stopWorker < schema && schema < restoreApp && schema < restoreWorker,
+      'old mutation traffic is quiesced before worker/schema work and exact containers return only after failure',
+    );
     assert.match(calls, /scripts\/init-db\.js \| PGOPTIONS=-c lock_timeout=5s -c statement_timeout=120s/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('application quiesce failure restores the old app without stopping its still-running worker', () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), 'aries-app-quiesce-failure-'));
+  const binDir = path.join(tempRoot, 'bin');
+  const logPath = path.join(tempRoot, 'docker.log');
+  const fakeDocker = path.join(binDir, 'docker');
+  try {
+    mkdirSync(binDir);
+    writeFileSync(fakeDocker, `#!/usr/bin/env bash
+set -u
+printf '%s\\n' "$*" >> "\${DOCKER_LOG}"
+if [[ "$*" == "compose ps -q aries-scheduled-posts-worker" ]]; then printf 'old-worker-container\\n'; exit 0; fi
+if [[ "$*" == "compose ps -q aries-app" ]]; then printf 'old-app-container\\n'; exit 0; fi
+if [[ "$*" == "inspect -f {{.State.Running}} old-worker-container" ]]; then printf 'true\\n'; exit 0; fi
+if [[ "$*" == "inspect -f {{.Image}} old-worker-container" ]]; then printf 'sha-old-worker\\n'; exit 0; fi
+if [[ "$*" == "inspect -f {{.State.Running}} old-app-container" ]]; then printf 'true\\n'; exit 0; fi
+if [[ "$*" == "inspect -f {{.Image}} old-app-container" ]]; then printf 'sha-old-app\\n'; exit 0; fi
+if [[ "$1" == "inspect" ]]; then printf 'true\\n'; exit 0; fi
+if [[ "$*" == "compose stop aries-app" ]]; then exit 55; fi
+exit 0
+`, { mode: 0o755 });
+    chmodSync(fakeDocker, 0o755);
+
+    const result = spawnSync(
+      'bash',
+      [path.join(PROJECT_ROOT, 'scripts', 'release', 'apply-schema-with-worker-restore.sh')],
+      {
+        cwd: PROJECT_ROOT,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          TARGET_IMAGE: 'ghcr.io/example/aries:target',
+          ARIES_QUIESCE_APPLICATION_DURING_SCHEMA: '1',
+          DOCKER_LOG: logPath,
+          PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+        },
+      },
+    );
+
+    assert.equal(result.status, 55, `quiesce failure must survive cleanup; stderr=${result.stderr}`);
+    const calls = readFileSync(logPath, 'utf8');
+    assert.match(calls, /compose stop aries-app/);
+    assert.match(calls, /start old-app-container/);
+    assert.doesNotMatch(calls, /compose stop aries-scheduled-posts-worker/);
+    assert.doesNotMatch(calls, /start old-worker-container/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }

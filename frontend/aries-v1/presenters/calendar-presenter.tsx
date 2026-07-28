@@ -921,7 +921,9 @@ function CalendarTile({
       ? 'Drag to reschedule or select for details'
       : 'Rescheduling unavailable; select for details';
   const interactionLabel = `${event.title}. ${
-    event.reschedulable
+    event.manualReviewRequired
+      ? `${event.manualReviewMessage ?? 'Manual review required: verify whether this post is already live before making scheduling changes.'} Select for details.`
+      : event.reschedulable
       ? 'Drag to reschedule or select for details.'
       : 'Rescheduling unavailable; select for details.'
   }`;

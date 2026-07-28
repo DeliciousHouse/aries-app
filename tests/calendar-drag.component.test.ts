@@ -211,6 +211,11 @@ test('CalendarPresenter disables manual-reconciliation drag and directs the oper
       'the selectable details button must not advertise itself as disabled',
     );
     assert.match(tile.getAttribute('title') ?? '', /manual review required/i);
+    assert.match(
+      tile.getAttribute('aria-label') ?? '',
+      /manual review required.*verify whether this post is already live/i,
+      'the tile accessible name exposes the visible manual-review state and verification guidance',
+    );
     fireEvent.click(tile);
     assert.ok(screen.getByText(/verify whether this post is already live/i));
     const actionLabels = Array.from(container.querySelectorAll('button'))

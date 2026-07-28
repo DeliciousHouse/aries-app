@@ -2,6 +2,10 @@
 
 import pg from 'pg';
 
+import legacyUnknownOutcomes from '../legacy-scheduled-dispatch-unknown-outcomes.js';
+
+const { LEGACY_UNKNOWN_OUTCOME_SQL_REGEX } = legacyUnknownOutcomes;
+
 const pool = process.env.DATABASE_URL
   ? new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 1 })
   : new pg.Pool({
@@ -29,13 +33,13 @@ try {
            )
          )
          OR (
-           owner.dispatch_status = 'failed'
+           owner.dispatch_status IN ('pending', 'failed')
            AND EXISTS (
              SELECT 1
                FROM scheduled_post_dispatches AS dispatch
               WHERE dispatch.scheduled_post_id = owner.id
                 AND dispatch.status = 'failed'
-                AND dispatch.error_message ~ '^(video_publish_outcome_unknown|facebook_publish_missing_id|instagram_publish_missing_id)'
+                AND dispatch.error_message ~ '${LEGACY_UNKNOWN_OUTCOME_SQL_REGEX}'
            )
          )`,
   );

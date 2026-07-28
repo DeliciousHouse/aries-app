@@ -22,7 +22,7 @@ test('pre-schema restore proof rejects legacy pending transport ambiguity withou
   );
 
   assert.match(source, /dispatch_status\s*=\s*'pending'/);
-  assert.match(source, /dispatch_status\s*=\s*'failed'/);
+  assert.match(source, /dispatch_status\s+IN\s*\(\s*'pending'\s*,\s*'failed'\s*\)/);
   assert.match(source, /scheduled_post_dispatches/);
   for (const legacyTransportMarker of [
     'fetch failed after retry',
@@ -31,12 +31,11 @@ test('pre-schema restore proof rejects legacy pending transport ambiguity withou
     'missing per-platform results',
     'graph_network_error',
     'graph_api_error',
-    'video_publish_outcome_unknown',
-    'facebook_publish_missing_id',
-    'instagram_publish_missing_id',
   ]) {
     assert.match(source, new RegExp(legacyTransportMarker));
   }
+  assert.match(source, /legacy-scheduled-dispatch-unknown-outcomes/);
+  assert.match(source, /LEGACY_UNKNOWN_OUTCOME_SQL_REGEX/);
   assert.doesNotMatch(
     source,
     /WHERE\s+dispatch_status\s+IN\s*\(\s*'in_flight'\s*,\s*'pending'\s*\)/i,
