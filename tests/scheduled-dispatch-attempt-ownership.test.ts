@@ -3,7 +3,10 @@ import path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 
-import { POST } from '../app/api/internal/publishing/scheduled-dispatch/route';
+import {
+  POST,
+  handleScheduledDispatchPost,
+} from '../app/api/internal/publishing/scheduled-dispatch/route';
 import { encryptOAuthSecret } from '../backend/integrations/oauth-token-crypto';
 import pool from '../lib/db';
 
@@ -114,6 +117,9 @@ function installDispatchFixture(options: DispatchFixtureOptions) {
         rows: [{ job_id: null }],
         rowCount: 1,
       };
+    }
+    if (/UPDATE scheduled_post_dispatches/i.test(text)) {
+      return { rows: [{ platform: params[1] }], rowCount: options.owned ? 1 : 0 };
     }
     if (/UPDATE insights_posts/i.test(text)) {
       if (options.insightsWriteFails) {
@@ -436,6 +442,98 @@ test('concurrent requests for one attempt token cross provider I/O exactly once'
       assert.equal((await first).status, 202);
     } finally {
       globalThis.fetch = originalFetch;
+      fixture.restore();
+    }
+  });
+});
+
+test('multi-platform provider ids are token-fenced into durable child rows before the response', async () => {
+  await withDispatchEnv(async (secret) => {
+    const fixture = installDispatchFixture({ owned: true, insightExists: false });
+    const request = new Request('https://aries.example.com/api/internal/publishing/scheduled-dispatch', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: ['Bearer', secret].join(' '),
+      },
+      body: JSON.stringify({
+        tenant_id: '15',
+        post_id: '901',
+        scheduled_post_id: '71',
+        dispatch_attempt_token: 'attempt-current',
+        platforms: ['facebook', 'instagram'],
+        content: 'Durable cross-post evidence',
+        media_urls: ['https://cdn.example.com/post.jpg'],
+      }),
+    });
+
+    try {
+      const response = await handleScheduledDispatchPost(request, {
+        dispatchPublish: (async ({ provider }: { provider: string }) => ({
+          platformPostId: provider === 'facebook' ? 'fb_durable_901' : 'ig_durable_901',
+        })) as never,
+      });
+      assert.equal(response.status, 202);
+      const durableWrites = fixture.calls.filter((call) => /UPDATE scheduled_post_dispatches/i.test(call.sql));
+      assert.deepEqual(
+        durableWrites.map((call) => call.params.slice(1, 3)),
+        [
+          ['facebook', 'fb_durable_901'],
+          ['instagram', 'ig_durable_901'],
+        ],
+      );
+      assert.ok(
+        durableWrites.every((call) => call.sql.includes('dispatch_attempt_token')),
+        'each provider id write is fenced to the immutable worker attempt',
+      );
+    } finally {
+      fixture.restore();
+    }
+  });
+});
+
+test('throwing media preflight stays before the provider fence and returns a safe retry result', async () => {
+  await withDispatchEnv(async (secret) => {
+    const fixture = installDispatchFixture({ owned: true, insightExists: false });
+    let providerCalls = 0;
+    const request = new Request('https://aries.example.com/api/internal/publishing/scheduled-dispatch', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: ['Bearer', secret].join(' '),
+      },
+      body: JSON.stringify({
+        tenant_id: '15',
+        post_id: '901',
+        scheduled_post_id: '71',
+        dispatch_attempt_token: 'attempt-current',
+        platforms: ['facebook'],
+        content: 'Preflight must fail safely',
+      }),
+    });
+
+    try {
+      const response = await handleScheduledDispatchPost(request, {
+        resolveMediaUrls: async () => { throw new Error('injected media lookup failure'); },
+        dispatchPublish: (async () => {
+          providerCalls += 1;
+          return { platformPostId: 'must-not-publish' };
+        }) as never,
+      });
+      const body = (await response.json()) as {
+        results: Array<{ kind?: string; retryable?: boolean; error?: string }>;
+      };
+      assert.equal(response.status, 503);
+      assert.equal(providerCalls, 0);
+      assert.equal(body.results[0]?.kind, 'pre_provider');
+      assert.equal(body.results[0]?.retryable, true);
+      assert.match(body.results[0]?.error ?? '', /media lookup failure/);
+      assert.equal(
+        fixture.calls.some((call) => /UPDATE scheduled_posts[\s\S]*dispatch_started_at/i.test(call.sql)),
+        false,
+        'fallible media/signing preflight must finish before the durable provider fence',
+      );
+    } finally {
       fixture.restore();
     }
   });

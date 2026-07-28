@@ -49,7 +49,7 @@ test('DUE_ROWS_SQL: pending arm honors next_attempt_at; stale-in_flight arm does
 test('CLAIM_ROW_SQL: pending arm honors next_attempt_at; stale-in_flight arm does not', () => {
   const sql = extractSql('CLAIM_ROW_SQL');
   const pendingArm = sql.slice(0, sql.indexOf("in_flight'"));
-  assert.match(pendingArm, /next_attempt_at IS NULL OR sp\.next_attempt_at <= NOW\(\)/);
+  assert.match(pendingArm, /next_attempt_at IS NULL OR owner\.next_attempt_at <= NOW\(\)/);
   const reclaimArm = sql.slice(sql.indexOf("dispatch_status = 'in_flight'"));
   assert.doesNotMatch(reclaimArm, /next_attempt_at/);
 });

@@ -102,9 +102,9 @@ function buildPool() {
 // A row is claimable when it is 'pending', OR when it is 'in_flight' but has
 // been stuck past IN_FLIGHT_RECLAIM_MS (its worker pass crashed before
 // publish confirmed). $2 is the stale-in_flight cutoff timestamp.
-// The lock is `FOR UPDATE OF sp` — not a bare `FOR UPDATE` — because Postgres
-// rejects row locks on the nullable side of a LEFT JOIN; `posts` is read-only
-// enrichment here, only the `scheduled_posts` row is being claimed.
+// Lock the canonical posts row first and then its scheduled owner. Every
+// schedule/delete/finalize writer uses this order; SKIP LOCKED makes the first
+// winner authoritative without a canonical/owner deadlock cycle.
 // Event-campaign auto-stop: rows whose parent campaign has ended
 // (campaign_end_date < NOW()) are excluded at claim time. NULL means "no end
 // date" — the legacy weekly_social_content behaviour, never blocked. In-flight
@@ -115,22 +115,55 @@ function buildPool() {
 // not claimable (set after a retryable failure — see classifyRetryBackoffMinutes).
 // The stale-in_flight reclaim arm deliberately ignores next_attempt_at: a
 // crashed worker pass is not a backoff.
-export const CLAIM_ROW_SQL = `SELECT sp.id, sp.post_id, sp.tenant_id, sp.target_platforms,
-            sp.surface, sp.media_type,
-            sp.width_px, sp.height_px, sp.duration_seconds,
-            p.id AS canonical_post_id, p.caption, p.platform_post_id
-     FROM scheduled_posts sp
-     LEFT JOIN posts p ON p.id = sp.post_id
-     WHERE sp.id = $1
+export const CLAIM_ROW_SQL = `WITH canonical AS MATERIALIZED (
+    SELECT post.id,
+           post.tenant_id,
+           post.caption,
+           post.platform_post_id
+      FROM posts post
+      JOIN scheduled_posts owner
+        ON owner.post_id = post.id
+       AND owner.tenant_id = post.tenant_id
+     WHERE owner.id = $1
+     FOR UPDATE OF post SKIP LOCKED
+  ), locked_owner AS MATERIALIZED (
+    SELECT owner.id,
+           owner.post_id,
+           owner.tenant_id,
+           owner.target_platforms,
+           owner.surface,
+           owner.media_type,
+           owner.width_px,
+           owner.height_px,
+           owner.duration_seconds,
+           canonical.id AS canonical_post_id,
+           canonical.caption,
+           canonical.platform_post_id
+      FROM scheduled_posts owner
+      LEFT JOIN canonical
+        ON canonical.id = owner.post_id
+       AND canonical.tenant_id = owner.tenant_id
+     WHERE owner.id = $1
        AND (
-         (sp.dispatch_status = 'pending'
-          AND (sp.next_attempt_at IS NULL OR sp.next_attempt_at <= NOW()))
-         OR (sp.dispatch_status = 'in_flight'
-             AND sp.dispatch_started_at IS NULL
-             AND sp.dispatch_claimed_at < $2)
+         canonical.id IS NOT NULL
+         OR NOT EXISTS (
+           SELECT 1
+             FROM posts existing_post
+            WHERE existing_post.id = owner.post_id
+              AND existing_post.tenant_id = owner.tenant_id
+         )
        )
-       AND (sp.campaign_end_date IS NULL OR sp.campaign_end_date >= NOW())
-     FOR UPDATE OF sp SKIP LOCKED`;
+       AND (
+         (owner.dispatch_status = 'pending'
+          AND (owner.next_attempt_at IS NULL OR owner.next_attempt_at <= NOW()))
+         OR (owner.dispatch_status = 'in_flight'
+             AND owner.dispatch_started_at IS NULL
+             AND owner.dispatch_claimed_at < $2)
+       )
+       AND (owner.campaign_end_date IS NULL OR owner.campaign_end_date >= NOW())
+     FOR UPDATE OF owner SKIP LOCKED
+  )
+  SELECT * FROM locked_owner`;
 
 // Due-rows scan, exported alongside CLAIM_ROW_SQL so a regression test runs the
 // real query against a real planner. $1 is the batch size, $2 the
@@ -167,17 +200,27 @@ export const MARK_IN_FLIGHT_SQL = `UPDATE scheduled_posts
 // database. At that point rollback is no longer available, but provider I/O has
 // not started. Release only the exact still-unstarted attempt generation and
 // return its retryable children to pending; terminal/manual children stay put.
-export const RELEASE_PRE_PROVIDER_CLAIM_SQL = `WITH released_owner AS (
-    UPDATE scheduled_posts
+export const RELEASE_PRE_PROVIDER_CLAIM_SQL = `WITH canonical AS MATERIALIZED (
+    SELECT post.id
+      FROM posts post
+      JOIN scheduled_posts owner
+        ON owner.post_id = post.id
+       AND owner.tenant_id = post.tenant_id
+     WHERE owner.id = $1
+     FOR UPDATE OF post SKIP LOCKED
+  ), released_owner AS (
+    UPDATE scheduled_posts owner
        SET dispatch_status = 'pending',
            dispatch_attempt_token = NULL,
            dispatch_claimed_at = NULL,
            updated_at = clock_timestamp()
-     WHERE id = $1
-       AND dispatch_status = 'in_flight'
-       AND dispatch_attempt_token = $2
-       AND dispatch_started_at IS NULL
-     RETURNING id
+      FROM canonical
+     WHERE owner.id = $1
+       AND owner.post_id = canonical.id
+       AND owner.dispatch_status = 'in_flight'
+       AND owner.dispatch_attempt_token = $2
+       AND owner.dispatch_started_at IS NULL
+     RETURNING owner.id
   ), released_children AS (
     UPDATE scheduled_post_dispatches dispatch
        SET status = 'pending',
@@ -589,6 +632,27 @@ async function setPlatformDispatchStatus(
     [rowId, platform, status, truncated, platformPostId, attemptToken],
   );
   return result.rowCount === 1;
+}
+
+async function reconcileDurableProviderSuccesses(client, rowId, outcomes) {
+  const durable = await client.query(
+    `SELECT platform, platform_post_id
+       FROM scheduled_post_dispatches
+      WHERE scheduled_post_id = $1
+        AND status = 'dispatched'`,
+    [rowId],
+  );
+  const successes = new Map(
+    durable.rows.map((row) => [String(row.platform), row.platform_post_id ?? null]),
+  );
+  return outcomes.map((outcome) => successes.has(outcome.platform)
+    ? {
+        platform: outcome.platform,
+        status: 'dispatched',
+        error: null,
+        platformPostId: successes.get(outcome.platform),
+      }
+    : outcome);
 }
 
 /**
@@ -1083,7 +1147,7 @@ export async function tick(pool, { shouldStop = () => false } = {}) {
       const { results, transportError } = platformsToDispatch.length > 0
         ? await dispatchOnce({ ...row, target_platforms: platformsToDispatch }, attemptToken, baseUrl, secret)
         : { results: [], transportError: null };
-      const outcomes = planPlatformOutcomes(platformsToDispatch, results, transportError);
+      let outcomes = planPlatformOutcomes(platformsToDispatch, results, transportError);
 
       const fc = await pool.connect();
       try {
@@ -1096,6 +1160,7 @@ export async function tick(pool, { shouldStop = () => false } = {}) {
           report.skipped += 1;
           continue;
         }
+        outcomes = await reconcileDurableProviderSuccesses(fc, rowId, outcomes);
         for (const outcome of outcomes) {
           ownsAttempt = await setPlatformDispatchStatus(
             fc,

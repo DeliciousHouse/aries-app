@@ -460,6 +460,18 @@ export async function claimScheduledDispatchProviderSubmission(args: {
   attemptToken: string;
 }): Promise<{ owned: boolean; claimed: boolean }> {
   return withDispatchTransaction(args.db, async (client) => {
+    const canonical = await client.query(
+      `SELECT id
+         FROM posts
+        WHERE id = $1::bigint
+          AND tenant_id = $2::int
+        FOR UPDATE`,
+      [args.postId, args.tenantId],
+    );
+    if ((canonical.rowCount ?? canonical.rows.length) !== 1) {
+      return { owned: false, claimed: false };
+    }
+
     const owner = await client.query<{
       dispatch_status: string;
       dispatch_attempt_token: string | null;
@@ -499,6 +511,72 @@ export async function claimScheduledDispatchProviderSubmission(args: {
       owned: true,
       claimed: (claimed.rowCount ?? claimed.rows.length) === 1,
     };
+  });
+}
+
+/** Persist confirmed external success before the route can return it. The
+ * canonical-first locks match schedule/delete/finalize, while the immutable
+ * attempt token prevents a stale request from writing provider evidence. */
+export async function persistScheduledDispatchProviderSuccess(args: {
+  db: DispatchDatabase;
+  tenantId: string;
+  postId: string;
+  scheduledPostId: string;
+  attemptToken: string;
+  platform: string;
+  platformPostId: string | null;
+}): Promise<boolean> {
+  return withDispatchTransaction(args.db, async (client) => {
+    const canonical = await client.query(
+      `SELECT id
+         FROM posts
+        WHERE id = $1::bigint
+          AND tenant_id = $2::int
+        FOR UPDATE`,
+      [args.postId, args.tenantId],
+    );
+    if ((canonical.rowCount ?? canonical.rows.length) !== 1) return false;
+
+    const owner = await client.query<{
+      dispatch_status: string;
+      dispatch_attempt_token: string | null;
+    }>(
+      `SELECT dispatch_status, dispatch_attempt_token
+         FROM scheduled_posts
+        WHERE id = $1::bigint
+          AND post_id = $2::bigint
+          AND tenant_id = $3::int
+        FOR UPDATE`,
+      [args.scheduledPostId, args.postId, args.tenantId],
+    );
+    const row = owner.rows[0];
+    if (
+      !row
+      || row.dispatch_status !== 'in_flight'
+      || row.dispatch_attempt_token !== args.attemptToken
+    ) return false;
+
+    const persisted = await client.query(
+      `UPDATE scheduled_post_dispatches dispatch
+          SET status = 'dispatched',
+              platform_post_id = COALESCE(dispatch.platform_post_id, $3::text),
+              dispatched_at = COALESCE(dispatch.dispatched_at, now()),
+              error_at = NULL,
+              error_message = NULL,
+              updated_at = now()
+        WHERE dispatch.scheduled_post_id = $1::bigint
+          AND dispatch.platform = $2
+          AND EXISTS (
+            SELECT 1
+              FROM scheduled_posts owner
+             WHERE owner.id = dispatch.scheduled_post_id
+               AND owner.dispatch_status = 'in_flight'
+               AND owner.dispatch_attempt_token = $4
+          )
+        RETURNING dispatch.platform`,
+      [args.scheduledPostId, args.platform, args.platformPostId, args.attemptToken],
+    );
+    return (persisted.rowCount ?? persisted.rows.length) === 1;
   });
 }
 
@@ -630,6 +708,10 @@ export async function GET(req: Request): Promise<Response> {
 export interface ScheduledDispatchPostDeps {
   db?: DispatchDatabase;
   dispatchPublish?: typeof dispatchPublish;
+  resolveMediaUrls?: typeof resolveMediaUrls;
+  resolveSignableBasename?: typeof resolveSignableBasename;
+  toSignedPublicUrl?: typeof toSignedPublicUrl;
+  resolvePublishGuards?: typeof resolvePublishGuards;
 }
 
 export async function handleScheduledDispatchPost(
@@ -641,6 +723,10 @@ export async function handleScheduledDispatchPost(
 
   const db = deps.db ?? pool;
   const publish = deps.dispatchPublish ?? dispatchPublish;
+  const resolveMedia = deps.resolveMediaUrls ?? resolveMediaUrls;
+  const resolveBasename = deps.resolveSignableBasename ?? resolveSignableBasename;
+  const signPublicUrl = deps.toSignedPublicUrl ?? toSignedPublicUrl;
+  const resolveGuards = deps.resolvePublishGuards ?? resolvePublishGuards;
   const body = await readBody(req);
   const tenantId = typeof body.tenant_id === 'string' ? body.tenant_id.trim() : '';
   if (!tenantId) {
@@ -663,6 +749,111 @@ export async function handleScheduledDispatchPost(
     });
   }
 
+
+  // Publish shape forwarded by the worker. 'feed'/'reel'/'story' map to the
+  // MetaPlacement axis; image/video select the media branch. Default feed/image
+  // for legacy worker rows that don't forward the fields.
+  const surfaceRaw = typeof body.surface === 'string' ? body.surface.trim().toLowerCase() : '';
+  const surface: 'feed' | 'story' | 'reel' =
+    surfaceRaw === 'story' || surfaceRaw === 'reel' ? surfaceRaw : 'feed';
+  const mediaType: 'image' | 'video' =
+    typeof body.media_type === 'string' && body.media_type.trim().toLowerCase() === 'video'
+      ? 'video'
+      : 'image';
+
+  // Per-media dimensions/duration forwarded from scheduled_posts (populated by a
+  // later ingest/synthesize step; NULL today). Build mediaMetadata ONLY for a
+  // video surface with all three present — never fabricate (the validator fails
+  // closed on missing video metadata, which is the intended behavior).
+  const widthPx = typeof body.width_px === 'number' && Number.isFinite(body.width_px) ? body.width_px : null;
+  const heightPx = typeof body.height_px === 'number' && Number.isFinite(body.height_px) ? body.height_px : null;
+  const durationSeconds = typeof body.duration_seconds === 'number' && Number.isFinite(body.duration_seconds) ? body.duration_seconds : null;
+  const mediaMetadata: Array<{ widthPx: number; heightPx: number; durationSeconds: number }> | undefined =
+    mediaType === 'video' && widthPx !== null && heightPx !== null && durationSeconds !== null
+      ? [{ widthPx, heightPx, durationSeconds }]
+      : undefined;
+
+  let signedMediaUrls: string[];
+  let publishGuards: Map<string, PublishGuardVerdict>;
+  try {
+    // Prefer explicit media_urls, otherwise look up creative assets for the tenant.
+    let rawMediaUrls: string[] = Array.isArray(body.media_urls)
+      ? body.media_urls.filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
+      : [];
+
+    if (rawMediaUrls.length === 0 && postId) {
+      rawMediaUrls = await resolveMedia(postId, tenantId, db, mediaType);
+    }
+
+  // A video post with no video asset can never publish — fail it terminally
+  // NOW instead of letting the media validator reject it retryably on every
+  // worker tick until campaign end (last week's reel spent days retrying at
+  // 60s cadence). Image posts keep the legacy behavior (FB text-only posts
+  // are legitimate with zero media).
+    if (mediaType === 'video' && rawMediaUrls.length === 0) {
+      const results = platforms.map((platform) => ({
+        provider: platform,
+        ok: false,
+        error: 'no_video_asset: video post has no ingested video creative to publish',
+        retryable: false,
+        kind: 'permanent' as MetaPublishFailureKind,
+      }));
+      return new Response(JSON.stringify({ status: 'error', results }), {
+        status: 422,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
+  // Sign media URLs so Meta Graph API can fetch them. Resolve id-addressed
+  // internal URLs to their on-disk basename before signing (Option A);
+  // sequential — one PK lookup per URL, no Promise.all fan-out (guardrail #1).
+    signedMediaUrls = [];
+    for (const url of rawMediaUrls) {
+      const basename = await resolveBasename(url, tenantId);
+      if (!basename) {
+        signedMediaUrls.push(url);
+        continue;
+      }
+      signedMediaUrls.push(signPublicUrl(url, tenantId, basename));
+    }
+
+    // Unattended-publish guards are fallible preflight too. Resolve them before
+    // stamping dispatch_started_at so thrown lookup/signing errors stay retry-safe.
+    publishGuards = postId
+      ? await resolveGuards({ db, tenantId, postId, platforms, content, surface })
+      : new Map<string, PublishGuardVerdict>();
+  } catch (error) {
+    const message = String((error as Error).message || error);
+    return new Response(JSON.stringify({
+      status: 'pre_provider_failed',
+      results: platforms.map((provider) => ({
+        provider,
+        ok: false,
+        error: `pre_provider_failed: ${message}`,
+        retryable: true,
+        kind: 'pre_provider' as MetaPublishFailureKind,
+      })),
+    }), {
+      status: 503,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  // Each platform is attempted independently and its outcome recorded, so a
+  // cross-post that succeeds on one platform and fails on another reports the
+  // truth per platform. The worker maps `retryable` onto per-platform child
+  // rows; a non-retryable failure is terminal, a retryable one is re-claimed
+  // on a later pass.
+  //
+  // The provider fence above is durable before this loop starts. If the route
+  // or worker dies after a provider accepts but before outcome persistence,
+  // the stale row is parked for manual reconciliation rather than republished.
+  // Preserve each provider's confirmed id in the response so the worker can
+  // commit it to the matching scheduled_post_dispatches child row.
+  const results: ScheduledDispatchResult[] = [];
+
+  // All fallible media/signing/guard preflight is complete. Only now stamp the
+  // durable provider-submission fence immediately before provider I/O.
   if (postId) {
     let providerClaim: { owned: boolean; claimed: boolean };
     try {
@@ -709,89 +900,6 @@ export async function handleScheduledDispatchPost(
       });
     }
   }
-
-  // Publish shape forwarded by the worker. 'feed'/'reel'/'story' map to the
-  // MetaPlacement axis; image/video select the media branch. Default feed/image
-  // for legacy worker rows that don't forward the fields.
-  const surfaceRaw = typeof body.surface === 'string' ? body.surface.trim().toLowerCase() : '';
-  const surface: 'feed' | 'story' | 'reel' =
-    surfaceRaw === 'story' || surfaceRaw === 'reel' ? surfaceRaw : 'feed';
-  const mediaType: 'image' | 'video' =
-    typeof body.media_type === 'string' && body.media_type.trim().toLowerCase() === 'video'
-      ? 'video'
-      : 'image';
-
-  // Per-media dimensions/duration forwarded from scheduled_posts (populated by a
-  // later ingest/synthesize step; NULL today). Build mediaMetadata ONLY for a
-  // video surface with all three present — never fabricate (the validator fails
-  // closed on missing video metadata, which is the intended behavior).
-  const widthPx = typeof body.width_px === 'number' && Number.isFinite(body.width_px) ? body.width_px : null;
-  const heightPx = typeof body.height_px === 'number' && Number.isFinite(body.height_px) ? body.height_px : null;
-  const durationSeconds = typeof body.duration_seconds === 'number' && Number.isFinite(body.duration_seconds) ? body.duration_seconds : null;
-  const mediaMetadata: Array<{ widthPx: number; heightPx: number; durationSeconds: number }> | undefined =
-    mediaType === 'video' && widthPx !== null && heightPx !== null && durationSeconds !== null
-      ? [{ widthPx, heightPx, durationSeconds }]
-      : undefined;
-
-  // Prefer explicit media_urls, otherwise look up creative assets for the tenant
-  let rawMediaUrls: string[] = Array.isArray(body.media_urls)
-    ? body.media_urls.filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
-    : [];
-
-  if (rawMediaUrls.length === 0 && postId) {
-    rawMediaUrls = await resolveMediaUrls(postId, tenantId, db, mediaType);
-  }
-
-  // A video post with no video asset can never publish — fail it terminally
-  // NOW instead of letting the media validator reject it retryably on every
-  // worker tick until campaign end (last week's reel spent days retrying at
-  // 60s cadence). Image posts keep the legacy behavior (FB text-only posts
-  // are legitimate with zero media).
-  if (mediaType === 'video' && rawMediaUrls.length === 0) {
-    const results = platforms.map((platform) => ({
-      provider: platform,
-      ok: false,
-      error: 'no_video_asset: video post has no ingested video creative to publish',
-      retryable: false,
-      kind: 'permanent' as MetaPublishFailureKind,
-    }));
-    return new Response(JSON.stringify({ status: 'error', results }), {
-      status: 422,
-      headers: { 'content-type': 'application/json' },
-    });
-  }
-
-  // Sign media URLs so Meta Graph API can fetch them. Resolve id-addressed
-  // internal URLs to their on-disk basename before signing (Option A);
-  // sequential — one PK lookup per URL, no Promise.all fan-out (guardrail #1).
-  const signedMediaUrls: string[] = [];
-  for (const url of rawMediaUrls) {
-    const basename = await resolveSignableBasename(url, tenantId);
-    if (!basename) {
-      signedMediaUrls.push(url);
-      continue;
-    }
-    signedMediaUrls.push(toSignedPublicUrl(url, tenantId, basename));
-  }
-
-  // Each platform is attempted independently and its outcome recorded, so a
-  // cross-post that succeeds on one platform and fails on another reports the
-  // truth per platform. The worker maps `retryable` onto per-platform child
-  // rows; a non-retryable failure is terminal, a retryable one is re-claimed
-  // on a later pass.
-  //
-  // The provider fence above is durable before this loop starts. If the route
-  // or worker dies after a provider accepts but before outcome persistence,
-  // the stale row is parked for manual reconciliation rather than republished.
-  // Preserve each provider's confirmed id in the response so the worker can
-  // commit it to the matching scheduled_post_dispatches child row.
-  const results: ScheduledDispatchResult[] = [];
-
-  // Unattended-publish guards (duplicate caption + same-platform spacing).
-  // Resolved once per request; fail-open (empty map) on any error.
-  const publishGuards = postId
-    ? await resolvePublishGuards({ db, tenantId, postId, platforms, content, surface })
-    : new Map<string, PublishGuardVerdict>();
 
   for (const platform of platforms) {
     const guard = publishGuards.get(platform.trim().toLowerCase());
@@ -840,7 +948,42 @@ export async function handleScheduledDispatchPost(
         mediaType,
         mediaMetadata,
       });
-      results.push(buildScheduledDispatchSuccessResult(platform, published.platformPostId));
+      const successResult = buildScheduledDispatchSuccessResult(platform, published.platformPostId);
+      if (postId) {
+        let persisted = false;
+        let persistenceUnavailable = false;
+        try {
+          persisted = await persistScheduledDispatchProviderSuccess({
+            db,
+            tenantId,
+            postId,
+            scheduledPostId,
+            attemptToken,
+            platform,
+            platformPostId: published.platformPostId ?? null,
+          });
+        } catch (error) {
+          persistenceUnavailable = true;
+          console.error('[scheduled-dispatch] provider evidence persistence failed', error);
+        }
+        if (!persisted) {
+          results.push({
+            provider: platform,
+            ok: false,
+            error: 'provider accepted but durable evidence persistence failed',
+            retryable: false,
+            kind: 'outcome_unknown',
+          });
+          return new Response(JSON.stringify({
+            status: persistenceUnavailable ? 'provider_evidence_persistence_failed' : 'finalization_failed',
+            results,
+          }), {
+            status: persistenceUnavailable ? 503 : 409,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+      }
+      results.push(successResult);
     } catch (error) {
       const errMsg = error instanceof MetaPublishError
         ? `${error.code}: ${error.message}`

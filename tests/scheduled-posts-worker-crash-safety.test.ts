@@ -143,7 +143,7 @@ class FakeClient {
       return { rows, rowCount: rows.length };
     }
 
-    if (s.includes('FROM scheduled_posts sp')) {
+    if (s.includes('FROM scheduled_posts sp') || s.includes('locked_owner AS MATERIALIZED')) {
       // claim row
       const id = Number(params[0]);
       const cutoff = String(params[1]);
@@ -240,6 +240,14 @@ class FakeClient {
               || c.status === 'manual_reconciliation'),
         )
         .map((c) => ({ platform: c.platform }));
+      return { rows, rowCount: rows.length };
+    }
+
+    if (s.startsWith('SELECT platform, platform_post_id')) {
+      const spId = Number(params[0]);
+      const rows = store.children
+        .filter((c) => c.scheduled_post_id === spId && c.status === 'dispatched')
+        .map((c) => ({ platform: c.platform, platform_post_id: c.platform_post_id }));
       return { rows, rowCount: rows.length };
     }
 
@@ -363,7 +371,7 @@ class FakeClient {
       return { rows: [{ quarantined: 1 }], rowCount: 1 };
     }
 
-    if (s.startsWith('WITH released_owner AS')) {
+    if (s.startsWith('WITH released_owner AS') || s.includes('released_owner AS')) {
       const [spId, attemptToken] = params as [number, string];
       const owner = store.scheduled.find(
         (row) => row.id === spId
@@ -561,6 +569,48 @@ test('worker sends one internal request and fails closed on ambiguous transport 
     const restartReport = await tick(makePool(db));
     assert.equal(restartReport.processed, 0);
     assert.equal(fetchCalls, 1, 'automatic restart must not republish an ambiguous outcome');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('response loss reconciles every durable provider success without demoting or losing ids', async () => {
+  const { tick } = await loadWorker();
+  const db = new FakeDb();
+  seedDueRow(db);
+  process.env.APP_BASE_URL = 'https://aries.example.test';
+  process.env.INTERNAL_API_SECRET = 'test-secret';
+
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => {
+      const facebook = db.children.find((child) => child.platform === 'facebook');
+      const instagram = db.children.find((child) => child.platform === 'instagram');
+      assert.ok(facebook && instagram, 'the worker seeds both child rows before provider I/O');
+      Object.assign(facebook, {
+        status: 'dispatched',
+        platform_post_id: 'fb_response_lost_100',
+        dispatched_at: new Date().toISOString(),
+      });
+      Object.assign(instagram, {
+        status: 'dispatched',
+        platform_post_id: 'ig_response_lost_100',
+        dispatched_at: new Date().toISOString(),
+      });
+      throw new Error('route response body lost after durable success commit');
+    }) as typeof fetch;
+
+    const report = await tick(makePool(db));
+    assert.equal(report.dispatched, 1);
+    assert.deepEqual(
+      db.children.map((child) => [child.platform, child.status, child.platform_post_id]),
+      [
+        ['facebook', 'dispatched', 'fb_response_lost_100'],
+        ['instagram', 'dispatched', 'ig_response_lost_100'],
+      ],
+    );
+    assert.equal(db.scheduled[0]!.dispatch_status, 'dispatched');
+    assert.equal(db.posts[0]!.published_status, 'published');
   } finally {
     globalThis.fetch = realFetch;
   }

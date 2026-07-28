@@ -214,6 +214,11 @@ test('an attempt token has exactly one provider-submission claim', async () => {
   assert.deepEqual(first, { owned: true, claimed: true });
   assert.deepEqual(second, { owned: true, claimed: false });
   assert.equal(fixture.providerClaims, 1);
+  assert.deepEqual(
+    fixture.lockOrder,
+    ['post', 'scheduled', 'post', 'scheduled'],
+    'every provider fence locks the canonical post before the scheduled owner',
+  );
 });
 
 test('canonical and aggregate publish truth remain monotonic across later sibling outcomes', async () => {
