@@ -41,6 +41,7 @@ All files below gate on the **superset** `DB_HOST` + `DB_PORT` + `DB_USER` + `DB
 | `tests/scheduled-posts-worker-campaign-sweep.test.ts` | the dead-campaign sweep terminally fails past-`campaign_end_date` rows, expires the never-live posts mirror, and skips live/fresh-in_flight rows (rolled back) | — |
 | `tests/scheduled-posts-worker-end-date.test.ts` | the `campaign_end_date` column exists and the claim filter plans correctly | — |
 | `tests/scheduled-posts-worker-live-db.test.ts` | the scheduled-posts worker drains/claims rows through the live schema (rolled back) | — |
+| `tests/scheduled-dispatch-cutover.requires-infra.test.ts` | the production shared cutover CTE quarantines legacy unknown outcomes against the production `TEXT` dispatch-attempt token type, preserves provider-fenced work, and is idempotent (throwaway schema, created + dropped) | — |
 | `tests/hackathon-register.test.ts` | `hackathon_registrations` accepts insert + upsert against the live schema (rolled back) | — |
 | `tests/marketing/synthesize-publish-posts-live-db.test.ts` | publish-post synthesis + `UNSCHEDULED_POSTS_QUERY` against the real `scheduled_posts` schema | — |
 | `tests/marketing/dashboard-publish-items-counter.test.ts` | `countPublishedPostsForJob` + dashboard projection against the live publish tables | — |

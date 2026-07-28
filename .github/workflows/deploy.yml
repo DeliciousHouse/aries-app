@@ -324,45 +324,41 @@ jobs:
 
           ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose pull "${SERVICE_NAME}"
 
-          # Scheduled publishing crosses the web/worker boundary. Stop the old
-          # worker before applying attempt-lease schema from the target image so
-          # no old request can race a mixed-version app. Both stop and schema
-          # apply are required deploy gates under set -euo pipefail.
-          docker compose stop aries-scheduled-posts-worker
-          ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose run --rm --no-deps --entrypoint node aries-app scripts/init-db.js
+          # Scheduled publishing crosses the web/worker boundary. Quiesce the
+          # old app before stopping its worker so authenticated schedule/delete
+          # mutations cannot erase unsafe legacy evidence before quarantine.
+          # The helper applies target-image schema with bounded DB waits and
+          # restores the exact old app/worker only when pre-boundary proof says
+          # that rollback is safe.
+          export ARIES_QUIESCE_APPLICATION_DURING_SCHEMA=1
+          TARGET_IMAGE="${TARGET_IMAGE}" source ./scripts/release/apply-schema-with-worker-restore.sh
+          unset ARIES_QUIESCE_APPLICATION_DURING_SCHEMA
 
-          ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always "${SERVICE_NAME}"
+          # init-db already succeeded in the bounded target-image one-shot above.
+          # Skip the runtime's duplicate unbounded init while recreating the app.
+          export ARIES_SKIP_DB_INIT=1
 
-          container_id="$(ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose ps -q "${SERVICE_NAME}")"
-          if [[ -z "${container_id}" ]]; then
-            echo "ERROR: Compose did not return a running container id for ${SERVICE_NAME}." >&2
-            exit 1
-          fi
+          # Both the old app and worker remain stopped here. Quarantine unsafe
+          # legacy evidence before any compatible app is exposed, closing the
+          # mutation window rather than relying on lock ordering to win a race.
+          PGOPTIONS='-c lock_timeout=5s -c statement_timeout=120s' \
+            ARIES_APP_IMAGE="${TARGET_IMAGE}" \
+            timeout 180s docker compose run --rm --no-deps --entrypoint node \
+              "${SERVICE_NAME}" scripts/run-scheduled-dispatch-cutover.js
+
+          # Quarantine completed under quiescence. Crossing the protocol
+          # boundary now makes old app/worker restore unsafe; every later
+          # failure remains fail closed until the compatible target is healthy.
+          mark_scheduled_worker_protocol_boundary
           target_image_id="$(docker image inspect -f '{{.Id}}' "${TARGET_IMAGE}")"
-          container_image_id="$(docker inspect -f '{{.Image}}' "${container_id}")"
-          if [[ "${container_image_id}" != "${target_image_id}" ]]; then
-            echo "ERROR: Running container image ${container_image_id} does not match target ${target_image_id}." >&2
-            exit 1
-          fi
+          replace_application_and_verify "${TARGET_IMAGE}" "${target_image_id}" "${SERVICE_NAME}"
+          unset ARIES_SKIP_DB_INIT
 
-          healthy=0
-          for attempt in $(seq 1 30); do
-            if docker compose exec -T "${SERVICE_NAME}" wget -qO- "http://127.0.0.1:${PORT:-3000}/" >/dev/null 2>&1; then
-              healthy=1
-              break
-            fi
-            sleep 5
-          done
-
-          if [[ "${healthy}" != "1" ]]; then
-            echo "ERROR: Aries app health check failed after deploy." >&2
-            exit 1
-          fi
-
-          # Restart scheduled publishing only after the target app is healthy.
-          # This worker is a REQUIRED deploy invariant: warning-through would
-          # leave schedules stalled or running mixed ownership semantics.
-          ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always aries-scheduled-posts-worker
+          # Restart scheduled publishing only after the target app is healthy
+          # and data is compatible. After the protocol boundary, every failure
+          # remains fail-closed with publishing stopped until a target worker is
+          # proven live and the EXIT trap is disarmed.
+          replace_scheduled_worker_and_verify "${TARGET_IMAGE}" "${target_image_id}"
 
           # Roll the weekly-trigger-worker sidecar to the same image too, for the
           # same reason: it imports backend code and must stay in lockstep with

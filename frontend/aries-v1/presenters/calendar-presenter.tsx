@@ -70,7 +70,7 @@ export function resolveDragSchedule(
     return null;
   }
   if (data.kind === 'event') {
-    if (data.event.dayKey === targetDayKey) {
+    if (!data.event.reschedulable || data.event.dayKey === targetDayKey) {
       return null;
     }
     return { item: { kind: 'event', event: data.event }, targetDayKey };
@@ -167,7 +167,7 @@ export default function CalendarPresenter({
 
   const selectedEvent = events.find((event) => event.id === selectedEventId) || null;
   const rescheduleTarget = events.find(
-    (event) => event.id === rescheduleEventId && event.jobId,
+    (event) => event.id === rescheduleEventId && event.jobId && event.reschedulable,
   ) || null;
 
   useEffect(() => {
@@ -445,8 +445,18 @@ export default function CalendarPresenter({
                     </div>
                   ) : null}
 
+                  {selectedEvent.manualReviewRequired && selectedEvent.manualReviewMessage ? (
+                    <div
+                      role="alert"
+                      data-testid="calendar-manual-review-guidance"
+                      className="rounded-2xl border border-amber-400/25 bg-amber-400/10 p-4 text-sm leading-6 text-amber-100"
+                    >
+                      {selectedEvent.manualReviewMessage} Open the post workspace below to review the provider evidence.
+                    </div>
+                  ) : null}
+
                   <div className="flex flex-wrap gap-3">
-                    {selectedEvent.jobId ? (
+                    {selectedEvent.jobId && !selectedEvent.manualReviewRequired && selectedEvent.reschedulable ? (
                       <button
                         type="button"
                         data-testid="calendar-open-reschedule"
@@ -458,6 +468,7 @@ export default function CalendarPresenter({
                       </button>
                     ) : null}
                     {selectedEvent.jobId &&
+                    selectedEvent.reschedulable &&
                     (selectedEvent.dispatchStatus === 'pending' ||
                       selectedEvent.dispatchStatus === 'failed') ? (
                       <PublishNowButton
@@ -470,8 +481,8 @@ export default function CalendarPresenter({
                       />
                     ) : null}
                     {selectedEvent.jobId &&
-                    (selectedEvent.dispatchStatus === 'pending' ||
-                      selectedEvent.dispatchStatus === 'in_flight') ? (
+                    selectedEvent.reschedulable &&
+                    selectedEvent.dispatchStatus === 'pending' ? (
                       <CancelScheduleButton
                         jobId={selectedEvent.jobId}
                         postId={selectedEvent.postId}
@@ -900,19 +911,37 @@ function CalendarTile({
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `event:${event.id}`,
     data: { kind: 'event', event },
+    disabled: !event.reschedulable,
   });
+  const { 'aria-disabled': _disabledState, ...selectableAttributes } = attributes;
   const time = formatTimeInTenantZone(event.scheduledForIso, timeZone);
+  const interactionTitle = event.manualReviewRequired
+    ? 'Manual review required before scheduling changes'
+    : event.reschedulable
+      ? 'Drag to reschedule or select for details'
+      : 'Rescheduling unavailable; select for details';
+  const interactionLabel = `${event.title}. ${
+    event.manualReviewRequired
+      ? `${event.manualReviewMessage ?? 'Manual review required: verify whether this post is already live before making scheduling changes.'} Select for details.`
+      : event.reschedulable
+      ? 'Drag to reschedule or select for details.'
+      : 'Rescheduling unavailable; select for details.'
+  }`;
 
   if (compact) {
     return (
       <button
         ref={setNodeRef}
-        {...attributes}
+        {...selectableAttributes}
         {...listeners}
         type="button"
         data-testid={`tile-${event.id}`}
+        aria-label={interactionLabel}
+        title={interactionTitle}
         onClick={() => onSelect(event.id)}
-        className={`w-full cursor-grab rounded border px-2.5 py-2 text-left text-[9px] transition-all hover:bg-white/[0.05] ${platformTone(
+        className={`w-full rounded border px-2.5 py-2 text-left text-[9px] transition-all hover:bg-white/[0.05] ${
+          event.reschedulable ? 'cursor-grab' : 'cursor-pointer'
+        } ${platformTone(
           event.platform,
         )} ${isDragging ? 'opacity-40' : ''}`}
       >
@@ -928,6 +957,11 @@ function CalendarTile({
         >
           {event.title}
         </span>
+        {event.manualReviewRequired ? (
+          <span className="mt-2 block text-[8px] font-bold uppercase tracking-wider text-amber-100">
+            Manual review
+          </span>
+        ) : null}
       </button>
     );
   }
@@ -935,12 +969,16 @@ function CalendarTile({
   return (
     <button
       ref={setNodeRef}
-      {...attributes}
+      {...selectableAttributes}
       {...listeners}
       type="button"
       data-testid={`tile-${event.id}`}
+      aria-label={interactionLabel}
+      title={interactionTitle}
       onClick={() => onSelect(event.id)}
-      className={`w-full cursor-grab rounded-2xl border bg-[#0a0a0a]/80 p-3 text-left shadow-lg transition-all ${platformTone(
+      className={`w-full rounded-2xl border bg-[#0a0a0a]/80 p-3 text-left shadow-lg transition-all ${
+        event.reschedulable ? 'cursor-grab' : 'cursor-pointer'
+      } ${platformTone(
         event.platform,
       )} ${isDragging ? 'opacity-40' : ''}`}
     >
@@ -951,7 +989,7 @@ function CalendarTile({
             event.status,
           )}`}
         >
-          {formatDispatchStatusChip(event.dispatchStatus)}
+          {event.manualReviewRequired ? 'Manual review' : formatDispatchStatusChip(event.dispatchStatus)}
         </span>
       </div>
       <h3 className="mb-1 text-[11px] font-bold leading-tight text-white">{event.title}</h3>

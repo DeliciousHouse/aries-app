@@ -5,6 +5,10 @@ import { installJsdom } from './helpers/jsdom-env';
 
 // DOM must exist before React / @dnd-kit / @testing-library load.
 installJsdom();
+Object.defineProperty(globalThis, 'self', {
+  value: globalThis,
+  configurable: true,
+});
 
 import React from 'react';
 
@@ -89,6 +93,25 @@ test('resolveDragSchedule is a no-op when an event is dropped on its own cell', 
   assert.equal(resolveDragSchedule({ kind: 'event', event }, event.dayKey), null);
 });
 
+test('resolveDragSchedule rejects drag attempts for child manual-reconciliation evidence', () => {
+  const event = createCalendarViewModel({
+    scheduledPosts: [buildScheduledPost({
+      dispatchStatus: 'pending',
+      dispatches: [{
+        platform: 'facebook',
+        status: 'manual_reconciliation',
+        dispatchedAt: null,
+        errorAt: '2026-04-15T14:01:00.000Z',
+        errorMessage: 'publish outcome unknown',
+      }],
+    })],
+    posts: [],
+    timeZone: 'America/New_York',
+  }).events[0];
+
+  assert.equal(resolveDragSchedule({ kind: 'event', event }, '2026-04-20'), null);
+});
+
 test('resolveDragSchedule schedules a NEW post when a tray item is dropped on a cell', () => {
   const model = createCalendarViewModel({
     scheduledPosts: [],
@@ -158,6 +181,96 @@ test('CalendarPresenter renders droppable cells and draggable tiles under jsdom'
   }
 });
 
+test('CalendarPresenter suppresses Scheduled and every mutation for mixed-child manual reconciliation', async () => {
+  const { render, fireEvent, screen, cleanup } = await import('@testing-library/react');
+  const model = createCalendarViewModel({
+    scheduledPosts: [buildScheduledPost({
+      dispatchStatus: 'pending',
+      dispatches: [{
+        platform: 'facebook',
+        status: 'manual_reconciliation',
+        dispatchedAt: null,
+        errorAt: '2026-04-15T14:01:00.000Z',
+        errorMessage: 'publish outcome unknown',
+      }, {
+        platform: 'instagram',
+        status: 'pending',
+        dispatchedAt: null,
+        errorAt: null,
+        errorMessage: null,
+      }],
+    })],
+    posts: [],
+    timeZone: 'America/New_York',
+  });
+  const { default: CalendarPresenter } = await import(
+    '../frontend/aries-v1/presenters/calendar-presenter'
+  );
+
+  const { container } = render(React.createElement(CalendarPresenter, { model }));
+  try {
+    const tile = container.querySelector('[data-testid="tile-901"]');
+    assert.ok(tile);
+    assert.equal(
+      tile.getAttribute('aria-disabled'),
+      null,
+      'the selectable details button must not advertise itself as disabled',
+    );
+    assert.match(tile.getAttribute('title') ?? '', /manual review required/i);
+    assert.match(tile.textContent ?? '', /manual review/i);
+    assert.doesNotMatch(
+      tile.textContent ?? '',
+      /scheduled/i,
+      'a pending parent must not display the ordinary Scheduled chip over durable unknown-outcome evidence',
+    );
+    assert.match(
+      tile.getAttribute('aria-label') ?? '',
+      /manual review required.*verify whether this post is already live/i,
+      'the tile accessible name exposes the visible manual-review state and verification guidance',
+    );
+    fireEvent.click(tile);
+    assert.ok(screen.getByText(/verify whether this post is already live/i));
+    const actionLabels = Array.from(container.querySelectorAll('button'))
+      .map((button) => button.textContent?.trim());
+    assert.equal(actionLabels.includes('Reschedule'), false);
+    assert.equal(actionLabels.includes('Publish now'), false);
+    assert.equal(actionLabels.includes('Cancel'), false);
+  } finally {
+    cleanup();
+  }
+});
+
+test('CalendarPresenter makes a jobless queued row non-draggable and exposes no schedule mutation', async () => {
+  const { render, fireEvent, cleanup } = await import('@testing-library/react');
+  const model = createCalendarViewModel({
+    scheduledPosts: [buildScheduledPost({ jobId: null, dispatchStatus: 'pending' })],
+    posts: [],
+    timeZone: 'America/New_York',
+  });
+  const { default: CalendarPresenter } = await import(
+    '../frontend/aries-v1/presenters/calendar-presenter'
+  );
+
+  const { container } = render(React.createElement(CalendarPresenter, { model }));
+  try {
+    const event = model.events[0];
+    assert.equal(event.reschedulable, false, 'the view-model must match the hook jobId precondition');
+    assert.equal(resolveDragSchedule({ kind: 'event', event }, '2026-04-20'), null);
+
+    const tile = container.querySelector('[data-testid="tile-901"]');
+    assert.ok(tile);
+    assert.match(tile.getAttribute('aria-label') ?? '', /rescheduling unavailable/i);
+    fireEvent.click(tile);
+    const actionLabels = Array.from(container.querySelectorAll('button'))
+      .map((button) => button.textContent?.trim());
+    assert.equal(actionLabels.includes('Reschedule'), false);
+    assert.equal(actionLabels.includes('Publish now'), false);
+    assert.equal(actionLabels.includes('Cancel'), false);
+  } finally {
+    cleanup();
+  }
+});
+
 test('CalendarPresenter drag wiring calls onSchedule with the correct target date', async () => {
   // Drives the same drag-end path the DndContext invokes: resolveDragSchedule
   // produces the (item, targetDayKey) pair, the presenter forwards it to
@@ -181,4 +294,87 @@ test('CalendarPresenter drag wiring calls onSchedule with the correct target dat
   assert.equal(calls.length, 1);
   assert.equal(calls[0].kind, 'event');
   assert.equal(calls[0].targetDayKey, '2026-04-22');
+});
+
+test('CalendarPresenter hides every schedule mutation for dispatched child evidence', async () => {
+  const { render, fireEvent, cleanup } = await import('@testing-library/react');
+  const model = createCalendarViewModel({
+    scheduledPosts: [buildScheduledPost({
+      dispatchStatus: 'pending',
+      dispatches: [{
+        platform: 'facebook',
+        status: 'dispatched',
+        dispatchedAt: '2026-04-15T14:01:00.000Z',
+        errorAt: null,
+        errorMessage: null,
+      }],
+    })],
+    posts: [],
+    timeZone: 'America/New_York',
+  });
+  const { default: CalendarPresenter } = await import(
+    '../frontend/aries-v1/presenters/calendar-presenter'
+  );
+
+  const { container } = render(React.createElement(CalendarPresenter, { model }));
+  try {
+    const tile = container.querySelector('[data-testid="tile-901"]');
+    assert.ok(tile);
+    assert.equal(tile.getAttribute('aria-disabled'), null);
+    assert.match(tile.getAttribute('aria-label') ?? '', /rescheduling unavailable.*select for details/i);
+    fireEvent.click(tile);
+    const actionLabels = Array.from(container.querySelectorAll('button'))
+      .map((button) => button.textContent?.trim());
+    assert.equal(actionLabels.includes('Reschedule'), false);
+    assert.equal(actionLabels.includes('Publish now'), false);
+    assert.equal(actionLabels.includes('Cancel'), false);
+  } finally {
+    cleanup();
+  }
+});
+
+test('CalendarPresenter exposes only server-safe actions for pending and failed parents', async () => {
+  const { render, fireEvent, cleanup } = await import('@testing-library/react');
+  const { default: CalendarPresenter } = await import(
+    '../frontend/aries-v1/presenters/calendar-presenter'
+  );
+
+  for (const scenario of [
+    {
+      name: 'safe pending',
+      dispatchStatus: 'pending',
+      expected: ['Reschedule', 'Publish now', 'Cancel'],
+    },
+    {
+      name: 'safe failed',
+      dispatchStatus: 'failed',
+      expected: ['Reschedule', 'Publish now'],
+    },
+  ]) {
+    const model = createCalendarViewModel({
+      scheduledPosts: [buildScheduledPost({
+        dispatchStatus: scenario.dispatchStatus,
+        dispatches: [],
+      })],
+      posts: [],
+      timeZone: 'America/New_York',
+    });
+    const { container } = render(React.createElement(CalendarPresenter, { model }));
+    try {
+      const tile = container.querySelector('[data-testid="tile-901"]');
+      assert.ok(tile, scenario.name);
+      fireEvent.click(tile);
+      const actionLabels = Array.from(container.querySelectorAll('button'))
+        .map((button) => button.textContent?.trim());
+      for (const label of ['Reschedule', 'Publish now', 'Cancel']) {
+        assert.equal(
+          actionLabels.includes(label),
+          scenario.expected.includes(label),
+          `${scenario.name}: ${label}`,
+        );
+      }
+    } finally {
+      cleanup();
+    }
+  }
 });

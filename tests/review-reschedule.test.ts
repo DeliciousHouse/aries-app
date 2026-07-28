@@ -14,6 +14,7 @@ type Captured = {
 interface FixtureOptions {
   ownedTenantId?: number;
   ownedPostId?: number;
+  terminalDispatchEvidence?: boolean;
 }
 
 function buildQueryable(opts: FixtureOptions = {}): {
@@ -34,7 +35,10 @@ function buildQueryable(opts: FixtureOptions = {}): {
       }
       return { rows: [], rowCount: 0 };
     }
-    if (trimmed.startsWith('INSERT INTO scheduled_posts')) {
+    if (trimmed.startsWith('WITH existing AS')) {
+      if (opts.terminalDispatchEvidence) {
+        return { rows: [], rowCount: 0 };
+      }
       const [postId, tenantId, scheduledFor, platforms] = params as [number, number, string, string[]];
       return {
         rows: [
@@ -47,6 +51,15 @@ function buildQueryable(opts: FixtureOptions = {}): {
             updated_at: '2026-05-06T12:00:00.000Z',
           },
         ],
+        rowCount: 1,
+      };
+    }
+    if (trimmed.startsWith('SELECT owner.dispatch_status') && opts.terminalDispatchEvidence) {
+      return {
+        rows: [{
+          dispatch_status: 'pending',
+          has_terminal_dispatch_evidence: true,
+        }],
         rowCount: 1,
       };
     }
@@ -91,7 +104,7 @@ test('PATCH schedule persists scheduled_at ISO and platforms with FB toggled off
   assert.equal(body.scheduledAt, scheduledIso);
   assert.deepEqual(body.platforms, ['instagram']);
 
-  const insertCall = calls.find((call) => call.sql.startsWith('INSERT INTO scheduled_posts'));
+  const insertCall = calls.find((call) => call.sql.startsWith('WITH existing AS'));
   assert.ok(insertCall, 'INSERT INTO scheduled_posts must be invoked');
   const [postIdParam, tenantIdParam, scheduledForParam, platformsParam] = insertCall.params as [
     number,
@@ -120,8 +133,46 @@ test('PATCH schedule preserves both platforms when FB and IG selected', async ()
   assert.equal(response.status, 200);
   const body = (await response.json()) as Record<string, unknown>;
   assert.deepEqual(body.platforms, ['instagram', 'facebook']);
-  const insertCall = calls.find((call) => call.sql.startsWith('INSERT INTO scheduled_posts'));
+  const insertCall = calls.find((call) => call.sql.startsWith('WITH existing AS'));
   assert.deepEqual(insertCall?.params[3], ['instagram', 'facebook']);
+});
+
+test('PATCH schedule rejects partial success without deleting or republishing the dispatched platform', async () => {
+  const { queryable, calls } = buildQueryable({ terminalDispatchEvidence: true });
+  const response = await handlePatchScheduleSocialContentPost(
+    'job-partial',
+    '42',
+    new Request('http://aries.example.test/api/social-content/jobs/job-partial/posts/42/schedule', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        scheduled_at: '2026-05-14T09:00:00.000Z',
+        platforms: ['facebook', 'instagram'],
+      }),
+    }),
+    { tenantContextLoader: tenantLoader(7), queryable, publishApprovalResolver: approvedResolver },
+  );
+
+  assert.equal(response.status, 409);
+  const body = (await response.json()) as { reason: string };
+  assert.equal(body.reason, 'scheduled_post_dispatch_evidence');
+  const atomicCall = calls.find((call) => call.sql.startsWith('WITH existing AS'));
+  assert.ok(atomicCall);
+  assert.match(
+    atomicCall.sql,
+    /terminal_dispatch_evidence AS MATERIALIZED[\s\S]*status IN \('dispatched', 'manual_reconciliation'\)/,
+  );
+  assert.match(
+    atomicCall.sql,
+    /DELETE FROM scheduled_post_dispatches[\s\S]*NOT EXISTS \(SELECT 1 FROM terminal_dispatch_evidence\)/,
+    'the successful child row and provider id must stay durable',
+  );
+  assert.match(
+    atomicCall.sql,
+    /UPDATE scheduled_posts[\s\S]*NOT EXISTS \(SELECT 1 FROM terminal_dispatch_evidence\)/,
+    'the parent submission fence must not be cleared around dispatched evidence',
+  );
+  assert.equal(calls.length, 3, 'post lookup plus atomic rejection and read-only diagnosis only');
 });
 
 test('PATCH schedule rejects empty platforms array with 400', async () => {
@@ -211,7 +262,7 @@ test('PATCH schedule returns 404 when post does not belong to tenant', async () 
   assert.equal(response.status, 404);
   const body = (await response.json()) as { reason: string };
   assert.equal(body.reason, 'social_content_post_not_found');
-  const insertCall = calls.find((call) => call.sql.startsWith('INSERT INTO scheduled_posts'));
+  const insertCall = calls.find((call) => call.sql.startsWith('WITH existing AS'));
   assert.equal(insertCall, undefined, 'must NOT write scheduled_posts on tenant mismatch');
 });
 
@@ -270,7 +321,7 @@ test('PATCH schedule deduplicates and lowercases platform names', async () => {
     { tenantContextLoader: tenantLoader(7), queryable, publishApprovalResolver: approvedResolver },
   );
   assert.equal(response.status, 200);
-  const insertCall = calls.find((call) => call.sql.startsWith('INSERT INTO scheduled_posts'));
+  const insertCall = calls.find((call) => call.sql.startsWith('WITH existing AS'));
   assert.deepEqual(insertCall?.params[3], ['instagram', 'facebook']);
 });
 

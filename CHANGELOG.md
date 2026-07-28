@@ -2,6 +2,69 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.46.1 — fix(publishing): close rollback and calendar safety gaps
+
+Scheduled publishing now keeps rollback traffic and calendar controls fail-closed
+when legacy provider outcomes, application readiness, or durable ownership are uncertain.
+
+### Changed
+
+- Pre-fence application rollback requires the same durable restore-safety proof even
+  when the old scheduled worker was already stopped.
+- The old worker restarts only after the exact old application image and configuration
+  pass a bounded functional readiness probe; failed probes stop the app and worker.
+- Manual-reconciliation calendar tiles show their exceptional state visibly, and rows
+  without a durable job identity cannot expose rescheduling controls.
+- The authoritative PostgreSQL CI lane executes the production legacy quarantine CTE
+  against production-compatible `TEXT` dispatch-attempt tokens.
+
+## v0.1.46.0 — fix(publishing): make scheduled delivery fail closed
+
+Scheduled publishing now treats provider submission as a fenced, durable attempt:
+workers recover confirmed successes without posting twice, while genuinely unknown
+outcomes are quarantined for manual reconciliation instead of automatic replay.
+
+### Added
+
+- Per-platform dispatch-attempt rows retain owner tokens, provider post IDs, and
+  manual-reconciliation evidence independently from the canonical post row.
+- A scheduled-worker readiness handshake validates database, schema, protocol,
+  and worker-to-app authentication before production publishing is re-enabled.
+- Cutover and backfill commands repair legacy terminal rows and fail closed on
+  legacy in-flight work whose provider outcome is not known.
+- Deployment restore proof detects unresolved legacy in-flight claims after the
+  old worker stops, while bounded one-shot readiness cleans up hung containers.
+
+### Changed
+
+- Scheduled claim, retry, schedule writers, terminal sweeps, cancel, finalize,
+  and deployment paths share canonical-first lock ordering and immutable attempt
+  ownership.
+- Calendar and review surfaces expose partial and manual-reconciliation states,
+  including per-platform evidence, and allow moves only for safe pending or failed
+  schedules with no terminal child evidence.
+
+### Fixed
+
+- Stale started attempts inspect every durable child: confirmed provider IDs keep
+  canonical publish truth monotonic, complete fan-out rolls forward to dispatched,
+  and only unresolved children are quarantined without another provider call.
+- Direct schema execution never rearms an unsafe legacy worker after restore-safety
+  proof fails, even when the additive schema command itself succeeds.
+- Instagram image publication allows the provider polling window plus margin
+  without timing out and resubmitting an outcome-unknown request.
+- Concurrent cancellation, auto-scheduling, and rescheduling serialize on the
+  canonical post, preventing successful cancellation from leaving orphan schedules.
+- Worker authentication and media preflight failures remain before provider I/O;
+  ambiguous transport outcomes preserve durable evidence and are never replayed.
+- Cutover recognizes every historical outcome-unknown code and quarantines an
+  unsafe failed child even when a retryable sibling keeps its parent pending.
+- Production deploys quiesce old app mutations before stopping the worker, run
+  additive schema and legacy quarantine before exposing the compatible app, and
+  restore exact pre-fence containers only when rollback is proven safe.
+- Manual-review calendar tiles announce their visible status and provider-evidence
+  verification guidance in the accessible name.
+
 ## v0.1.44.1 — chore(runtime): pin the supported Node release
 
 Contributors now get immediate Node 24 guidance before running Aries locally,

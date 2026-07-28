@@ -72,12 +72,15 @@ test('CLAIM_ROW_SQL filters past-end-date rows and leaves NULL rows claimable', 
   );
   assert.match(
     CLAIM_ROW_SQL,
-    /sp\.dispatch_status = 'in_flight' AND sp\.dispatch_claimed_at < \$2/,
-    'CLAIM_ROW_SQL must still reclaim stale in_flight rows',
+    /sp\.dispatch_status = 'in_flight'\s+AND sp\.dispatch_started_at IS NULL\s+AND sp\.dispatch_claimed_at < \$2/,
+    'CLAIM_ROW_SQL reclaims only stale in_flight rows that never started provider I/O',
   );
-  // The lock and JOIN shape must not have changed.
-  assert.match(CLAIM_ROW_SQL, /FOR UPDATE OF sp SKIP LOCKED/);
-  assert.match(CLAIM_ROW_SQL, /LEFT JOIN posts p ON p\.id = sp\.post_id/);
+  // Canonical-first locking must preserve the schedule filter while taking the
+  // post lock before the scheduled owner lock.
+  assert.match(
+    CLAIM_ROW_SQL,
+    /FROM posts p[\s\S]*FOR UPDATE OF p SKIP LOCKED[\s\S]*FROM scheduled_posts sp[\s\S]*FOR UPDATE OF sp SKIP LOCKED/,
+  );
 });
 
 test('DUE_ROWS_SQL filters past-end-date rows and leaves NULL rows claimable', () => {
@@ -94,8 +97,8 @@ test('DUE_ROWS_SQL filters past-end-date rows and leaves NULL rows claimable', (
   );
   assert.match(
     DUE_ROWS_SQL,
-    /dispatch_status = 'in_flight' AND dispatch_claimed_at < \$2/,
-    'DUE_ROWS_SQL must still reclaim stale in_flight rows',
+    /dispatch_status = 'in_flight'\s+AND dispatch_started_at IS NULL\s+AND dispatch_claimed_at < \$2/,
+    'DUE_ROWS_SQL reclaims only stale in_flight rows that never started provider I/O',
   );
 });
 
