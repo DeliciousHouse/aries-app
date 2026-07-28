@@ -3,8 +3,14 @@ set -euo pipefail
 
 SOURCE_SKILLS_DIR="${1:-skills}"
 TARGET_SKILLS_DIR="${2:-hermes-data/skills}"
+SOURCE_SPECS_DIR="$(dirname "$SOURCE_SKILLS_DIR")/specs"
+TARGET_SPECS_DIR="$(dirname "$TARGET_SKILLS_DIR")/specs"
 REPLACEMENT_SKILL="video-render-runtime"
 PREDECESSOR_SKILL="v""eo-video-runtime"
+REQUIRED_SCHEMAS=(
+  "video_job_contract_spec.v2.json"
+  "video_runtime_state_schema.v2.json"
+)
 
 log() { printf '[aries-skill-upgrade] %s\n' "$*"; }
 fail() { printf '[aries-skill-upgrade] ERROR: %s\n' "$*" >&2; exit 1; }
@@ -15,12 +21,19 @@ PREDECESSOR_DIR="$TARGET_SKILLS_DIR/$PREDECESSOR_SKILL"
 STAGING_DIR="$TARGET_SKILLS_DIR/.${REPLACEMENT_SKILL}.upgrade.$$"
 
 [ -f "$SOURCE_DIR/SKILL.md" ] || fail "managed source skill is missing: $SOURCE_DIR/SKILL.md"
+for schema in "${REQUIRED_SCHEMAS[@]}"; do
+  [ -f "$SOURCE_SPECS_DIR/$schema" ] || fail "managed video schema is missing: $SOURCE_SPECS_DIR/$schema"
+done
 mkdir -p "$TARGET_SKILLS_DIR"
 rm -rf "$STAGING_DIR"
 trap 'rm -rf "$STAGING_DIR"' EXIT
 
 cp -R "$SOURCE_DIR" "$STAGING_DIR"
 printf '%s\n' 'managed-by=aries-app' 'skill=video-render-runtime' > "$STAGING_DIR/.aries-managed-skill"
+mkdir -p "$TARGET_SPECS_DIR"
+for schema in "${REQUIRED_SCHEMAS[@]}"; do
+  cp "$SOURCE_SPECS_DIR/$schema" "$TARGET_SPECS_DIR/$schema"
+done
 
 rm -rf "$TARGET_DIR"
 mv "$STAGING_DIR" "$TARGET_DIR"

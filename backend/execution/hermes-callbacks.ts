@@ -246,16 +246,23 @@ export async function handleHermesRunCallback(
         return approvalError;
       }
 
+      // The shared Hermes protocol emits `stopped`; Aries persists the canonical
+      // cancellation state everywhere, including the marketing runtime that is
+      // updated before the execution record below.
+      const canonicalPayload: HermesRunCallbackPayload = payload.status === 'stopped'
+        ? { ...payload, status: 'cancelled' }
+        : payload;
+
       if (run.domain === 'marketing') {
-        await applyHermesMarketingCallback(run, payload);
+        await applyHermesMarketingCallback(run, canonicalPayload);
       }
 
-      let appliedStatus = executionStatus(payload.status);
-      let appliedError = payload.error
+      let appliedStatus = executionStatus(canonicalPayload.status);
+      let appliedError = canonicalPayload.error
         ? {
-            code: payload.error.code ?? 'hermes_callback_error',
-            message: payload.error.message,
-            retryable: payload.error.retryable,
+            code: canonicalPayload.error.code ?? 'hermes_callback_error',
+            message: canonicalPayload.error.message,
+            retryable: canonicalPayload.error.retryable,
           }
         : null;
 

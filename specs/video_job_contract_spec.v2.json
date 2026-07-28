@@ -22,10 +22,13 @@
       "not": {
         "anyOf": [
           { "pattern": "^https://[^/]*@" },
-          { "pattern": "^https://(?:localhost(?:[/:]|$)|[^/]+\\.localhost(?:[/:]|$))" },
+          { "pattern": "^https://(?:[lL][oO][cC][aA][lL][hH][oO][sS][tT](?:[/:]|$)|[^/]+\\.[lL][oO][cC][aA][lL][hH][oO][sS][tT](?:[/:]|$))" },
+          { "pattern": "^https://(?:0[xX][0-9a-fA-F]+|[0-9]+)\\.?(?::[0-9]+)?(?:/|$)" },
+          { "pattern": "^https://[0-9]+(?:\\.[0-9]+){1,2}\\.?(?::[0-9]+)?(?:/|$)" },
+          { "pattern": "^https://(?:(?:[0-9]+|0[xX][0-9a-fA-F]+)\\.)*(?:0[xX][0-9a-fA-F]+|0[0-9]+)(?:\\.(?:[0-9]+|0[xX][0-9a-fA-F]+))*\\.?(?::[0-9]+)?(?:/|$)" },
           { "pattern": "^https://(?:0\\.|10\\.|127\\.|169\\.254\\.|192\\.168\\.)" },
           { "pattern": "^https://172\\.(?:1[6-9]|2[0-9]|3[01])\\." },
-          { "pattern": "^https://\\[(?:::|::1|::ffff:(?:0\\.|10\\.|127\\.|169\\.254\\.|172\\.(?:1[6-9]|2[0-9]|3[01])\\.|192\\.168\\.)|f[cd][0-9a-f:]*|fe[89ab][0-9a-f:]*)\\]" },
+          { "pattern": "^https://\\[(?:::|::1|::[fF]{4}:[^\\]]+|[fF][cCdD][0-9a-fA-F:]*|[fF][eE][89aAbB][0-9a-fA-F:]*)\\]" },
           { "pattern": "(?:^|/)\\.\\.(?:/|$)" }
         ]
       }
@@ -121,7 +124,7 @@
         "event_id": { "type": "string", "minLength": 1 },
         "aries_run_id": { "type": "string", "minLength": 1 },
         "hermes_run_id": { "type": "string", "minLength": 1 },
-        "status": { "enum": ["completed", "failed", "cancelled"] },
+        "status": { "enum": ["completed", "failed", "cancelled", "stopped"] },
         "stage": { "const": "video_render" },
         "output": {
           "type": "array",
@@ -172,7 +175,7 @@
           "properties": {
             "event_type": { "const": "video_render.cancelled" },
             "runtime_phase": { "const": "cancelled" },
-            "callback": { "allOf": [{ "$ref": "#/$defs/callback" }, { "properties": { "status": { "const": "cancelled" } } }] }
+            "callback": { "allOf": [{ "$ref": "#/$defs/callback" }, { "properties": { "status": { "enum": ["cancelled", "stopped"] } } }] }
           }
         }
       ]

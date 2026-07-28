@@ -789,6 +789,20 @@ function ingestSocialContentStageMedia(
   return result;
 }
 
+function requestedVideoRenderCount(doc: SocialContentJobRuntimeDocument): number {
+  const request = doc.inputs?.request;
+  if (!request || typeof request !== 'object' || Array.isArray(request)) return 0;
+  const record = request as Record<string, unknown>;
+  const scope = record.scope && typeof record.scope === 'object' && !Array.isArray(record.scope)
+    ? record.scope as Record<string, unknown>
+    : null;
+  const raw = record.videoRenderCount ?? record.renderVideoCount ?? scope?.video_render_count;
+  const count = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() ? Number(raw) : 0;
+  if (Number.isFinite(count) && count > 0) return Math.floor(count);
+  const renderFlag = record.renderVideoAfterApproval;
+  return renderFlag === true || (typeof renderFlag === 'string' && renderFlag.trim().toLowerCase() === 'true') ? 1 : 0;
+}
+
 function persistAllSkippedVideoFailure(
   doc: SocialContentJobRuntimeDocument,
   targetStage: MarketingStage,
@@ -796,7 +810,7 @@ function persistAllSkippedVideoFailure(
   payload: HermesRunCallbackPayload,
   ingestResult: SocialContentVideoIngestResult | null,
 ): boolean {
-  if (!ingestResult || ingestResult.reportedCount === 0 || ingestResult.ingestedCount > 0) {
+  if (!ingestResult || ingestResult.ingestedCount > 0 || requestedVideoRenderCount(doc) === 0) {
     return false;
   }
   const message = 'Hermes completed video rendering without any ingestible artifacts from approved cache roots.';

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -51,7 +51,7 @@ function liveSubmission(): Record<string, unknown> {
   };
 }
 
-function terminalCallback(status: 'completed' | 'failed' | 'cancelled', includeError = status === 'failed') {
+function terminalCallback(status: 'completed' | 'failed' | 'cancelled' | 'stopped', includeError = status === 'failed') {
   return {
     event_id: `evt-video-${status}`,
     aries_run_id: 'arun_123e4567-e89b-42d3-a456-426614174001',
@@ -89,6 +89,54 @@ test('v2 video contract is a validated projection of the live Hermes run and cal
   assert.equal(submission.callback_context.aries_run_id, submission.aries_run_id);
   assert.equal(submission.callback_context.job_id, submission.job_id);
   assert.equal(submission.callback_context.tenant_id, submission.tenant_id);
+
+  const validateContract = new Ajv2020({ strict: false, validateFormats: false }).compile(jobSpec);
+  const validContract = {
+    video_brief: {
+      prompt: 'Create a six-second vertical product teaser.',
+      aspect_ratio: '9:16',
+      duration_seconds: 6,
+      input_assets: [{ type: 'https_url', url: 'https://cdn.example.com/source.png' }],
+    },
+    hermes_submission: submission,
+    terminal_event: {
+      event_type: 'video_render.completed',
+      runtime_phase: 'succeeded',
+      callback: terminalCallback('completed'),
+    },
+  };
+  assert.equal(validateContract(validContract), true, JSON.stringify(validateContract.errors));
+
+  const stoppedContract = structuredClone(validContract);
+  stoppedContract.terminal_event = {
+    event_type: 'video_render.cancelled',
+    runtime_phase: 'cancelled',
+    callback: terminalCallback('stopped'),
+  };
+  assert.equal(validateContract(stoppedContract), true, JSON.stringify(validateContract.errors));
+  assert.equal(VideoTerminalEventSchema.parse(stoppedContract.terminal_event).callback.status, 'cancelled');
+
+  for (const unsafeUrl of [
+    'https://2130706433./source.png',
+    'https://0x7f000001./source.png',
+    'https://0177.0.0.1/source.png',
+    'https://127.1/source.png',
+    'https://[::ffff:127.0.0.1]/source.png',
+  ]) {
+    const alternateLoopbackContract = structuredClone(validContract);
+    alternateLoopbackContract.video_brief.input_assets[0].url = unsafeUrl;
+    assert.equal(validateContract(alternateLoopbackContract), false, unsafeUrl);
+  }
+});
+
+test('RBAC contract inventory references existing active contract files', () => {
+  const matrix = readJson('specs/rbac_matrix.v1.json') as { contracts_ref?: unknown };
+  assert.ok(Array.isArray(matrix.contracts_ref));
+  assert.ok(matrix.contracts_ref.includes('./specs/video_job_contract_spec.v2.json'));
+  for (const reference of matrix.contracts_ref) {
+    assert.equal(typeof reference, 'string');
+    assert.equal(existsSync(path.resolve(ROOT, reference)), true, `RBAC contract reference must exist: ${reference}`);
+  }
 });
 
 test('video source locators accept public HTTPS and reject local, private, unspecified, mapped, link-local, and traversal forms', () => {
@@ -100,6 +148,7 @@ test('video source locators accept public HTTPS and reject local, private, unspe
 
   for (const url of [
     'https://cdn.example.com/assets/hero.png',
+    'https://192.0.1.1/assets/public.mp4',
     'https://[2001:4860:4860::8888]/hero.png',
   ]) {
     assert.equal(VideoRenderBriefSchema.safeParse({
@@ -158,6 +207,34 @@ test('public video source redirect validation rejects pivots to private destinat
   assert.equal(pivotCalls, 1, 'private redirect target must be rejected before it is fetched');
 });
 
+test('public video source validation pins each bounded request to the addresses that passed DNS validation', async () => {
+  let approvedAddresses: readonly string[] | undefined;
+  await validatePublicVideoSourceUrl('https://cdn.example.com/source.mp4', async (...args: unknown[]) => {
+    approvedAddresses = args[2] as readonly string[] | undefined;
+    return new Response(null, { status: 206 });
+  }, async () => ['93.184.216.34', '2606:2800:220:1:248:1893:25c8:1946']);
+  assert.deepEqual(approvedAddresses, ['93.184.216.34', '2606:2800:220:1:248:1893:25c8:1946']);
+});
+
+test('public video source validation follows the bounded GET redirect chain instead of trusting divergent HEAD behavior', async () => {
+  const requests: Array<{ method: string; range: string | null }> = [];
+  await assert.rejects(
+    validatePublicVideoSourceUrl('https://cdn.example.com/start.mp4', async (_url, init) => {
+      const method = String(init?.method ?? 'GET');
+      requests.push({ method, range: new Headers(init?.headers).get('range') });
+      if (method === 'HEAD') {
+        return new Response(null, { status: 405 });
+      }
+      return new Response(null, {
+        status: 302,
+        headers: { location: 'https://127.0.0.1/private.mp4' },
+      });
+    }, async () => ['93.184.216.34']),
+    /public HTTPS/i,
+  );
+  assert.deepEqual(requests, [{ method: 'GET', range: 'bytes=0-0' }]);
+});
+
 test('terminal event type, runtime phase, callback status, and failed-event errors are bound', () => {
   const completed = {
     event_type: 'video_render.completed',
@@ -169,12 +246,19 @@ test('terminal event type, runtime phase, callback status, and failed-event erro
     runtime_phase: 'failed',
     callback: terminalCallback('failed'),
   };
+  const stopped = {
+    event_type: 'video_render.cancelled',
+    runtime_phase: 'cancelled',
+    callback: terminalCallback('stopped'),
+  };
 
   assert.deepEqual(
     projectVideoTerminalEventToHermesCallback(completed),
     HermesRunCallbackPayloadSchema.parse(completed.callback),
   );
   assert.equal(VideoTerminalEventSchema.safeParse(failed).success, true);
+  assert.equal(VideoTerminalEventSchema.parse(stopped).callback.status, 'cancelled');
+  assert.equal(projectVideoTerminalEventToHermesCallback(stopped).status, 'cancelled');
 
   for (const invalid of [
     { ...completed, runtime_phase: 'failed' },

@@ -226,46 +226,137 @@ test('all-skipped required video output converges marketing, social, and executi
   });
 });
 
-test('rendered-video projection bounds and sanitizes callback-controlled display fields', () => {
-  const jobId = 'mkt_123e4567-e89b-42d3-a456-426614174022';
-  const doc = seedVideoJob(jobId, 'Tenant-42');
-  const runtime = ensureSocialContentRuntimeState(doc);
-  runtime.stages.video_render.output = {
-    artifacts: [{
-      id: 'clip-adversarial',
-      path: '/hermes-video-media/tenant-42-private.mp4',
-      url: `/api/marketing/jobs/${jobId}/assets/video-safe-clip`,
-      mime_type: 'video/mp4',
-      platform_slug: '/hermes-video-media/TENANT-42',
-      family_id: 'C:\\Users\\tenant-42\\secret',
-      title: 'C:\\Users\\tenant-42\\private.mp4',
-      summary: '/home/node/.hermes/tenant-42/cache/videos/private.mp4 api_key=super-secret',
-      metadata: {
-        callback_token: 'do-not-project',
-        tenant_id: 'tenant-42',
-        mount_root: '/hermes-video-media',
+test('zero-candidate required video output converges marketing, social, and execution state on one terminal failure', async () => {
+  await withVideoRuntimeEnv(async () => {
+    const jobId = 'mkt_123e4567-e89b-42d3-a456-426614174023';
+    const doc = seedVideoJob(jobId);
+    const run = createExecutionRunRecord({
+      provider: 'hermes',
+      domain: 'marketing',
+      workflowKey: 'social_content_weekly',
+      action: 'run',
+      tenantId: doc.tenant_id,
+      marketingJobId: jobId,
+      stage: 'production',
+    });
+
+    const result = await handleHermesRunCallback({
+      event_id: 'evt-video-zero-candidate-consistency',
+      aries_run_id: run.aries_run_id,
+      hermes_run_id: 'hrun-video-zero-candidate-consistency',
+      status: 'requires_approval',
+      stage: 'video_render',
+      approval: {
+        stage: 'publish',
+        approval_step: 'approve_video_render',
+        workflow_step_id: 'approve_video_render',
+        prompt: 'Approve the completed video render.',
       },
-    }],
-  };
+      output: [{ artifacts: [] }],
+    });
 
-  const dashboard = buildSocialContentDashboardProjection(doc, emptyDashboard());
-  const video = dashboard.assets.find((asset) => asset.type === 'video_ad');
-  assert.ok(video);
-  assert.equal(video?.previewUrl, `/api/marketing/jobs/${jobId}/assets/video-safe-clip`);
-  assert.equal(video?.platform, 'social');
-  assert.ok(String(video?.title).length <= 160);
-  assert.ok(String(video?.summary).length <= 500);
+    assert.equal(result.status, 'accepted');
+    const after = await loadSocialContentJobRuntime(jobId);
+    assert.equal(after?.state, 'failed');
+    assert.equal(after?.status, 'failed');
+    assert.equal(after?.stages.production.status, 'failed');
+    assert.equal(after?.last_error?.code, 'hermes_video_artifact_ingest_failed');
+    const socialRuntime = after?.social_content_runtime as {
+      stages?: { video_render?: { status?: string; summary?: string } };
+    } | undefined;
+    assert.equal(socialRuntime?.stages?.video_render?.status, 'failed');
+    assert.match(String(socialRuntime?.stages?.video_render?.summary), /without any ingestible/i);
 
-  const serialized = JSON.stringify(video);
-  for (const forbidden of [
-    'C:\\',
-    '/home/node/.hermes',
-    '/hermes-video-media',
-    'tenant-42',
-    'Tenant-42',
-    'super-secret',
-    'do-not-project',
-  ]) {
-    assert.equal(serialized.includes(forbidden), false, `dashboard artifact leaked ${forbidden}`);
-  }
+    const executionRecord = loadExecutionRunRecord(run.aries_run_id);
+    assert.equal(executionRecord?.status, 'failed');
+    assert.equal(executionRecord?.last_error?.code, 'hermes_video_artifact_ingest_failed');
+    assert.notEqual(executionRecord?.status, 'awaiting_approval');
+    assert.notEqual(executionRecord?.status, 'completed');
+  });
+});
+
+test('stopped marketing callback converges marketing and execution state as cancellation', async () => {
+  await withVideoRuntimeEnv(async () => {
+    const jobId = 'mkt_123e4567-e89b-42d3-a456-426614174024';
+    const doc = seedVideoJob(jobId);
+    const run = createExecutionRunRecord({
+      provider: 'hermes',
+      domain: 'marketing',
+      workflowKey: 'social_content_weekly',
+      action: 'run',
+      tenantId: doc.tenant_id,
+      marketingJobId: jobId,
+      stage: 'production',
+    });
+
+    const result = await handleHermesRunCallback({
+      event_id: 'evt-video-stopped-consistency',
+      aries_run_id: run.aries_run_id,
+      hermes_run_id: 'hrun-video-stopped-consistency',
+      status: 'stopped',
+      stage: 'video_render',
+      error: {
+        code: 'operator_stopped',
+        message: 'The operator stopped video rendering.',
+        retryable: false,
+      },
+    });
+
+    assert.equal(result.status, 'accepted');
+    const after = await loadSocialContentJobRuntime(jobId);
+    assert.equal(after?.state, 'failed');
+    assert.equal(after?.status, 'failed');
+    assert.equal(after?.stages.production.status, 'failed');
+    assert.equal(after?.last_error?.code, 'operator_stopped');
+
+    const executionRecord = loadExecutionRunRecord(run.aries_run_id);
+    assert.equal(executionRecord?.status, 'cancelled');
+    assert.equal(executionRecord?.last_error?.code, 'operator_stopped');
+  });
+});
+
+test('rendered-video projection bounds and sanitizes callback-controlled display fields', async () => {
+  await withVideoRuntimeEnv(async () => {
+    const jobId = 'mkt_123e4567-e89b-42d3-a456-426614174022';
+    const doc = seedVideoJob(jobId, 'Tenant-42');
+    const runtime = ensureSocialContentRuntimeState(doc);
+    runtime.stages.video_render.output = {
+      artifacts: [{
+        id: 'clip-adversarial',
+        path: '/hermes-video-media/tenant-42-private.mp4',
+        url: `/api/marketing/jobs/${jobId}/assets/video-safe-clip`,
+        mime_type: 'video/mp4',
+        platform_slug: '/hermes-video-media/TENANT-42',
+        family_id: 'C:\\Users\\tenant-42\\secret',
+        title: 'C:\\Users\\tenant-42\\private.mp4',
+        summary: '/home/node/.hermes/tenant-42/cache/videos/private.mp4 api_key=super-secret',
+        metadata: {
+          callback_token: 'do-not-project',
+          tenant_id: 'tenant-42',
+          mount_root: '/hermes-video-media',
+        },
+      }],
+    };
+
+    const dashboard = buildSocialContentDashboardProjection(doc, emptyDashboard());
+    const video = dashboard.assets.find((asset) => asset.type === 'video_ad');
+    assert.ok(video);
+    assert.equal(video?.previewUrl, `/api/marketing/jobs/${jobId}/assets/video-safe-clip`);
+    assert.equal(video?.platform, 'social');
+    assert.ok(String(video?.title).length <= 160);
+    assert.ok(String(video?.summary).length <= 500);
+
+    const serialized = JSON.stringify(video);
+    for (const forbidden of [
+      'C:\\',
+      '/home/node/.hermes',
+      '/hermes-video-media',
+      'tenant-42',
+      'Tenant-42',
+      'super-secret',
+      'do-not-project',
+    ]) {
+      assert.equal(serialized.includes(forbidden), false, `dashboard artifact leaked ${forbidden}`);
+    }
+  });
 });

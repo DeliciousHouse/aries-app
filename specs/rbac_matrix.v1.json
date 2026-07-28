@@ -183,6 +183,6 @@
   "contracts_ref": [
     "./specs/onboarding_api_contract.v1.json",
     "./specs/marketing_api_contract.v1.json",
-    "./specs/video_job_contract_spec.v1.json"
+    "./specs/video_job_contract_spec.v2.json"
   ]
 }

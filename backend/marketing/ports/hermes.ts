@@ -26,6 +26,7 @@ import { approvalStepFromWorkflowStepId } from '../../social-content/runtime-sta
 import {
   isVideoRenderHermesSubmission,
   validateVideoRenderHermesSubmission,
+  validateVideoRenderSourceUrls,
 } from '../../video-runtime/hermes-contract';
 import {
   buildProductionResumeContext,
@@ -67,20 +68,6 @@ const DEFAULT_RUN_TIMEOUT_MS = 120_000;
 const DEFAULT_POLL_INTERVAL_MS = 2_000;
 const MIN_POLL_INTERVAL_MS = 50;
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'stopped']);
-
-function requestedVideoRenderCount(doc: SocialContentJobRuntimeDocument | null | undefined): number {
-  const request = doc?.inputs?.request;
-  if (!request || typeof request !== 'object' || Array.isArray(request)) return 0;
-  const record = request as Record<string, unknown>;
-  const scope = record.scope && typeof record.scope === 'object' && !Array.isArray(record.scope)
-    ? record.scope as Record<string, unknown>
-    : null;
-  const raw = record.videoRenderCount ?? scope?.video_render_count;
-  const count = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() ? Number(raw) : 0;
-  if (Number.isFinite(count) && count > 0) return Math.floor(count);
-  const renderFlag = record.renderVideoAfterApproval;
-  return renderFlag === true || (typeof renderFlag === 'string' && renderFlag.trim().toLowerCase() === 'true') ? 1 : 0;
-}
 
 /**
  * Phase B three-profile routing. Each marketing stage runs on a dedicated
@@ -520,14 +507,15 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     // their own payload objects (e.g. submitSocialCopyFinalizeRun) can't
     // accidentally omit it.
     const wirePayload: Record<string, unknown> = { ...input.payload, protocol_version: PROTOCOL_VERSION };
-    if (isVideoRenderHermesSubmission(wirePayload)) {
-      try {
+    try {
+      if (isVideoRenderHermesSubmission(wirePayload)) {
         validateVideoRenderHermesSubmission(wirePayload);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        markSubmissionFailed(input.ariesRunId, 'video_render_submission_invalid', message);
-        throw error;
       }
+      await validateVideoRenderSourceUrls(wirePayload);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      markSubmissionFailed(input.ariesRunId, 'video_render_submission_invalid', message);
+      throw error;
     }
 
     await this.persistCallbackTokenHash(input.ariesRunId, input.tenantId, input.callbackToken);
@@ -759,15 +747,15 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     const payload = this.submissionPayload(
       action, run.aries_run_id, resolvedInput, workflowKey, callbackToken, memoryContextSnapshot, productionDoc, tasteProjection,
     );
-    const videoContractDoc = action === 'resume' ? productionDoc : resolvedInput.doc;
-    if (effectiveStage === 'production' && requestedVideoRenderCount(videoContractDoc) > 0) {
-      try {
+    try {
+      if (effectiveStage === 'production' && isVideoRenderHermesSubmission(payload)) {
         validateVideoRenderHermesSubmission(payload);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        markSubmissionFailed(run.aries_run_id, 'video_render_submission_invalid', message);
-        throw error;
       }
+      await validateVideoRenderSourceUrls(payload);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      markSubmissionFailed(run.aries_run_id, 'video_render_submission_invalid', message);
+      throw error;
     }
     const idempotencyKey = typeof payload.idempotency_key === 'string' ? payload.idempotency_key : '';
 

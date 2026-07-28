@@ -14,6 +14,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import Ajv2020 from 'ajv/dist/2020.js';
+
 const ROOT = process.cwd();
 
 function bashPath(value: string): string {
@@ -49,6 +51,7 @@ test('normal self-host installer executes the real -x upgrade guard idempotently
   const predecessor = `${['v', 'eo'].join('')}-video-runtime`;
   try {
     mkdirSync(path.join(installRoot, 'skills', 'video-render-runtime'), { recursive: true });
+    mkdirSync(path.join(installRoot, 'specs'), { recursive: true });
     mkdirSync(path.join(installRoot, 'scripts'), { recursive: true });
     mkdirSync(path.join(installRoot, 'hermes-data', 'skills', predecessor), { recursive: true });
     mkdirSync(path.join(installRoot, 'hermes-data', 'skills', 'video-render-runtime'), { recursive: true });
@@ -59,6 +62,13 @@ test('normal self-host installer executes the real -x upgrade guard idempotently
     writeFileSync(path.join(installRoot, 'docker-compose.yml'), 'services: {}\n');
     writeFileSync(path.join(installRoot, '.env'), 'PORT=3000\n');
     writeFileSync(path.join(installRoot, 'skills', 'video-render-runtime', 'SKILL.md'), 'replacement-v2\n');
+    copyFileSync(
+      path.join(ROOT, 'skills', 'video-render-runtime', 'contract.json'),
+      path.join(installRoot, 'skills', 'video-render-runtime', 'contract.json'),
+    );
+    for (const schemaName of ['video_job_contract_spec.v2.json', 'video_runtime_state_schema.v2.json']) {
+      copyFileSync(path.join(ROOT, 'specs', schemaName), path.join(installRoot, 'specs', schemaName));
+    }
     writeFileSync(path.join(installRoot, 'hermes-data', 'skills', predecessor, 'SKILL.md'), 'predecessor\n');
     writeFileSync(path.join(installRoot, 'hermes-data', 'skills', 'video-render-runtime', 'SKILL.md'), 'stale-replacement\n');
     writeFileSync(path.join(installRoot, 'hermes-data', 'skills', 'my-custom-skill', 'SKILL.md'), 'user-owned\n');
@@ -82,6 +92,17 @@ test('normal self-host installer executes the real -x upgrade guard idempotently
     assert.equal(readFileSync(path.join(installRoot, 'hermes-data', 'skills', 'video-render-runtime', 'SKILL.md'), 'utf8'), 'replacement-v2\n');
     assert.equal(readFileSync(path.join(installRoot, 'hermes-data', 'skills', 'my-custom-skill', 'SKILL.md'), 'utf8'), 'user-owned\n');
     assert.equal(existsSync(path.join(installRoot, 'hermes-data', 'skills', predecessor)), false);
+    const installedSkillDir = path.join(installRoot, 'hermes-data', 'skills', 'video-render-runtime');
+    const installedContract = JSON.parse(readFileSync(path.join(installedSkillDir, 'contract.json'), 'utf8')) as {
+      $ref: string;
+      runtime_state_schema: string;
+    };
+    const ajv = new Ajv2020({ strict: false, validateFormats: false });
+    for (const reference of [installedContract.$ref, installedContract.runtime_state_schema]) {
+      const installedSchemaPath = path.resolve(installedSkillDir, reference);
+      assert.equal(existsSync(installedSchemaPath), true, `installed schema reference must resolve: ${reference}`);
+      assert.doesNotThrow(() => ajv.compile(JSON.parse(readFileSync(installedSchemaPath, 'utf8'))));
+    }
 
     execFileSync('bash', installerArgs, { cwd: ROOT, env, stdio: 'pipe' });
     assert.equal(readFileSync(path.join(installRoot, 'hermes-data', 'skills', 'video-render-runtime', 'SKILL.md'), 'utf8'), 'replacement-v2\n');

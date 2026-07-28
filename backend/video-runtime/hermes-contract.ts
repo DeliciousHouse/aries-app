@@ -1,5 +1,6 @@
 import { isIP } from 'node:net';
 import { lookup } from 'node:dns/promises';
+import { request as httpsRequest } from 'node:https';
 
 import { z } from 'zod';
 
@@ -40,7 +41,7 @@ function isPublicIpv4(hostname: string): boolean {
     || a === 127
     || (a === 169 && b === 254)
     || (a === 172 && b >= 16 && b <= 31)
-    || (a === 192 && b === 0)
+    || (a === 192 && b === 0 && octets[2] === 0)
     || (a === 192 && b === 168)
     || (a === 192 && b === 0 && octets[2] === 2)
     || (a === 198 && (b === 18 || b === 19))
@@ -119,6 +120,11 @@ export function isPublicVideoSourceUrl(raw: string): boolean {
 }
 
 export type VideoSourceHostLookup = (hostname: string) => Promise<string[]>;
+export type VideoSourceFetch = (
+  input: string | URL,
+  init?: RequestInit,
+  approvedAddresses?: readonly string[],
+) => Promise<Response>;
 
 async function lookupHostAddresses(hostname: string): Promise<string[]> {
   const records = await lookup(hostname, { all: true, verbatim: true });
@@ -132,9 +138,9 @@ function assertPublicSourceUrl(raw: string): URL {
   return new URL(raw);
 }
 
-async function assertPublicResolvedHost(url: URL, lookupHost: VideoSourceHostLookup): Promise<void> {
+async function assertPublicResolvedHost(url: URL, lookupHost: VideoSourceHostLookup): Promise<string[]> {
   const hostname = normalizedHostname(url.hostname);
-  if (isIP(hostname)) return;
+  if (isIP(hostname)) return [hostname];
   let addresses: string[];
   try {
     addresses = await lookupHost(hostname);
@@ -147,22 +153,78 @@ async function assertPublicResolvedHost(url: URL, lookupHost: VideoSourceHostLoo
   })) {
     throw new Error('video source locator must resolve only to public HTTPS destinations');
   }
+  return addresses.map(normalizedHostname);
+}
+
+function fetchPinnedPublicSource(
+  input: string | URL,
+  init: RequestInit = {},
+  approvedAddresses: readonly string[] = [],
+): Promise<Response> {
+  const target = input instanceof URL ? input : new URL(input);
+  const approvedAddress = approvedAddresses[0];
+  if (target.protocol !== 'https:' || !approvedAddress) {
+    return Promise.reject(new Error('video source request requires a validated public HTTPS address'));
+  }
+
+  const originalHostname = normalizedHostname(target.hostname);
+  const headers = Object.fromEntries(new Headers(init.headers).entries());
+  headers.host = target.host;
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const request = httpsRequest({
+      protocol: 'https:',
+      hostname: approvedAddress,
+      port: target.port || 443,
+      path: `${target.pathname}${target.search}`,
+      method: init.method ?? 'GET',
+      headers,
+      servername: isIP(originalHostname) ? undefined : originalHostname,
+      timeout: 10_000,
+    }, (response) => {
+      const responseHeaders = new Headers();
+      for (const [name, value] of Object.entries(response.headers)) {
+        if (Array.isArray(value)) {
+          for (const item of value) responseHeaders.append(name, item);
+        } else if (value !== undefined) {
+          responseHeaders.set(name, String(value));
+        }
+      }
+      settled = true;
+      const rawStatus = response.statusCode ?? 502;
+      const status = rawStatus >= 200 && rawStatus <= 599 ? rawStatus : 502;
+      resolve(new Response(null, { status, statusText: response.statusMessage, headers: responseHeaders }));
+      response.destroy();
+    });
+    request.once('timeout', () => request.destroy(new Error('video source validation request timed out')));
+    request.once('error', (error) => {
+      if (!settled) reject(error);
+    });
+    request.end();
+  });
 }
 
 /**
  * Validate the complete HTTP redirect chain before accepting a source URL.
- * Redirects are followed manually so every Location is checked before fetch
- * can connect to it, preventing a public URL from pivoting into a private host.
+ * A bounded GET mirrors the method used for real retrieval; redirects are
+ * followed manually so every Location is checked before fetch can connect to
+ * it, preventing a public URL from pivoting into a private host.
  */
 export async function validatePublicVideoSourceUrl(
   raw: string,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: VideoSourceFetch = fetchPinnedPublicSource,
   lookupHost: VideoSourceHostLookup = lookupHostAddresses,
 ): Promise<string> {
   let current = assertPublicSourceUrl(raw);
   for (let redirectCount = 0; redirectCount <= MAX_SOURCE_REDIRECTS; redirectCount += 1) {
-    await assertPublicResolvedHost(current, lookupHost);
-    const response = await fetchImpl(current, { method: 'HEAD', redirect: 'manual' });
+    const approvedAddresses = await assertPublicResolvedHost(current, lookupHost);
+    const response = await fetchImpl(current, {
+      method: 'GET',
+      headers: { range: 'bytes=0-0' },
+      redirect: 'manual',
+    }, approvedAddresses);
+    await response.body?.cancel().catch(() => {});
     if (response.status < 300 || response.status >= 400) return current.toString();
     const location = response.headers.get('location');
     if (!location) throw new Error('video source redirect is missing Location');
@@ -190,6 +252,21 @@ export const VideoRenderBriefSchema = z.object({
   input_assets: z.array(VideoSourceAssetSchema).max(16).default([]),
 }).strict();
 
+/** Enforce the public-source boundary on raw briefs at the live submit chokepoint. */
+export async function validateVideoRenderSourceUrls(
+  value: unknown,
+  fetchImpl?: VideoSourceFetch,
+  lookupHost?: VideoSourceHostLookup,
+): Promise<void> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return;
+  const rawBrief = (value as Record<string, unknown>).video_brief;
+  if (rawBrief === undefined) return;
+  const brief = VideoRenderBriefSchema.parse(rawBrief);
+  for (const asset of brief.input_assets) {
+    await validatePublicVideoSourceUrl(asset.url, fetchImpl, lookupHost);
+  }
+}
+
 const VideoTerminalEventBaseSchema = z.object({
   event_type: z.enum([
     'video_render.completed',
@@ -215,7 +292,8 @@ export const VideoTerminalEventSchema = VideoTerminalEventBaseSchema.superRefine
       message: `${event.event_type} requires runtime_phase=${binding.runtimePhase}`,
     });
   }
-  if (event.callback.status !== binding.callbackStatus) {
+  const callbackStatus = event.callback.status === 'stopped' ? 'cancelled' : event.callback.status;
+  if (callbackStatus !== binding.callbackStatus) {
     ctx.addIssue({
       code: 'custom',
       path: ['callback', 'status'],
@@ -236,7 +314,9 @@ export const VideoTerminalEventSchema = VideoTerminalEventBaseSchema.superRefine
       message: 'video_render.failed requires callback.error',
     });
   }
-});
+}).transform((event) => event.callback.status === 'stopped'
+  ? { ...event, callback: { ...event.callback, status: 'cancelled' as const } }
+  : event);
 
 function findForbiddenOwnershipKey(value: Record<string, unknown>, pathPrefix: string): string | null {
   for (const key of Object.keys(value)) {
@@ -245,10 +325,40 @@ function findForbiddenOwnershipKey(value: Record<string, unknown>, pathPrefix: s
   return null;
 }
 
+function hasStructuredVideoGenerateRequest(input: string): boolean {
+  const prefix = 'Request (JSON):';
+  for (const line of input.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith(prefix)) continue;
+    try {
+      const request = JSON.parse(trimmed.slice(prefix.length).trim()) as unknown;
+      if (!request || typeof request !== 'object' || Array.isArray(request)) continue;
+      const requestRecord = request as Record<string, unknown>;
+      const requestInput = requestRecord.input;
+      if (!requestInput || typeof requestInput !== 'object' || Array.isArray(requestInput)) continue;
+      const mediaRequests = (requestInput as Record<string, unknown>).media_requests;
+      if (!Array.isArray(mediaRequests)) continue;
+      if (mediaRequests.some((entry) => {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
+        const type = (entry as Record<string, unknown>).type;
+        return type === 'video.generate' || type === 'video_generate';
+      })) {
+        return true;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
+
 export function isVideoRenderHermesSubmission(value: unknown): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const input = (value as Record<string, unknown>).input;
-  return typeof input === 'string' && input.includes('video.generate');
+  return typeof input === 'string' && (
+    hasStructuredVideoGenerateRequest(input)
+    || /^Video context \([1-9][0-9]* videos? requested\):$/m.test(input)
+  );
 }
 
 /**
@@ -278,8 +388,8 @@ export function validateVideoRenderHermesSubmission(value: unknown): HermesRunSu
   if (!ARIES_RUN_ID.test(submission.aries_run_id ?? '')) {
     throw new Error('video_render_submission_invalid: aries_run_id must be an arun_<uuid> identifier');
   }
-  if (!submission.input.includes('video.generate')) {
-    throw new Error('video_render_submission_invalid: input must contain a video.generate media request');
+  if (!isVideoRenderHermesSubmission(submission)) {
+    throw new Error('video_render_submission_invalid: input must contain an explicit video generation request');
   }
   if (
     submission.callback_context.aries_run_id !== submission.aries_run_id
