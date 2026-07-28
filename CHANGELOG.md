@@ -2,6 +2,44 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.47.0 — feat(video): ship provider-neutral Hermes rendering
+
+Aries can now request, track, ingest, and review rendered social videos through
+Hermes without selecting a provider or model inside the application.
+
+### Added
+
+- A versioned, index-managed video runtime skill and JSON contract validate live
+  run, resume, callback, and terminal-event payloads at the execution boundary.
+- Rendered callback artifacts are copied from the deployed Hermes cache mount into
+  durable job media and projected as tenant-safe dashboard video previews.
+- Regression coverage exercises live submissions and resumes, authenticated
+  callbacks, cache remapping, dashboard sanitization, executable self-host upgrades,
+  collision-safe artifact identities, and real execution-record schemas.
+
+### Fixed
+
+- Production submissions fail closed before dispatch when video jobs omit required
+  context, hide provider or model routing selectors anywhere in structured input,
+  or carry unsafe source URLs.
+- Public source validation pins requests to DNS-approved addresses, falls through
+  unreachable public addresses, rejects private pivots, and applies bounded
+  per-source and total deadlines with limited asset-validation concurrency.
+- Self-host upgrades merge the managed video skill into an existing registry
+  without overwriting operator-owned entries or unrelated registry arrays.
+- Collision-resistant, length-bounded media keys keep distinct artifact identities
+  on distinct files and URLs while remaining servable through the asset route.
+- Callback ingestion persists one consistent terminal failure across marketing,
+  social-content, and execution-run state when required video output has no
+  ingestible artifact, including stopped cancellations.
+- The artifact collector retains read-only compatibility with persisted predecessor
+  payloads while projecting newly ingested provider-neutral asset IDs and URLs.
+
+### Removed
+
+- Provider-specific runtime contracts and active guidance; historical release notes
+  remain unchanged as immutable evidence.
+
 ## v0.1.46.1 — fix(publishing): close rollback and calendar safety gaps
 
 Scheduled publishing now keeps rollback traffic and calendar controls fail-closed
