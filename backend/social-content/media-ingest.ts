@@ -1,4 +1,5 @@
-import { copyFileSync, existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { copyFileSync, existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -14,6 +15,8 @@ type MediaRewrite = {
 export type SocialContentVideoIngestResult = {
   rewrites: MediaRewrite[];
   skipped: Array<{ path: string; reason: 'not_allowed' | 'missing' | 'invalid' }>;
+  reportedCount: number;
+  ingestedCount: number;
 };
 
 function recordValue(value: unknown): UnknownRecord | null {
@@ -33,6 +36,11 @@ function stringValue(value: unknown): string {
 }
 
 const MAX_SLUG_INPUT_LENGTH = 256;
+// The asset handler caps route IDs at 200 bytes. Reserving `video-` and
+// `-poster` leaves 187 bytes for the shared on-disk key while remaining well
+// below the common 255-byte filesystem component limit.
+const MAX_VIDEO_FILESYSTEM_KEY_LENGTH = 187;
+const VIDEO_KEY_HASH_LENGTH = 32;
 
 function slug(value: string, fallback: string): string {
   // Cap input length before regex to prevent ReDoS on pathological inputs.
@@ -45,6 +53,23 @@ function slug(value: string, fallback: string): string {
   const trimmedStart = dashed.replace(/^-+/, '');
   const normalized = trimmedStart.replace(/-+$/, '');
   return normalized || fallback;
+}
+
+/**
+ * Build one portable filename key from the original artifact identity. The
+ * readable stem is bounded ASCII; the 128-bit SHA-256 prefix keeps identities
+ * that normalize to the same slug (for example `clip/a` and `clip-a`) distinct.
+ * 187 bytes keeps both `video-${key}-poster` route IDs and generated filenames
+ * within their respective 200-byte route and 255-byte filesystem limits.
+ */
+function videoFilesystemKey(identityParts: string[], fallback: string): string {
+  const identity = JSON.stringify(identityParts.map((part) => stringValue(part)));
+  const suffix = createHash('sha256').update(identity || fallback).digest('hex').slice(0, VIDEO_KEY_HASH_LENGTH);
+  const maxStemLength = MAX_VIDEO_FILESYSTEM_KEY_LENGTH - VIDEO_KEY_HASH_LENGTH - 1;
+  const readable = slug(identityParts.filter(Boolean).join('-'), fallback)
+    .slice(0, maxStemLength)
+    .replace(/-+$/, '') || fallback;
+  return `${readable}-${suffix}`;
 }
 
 function isWithinRoot(root: string, candidate: string): boolean {
@@ -74,7 +99,7 @@ function expandHermesCacheRoots(root: string): string[] {
 }
 
 function sourceRoots(): string[] {
-  const roots = [
+  const cacheRoots = [
     process.env.HERMES_MEDIA_CACHE_DIR,
     process.env.HERMES_CACHE_DIR,
     path.join(homedir(), '.hermes', 'cache'),
@@ -83,7 +108,23 @@ function sourceRoots(): string[] {
     .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
     .flatMap((value) => expandHermesCacheRoots(value));
 
+  const mountedVideoRoot = stringValue(process.env.HERMES_VIDEO_CACHE_MOUNT);
+  const roots = mountedVideoRoot
+    ? [path.resolve(mountedVideoRoot), ...cacheRoots]
+    : cacheRoots;
+
   return Array.from(new Set(roots));
+}
+
+function remapHermesVideoCachePath(filePath: string): string {
+  const mountedVideoRoot = stringValue(process.env.HERMES_VIDEO_CACHE_MOUNT);
+  if (!mountedVideoRoot) return filePath;
+  const normalized = filePath.replaceAll('\\', '/');
+  const match = normalized.match(
+    /^\/home\/node\/\.hermes\/(?:profiles\/[^/]+\/)?cache\/videos\/([^/]+)$/,
+  );
+  if (!match || match[1] === '.' || match[1] === '..') return filePath;
+  return path.join(mountedVideoRoot, match[1]);
 }
 
 function resolveAllowedSource(
@@ -95,7 +136,7 @@ function resolveAllowedSource(
     return { ok: false, reason: 'invalid' };
   }
 
-  const normalized = path.resolve(raw);
+  const normalized = path.resolve(remapHermesVideoCachePath(raw));
   const exactAllowed = new Set(exactAllowedDestinations.map((candidate) => path.resolve(candidate)));
   if (exactAllowed.has(normalized)) {
     return existsSync(normalized)
@@ -135,6 +176,10 @@ function posterDestination(jobId: string, baseName: string, ext: string): string
   return path.join(resolveDraftRoot(), 'jobs', jobId, 'videos', `${baseName}-poster${ext}`);
 }
 
+function servedAssetUrl(jobId: string, assetId: string): string {
+  return `/api/marketing/jobs/${encodeURIComponent(jobId)}/assets/${encodeURIComponent(assetId)}`;
+}
+
 function exactAllowedVideoDestinations(jobId: string, baseName: string): string[] {
   return [videoDestination(jobId, baseName)];
 }
@@ -163,12 +208,15 @@ function firstDefinedPath(record: UnknownRecord, keys: string[]): { key: string;
 }
 
 function ingestVariantMedia(jobId: string, contract: UnknownRecord, variant: UnknownRecord, result: SocialContentVideoIngestResult): void {
+  const rawPlatform =
+    stringValue(contract.platform_slug) || stringValue(contract.canonical_platform_slug) || stringValue(contract.platform);
+  const rawFamily = stringValue(variant.family_id) || stringValue(variant.family_name);
   const platformSlug = slug(
-    stringValue(contract.platform_slug) || stringValue(contract.canonical_platform_slug) || stringValue(contract.platform),
+    rawPlatform,
     'platform',
   );
-  const familyId = slug(stringValue(variant.family_id) || stringValue(variant.family_name), 'variant');
-  const baseName = `${platformSlug}-${familyId}`;
+  const familyId = slug(rawFamily, 'variant');
+  const baseName = videoFilesystemKey([rawPlatform || platformSlug, rawFamily || familyId], `${platformSlug}-${familyId}`);
 
   const videoRef = firstDefinedPath(variant, [
     'video_path',
@@ -177,12 +225,15 @@ function ingestVariantMedia(jobId: string, contract: UnknownRecord, variant: Unk
     'rendered_video_file',
   ]);
   if (videoRef) {
+    result.reportedCount += 1;
     const resolved = resolveAllowedSource(videoRef.value, exactAllowedVideoDestinations(jobId, baseName));
     if ('reason' in resolved) {
       result.skipped.push({ path: videoRef.value, reason: resolved.reason });
     } else if (path.extname(resolved.resolved).toLowerCase() === '.mp4') {
       const destination = copyDeterministic(resolved.resolved, videoDestination(jobId, baseName), result);
       variant[videoRef.key] = destination;
+      variant.video_url = servedAssetUrl(jobId, `video-${baseName}`);
+      result.ingestedCount += 1;
     } else {
       result.skipped.push({ path: videoRef.value, reason: 'invalid' });
     }
@@ -204,13 +255,75 @@ function ingestVariantMedia(jobId: string, contract: UnknownRecord, variant: Unk
       if (posterRef.key.startsWith('thumbnail')) {
         variant.poster_path = destination;
       }
+      variant.poster_url = servedAssetUrl(jobId, `video-${baseName}-poster`);
     } else {
       result.skipped.push({ path: posterRef.value, reason: 'reason' in resolved ? resolved.reason : 'invalid' });
     }
   }
 }
 
+function ingestCanonicalArtifact(
+  jobId: string,
+  artifact: UnknownRecord,
+  result: SocialContentVideoIngestResult,
+): void {
+  const mimeType = stringValue(artifact.mime_type || artifact.mimeType).toLowerCase();
+  const sourcePath = stringValue(
+    artifact.path
+    || artifact.video_path
+    || artifact.rendered_video_path
+    || artifact.file
+    || artifact.video_file,
+  );
+  const sourceLooksVideo = path.extname(sourcePath).toLowerCase() === '.mp4';
+  if ((mimeType && mimeType !== 'video/mp4' && !sourceLooksVideo) || (!mimeType && !sourceLooksVideo)) {
+    return;
+  }
+
+  result.reportedCount += 1;
+  if (!sourcePath) {
+    result.skipped.push({ path: '', reason: 'invalid' });
+    return;
+  }
+
+  const rawPlatform = stringValue(artifact.platform_slug || artifact.canonical_platform_slug || artifact.platform);
+  const rawFamily = stringValue(artifact.family_id || artifact.family_name || artifact.id);
+  const platformSlug = slug(
+    rawPlatform,
+    'platform',
+  );
+  const familyId = slug(
+    rawFamily,
+    'variant',
+  );
+  const baseName = videoFilesystemKey([rawPlatform || platformSlug, rawFamily || familyId], `${platformSlug}-${familyId}`);
+  const resolved = resolveAllowedSource(sourcePath, exactAllowedVideoDestinations(jobId, baseName));
+  if ('reason' in resolved) {
+    result.skipped.push({ path: sourcePath, reason: resolved.reason });
+    return;
+  }
+  if (path.extname(resolved.resolved).toLowerCase() !== '.mp4') {
+    result.skipped.push({ path: sourcePath, reason: 'invalid' });
+    return;
+  }
+
+  const destination = copyDeterministic(resolved.resolved, videoDestination(jobId, baseName), result);
+  const servedAssetId = `video-${baseName}`;
+  artifact.id = stringValue(artifact.id) || servedAssetId;
+  artifact.path = destination;
+  artifact.video_path = destination;
+  artifact.url = servedAssetUrl(jobId, servedAssetId);
+  artifact.mime_type = 'video/mp4';
+  artifact.bytes = statSync(destination).size;
+  artifact.platform_slug = platformSlug;
+  artifact.family_id = familyId;
+  result.ingestedCount += 1;
+}
+
 function ingestOutputRecord(jobId: string, output: UnknownRecord, result: SocialContentVideoIngestResult): void {
+  for (const artifact of recordArray(output.artifacts)) {
+    ingestCanonicalArtifact(jobId, artifact, result);
+  }
   const videoAssets = recordValue(output.video_assets);
   const platformContracts = recordArray(videoAssets?.platform_contracts);
   for (const contract of platformContracts) {
@@ -228,6 +341,8 @@ export function ingestSocialContentVideoRenderOutput(
   const result: SocialContentVideoIngestResult = {
     rewrites: [],
     skipped: [],
+    reportedCount: 0,
+    ingestedCount: 0,
   };
 
   if (!jobId.trim()) {

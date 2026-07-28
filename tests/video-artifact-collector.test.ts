@@ -53,8 +53,8 @@ test('collectProductionReviewArtifacts emits one video artifact per rendered var
     });
     runtimeDoc.stages.production.run_id = runId;
 
-    await writeJson(path.join(tempRoot, 'tenant-video-artifacts', runId, 'veo_video_generator.json'), {
-      type: 'veo_video_generator',
+    await writeJson(path.join(tempRoot, 'tenant-video-artifacts', runId, 'video_render_runtime.json'), {
+      type: 'video_render_runtime',
       run_id: runId,
       video_assets: {
         platform_contracts: [
@@ -72,6 +72,8 @@ test('collectProductionReviewArtifacts emits one video artifact per rendered var
                 aspect_ratio: '9:16',
                 duration_seconds: 20,
                 video_path: `/data/generated/draft/jobs/${jobId}/videos/tiktok-family-a.mp4`,
+                video_url: `/api/marketing/jobs/${jobId}/assets/video-tiktok-family-a-0123456789abcdef0123456789abcdef`,
+                poster_url: `/api/marketing/jobs/${jobId}/assets/video-tiktok-family-a-0123456789abcdef0123456789abcdef-poster`,
               },
               {
                 family_id: 'family-b',
@@ -122,7 +124,12 @@ test('collectProductionReviewArtifacts emits one video artifact per rendered var
     assert.equal(videoArtifacts.length, 4);
 
     const expected = new Map([
-      ['video-tiktok-family-a', { platformSlug: 'tiktok', familyId: 'family-a' }],
+      ['video-tiktok-family-a-0123456789abcdef0123456789abcdef', {
+        platformSlug: 'tiktok',
+        familyId: 'family-a',
+        url: `/api/marketing/jobs/${jobId}/assets/video-tiktok-family-a-0123456789abcdef0123456789abcdef`,
+        posterUrl: `/api/marketing/jobs/${jobId}/assets/video-tiktok-family-a-0123456789abcdef0123456789abcdef-poster`,
+      }],
       ['video-tiktok-family-b', { platformSlug: 'tiktok', familyId: 'family-b' }],
       ['video-youtube-shorts-family-a', { platformSlug: 'youtube-shorts', familyId: 'family-a' }],
       ['video-youtube-shorts-family-b', { platformSlug: 'youtube-shorts', familyId: 'family-b' }],
@@ -132,8 +139,8 @@ test('collectProductionReviewArtifacts emits one video artifact per rendered var
       const variant = expected.get(artifact.id);
       assert.ok(variant, `unexpected video artifact id ${artifact.id}`);
       assert.equal(artifact.contentType, 'video/mp4');
-      assert.equal(artifact.url, `/api/marketing/jobs/${jobId}/assets/${artifact.id}`);
-      assert.equal(artifact.posterUrl, `/api/marketing/jobs/${jobId}/assets/${artifact.id}-poster`);
+      assert.equal(artifact.url, variant.url ?? `/api/marketing/jobs/${jobId}/assets/${artifact.id}`);
+      assert.equal(artifact.posterUrl, variant.posterUrl ?? `/api/marketing/jobs/${jobId}/assets/${artifact.id}-poster`);
       assert.equal(artifact.platformSlug, variant.platformSlug);
       assert.equal(artifact.familyId, variant.familyId);
     }
@@ -184,8 +191,8 @@ test('collectProductionReviewArtifacts skips rate-limited video variants so revi
     });
     runtimeDoc.stages.production.run_id = runId;
 
-    await writeJson(path.join(tempRoot, 'tenant-video-rate-limited-artifacts', runId, 'veo_video_generator.json'), {
-      type: 'veo_video_generator',
+    await writeJson(path.join(tempRoot, 'tenant-video-rate-limited-artifacts', runId, 'video_render_runtime.json'), {
+      type: 'video_render_runtime',
       run_id: runId,
       video_assets: {
         render_status: 'partial_rate_limited',
@@ -241,6 +248,74 @@ test('collectProductionReviewArtifacts skips rate-limited video variants so revi
     );
 
     assert.deepEqual(videoArtifacts.map((artifact) => artifact.id), ['video-youtube-shorts-family-a']);
+  } finally {
+    if (previousStage3CacheDir === undefined) delete process.env.ARTIFACT_STAGE3_CACHE_DIR;
+    else process.env.ARTIFACT_STAGE3_CACHE_DIR = previousStage3CacheDir;
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('collectProductionReviewArtifacts keeps a read-only path for persisted predecessor video payloads', async () => {
+  const previousStage3CacheDir = process.env.ARTIFACT_STAGE3_CACHE_DIR;
+  const tempRoot = await mkdtemp(path.join(tmpdir(), 'aries-predecessor-video-artifacts-'));
+  const runId = 'run-predecessor-video-artifacts';
+  const jobId = 'job-predecessor-video-artifacts';
+  const predecessorStep = `${['v', 'eo'].join('')}_video_generator`;
+  process.env.ARTIFACT_STAGE3_CACHE_DIR = tempRoot;
+
+  try {
+    const runtimeDoc = createSocialContentJobRuntimeDocument({
+      jobId,
+      tenantId: 'tenant-predecessor-video-artifacts',
+      payload: { brandUrl: 'https://brand.example.com' },
+      brandKit: {
+        path: path.join(tempRoot, 'brand-kit.json'),
+        source_url: 'https://brand.example.com',
+        canonical_url: 'https://brand.example.com',
+        brand_name: 'Brand Example',
+        logo_urls: [],
+        colors: { primary: '#111111', secondary: '#f4f4f4', accent: '#c24d2c', palette: [] },
+        font_families: [],
+        external_links: [],
+        extracted_at: '2026-04-24T00:00:00.000Z',
+        brand_voice_summary: 'Direct and grounded.',
+        offer_summary: null,
+        positioning: null,
+        audience: null,
+        tone_of_voice: null,
+        style_vibe: null,
+      },
+    });
+    runtimeDoc.stages.production.run_id = runId;
+    await writeJson(path.join(tempRoot, runtimeDoc.tenant_id, runId, `${predecessorStep}.json`), {
+      type: predecessorStep,
+      run_id: runId,
+      video_assets: {
+        platform_contracts: [{
+          platform: 'TikTok',
+          platform_slug: 'tiktok',
+          rendered_video_variants: [{
+            family_id: 'legacy-family',
+            family_name: 'Legacy Family',
+            aspect_ratio: '9:16',
+            duration_seconds: 20,
+            video_path: `/data/generated/draft/jobs/${jobId}/videos/tiktok-legacy-family.mp4`,
+          }],
+        }],
+      },
+    });
+
+    const capture = await collectProductionReviewArtifacts(
+      createSocialContentJobFacts(runtimeDoc, runId),
+      { run_id: runId, job_id: jobId },
+    );
+    const videoArtifacts = capture.artifacts.filter(
+      (artifact): artifact is Extract<(typeof capture.artifacts)[number], { type: 'video' }> =>
+        'type' in artifact && artifact.type === 'video',
+    );
+
+    assert.deepEqual(videoArtifacts.map((artifact) => artifact.id), ['video-tiktok-legacy-family']);
+    assert.equal((capture.outputs.video as { type?: string } | null)?.type, predecessorStep);
   } finally {
     if (previousStage3CacheDir === undefined) delete process.env.ARTIFACT_STAGE3_CACHE_DIR;
     else process.env.ARTIFACT_STAGE3_CACHE_DIR = previousStage3CacheDir;

@@ -142,14 +142,14 @@ test('bridge(b): accepts artifacts.images[].filePath shape — index→assetId, 
           {
             index: 0,
             status: 'generated',
-            filePath: '/home/node/.hermes/cache/images/veo_render_20260513_aaa111.png',
+            filePath: '/home/node/.hermes/cache/images/video_render_20260513_aaa111.png',
             prompt: 'Dynamic motion portrait.',
             intendedUse: 'reel_cover',
           },
           {
             index: 1,
             status: 'generated',
-            filePath: '/home/node/.hermes/cache/images/veo_render_20260513_bbb222.png',
+            filePath: '/home/node/.hermes/cache/images/video_render_20260513_bbb222.png',
             prompt: 'Lifestyle reel thumbnail.',
             intendedUse: 'reel_thumb',
           },
@@ -169,14 +169,14 @@ test('bridge(b): accepts artifacts.images[].filePath shape — index→assetId, 
     assert.equal(first.status, 'completed', 'status normalized to completed regardless of generated input');
     assert.equal(first.aspect_ratio, '9:16', 'aspect_ratio threaded from artifactRecord');
     assert.ok(
-      first.artifact_url.includes('veo_render_20260513_aaa111.png'),
+      first.artifact_url.includes('video_render_20260513_aaa111.png'),
       'artifact_url should contain the filePath basename',
     );
     assert.equal(first.intendedUse, 'reel_cover', 'intendedUse should be threaded');
 
     const second = plan.image_creatives[1];
     assert.equal(second.id, 'img_1');
-    assert.ok(second.artifact_url.includes('veo_render_20260513_bbb222.png'));
+    assert.ok(second.artifact_url.includes('video_render_20260513_bbb222.png'));
   });
 });
 

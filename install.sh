@@ -277,6 +277,17 @@ mkdir -p data \
 if [ -d skills ] && [ -z "$(ls -A hermes-data/skills 2>/dev/null)" ]; then
   cp -R skills/. hermes-data/skills/ || warn "could not seed skills/ into hermes-data (continuing)"
 fi
+
+# Keep index-managed skills current on first installs and idempotent re-runs.
+# A checkout that lost Git's executable bit must fail closed rather than
+# silently retaining stale managed runtime instructions.
+HERMES_SKILL_UPGRADE_SCRIPT="scripts/upgrade-hermes-skills.sh"
+if [ ! -x "$HERMES_SKILL_UPGRADE_SCRIPT" ]; then
+  die "$HERMES_SKILL_UPGRADE_SCRIPT is missing or not executable"
+fi
+"$HERMES_SKILL_UPGRADE_SCRIPT" skills hermes-data/skills
+log "Upgraded managed Hermes skills."
+
 # The app container runs as uid 1004 and only needs read access to the caches.
 chmod -R a+rX hermes-data data 2>/dev/null || true
 

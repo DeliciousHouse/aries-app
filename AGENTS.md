@@ -64,6 +64,7 @@ Use these checks to keep the repo clean:
 - Social-content execution should submit Hermes runs asynchronously and rely on authenticated, idempotent callbacks at `/api/internal/hermes/runs`; it should not poll Hermes to terminal completion.
 - Hermes social-content workflows should use `social_content_weekly` with version `2026-05-social-content-weekly-v2`; new social-content code should not depend on Lobster/OpenClaw.
 - Aries should pass abstract media-generation requests to Hermes; Hermes owns provider execution and raw OpenAI/ChatGPT token usage for weekly social content.
+- Required video work must use the index-managed `skills/video-render-runtime/SKILL.md` provider-neutral contract; Aries must not select a video provider or model.
 - Marketing research memory: when `ARIES_RESEARCH_ENABLED` is truthy (`1`, `true`, `yes`, or `on`), `runResearchStage` can submit Hermes work through `submitMarketingResearchMemoryJob` with idempotent, secret-authenticated callbacks at `/api/internal/aries-research/callback` (not the generic Hermes marketing run callback).
 - Honcho access uses split JWTs in `HonchoHttpTransport`: `HONCHO_CONTROL_PLANE_JWT` for workspace create/delete, and `HONCHO_DATA_PLANE_JWT` for routine Honcho API calls when set (otherwise the control-plane token is used for all calls in dev).
 - Onboarding Honcho memory seeds at most once per organization after the dashboard gate when `HONCHO_ENABLED` is truthy, tracked by `organizations.onboarding_memory_seeded_at`. `ARIES_RESEARCH_ENABLED` is the sub-gate for Hermes research dispatch only.

@@ -72,7 +72,7 @@ issues.
 4. **Conventional Commits with a scope** — note the suggested scope (e.g. `fix(integrations): …`).
 5. **Resumability rule** — never plan to discard partial artifacts on a rate-limit/transient
    gateway failure; persist what completed, surface the error, let the orchestrator retry. (Born
-   from Veo render rate-limit incidents that lost completed creative.)
+   from historical video-render rate-limit incidents that lost completed creative.)
 6. **DB-pool fan-out rule** — do NOT plan a new `Promise.all` around Postgres/gateway call chains
    without first checking `DB_POOL_MAX` and benchmarking the *full* endpoint, not just a helper.
 7. **Banned patterns** — the fix must keep `npm run validate:banned-patterns` green (never

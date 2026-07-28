@@ -407,11 +407,17 @@ test('Hermes video_render callbacks ingest rendered media from the Hermes cache 
       const output = after?.stages.production.primary_output as Record<string, unknown> | null;
       const variant = (((output?.video_assets as Record<string, unknown> | undefined)?.platform_contracts as Array<Record<string, unknown>> | undefined)?.[0]
         ?.rendered_video_variants as Array<Record<string, unknown>> | undefined)?.[0];
-      const ingestedVideoPath = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'jobs', doc.job_id, 'videos', 'tiktok-launch-cut.mp4');
-      const ingestedPosterPath = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'jobs', doc.job_id, 'videos', 'tiktok-launch-cut-poster.png');
+      const ingestedVideoPath = String(variant?.video_path);
+      const ingestedPosterPath = String(variant?.poster_path);
+      const videosRoot = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'jobs', doc.job_id, 'videos');
+      const ingestedBaseName = path.parse(ingestedVideoPath).name;
 
-      assert.equal(variant?.video_path, ingestedVideoPath);
-      assert.equal(variant?.poster_path, ingestedPosterPath);
+      assert.equal(path.dirname(ingestedVideoPath), videosRoot);
+      assert.equal(path.dirname(ingestedPosterPath), videosRoot);
+      assert.match(path.basename(ingestedVideoPath), /^tiktok-launch-cut-[0-9a-f]{32}\.mp4$/i);
+      assert.equal(path.basename(ingestedPosterPath), `${ingestedBaseName}-poster.png`);
+      assert.equal(variant?.video_url, `/api/marketing/jobs/${doc.job_id}/assets/video-${ingestedBaseName}`);
+      assert.equal(variant?.poster_url, `/api/marketing/jobs/${doc.job_id}/assets/video-${ingestedBaseName}-poster`);
       assert.deepEqual(await readFile(ingestedVideoPath), Buffer.from('callback-video'));
       assert.deepEqual(await readFile(ingestedPosterPath), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
     } finally {

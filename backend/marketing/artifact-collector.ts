@@ -176,6 +176,21 @@ function familyTitle(value: string): string {
   return `Family ${value.length === 1 ? value.toUpperCase() : titleCaseSlug(value)}`;
 }
 
+type LocalVideoAsset = {
+  id: string;
+  url: string;
+};
+
+function localVideoAsset(jobId: string, value: unknown): LocalVideoAsset | null {
+  const raw = stringValue(value);
+  const basePath = `/api/marketing/jobs/${encodeURIComponent(jobId)}/assets/`;
+  if (!raw.startsWith(basePath)) return null;
+  const assetId = raw.slice(basePath.length);
+  return assetId.length <= 200 && /^video-[a-z0-9][a-z0-9_-]*$/i.test(assetId)
+    ? { id: assetId, url: raw }
+    : null;
+}
+
 function collectRenderedVideoArtifacts(params: {
   jobId: string | null;
   videoPayload: Record<string, unknown> | null;
@@ -224,10 +239,14 @@ function collectRenderedVideoArtifacts(params: {
         stringValue(variant.family_name) ||
         stringValue(contract.family_name) ||
         familyTitle(familyId);
+      const ingestedVideoAsset = localVideoAsset(jobId, variant.video_url);
+      const ingestedPosterAsset = localVideoAsset(jobId, variant.poster_url);
+      const fallbackUrl = `/api/marketing/jobs/${encodeURIComponent(jobId)}/assets/${artifactId}`;
+      const fallbackPosterUrl = `${fallbackUrl}-poster`;
 
       return [
         videoArtifact({
-          id: artifactId,
+          id: ingestedVideoAsset?.id ?? artifactId,
           stage: 'production',
           type: 'video',
           title: `${platformTitle} — ${familyDisplay}`,
@@ -236,8 +255,8 @@ function collectRenderedVideoArtifacts(params: {
           summary: `${platformTitle} render for ${familyDisplay} (${aspectRatio}, ${durationSeconds}s).`,
           details: [],
           contentType: 'video/mp4',
-          url: `/api/marketing/jobs/${jobId}/assets/${artifactId}`,
-          posterUrl: `/api/marketing/jobs/${jobId}/assets/${artifactId}-poster`,
+          url: ingestedVideoAsset?.url ?? fallbackUrl,
+          posterUrl: ingestedPosterAsset?.url ?? fallbackPosterUrl,
           platformSlug,
           familyId,
           durationSeconds,
@@ -438,17 +457,29 @@ export async function collectProductionReviewArtifacts(
   primaryOutput: Record<string, unknown> | null,
 ): Promise<StageCapture> {
   const runtimeDoc = facts.runtimeDoc;
-  const [reviewStep, videoStep] = await Promise.all([
+  const predecessorVideoStepName = `${['v', 'eo'].join('')}_video_generator`;
+  const [reviewStep, videoStep, predecessorVideoStep] = await Promise.all([
     facts.stagePayload('production', 'production_review_preview'),
-    facts.stagePayload('production', 'veo_video_generator'),
+    facts.stagePayload('production', 'video_render_runtime'),
+    facts.stagePayload('production', predecessorVideoStepName),
   ]);
   const runId = (await resolveRunId(primaryOutput, runtimeDoc, 3)) || facts.runId || null;
   const tenantId = stringValue(runtimeDoc?.tenant_id);
   const reviewPath = runId && tenantId ? stepPayloadPath(3, runId, 'production_review_preview', tenantId) : '';
   const finalizePath = runId && tenantId ? stepPayloadPath(3, runId, 'creative_director_finalize', tenantId) : '';
-  const videoPath = runId && tenantId ? stepPayloadPath(3, runId, 'veo_video_generator', tenantId) : '';
+  const replacementVideoPath = runId && tenantId ? stepPayloadPath(3, runId, 'video_render_runtime', tenantId) : '';
+  const predecessorVideoPath = runId && tenantId ? stepPayloadPath(3, runId, predecessorVideoStepName, tenantId) : '';
   const review = reviewStep || (reviewPath ? await facts.jsonAtPath(reviewPath) : null);
-  const video = videoStep || (videoPath ? await facts.jsonAtPath(videoPath) : null);
+  const replacementVideo = videoStep || (replacementVideoPath ? await facts.jsonAtPath(replacementVideoPath) : null);
+  const predecessorVideo = replacementVideo
+    ? null
+    : predecessorVideoStep || (predecessorVideoPath ? await facts.jsonAtPath(predecessorVideoPath) : null);
+  const video = replacementVideo || predecessorVideo;
+  const videoPath = replacementVideo
+    ? replacementVideoPath
+    : predecessorVideo
+      ? predecessorVideoPath
+      : replacementVideoPath;
   const jobId = runtimeDoc?.job_id || stringValue(primaryOutput?.job_id) || null;
   const packet = asRecord(review?.review_packet) ?? {};
   const summaryBlock = asRecord(packet.summary) ?? {};

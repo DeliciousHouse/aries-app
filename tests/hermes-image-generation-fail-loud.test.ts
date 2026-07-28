@@ -341,14 +341,14 @@ test('(e-variant) callback with artifacts.images shape of length 2 is also accep
               {
                 index: 0,
                 status: 'generated',
-                filePath: '/home/node/.hermes/cache/images/veo_render_20260513_img0.png',
+                filePath: '/home/node/.hermes/cache/images/video_render_20260513_img0.png',
                 prompt: 'Dynamic motion portrait.',
                 intendedUse: 'post_cover',
               },
               {
                 index: 1,
                 status: 'generated',
-                filePath: '/home/node/.hermes/cache/images/veo_render_20260513_img1.png',
+                filePath: '/home/node/.hermes/cache/images/video_render_20260513_img1.png',
                 prompt: 'Lifestyle reel thumbnail.',
                 intendedUse: 'reel_thumb',
               },
