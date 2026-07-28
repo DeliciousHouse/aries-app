@@ -14,18 +14,22 @@ Hermes without selecting a provider or model inside the application.
 - Rendered callback artifacts are copied from the deployed Hermes cache mount into
   durable job media and projected as tenant-safe dashboard video previews.
 - Regression coverage exercises live submissions and resumes, authenticated
-  callbacks, all-skipped failures, cache remapping, dashboard sanitization, public
-  URL safety, executable self-host upgrades, and real execution-record schemas.
+  callbacks, zero-candidate and all-skipped failures, cache remapping, dashboard
+  sanitization, DNS-pinned URL safety, executable self-host upgrades, and real
+  execution-record schemas.
 
 ### Fixed
 
 - Production submissions fail closed before dispatch when video jobs have malformed
-  identifiers, omit required context, or smuggle provider-owned routing fields.
+  identifiers, omit required context, smuggle provider-owned routing fields, or carry
+  unsafe source URLs, while image-only fallback resumes ignore historical video text.
 - Callback ingestion rejects paths outside approved roots and persists one terminal
-  failure across marketing, social-content, and execution-run state when no reported
-  video artifact can be ingested.
-- Public source validation rejects local files, traversal, non-public IP ranges,
-  IPv4-mapped private addresses, and redirect pivots into internal destinations.
+  failure across marketing, social-content, and execution-run state whenever required
+  video output yields no ingestible artifact, including `stopped` cancellations.
+- Managed self-host installs carry both referenced v2 schemas, while the artifact
+  collector retains read-only compatibility with persisted predecessor payloads.
+- Public source validation rejects alternate private-IP spellings, pins bounded GETs
+  to DNS-approved addresses, and validates every manual redirect hop.
 
 ### Removed
 
