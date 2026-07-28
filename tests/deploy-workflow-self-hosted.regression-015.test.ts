@@ -490,7 +490,7 @@ if [[ "$*" == "compose config --format json" ]]; then
   printf '%s\\n' '{"services":{"aries-scheduled-posts-worker":{"image":"ghcr.io/example/aries:target"}}}'
   exit 0
 fi
-if [[ "$*" == *"compose run --rm --no-deps -e ARIES_SCHEDULED_POSTS_READINESS_CHECK=1 aries-scheduled-posts-worker"* ]]; then
+if [[ "$*" == *"ARIES_SCHEDULED_POSTS_READINESS_CHECK=1"* ]]; then
   case "\${GATE}" in
     readiness-db|readiness-schema|readiness-protocol) exit 54 ;;
   esac

@@ -37,6 +37,10 @@ fi
 
 scheduled_worker_cutover_complete=false
 scheduled_worker_protocol_boundary_crossed=false
+pre_boundary_restore_proven_safe=true
+if [[ "${previous_scheduled_worker_was_running}" == "true" ]]; then
+  pre_boundary_restore_proven_safe=false
+fi
 
 cleanup_scheduled_worker_snapshot() {
   if [[ -n "${previous_scheduled_worker_snapshot}" ]]; then
@@ -60,6 +64,11 @@ restore_previous_scheduled_worker_on_exit() {
   set +e
 
   if [[ "${scheduled_worker_cutover_complete}" != "true" \
+        && "${previous_scheduled_worker_was_running}" == "true" \
+        && "${pre_boundary_restore_proven_safe}" != "true" ]]; then
+    echo "ERROR: refusing to restore the previous worker because unresolved pre-boundary provider claims may exist. Publishing remains stopped." >&2
+    ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose stop "${scheduled_worker_service}" >/dev/null || true
+  elif [[ "${scheduled_worker_cutover_complete}" != "true" \
         && "${scheduled_worker_protocol_boundary_crossed}" == "true" ]]; then
     echo "ERROR: scheduled-worker protocol boundary crossed; refusing to restore the previous scheduled worker. Publishing remains stopped." >&2
 
@@ -150,6 +159,23 @@ prepare_scheduled_worker_replacement() {
   fi
 }
 
+prove_pre_boundary_restore_safe() {
+  if [[ "${previous_scheduled_worker_was_running}" != "true" ]]; then
+    pre_boundary_restore_proven_safe=true
+    return 0
+  fi
+
+  if ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose run --rm --no-deps \
+      --entrypoint node aries-app scripts/release/assert-no-unresolved-scheduled-claims.mjs; then
+    pre_boundary_restore_proven_safe=true
+    return 0
+  fi
+
+  pre_boundary_restore_proven_safe=false
+  echo "ERROR: refusing to restore the previous worker because unresolved provider claims could not be ruled out. Publishing remains stopped." >&2
+  return 1
+}
+
 replace_application_and_verify() {
   local target_image=$1
   local target_image_id=$2
@@ -221,11 +247,21 @@ verify_scheduled_worker_manifest_and_readiness() {
 
   # Exercise the target image against live DB/schema/protocol access while
   # publishing is still stopped. Process state alone cannot prove readiness.
-  if ! ARIES_APP_IMAGE="${target_image}" docker compose run --rm --no-deps \
+  local readiness_timeout_seconds="${ARIES_SCHEDULED_WORKER_READINESS_TIMEOUT_SECONDS:-120}"
+  local readiness_container_name="aries-scheduled-worker-readiness-$$"
+  if ! [[ "${readiness_timeout_seconds}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "ERROR: ARIES_SCHEDULED_WORKER_READINESS_TIMEOUT_SECONDS must be a positive integer." >&2
+    return 1
+  fi
+  if ! timeout --signal=TERM --kill-after=2s "${readiness_timeout_seconds}s" \
+      env ARIES_APP_IMAGE="${target_image}" docker compose run --rm \
+      --name "${readiness_container_name}" --no-deps \
       -e ARIES_SCHEDULED_POSTS_READINESS_CHECK=1 "${scheduled_worker_service}"; then
+    docker rm -f "${readiness_container_name}" >/dev/null 2>&1 || true
     echo "ERROR: replacement scheduled worker functional readiness failed; publishing remains stopped." >&2
     return 1
   fi
+  docker rm -f "${readiness_container_name}" >/dev/null 2>&1 || true
 }
 
 replace_scheduled_worker_and_verify() {
@@ -272,6 +308,10 @@ replace_scheduled_worker_and_verify() {
 trap restore_previous_scheduled_worker_on_exit EXIT
 
 docker compose stop "${scheduled_worker_service}"
+# A failed proof does not prevent the target-image migration/cutover from
+# quarantining legacy claims. It does make every pre-boundary rollback unsafe:
+# the EXIT trap will keep publishing stopped if schema/app replacement fails.
+prove_pre_boundary_restore_safe || true
 
 PGOPTIONS="-c lock_timeout=5s -c statement_timeout=120s" \
   ARIES_APP_IMAGE="${TARGET_IMAGE}" \
