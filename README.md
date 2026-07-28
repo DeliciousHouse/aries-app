@@ -103,7 +103,7 @@ For weekly social content media generation, Hermes owns ChatGPT/OpenAI auth and 
 
 ## 🏁 Quickstart (local)
 
-Prerequisites: Node.js 18+, npm, PostgreSQL 16, and a Hermes endpoint for live execution.
+Prerequisites: Node.js 24.x, npm, PostgreSQL 16, and a Hermes endpoint for live execution.
 
 ```bash
 # 1. Install dependencies (force dev mode so devDependencies install)
