@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.45.0 — feat(video): ship provider-neutral Hermes rendering
+
+Aries can now request, track, ingest, and review rendered social videos through
+Hermes without selecting a provider or model inside the application.
+
+### Added
+
+- A versioned, index-managed video runtime skill and JSON contract validate live
+  run, resume, callback, and terminal-event payloads at the execution boundary.
+- Rendered callback artifacts are copied from the deployed Hermes cache mount into
+  durable job media and projected as tenant-safe dashboard video previews.
+- Regression coverage exercises live submissions and resumes, authenticated
+  callbacks, all-skipped failures, cache remapping, dashboard sanitization, public
+  URL safety, executable self-host upgrades, and real execution-record schemas.
+
+### Fixed
+
+- Production submissions fail closed before dispatch when video jobs have malformed
+  identifiers, omit required context, or smuggle provider-owned routing fields.
+- Callback ingestion rejects paths outside approved roots and persists one terminal
+  failure across marketing, social-content, and execution-run state when no reported
+  video artifact can be ingested.
+- Public source validation rejects local files, traversal, non-public IP ranges,
+  IPv4-mapped private addresses, and redirect pivots into internal destinations.
+
+### Removed
+
+- Provider-specific runtime contracts and active guidance; historical release notes
+  remain unchanged as immutable evidence.
+
 ## v0.1.44.1 — chore(runtime): pin the supported Node release
 
 Contributors now get immediate Node 24 guidance before running Aries locally,
