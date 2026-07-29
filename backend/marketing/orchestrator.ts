@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
+import { enforcePlanLimitOrThrow } from '@/backend/billing/usage-entitlement';
 import { sanitizeWeeklySocialContentPayload } from '@/backend/social-content/payload';
 import {
   SOCIAL_CONTENT_DEFAULT_SCOPE,
@@ -1691,6 +1692,14 @@ export async function startSocialContentJob(input: StartSocialContentJobRequest)
   if (input.jobType !== 'weekly_social_content' && input.jobType !== 'one_off_post' && input.jobType !== 'one_off_campaign') {
     throw new Error(`unsupported_job_type:${input.jobType}`);
   }
+  // AA-163: plan gate. This is the convergence point for every content-generation
+  // entry (dashboard create forms, the weekly trigger, onboarding, the reel
+  // companion), so gating here covers all customer-initiated AI work. It runs
+  // BEFORE any id is minted or any job doc is written, so a denied create leaves
+  // no partial state behind. Flag-gated OFF by default and fail-open on every
+  // uncertainty — see backend/billing/usage-entitlement.ts.
+  await enforcePlanLimitOrThrow(input.tenantId);
+
   const brandCampaignInput = ensureSocialContentJobInput(input);
 
   const jobId = makeSocialContentJobId();

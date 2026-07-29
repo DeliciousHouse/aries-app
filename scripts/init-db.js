@@ -1624,6 +1624,311 @@ async function initDb() {
       -- Serves "show me every attempt of this task", the retry-cost question.
       CREATE INDEX IF NOT EXISTS idx_task_execution_log_task_id
         ON task_execution_log (task_id) WHERE task_id IS NOT NULL;
+
+      -- AA-161: usage time-series aggregation + retention over the SAME raw
+      -- table (no second raw write path). Vocabulary map from the ticket:
+      -- usage_events -> task_execution_log, company_id -> tenant_id,
+      -- created_at -> started_at. Mirrors
+      -- migrations/20260727000000_usage_timeseries_rollups.sql.
+      --
+      -- Rollup TABLES, not MATERIALIZED VIEWs: an MV can only refresh whole (a
+      -- full rescan of a high-volume log each time) and is destroyed by the
+      -- 90-day raw purge, while daily aggregates must be kept indefinitely.
+      --
+      -- The two indexes below are the AC-2 filter set the existing single-axis
+      -- indexes do NOT serve: the tenant+engine+time billing query, and the pure
+      -- time-range scan the rollup and the retention delete run across all tenants.
+      CREATE INDEX IF NOT EXISTS idx_task_execution_log_tenant_engine_started
+        ON task_execution_log (tenant_id, execution_engine, started_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_task_execution_log_started_at
+        ON task_execution_log (started_at);
+
+      -- Rollup grain: bucket + tenant + user + engine + task_key. tenant_id and
+      -- user_id are NOT NULL here (they are nullable on the raw row) because a
+      -- NULL inside a PRIMARY KEY breaks UPSERT idempotency — NULL <> NULL, so
+      -- every pass would insert a duplicate userless row instead of updating one.
+      -- They are COALESCEd to the sentinel 0, which the id sequences (starting at
+      -- 1) can never collide with; 0 means "not scoped".
+      -- Token columns stay NULLable: NULL is "not reported" (Hermes does not
+      -- report usage yet), never "free". ai_events vs ai_events_with_usage is the
+      -- denominator that keeps a $0 report from being misread as "no spend".
+      CREATE TABLE IF NOT EXISTS usage_rollup_hourly (
+        bucket_start         TIMESTAMPTZ NOT NULL,
+        tenant_id            INTEGER     NOT NULL,
+        user_id              INTEGER     NOT NULL,
+        execution_engine     TEXT        NOT NULL,
+        task_key             TEXT        NOT NULL,
+        events               BIGINT      NOT NULL,
+        succeeded            BIGINT      NOT NULL,
+        failed               BIGINT      NOT NULL,
+        retries              BIGINT      NOT NULL,
+        ai_events            BIGINT      NOT NULL,
+        ai_events_with_usage BIGINT      NOT NULL,
+        prompt_tokens        BIGINT,
+        completion_tokens    BIGINT,
+        total_tokens         BIGINT,
+        cost_cents           NUMERIC(16,4),
+        duration_ms_sum      BIGINT,
+        cpu_ms_sum           BIGINT,
+        first_event_at       TIMESTAMPTZ,
+        last_event_at        TIMESTAMPTZ,
+        updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (bucket_start, tenant_id, user_id, execution_engine, task_key)
+      );
+      CREATE TABLE IF NOT EXISTS usage_rollup_daily (
+        bucket_start         TIMESTAMPTZ NOT NULL,
+        tenant_id            INTEGER     NOT NULL,
+        user_id              INTEGER     NOT NULL,
+        execution_engine     TEXT        NOT NULL,
+        task_key             TEXT        NOT NULL,
+        events               BIGINT      NOT NULL,
+        succeeded            BIGINT      NOT NULL,
+        failed               BIGINT      NOT NULL,
+        retries              BIGINT      NOT NULL,
+        ai_events            BIGINT      NOT NULL,
+        ai_events_with_usage BIGINT      NOT NULL,
+        prompt_tokens        BIGINT,
+        completion_tokens    BIGINT,
+        total_tokens         BIGINT,
+        cost_cents           NUMERIC(16,4),
+        duration_ms_sum      BIGINT,
+        cpu_ms_sum           BIGINT,
+        first_event_at       TIMESTAMPTZ,
+        last_event_at        TIMESTAMPTZ,
+        updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (bucket_start, tenant_id, user_id, execution_engine, task_key)
+      );
+      CREATE TABLE IF NOT EXISTS usage_rollup_monthly (
+        bucket_start         TIMESTAMPTZ NOT NULL,
+        tenant_id            INTEGER     NOT NULL,
+        user_id              INTEGER     NOT NULL,
+        execution_engine     TEXT        NOT NULL,
+        task_key             TEXT        NOT NULL,
+        events               BIGINT      NOT NULL,
+        succeeded            BIGINT      NOT NULL,
+        failed               BIGINT      NOT NULL,
+        retries              BIGINT      NOT NULL,
+        ai_events            BIGINT      NOT NULL,
+        ai_events_with_usage BIGINT      NOT NULL,
+        prompt_tokens        BIGINT,
+        completion_tokens    BIGINT,
+        total_tokens         BIGINT,
+        cost_cents           NUMERIC(16,4),
+        duration_ms_sum      BIGINT,
+        cpu_ms_sum           BIGINT,
+        first_event_at       TIMESTAMPTZ,
+        last_event_at        TIMESTAMPTZ,
+        updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (bucket_start, tenant_id, user_id, execution_engine, task_key)
+      );
+      -- Reporting reads are "one company, one period"; the PK's leading
+      -- bucket_start cannot serve them.
+      CREATE INDEX IF NOT EXISTS idx_usage_rollup_hourly_tenant_bucket
+        ON usage_rollup_hourly (tenant_id, bucket_start DESC);
+      CREATE INDEX IF NOT EXISTS idx_usage_rollup_daily_tenant_bucket
+        ON usage_rollup_daily (tenant_id, bucket_start DESC);
+      CREATE INDEX IF NOT EXISTS idx_usage_rollup_monthly_tenant_bucket
+        ON usage_rollup_monthly (tenant_id, bucket_start DESC);
+      -- Per-user billing slice. Partial: user_id is the 0 sentinel on most rows.
+      CREATE INDEX IF NOT EXISTS idx_usage_rollup_daily_user_bucket
+        ON usage_rollup_daily (user_id, bucket_start DESC) WHERE user_id <> 0;
+
+      -- One row (id='hourly') holding the exclusive upper bound of the last
+      -- rolled window, so each pass scans only new events. It is ALSO the
+      -- retention interlock: the purge never deletes a raw row at or above
+      -- (rolled_through - reroll overlap), so an un-aggregated row can never be
+      -- destroyed and a rollup can never be recomputed from rows already gone.
+      CREATE TABLE IF NOT EXISTS usage_rollup_state (
+        id             TEXT PRIMARY KEY,
+        rolled_through TIMESTAMPTZ NOT NULL,
+        updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      -- The ticket's vocabulary resolved onto the real table, so reporting SQL
+      -- written against the spec runs unchanged without a second raw write path.
+      -- Explicit column list with the aliases leading: CREATE OR REPLACE VIEW may
+      -- only APPEND columns, so a future raw column goes at the END of this list
+      -- and the replace still succeeds (SELECT * would break every re-run).
+      CREATE OR REPLACE VIEW usage_events AS
+        SELECT
+          tenant_id  AS company_id,
+          started_at AS created_at,
+          id,
+          tenant_id,
+          user_id,
+          task_id,
+          execution_engine,
+          task_key,
+          status,
+          attempt_number,
+          error_code,
+          duration_ms,
+          cpu_ms,
+          model_requested,
+          model_reported,
+          target_profile,
+          external_run_id,
+          prompt_tokens,
+          completion_tokens,
+          total_tokens,
+          cost_cents,
+          started_at,
+          end_time,
+          recorded_at
+        FROM task_execution_log;
+
+      -- AA-162: coarse per-company-per-day surface for dashboards and chargeback,
+      -- so neither has to touch the raw log. usage_rollup_daily keeps the same day
+      -- at day x tenant x user x engine x task_key (right for drilling into a
+      -- bill); this is "show this customer their month". Mirrors
+      -- migrations/20260728000000_daily_company_usage.sql.
+      --
+      -- A MATERIALIZED VIEW is right HERE (unlike over the raw log) because its
+      -- source is usage_rollup_daily: already aggregated, small, and never touched
+      -- by the retention sweep — so a full refresh is cheap and the history is
+      -- permanent. Refreshed CONCURRENTLY at the end of each rollup pass by the
+      -- aries-usage-rollup-worker sidecar.
+      --
+      -- COGS reads 0/NULL today and that is truthful: cost_cents is a hard 0 on
+      -- the zero-cost engines and NULL on every AI row (Hermes does not report
+      -- usage back yet, and no cost is ever synthesized from a price table). That
+      -- is why ai_tasks / tasks_with_usage_reported ride alongside the sums — they
+      -- are what distinguishes "$0 spent" from "nothing reported its spend".
+      CREATE MATERIALIZED VIEW IF NOT EXISTS daily_company_usage AS
+        SELECT
+          tenant_id AS company_id,
+          (bucket_start AT TIME ZONE 'UTC')::date AS usage_date,
+          -- Total executions LOGGED, retries included. settled_tasks and retries
+          -- sit beside it because one logical task that retried twice is three
+          -- rows (the AA-158 retry axis) and a chargeback must pick its own
+          -- definition.
+          sum(events)::bigint                    AS total_tasks,
+          (sum(succeeded) + sum(failed))::bigint AS settled_tasks,
+          sum(retries)::bigint                   AS retries,
+          sum(ai_events)::bigint                 AS ai_tasks,
+          sum(ai_events_with_usage)::bigint      AS tasks_with_usage_reported,
+          sum(prompt_tokens)::bigint             AS total_prompt_tokens,
+          sum(completion_tokens)::bigint         AS total_completion_tokens,
+          sum(total_tokens)::bigint              AS total_tokens,
+          sum(duration_ms_sum)::bigint           AS total_duration_ms,
+          sum(cpu_ms_sum)::bigint                AS total_cpu_ms,
+          sum(cost_cents)                        AS total_cogs_cents,
+          max(updated_at)                        AS source_updated_at
+        FROM usage_rollup_daily
+        GROUP BY 1, 2;
+      -- REQUIRED by REFRESH ... CONCURRENTLY, which refuses to run without a
+      -- unique index — not an optional performance index. Leading company_id also
+      -- serves the "one customer, one billing period" read.
+      -- company_id 0 is the AA-161 "not scoped" sentinel (system sweeps, cron,
+      -- callbacks); it is kept so totals reconcile against the raw log, and a
+      -- customer-facing surface should exclude it explicitly.
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_company_usage_company_date
+        ON daily_company_usage (company_id, usage_date);
+
+      -- AA-163: tiered plan rate cards + per-company subscriptions. Mirrors
+      -- migrations/20260729000000_plan_rate_cards.sql.
+      --
+      -- The rate card is DECLARATIVE: cost_per_million_tokens_cents records what
+      -- a PM configured and nothing reads it to compute a bill (COGS stays
+      -- sum(cost_cents) from the raw log — no cost is synthesized here).
+      -- Enforcement runs on TASK COUNTS: every AI row has NULL tokens until
+      -- Hermes reports usage, so a token gate would never deny. Both allowances
+      -- are stored so the metric can flip with an env var, no migration.
+      --
+      -- The tier lives on the COMPANY, not on users: users.plan is a per-account
+      -- multi-workspace entitlement on a different axis (Decision 13).
+      -- A NULL allowance means UNLIMITED, which is how Enterprise/Custom works —
+      -- that tier plus the per-company override columns, not a fifth hardcoded tier.
+      CREATE TABLE IF NOT EXISTS plan_rate_cards (
+        tier_key                      TEXT PRIMARY KEY
+          CHECK (tier_key IN ('starter','growth','scale','enterprise')),
+        display_name                  TEXT NOT NULL,
+        monthly_task_allowance        BIGINT,
+        monthly_token_allowance       BIGINT,
+        cost_per_million_tokens_cents NUMERIC(12,4),
+        sort_order                    INTEGER NOT NULL DEFAULT 0,
+        updated_at                    TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS company_subscriptions (
+        company_id                       INTEGER PRIMARY KEY
+          REFERENCES organizations(id) ON DELETE CASCADE,
+        tier_key                         TEXT NOT NULL REFERENCES plan_rate_cards(tier_key),
+        monthly_task_allowance_override  BIGINT,
+        monthly_token_allowance_override BIGINT,
+        assigned_at                      TIMESTAMPTZ NOT NULL DEFAULT now(),
+        assigned_by                      TEXT,
+        updated_at                       TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+
+    // Seeded starting values, tunable by a PM without a deploy. DO NOTHING is
+    // load-bearing: an edited rate must survive every container start, so this
+    // seeds absent rows and never clobbers configured ones.
+    await client.query(`
+      INSERT INTO plan_rate_cards
+        (tier_key, display_name, monthly_task_allowance, monthly_token_allowance, cost_per_million_tokens_cents, sort_order)
+      VALUES
+        ('starter',    'Starter (Small)',      1000,  2000000, 1500.0000, 1),
+        ('growth',     'Growth (Medium)',      5000, 10000000, 1200.0000, 2),
+        ('scale',      'Scale (Large)',       25000, 50000000, 1000.0000, 3),
+        ('enterprise', 'Enterprise (Custom)',  NULL,     NULL,      NULL, 4)
+      ON CONFLICT (tier_key) DO NOTHING;
+    `);
+
+    // Every existing company starts on the entry tier. Idempotent: a company
+    // whose plan has since been changed keeps it.
+    await client.query(`
+      INSERT INTO company_subscriptions (company_id, tier_key, assigned_by)
+        SELECT o.id, 'starter', 'init-db:backfill' FROM organizations o
+        ON CONFLICT (company_id) DO NOTHING;
+    `);
+
+    // AA-164: purchased task credits + quota-alert dedupe. Mirrors
+    // migrations/20260730000000_company_credits_and_quota_alerts.sql.
+    //
+    // Credits are TASK credits — the unit AA-163 enforces on. A token balance
+    // would be unspendable and a token percentage would never move, because
+    // every AI row has NULL tokens until Hermes reports usage.
+    //
+    // Append-only: a balance is a SUM over unexpired rows, never a mutable
+    // counter (a decrement-in-place column loses its audit trail the moment two
+    // writers race). Credits stack on top of the monthly allowance and do NOT
+    // reset with the calendar month — voiding paid capacity at a month boundary
+    // would be taking money for nothing.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS company_credit_ledger (
+        id                BIGSERIAL PRIMARY KEY,
+        company_id        INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        -- Signed: a negative row reverses a mistake by appending its inverse
+        -- rather than editing history.
+        credits           BIGINT  NOT NULL CHECK (credits <> 0),
+        source            TEXT    NOT NULL CHECK (source IN ('purchase','grant','correction')),
+        -- Payment-gateway event id. The partial UNIQUE below is what makes
+        -- fulfillment idempotent — gateways redeliver, and double-crediting one
+        -- payment is a money bug. NULL for manual grants.
+        external_event_id TEXT,
+        note              TEXT,
+        granted_by        TEXT,
+        expires_at        TIMESTAMPTZ,
+        created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_company_credit_ledger_external_event
+        ON company_credit_ledger (external_event_id) WHERE external_event_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_company_credit_ledger_company_created
+        ON company_credit_ledger (company_id, created_at DESC);
+
+      -- The PRIMARY KEY IS the dedupe key: the alert sweep runs on every hourly
+      -- rollup tick, so without it a company sitting at 96% would be emailed
+      -- every hour until the month turned over.
+      CREATE TABLE IF NOT EXISTS usage_alert_notifications (
+        company_id   INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        period_start DATE    NOT NULL,
+        threshold    INTEGER NOT NULL CHECK (threshold IN (80, 95)),
+        recipients   INTEGER NOT NULL DEFAULT 0,
+        sent_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (company_id, period_start, threshold)
+      );
     `);
 
     // Idempotent backfill: one membership per user that has an org pointer today

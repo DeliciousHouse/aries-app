@@ -107,6 +107,23 @@ export interface MetaReconnectWarningEmailParams {
   reconnectUrl: string;
 }
 
+export interface QuotaThresholdEmailParams {
+  /** Workspace admin's email address */
+  to: string;
+  /** Workspace / business name */
+  workspaceName: string;
+  /** Threshold crossed: 80 or 95 */
+  threshold: number;
+  /** Actual percentage consumed (can exceed the threshold, and even 100) */
+  percentUsed: number;
+  /** Tasks consumed this billing period */
+  used: number;
+  /** Total allowance including purchased credits */
+  allowance: number;
+  /** URL to the settings hub where capacity is shown */
+  usageUrl: string;
+}
+
 export interface WorkspaceInviteEmailParams {
   /** Invited teammate's email address */
   to: string;
@@ -429,6 +446,60 @@ export async function sendWorkspaceInviteEmail(params: WorkspaceInviteEmailParam
     html: renderWorkspaceInviteHtml(params),
     text: renderWorkspaceInviteText(params),
     context: 'workspace-invite',
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Quota-threshold email (AA-164)
+// ---------------------------------------------------------------------------
+
+function quotaHeadline(threshold: number): string {
+  return threshold >= 95 ? "You're almost out of capacity" : "You've used most of your capacity";
+}
+
+function renderQuotaThresholdHtml(p: QuotaThresholdEmailParams): string {
+  const remaining = Math.max(0, p.allowance - p.used);
+  const body = `
+    <p style="font-size:15px;line-height:1.5;color:rgba(255,255,255,0.7);margin:0 0 8px;">
+      <strong style="color:#ffffff;">${p.workspaceName}</strong> has used
+      <strong style="color:#ffffff;">${p.percentUsed}%</strong> of this month's capacity
+      (${p.used.toLocaleString('en-US')} of ${p.allowance.toLocaleString('en-US')} tasks).
+    </p>
+    <p style="font-size:15px;line-height:1.5;color:rgba(255,255,255,0.7);margin:0 0 24px;">
+      ${
+        remaining > 0
+          ? `${remaining.toLocaleString('en-US')} ${remaining === 1 ? 'task' : 'tasks'} left before new content generation pauses.`
+          : 'New content generation is paused until more capacity is added or the next billing period starts.'
+      }
+    </p>
+    ${renderCtaButton('View usage', p.usageUrl)}
+    <p style="font-size:13px;color:rgba(255,255,255,0.4);margin:24px 0 0;">
+      Or copy this link: ${p.usageUrl}
+    </p>`;
+  return renderEmailHtml(quotaHeadline(p.threshold), body);
+}
+
+function renderQuotaThresholdText(p: QuotaThresholdEmailParams): string {
+  const remaining = Math.max(0, p.allowance - p.used);
+  return [
+    `Aries AI — ${quotaHeadline(p.threshold).toLowerCase()}`,
+    '',
+    `${p.workspaceName} has used ${p.percentUsed}% of this month's capacity (${p.used} of ${p.allowance} tasks).`,
+    remaining > 0
+      ? `${remaining} ${remaining === 1 ? 'task' : 'tasks'} left before new content generation pauses.`
+      : 'New content generation is paused until more capacity is added or the next billing period starts.',
+    '',
+    `View usage: ${p.usageUrl}`,
+  ].join('\n');
+}
+
+export async function sendQuotaThresholdEmail(params: QuotaThresholdEmailParams): Promise<void> {
+  await sendEmail({
+    to: params.to,
+    subject: `${params.workspaceName} has used ${params.percentUsed}% of this month's capacity`,
+    html: renderQuotaThresholdHtml(params),
+    text: renderQuotaThresholdText(params),
+    context: 'quota-threshold',
   });
 }
 
