@@ -95,8 +95,22 @@ function approvalsRoot(): string {
   return resolveDataPath('generated', 'draft', 'marketing-approvals');
 }
 
+const SAFE_APPROVAL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+
+function safeApprovalFileName(approvalId: string): string {
+  const normalized = approvalId.trim();
+  if (!SAFE_APPROVAL_ID_PATTERN.test(normalized)) {
+    throw new Error('invalid marketing approval id');
+  }
+  const fileName = `${normalized}.json`;
+  if (path.basename(fileName) !== fileName) {
+    throw new Error('invalid marketing approval id');
+  }
+  return fileName;
+}
+
 export function marketingApprovalPath(approvalId: string): string {
-  return path.join(approvalsRoot(), `${approvalId}.json`);
+  return path.join(approvalsRoot(), safeApprovalFileName(approvalId));
 }
 
 function approvalLockPath(approvalId: string): string {
@@ -225,7 +239,12 @@ function normalizeMarketingApprovalRecord(record: MarketingApprovalRecord): Mark
 }
 
 export function loadMarketingApprovalRecord(approvalId: string): MarketingApprovalRecord | null {
-  const filePath = marketingApprovalPath(approvalId);
+  let filePath: string;
+  try {
+    filePath = marketingApprovalPath(approvalId);
+  } catch {
+    return null;
+  }
   if (!existsSync(filePath)) {
     return null;
   }

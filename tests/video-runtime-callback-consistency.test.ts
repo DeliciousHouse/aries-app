@@ -218,6 +218,92 @@ test('artifact filesystem keys are deterministic, collision-resistant, and bound
   });
 });
 
+test('canonical artifacts sharing platform and family retain distinct files, URLs, and bytes by artifact id', async () => {
+  await withVideoRuntimeEnv(async ({ videoMount }) => {
+    const jobId = 'mkt_123e4567-e89b-42d3-a456-426614174026';
+    const firstSource = path.join(videoMount, 'shared-family-first.mp4');
+    const secondSource = path.join(videoMount, 'shared-family-second.mp4');
+    await writeFile(firstSource, 'first-clip-bytes');
+    await writeFile(secondSource, 'second-clip-bytes');
+    const output: Array<{ artifacts: Array<Record<string, unknown>> }> = [{
+      artifacts: [
+        {
+          id: 'clip/a',
+          path: firstSource,
+          mime_type: 'video/mp4',
+          platform_slug: 'social',
+          family_id: 'weekly_primary',
+        },
+        {
+          id: 'clip-a',
+          path: secondSource,
+          mime_type: 'video/mp4',
+          platform_slug: 'social',
+          family_id: 'weekly_primary',
+        },
+      ],
+    }];
+
+    const result = ingestSocialContentVideoRenderOutput(jobId, output);
+    assert.equal(result.ingestedCount, 2);
+
+    const [firstArtifact, secondArtifact] = output[0].artifacts;
+    assert.equal(firstArtifact.id, 'clip/a');
+    assert.equal(secondArtifact.id, 'clip-a');
+    assert.notEqual(firstArtifact.path, secondArtifact.path);
+    assert.notEqual(firstArtifact.url, secondArtifact.url);
+    assert.equal(await readFile(String(firstArtifact.path), 'utf8'), 'first-clip-bytes');
+    assert.equal(await readFile(String(secondArtifact.path), 'utf8'), 'second-clip-bytes');
+  });
+});
+
+test('stable artifact ids recanonicalize a shared compatibility destination instead of collapsing', async () => {
+  await withVideoRuntimeEnv(async ({ videoMount }) => {
+    const jobId = 'mkt_123e4567-e89b-42d3-a456-426614174028';
+    const seedSource = path.join(videoMount, 'compatibility-source.mp4');
+    await writeFile(seedSource, 'compatibility-clip-bytes');
+    const legacyOutput: Array<{ artifacts: Array<Record<string, unknown>> }> = [{
+      artifacts: [{
+        path: seedSource,
+        mime_type: 'video/mp4',
+        platform_slug: 'social',
+        family_id: 'weekly_primary',
+      }],
+    }];
+    assert.equal(ingestSocialContentVideoRenderOutput(jobId, legacyOutput).ingestedCount, 1);
+    const compatibilityPath = String(legacyOutput[0].artifacts[0].path);
+
+    const output: Array<{ artifacts: Array<Record<string, unknown>> }> = [{
+      artifacts: [
+        {
+          id: 'clip/a',
+          path: compatibilityPath,
+          mime_type: 'video/mp4',
+          platform_slug: 'social',
+          family_id: 'weekly_primary',
+        },
+        {
+          id: 'clip-a',
+          path: compatibilityPath,
+          mime_type: 'video/mp4',
+          platform_slug: 'social',
+          family_id: 'weekly_primary',
+        },
+      ],
+    }];
+
+    const result = ingestSocialContentVideoRenderOutput(jobId, output);
+    assert.equal(result.ingestedCount, 2);
+    const [firstArtifact, secondArtifact] = output[0].artifacts;
+    assert.notEqual(firstArtifact.path, compatibilityPath);
+    assert.notEqual(secondArtifact.path, compatibilityPath);
+    assert.notEqual(firstArtifact.path, secondArtifact.path);
+    assert.notEqual(firstArtifact.url, secondArtifact.url);
+    assert.equal(await readFile(String(firstArtifact.path), 'utf8'), 'compatibility-clip-bytes');
+    assert.equal(await readFile(String(secondArtifact.path), 'utf8'), 'compatibility-clip-bytes');
+  });
+});
+
 test('all-skipped required video output converges marketing, social, and execution state on one terminal failure', async () => {
   await withVideoRuntimeEnv(async () => {
     const jobId = 'mkt_123e4567-e89b-42d3-a456-426614174021';
@@ -408,5 +494,31 @@ test('rendered-video projection bounds and sanitizes callback-controlled display
     ]) {
       assert.equal(serialized.includes(forbidden), false, `dashboard artifact leaked ${forbidden}`);
     }
+  });
+});
+
+test('rendered-video projection redacts ordinary single-backslash Windows display paths', async () => {
+  await withVideoRuntimeEnv(async () => {
+    const jobId = 'mkt_123e4567-e89b-42d3-a456-426614174027';
+    const doc = seedVideoJob(jobId);
+    const runtime = ensureSocialContentRuntimeState(doc);
+    runtime.stages.video_render.output = {
+      artifacts: [{
+        id: 'clip-windows-path',
+        path: '/hermes-video-media/safe-clip.mp4',
+        url: `/api/marketing/jobs/${jobId}/assets/video-safe-clip`,
+        mime_type: 'video/mp4',
+        platform_slug: 'social',
+        family_id: 'weekly_primary',
+        title: 'C:\\Operators\\private.mp4',
+        summary: 'D:\\Exports\\private-summary.mp4',
+      }],
+    };
+
+    const dashboard = buildSocialContentDashboardProjection(doc, emptyDashboard());
+    const video = dashboard.assets.find((asset) => asset.type === 'video_ad');
+    assert.ok(video);
+    assert.equal(video.title, 'Social rendered video 1');
+    assert.equal(video.summary, 'weekly_primary');
   });
 });

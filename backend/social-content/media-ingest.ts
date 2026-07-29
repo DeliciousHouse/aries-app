@@ -62,8 +62,12 @@ function slug(value: string, fallback: string): string {
  * 187 bytes keeps both `video-${key}-poster` route IDs and generated filenames
  * within their respective 200-byte route and 255-byte filesystem limits.
  */
-function videoFilesystemKey(identityParts: string[], fallback: string): string {
-  const identity = JSON.stringify(identityParts.map((part) => stringValue(part)));
+function videoFilesystemKey(
+  identityParts: string[],
+  fallback: string,
+  collisionIdentityParts: string[] = identityParts,
+): string {
+  const identity = JSON.stringify(collisionIdentityParts.map((part) => stringValue(part)));
   const suffix = createHash('sha256').update(identity || fallback).digest('hex').slice(0, VIDEO_KEY_HASH_LENGTH);
   const maxStemLength = MAX_VIDEO_FILESYSTEM_KEY_LENGTH - VIDEO_KEY_HASH_LENGTH - 1;
   const readable = slug(identityParts.filter(Boolean).join('-'), fallback)
@@ -307,7 +311,8 @@ function ingestCanonicalArtifact(
   }
 
   const rawPlatform = stringValue(artifact.platform_slug || artifact.canonical_platform_slug || artifact.platform);
-  const rawFamily = stringValue(artifact.family_id || artifact.family_name || artifact.id);
+  const rawArtifactId = stringValue(artifact.id);
+  const rawFamily = stringValue(artifact.family_id || artifact.family_name || rawArtifactId);
   const platformSlug = slug(
     rawPlatform,
     'platform',
@@ -317,8 +322,18 @@ function ingestCanonicalArtifact(
     'variant',
   );
   const legacyBaseName = `${platformSlug}-${familyId}`;
-  const baseName = videoFilesystemKey([rawPlatform || platformSlug, rawFamily || familyId], `${platformSlug}-${familyId}`);
-  const allowedDestinations = exactAllowedVideoDestinations(jobId, baseName, legacyBaseName);
+  const readableIdentity = [rawPlatform || platformSlug, rawFamily || familyId];
+  const previousCanonicalBaseName = videoFilesystemKey(readableIdentity, legacyBaseName);
+  const baseName = rawArtifactId
+    ? videoFilesystemKey(readableIdentity, legacyBaseName, [...readableIdentity, rawArtifactId])
+    : previousCanonicalBaseName;
+  const canonicalDestinations = exactAllowedVideoDestinations(jobId, baseName);
+  const allowedDestinations = exactAllowedVideoDestinations(
+    jobId,
+    baseName,
+    previousCanonicalBaseName,
+    legacyBaseName,
+  );
   const resolved = resolveAllowedSource(sourcePath, allowedDestinations);
   if ('reason' in resolved) {
     result.skipped.push({ path: sourcePath, reason: resolved.reason });
@@ -331,7 +346,7 @@ function ingestCanonicalArtifact(
 
   const destination = copyDeterministic(
     resolved.resolved,
-    exactDestinationPath(resolved.resolved, allowedDestinations) ?? videoDestination(jobId, baseName),
+    exactDestinationPath(resolved.resolved, canonicalDestinations) ?? videoDestination(jobId, baseName),
     result,
   );
   const servedAssetId = `video-${path.basename(destination, '.mp4')}`;

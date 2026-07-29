@@ -99,9 +99,9 @@ function safeVideoDisplayString(
 ): string {
   const raw = stringValue(value);
   if (!raw || containsTenantId(doc, raw)) return fallback;
-  const normalized = raw.replaceAll('\\', '/').toLowerCase();
+  const normalized = raw.replace(/\\/g, '/').toLowerCase();
   if (
-    /^[a-z]:\//i.test(raw)
+    /^[a-z]:\//.test(normalized)
     || normalized.startsWith('/')
     || normalized.includes('/.hermes/')
     || normalized.includes('/cache/')
