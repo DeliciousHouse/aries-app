@@ -112,6 +112,50 @@ const steps = [
     ],
   },
   {
+    // AA-161: the usage time-series layer over the same raw table. Pins the
+    // contracts a billing number depends on — only CLOSED hours are rolled,
+    // re-rolling a window converges instead of double counting, the watermark
+    // only moves forward, buckets are UTC, and the retention sweep can never
+    // delete a raw row the rollup has not reached (fail-closed with no
+    // watermark). Fully in-memory (injected db).
+    name: 'usage rollups + retention + company daily view (AA-161/AA-162)',
+    args: [
+      '--test',
+      'tests/telemetry/usage-rollup.test.ts',
+      'tests/telemetry/usage-retention.test.ts',
+      // AA-162: the per-company daily surface. Pins the CONCURRENT refresh (a
+      // plain one would lock out the dashboards it serves), that it runs only
+      // after the rollup rows are durable and only when something changed, that
+      // a refresh failure degrades to a stale view rather than a failed pass,
+      // and that COGS is never synthesized from a price table.
+      'tests/telemetry/daily-company-usage.test.ts',
+    ],
+  },
+  {
+    // AA-163: tiered rate cards + the pre-execution plan gate. The gate's risk is
+    // asymmetric — a wrong deny blocks a paying customer — so these pin the
+    // fail-open paths (flag off, system work, unmetered usage, DB errors) as hard
+    // as the one denial path, plus the 402 mapping and that the gate runs before
+    // any job state exists. Fully in-memory (injected db).
+    name: 'plan rate cards, usage gate, credits + quota alerts (AA-163/AA-164)',
+    args: [
+      '--test',
+      'tests/billing/rate-cards.test.ts',
+      'tests/billing/usage-entitlement.test.ts',
+      'tests/billing/plan-gate-wiring.test.ts',
+      // AA-164: the customer-facing half — the credit ledger that a payment
+      // webhook will write to (idempotent under redelivery; corrections are
+      // appended, never edited), the quota summary the dashboard renders
+      // (unmetered reports NULL, never a confident 0%), the 80/95% alerts
+      // (claimed before send, so an hourly sweep can't spam a customer), and
+      // the read route's tenant scoping.
+      'tests/billing/credit-ledger.test.ts',
+      'tests/billing/quota-summary.test.ts',
+      'tests/billing/quota-alerts.test.ts',
+      'tests/billing/quota-route.test.ts',
+    ],
+  },
+  {
     // Regression for the 2026-06-09 prod wedge: a failed tick must release the
     // insights-sync worker's overlap guard. Fast and fully in-memory.
     name: 'insights-sync worker tick guard',

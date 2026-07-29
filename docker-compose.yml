@@ -216,6 +216,15 @@ services:
       # and no task changes behavior. Must be set on every service that executes
       # classified work (app + the sweep/sync sidecars below).
       ARIES_TASK_TELEMETRY_ENABLED: ${ARIES_TASK_TELEMETRY_ENABLED:-0}
+      # AA-163 plan gate: refuse to start new content generation once a company
+      # has spent its tier's monthly allowance. Default OFF (no DB round-trip, no
+      # behavior change). Enforced on TASK COUNTS — every AI row has NULL tokens
+      # until Hermes reports usage, so ARIES_PLAN_ENFORCEMENT_METRIC=tokens is
+      # safe but inert until then. Needs ARIES_USAGE_ROLLUP_ENABLED to be on as
+      # well: with no rollup watermark the gate reads usage as unmetered and
+      # allows everything (it never denies on absent data).
+      ARIES_PLAN_ENFORCEMENT_ENABLED: ${ARIES_PLAN_ENFORCEMENT_ENABLED:-0}
+      ARIES_PLAN_ENFORCEMENT_METRIC: ${ARIES_PLAN_ENFORCEMENT_METRIC:-tasks}
       # Multi-workspace membership-aware auth resolution (Phase 1). When ON, the
       # active-workspace pointer is validated against an ACTIVE
       # organization_memberships row (role from the membership; workspaceCount on
@@ -902,6 +911,56 @@ services:
       ARIES_COMPOSIO_RECONCILER_ENABLED: ${ARIES_COMPOSIO_RECONCILER_ENABLED:-0}
       ARIES_COMPOSIO_RECONCILER_INTERVAL_MS: ${ARIES_COMPOSIO_RECONCILER_INTERVAL_MS:-60000}
       ARIES_COMPOSIO_RECONCILER_GRACE_MINUTES: ${ARIES_COMPOSIO_RECONCILER_GRACE_MINUTES:-30}
+    restart: unless-stopped
+    networks:
+      - docker_stack
+
+  # AA-161 usage rollup + retention — refreshes the hourly/daily/monthly usage
+  # aggregates over task_execution_log and applies the retention policy. Postgres
+  # has no scheduler in this stack (no pg_cron, no Timescale), so the "refresh the
+  # rollups on a cadence" half of the time-series schema is this sidecar. DB-only;
+  # single replica. Two independent gates, both default OFF: the worker idles
+  # cleanly without ARIES_USAGE_ROLLUP_ENABLED, and aggregation runs with nothing
+  # ever deleted until ARIES_USAGE_RETENTION_ENABLED is also set. Enable retention
+  # with ARIES_USAGE_RETENTION_DRY_RUN=1 for one observation cycle first — it is
+  # the only destructive half. Rolls up BEFORE it purges, and the purge refuses to
+  # delete anything at or above the rollup watermark, so raw usage can never be
+  # destroyed before it has been aggregated.
+  aries-usage-rollup-worker:
+    image: ${ARIES_APP_IMAGE:-aries-app:local}
+    command: ["node_modules/.bin/tsx", "scripts/automations/usage-rollup-worker.ts"]
+    depends_on:
+      aries-app:
+        condition: service_healthy
+    environment:
+      HOME: /home/node
+      NODE_ENV: production
+      CODE_ROOT: /app
+      DATA_ROOT: /data
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_POOL_MAX: 3
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      ARIES_USAGE_ROLLUP_ENABLED: ${ARIES_USAGE_ROLLUP_ENABLED:-0}
+      ARIES_USAGE_ROLLUP_INTERVAL_MS: ${ARIES_USAGE_ROLLUP_INTERVAL_MS:-3600000}
+      ARIES_USAGE_ROLLUP_MAX_HOURS_PER_PASS: ${ARIES_USAGE_ROLLUP_MAX_HOURS_PER_PASS:-168}
+      ARIES_USAGE_ROLLUP_MAX_BACKFILL_DAYS: ${ARIES_USAGE_ROLLUP_MAX_BACKFILL_DAYS:-90}
+      ARIES_USAGE_RETENTION_ENABLED: ${ARIES_USAGE_RETENTION_ENABLED:-0}
+      ARIES_USAGE_RETENTION_DRY_RUN: ${ARIES_USAGE_RETENTION_DRY_RUN:-0}
+      ARIES_USAGE_RAW_RETENTION_DAYS: ${ARIES_USAGE_RAW_RETENTION_DAYS:-90}
+      ARIES_USAGE_HOURLY_RETENTION_DAYS: ${ARIES_USAGE_HOURLY_RETENTION_DAYS:-400}
+      # AA-164 quota alerts: email workspace admins at 80% and 95% of the monthly
+      # allowance. Rides this worker's tick (it already computes the numbers).
+      # Default OFF. Needs RESEND_API_KEY + EMAIL_FROM to deliver, and
+      # APP_BASE_URL for the link in the email. Deduped per company/period/
+      # threshold, so an hourly tick cannot spam a customer.
+      ARIES_QUOTA_ALERTS_ENABLED: ${ARIES_QUOTA_ALERTS_ENABLED:-0}
+      ARIES_PLAN_ENFORCEMENT_METRIC: ${ARIES_PLAN_ENFORCEMENT_METRIC:-tasks}
+      APP_BASE_URL: ${APP_BASE_URL}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
     restart: unless-stopped
     networks:
       - docker_stack
