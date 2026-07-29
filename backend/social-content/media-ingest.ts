@@ -397,6 +397,13 @@ export function ingestSocialContentVideoRenderOutput(
         ingestOutputRecord(jobId, record, result);
       }
     }
+    const firstOutput = recordValue(output[0]);
+    if (firstOutput) {
+      const canonicalArtifacts = output.flatMap((entry) => recordArray(recordValue(entry)?.artifacts));
+      if (canonicalArtifacts.length > 0) {
+        firstOutput.artifacts = canonicalArtifacts;
+      }
+    }
     return result;
   }
 

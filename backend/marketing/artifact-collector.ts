@@ -191,6 +191,62 @@ function localVideoAsset(jobId: string, value: unknown): LocalVideoAsset | null 
     : null;
 }
 
+function collectCanonicalVideoArtifacts(params: {
+  jobId: string | null;
+  primaryOutput: Record<string, unknown> | null;
+}): MarketingVideoStageArtifact[] {
+  const { jobId, primaryOutput } = params;
+  if (!jobId || !primaryOutput) return [];
+
+  const artifacts = new Map<string, MarketingVideoStageArtifact>();
+  for (const candidate of asRecordArray(primaryOutput.artifacts)) {
+    const mimeType = stringValue(candidate.mime_type || candidate.mimeType).toLowerCase();
+    const status = stringValue(candidate.status).toLowerCase();
+    const localAsset = localVideoAsset(jobId, candidate.url);
+    if (
+      mimeType !== 'video/mp4'
+      || !localAsset
+      || status === 'skipped'
+      || status === 'failed'
+      || status === 'rejected'
+    ) {
+      continue;
+    }
+
+    const platformSlug =
+      stringValue(candidate.platform_slug) ||
+      stringValue(candidate.canonical_platform_slug) ||
+      'social';
+    const familyId = stringValue(candidate.family_id) || stringValue(candidate.family_name) || 'render';
+    const platformTitle = stringValue(candidate.platform) || titleCaseSlug(platformSlug);
+    const familyDisplay = stringValue(candidate.family_name) || familyTitle(familyId);
+    const durationSeconds = numberValue(candidate.duration_seconds) ?? 0;
+    const aspectRatio = stringValue(candidate.aspect_ratio) || 'unknown';
+    const posterAsset = localVideoAsset(jobId, candidate.poster_url);
+
+    artifacts.set(localAsset.id, videoArtifact({
+      id: localAsset.id,
+      stage: 'production',
+      type: 'video',
+      title: stringValue(candidate.title) || `${platformTitle} — ${familyDisplay}`,
+      category: 'video',
+      status: 'completed',
+      summary:
+        stringValue(candidate.summary) ||
+        `${platformTitle} render for ${familyDisplay} (${aspectRatio}, ${durationSeconds}s).`,
+      details: [],
+      contentType: 'video/mp4',
+      url: localAsset.url,
+      posterUrl: posterAsset?.url ?? `${localAsset.url}-poster`,
+      platformSlug,
+      familyId,
+      durationSeconds,
+      aspectRatio,
+    }));
+  }
+  return [...artifacts.values()];
+}
+
 function collectRenderedVideoArtifacts(params: {
   jobId: string | null;
   videoPayload: Record<string, unknown> | null;
@@ -487,7 +543,10 @@ export async function collectProductionReviewArtifacts(
   const landingDetails = await readLandingPageArtifactDetails({ runtimeDoc });
   const scriptDetails = await readScriptArtifactDetails({ runtimeDoc });
   const videoAssets = asRecord(video?.video_assets) ?? {};
-  const renderedVideoArtifacts = collectRenderedVideoArtifacts({ jobId, videoPayload: video });
+  const canonicalVideoArtifacts = collectCanonicalVideoArtifacts({ jobId, primaryOutput });
+  const renderedVideoArtifacts = canonicalVideoArtifacts.length > 0
+    ? canonicalVideoArtifacts
+    : collectRenderedVideoArtifacts({ jobId, videoPayload: video });
   const summary: MarketingStageSummary | null = {
     summary:
       stringValue(summaryBlock.core_message) ||
@@ -504,9 +563,9 @@ export async function collectProductionReviewArtifacts(
     outputs: {
       production_review_path: reviewPath || null,
       production_finalize_path: finalizePath || null,
-      video_generator_path: videoPath || null,
+      video_generator_path: canonicalVideoArtifacts.length > 0 ? null : videoPath || null,
       review,
-      video,
+      video: canonicalVideoArtifacts.length > 0 ? primaryOutput : video,
     },
     artifacts: [
       artifact({

@@ -461,6 +461,40 @@ test('video submission validation rejects Hermes-owned selectors recursively ins
   assert.doesNotThrow(() => validateVideoRenderHermesSubmission(cyclicContext));
 });
 
+test('video submission validation rejects normalized selector aliases in request and prior-stage JSON blocks', () => {
+  const aliases = [
+    'providerId',
+    'provider-id',
+    'mediaProvider',
+    'media-provider',
+    'modelId',
+    'model-id',
+    'providerOptions',
+    'provider-options',
+    'routingSelector',
+    'routing-selector',
+  ];
+
+  for (const blockLabel of ['Request', 'Prior stage output']) {
+    for (const alias of aliases) {
+      const submission = {
+        ...liveSubmission(),
+        input: [
+          'Workflow: social_content_weekly',
+          'Request (JSON): {"input":{"media_requests":[{"type":"video.generate","count":1}]}}',
+          `${blockLabel} (JSON): {"nested":{"${alias}":"operator-selected"}}`,
+        ].join('\n'),
+      };
+
+      assert.throws(
+        () => validateVideoRenderHermesSubmission(submission),
+        new RegExp(`Hermes owns execution selection.*${alias}`, 'i'),
+        `${blockLabel} must reject ${alias}`,
+      );
+    }
+  }
+});
+
 test('the v2 runtime schema validates actual ExecutionRunRecord values and mirrors live enums', async () => {
   const previousDataRoot = process.env.DATA_ROOT;
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-video-runtime-schema-'));

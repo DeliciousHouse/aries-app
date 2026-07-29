@@ -34,6 +34,8 @@ const STATUS_KEYS: MarketingDashboardItemStatus[] = [
 const DASHBOARD_REDACTED_VALUE = '[redacted]';
 const DASHBOARD_SENSITIVE_ASSIGNMENT_PATTERN =
   /\b(access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|clientSecret|api[_-]?key|apiKey|access[_-]?key|accessKey|AWSAccessKeyId|authorization|password|passwd|token|signature|sig|secret|key)\b\s*[:=]\s*(Bearer\s+)?[^\s&;,'"<>]+/gi;
+const DASHBOARD_ABSOLUTE_PATH_PATTERN =
+  /(^|[\s("'=])((?:[a-z]:[\\/]|~[\\/]|\/)(?:[^\\/\s,;!?<>"')]+[\\/])+[^\\/\s,;!?<>"')]+)/gi;
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -91,6 +93,13 @@ function tenantSafeString(doc: SocialContentJobRuntimeDocument, value: unknown, 
   return redacted.replace(new RegExp(escapeRegExp(tenantId), 'gi'), 'tenant');
 }
 
+function redactEmbeddedFilesystemPaths(value: string): string {
+  return value.replace(
+    DASHBOARD_ABSOLUTE_PATH_PATTERN,
+    (_match, prefix: string) => `${prefix}${DASHBOARD_REDACTED_VALUE}`,
+  );
+}
+
 function safeVideoDisplayString(
   doc: SocialContentJobRuntimeDocument,
   value: unknown,
@@ -99,7 +108,9 @@ function safeVideoDisplayString(
 ): string {
   const raw = stringValue(value);
   if (!raw || containsTenantId(doc, raw)) return fallback;
-  const normalized = raw.replace(/\\/g, '/').toLowerCase();
+  const redacted = redactEmbeddedFilesystemPaths(raw);
+  if (redacted.trim() === DASHBOARD_REDACTED_VALUE) return fallback;
+  const normalized = redacted.replace(/\\/g, '/').toLowerCase();
   if (
     /^[a-z]:\//.test(normalized)
     || normalized.startsWith('/')
@@ -109,7 +120,7 @@ function safeVideoDisplayString(
   ) {
     return fallback;
   }
-  return raw.slice(0, maxLength);
+  return redacted.slice(0, maxLength);
 }
 
 function safeVideoPlatform(value: unknown): string {

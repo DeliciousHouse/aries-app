@@ -7,11 +7,133 @@ import test from 'node:test';
 import { collectProductionReviewArtifacts } from '../backend/marketing/artifact-collector';
 import { createSocialContentJobFacts } from '../backend/marketing/job-facts';
 import { createSocialContentJobRuntimeDocument } from '../backend/marketing/runtime-state';
+import { ingestSocialContentVideoRenderOutput } from '../backend/social-content/media-ingest';
 
 async function writeJson(filePath: string, value: unknown) {
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, JSON.stringify(value, null, 2), 'utf8');
 }
+
+test('collectProductionReviewArtifacts prefers persisted canonical v2 video artifacts and excludes skipped outputs', async () => {
+  const previousDataRoot = process.env.DATA_ROOT;
+  const previousStage3CacheDir = process.env.ARTIFACT_STAGE3_CACHE_DIR;
+  const previousVideoMount = process.env.HERMES_VIDEO_CACHE_MOUNT;
+  const tempRoot = await mkdtemp(path.join(tmpdir(), 'aries-canonical-video-artifacts-'));
+  const dataRoot = path.join(tempRoot, 'data');
+  const videoMount = path.join(tempRoot, 'hermes-video-media');
+  const runId = 'run-canonical-video-artifacts';
+  const jobId = 'job-canonical-video-artifacts';
+  process.env.DATA_ROOT = dataRoot;
+  process.env.ARTIFACT_STAGE3_CACHE_DIR = tempRoot;
+  process.env.HERMES_VIDEO_CACHE_MOUNT = videoMount;
+
+  try {
+    await mkdir(videoMount, { recursive: true });
+    const firstSource = path.join(videoMount, 'canonical-first.mp4');
+    const secondSource = path.join(videoMount, 'canonical-second.mp4');
+    await writeFile(firstSource, 'first-video');
+    await writeFile(secondSource, 'second-video');
+    const output: Array<{ artifacts: Array<Record<string, unknown>> }> = [
+      {
+        artifacts: [
+          {
+            id: 'clip-canonical-first',
+            path: firstSource,
+            mime_type: 'video/mp4',
+            platform_slug: 'instagram_reels',
+            family_id: 'weekly_primary',
+            duration_seconds: 6,
+            aspect_ratio: '9:16',
+          },
+          {
+            id: 'clip-skipped',
+            path: '/tmp/untrusted-canonical-video.mp4',
+            mime_type: 'video/mp4',
+            platform_slug: 'tiktok',
+            family_id: 'skipped_family',
+          },
+        ],
+      },
+      {
+        artifacts: [{
+          id: 'clip-canonical-second',
+          path: secondSource,
+          mime_type: 'video/mp4',
+          platform_slug: 'youtube_shorts',
+          family_id: 'weekly_secondary',
+          duration_seconds: 12,
+          aspect_ratio: '9:16',
+        }],
+      },
+    ];
+    const ingest = ingestSocialContentVideoRenderOutput(jobId, output);
+    assert.equal(ingest.ingestedCount, 2);
+    assert.equal(ingest.skipped.length, 1);
+
+    const runtimeDoc = createSocialContentJobRuntimeDocument({
+      jobId,
+      tenantId: 'tenant-canonical-video-artifacts',
+      payload: { brandUrl: 'https://brand.example.com' },
+      brandKit: {
+        path: path.join(tempRoot, 'brand-kit.json'),
+        source_url: 'https://brand.example.com',
+        canonical_url: 'https://brand.example.com',
+        brand_name: 'Brand Example',
+        logo_urls: [],
+        colors: { primary: '#111111', secondary: '#f4f4f4', accent: '#c24d2c', palette: [] },
+        font_families: [],
+        external_links: [],
+        extracted_at: '2026-04-24T00:00:00.000Z',
+        brand_voice_summary: 'Direct and grounded.',
+        offer_summary: null,
+        positioning: null,
+        audience: null,
+        tone_of_voice: null,
+        style_vibe: null,
+      },
+    });
+    runtimeDoc.stages.production.run_id = runId;
+    runtimeDoc.stages.production.primary_output = output[0];
+
+    await writeJson(path.join(tempRoot, runtimeDoc.tenant_id, runId, 'video_render_runtime.json'), {
+      type: 'video_render_runtime',
+      video_assets: {
+        platform_contracts: [{
+          platform: 'Legacy fallback',
+          platform_slug: 'legacy-fallback',
+          rendered_video_variants: [{
+            family_id: 'must-not-win',
+            video_path: `/data/generated/draft/jobs/${jobId}/videos/legacy.mp4`,
+          }],
+        }],
+      },
+    });
+
+    const capture = await collectProductionReviewArtifacts(
+      createSocialContentJobFacts(runtimeDoc, runId),
+      output[0],
+    );
+    const videoArtifacts = capture.artifacts.filter(
+      (artifact): artifact is Extract<(typeof capture.artifacts)[number], { type: 'video' }> =>
+        'type' in artifact && artifact.type === 'video',
+    );
+    const expectedIds = output[0].artifacts
+      .filter((artifact) => typeof artifact.url === 'string')
+      .map((artifact) => String(artifact.url).split('/').at(-1));
+
+    assert.deepEqual(videoArtifacts.map((artifact) => artifact.id).sort(), expectedIds.sort());
+    assert.equal(videoArtifacts.some((artifact) => artifact.platformSlug === 'legacy-fallback'), false);
+    assert.equal(videoArtifacts.some((artifact) => artifact.familyId === 'skipped-family'), false);
+  } finally {
+    if (previousDataRoot === undefined) delete process.env.DATA_ROOT;
+    else process.env.DATA_ROOT = previousDataRoot;
+    if (previousStage3CacheDir === undefined) delete process.env.ARTIFACT_STAGE3_CACHE_DIR;
+    else process.env.ARTIFACT_STAGE3_CACHE_DIR = previousStage3CacheDir;
+    if (previousVideoMount === undefined) delete process.env.HERMES_VIDEO_CACHE_MOUNT;
+    else process.env.HERMES_VIDEO_CACHE_MOUNT = previousVideoMount;
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
 
 test('collectProductionReviewArtifacts emits one video artifact per rendered variant', async () => {
   const previousStage3CacheDir = process.env.ARTIFACT_STAGE3_CACHE_DIR;

@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import { HermesMarketingPort } from '../backend/marketing/ports/hermes';
-import { createSocialContentJobRuntimeDocument, saveSocialContentJobRuntime } from '../backend/marketing/runtime-state';
-import { createExecutionRunRecord } from '../backend/execution/run-store';
+import {
+  createSocialContentJobRuntimeDocument,
+  loadSocialContentJobRuntime,
+  saveSocialContentJobRuntime,
+} from '../backend/marketing/runtime-state';
+import { createExecutionRunRecord, loadExecutionRunRecord } from '../backend/execution/run-store';
 import { PROTOCOL_VERSION } from '@aries/hermes-protocol';
 
 function brandKit() {
@@ -79,6 +83,49 @@ async function withDataRoot<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
+async function waitForCallback(run: () => Promise<boolean>): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (await run()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error('timed out waiting for the poll bridge callback');
+}
+
+function createBridgePort(
+  terminalOutput: Record<string, unknown>,
+  hermesRunId: string,
+) {
+  return new HermesMarketingPort(
+    {
+      HERMES_GATEWAY_URL: 'https://hermes.example.com',
+      HERMES_API_SERVER_KEY: 'test-key',
+      INTERNAL_API_SECRET: 'internal-secret',
+      APP_BASE_URL: 'https://aries.example.com',
+      HERMES_POLL_INTERVAL_MS: '0',
+      HERMES_POLL_TIMEOUT_MS: '1000',
+    },
+    async (_url, init) => {
+      if (init?.method === 'POST') {
+        return new Response(JSON.stringify({ run_id: hermesRunId, status: 'started' }), {
+          status: 202,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({
+        run_id: hermesRunId,
+        status: 'completed',
+        output: terminalOutput,
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+    async () => {},
+    async () => ({ refreshed: false, enriched: false }),
+    { query: async () => ({ rows: [], rowCount: 0 }) },
+  );
+}
+
 test('live submit chokepoint rejects required video work with malformed or non-production job IDs before fetch', async () => {
   await withDataRoot(async () => {
     for (const jobId of ['job_non_production_video', 'mkt_placeholder']) {
@@ -142,6 +189,13 @@ test('live raw submit validates provider-neutral video payload before shared par
       {
         ...basePayload,
         input: 'Request (JSON): {"input":{"media_requests":[{"type":"video.generate","provider":"forbidden-nested-provider","model":"forbidden-nested-model"}]}}',
+      },
+      {
+        ...basePayload,
+        input: [
+          'Request (JSON): {"input":{"media_requests":[{"type":"video.generate","count":1}]}}',
+          'Prior stage output (JSON): {"opaque":{"providerId":"forbidden-prior-stage-provider"}}',
+        ].join('\n'),
       },
     ]) {
       await assert.rejects(
@@ -318,5 +372,92 @@ test('production resume keeps the flag-off video request on the image-only fallb
       if (previousVideoPublishEnabled === undefined) delete process.env.ARIES_VIDEO_PUBLISH_ENABLED;
       else process.env.ARIES_VIDEO_PUBLISH_ENABLED = previousVideoPublishEnabled;
     }
+  });
+});
+
+test('default production poll bridge persists a later canonical video output before completing', async () => {
+  await withDataRoot(async () => {
+    const previousVideoMount = process.env.HERMES_VIDEO_CACHE_MOUNT;
+    const videoMount = path.join(process.env.DATA_ROOT!, 'hermes-video-media');
+    process.env.HERMES_VIDEO_CACHE_MOUNT = videoMount;
+    await mkdir(videoMount, { recursive: true });
+    const sourcePath = path.join(videoMount, 'bridge-later-output.mp4');
+    await writeFile(sourcePath, 'bridge-video');
+    try {
+      const jobId = 'mkt_123e4567-e89b-42d3-a456-426614174030';
+      const doc = videoDoc(jobId);
+      doc.stages.publish.status = 'completed';
+      saveSocialContentJobRuntime(jobId, doc);
+      const port = createBridgePort({
+        ok: true,
+        status: 'completed',
+        workflowKey: 'social_content_weekly',
+        output: [
+          { artifacts: [] },
+          {
+            artifacts: [{
+              id: 'bridge-later-output',
+              path: sourcePath,
+              mime_type: 'video/mp4',
+              platform_slug: 'instagram_reels',
+              family_id: 'weekly_primary',
+            }],
+          },
+        ],
+      }, 'hrun-bridge-video-success');
+
+      const submitted = await port.submitNextStage({
+        jobId,
+        tenantId: doc.tenant_id,
+        doc,
+        stage: 'production',
+      });
+      assert.equal(submitted.kind, 'submitted');
+      const ariesRunId = submitted.kind === 'submitted' ? submitted.ariesRunId : '';
+      await waitForCallback(async () => loadExecutionRunRecord(ariesRunId)?.status === 'completed');
+
+      const after = await loadSocialContentJobRuntime(jobId);
+      const artifacts = (after?.stages.production.primary_output as {
+        artifacts?: Array<Record<string, unknown>>;
+      } | null)?.artifacts ?? [];
+      assert.equal(artifacts.length, 1);
+      assert.equal(artifacts[0].id, 'bridge-later-output');
+      assert.match(String(artifacts[0].url), /^\/api\/marketing\/jobs\//);
+    } finally {
+      if (previousVideoMount === undefined) delete process.env.HERMES_VIDEO_CACHE_MOUNT;
+      else process.env.HERMES_VIDEO_CACHE_MOUNT = previousVideoMount;
+    }
+  });
+});
+
+test('default production poll bridge fails closed when required video output is all skipped', async () => {
+  await withDataRoot(async () => {
+    const jobId = 'mkt_123e4567-e89b-42d3-a456-426614174031';
+    const doc = videoDoc(jobId);
+    saveSocialContentJobRuntime(jobId, doc);
+    const port = createBridgePort({
+      ok: true,
+      status: 'completed',
+      workflowKey: 'social_content_weekly',
+      output: [{ artifacts: [] }],
+    }, 'hrun-bridge-video-skipped');
+
+    const submitted = await port.submitNextStage({
+      jobId,
+      tenantId: doc.tenant_id,
+      doc,
+      stage: 'production',
+    });
+    assert.equal(submitted.kind, 'submitted');
+    const ariesRunId = submitted.kind === 'submitted' ? submitted.ariesRunId : '';
+    await waitForCallback(async () => loadExecutionRunRecord(ariesRunId)?.status === 'failed');
+
+    const after = await loadSocialContentJobRuntime(jobId);
+    assert.equal(after?.state, 'failed');
+    assert.equal(after?.last_error?.code, 'hermes_video_artifact_ingest_failed');
+    const videoStage = (after?.social_content_runtime as {
+      stages?: { video_render?: { status?: string } };
+    } | undefined)?.stages?.video_render;
+    assert.equal(videoStage?.status, 'failed');
   });
 });

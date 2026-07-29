@@ -97,13 +97,43 @@ prompt() { # prompt <question> <default> -> stdout
 # ---------------------------------------------------------------------------
 # 2. Fetch source
 # ---------------------------------------------------------------------------
+refresh_non_git_install() {
+  local source_root="${ARIES_SELFHOST_REFRESH_SOURCE_DIR:-}"
+  local temporary_root=""
+  local refresh_script=""
+
+  if [ -z "$source_root" ]; then
+    temporary_root="$(mktemp -d)"
+    source_root="$temporary_root/source"
+    mkdir -p "$source_root"
+    log "Downloading a fresh $GIT_REF snapshot for the existing non-git install."
+    if ! curl -fsSL "https://github.com/$REPO_SLUG/archive/$GIT_REF.tar.gz" \
+      | tar -xz --strip-components=1 -C "$source_root"; then
+      rm -rf "$temporary_root"
+      die "could not download the fresh source snapshot for the non-git install"
+    fi
+  fi
+
+  refresh_script="$source_root/scripts/refresh-selfhost-runtime.sh"
+  if [ ! -x "$refresh_script" ]; then
+    [ -z "$temporary_root" ] || rm -rf "$temporary_root"
+    die "$refresh_script is missing or not executable"
+  fi
+  if ! "$refresh_script" "$source_root" "$INSTALL_DIR"; then
+    [ -z "$temporary_root" ] || rm -rf "$temporary_root"
+    die "could not refresh the existing non-git self-host install"
+  fi
+  [ -z "$temporary_root" ] || rm -rf "$temporary_root"
+}
+
 if [ -d "$INSTALL_DIR/.git" ]; then
   log "Existing checkout found in $INSTALL_DIR — updating to $GIT_REF."
   git -C "$INSTALL_DIR" fetch origin "$GIT_REF"
   git -C "$INSTALL_DIR" checkout "$GIT_REF"
   git -C "$INSTALL_DIR" pull --ff-only origin "$GIT_REF" || warn "pull --ff-only failed (local commits?); continuing with the current checkout."
 elif [ -f "$INSTALL_DIR/docker-compose.selfhost.yml" ]; then
-  log "Existing non-git install found in $INSTALL_DIR — reusing it as-is."
+  log "Existing non-git install found in $INSTALL_DIR — refreshing repository-managed runtime files."
+  refresh_non_git_install
 elif [ -d "$INSTALL_DIR" ] && [ -n "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]; then
   die "$INSTALL_DIR exists, is not empty, and is not an Aries install (no .git or docker-compose.selfhost.yml). Pick a different --dir or clear it out first."
 elif command -v git >/dev/null 2>&1; then

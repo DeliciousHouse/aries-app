@@ -171,6 +171,70 @@ test('host callback video path is read through the deployed mount and becomes a 
   });
 });
 
+test('production-stage callbacks ingest later video outputs before converging marketing, social, and execution state', async () => {
+  await withVideoRuntimeEnv(async ({ videoMount }) => {
+    const jobId = 'mkt_123e4567-e89b-42d3-a456-426614174029';
+    const doc = seedVideoJob(jobId);
+    doc.stages.publish.status = 'completed';
+    saveSocialContentJobRuntime(jobId, doc);
+    const run = createExecutionRunRecord({
+      provider: 'hermes',
+      domain: 'marketing',
+      workflowKey: 'social_content_weekly',
+      action: 'run',
+      tenantId: doc.tenant_id,
+      marketingJobId: jobId,
+      stage: 'production',
+    });
+    const sourcePath = path.join(videoMount, 'later-output.mp4');
+    await writeFile(sourcePath, 'later-output-video');
+
+    const result = await handleHermesRunCallback({
+      event_id: 'evt-production-stage-multi-output-video',
+      aries_run_id: run.aries_run_id,
+      hermes_run_id: 'hrun-production-stage-multi-output-video',
+      status: 'completed',
+      stage: 'production',
+      output: [
+        { artifacts: [] },
+        {
+          artifacts: [{
+            id: 'clip-later-output',
+            path: sourcePath,
+            mime_type: 'video/mp4',
+            platform_slug: 'instagram_reels',
+            family_id: 'weekly_primary',
+          }],
+        },
+      ],
+    });
+
+    assert.equal(result.status, 'accepted');
+    const after = await loadSocialContentJobRuntime(jobId);
+    const marketingArtifacts = (after?.stages.production.primary_output as {
+      artifacts?: Array<Record<string, unknown>>;
+    } | null)?.artifacts ?? [];
+    const socialArtifacts = ((after?.social_content_runtime as {
+      stages?: { video_render?: { output?: { artifacts?: Array<Record<string, unknown>> } } };
+    } | undefined)?.stages?.video_render?.output?.artifacts) ?? [];
+
+    assert.equal(marketingArtifacts.length, 1);
+    assert.equal(socialArtifacts.length, 1);
+    assert.equal(marketingArtifacts[0].id, 'clip-later-output');
+    assert.equal(socialArtifacts[0].id, 'clip-later-output');
+    assert.equal(marketingArtifacts[0].url, socialArtifacts[0].url);
+    assert.equal(await readFile(String(marketingArtifacts[0].path), 'utf8'), 'later-output-video');
+    assert.equal(after?.stages.production.status, 'completed');
+    assert.equal(loadExecutionRunRecord(run.aries_run_id)?.status, 'completed');
+
+    const reloaded = await loadSocialContentJobRuntime(jobId);
+    const reloadedArtifacts = (reloaded?.stages.production.primary_output as {
+      artifacts?: Array<Record<string, unknown>>;
+    } | null)?.artifacts ?? [];
+    assert.equal(reloadedArtifacts.length, 1, 'the canonical successful artifact set must survive save/reload');
+  });
+});
+
 test('artifact filesystem keys are deterministic, collision-resistant, and bounded to one safe component', async () => {
   await withVideoRuntimeEnv(async ({ videoMount }) => {
     const jobId = 'mkt_123e4567-e89b-42d3-a456-426614174025';

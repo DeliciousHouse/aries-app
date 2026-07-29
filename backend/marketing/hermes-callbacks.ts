@@ -775,7 +775,11 @@ function ingestSocialContentStageMedia(
   run: ExecutionRunRecord,
   payload: HermesRunCallbackPayload,
 ): SocialContentVideoIngestResult | null {
-  if (!isSocialContentRun(run) || !run.marketing_job_id || payload.stage !== 'video_render') {
+  if (
+    !isSocialContentRun(run)
+    || !run.marketing_job_id
+    || (payload.stage !== 'video_render' && run.stage !== 'production')
+  ) {
     return null;
   }
 
@@ -801,6 +805,18 @@ function requestedVideoRenderCount(doc: SocialContentJobRuntimeDocument): number
   if (Number.isFinite(count) && count > 0) return Math.floor(count);
   const renderFlag = record.renderVideoAfterApproval;
   return renderFlag === true || (typeof renderFlag === 'string' && renderFlag.trim().toLowerCase() === 'true') ? 1 : 0;
+}
+
+function socialStageForVideoCallback(
+  doc: SocialContentJobRuntimeDocument,
+  targetStage: MarketingStage,
+  payload: HermesRunCallbackPayload,
+  ingestResult: SocialContentVideoIngestResult | null,
+): SocialContentStage {
+  if (ingestResult && (ingestResult.reportedCount > 0 || requestedVideoRenderCount(doc) > 0)) {
+    return 'video_render';
+  }
+  return socialContentStageFromCallbackStage(payload.stage) ?? socialStageForMarketingStage(targetStage);
 }
 
 function persistAllSkippedVideoFailure(
@@ -2033,7 +2049,7 @@ async function applyHermesMarketingCallbackInner(
     const videoIngestResult = ingestSocialContentStageMedia(run, payload);
     const socialApprovalStep = isSocialContentRun(run) ? normalizeSocialApprovalStep(payload) : null;
     const completedSocialStage = isSocialContentRun(run)
-      ? socialContentStageFromCallbackStage(payload.stage) ?? socialStageForMarketingStage(targetStage)
+      ? socialStageForVideoCallback(doc, targetStage, payload, videoIngestResult)
       : null;
 
     if (
@@ -2238,7 +2254,7 @@ async function applyHermesMarketingCallbackInner(
       && persistAllSkippedVideoFailure(
         doc,
         targetStage,
-        socialContentStageFromCallbackStage(payload.stage) ?? socialStageForMarketingStage(targetStage),
+        socialStageForVideoCallback(doc, targetStage, payload, videoIngestResult),
         payload,
         videoIngestResult,
       )
@@ -2326,8 +2342,7 @@ async function applyHermesMarketingCallbackInner(
       );
     }
     if (isSocialContentRun(run)) {
-      const completedSocialStage =
-        socialContentStageFromCallbackStage(payload.stage) ?? socialStageForMarketingStage(targetStage);
+      const completedSocialStage = socialStageForVideoCallback(doc, targetStage, payload, videoIngestResult);
       markSocialContentStageCompleted(doc, completedSocialStage, {
         summary: outputSummary(payload)?.summary ?? null,
         output: firstOutputRecord(payload),

@@ -1388,8 +1388,13 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         : prompt;
       return {
         input: promptWithMemory,
-        instructions: this.instructions(request.workflow_key, 'research'),
+        instructions: this.instructions(request.workflow_key, input.stage ?? 'research'),
         session_id: this.sessionKey(),
+        workflow_key: request.workflow_key,
+        action: 'run',
+        aries_run_id: request.aries_run_id,
+        job_id: request.job_id,
+        tenant_id: request.tenant_id,
         callback_url: request.callback_url,
         callback_auth: callbackAuth,
         callback_context: {

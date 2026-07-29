@@ -992,9 +992,9 @@ test('social content dashboard projection includes playable rendered videos from
             {
               id: 'video-tiktok-launch-cut',
               type: 'video',
-              title: 'TikTok launch cut',
+              title: String.raw`TikTok launch cut rendered at C:\Users\renderer\.hermes\cache\launch-cut.mp4`,
               status: 'ready',
-              summary: 'TikTok launch cut render ready.',
+              summary: 'TikTok launch cut saved to /home/node/.hermes/cache/launch-cut.mp4 and ready.',
               url: `/api/marketing/jobs/${jobId}/assets/video-tiktok-launch-cut`,
               metadata: {
                 poster_url: `/api/marketing/jobs/${jobId}/assets/video-tiktok-launch-cut-poster`,
@@ -1045,9 +1045,15 @@ test('social content dashboard projection includes playable rendered videos from
   assert.equal(videoAssets[0].contentType, 'video/mp4');
   assert.equal(videoAssets[0].platform, 'tiktok');
   assert.equal(videoAssets[0].status, 'ready');
+  assert.match(videoAssets[0].title, /^TikTok launch cut rendered at /);
+  assert.match(videoAssets[0].summary, /^TikTok launch cut saved to /);
+  assert.match(videoAssets[0].summary, / and ready\.$/);
   assert.equal(dashboard.post?.counts.videoAds, 1);
-  assert.equal(JSON.stringify(dashboard).includes('token=secret'), false);
-  assert.equal(JSON.stringify(dashboard).includes('tenant_dashboard_video_projection'), false);
+  const serialized = JSON.stringify(dashboard);
+  assert.equal(serialized.includes('token=secret'), false);
+  assert.equal(serialized.includes('tenant_dashboard_video_projection'), false);
+  assert.equal(videoAssets[0].title.includes('Users'), false);
+  assert.equal(serialized.includes('/home/node/.hermes'), false);
 });
 
 test('parseSocialContentWorkflowOutput accepts camelCase weeklyPlan key from Hermes', () => {

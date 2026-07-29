@@ -15,13 +15,13 @@ const PRODUCTION_MARKETING_JOB_ID = /^mkt_[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{
 const ARIES_RUN_ID = /^arun_[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const FORBIDDEN_EXECUTION_OWNERSHIP_KEYS = new Set([
   'provider',
-  'provider_id',
-  'media_provider',
+  'providerid',
+  'mediaprovider',
   'model',
-  'model_id',
-  'provider_options',
+  'modelid',
+  'provideroptions',
   'routing',
-  'routing_selector',
+  'routingselector',
 ]);
 const MAX_SOURCE_REDIRECTS = 5;
 const DEFAULT_ADDRESS_ATTEMPT_TIMEOUT_MS = 3_000;
@@ -486,7 +486,8 @@ function findForbiddenOwnershipKey(value: unknown, pathPrefix: string): string |
     const entries = Object.entries(current.value as Record<string, unknown>);
     for (const [key] of entries) {
       const keyPath = `${current.path}.${key}`;
-      if (FORBIDDEN_EXECUTION_OWNERSHIP_KEYS.has(key.toLowerCase())) return keyPath;
+      const normalizedKey = key.toLowerCase().replaceAll('_', '').replaceAll('-', '');
+      if (FORBIDDEN_EXECUTION_OWNERSHIP_KEYS.has(normalizedKey)) return keyPath;
     }
     for (let index = entries.length - 1; index >= 0; index -= 1) {
       const [key, nestedValue] = entries[index];
@@ -496,19 +497,24 @@ function findForbiddenOwnershipKey(value: unknown, pathPrefix: string): string |
   return null;
 }
 
-function parsedStructuredRequests(input: string): unknown[] {
-  const prefix = 'Request (JSON):';
+function parsedStructuredJsonBlocks(input: string, labels: readonly string[]): unknown[] {
+  const acceptedLabels = new Set(labels.map((label) => label.toLowerCase()));
   const requests: unknown[] = [];
   for (const line of input.split('\n')) {
     const trimmed = line.trim();
-    if (!trimmed.startsWith(prefix)) continue;
+    const match = /^(Request|Prior stage output) \(JSON\):\s*(.+)$/i.exec(trimmed);
+    if (!match || !acceptedLabels.has(match[1].toLowerCase())) continue;
     try {
-      requests.push(JSON.parse(trimmed.slice(prefix.length).trim()) as unknown);
+      requests.push(JSON.parse(match[2]) as unknown);
     } catch {
       continue;
     }
   }
   return requests;
+}
+
+function parsedStructuredRequests(input: string): unknown[] {
+  return parsedStructuredJsonBlocks(input, ['Request']);
 }
 
 function hasStructuredVideoGenerateRequest(input: string): boolean {
@@ -558,7 +564,7 @@ export function validateVideoRenderHermesSubmission(value: unknown): HermesRunSu
     throw new Error(`video_render_submission_invalid: Hermes owns execution selection; remove ${forbiddenInputPath}`);
   }
   if (typeof inputRecord.input === 'string') {
-    const structuredRequests = parsedStructuredRequests(inputRecord.input);
+    const structuredRequests = parsedStructuredJsonBlocks(inputRecord.input, ['Request', 'Prior stage output']);
     for (let index = 0; index < structuredRequests.length; index += 1) {
       const forbiddenStructuredPath = findForbiddenOwnershipKey(
         structuredRequests[index],

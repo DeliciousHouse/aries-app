@@ -38,6 +38,14 @@ Hermes without selecting a provider or model inside the application.
   ingestible artifact, including stopped cancellations.
 - The artifact collector retains read-only compatibility with persisted predecessor
   payloads while projecting newly ingested provider-neutral asset IDs and URLs.
+- Selector validation normalizes camel-, kebab-, and snake-case routing aliases
+  across both request and prior-stage JSON before any live Hermes dispatch.
+- Default polling and reconciler callbacks now ingest canonical production video
+  outputs before terminal convergence, preserve every localized output artifact,
+  and fail closed when required renders are all skipped.
+- Production review prefers persisted canonical video artifacts, embedded dashboard
+  paths are redacted without discarding safe surrounding copy, and non-git self-host
+  reruns refresh managed runtime files while preserving operator-owned state.
 
 ### Removed
 
