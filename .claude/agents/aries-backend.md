@@ -58,7 +58,7 @@ Deep Meta Graph / Composio / Hermes-port / OAuth-token-crypto work belongs to **
 5. **Conventional Commits with a scope.** `git log --oneline -20` is the style source of truth.
 6. **Resumability rule.** Never discard partial artifacts on a rate-limit or transient gateway
    failure. Persist what completed, surface the failure, and let the orchestrator decide whether to
-   retry. (Born from historical video-render rate-limit incidents that lost completed creative on retry.)
+   retry. (Born from media-generation rate-limit incidents that lost completed creative on retry.)
 7. **DB-pool fan-out rule.** Do NOT add `Promise.all` around PostgreSQL- or gateway-backed call
    chains without first checking `DB_POOL_MAX` (`lib/db-pool-config.ts`, `parsePoolMax`) and
    benchmarking the *full* endpoint, not just the helper. More parallel queries can speed an

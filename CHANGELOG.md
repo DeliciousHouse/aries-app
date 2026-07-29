@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## v0.1.47.0 — feat(video): ship provider-neutral Hermes rendering
+## v0.1.48.0 — feat(video): ship provider-neutral Hermes rendering
 
 Aries can now request, track, ingest, and review rendered social videos through
 Hermes without selecting a provider or model inside the application.
@@ -29,6 +29,10 @@ Hermes without selecting a provider or model inside the application.
   without overwriting operator-owned entries or unrelated registry arrays.
 - Collision-resistant, length-bounded media keys keep distinct artifact identities
   on distinct files and URLs while remaining servable through the asset route.
+- Canonical media identities include the stable artifact ID even when two artifacts
+  share a platform and family, including reads from compatibility destinations.
+- Dashboard video labels redact POSIX, UNC, and ordinary Windows filesystem paths,
+  and marketing approval storage rejects traversal and multi-component IDs.
 - Callback ingestion persists one consistent terminal failure across marketing,
   social-content, and execution-run state when required video output has no
   ingestible artifact, including stopped cancellations.
@@ -39,6 +43,16 @@ Hermes without selecting a provider or model inside the application.
 
 - Provider-specific runtime contracts and active guidance; historical release notes
   remain unchanged as immutable evidence.
+
+## v0.1.47.1 — docs(agents): keep resumability guidance provider-neutral
+
+Agent-facing guidance now explains the resumability contract without tying it to
+a specific media provider, while retaining the incident-derived safety rule.
+
+### Changed
+
+- The root and specialist-agent documentation describe media-generation and
+  platform rate limits in provider-neutral terms.
 
 ## v0.1.46.1 — fix(publishing): close rollback and calendar safety gaps
 

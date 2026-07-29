@@ -78,8 +78,9 @@ protocol/token-race work.
 3. **`npm run guardrails:agent` before a PR opens** (reviewer runs it; branch must have a unique diff).
 4. **Branch off `master`; never commit on `master`.**
 5. **Conventional Commits with a scope.**
-6. **Resumability rule — this surface's founding scar.** On a video-render/Meta rate-limit or transient
-   gateway failure, **never discard partial artifacts** (completed creative, in-flight runs).
+6. **Resumability rule — this surface's founding scar.** On a media-generation or platform
+   rate-limit or transient gateway failure, **never discard partial artifacts** (completed creative,
+   in-flight runs).
    Persist what completed, surface the failure, let the orchestrator decide retry. A resume must
    pick up where it left off.
 7. **DB-pool fan-out rule.** No new `Promise.all` around Postgres/gateway chains without checking
