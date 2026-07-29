@@ -41,7 +41,7 @@ The core domain flow is a 4-stage marketing pipeline executed by Hermes:
 
 Each stage can pause for human approval. `backend/marketing/orchestrator.ts` drives the pipeline: starts stages via the Hermes execution port, collects artifacts, manages approval checkpoints, and records state transitions. Approval records are persisted via `backend/marketing/approval-store.ts`.
 
-**Resumability rule:** Stages must preserve partial artifacts on rate-limit or transient gateway failures so a resume can pick up where it left off. Do not discard work on a non-fatal stage error — persist what completed, surface the failure, and let the orchestrator decide whether to retry. This rule exists because of past Veo render rate-limit incidents that lost completed creative on retry.
+**Resumability rule:** Stages must preserve partial artifacts on rate-limit or transient gateway failures so a resume can pick up where it left off. Do not discard work on a non-fatal stage error — persist what completed, surface the failure, and let the orchestrator decide whether to retry. This rule exists because of past media-generation rate-limit incidents that lost completed creative on retry.
 
 ### Auth & Tenant Model
 

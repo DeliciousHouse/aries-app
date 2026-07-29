@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.47.1 — docs(agents): keep resumability guidance provider-neutral
+
+Agent-facing guidance now explains the resumability contract without tying it to
+a specific media provider, while retaining the incident-derived safety rule.
+
+### Changed
+
+- The root and specialist-agent documentation describe media-generation and
+  platform rate limits in provider-neutral terms.
+
 ## v0.1.46.1 — fix(publishing): close rollback and calendar safety gaps
 
 Scheduled publishing now keeps rollback traffic and calendar controls fail-closed
