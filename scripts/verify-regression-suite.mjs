@@ -156,6 +156,20 @@ const steps = [
     ],
   },
   {
+    // AA-166: the customer-facing usage breakdown. Its risk is showing a
+    // customer a confident wrong number, so these pin the honesty contracts —
+    // unmetered reports empty, not zeroed; unreported tokens stay NULL and are
+    // distinguishable from a real zero — plus the bucket arithmetic, the
+    // tenant/company scoping, and the admin-only + invisible-when-off route
+    // boundary. Fully in-memory (injected db).
+    name: 'customer-facing usage analytics (AA-166)',
+    args: [
+      '--test',
+      'tests/telemetry/usage-analytics.test.ts',
+      'tests/telemetry/usage-analytics-route.test.ts',
+    ],
+  },
+  {
     // Regression for the 2026-06-09 prod wedge: a failed tick must release the
     // insights-sync worker's overlap guard. Fast and fully in-memory.
     name: 'insights-sync worker tick guard',

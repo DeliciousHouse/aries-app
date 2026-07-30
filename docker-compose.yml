@@ -225,6 +225,13 @@ services:
       # allows everything (it never denies on absent data).
       ARIES_PLAN_ENFORCEMENT_ENABLED: ${ARIES_PLAN_ENFORCEMENT_ENABLED:-0}
       ARIES_PLAN_ENFORCEMENT_METRIC: ${ARIES_PLAN_ENFORCEMENT_METRIC:-tasks}
+      # AA-166 customer-facing usage analytics: the admin-only /dashboard/usage
+      # breakdown (consumption over time, top users, slowest tasks, AI vs
+      # automation split) reading the AA-161/162 rollups. Default OFF — the page
+      # and its route are invisible (real 404s), no DB round-trip. Needs
+      # ARIES_USAGE_ROLLUP_ENABLED to show anything: with no rollup watermark the
+      # payload reports metered:false rather than a zeroed dashboard.
+      ARIES_USAGE_ANALYTICS_ENABLED: ${ARIES_USAGE_ANALYTICS_ENABLED:-0}
       # Multi-workspace membership-aware auth resolution (Phase 1). When ON, the
       # active-workspace pointer is validated against an ACTIVE
       # organization_memberships row (role from the membership; workspaceCount on

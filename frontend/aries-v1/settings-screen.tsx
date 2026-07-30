@@ -96,7 +96,12 @@ function latestDerivedAt(rows: PostingTimeView[]): number {
   return latest;
 }
 
-export default function AriesSettingsScreen() {
+export default function AriesSettingsScreen({
+  usageAnalyticsEnabled = false,
+}: {
+  /** AA-166: server-read flag, so the breakdown link is never a 404 (page.tsx). */
+  usageAnalyticsEnabled?: boolean;
+} = {}) {
   const router = useRouter();
   const integrations = useIntegrations({ autoLoad: true });
   const business = useBusinessProfile({ autoLoad: true });
@@ -1058,6 +1063,16 @@ export default function AriesSettingsScreen() {
               ) : null}
             </>
           )}
+          {/* AA-166: the detailed breakdown is admin-only and flag-gated, so the
+              link is only rendered when it will actually open. */}
+          {usageAnalyticsEnabled && quotaCanPurchase && quota?.metered ? (
+            <Link
+              href="/dashboard/usage"
+              className="inline-flex items-center gap-2 text-sm font-medium text-white/80 underline-offset-4 transition hover:text-white hover:underline"
+            >
+              See who used what →
+            </Link>
+          ) : null}
         </div>
       </ShellPanel>
 
