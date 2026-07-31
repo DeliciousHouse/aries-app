@@ -361,8 +361,39 @@ function ingestCanonicalArtifact(
   result.ingestedCount += 1;
 }
 
+/**
+ * Hermes returns `artifacts` in two different shapes and both must be read:
+ *   - the production stage's execution contract (`PRODUCTION_EXECUTION_CONTRACT`
+ *     in backend/marketing/ports/hermes.ts) specifies an OBJECT —
+ *     `artifacts:{creative_assets:[...], errors:[]}`;
+ *   - the standalone `video_render` stage returns a bare ARRAY of artifacts.
+ *
+ * Reading only the array shape made every production callback report zero video
+ * artifacts, which tripped the all-skipped fail-closed gate and terminally
+ * failed any job with videoRenderCount > 0.
+ */
+function canonicalArtifactList(artifacts: unknown): UnknownRecord[] {
+  if (Array.isArray(artifacts)) {
+    return recordArray(artifacts);
+  }
+  const record = recordValue(artifacts);
+  return record ? recordArray(record.creative_assets) : [];
+}
+
+/** Appends `additions` to `base` without duplicating an artifact object that is
+ *  already present by identity (entry 0 can legitimately be re-listed). */
+function mergeArtifacts(base: UnknownRecord[], additions: UnknownRecord[]): UnknownRecord[] {
+  const merged = [...base];
+  for (const artifact of additions) {
+    if (!merged.includes(artifact)) {
+      merged.push(artifact);
+    }
+  }
+  return merged;
+}
+
 function ingestOutputRecord(jobId: string, output: UnknownRecord, result: SocialContentVideoIngestResult): void {
-  for (const artifact of recordArray(output.artifacts)) {
+  for (const artifact of canonicalArtifactList(output.artifacts)) {
     ingestCanonicalArtifact(jobId, artifact, result);
   }
   const videoAssets = recordValue(output.video_assets);
@@ -397,11 +428,28 @@ export function ingestSocialContentVideoRenderOutput(
         ingestOutputRecord(jobId, record, result);
       }
     }
+    // Consolidate the video artifacts carried by later output entries onto
+    // entry 0, because only entry 0 is persisted as the stage's primary_output.
+    //
+    // Entry 0's own `artifacts` is usually the production stage's OBJECT shape
+    // ({creative_assets, errors}) holding the rendered IMAGES. Replacing it with
+    // a flat array destroyed those images before
+    // ingest-production-assets.ts could read `artifacts.creative_assets` —
+    // it then silently inserted zero rows ("images generated but nothing to
+    // publish"). Merge into the existing shape instead of overwriting it.
     const firstOutput = recordValue(output[0]);
     if (firstOutput) {
-      const canonicalArtifacts = output.flatMap((entry) => recordArray(recordValue(entry)?.artifacts));
-      if (canonicalArtifacts.length > 0) {
-        firstOutput.artifacts = canonicalArtifacts;
+      const trailingArtifacts = output
+        .slice(1)
+        .flatMap((entry) => canonicalArtifactList(recordValue(entry)?.artifacts));
+      if (trailingArtifacts.length > 0) {
+        const existingRecord = recordValue(firstOutput.artifacts);
+        if (existingRecord) {
+          const merged = recordArray(existingRecord.creative_assets);
+          existingRecord.creative_assets = mergeArtifacts(merged, trailingArtifacts);
+        } else {
+          firstOutput.artifacts = mergeArtifacts(recordArray(firstOutput.artifacts), trailingArtifacts);
+        }
       }
     }
     return result;
