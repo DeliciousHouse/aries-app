@@ -162,7 +162,7 @@ test('competitor derivation: parses and validates the JSON envelope', async () =
       output: [
         { platform: 'Facebook', hour: 14, minute: 30, days: [1, 3, 5, 3], rationale: 'Weekday afternoons' },
         { platform: 'instagram', hour: 99, minute: 0, days: [], rationale: 'garbage hour — must be dropped' },
-        { platform: 'tiktok', hour: 9, minute: 0, days: [], rationale: 'unrequested platform — dropped' },
+        { platform: 'linkedin', hour: 9, minute: 0, days: [], rationale: 'unrequested platform — dropped' },
       ],
     }),
   );

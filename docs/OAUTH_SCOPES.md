@@ -10,10 +10,9 @@ Aries integrates with six social platforms plus Google for authentication. Each 
 | Google (YouTube) | OAuth 2.0, brokered by Aries | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` |
 | LinkedIn | OAuth 2.0, brokered by Aries | `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` |
 | X (Twitter) | OAuth 2.0 PKCE, brokered by Aries | `X_CLIENT_ID`, `X_CLIENT_SECRET` |
-| TikTok | OAuth 2.0, brokered by Aries | `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` |
 | Reddit | OAuth 2.0, brokered by Aries | `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` |
 
-For Aries-managed OAuth providers (Google/YouTube, LinkedIn, X, TikTok, Reddit), also set:
+For Aries-managed OAuth providers (Google/YouTube, LinkedIn, X, Reddit), also set:
 
 ```bash
 OAUTH_TOKEN_ENCRYPTION_KEY=<openssl rand -base64 32>
@@ -134,31 +133,6 @@ X_CLIENT_SECRET=<your X OAuth 2.0 Client Secret>
 
 ```
 https://<APP_BASE_URL>/api/auth/oauth/x/callback
-```
-
----
-
-## TikTok
-
-**Required env vars:**
-
-```
-TIKTOK_CLIENT_KEY=<your TikTok App Client Key>
-TIKTOK_CLIENT_SECRET=<your TikTok App Client Secret>
-```
-
-TikTok uses `client_key` rather than `client_id` in the authorization URL.
-
-**Scopes requested:**
-
-| Scope | Purpose |
-|---|---|
-| `video.publish` | Publish videos to TikTok |
-
-**Callback URL** (register in TikTok Developer Portal):
-
-```
-https://<APP_BASE_URL>/api/auth/oauth/tiktok/callback
 ```
 
 ---

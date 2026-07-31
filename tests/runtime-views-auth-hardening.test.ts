@@ -1096,11 +1096,11 @@ test('publish-preview review items attach rendered mp4 previews for video platfo
         tenantId: 'tenant_review',
         launchPreviewPath,
         platformPreviews: [
-          { platformSlug: 'tiktok', platformName: 'TikTok', channelType: 'video' },
+          { platformSlug: 'linkedin', platformName: 'LinkedIn', channelType: 'video' },
           { platformSlug: 'youtube', platformName: 'YouTube', channelType: 'video' },
         ],
         renderedVideos: [
-          { platformSlug: 'tiktok', familyId: 'portrait', title: 'TikTok — Portrait' },
+          { platformSlug: 'linkedin', familyId: 'portrait', title: 'LinkedIn — Portrait' },
           { platformSlug: 'youtube', familyId: 'shorts', title: 'YouTube — Shorts' },
         ],
       }), null, 2),
@@ -1112,7 +1112,7 @@ test('publish-preview review items attach rendered mp4 previews for video platfo
 
     assert.equal(publishPreviewReviews.length, 2);
 
-    for (const [platformSlug, familyId] of [['tiktok', 'portrait'], ['youtube', 'shorts']] as const) {
+    for (const [platformSlug, familyId] of [['linkedin', 'portrait'], ['youtube', 'shorts']] as const) {
       const review = publishPreviewReviews.find((item) => item.id === `${jobId}::publish-preview:${platformSlug}`);
       assert.ok(review, `expected publish preview review for ${platformSlug}`);
 

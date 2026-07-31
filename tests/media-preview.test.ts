@@ -71,9 +71,9 @@ test('MediaPreview renders a video for video content types', async () => {
   await act(async () => {
     root = create(
       React.createElement(MediaPreview, {
-        src: '/api/marketing/jobs/abc/assets/video-tiktok-A',
-        poster: '/api/marketing/jobs/abc/assets/video-tiktok-A-poster',
-        alt: 'TikTok video',
+        src: '/api/marketing/jobs/abc/assets/video-youtube-A',
+        poster: '/api/marketing/jobs/abc/assets/video-youtube-A-poster',
+        alt: 'YouTube video',
         contentType: 'video/mp4',
         className: 'h-40',
       }),
@@ -81,8 +81,8 @@ test('MediaPreview renders a video for video content types', async () => {
   });
 
   const video = root.root.findByType('video');
-  assert.equal(video.props.src, '/api/marketing/jobs/abc/assets/video-tiktok-A');
-  assert.equal(video.props.poster, '/api/marketing/jobs/abc/assets/video-tiktok-A-poster');
+  assert.equal(video.props.src, '/api/marketing/jobs/abc/assets/video-youtube-A');
+  assert.equal(video.props.poster, '/api/marketing/jobs/abc/assets/video-youtube-A-poster');
   assert.equal(root.root.findAllByType('img').length, 0);
 });
 

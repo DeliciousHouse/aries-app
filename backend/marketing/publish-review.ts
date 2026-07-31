@@ -481,8 +481,6 @@ function platformNameFromSlug(slug: string): string {
   switch (slug) {
     case 'meta-ads':
       return 'Meta Ads';
-    case 'tiktok':
-      return 'TikTok';
     case 'youtube':
       return 'YouTube';
     case 'linkedin':
@@ -499,7 +497,7 @@ function platformNameFromSlug(slug: string): string {
 }
 
 function channelTypeForPlatform(slug: string): string {
-  if (slug === 'youtube' || slug === 'tiktok') {
+  if (slug === 'youtube') {
     return 'video';
   }
   if (slug === 'landing-page') {
@@ -662,7 +660,6 @@ function buildPublisherStepNames(): string[] {
     'meta_ads_publisher',
     'instagram_publisher',
     'x_publisher',
-    'tiktok_publisher',
     'youtube_publisher',
     'linkedin_publisher',
     'reddit_publisher',
@@ -843,7 +840,7 @@ async function buildFallbackPublishReviewBundle(
       hook:
         slug === 'meta-ads'
           ? preferredText(scriptDetails.metaAdHook, copyDetails.headline)
-          : slug === 'tiktok' || slug === 'youtube'
+          : slug === 'youtube'
             ? preferredText(scriptDetails.shortVideoOpeningLine, copyDetails.headline)
             : preferredText(copyDetails.headline),
       caption_text: preferredText(copyDetails.bodyLines[0]),

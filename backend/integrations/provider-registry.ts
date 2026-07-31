@@ -4,14 +4,13 @@ export type ProviderKey =
   | 'linkedin'
   | 'x'
   | 'youtube'
-  | 'tiktok'
   | 'reddit'
   | 'openai'
   | 'slack';
 
 export interface ProviderConfig {
   key: ProviderKey;
-  family: 'meta' | 'linkedin' | 'x' | 'youtube' | 'tiktok' | 'reddit' | 'openai' | 'slack';
+  family: 'meta' | 'linkedin' | 'x' | 'youtube' | 'reddit' | 'openai' | 'slack';
   display_name: string;
   default_scopes: string[];
   adapter: string;
@@ -75,7 +74,6 @@ export const PROVIDER_REGISTRY: Record<ProviderKey, ProviderConfig> = {
     default_scopes: ['https://www.googleapis.com/auth/youtube.upload'],
     adapter: 'youtube',
   },
-  tiktok: { key: 'tiktok', family: 'tiktok', display_name: 'TikTok', default_scopes: ['video.publish'], adapter: 'tiktok' },
   reddit: { key: 'reddit', family: 'reddit', display_name: 'Reddit', default_scopes: ['submit'], adapter: 'reddit' },
   openai: {
     key: 'openai',

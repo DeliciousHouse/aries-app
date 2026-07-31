@@ -79,7 +79,7 @@ test('dominant channel resolves to meta for meta-only target', () => {
 
 test('dominant channel falls back to instagram for empty/unknown channels', () => {
   assert.equal(resolveDominantImageChannel([]), 'instagram');
-  assert.equal(resolveDominantImageChannel(['linkedin', 'tiktok']), 'instagram');
+  assert.equal(resolveDominantImageChannel(['linkedin', 'youtube']), 'instagram');
 });
 
 test('weekly workflow request emits 1:1 for meta-only image target channel', () => {

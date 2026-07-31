@@ -288,8 +288,6 @@ services:
       REDDIT_CLIENT_ID: ${REDDIT_CLIENT_ID}
       REDDIT_CLIENT_SECRET: ${REDDIT_CLIENT_SECRET}
       REDDIT_USER_AGENT: ${REDDIT_USER_AGENT:-}
-      TIKTOK_CLIENT_KEY: ${TIKTOK_CLIENT_KEY}
-      TIKTOK_CLIENT_SECRET: ${TIKTOK_CLIENT_SECRET}
       X_CLIENT_ID: ${X_CLIENT_ID}
       X_CLIENT_SECRET: ${X_CLIENT_SECRET}
       # Composio integration (OPTIONAL, isolated). Defaults keep it OFF and the
@@ -302,12 +300,6 @@ services:
       # X (Twitter) connect rollout flag — default OFF ships the platform dormant
       # (card hidden; connect/capabilities 400 unsupported_platform as today).
       ARIES_X_ENABLED: ${ARIES_X_ENABLED:-false}
-      # TikTok connect rollout flag — default OFF ships TikTok dormant (gated out;
-      # no Composio comments/reply + publish audit-gated). Pair with .env.
-      ARIES_TIKTOK_ENABLED: ${ARIES_TIKTOK_ENABLED:-false}
-      # Reddit publish rollout flag — default OFF ships the publish path dormant
-      # (Reddit already connects; this gates publish only). When OFF a reddit
-      # schedule/dispatch is rejected exactly as today.
       ARIES_REDDIT_ENABLED: ${ARIES_REDDIT_ENABLED:-false}
       # LinkedIn rollout flag — default OFF ships the connect-time person-URN
       # lookup dormant (no LINKEDIN_GET_MY_INFO call; connect byte-identical).
@@ -324,7 +316,6 @@ services:
       COMPOSIO_METAADS_AUTH_CONFIG_ID: ${COMPOSIO_METAADS_AUTH_CONFIG_ID:-}
       COMPOSIO_FACEBOOK_AUTH_CONFIG_ID: ${COMPOSIO_FACEBOOK_AUTH_CONFIG_ID:-}
       COMPOSIO_INSTAGRAM_AUTH_CONFIG_ID: ${COMPOSIO_INSTAGRAM_AUTH_CONFIG_ID:-}
-      COMPOSIO_TIKTOK_AUTH_CONFIG_ID: ${COMPOSIO_TIKTOK_AUTH_CONFIG_ID:-}
       COMPOSIO_YOUTUBE_AUTH_CONFIG_ID: ${COMPOSIO_YOUTUBE_AUTH_CONFIG_ID:-}
       COMPOSIO_LINKEDIN_AUTH_CONFIG_ID: ${COMPOSIO_LINKEDIN_AUTH_CONFIG_ID:-}
       COMPOSIO_REDDIT_AUTH_CONFIG_ID: ${COMPOSIO_REDDIT_AUTH_CONFIG_ID:-}

@@ -11,16 +11,16 @@ test('VideoPreview renders a video element with the expected playback props', as
   await act(async () => {
     root = create(
       React.createElement(VideoPreview, {
-        src: '/api/marketing/jobs/abc/assets/video-tiktok-A',
-        poster: '/api/marketing/jobs/abc/assets/video-tiktok-A-poster',
+        src: '/api/marketing/jobs/abc/assets/video-youtube-A',
+        poster: '/api/marketing/jobs/abc/assets/video-youtube-A-poster',
         className: 'h-full w-full object-contain bg-black',
       }),
     );
   });
 
   const video = root.root.findByType('video');
-  assert.equal(video.props.src, '/api/marketing/jobs/abc/assets/video-tiktok-A');
-  assert.equal(video.props.poster, '/api/marketing/jobs/abc/assets/video-tiktok-A-poster');
+  assert.equal(video.props.src, '/api/marketing/jobs/abc/assets/video-youtube-A');
+  assert.equal(video.props.poster, '/api/marketing/jobs/abc/assets/video-youtube-A-poster');
   assert.equal(video.props.controls, true);
   assert.equal(video.props.playsInline, true);
   assert.equal(video.props.preload, 'metadata');

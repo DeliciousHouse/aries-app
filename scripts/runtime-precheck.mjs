@@ -78,7 +78,6 @@ const providerEnv = {
   instagram: ['META_PAGE_ID', 'META_ACCESS_TOKEN'],
   linkedin: ['LINKEDIN_CLIENT_ID', 'LINKEDIN_CLIENT_SECRET'],
   reddit: ['REDDIT_CLIENT_ID', 'REDDIT_CLIENT_SECRET'],
-  tiktok: ['TIKTOK_CLIENT_KEY', 'TIKTOK_CLIENT_SECRET'],
   x: ['X_CLIENT_ID', 'X_CLIENT_SECRET'],
   youtube: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'],
 };

@@ -8,10 +8,10 @@ import { defaultPublishConfig, publishConfigFromChannels } from '../backend/mark
 /**
  * AA-76 regression: "Generate Weekly Content is not showing the correct
  * requested information." A weekly job created without an explicit publish
- * config fell back to `platforms: ['meta-ads','tiktok']` +
- * `video_render_platforms: ['tiktok']`, so the dashboard showed a `tiktok`
- * platform the tenant never chose and a phantom "Video render: tiktok" /
- * planned-video count — even though the pipeline renders no video by default.
+ * config fell back to a hardcoded extra platform plus a non-empty
+ * `video_render_platforms`, so the dashboard showed a platform the tenant
+ * never chose and a phantom "Video render" / planned-video count — even
+ * though the pipeline renders no video by default.
  *
  * The default must reflect what actually happens: image posts for
  * Facebook + Instagram, no video. `live_publish_platforms` stays meta-ads only
@@ -19,24 +19,22 @@ import { defaultPublishConfig, publishConfigFromChannels } from '../backend/mark
  * passthrough must be untouched — only the FALLBACK changed.
  */
 
-test('AA-76: default publish config has no tiktok and no phantom video', () => {
+test('AA-76: default publish config is FB + IG only with no phantom video', () => {
   const cfg = defaultPublishConfig();
-  assert.deepEqual(cfg.platforms, ['meta-ads', 'instagram'], 'default platforms should be FB + IG, not tiktok');
+  assert.deepEqual(cfg.platforms, ['meta-ads', 'instagram'], 'default platforms should be FB + IG only');
   assert.deepEqual(cfg.video_render_platforms, [], 'default must render no video (video is opt-in)');
   assert.deepEqual(cfg.live_publish_platforms, ['meta-ads'], 'live publish default stays conservative');
-  const serialized = JSON.stringify(cfg);
-  assert.ok(!serialized.includes('tiktok'), 'no tiktok anywhere in the default publish config');
 });
 
 test('AA-76: explicit publish-config input is still honored (only the fallback changed)', () => {
   const cfg = defaultPublishConfig({
-    platforms: ['tiktok'],
-    live_publish_platforms: ['tiktok'],
-    video_render_platforms: ['tiktok'],
+    platforms: ['linkedin'],
+    live_publish_platforms: ['linkedin'],
+    video_render_platforms: ['linkedin'],
   });
-  assert.deepEqual(cfg.platforms, ['tiktok']);
-  assert.deepEqual(cfg.live_publish_platforms, ['tiktok']);
-  assert.deepEqual(cfg.video_render_platforms, ['tiktok'], 'explicit video request must pass through unchanged');
+  assert.deepEqual(cfg.platforms, ['linkedin']);
+  assert.deepEqual(cfg.live_publish_platforms, ['linkedin']);
+  assert.deepEqual(cfg.video_render_platforms, ['linkedin'], 'explicit video request must pass through unchanged');
 });
 
 test('AA-76: channel-derived config for meta/instagram renders no video', () => {

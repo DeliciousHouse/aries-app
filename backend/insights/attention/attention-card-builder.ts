@@ -39,7 +39,7 @@ export interface AttentionCard {
 function platformName(p: string): string {
   const names: Record<string, string> = {
     instagram: 'Instagram', facebook: 'Facebook',
-    youtube: 'YouTube', tiktok: 'TikTok', linkedin: 'LinkedIn',
+    youtube: 'YouTube', linkedin: 'LinkedIn',
   };
   return names[p] ?? p.charAt(0).toUpperCase() + p.slice(1);
 }

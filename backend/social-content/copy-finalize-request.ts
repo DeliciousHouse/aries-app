@@ -21,7 +21,6 @@ type SocialCopyFinalizeChannel =
   | 'facebook_feed'
   | 'linkedin_feed'
   | 'x_feed'
-  | 'tiktok_feed'
   | 'youtube_feed'
   | 'social_feed';
 
@@ -236,7 +235,6 @@ function normalizePostChannel(post: UnknownRecord): SocialCopyFinalizeChannel {
   if (platform === 'meta' || platform === 'facebook' || platform === 'facebook_feed') return 'facebook_feed';
   if (platform === 'linkedin' || platform === 'linkedin_feed') return 'linkedin_feed';
   if (platform === 'x' || platform === 'twitter' || platform === 'x_feed') return 'x_feed';
-  if (platform === 'tiktok' || platform === 'tiktok_feed') return 'tiktok_feed';
   if (platform === 'youtube' || platform === 'youtube_feed') return 'youtube_feed';
   return 'social_feed';
 }

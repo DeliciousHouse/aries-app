@@ -16,8 +16,6 @@ const OAUTH_ENV_KEYS = [
   'OAUTH_TOKEN_ENCRYPTION_KEY',
   'REDDIT_CLIENT_ID',
   'REDDIT_CLIENT_SECRET',
-  'TIKTOK_CLIENT_KEY',
-  'TIKTOK_CLIENT_SECRET',
   'X_CLIENT_ID',
   'X_CLIENT_SECRET',
 ] as const;
@@ -69,8 +67,8 @@ test('/api/integrations marks unconfigured providers as disabled and unavailable
 
     assert.equal(response.status, 200);
     assert.equal(body.status, 'ok');
-    assert.equal(body.summary.total, 7);
-    assert.equal(body.summary.not_connected, 7);
+    assert.equal(body.summary.total, 6);
+    assert.equal(body.summary.not_connected, 6);
 
     const linkedin = body.cards.find((card) => card.platform === 'linkedin');
     assert.equal(linkedin?.connection_state, 'disabled');

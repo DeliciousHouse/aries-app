@@ -345,7 +345,6 @@ const PUBLISHER_STEPS = [
   'meta_ads_publisher',
   'instagram_publisher',
   'x_publisher',
-  'tiktok_publisher',
   'youtube_publisher',
   'linkedin_publisher',
   'reddit_publisher',
@@ -1223,7 +1222,6 @@ function socialPlatformLabel(platform: string): string {
   if (normalized === 'meta') return 'Meta';
   if (normalized === 'instagram') return 'Instagram';
   if (normalized === 'linkedin') return 'LinkedIn';
-  if (normalized === 'tiktok') return 'TikTok';
   if (normalized === 'youtube') return 'YouTube';
   if (normalized === 'x') return 'X';
   return platform ? platform.charAt(0).toUpperCase() + platform.slice(1) : 'Social';

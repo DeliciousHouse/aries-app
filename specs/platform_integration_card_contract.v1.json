@@ -16,8 +16,7 @@
       "linkedin",
       "x",
       "youtube",
-      "reddit",
-      "tiktok"
+      "reddit"
     ],
     "integration_connection_state": [
       "not_connected",
@@ -71,8 +70,7 @@
           "linkedin",
           "x",
           "youtube",
-          "reddit",
-          "tiktok"
+          "reddit"
         ]
       },
       "display_name": {
@@ -259,8 +257,7 @@
               "linkedin",
               "x",
               "youtube",
-              "reddit",
-              "tiktok"
+              "reddit"
             ]
           },
           "return_to": {
@@ -308,8 +305,7 @@
               "linkedin",
               "x",
               "youtube",
-              "reddit",
-              "tiktok"
+              "reddit"
             ]
           },
           "confirm": {
@@ -351,8 +347,7 @@
               "linkedin",
               "x",
               "youtube",
-              "reddit",
-              "tiktok"
+              "reddit"
             ]
           }
         }

@@ -47,7 +47,7 @@ The two secrets serving the callback boundary are intentionally separate:
 
 ## OAuth token security
 
-Aries-brokered OAuth tokens (LinkedIn, X, YouTube, TikTok, Reddit) are encrypted before storage using `OAUTH_TOKEN_ENCRYPTION_KEY` via the token crypto helpers in `backend/integrations/oauth-token-crypto.ts`. The key is a 32-byte base64-encoded value generated with `openssl rand -base64 32`.
+Aries-brokered OAuth tokens (LinkedIn, X, YouTube, Reddit) are encrypted before storage using `OAUTH_TOKEN_ENCRYPTION_KEY` via the token crypto helpers in `backend/integrations/oauth-token-crypto.ts`. The key is a 32-byte base64-encoded value generated with `openssl rand -base64 32`.
 
 Rotating `OAUTH_TOKEN_ENCRYPTION_KEY` invalidates all stored encrypted tokens; users must reconnect their provider accounts after a key rotation.
 

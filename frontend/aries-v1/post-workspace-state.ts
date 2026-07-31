@@ -189,7 +189,7 @@ function parseProductionContractCounts(
 
 function videoLike(value: string | null | undefined): boolean {
   const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  return /video|reel|short|tiktok|story/.test(normalized);
+  return /video|reel|short|story/.test(normalized);
 }
 
 function isVideoDashboardAsset(asset: MarketingDashboardAsset): boolean {

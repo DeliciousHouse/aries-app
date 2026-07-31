@@ -922,7 +922,7 @@ test('social content dashboard projection includes playable rendered videos from
               posts: [
                 {
                   day: 'Day 3',
-                  platforms: ['tiktok'],
+                  platforms: ['youtube'],
                   post_type: 'video',
                   title: 'Launch cut teaser',
                   caption: 'Show the tactile reveal and CTA.',
@@ -965,12 +965,12 @@ test('social content dashboard projection includes playable rendered videos from
           output: {
             artifacts: [
               {
-                id: 'video-tiktok-launch-cut',
-                title: 'TikTok launch cut',
+                id: 'video-youtube-launch-cut',
+                title: 'YouTube launch cut',
                 status: 'ready',
-                video_url: `/api/marketing/jobs/${jobId}/assets/video-tiktok-launch-cut`,
-                poster_url: `/api/marketing/jobs/${jobId}/assets/video-tiktok-launch-cut-poster`,
-                platform_slug: 'tiktok',
+                video_url: `/api/marketing/jobs/${jobId}/assets/video-youtube-launch-cut`,
+                poster_url: `/api/marketing/jobs/${jobId}/assets/video-youtube-launch-cut-poster`,
+                platform_slug: 'youtube',
                 family_id: 'launch-cut',
                 duration_seconds: 21,
                 aspect_ratio: '9:16',
@@ -990,15 +990,15 @@ test('social content dashboard projection includes playable rendered videos from
           },
           artifacts: [
             {
-              id: 'video-tiktok-launch-cut',
+              id: 'video-youtube-launch-cut',
               type: 'video',
-              title: String.raw`TikTok launch cut rendered at C:\Users\renderer\.hermes\cache\launch-cut.mp4`,
+              title: String.raw`YouTube launch cut rendered at C:\Users\renderer\.hermes\cache\launch-cut.mp4`,
               status: 'ready',
-              summary: 'TikTok launch cut saved to /home/node/.hermes/cache/launch-cut.mp4 and ready.',
-              url: `/api/marketing/jobs/${jobId}/assets/video-tiktok-launch-cut`,
+              summary: 'YouTube launch cut saved to /home/node/.hermes/cache/launch-cut.mp4 and ready.',
+              url: `/api/marketing/jobs/${jobId}/assets/video-youtube-launch-cut`,
               metadata: {
-                poster_url: `/api/marketing/jobs/${jobId}/assets/video-tiktok-launch-cut-poster`,
-                platform_slug: 'tiktok',
+                poster_url: `/api/marketing/jobs/${jobId}/assets/video-youtube-launch-cut-poster`,
+                platform_slug: 'youtube',
                 family_id: 'launch-cut',
                 duration_seconds: 21,
                 aspect_ratio: '9:16',
@@ -1040,13 +1040,13 @@ test('social content dashboard projection includes playable rendered videos from
 
   const videoAssets = dashboard.assets.filter((asset) => asset.type === 'video_ad');
   assert.equal(videoAssets.length, 1);
-  assert.equal(videoAssets[0].previewUrl, `/api/marketing/jobs/${jobId}/assets/video-tiktok-launch-cut`);
-  assert.equal(videoAssets[0].thumbnailUrl, `/api/marketing/jobs/${jobId}/assets/video-tiktok-launch-cut-poster`);
+  assert.equal(videoAssets[0].previewUrl, `/api/marketing/jobs/${jobId}/assets/video-youtube-launch-cut`);
+  assert.equal(videoAssets[0].thumbnailUrl, `/api/marketing/jobs/${jobId}/assets/video-youtube-launch-cut-poster`);
   assert.equal(videoAssets[0].contentType, 'video/mp4');
-  assert.equal(videoAssets[0].platform, 'tiktok');
+  assert.equal(videoAssets[0].platform, 'youtube');
   assert.equal(videoAssets[0].status, 'ready');
-  assert.match(videoAssets[0].title, /^TikTok launch cut rendered at /);
-  assert.match(videoAssets[0].summary, /^TikTok launch cut saved to /);
+  assert.match(videoAssets[0].title, /^YouTube launch cut rendered at /);
+  assert.match(videoAssets[0].summary, /^YouTube launch cut saved to /);
   assert.match(videoAssets[0].summary, / and ready\.$/);
   assert.equal(dashboard.post?.counts.videoAds, 1);
   const serialized = JSON.stringify(dashboard);

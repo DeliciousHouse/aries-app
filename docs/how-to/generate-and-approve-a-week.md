@@ -22,7 +22,7 @@ Default scope, from `DEFAULT_SOCIAL_CONTENT_COUNTS` in `backend/social-content/t
 | `imageCreativeCount` | 6 | max 6 |
 | `videoScriptCount` | 1 | floored at 0 |
 | `videoRenderCount` | 0 | max 1 |
-| `channels` | `['meta','instagram']` | enum: `meta\|instagram\|linkedin\|x\|tiktok\|youtube` |
+| `channels` | `['meta','instagram']` | enum: `meta\|instagram\|linkedin\|x\|youtube` |
 
 The window-day bounds can be overridden with the env vars `ARIES_SOCIAL_CONTENT_WINDOW_DAYS_MIN` and `ARIES_SOCIAL_CONTENT_WINDOW_DAYS_MAX` (`backend/social-content/payload.ts`). Normalization is in `normalizeWeeklySocialContentPayload`; the day clamp is `clampWeeklyWindowDays`.
 

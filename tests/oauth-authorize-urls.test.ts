@@ -18,8 +18,6 @@ const OAUTH_ENV_KEYS = [
   'OPENAI_CLIENT_SECRET',
   'REDDIT_CLIENT_ID',
   'REDDIT_CLIENT_SECRET',
-  'TIKTOK_CLIENT_KEY',
-  'TIKTOK_CLIENT_SECRET',
   'X_CLIENT_ID',
   'X_CLIENT_SECRET',
   'YOUTUBE_CLIENT_ID',
@@ -58,7 +56,7 @@ const providerCases: Array<{
   missingError: string;
   presentEnv: Partial<Record<(typeof OAUTH_ENV_KEYS)[number], string>>;
   expectedOrigin: string;
-  expectedQueryKey: 'client_id' | 'client_key';
+  expectedQueryKey: 'client_id';
   expectedClientValue: string;
   scopes: string[];
   codeVerifier?: string;
@@ -117,15 +115,6 @@ const providerCases: Array<{
     expectedQueryKey: 'client_id',
     expectedClientValue: 'reddit-client-id',
     scopes: ['submit'],
-  },
-  {
-    provider: 'tiktok',
-    missingError: 'tiktok_oauth_not_configured',
-    presentEnv: { TIKTOK_CLIENT_KEY: 'tiktok-client-key' },
-    expectedOrigin: 'https://www.tiktok.com',
-    expectedQueryKey: 'client_key',
-    expectedClientValue: 'tiktok-client-key',
-    scopes: ['video.publish'],
   },
 ];
 

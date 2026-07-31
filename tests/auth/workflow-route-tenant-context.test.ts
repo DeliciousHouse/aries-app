@@ -233,7 +233,8 @@ test('publish dispatch ignores forged tenant_id and rejects missing tenant conte
 test('integrations sync ignores forged tenant_id and uses repo-managed workflow metadata', async () => {
   const stub = installHermesFetchStub();
   try {
-    // tiktok is a non-insights provider, so it still routes through the Hermes
+    // meta_ads is a non-insights provider (it is absent from the insights
+    // platform registry entirely), so it still routes through the Hermes
     // integrations_sync workflow this test asserts on. Insights platforms
     // (facebook/instagram/youtube) now sync via the insights dispatcher
     // (#596/#597), a direct DB write loop keyed on the authenticated tenant id.
@@ -243,7 +244,7 @@ test('integrations sync ignores forged tenant_id and uses repo-managed workflow 
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           tenant_id: 'forged_tenant',
-          platform: 'tiktok',
+          platform: 'meta_ads',
         }),
       }),
       async () => ({

@@ -230,16 +230,6 @@ const MAPPERS: Partial<Record<string, PlatformAnalyticsMapper>> = {
       };
     },
   },
-  // TikTok (account-level only; no per-post insights tool)
-  'tiktok:account_insights': {
-    slug: 'TIKTOK_GET_USER_STATS',
-    buildArgs: () => ({ fields: ['follower_count', 'likes_count', 'video_count'] }),
-    parse: (raw) => {
-      const p = payload(raw);
-      const stats = ((p.user ?? p) as Record<string, unknown>);
-      return { likes: num(stats.likes_count) };
-    },
-  },
   // YouTube
   'youtube:post_insights': {
     slug: 'YOUTUBE_GET_VIDEO_DETAILS_BATCH',

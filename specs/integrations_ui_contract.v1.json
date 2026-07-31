@@ -26,8 +26,7 @@
       "linkedin",
       "x",
       "youtube",
-      "reddit",
-      "tiktok"
+      "reddit"
     ],
     "platform_filter": [
       "all",
@@ -79,8 +78,7 @@
                 "linkedin",
                 "x",
                 "youtube",
-                "reddit",
-                "tiktok"
+                "reddit"
               ]
             },
             "allOf": [
@@ -114,11 +112,7 @@
                   "const": "reddit"
                 }
               },
-              {
-                "contains": {
-                  "const": "tiktok"
-                }
-              }
+              {}
             ]
           },
           "cards": {

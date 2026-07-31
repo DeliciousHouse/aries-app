@@ -106,9 +106,6 @@ export function getCapabilityProvider(
  * of the global PUBLISH_PROVIDER selector. Facebook and Instagram keep the
  * selector-driven path (direct_meta by default) — no change to their behavior.
  *
- * TikTok is intentionally excluded here: its publisher branch does not exist
- * yet (tracked in #647). It joins this set only when a Composio publisher
- * branch is implemented and tested for it.
  */
 const COMPOSIO_ONLY_PUBLISH_PLATFORMS = new Set<IntegrationPlatform>(['x', 'reddit', 'linkedin', 'youtube']);
 

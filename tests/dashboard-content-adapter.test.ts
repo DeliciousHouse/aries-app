@@ -105,9 +105,9 @@ function baseRuntimeDoc(jobId: string, tenantId: string) {
       history: [],
     },
     publish_config: {
-      platforms: ['meta-ads', 'tiktok'],
+      platforms: ['meta-ads', 'youtube'],
       live_publish_platforms: ['meta-ads'],
-      video_render_platforms: ['tiktok'],
+      video_render_platforms: ['youtube'],
     },
     brand_kit: {
       path: path.join(process.env.DATA_ROOT!, 'generated', 'validated', tenantId, 'brand-kit.json'),
@@ -880,7 +880,7 @@ test('dashboard adapter prefers live platform schedule signals over fallback eve
 test('dashboard adapter surfaces rendered .mp4 video assets from the provider-neutral contract fields', async () => {
   await withDashboardEnv(async (env) => {
     const jobId = 'video-ready';
-    const platformSlug = 'tiktok';
+    const platformSlug = 'youtube';
     const doc: any = baseRuntimeDoc(jobId, 'tenant_dashboard');
     doc.current_stage = 'publish';
     doc.stages.production = stageRecord('production', 'completed', 'prod-run');
@@ -920,7 +920,7 @@ test('dashboard adapter surfaces rendered .mp4 video assets from the provider-ne
     await writeText(videoPath, 'mp4-bytes');
     await writeText(posterPath, 'png-poster');
     await writeJson(copyPath, {
-      headline: 'TikTok launch package',
+      headline: 'YouTube launch package',
       body_lines: ['proof', 'cta'],
     });
     await writeJson(contractPath, {

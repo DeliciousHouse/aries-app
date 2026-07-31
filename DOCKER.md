@@ -335,7 +335,7 @@ COMPOSIO_INSTAGRAM_AUTH_CONFIG_ID=<id>
 | --- | --- | --- | --- |
 | `COMPOSIO_ENABLED` | yes | yes | must be `true` on **both**; the worker executes Composio tools itself |
 | `COMPOSIO_API_KEY` | yes | yes | same key both places |
-| `COMPOSIO_*_AUTH_CONFIG_ID` | yes (all 9 providers) | 6: `DEFAULT`, `FACEBOOK`, `X`, `YOUTUBE`, `REDDIT`, `LINKEDIN` | the app owns the connect flow; the worker gets the providers it can pull insights for. Note the worker has **no** `INSTAGRAM`, `METAADS` or `TIKTOK` entry — IG insights resolve through the Facebook/default config |
+| `COMPOSIO_*_AUTH_CONFIG_ID` | yes (all 9 providers) | 6: `DEFAULT`, `FACEBOOK`, `X`, `YOUTUBE`, `REDDIT`, `LINKEDIN` | the app owns the connect flow; the worker gets the providers it can pull insights for. Note the worker has **no** `INSTAGRAM` or `METAADS` entry — IG insights resolve through the Facebook/default config |
 | `ANALYTICS_PROVIDER` | — | yes | defaults to `composio` |
 | `HERMES_GATEWAY_URL` / `HERMES_API_SERVER_KEY` | yes | yes | the worker needs them for comment classification |
 | `ARIES_COMMENT_CLASSIFICATION_ENABLED` | — | yes (**ships `1`**) | see the trap below |

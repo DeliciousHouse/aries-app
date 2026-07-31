@@ -22,7 +22,6 @@ export type IntegrationPlatform =
   | 'facebook'
   | 'instagram'
   | 'meta_ads'
-  | 'tiktok'
   | 'youtube'
   | 'linkedin'
   | 'reddit'
@@ -32,7 +31,6 @@ export const INTEGRATION_PLATFORMS: readonly IntegrationPlatform[] = [
   'facebook',
   'instagram',
   'meta_ads',
-  'tiktok',
   'youtube',
   'linkedin',
   'reddit',

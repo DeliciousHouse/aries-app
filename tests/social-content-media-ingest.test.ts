@@ -41,7 +41,7 @@ test('ingestSocialContentVideoRenderOutput copies allowed Hermes media into the 
     const output = [{
       video_assets: {
         platform_contracts: [{
-          platform_slug: 'TikTok',
+          platform_slug: 'YouTube',
           rendered_video_variants: [{
             family_id: 'Launch Cut',
             video_path: videoPath,
@@ -58,7 +58,7 @@ test('ingestSocialContentVideoRenderOutput copies allowed Hermes media into the 
     const variant = (output[0] as any).video_assets.platform_contracts[0].rendered_video_variants[0];
     const expectedVideoDir = path.join(dataRoot, 'generated', 'draft', 'jobs', jobId, 'videos');
     assert.equal(path.dirname(variant.video_path), expectedVideoDir);
-    assert.match(path.basename(variant.video_path), /^tiktok-launch-cut-[0-9a-f]{32}\.mp4$/);
+    assert.match(path.basename(variant.video_path), /^youtube-launch-cut-[0-9a-f]{32}\.mp4$/);
     const servedBaseName = path.basename(variant.video_path, '.mp4');
     const expectedVideoPath = path.join(expectedVideoDir, `${servedBaseName}.mp4`);
     const expectedPosterPath = path.join(expectedVideoDir, `${servedBaseName}-poster.png`);
@@ -85,7 +85,7 @@ test('ingestSocialContentVideoRenderOutput refuses sources outside the Hermes al
       const output = [{
         video_assets: {
           platform_contracts: [{
-            platform_slug: 'TikTok',
+            platform_slug: 'YouTube',
             rendered_video_variants: [{
               family_id: 'Unsafe',
               video_path: outsideVideoPath,
@@ -99,7 +99,7 @@ test('ingestSocialContentVideoRenderOutput refuses sources outside the Hermes al
       assert.deepEqual(result.skipped, [{ path: outsideVideoPath, reason: 'not_allowed' }]);
       assert.equal((output[0] as any).video_assets.platform_contracts[0].rendered_video_variants[0].video_path, outsideVideoPath);
 
-      const expectedVideoPath = path.join(dataRoot, 'generated', 'draft', 'jobs', 'job-video-ingest', 'videos', 'tiktok-unsafe.mp4');
+      const expectedVideoPath = path.join(dataRoot, 'generated', 'draft', 'jobs', 'job-video-ingest', 'videos', 'youtube-unsafe.mp4');
       await assert.rejects(readFile(expectedVideoPath));
     } finally {
       await rm(outsideRoot, { recursive: true, force: true });
@@ -134,20 +134,20 @@ test('ingestSocialContentVideoRenderOutput allows already-ingested exact destina
     const { ingestSocialContentVideoRenderOutput } = await import('../backend/social-content/media-ingest');
 
     const jobId = 'job-video-ingest';
-    const expectedVideoPath = path.join(dataRoot, 'generated', 'draft', 'jobs', jobId, 'videos', 'tiktok-launch-cut.mp4');
-    const expectedPosterPath = path.join(dataRoot, 'generated', 'draft', 'jobs', jobId, 'videos', 'tiktok-launch-cut-poster.png');
+    const expectedVideoPath = path.join(dataRoot, 'generated', 'draft', 'jobs', jobId, 'videos', 'youtube-launch-cut.mp4');
+    const expectedPosterPath = path.join(dataRoot, 'generated', 'draft', 'jobs', jobId, 'videos', 'youtube-launch-cut-poster.png');
     await mkdir(path.dirname(expectedVideoPath), { recursive: true });
     await writeFile(expectedVideoPath, Buffer.from('existing-video'));
     await writeFile(expectedPosterPath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
 
-    const otherJobPosterPath = path.join(dataRoot, 'generated', 'draft', 'jobs', 'other-job', 'videos', 'tiktok-launch-cut-poster.png');
+    const otherJobPosterPath = path.join(dataRoot, 'generated', 'draft', 'jobs', 'other-job', 'videos', 'youtube-launch-cut-poster.png');
     await mkdir(path.dirname(otherJobPosterPath), { recursive: true });
     await writeFile(otherJobPosterPath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
 
     const output = [{
       video_assets: {
         platform_contracts: [{
-          platform_slug: 'TikTok',
+          platform_slug: 'YouTube',
           rendered_video_variants: [
             {
               family_id: 'Launch Cut',
@@ -171,8 +171,8 @@ test('ingestSocialContentVideoRenderOutput allows already-ingested exact destina
     assert.equal(variants[0].video_path, expectedVideoPath);
     assert.equal(variants[0].thumbnail_path, expectedPosterPath);
     assert.equal(variants[0].poster_path, expectedPosterPath);
-    assert.equal(variants[0].video_url, `/api/marketing/jobs/${jobId}/assets/video-tiktok-launch-cut`);
-    assert.equal(variants[0].poster_url, `/api/marketing/jobs/${jobId}/assets/video-tiktok-launch-cut-poster`);
+    assert.equal(variants[0].video_url, `/api/marketing/jobs/${jobId}/assets/video-youtube-launch-cut`);
+    assert.equal(variants[0].poster_url, `/api/marketing/jobs/${jobId}/assets/video-youtube-launch-cut-poster`);
     assert.equal(variants[1].thumbnail_path, otherJobPosterPath);
   });
 });

@@ -49,7 +49,7 @@ test('collectProductionReviewArtifacts prefers persisted canonical v2 video arti
             id: 'clip-skipped',
             path: '/tmp/untrusted-canonical-video.mp4',
             mime_type: 'video/mp4',
-            platform_slug: 'tiktok',
+            platform_slug: 'linkedin',
             family_id: 'skipped_family',
           },
         ],
@@ -181,8 +181,8 @@ test('collectProductionReviewArtifacts emits one video artifact per rendered var
       video_assets: {
         platform_contracts: [
           {
-            platform: 'TikTok',
-            platform_slug: 'tiktok',
+            platform: 'LinkedIn',
+            platform_slug: 'linkedin',
             platform_requirements: {
               target_duration_seconds: 20,
               aspect_ratio: '9:16',
@@ -193,16 +193,16 @@ test('collectProductionReviewArtifacts emits one video artifact per rendered var
                 family_name: 'Family A',
                 aspect_ratio: '9:16',
                 duration_seconds: 20,
-                video_path: `/data/generated/draft/jobs/${jobId}/videos/tiktok-family-a.mp4`,
-                video_url: `/api/marketing/jobs/${jobId}/assets/video-tiktok-family-a-0123456789abcdef0123456789abcdef`,
-                poster_url: `/api/marketing/jobs/${jobId}/assets/video-tiktok-family-a-0123456789abcdef0123456789abcdef-poster`,
+                video_path: `/data/generated/draft/jobs/${jobId}/videos/linkedin-family-a.mp4`,
+                video_url: `/api/marketing/jobs/${jobId}/assets/video-linkedin-family-a-0123456789abcdef0123456789abcdef`,
+                poster_url: `/api/marketing/jobs/${jobId}/assets/video-linkedin-family-a-0123456789abcdef0123456789abcdef-poster`,
               },
               {
                 family_id: 'family-b',
                 family_name: 'Family B',
                 aspect_ratio: '9:16',
                 duration_seconds: 20,
-                video_path: `/data/generated/draft/jobs/${jobId}/videos/tiktok-family-b.mp4`,
+                video_path: `/data/generated/draft/jobs/${jobId}/videos/linkedin-family-b.mp4`,
               },
             ],
           },
@@ -246,13 +246,13 @@ test('collectProductionReviewArtifacts emits one video artifact per rendered var
     assert.equal(videoArtifacts.length, 4);
 
     const expected = new Map([
-      ['video-tiktok-family-a-0123456789abcdef0123456789abcdef', {
-        platformSlug: 'tiktok',
+      ['video-linkedin-family-a-0123456789abcdef0123456789abcdef', {
+        platformSlug: 'linkedin',
         familyId: 'family-a',
-        url: `/api/marketing/jobs/${jobId}/assets/video-tiktok-family-a-0123456789abcdef0123456789abcdef`,
-        posterUrl: `/api/marketing/jobs/${jobId}/assets/video-tiktok-family-a-0123456789abcdef0123456789abcdef-poster`,
+        url: `/api/marketing/jobs/${jobId}/assets/video-linkedin-family-a-0123456789abcdef0123456789abcdef`,
+        posterUrl: `/api/marketing/jobs/${jobId}/assets/video-linkedin-family-a-0123456789abcdef0123456789abcdef-poster`,
       }],
-      ['video-tiktok-family-b', { platformSlug: 'tiktok', familyId: 'family-b' }],
+      ['video-linkedin-family-b', { platformSlug: 'linkedin', familyId: 'family-b' }],
       ['video-youtube-shorts-family-a', { platformSlug: 'youtube-shorts', familyId: 'family-a' }],
       ['video-youtube-shorts-family-b', { platformSlug: 'youtube-shorts', familyId: 'family-b' }],
     ]);
@@ -414,14 +414,14 @@ test('collectProductionReviewArtifacts keeps a read-only path for persisted pred
       run_id: runId,
       video_assets: {
         platform_contracts: [{
-          platform: 'TikTok',
-          platform_slug: 'tiktok',
+          platform: 'LinkedIn',
+          platform_slug: 'linkedin',
           rendered_video_variants: [{
             family_id: 'legacy-family',
             family_name: 'Legacy Family',
             aspect_ratio: '9:16',
             duration_seconds: 20,
-            video_path: `/data/generated/draft/jobs/${jobId}/videos/tiktok-legacy-family.mp4`,
+            video_path: `/data/generated/draft/jobs/${jobId}/videos/linkedin-legacy-family.mp4`,
           }],
         }],
       },
@@ -436,7 +436,7 @@ test('collectProductionReviewArtifacts keeps a read-only path for persisted pred
         'type' in artifact && artifact.type === 'video',
     );
 
-    assert.deepEqual(videoArtifacts.map((artifact) => artifact.id), ['video-tiktok-legacy-family']);
+    assert.deepEqual(videoArtifacts.map((artifact) => artifact.id), ['video-linkedin-legacy-family']);
     assert.equal((capture.outputs.video as { type?: string } | null)?.type, predecessorStep);
   } finally {
     if (previousStage3CacheDir === undefined) delete process.env.ARTIFACT_STAGE3_CACHE_DIR;

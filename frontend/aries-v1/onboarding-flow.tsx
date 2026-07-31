@@ -108,11 +108,6 @@ const CHANNEL_OPTIONS: ChannelOption[] = [
     description: 'Automated email sequences and lifecycle content.',
   },
   {
-    id: 'tiktok',
-    label: 'TikTok',
-    description: 'Short-form video ads and organic content.',
-  },
-  {
     id: 'youtube',
     label: 'YouTube',
     description: 'Video ads, shorts, and channel content.',
@@ -257,7 +252,7 @@ function recommendedChannelsForBusinessType(businessType: string): string[] {
     return ['linkedin', 'meta-ads', 'email'];
   }
   if (ecomKeywords.some((kw) => normalized.includes(kw))) {
-    return ['meta-ads', 'instagram', 'email', 'tiktok'];
+    return ['meta-ads', 'instagram', 'email'];
   }
   return ['meta-ads', 'instagram'];
 }

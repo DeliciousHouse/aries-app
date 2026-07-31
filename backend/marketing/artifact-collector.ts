@@ -826,7 +826,6 @@ export async function collectPublishFinalizeArtifacts(
     'meta_ads_publisher',
     'instagram_publisher',
     'x_publisher',
-    'tiktok_publisher',
     'youtube_publisher',
     'linkedin_publisher',
     'reddit_publisher',

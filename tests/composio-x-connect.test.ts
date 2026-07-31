@@ -4,9 +4,9 @@
  *
  * Failure modes locked:
  *  - Flag OFF: 'x' absent from connectablePlatforms, platformOr400 returns 400
- *    unsupported_platform, list endpoint returns 6 slots (no x, no tiktok).
+ *    unsupported_platform, list endpoint returns 6 slots (no x).
  *  - Flag ON:  'x' present in connectablePlatforms, platformOr400 passes through,
- *    list endpoint returns 7 slots including x (tiktok still dormant).
+ *    list endpoint returns 7 slots including x.
  *  - Config: TOOLKIT_SLUG.x === 'twitter'; COMPOSIO_X_AUTH_CONFIG_ID read correctly.
  *  - Regression guard: all 6 still-connectable platforms remain byte-identical.
  */
@@ -81,7 +81,7 @@ test('connectablePlatforms flag-OFF: does not include x', () => {
     !platforms.includes('x'),
     "'x' must not be in connectablePlatforms when ARIES_X_ENABLED is unset",
   );
-  assert.equal(platforms.length, 6, 'exactly 6 platforms when flag is off (no x, no tiktok)');
+  assert.equal(platforms.length, 6, 'exactly 6 platforms when flag is off (no x)');
 });
 
 test('isXEnabled: returns false when ARIES_X_ENABLED is unset', () => {
@@ -128,19 +128,19 @@ test('handleComposioList flag-OFF: response connections do not include x', async
       !platforms.includes('x'),
       "x must not appear in connection list when ARIES_X_ENABLED is off",
     );
-    assert.equal(platforms.length, 6, '6 connection slots when flag is off (no x, no tiktok)');
+    assert.equal(platforms.length, 6, '6 connection slots when flag is off (no x)');
   });
 });
 
 // ── 2. Fix proof: flag ON ────────────────────────────────────────────────────
 
-test('connectablePlatforms flag-ON: includes x (7 total, tiktok still dormant)', () => {
+test('connectablePlatforms flag-ON: includes x (7 total)', () => {
   const platforms = connectablePlatforms(mkEnv({ ARIES_X_ENABLED: '1' }));
   assert.ok(
     platforms.includes('x'),
     "'x' must be in connectablePlatforms when ARIES_X_ENABLED=1",
   );
-  assert.equal(platforms.length, 7, '7 platforms when flag is on (tiktok still dormant)');
+  assert.equal(platforms.length, 7, '7 platforms when flag is on');
 });
 
 test('isXEnabled: true for all canonical truthy values', () => {
@@ -181,7 +181,7 @@ test('handleComposioConnect x flag-ON: passes the platform gate (no 400 unsuppor
   });
 });
 
-test('handleComposioList flag-ON: response connections include x (7 slots, tiktok still dormant)', async () => {
+test('handleComposioList flag-ON: response connections include x (7 slots)', async () => {
   await withEnv({ ARIES_X_ENABLED: '1' }, async () => {
     const response = await handleComposioList(tenantLoader);
     assert.equal(response.status, 200);
@@ -193,7 +193,7 @@ test('handleComposioList flag-ON: response connections include x (7 slots, tikto
       platforms.includes('x'),
       "x must appear in connection list when ARIES_X_ENABLED=1",
     );
-    assert.equal(platforms.length, 7, '7 connection slots when flag is on (tiktok still dormant)');
+    assert.equal(platforms.length, 7, '7 connection slots when flag is on');
   });
 });
 
@@ -239,10 +239,9 @@ test('composioAuthConfigId reddit: returns null when only COMPOSIO_DEFAULT_AUTH_
 });
 
 test('composioAuthConfigId regression: managed platforms still fall back to COMPOSIO_DEFAULT_AUTH_CONFIG_ID (#669)', () => {
-  // The exclusion is narrow — only reddit + x + tiktok are excluded from the DEFAULT
+  // The exclusion is narrow — only reddit + x are excluded from the DEFAULT
   // fallback. All other platforms (facebook, instagram, meta_ads, youtube,
   // linkedin) must still inherit COMPOSIO_DEFAULT_AUTH_CONFIG_ID.
-  // tiktok→null is asserted in composio-tiktok-connect.test.ts (#690).
   const env = mkEnv({ COMPOSIO_DEFAULT_AUTH_CONFIG_ID: 'ac_default' });
   const managed = [
     'facebook',
@@ -262,7 +261,7 @@ test('composioAuthConfigId regression: managed platforms still fall back to COMP
 
 // ── 4. Regression guard: the other 6 still-connectable platforms remain byte-identical ──
 
-test('connectablePlatforms flag-OFF: all 6 still-connectable platforms present (no x, no tiktok)', () => {
+test('connectablePlatforms flag-OFF: all 6 still-connectable platforms present (no x)', () => {
   const off = connectablePlatforms(mkEnv({}));
   const original6 = [
     'facebook',
@@ -277,7 +276,7 @@ test('connectablePlatforms flag-OFF: all 6 still-connectable platforms present (
   }
 });
 
-test('connectablePlatforms flag-ON: all 7 platforms present (6 base + x, tiktok still dormant)', () => {
+test('connectablePlatforms flag-ON: all 7 platforms present (6 base + x)', () => {
   const on = connectablePlatforms(mkEnv({ ARIES_X_ENABLED: '1' }));
   const all7 = [
     'facebook',

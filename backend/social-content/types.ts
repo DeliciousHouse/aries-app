@@ -98,7 +98,7 @@ export interface WeeklySocialContentPayload {
   competitorBrand?: string;
   facebookPageUrl?: string;
   adLibraryUrl?: string;
-  channels: Array<'meta' | 'instagram' | 'linkedin' | 'x' | 'tiktok' | 'youtube'>;
+  channels: Array<'meta' | 'instagram' | 'linkedin' | 'x' | 'youtube'>;
   postWindowDays: number;
   staticPostCount: number;
   /** Image-story posts to request alongside feed posts. Default 1 (ON); 0 = OFF. */

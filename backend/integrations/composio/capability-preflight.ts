@@ -33,9 +33,6 @@ const PLATFORM_WARNINGS: Partial<Record<IntegrationPlatform, string[]>> = {
   meta_ads: [
     'Meta Ads typically requires a custom Composio auth config (the managed app may be unavailable). Confirm ad-account access before publishing.',
   ],
-  tiktok: [
-    'TikTok deeper analytics may be unavailable; only stats exposed by the connected API will be reported.',
-  ],
   youtube: [
     'Deep YouTube Analytics requires the YouTube Analytics API; basic video/channel stats only unless Composio exposes equivalent access.',
   ],

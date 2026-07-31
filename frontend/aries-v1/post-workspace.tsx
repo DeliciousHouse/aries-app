@@ -137,7 +137,6 @@ function normalizeWebsiteUrlInput(value: string): string {
 }
 
 const PLATFORM_VIDEO_LABELS: Record<string, string> = {
-  tiktok: 'TikTok',
   youtube: 'YouTube',
   'youtube-shorts': 'YouTube Shorts',
   instagram: 'Instagram',

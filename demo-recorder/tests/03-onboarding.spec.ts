@@ -75,9 +75,9 @@ test('B-roll 04 — onboarding steps 1 through 4 (skips blocked step 5 submit)',
   await email.click();
   await page.waitForTimeout(1200);
 
-  const tiktok = page.getByRole('checkbox', { name: /tiktok/i });
-  await tiktok.hover();
+  const youtube = page.getByRole('checkbox', { name: /youtube/i });
+  await youtube.hover();
   await page.waitForTimeout(800);
-  await tiktok.click();
+  await youtube.click();
   await page.waitForTimeout(3000);
 });
