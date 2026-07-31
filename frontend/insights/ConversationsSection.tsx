@@ -3,9 +3,13 @@
 // Section 7 — Comment engagement + lead detection (uncached endpoint)
 // API: GET /api/insights/conversations?period=…&platform=…
 //
-// Reply / Send to Sequences / View all route to the Conversations workspace,
-// which isn't built yet — they surface a "coming soon" toast for now.
+// Reply posts natively to Meta via POST /api/insights/comments/:id/reply, gated
+// on ARIES_NATIVE_REPLY_ENABLED (read server-side in app/insights/page.tsx).
+// Send to Sequences / View all still route to the Conversations workspace,
+// which isn't built yet — they stay disabled.
 // ─────────────────────────────────────────────────────────────────────────────
+
+import { useState } from "react";
 
 import type {
   Period, Platform, ConversationsData, ConversationItem, LeadQualityItem,
@@ -20,6 +24,35 @@ import type { IconName } from "@/frontend/insights/ui";
 interface ConversationsSectionProps {
   period:   Period;
   platform: Platform;
+  /** Mirrors ARIES_NATIVE_REPLY_ENABLED, read server-side in app/insights/page.tsx.
+   *  When off the reply endpoint returns a real 404, so the control stays disabled
+   *  rather than offering an action that cannot succeed. */
+  nativeReplyEnabled?: boolean;
+}
+
+/** Matches MAX_REPLY_LENGTH in the reply handler. Enforced here too so the
+ *  operator sees the limit while typing instead of after a round trip. */
+const MAX_REPLY_LENGTH = 8000;
+
+type ReplyOutcome = { kind: 'replied' } | { kind: 'error'; message: string };
+
+/** Maps the reply endpoint's response onto operator-facing copy. The endpoint
+ *  never returns the raw Graph error, so these are the only cases to handle. */
+function describeReplyFailure(status: number, reason: string | null): string {
+  if (status === 404) {
+    return reason === 'not_found'
+      ? 'This comment is no longer available, or replying is not enabled.'
+      : 'Reply is unavailable.';
+  }
+  if (reason === 'missing_reply_text') return 'Write a reply first.';
+  if (reason === 'reply_text_too_long') return `Replies are limited to ${MAX_REPLY_LENGTH} characters.`;
+  if (reason === 'unsupported_platform') return 'Replies are not supported for this platform.';
+  if (reason === 'needs_manual_reconciliation') {
+    // The publish path could not confirm the outcome. Never auto-retry: the
+    // reply may already be live.
+    return 'The reply may have posted but could not be confirmed. Check the post before retrying.';
+  }
+  return 'Reply failed. Try again in a moment.';
 }
 
 function tagColor(tag: string | null): string {
@@ -83,8 +116,51 @@ function ActionButton({
   );
 }
 
-function ConversationRow({ item, last }: { item: ConversationItem; last: boolean }) {
+function ConversationRow({
+  item, last, nativeReplyEnabled,
+}: { item: ConversationItem; last: boolean; nativeReplyEnabled: boolean }) {
   const bubble = platformColor[item.platform] ?? C.accent;
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [replyText, setReplyText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [outcome, setOutcome] = useState<ReplyOutcome | null>(null);
+
+  // `handled` is is_replied on the stored comment, so a comment replied to in a
+  // previous session shows as replied without needing a local send.
+  const alreadyReplied = item.handled || outcome?.kind === 'replied';
+  const trimmed = replyText.trim();
+  const tooLong = trimmed.length > MAX_REPLY_LENGTH;
+  const canSend = !sending && trimmed.length > 0 && !tooLong;
+
+  async function sendReply() {
+    if (!canSend) return;
+    setSending(true);
+    setOutcome(null);
+    try {
+      const res = await fetch(`/api/insights/comments/${item.id}/reply`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reply_text: trimmed }),
+      });
+      const body = (await res.json().catch(() => null)) as
+        | { status?: string; reason?: string }
+        | null;
+
+      // `already_replied` is a 200 and means the reply is live — treat it as
+      // success so a double-submit converges instead of showing an error.
+      if (res.ok && (body?.status === 'replied' || body?.status === 'already_replied')) {
+        setOutcome({ kind: 'replied' });
+        setComposerOpen(false);
+        setReplyText('');
+        return;
+      }
+      setOutcome({ kind: 'error', message: describeReplyFailure(res.status, body?.reason ?? null) });
+    } catch {
+      setOutcome({ kind: 'error', message: 'Network error — the reply was not sent.' });
+    } finally {
+      setSending(false);
+    }
+  }
   return (
     <div style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "15px 0", borderBottom: last ? "none" : `1px solid ${C.border}` }}>
       <div
@@ -107,13 +183,73 @@ function ConversationRow({ item, last }: { item: ConversationItem; last: boolean
         <div style={{ fontSize: 13, color: C.t2, marginTop: 5, lineHeight: 1.5 }}>{item.text}</div>
         <div style={{ fontSize: 11, color: C.t3, marginTop: 6 }}>on “{item.postRef}”</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 9 }}>
-          {/* Reply is intentionally kept VISIBLE but disabled — S5-2 wires it
-              up for real (just flips `disabled` off). Do not remove. */}
-          <ActionButton icon="reply" label="Reply" disabled title="Reply ships soon" />
+          {alreadyReplied ? (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: C.green }}>
+              <Icon name="reply" size={12} color={C.green} />
+              Replied
+            </span>
+          ) : (
+            <ActionButton
+              icon="reply"
+              label="Reply"
+              disabled={!nativeReplyEnabled}
+              title={nativeReplyEnabled ? "Reply to this comment" : "Reply ships soon"}
+              onClick={() => setComposerOpen((open) => !open)}
+            />
+          )}
           {item.tag === "lead" && (
             <ActionButton icon="send" label="Send to Sequences" disabled title="Coming soon" />
           )}
         </div>
+
+        {composerOpen && !alreadyReplied && (
+          <div style={{ marginTop: 9 }}>
+            <textarea
+              value={replyText}
+              onChange={(event) => setReplyText(event.target.value)}
+              placeholder={`Reply to ${item.author}…`}
+              rows={3}
+              aria-label={`Reply to ${item.author}`}
+              style={{
+                width: "100%", background: "transparent", color: C.t1,
+                border: `1px solid ${C.border}`, borderRadius: 8,
+                padding: "8px 10px", fontSize: 13, lineHeight: 1.5, resize: "vertical",
+              }}
+            />
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 7 }}>
+              <ActionButton
+                icon="send"
+                label={sending ? "Sending…" : "Send reply"}
+                disabled={!canSend}
+                onClick={sendReply}
+              />
+              {/* Plain text button — the shared icon set has no cancel glyph. */}
+              <button
+                type="button"
+                disabled={sending}
+                onClick={() => { setComposerOpen(false); setOutcome(null); }}
+                style={{
+                  background: "transparent", border: "none", color: C.t3,
+                  fontSize: 11.5, fontWeight: 500, padding: "4px 2px",
+                  cursor: sending ? "not-allowed" : "pointer", opacity: sending ? 0.5 : 1,
+                }}
+              >
+                Cancel
+              </button>
+              {tooLong && (
+                <span style={{ fontSize: 11, color: C.t3 }}>
+                  {trimmed.length.toLocaleString()} / {MAX_REPLY_LENGTH.toLocaleString()}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {outcome?.kind === "error" && (
+          <div role="alert" style={{ fontSize: 11.5, color: C.t3, marginTop: 7 }}>
+            {outcome.message}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -137,7 +273,7 @@ function LeadQualityRow({ item }: { item: LeadQualityItem }) {
   );
 }
 
-export function ConversationsSection({ period, platform }: ConversationsSectionProps) {
+export function ConversationsSection({ period, platform, nativeReplyEnabled = false }: ConversationsSectionProps) {
   const { data, loading, error, refetch } = useInsight<ConversationsData>("conversations", period, platform);
   const empty = !data?.conversations?.length;
 
@@ -168,7 +304,12 @@ export function ConversationsSection({ period, platform }: ConversationsSectionP
 
               <div style={{ display: "flex", flexDirection: "column" }}>
                 {data.conversations.map((item, i) => (
-                  <ConversationRow key={item.id} item={item} last={i === data.conversations.length - 1} />
+                  <ConversationRow
+                    key={item.id}
+                    item={item}
+                    last={i === data.conversations.length - 1}
+                    nativeReplyEnabled={nativeReplyEnabled}
+                  />
                 ))}
               </div>
 

@@ -24,7 +24,7 @@ import { AudienceSection }      from "@/frontend/insights/AudienceSection";
  * operator identity — is provided by the shared AppShellLayout in
  * app/insights/page.tsx, so this component owns content only.
  */
-export function InsightsDashboard() {
+export function InsightsDashboard({ nativeReplyEnabled = false }: { nativeReplyEnabled?: boolean } = {}) {
   const [period, setPeriod]     = useState<Period>("90day");
   const [platform, setPlatform] = useState<Platform>("all");
 
@@ -66,7 +66,7 @@ export function InsightsDashboard() {
           {/* 6 — Top performing content */}
           <TopPostsSection period={period} platform={platform} />
           {/* 7 — Conversations */}
-          <ConversationsSection period={period} platform={platform} />
+          <ConversationsSection period={period} platform={platform} nativeReplyEnabled={nativeReplyEnabled} />
           {/* 8 — Working with Aries */}
           <AriesSection period={period} platform={platform} />
           {/* 9 — Audience */}
