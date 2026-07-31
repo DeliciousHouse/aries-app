@@ -22,6 +22,7 @@ import {
   resolveAttributionScope,
   type AttributionQueryable,
 } from '../backend/insights/attribution-scope';
+import { isAttributionScopeEnabled } from '../backend/insights/attribution-scope-env';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -52,7 +53,14 @@ function throwingDb(message: string): AttributionQueryable {
   };
 }
 
-const BASE = { tenantId: 7, fromDate: new Date('2026-07-01T00:00:00Z'), platformFilter: null };
+// `enabled: true` on the shared base: the scope decision below is what these
+// tests are about. The shipped default is OFF and has its own block at the end.
+const BASE = {
+  tenantId: 7,
+  fromDate: new Date('2026-07-01T00:00:00Z'),
+  platformFilter: null,
+  enabled: true,
+};
 
 // ── Threshold resolution ──────────────────────────────────────────────────────
 
@@ -216,10 +224,59 @@ test('coverage is measured over the caller window and platform filter', async ()
     fromDate: BASE.fromDate,
     platformFilter: 'instagram',
     threshold: 0.8,
+    enabled: true,
   });
 
   assert.match(seenSql, /FROM insights_posts/);
   assert.match(seenSql, /FILTER \(WHERE aries_post_id IS NOT NULL\)/);
   assert.match(seenSql, /published_at\s+>= \$2/);
   assert.deepEqual(seenParams, [7, BASE.fromDate, 'instagram']);
+});
+
+// ── Rollout flag (shipped default OFF) ────────────────────────────────────────
+
+test('the scope flag is off unless explicitly enabled', () => {
+  assert.equal(isAttributionScopeEnabled(undefined), false);
+  assert.equal(isAttributionScopeEnabled(''), false);
+  assert.equal(isAttributionScopeEnabled('0'), false);
+  assert.equal(isAttributionScopeEnabled('false'), false);
+  assert.equal(isAttributionScopeEnabled('off'), false);
+  for (const on of ['1', 'true', 'yes', 'on', 'TRUE', ' On ']) {
+    assert.equal(isAttributionScopeEnabled(on), true, `expected ${on} to enable`);
+  }
+});
+
+test('with the flag off the sections keep their all-channel numbers and no query runs', async () => {
+  // The load-bearing part is `queried === false`: Activity and Top must be
+  // exactly what they are today, down to the DB work they do, until every
+  // post-derived section moves to the same scope (see attribution-scope-env.ts).
+  let queried = false;
+
+  const result = await resolveAttributionScope({
+    ...BASE,
+    enabled: false,
+    db: countingDb(10, 10, () => {
+      queried = true;
+    }),
+    threshold: 0.8,
+  });
+
+  assert.equal(queried, false);
+  assert.equal(result.scope, 'all-channel');
+  assert.equal(result.attributedOnly, false);
+  assert.equal(result.threshold, 0.8);
+});
+
+test('a fully attributed window still stays all-channel while the flag is off', async () => {
+  // Perfect coverage is exactly the case that would flip the scope when the
+  // flag is on, so it is the sharpest check that the gate actually gates.
+  const result = await resolveAttributionScope({
+    ...BASE,
+    enabled: false,
+    db: countingDb(25, 25),
+    threshold: 0.8,
+  });
+
+  assert.equal(result.scope, 'all-channel');
+  assert.equal(result.attributedOnly, false);
 });

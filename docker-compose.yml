@@ -234,11 +234,17 @@ services:
       # model (golden-tested). Leave OFF until the full program's rendered-UI
       # verification; all route handlers run in this container.
       ARIES_MULTI_WORKSPACE_ENABLED: ${ARIES_MULTI_WORKSPACE_ENABLED:-0}
-      # S4-1 attribution scope: share of a window's insights_posts that must
-      # carry aries_post_id before Activity/Top scope themselves to
-      # Aries-published posts. Below it both sections read all channel posts
-      # (the #785 behavior), so a tenant with unstamped history never sees an
-      # empty section. Unset/out-of-range/unparseable falls back to 0.8.
+      # S4-1 attribution scope rollout. Default OFF: Activity/Top keep today's
+      # all-channel numbers and no coverage query runs. Do NOT flip until the
+      # other post-derived sections (Hero/narrative, attention, trends, goal,
+      # conversations) scope with them — hoursSaved is shared with the Hero band
+      # and the high-performer baseline is shared with Section 3, so scoping
+      # only two sections makes them disagree.
+      ARIES_INSIGHTS_ATTRIBUTION_SCOPE_ENABLED: ${ARIES_INSIGHTS_ATTRIBUTION_SCOPE_ENABLED:-0}
+      # Share of a window's insights_posts that must carry aries_post_id before
+      # Activity/Top scope themselves to Aries-published posts. Below it both
+      # read all channel posts (the #785 behavior), so a tenant with unstamped
+      # history never sees an empty section. Out-of-range/unparseable → 0.8.
       ARIES_INSIGHTS_ATTRIBUTION_THRESHOLD: ${ARIES_INSIGHTS_ATTRIBUTION_THRESHOLD:-0.8}
       # 2026-05-23: flipped ON per TODOS rollout. Narrow first-name-denylist
       # heuristic replaces the legacy /[A-Z][a-z]+\s+[A-Z][a-z]+/ regex in

@@ -31,6 +31,7 @@ import {
   computeAttributionCoverage,
   type AttributionCoverageResult,
 } from './attribution-coverage';
+import { isAttributionScopeEnabled } from './attribution-scope-env';
 
 export type AttributionQueryable = {
   query<T = Record<string, unknown>>(
@@ -120,8 +121,16 @@ export async function resolveAttributionScope(args: {
   fromDate: Date | string;
   platformFilter: string | null;
   threshold?: number;
+  enabled?: boolean;
 }): Promise<AttributionScopeResult> {
   const threshold = args.threshold ?? resolveAttributionCoverageThreshold();
+
+  // Flag off (the shipped default): no coverage query, no scope, no cost —
+  // the calling section's numbers are exactly what they are today. See
+  // attribution-scope-env.ts for why this is gated rather than always on.
+  if (!(args.enabled ?? isAttributionScopeEnabled())) {
+    return allChannel(0, 0, threshold);
+  }
 
   let totalPosts = 0;
   let attributedPosts = 0;
