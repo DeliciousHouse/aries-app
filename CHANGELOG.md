@@ -46,11 +46,27 @@ Hermes without selecting a provider or model inside the application.
 - Production review prefers persisted canonical video artifacts, embedded dashboard
   paths are redacted without discarding safe surrounding copy, and non-git self-host
   reruns refresh managed runtime files while preserving operator-owned state.
+- Video ingest reads the production stage's object-shaped artifacts as well as the
+  array shape, so requesting a rendered video no longer fails the whole job.
+- A weekly job that rendered its images keeps its copy, images, and approval gate
+  when a clip is missing or unusable; only a job with nothing publishable fails
+  closed. Consolidating video artifacts no longer overwrites the rendered images
+  carried by the same output entry.
 
 ### Removed
 
 - Provider-specific runtime contracts and active guidance; historical release notes
   remain unchanged as immutable evidence.
+## v0.1.47.2 — docs(testing): scope local card verification
+
+Contributors can now focus local verification on card-relevant tests plus the
+canonical guardrail suite while the complete test suite remains the CI merge gate.
+
+### Changed
+
+- Repository guidance now requires tests covering each changed module and affected
+  integrations followed by `npm run verify`, without requiring a full local test
+  run before a draft pull request.
 
 ## v0.1.47.1 — docs(agents): keep resumability guidance provider-neutral
 
