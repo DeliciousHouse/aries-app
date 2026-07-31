@@ -272,22 +272,22 @@ test('/review/[reviewId] decodes encoded review ids before rendering the detail 
 
 test('/review/[reviewId] seeds encoded publish-preview video review data into the rendered page body', async () => {
   await assertReviewPageBodyUsesLoadedReview(makeRuntimeReviewItem(
-    'mkt_63d45c2b-6f8e-4036-9ebf-703892f3dd63::publish-preview:tiktok',
+    'mkt_63d45c2b-6f8e-4036-9ebf-703892f3dd63::publish-preview:youtube',
     {
       reviewType: 'workflow_approval',
       workflowState: 'ready_to_publish',
       workflowStage: 'publish',
-      title: 'TikTok publish preview',
-      channel: 'TikTok',
+      title: 'YouTube publish preview',
+      channel: 'YouTube',
       placement: 'Publish preview',
       contentType: 'video/mp4',
-      previewUrl: '/api/marketing/jobs/mkt_63d45c2b-6f8e-4036-9ebf-703892f3dd63/assets/video-tiktok-portrait',
-      fullPreviewUrl: '/api/marketing/jobs/mkt_63d45c2b-6f8e-4036-9ebf-703892f3dd63/assets/video-tiktok-portrait',
+      previewUrl: '/api/marketing/jobs/mkt_63d45c2b-6f8e-4036-9ebf-703892f3dd63/assets/video-youtube-portrait',
+      fullPreviewUrl: '/api/marketing/jobs/mkt_63d45c2b-6f8e-4036-9ebf-703892f3dd63/assets/video-youtube-portrait',
       currentVersion: {
-        id: 'approval:publish-preview:tiktok',
+        id: 'approval:publish-preview:youtube',
         label: 'Publish preview',
-        headline: 'TikTok publish preview',
-        supportingText: 'Rendered TikTok video.',
+        headline: 'YouTube publish preview',
+        supportingText: 'Rendered YouTube video.',
         cta: 'Approve',
         notes: [],
       },

@@ -18,7 +18,7 @@ function connRow(platform: string) {
 
 test('post insights for a platform with no mapper => all null + explicit unavailableReason', async () => {
   const provider = new ComposioAnalyticsProvider(fakeGateway(), fakeConfig({ actions: {} }), fakeDb());
-  const m = await provider.getPostInsights({ tenantId, platform: 'tiktok', externalPostId: 'v1' });
+  const m = await provider.getPostInsights({ tenantId, platform: 'reddit', externalPostId: 'p1' });
   assert.equal(m.impressions, null);
   assert.equal(m.views, null);
   assert.ok(m.unavailableReason && m.unavailableReason.includes('post_insights'));

@@ -4,7 +4,7 @@
  *
  * The fallback is deliberately conservative: it only kicks in when the direct
  * provider actually supports the platform (i.e. Facebook/Instagram). For a
- * platform only Composio can reach (TikTok, YouTube, LinkedIn, Reddit, Meta
+ * platform only Composio can reach (YouTube, LinkedIn, Reddit, Meta
  * Ads) a Composio failure surfaces as-is — there is nothing to fall back to.
  */
 

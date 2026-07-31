@@ -7,7 +7,6 @@ export type IntegrationPlatform =
   | 'x'
   | 'youtube'
   | 'reddit'
-  | 'tiktok'
   | 'openai';
 
 export type IntegrationsPageState = 'idle' | 'loading' | 'ready' | 'refreshing' | 'error';

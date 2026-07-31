@@ -3,7 +3,7 @@
  *
  * Canonical list of supported analytics platforms.
  *
- * To add a new platform (e.g. TikTok):
+ * To add a new platform:
  *   1. Add it to SUPPORTED_PLATFORMS below.
  *   2. TypeScript will highlight every spot that needs updating (capabilities.ts, adapter factory, etc.).
  */

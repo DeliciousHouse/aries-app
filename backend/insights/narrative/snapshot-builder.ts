@@ -46,7 +46,7 @@ export interface NarrativeSnapshot {
 }
 
 // ── Platform label helpers ─────────────────────────────────────────────────────
-// Extend these when adding new platforms (X, Reddit, TikTok, etc.)
+// Extend these when adding new platforms.
 
 function getReachLabel(platform: string): string {
   if (platform === 'youtube') return 'unique viewers';

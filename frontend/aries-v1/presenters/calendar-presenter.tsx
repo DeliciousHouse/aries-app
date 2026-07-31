@@ -21,7 +21,6 @@ import {
   Inbox,
   Layers3,
   LoaderCircle,
-  Music2,
   Trash2,
   X as CloseIcon,
 } from 'lucide-react';
@@ -1022,7 +1021,6 @@ function platformLogo(platform: string) {
   if (key.includes('youtube')) return <YoutubeIcon className={iconClassName} />;
   if (key.includes('reddit')) return <RedditIcon className={iconClassName} />;
   if (key.includes('x')) return <XIcon className={iconClassName} />;
-  if (key.includes('tiktok')) return <Music2 className={iconClassName} />;
   return <Globe className={iconClassName} />;
 }
 

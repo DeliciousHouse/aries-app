@@ -46,7 +46,6 @@ function platformName(platform: string): string {
     instagram: 'Instagram',
     facebook:  'Facebook',
     youtube:   'YouTube',
-    tiktok:    'TikTok',
     linkedin:  'LinkedIn',
   };
   return names[platform] ?? platform.charAt(0).toUpperCase() + platform.slice(1);

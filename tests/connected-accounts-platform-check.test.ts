@@ -4,13 +4,13 @@
  * The connected_accounts.platform CHECK constraint was missing 'x', which
  * DB-blocked X connect in prod. This test locks:
  *
- *   1. The inline CREATE TABLE CHECK in scripts/init-db.js includes all 8
- *      IntegrationPlatform values (facebook, instagram, meta_ads, tiktok,
- *      youtube, linkedin, reddit, x).
+ *   1. The inline CREATE TABLE CHECK in scripts/init-db.js includes all 7
+ *      IntegrationPlatform values (facebook, instagram, meta_ads, youtube,
+ *      linkedin, reddit, x).
  *   2. The catalog-guarded self-heal helper call in scripts/init-db.js also
- *      includes all 8 values without replacing an already-current constraint.
+ *      includes all 7 values without replacing an already-current constraint.
  *   3. migrations/20260618000000_connected_accounts_allow_x.sql exists and
- *      its ADD CONSTRAINT includes all 8 values.
+ *      its ADD CONSTRAINT includes all 7 values.
  *   4. (Invariant) Every value in INTEGRATION_PLATFORMS (the TS union) is
  *      present in the init-db connected_accounts CHECK — so a future platform
  *      addition that forgets the CHECK is caught here.
@@ -40,7 +40,6 @@ const ALL_PLATFORMS: readonly string[] = [
   'facebook',
   'instagram',
   'meta_ads',
-  'tiktok',
   'youtube',
   'linkedin',
   'reddit',
@@ -67,7 +66,7 @@ function extractPlatformCheckContent(src: string): string | null {
 // Test 1 — inline CREATE TABLE constraint
 // ---------------------------------------------------------------------------
 
-test('init-db.js: connected_accounts inline CREATE TABLE platform CHECK includes all 8 platforms', () => {
+test('init-db.js: connected_accounts inline CREATE TABLE platform CHECK includes all 7 platforms', () => {
   // Isolate the connected_accounts CREATE TABLE block so we are not accidentally
   // matching a CHECK in a different table.
   const createBlockMatch =
@@ -96,7 +95,7 @@ test('init-db.js: connected_accounts inline CREATE TABLE platform CHECK includes
 // Test 2 — idempotent self-heal ADD CONSTRAINT block
 // ---------------------------------------------------------------------------
 
-test('init-db.js: connected_accounts catalog-guarded self-heal CHECK includes all 8 platforms', () => {
+test('init-db.js: connected_accounts catalog-guarded self-heal CHECK includes all 7 platforms', () => {
   // Match the helper call that avoids a no-op DROP/ADD lock on every deploy.
   const alterBlockMatch =
     /ensure_check_constraint\(\s*'connected_accounts'::regclass,\s*'connected_accounts_platform_check',[\s\S]*?\$check\$platform\s+IN\s*\(([^)]+)\)\$check\$/.exec(
@@ -117,10 +116,10 @@ test('init-db.js: connected_accounts catalog-guarded self-heal CHECK includes al
 });
 
 // ---------------------------------------------------------------------------
-// Test 3 — migration file exists and ADD CONSTRAINT includes all 8 platforms
+// Test 3 — migration file exists and ADD CONSTRAINT includes all 7 platforms
 // ---------------------------------------------------------------------------
 
-test('migrations/20260618000000_connected_accounts_allow_x.sql: ADD CONSTRAINT includes all 8 platforms', () => {
+test('migrations/20260618000000_connected_accounts_allow_x.sql: ADD CONSTRAINT includes all 7 platforms', () => {
   const alterBlockMatch =
     /ADD CONSTRAINT connected_accounts_platform_check([\s\S]*?)CHECK\s*\(\s*platform\s+IN\s*\(([^)]+)\)\s*\)/.exec(
       MIGRATION,

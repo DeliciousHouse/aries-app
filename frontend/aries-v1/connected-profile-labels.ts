@@ -5,7 +5,6 @@ const CONNECTED_PROFILE_LABELS: Record<string, string> = {
   x: 'X',
   youtube: 'YouTube',
   reddit: 'Reddit',
-  tiktok: 'TikTok',
 };
 
 export function connectedProfileLabel(platform: string, fallback: string): string {

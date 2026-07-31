@@ -24,8 +24,6 @@ const OAUTH_ENV_KEYS = [
   'REDDIT_USER_AGENT',
   'SLACK_CLIENT_ID',
   'SLACK_CLIENT_SECRET',
-  'TIKTOK_CLIENT_KEY',
-  'TIKTOK_CLIENT_SECRET',
 ] as const;
 
 type PendingStateRow = {
@@ -237,33 +235,6 @@ const providerCases: Array<{
     expectedRefreshToken: 'reddit-refresh-token',
     expectedExternalAccountId: 't2_reddit_user',
     expectedExternalAccountName: 'reddit_user',
-  },
-  {
-    provider: 'tiktok',
-    env: {
-      TIKTOK_CLIENT_KEY: 'tiktok-client-key',
-      TIKTOK_CLIENT_SECRET: 'tiktok-client-secret',
-      OAUTH_TOKEN_ENCRYPTION_KEY: BASE64_KEY,
-    },
-    scopes: ['video.publish'],
-    fetchImpl(url) {
-      const parsed = new URL(url);
-      if (parsed.hostname === 'open.tiktokapis.com' && url.includes('/v2/oauth/token/')) {
-        return Response.json({
-          access_token: 'tiktok-access-token',
-          refresh_token: 'tiktok-refresh-token',
-          token_type: 'Bearer',
-          expires_in: 3600,
-          refresh_expires_in: 86400,
-          scope: 'video.publish',
-          open_id: 'open-id-123',
-        });
-      }
-      throw new Error(`Unexpected fetch URL for tiktok test: ${url}`);
-    },
-    expectedAccessToken: 'tiktok-access-token',
-    expectedRefreshToken: 'tiktok-refresh-token',
-    expectedExternalAccountId: 'open-id-123',
   },
   {
     provider: 'youtube',

@@ -18,7 +18,6 @@ import {
 import { refreshLinkedIn } from './refresh-linkedin';
 import { refreshX } from './refresh-x';
 import { refreshGoogle } from './refresh-google';
-import { refreshTikTok } from './refresh-tiktok';
 import { refreshReddit } from './refresh-reddit';
 
 type OAuthRefreshInput = {
@@ -74,8 +73,6 @@ async function callProviderRefresh(
       return refreshX({ refreshToken });
     case 'youtube':
       return refreshGoogle({ refreshToken });
-    case 'tiktok':
-      return refreshTikTok({ refreshToken });
     case 'reddit':
       return refreshReddit({ refreshToken });
     case 'openai':

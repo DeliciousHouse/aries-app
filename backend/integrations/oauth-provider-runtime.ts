@@ -25,7 +25,6 @@ const PROVIDER_ENV_CONTRACT: Record<ProviderKey, ProviderEnvContract> = {
   x: { authEnv: ['X_CLIENT_ID', 'X_CLIENT_SECRET'], connectionMode: 'oauth' },
   youtube: { authEnv: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'], connectionMode: 'oauth' },
   reddit: { authEnv: ['REDDIT_CLIENT_ID', 'REDDIT_CLIENT_SECRET'], connectionMode: 'oauth' },
-  tiktok: { authEnv: ['TIKTOK_CLIENT_KEY', 'TIKTOK_CLIENT_SECRET'], connectionMode: 'oauth' },
   openai: { authEnv: ['OPENAI_CLIENT_ID', 'OPENAI_CLIENT_SECRET'], connectionMode: 'oauth' },
   slack: { authEnv: ['SLACK_CLIENT_ID', 'SLACK_CLIENT_SECRET'], connectionMode: 'oauth' },
 };
@@ -134,14 +133,6 @@ export function redditClientSecret(): string {
   return readEnv('REDDIT_CLIENT_SECRET');
 }
 
-export function tikTokClientKey(): string {
-  return readEnv('TIKTOK_CLIENT_KEY');
-}
-
-export function tikTokClientSecret(): string {
-  return readEnv('TIKTOK_CLIENT_SECRET');
-}
-
 export function xClientId(): string {
   return readEnv('X_CLIENT_ID');
 }
@@ -196,15 +187,6 @@ export function linkedInClientCredentials(): { clientId: string; clientSecret: s
 export function redditClientCredentials(): { clientId: string; clientSecret: string } | null {
   const clientId = redditClientId();
   const clientSecret = redditClientSecret();
-  if (!clientId || !clientSecret) {
-    return null;
-  }
-  return { clientId, clientSecret };
-}
-
-export function tikTokClientCredentials(): { clientId: string; clientSecret: string } | null {
-  const clientId = tikTokClientKey();
-  const clientSecret = tikTokClientSecret();
   if (!clientId || !clientSecret) {
     return null;
   }

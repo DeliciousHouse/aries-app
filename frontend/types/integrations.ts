@@ -5,7 +5,6 @@ export const integration_platform_values = [
   'x',
   'youtube',
   'reddit',
-  'tiktok'
 ] as const;
 export type integration_platform = (typeof integration_platform_values)[number];
 

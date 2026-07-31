@@ -36,7 +36,7 @@ test('PUBLISH_PROVIDER=composio with Composio enabled => composio publisher', ()
   assert.equal(effectivePublishProvider(env), 'composio');
   const provider = getPublisherProvider(env);
   // ComposioPublisherProvider supports all integration platforms.
-  assert.equal(provider.supports('tiktok'), true);
+  assert.equal(provider.supports('reddit'), true);
 });
 
 test('PUBLISH_PROVIDER=auto => composite that still supports direct Meta platforms', () => {

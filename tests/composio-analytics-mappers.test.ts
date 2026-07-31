@@ -44,10 +44,10 @@ test('Meta Ads mapper picks level from the id provided', () => {
   assert.equal(m.buildArgs({ externalAccountId: 'act_1' }).level, 'account');
 });
 
-test('unsupported platform/op has no mapper (reddit, tiktok post)', () => {
+test('unsupported platform/op has no mapper (reddit, meta_ads post)', () => {
   assert.equal(getAnalyticsMapper('reddit', 'post_insights'), null);
   assert.equal(getAnalyticsMapper('reddit', 'account_insights'), null);
-  assert.equal(getAnalyticsMapper('tiktok', 'post_insights'), null);
+  assert.equal(getAnalyticsMapper('meta_ads', 'post_insights'), null);
 });
 
 // --- response parsers (real Graph/YouTube/LinkedIn/MetaAds shapes) ---------

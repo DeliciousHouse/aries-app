@@ -81,7 +81,7 @@ Aries implements a broker-style OAuth surface for all supported providers:
 | `/api/oauth/[provider]/refresh` | Refresh an existing token |
 | `/oauth/connect/[provider]` | UI handoff and result page |
 
-OAuth tokens (LinkedIn, X, YouTube, Reddit, TikTok) are encrypted with `OAUTH_TOKEN_ENCRYPTION_KEY` before storage. Meta publishing uses long-lived `META_PAGE_ID` / `META_ACCESS_TOKEN` env vars managed outside the Aries OAuth broker.
+OAuth tokens (LinkedIn, X, YouTube, Reddit) are encrypted with `OAUTH_TOKEN_ENCRYPTION_KEY` before storage. Meta publishing uses long-lived `META_PAGE_ID` / `META_ACCESS_TOKEN` env vars managed outside the Aries OAuth broker.
 
 ## Hermes callback execution boundary
 
@@ -132,7 +132,7 @@ Weekly media generation (images, video) is executed inside Hermes using ChatGPT/
 
 ## Publishing and integration surfaces
 
-Aries supports publishing to Facebook, Instagram (via Meta), LinkedIn, X, YouTube, TikTok, and Reddit. Each provider has a typed adapter in `backend/integrations/adapters/` that normalizes the `PublishDispatchEvent` into the provider's required payload shape.
+Aries supports publishing to Facebook, Instagram (via Meta), LinkedIn, X, YouTube, and Reddit. Each provider has a typed adapter in `backend/integrations/adapters/` that normalizes the `PublishDispatchEvent` into the provider's required payload shape.
 
 Publish, retry, and calendar sync routes:
 

@@ -152,7 +152,7 @@ export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenP
               Connect providers with the same Aries handoff flow across the product
             </h2>
             <p className="text-white/60">
-              Facebook, LinkedIn, X, YouTube, TikTok, and Reddit use the Aries OAuth callback flow. Instagram stays on env-backed configuration.
+              Facebook, LinkedIn, X, YouTube, and Reddit use the Aries OAuth callback flow. Instagram stays on env-backed configuration.
             </p>
           </div>
           <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 min-w-[260px]">

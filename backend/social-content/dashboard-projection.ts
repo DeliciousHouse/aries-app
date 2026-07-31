@@ -137,7 +137,6 @@ function safeVideoPlatform(value: unknown): string {
     'meta',
     'reddit',
     'social',
-    'tiktok',
     'x',
     'youtube',
     'youtube_shorts',
@@ -539,7 +538,6 @@ function platformLabel(platform: string): string {
   if (normalized === 'meta') return 'Meta';
   if (normalized === 'instagram') return 'Instagram';
   if (normalized === 'linkedin') return 'LinkedIn';
-  if (normalized === 'tiktok') return 'TikTok';
   if (normalized === 'youtube') return 'YouTube';
   if (normalized === 'x') return 'X';
   return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : 'Social';

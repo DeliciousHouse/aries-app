@@ -385,7 +385,7 @@ test('Hermes video_render callbacks ingest rendered media from the Hermes cache 
           summary: 'Video render finished',
           video_assets: {
             platform_contracts: [{
-              platform_slug: 'tiktok',
+              platform_slug: 'youtube',
               rendered_video_variants: [{
                 family_id: 'launch-cut',
                 video_path: videoPath,
@@ -414,7 +414,7 @@ test('Hermes video_render callbacks ingest rendered media from the Hermes cache 
 
       assert.equal(path.dirname(ingestedVideoPath), videosRoot);
       assert.equal(path.dirname(ingestedPosterPath), videosRoot);
-      assert.match(path.basename(ingestedVideoPath), /^tiktok-launch-cut-[0-9a-f]{32}\.mp4$/i);
+      assert.match(path.basename(ingestedVideoPath), /^youtube-launch-cut-[0-9a-f]{32}\.mp4$/i);
       assert.equal(path.basename(ingestedPosterPath), `${ingestedBaseName}-poster.png`);
       assert.equal(variant?.video_url, `/api/marketing/jobs/${doc.job_id}/assets/video-${ingestedBaseName}`);
       assert.equal(variant?.poster_url, `/api/marketing/jobs/${doc.job_id}/assets/video-${ingestedBaseName}-poster`);
@@ -440,7 +440,7 @@ test('Hermes video_render callback skip logs omit full filesystem paths', async 
 
     try {
       process.env.HERMES_CACHE_DIR = hermesCacheRoot;
-      const leakedPosterPath = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'jobs', 'other-job', 'videos', 'tiktok-launch-cut-poster.png');
+      const leakedPosterPath = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'jobs', 'other-job', 'videos', 'youtube-launch-cut-poster.png');
       await mkdir(path.dirname(leakedPosterPath), { recursive: true });
       await writeFile(leakedPosterPath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
       console.warn = (...args: unknown[]) => {
@@ -467,7 +467,7 @@ test('Hermes video_render callback skip logs omit full filesystem paths', async 
           summary: 'Video render finished',
           video_assets: {
             platform_contracts: [{
-              platform_slug: 'tiktok',
+              platform_slug: 'youtube',
               rendered_video_variants: [{
                 family_id: 'launch-cut',
                 thumbnail_path: leakedPosterPath,

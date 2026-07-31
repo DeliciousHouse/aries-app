@@ -24,7 +24,7 @@ import StatusBadge from '../components/status-badge';
 type ApproveResult = ApproveJobResult | MarketingApiError;
 type JobStatusResult = GetSocialContentJobStatusResponse | MarketingApiError;
 type MarketingJobApproveScreenVariant = 'marketing' | 'social-content';
-const PLATFORM_VALUES = ['meta-ads', 'instagram', 'x', 'tiktok', 'youtube', 'linkedin', 'reddit'] as const;
+const PLATFORM_VALUES = ['meta-ads', 'instagram', 'x', 'youtube', 'linkedin', 'reddit'] as const;
 
 export interface MarketingJobApproveScreenProps {
   baseUrl?: string;
@@ -658,7 +658,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
                 <div className="grid gap-2">
                   <span className="text-xs uppercase tracking-[0.22em] text-white/70">Live draft publish</span>
                   <div className="flex flex-wrap gap-3">
-                    {PLATFORM_VALUES.filter((platform) => !['tiktok', 'youtube'].includes(platform)).map((platform) => {
+                    {PLATFORM_VALUES.filter((platform) => !['youtube'].includes(platform)).map((platform) => {
                       const active = livePublishPlatforms.includes(platform);
                       return (
                         <button
@@ -679,7 +679,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
                 <div className="grid gap-2">
                   <span className="text-xs uppercase tracking-[0.22em] text-white/70">Video render execution</span>
                   <div className="flex flex-wrap gap-3">
-                    {['tiktok', 'youtube'].map((platform) => {
+                    {['youtube'].map((platform) => {
                       const active = videoRenderPlatforms.includes(platform);
                       return (
                         <button

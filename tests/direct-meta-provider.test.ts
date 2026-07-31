@@ -33,7 +33,7 @@ test('direct Meta supports only organic facebook/instagram', () => {
   const provider = new DirectMetaProvider();
   assert.equal(provider.supports('facebook'), true);
   assert.equal(provider.supports('instagram'), true);
-  assert.equal(provider.supports('tiktok'), false);
+  assert.equal(provider.supports('youtube'), false);
   assert.equal(provider.supports('meta_ads'), false);
 });
 

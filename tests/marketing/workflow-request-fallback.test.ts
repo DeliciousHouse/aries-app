@@ -37,7 +37,7 @@ function makeDoc(overrides: Partial<SocialContentJobRuntimeDocument> = {}): Soci
       external_links: [
         { platform: 'youtube', url: 'https://youtube.com/@alecferris' },
         { platform: 'instagram', url: 'https://instagram.com/alecferris' },
-        { platform: 'tiktok', url: 'https://tiktok.com/@alecferris' },
+        { platform: 'linkedin', url: 'https://linkedin.com/in/alecferris' },
       ],
       extracted_at: ts,
       brand_voice_summary: 'Alec Ferris is an Alternative/Electronic, Singer-Songwriter originally hailing from the Bay Area, CA. Click here for his new releases and exclusive updates on shows, merch, and behind-the-scenes content.',

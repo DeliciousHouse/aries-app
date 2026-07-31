@@ -373,7 +373,7 @@ function installMarketingPipelineInvoker(
                 production_brief: { core_message: 'Launch campaigns with operator control.' },
                 contract_handoffs: {
                   static: { platform_contract_paths: ['output/static/meta-ads.json'] },
-                  video: { platform_contract_paths: ['output/video/tiktok.json'] },
+                  video: { platform_contract_paths: ['output/video/youtube.json'] },
                 },
               },
             },
@@ -987,8 +987,8 @@ test('/api/marketing/jobs/:jobId returns stage progress and safe artifact summar
         stages: {
           research: { stage: 'research', status: 'completed', started_at: '2026-03-19T00:00:01.000Z', completed_at: '2026-03-19T00:00:01.000Z', failed_at: null, run_id: 'run-research', summary: { summary: 'Competitor leans on practical outcomes.', highlight: 'Proof-led hooks are winning.' }, primary_output: null, outputs: {}, artifacts: [{ id: 'research-summary', stage: 'research', title: 'Competitor research summary', category: 'analysis', status: 'completed', summary: 'Competitor leans on practical outcomes.', details: ['Competitor: CompetitorCo', 'Ads reviewed: 6'] }], errors: [] },
           strategy: { stage: 'strategy', status: 'completed', started_at: '2026-03-19T00:00:02.000Z', completed_at: '2026-03-19T00:00:02.000Z', failed_at: null, run_id: 'run-strategy', summary: { summary: 'Launch campaigns with operator control.', highlight: 'Book a walkthrough' }, primary_output: null, outputs: {}, artifacts: [{ id: 'strategy-plan', stage: 'strategy', title: 'Campaign strategy', category: 'brief', status: 'completed', summary: 'Launch campaigns with operator control.', details: ['In-house marketing teams', 'Primary CTA: Book a walkthrough'] }], errors: [] },
-          production: { stage: 'production', status: 'completed', started_at: '2026-03-19T00:00:03.000Z', completed_at: '2026-03-19T00:00:03.000Z', failed_at: null, run_id: 'run-production', summary: { summary: 'Proof-led launch package', highlight: 'Ship the campaign with confidence' }, primary_output: null, outputs: {}, artifacts: [{ id: 'production-review', stage: 'production', title: 'Production review packet', category: 'review', status: 'completed', summary: 'Proof-led launch package', details: ['Landing page headline: Ship the campaign with confidence'], preview_path: launchPreviewPath }, { id: 'video-contracts', stage: 'production', title: 'Video contract handoff', category: 'contracts', status: 'completed', summary: '2 video platform contract(s) prepared.', details: ['YouTube Shorts', 'TikTok'] }], errors: [] },
-          publish: { stage: 'publish', status: 'awaiting_approval', started_at: '2026-03-19T00:00:05.000Z', completed_at: null, failed_at: null, run_id: 'run-publish', summary: { summary: 'Approval needed before publish-ready assets are generated.', highlight: 'Static contracts: 7, Video contracts: 2' }, primary_output: null, outputs: { review: { review_bundle: { campaign_name: 'Sugar & Leather April Launch', generated_at: '2026-03-19T00:00:05.000Z', approval_message: 'Approval needed before publish-ready assets are generated.', summary: { core_message: 'Launch the April collection with luxury-first creative.', planned_posts: 12, created_posts: 8, campaign_window: { start: '2026-04-01T00:00:00.000Z', end: '2026-04-30T23:59:59.000Z' } }, content_calendar: { events: [ { id: 'evt_meta_1', starts_at: '2026-04-03T15:00:00.000Z', ends_at: '2026-04-03T15:30:00.000Z', platform: 'meta-ads', title: 'Launch collection carousel', status: 'planned', asset_preview_id: 'platform-preview-meta-ads-media-1' }, { id: 'evt_tt_1', starts_at: '2026-04-07T18:00:00.000Z', ends_at: null, platform: 'tiktok', title: 'Behind the scenes video', status: 'created', asset_preview_id: null } ] }, platform_previews: [ { platform_slug: 'meta-ads', platform_name: 'Meta Ads', channel_type: 'paid-social', summary: 'Carousel preview ready for launch.', headline: 'April collection launch', caption_text: 'Meet the April collection.', cta: 'Shop the drop', media_paths: [mediaAssetPath], asset_paths: { contract_path: contractAssetPath, brief_path: briefAssetPath, landing_page_path: landingAssetPath } } ] } } }, artifacts: [{ id: 'launch-review', stage: 'publish', title: 'Launch review package', category: 'approval', status: 'awaiting_approval', summary: 'Approval needed before publish-ready assets are generated.', details: ['Static contracts: 7', 'Video contracts: 2'], preview_path: launchPreviewPath }], errors: [] }
+          production: { stage: 'production', status: 'completed', started_at: '2026-03-19T00:00:03.000Z', completed_at: '2026-03-19T00:00:03.000Z', failed_at: null, run_id: 'run-production', summary: { summary: 'Proof-led launch package', highlight: 'Ship the campaign with confidence' }, primary_output: null, outputs: {}, artifacts: [{ id: 'production-review', stage: 'production', title: 'Production review packet', category: 'review', status: 'completed', summary: 'Proof-led launch package', details: ['Landing page headline: Ship the campaign with confidence'], preview_path: launchPreviewPath }, { id: 'video-contracts', stage: 'production', title: 'Video contract handoff', category: 'contracts', status: 'completed', summary: '2 video platform contract(s) prepared.', details: ['YouTube Shorts', 'LinkedIn'] }], errors: [] },
+          publish: { stage: 'publish', status: 'awaiting_approval', started_at: '2026-03-19T00:00:05.000Z', completed_at: null, failed_at: null, run_id: 'run-publish', summary: { summary: 'Approval needed before publish-ready assets are generated.', highlight: 'Static contracts: 7, Video contracts: 2' }, primary_output: null, outputs: { review: { review_bundle: { campaign_name: 'Sugar & Leather April Launch', generated_at: '2026-03-19T00:00:05.000Z', approval_message: 'Approval needed before publish-ready assets are generated.', summary: { core_message: 'Launch the April collection with luxury-first creative.', planned_posts: 12, created_posts: 8, campaign_window: { start: '2026-04-01T00:00:00.000Z', end: '2026-04-30T23:59:59.000Z' } }, content_calendar: { events: [ { id: 'evt_meta_1', starts_at: '2026-04-03T15:00:00.000Z', ends_at: '2026-04-03T15:30:00.000Z', platform: 'meta-ads', title: 'Launch collection carousel', status: 'planned', asset_preview_id: 'platform-preview-meta-ads-media-1' }, { id: 'evt_yt_1', starts_at: '2026-04-07T18:00:00.000Z', ends_at: null, platform: 'youtube', title: 'Behind the scenes video', status: 'created', asset_preview_id: null } ] }, platform_previews: [ { platform_slug: 'meta-ads', platform_name: 'Meta Ads', channel_type: 'paid-social', summary: 'Carousel preview ready for launch.', headline: 'April collection launch', caption_text: 'Meet the April collection.', cta: 'Shop the drop', media_paths: [mediaAssetPath], asset_paths: { contract_path: contractAssetPath, brief_path: briefAssetPath, landing_page_path: landingAssetPath } } ] } } }, artifacts: [{ id: 'launch-review', stage: 'publish', title: 'Launch review package', category: 'approval', status: 'awaiting_approval', summary: 'Approval needed before publish-ready assets are generated.', details: ['Static contracts: 7', 'Video contracts: 2'], preview_path: launchPreviewPath }], errors: [] }
         },
         approvals: {
           current: {
@@ -999,7 +999,7 @@ test('/api/marketing/jobs/:jobId returns stage progress and safe artifact summar
             requested_at: '2026-03-19T00:00:05.000Z',
             action_label: 'Approve launch',
             publish_config: {
-              platforms: ['meta-ads', 'tiktok'],
+              platforms: ['meta-ads', 'youtube'],
               live_publish_platforms: [],
               video_render_platforms: [],
             },
@@ -1007,7 +1007,7 @@ test('/api/marketing/jobs/:jobId returns stage progress and safe artifact summar
           history: [],
         },
         publish_config: {
-          platforms: ['meta-ads', 'tiktok'],
+          platforms: ['meta-ads', 'youtube'],
           live_publish_platforms: [],
           video_render_platforms: [],
         },
@@ -5963,9 +5963,9 @@ test('/api/marketing/jobs/:jobId/approve resolves tenant context server-side and
             approvedBy: 'operator',
             approvedStages: ['publish'],
             publishConfig: {
-              platforms: ['meta-ads', 'tiktok'],
+              platforms: ['meta-ads', 'youtube'],
               livePublishPlatforms: ['meta-ads'],
-              videoRenderPlatforms: ['tiktok'],
+              videoRenderPlatforms: ['youtube'],
             },
           }),
         }),
@@ -6251,8 +6251,8 @@ test('/api/marketing/jobs/:jobId exposes .mp4 paths as video/mp4 media assets on
       'output',
       'publish-ready',
       'brand-example-stage2-plan',
-      'tiktok',
-      'tiktok.mp4',
+      'youtube',
+      'youtube.mp4',
     );
     await mkdir(path.dirname(runtimeFile), { recursive: true });
     await mkdir(path.dirname(videoPath), { recursive: true });
@@ -6285,13 +6285,13 @@ test('/api/marketing/jobs/:jobId exposes .mp4 paths as video/mp4 media assets on
             outputs: {
               review: {
                 review_bundle: {
-                  campaign_name: 'TikTok video preview',
+                  campaign_name: 'YouTube video preview',
                   approval_message: 'Approve the rendered video.',
                   summary: { core_message: 'Launch the campaign with video creative.' },
                   platform_previews: [
                     {
-                      platform_slug: 'tiktok',
-                      platform_name: 'TikTok',
+                      platform_slug: 'youtube',
+                      platform_name: 'YouTube',
                       channel_type: 'video',
                       summary: 'Rendered video preview.',
                       headline: 'Launch video',
@@ -6307,7 +6307,7 @@ test('/api/marketing/jobs/:jobId exposes .mp4 paths as video/mp4 media assets on
           },
         },
         approvals: { current: null, history: [] },
-        publish_config: { platforms: ['tiktok'], live_publish_platforms: [], video_render_platforms: ['tiktok'] },
+        publish_config: { platforms: ['youtube'], live_publish_platforms: [], video_render_platforms: ['youtube'] },
         inputs: { request: {}, brand_url: 'https://brand.example' },
         errors: [],
         last_error: null,
@@ -6396,7 +6396,7 @@ test('/api/marketing/jobs/:jobId/assets/:assetId streams video assets with range
           },
         },
         approvals: { current: null, history: [] },
-        publish_config: { platforms: ['tiktok'], live_publish_platforms: [], video_render_platforms: ['tiktok'] },
+        publish_config: { platforms: ['youtube'], live_publish_platforms: [], video_render_platforms: ['youtube'] },
         brand_kit: null,
         inputs: { request: {}, brand_url: 'https://brand.example' },
         errors: [],
@@ -6529,7 +6529,7 @@ test('/api/marketing/jobs/:jobId/assets/:assetId rejects traversal-style video a
           },
         },
         approvals: { current: null, history: [] },
-        publish_config: { platforms: ['tiktok'], live_publish_platforms: [], video_render_platforms: ['tiktok'] },
+        publish_config: { platforms: ['youtube'], live_publish_platforms: [], video_render_platforms: ['youtube'] },
         brand_kit: null,
         inputs: { request: {}, brand_url: 'https://brand.example' },
         errors: [],
@@ -6596,7 +6596,7 @@ test('/api/marketing/jobs/:jobId/assets/:assetId rejects cross-tenant video acce
           },
         },
         approvals: { current: null, history: [] },
-        publish_config: { platforms: ['tiktok'], live_publish_platforms: [], video_render_platforms: ['tiktok'] },
+        publish_config: { platforms: ['youtube'], live_publish_platforms: [], video_render_platforms: ['youtube'] },
         brand_kit: null,
         inputs: { request: {}, brand_url: 'https://brand.example' },
         errors: [],
@@ -6663,7 +6663,7 @@ test('/api/marketing/jobs/:jobId/assets/:assetId returns 404 for missing video f
           },
         },
         approvals: { current: null, history: [] },
-        publish_config: { platforms: ['tiktok'], live_publish_platforms: [], video_render_platforms: ['tiktok'] },
+        publish_config: { platforms: ['youtube'], live_publish_platforms: [], video_render_platforms: ['youtube'] },
         brand_kit: null,
         inputs: { request: {}, brand_url: 'https://brand.example' },
         errors: [],

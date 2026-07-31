@@ -27,7 +27,6 @@ export const TOOLKIT_SLUG: Record<IntegrationPlatform, string> = {
   facebook: 'facebook',
   instagram: 'instagram',
   meta_ads: 'metaads',
-  tiktok: 'tiktok',
   youtube: 'youtube',
   linkedin: 'linkedin',
   reddit: 'reddit',

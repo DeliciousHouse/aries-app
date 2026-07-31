@@ -26,8 +26,8 @@ export default function InsightsPage() {
 
   // Only offer a channel chip when an insights adapter can actually produce
   // data for it. `isPlatformInsightsEnabled` is the same predicate the sync
-  // adapter factory uses, so the filter bar and the adapters cannot drift —
-  // which is how a TikTok chip survived with no TikTok adapter behind it.
+  // adapter factory uses, so the filter bar and the adapters cannot drift into
+  // offering a chip nothing can serve.
   const enabledPlatforms = SUPPORTED_PLATFORMS.filter((platform) =>
     isPlatformInsightsEnabled(platform),
   ) as readonly Platform[];

@@ -1522,7 +1522,7 @@ Aries must not automatically:
 
 ### 13.5 Provider-Specific Concerns
 
-Provider-specific concerns now span multiple platforms (not just Meta): Aries runs a per-platform capability/preflight check (`backend/integrations/.../capability-preflight.ts`, with a Composio capability provider) to enforce each platform's media and format limits — e.g. Reddit, YouTube, LinkedIn, and TikTok (scaffold) constraints — rather than assuming Meta semantics everywhere.
+Provider-specific concerns now span multiple platforms (not just Meta): Aries runs a per-platform capability/preflight check (`backend/integrations/.../capability-preflight.ts`, with a Composio capability provider) to enforce each platform's media and format limits — e.g. Reddit, YouTube, and LinkedIn constraints — rather than assuming Meta semantics everywhere.
 
 Publishing providers may impose constraints such as:
 
@@ -1826,13 +1826,13 @@ Risk: generated content may be rejected by platforms or violate tenant complianc
 
 Future expansion should preserve deterministic orchestration, approval gates, and tenant isolation.
 
-> **Shipped since this list was written (2026-06-18) — no longer "future":** content calendar/scheduling (#2); multi-platform publishing for Instagram/Facebook/X/YouTube/Reddit/LinkedIn (#3, TikTok still scaffold-only); platform analytics ingestion + performance summaries (#4 — optimization *recommendations* still future); and a partial form of content-variant generation/approval via the onboarding variant board (#5). The entries below are retained with their status annotated.
+> **Shipped since this list was written (2026-06-18) — no longer "future":** content calendar/scheduling (#2); multi-platform publishing for Instagram/Facebook/X/YouTube/Reddit/LinkedIn (#3); platform analytics ingestion + performance summaries (#4 — optimization *recommendations* still future); and a partial form of content-variant generation/approval via the onboarding variant board (#5). The entries below are retained with their status annotated.
 
 Potential areas:
 
 1. **Workflow registry:** admin-defined workflow catalog with explicit stage schemas and provider capabilities. *(Future — a read-only workflow catalog exists; the tenant-facing admin registry does not.)*
 2. **Content calendar:** ~~scheduling and calendar view~~ — **shipped** (calendar planner UI, `scheduled_posts`, scheduled-posts worker, per-tenant timezone).
-3. **Multi-platform publishing:** ~~deeper support for Instagram, Facebook, LinkedIn, X, YouTube, Reddit~~ — **shipped** (via Composio); **TikTok remains future** (scaffold, no live publish).
+3. **Multi-platform publishing:** ~~deeper support for Instagram, Facebook, LinkedIn, X, YouTube, Reddit~~ — **shipped** (via Composio). TikTok was removed: the scaffold never reached a live publish path and is no longer carried in the codebase.
 4. **Performance feedback loop:** platform analytics ingestion + content performance summaries — **shipped** (insights subsystem); optimization *recommendations* remain future.
 5. **A/B testing:** controlled generation and approval of content variants — **partially shipped** via the onboarding variant board; general A/B remains future.
 6. **Policy packs:** tenant-configurable compliance, brand, and industry-specific review policies.

@@ -454,7 +454,7 @@ test('V11 — volume bound: 50 jobs × 5 platforms × 30 days stays under 1,500 
   withEnv({ ...BASE_ENV, HONCHO_WRITE_PUBLISH_ENABLED: 'true' }, async () => {
     const pool = buildPool();
     const { transport } = captureTransport();
-    const platforms = ['facebook', 'instagram', 'tiktok', 'x', 'linkedin'];
+    const platforms = ['facebook', 'instagram', 'reddit', 'x', 'linkedin'];
     // The publish-verification key is (jobId, 'publish_verification', platform, ymd).
     // A monthly bound counts DISTINCT keys, so repeated daily callbacks for the
     // SAME (job, platform, day) collapse. Worst realistic case: each (job,

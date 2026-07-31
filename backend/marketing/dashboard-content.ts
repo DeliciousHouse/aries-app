@@ -368,7 +368,6 @@ const PUBLISHER_STEPS = [
   'meta_ads_publisher',
   'instagram_publisher',
   'x_publisher',
-  'tiktok_publisher',
   'youtube_publisher',
   'linkedin_publisher',
   'reddit_publisher',
@@ -737,8 +736,8 @@ function normalizePlatformSlug(value: string | null | undefined): string {
   if (['youtube', 'youtube-shorts', 'youtube-longform'].includes(cleaned)) return 'youtube'
   if (['linkedin', 'linkedin-video'].includes(cleaned)) return 'linkedin'
   if (['landing-page', 'landing-page-campaign', 'landing'].includes(cleaned)) return 'landing-page'
-  if (['short-video', 'video', 'tiktok', 'stories', 'instagram-feed-video'].includes(cleaned)) {
-    return cleaned === 'tiktok' ? 'tiktok' : 'video'
+  if (['short-video', 'video', 'stories', 'instagram-feed-video'].includes(cleaned)) {
+    return 'video'
   }
   return cleaned
 }
@@ -746,7 +745,6 @@ function normalizePlatformSlug(value: string | null | undefined): string {
 function platformLabel(platformSlug: string): string {
   if (platformSlug === 'meta-ads') return 'Meta Ads'
   if (platformSlug === 'landing-page') return 'Landing Page'
-  if (platformSlug === 'tiktok') return 'TikTok'
   if (platformSlug === 'x') return 'X'
   return titleCase(platformSlug)
 }
@@ -1256,7 +1254,6 @@ function extractPlatformFromFilename(filePath: string): string {
   const base = slugify(path.basename(filePath, path.extname(filePath)), 'asset')
   if (base.startsWith('meta')) return 'meta-ads'
   if (base.startsWith('instagram')) return 'instagram'
-  if (base.startsWith('tiktok')) return 'tiktok'
   if (base.startsWith('youtube')) return 'youtube'
   if (base.startsWith('linkedin')) return 'linkedin'
   if (base.startsWith('reddit')) return 'reddit'

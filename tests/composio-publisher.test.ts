@@ -500,8 +500,8 @@ test('#627 FB image post with no upload_media slug throws capability-missing', a
 //
 // Before the fix, the publishPost dispatch had a bare `else` that silently
 // built an Instagram `caption`/`media_urls` payload for any platform that
-// wasn't facebook, x, reddit, or linkedin — including tiktok, youtube, and
-// meta_ads. The fix made Instagram an explicit `else if` branch and added a
+// wasn't facebook, x, reddit, or linkedin — including youtube and meta_ads.
+// The fix made Instagram an explicit `else if` branch and added a
 // final `else` that throws ComposioToolError immediately.
 //
 // The explicit Instagram branch is already exercised by the '#624 IG
@@ -509,20 +509,20 @@ test('#627 FB image post with no upload_media slug throws capability-missing', a
 // refusal path.
 
 test('#667 publishPost with an unhandled IntegrationPlatform throws ComposioToolError naming the platform', async () => {
-  // 'tiktok' is a valid IntegrationPlatform but has no dispatch branch in
+  // 'meta_ads' is a valid IntegrationPlatform but has no dispatch branch in
   // publishPost. Before the fix it silently built an Instagram payload for the
   // wrong account; after the fix the final else throws before any gateway call.
   const provider = new ComposioPublisherProvider(
     fakeGateway(),
-    fakeConfig({ actions: { publish_post: 'TIKTOK_POST' } }),
+    fakeConfig({ actions: { publish_post: 'META_ADS_POST' } }),
     fakeDb(),
   );
   await assert.rejects(
     () =>
       provider.publishPost({
         tenantId,
-        platform: 'tiktok',
-        content: 'hello tiktok',
+        platform: 'meta_ads',
+        content: 'hello meta_ads',
         mediaUrls: [],
         approved: true,
       }),
@@ -530,7 +530,7 @@ test('#667 publishPost with an unhandled IntegrationPlatform throws ComposioTool
       assert.ok(err instanceof ComposioToolError, `expected ComposioToolError, got ${(err as Error)?.name}`);
       assert.match(
         (err as Error).message,
-        /tiktok/,
+        /meta_ads/,
         'error message must name the unhandled platform',
       );
       assert.match(

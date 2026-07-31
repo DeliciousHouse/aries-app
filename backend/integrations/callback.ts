@@ -19,7 +19,6 @@ import {
   openAiClientCredentials,
   redditClientCredentials,
   slackClientCredentials,
-  tikTokClientCredentials,
   xClientCredentials,
 } from './oauth-provider-runtime';
 import { dbInsertOAuthToken } from './oauth-tokens-db';
@@ -132,27 +131,6 @@ type RedditMeResponse = {
   name?: string;
 };
 
-type TikTokTokenEnvelope = {
-  access_token?: string;
-  token_type?: string;
-  expires_in?: number;
-  refresh_token?: string;
-  refresh_expires_in?: number;
-  scope?: string;
-  open_id?: string;
-  error?: string;
-  error_description?: string;
-  message?: string;
-  data?: {
-    access_token?: string;
-    token_type?: string;
-    expires_in?: number;
-    refresh_token?: string;
-    refresh_expires_in?: number;
-    scope?: string;
-    open_id?: string;
-  };
-};
 
 type GoogleTokenResponse = {
   access_token?: string;
@@ -521,47 +499,6 @@ async function exchangeRedditCodeForToken(input: {
     tokenType: typeof parsed.token_type === 'string' ? parsed.token_type : undefined,
     externalAccountId,
     externalAccountName,
-  };
-}
-
-async function exchangeTikTokCodeForToken(input: {
-  code: string;
-  redirectUri: string;
-}): Promise<ExchangedOAuthToken> {
-  const creds = tikTokClientCredentials();
-  if (!creds) {
-    throw new Error('tiktok_oauth_not_configured');
-  }
-
-  const body = new URLSearchParams();
-  body.set('client_key', creds.clientId);
-  body.set('client_secret', creds.clientSecret);
-  body.set('code', input.code);
-  body.set('grant_type', 'authorization_code');
-  body.set('redirect_uri', input.redirectUri);
-
-  const response = await fetch('https://open.tiktokapis.com/v2/oauth/token/', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/x-www-form-urlencoded',
-    },
-    body: body.toString(),
-  });
-  const parsed = await parseJson<TikTokTokenEnvelope>(response);
-  const token = parsed.data ?? parsed;
-  if (!response.ok || !token.access_token) {
-    throw new Error(responseErrorMessage(parsed as Record<string, unknown>, 'TikTok OAuth token exchange failed.'));
-  }
-
-  return {
-    accessToken: token.access_token,
-    expiresIn: typeof token.expires_in === 'number' && token.expires_in > 0 ? token.expires_in : undefined,
-    refreshToken: typeof token.refresh_token === 'string' && token.refresh_token.length > 0 ? token.refresh_token : undefined,
-    refreshExpiresIn:
-      typeof token.refresh_expires_in === 'number' && token.refresh_expires_in > 0 ? token.refresh_expires_in : undefined,
-    scope: typeof token.scope === 'string' ? token.scope : undefined,
-    tokenType: typeof token.token_type === 'string' ? token.token_type : undefined,
-    externalAccountId: typeof token.open_id === 'string' && token.open_id.trim() ? token.open_id : null,
   };
 }
 
@@ -985,12 +922,6 @@ export async function oauthCallback(
         throw new Error('meta_oauth_not_supported');
       case 'reddit':
         exchangedToken = await exchangeRedditCodeForToken({
-          code: query.code.trim(),
-          redirectUri: pending.redirect_uri,
-        });
-        break;
-      case 'tiktok':
-        exchangedToken = await exchangeTikTokCodeForToken({
           code: query.code.trim(),
           redirectUri: pending.redirect_uri,
         });

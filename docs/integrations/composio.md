@@ -2,7 +2,7 @@
 
 Composio is an **optional, isolated** provider layer that lets end users connect
 their own social and advertising accounts (Facebook, Instagram, Meta Ads,
-TikTok, YouTube, LinkedIn, Reddit) for publishing and analytics. It sits behind
+YouTube, LinkedIn, Reddit) for publishing and analytics. It sits behind
 Aries-owned abstractions and **never replaces** the existing direct Meta path —
 which remains the default and the fallback.
 
@@ -52,7 +52,6 @@ COMPOSIO_DEFAULT_AUTH_CONFIG_ID=       # fallback auth config for any platform
 COMPOSIO_METAADS_AUTH_CONFIG_ID=
 COMPOSIO_FACEBOOK_AUTH_CONFIG_ID=
 COMPOSIO_INSTAGRAM_AUTH_CONFIG_ID=
-COMPOSIO_TIKTOK_AUTH_CONFIG_ID=
 COMPOSIO_YOUTUBE_AUTH_CONFIG_ID=
 COMPOSIO_LINKEDIN_AUTH_CONFIG_ID=
 COMPOSIO_REDDIT_AUTH_CONFIG_ID=
@@ -102,7 +101,6 @@ connection for that platform returns a clear configuration error.
 | Facebook | managed (usually) | Requires a connected **Page**, not just a profile. |
 | Instagram | managed (usually) | Requires a **Business/Creator** account linked to a Page. |
 | Meta Ads | **custom likely** | Managed app may be unavailable; confirm ad-account access. |
-| TikTok | managed (usually) | Deeper analytics may be unavailable. |
 | YouTube | managed (usually) | Deep analytics needs the YouTube Analytics API. |
 | LinkedIn | managed (usually) | Prefer an **Organization Page** for business use. |
 | Reddit | managed (usually) | Public engagement only; no reach/impressions. |
@@ -164,7 +162,6 @@ Verified analytics tools (2026-06-03):
 | Instagram | `INSTAGRAM_GET_IG_MEDIA_INSIGHTS` | `INSTAGRAM_GET_USER_INSIGHTS` | — |
 | YouTube | `YOUTUBE_GET_VIDEO_DETAILS_BATCH` | `YOUTUBE_GET_CHANNEL_STATISTICS` | — |
 | LinkedIn | — (org-level only) | `LINKEDIN_GET_SHARE_STATS` | — |
-| TikTok | — (no tool) | `TIKTOK_GET_USER_STATS` | — |
 | Meta Ads | — | — | `METAADS_GET_INSIGHTS` (toolkit `metaads`) |
 | Reddit | — | — | — |
 
@@ -194,7 +191,7 @@ UI: `/connections` (`frontend/integrations/composio-connections-screen.tsx`).
 
 In `auto` mode, a Composio failure (or an unsupported platform) falls back to
 the direct Meta provider **only for platforms it supports** (Facebook,
-Instagram). For Composio-only platforms (TikTok, YouTube, LinkedIn, Reddit, Meta
+Instagram). For Composio-only platforms (YouTube, LinkedIn, Reddit, Meta
 Ads) a failure surfaces as-is — there is nothing to fall back to.
 
 ## Security notes

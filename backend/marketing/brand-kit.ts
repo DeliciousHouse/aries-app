@@ -66,7 +66,6 @@ const SOCIAL_HOSTS: Array<[platform: string, hostname: string]> = [
   ['facebook', 'facebook.com'],
   ['x', 'x.com'],
   ['x', 'twitter.com'],
-  ['tiktok', 'tiktok.com'],
   ['youtube', 'youtube.com'],
   ['linkedin', 'linkedin.com'],
 ];

@@ -27,11 +27,9 @@ const PERIOD_OPTS: Array<{ value: Period; label: string }> = [
 /**
  * Platform chips are derived, never hardcoded.
  *
- * The old static list carried a TikTok chip with no adapter behind it
- * (backend/insights/platforms/registry.ts has no tiktok, and
- * backend/insights/adapters/ has no tiktok directory), so selecting it could
- * only ever return nothing. It also omitted X, Reddit and LinkedIn, which do
- * have adapters.
+ * A hardcoded list drifts from the adapters: it once carried a chip for a
+ * platform with no adapter behind it (selecting it could only ever return
+ * nothing) while omitting X, Reddit and LinkedIn, which do have adapters.
  *
  * `enabledPlatforms` comes from the server page, which asks
  * `isPlatformInsightsEnabled()` — the same predicate the sync adapter factory

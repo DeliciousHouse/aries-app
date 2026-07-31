@@ -49,7 +49,7 @@ test('handleGetMarketingJobAsset serves PNG video posters from the ingested job 
           publish: { stage: 'publish', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
         },
         approvals: { current: null, history: [] },
-        publish_config: { platforms: ['tiktok'], live_publish_platforms: [], video_render_platforms: ['tiktok'] },
+        publish_config: { platforms: ['youtube'], live_publish_platforms: [], video_render_platforms: ['youtube'] },
         brand_kit: null,
         inputs: { request: {}, brand_url: 'https://brand.example' },
         errors: [],

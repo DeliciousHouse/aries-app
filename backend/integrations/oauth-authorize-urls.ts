@@ -8,7 +8,6 @@ import {
   openAiClientId,
   redditClientId,
   slackClientId,
-  tikTokClientKey,
   xClientId,
 } from './oauth-provider-runtime';
 
@@ -135,22 +134,6 @@ export function buildProviderAuthorizationUrl(input: BuildAuthorizeUrlInput): UR
         url.searchParams.set('scope', scopes.join(' '));
       }
       url.searchParams.set('duration', 'permanent');
-      return url;
-    }
-
-    case 'tiktok': {
-      const clientKey = tikTokClientKey();
-      if (!clientKey) {
-        throw new Error('tiktok_oauth_not_configured');
-      }
-      const url = new URL('https://www.tiktok.com/v2/auth/authorize/');
-      url.searchParams.set('client_key', clientKey);
-      url.searchParams.set('response_type', 'code');
-      url.searchParams.set('redirect_uri', redirectUri);
-      url.searchParams.set('state', state);
-      if (scopes.length > 0) {
-        url.searchParams.set('scope', scopes.join(' '));
-      }
       return url;
     }
 
