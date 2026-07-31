@@ -21,6 +21,7 @@ import { buildTopSnapshot, isValidSort, type TopSortKey } from './top-snapshot-b
 import { enrichPosts, buildPatternCard } from './top-template-builder';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 import crypto from 'crypto';
+import { insightsCacheTtlMs, buildInsightsSectionOnce } from '../cache-policy';
 
 // v2: builder output changed (numeric `id`, fixed sentiment Map lookup); bump
 // so any pre-existing top-v1 cache row is invalidated instead of served stale.
@@ -46,7 +47,7 @@ import crypto from 'crypto';
 // is deliberately NOT part of the cache key — a tenant that crosses the
 // threshold mid-cache keeps serving the all-channel body until the 1h TTL.
 const TEMPLATE_VERSION = 'top-v8';
-const CACHE_TTL_MS     = 60 * 60 * 1000;
+const CACHE_TTL_BASE_MS     = 60 * 60 * 1000;
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);
 
@@ -73,6 +74,7 @@ async function getCached(
   period:   string,
   platform: string,
   sortBy:   string,
+  ttlMs:    number,
 ): Promise<{ body: Record<string, unknown>; generatedAt: Date } | null> {
   const res = await client.query<{
     body:         Record<string, unknown>;
@@ -91,7 +93,7 @@ async function getCached(
   if (res.rows.length === 0) return null;
   const row   = res.rows[0];
   const ageMs = Date.now() - new Date(row.generated_at).getTime();
-  if (ageMs >= CACHE_TTL_MS || row.model !== TEMPLATE_VERSION) return null;
+  if (ageMs >= ttlMs || row.model !== TEMPLATE_VERSION) return null;
   return { body: row.body, generatedAt: row.generated_at };
 }
 
@@ -146,10 +148,15 @@ export async function handleGetInsightsTop(
   const period   = periodParam;
   const platform = platformParam;
 
+  // AA-122: one key for both the jittered expiry and the singleflight,
+  // so a section's staleness and its in-flight build always agree.
+  const cacheKey = inputHash(tenantId, period, platform, sortBy);
+  const ttlMs    = insightsCacheTtlMs(cacheKey, CACHE_TTL_BASE_MS);
+
   const client = await pool.connect();
   try {
     if (!force) {
-      const cached = await getCached(client, tenantId, period, platform, sortBy);
+      const cached = await getCached(client, tenantId, period, platform, sortBy, ttlMs);
       if (cached) {
         return NextResponse.json({
           status:       'ok',
@@ -162,10 +169,10 @@ export async function handleGetInsightsTop(
       }
     }
 
-    const snap    = await buildTopSnapshot(tenantId, period, platform, sortBy);
+    const snap    = await buildInsightsSectionOnce(cacheKey, () => buildTopSnapshot(tenantId, period, platform, sortBy, client));
     const posts   = enrichPosts(snap);
     const pattern = buildPatternCard(snap);
-    const hash    = inputHash(tenantId, period, platform, sortBy);
+    const hash    = cacheKey;
 
     const body: Record<string, unknown> = {
       posts,
