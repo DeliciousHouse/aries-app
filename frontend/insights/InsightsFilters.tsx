@@ -5,7 +5,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { Period, Platform } from "@/frontend/insights/types";
-import { C } from "@/frontend/insights/tokens";
+import { C, platformLabel } from "@/frontend/insights/tokens";
 import { ChannelIcon } from "@/frontend/insights/ui";
 
 interface InsightsFiltersProps {
@@ -13,6 +13,9 @@ interface InsightsFiltersProps {
   platform:         Platform;
   onPeriodChange:   (p: Period)   => void;
   onPlatformChange: (p: Platform) => void;
+  /** Platforms with a live insights adapter for this deployment, resolved
+   *  server-side in app/insights/page.tsx. */
+  enabledPlatforms: readonly Platform[];
 }
 
 const PERIOD_OPTS: Array<{ value: Period; label: string }> = [
@@ -21,13 +24,26 @@ const PERIOD_OPTS: Array<{ value: Period; label: string }> = [
   { value: "90day", label: "90 days"   },
 ];
 
-const PLATFORM_OPTS: Array<{ value: Platform; label: string }> = [
-  { value: "all",       label: "All channels" },
-  { value: "instagram", label: "Instagram"    },
-  { value: "facebook",  label: "Facebook"     },
-  { value: "youtube",   label: "YouTube"      },
-  { value: "tiktok",    label: "TikTok"       },
-];
+/**
+ * Platform chips are derived, never hardcoded.
+ *
+ * The old static list carried a TikTok chip with no adapter behind it
+ * (backend/insights/platforms/registry.ts has no tiktok, and
+ * backend/insights/adapters/ has no tiktok directory), so selecting it could
+ * only ever return nothing. It also omitted X, Reddit and LinkedIn, which do
+ * have adapters.
+ *
+ * `enabledPlatforms` comes from the server page, which asks
+ * `isPlatformInsightsEnabled()` — the same predicate the sync adapter factory
+ * uses. So a chip exists exactly when an adapter can produce data for it, and
+ * the two cannot drift.
+ */
+function platformOptions(enabledPlatforms: readonly Platform[]): Array<{ value: Platform; label: string }> {
+  return [
+    { value: "all" as Platform, label: platformLabel.all ?? "All channels" },
+    ...enabledPlatforms.map((value) => ({ value, label: platformLabel[value] ?? value })),
+  ];
+}
 
 function GroupLabel({ children }: { children: string }) {
   return (
@@ -51,7 +67,9 @@ export function InsightsFilters({
   platform,
   onPeriodChange,
   onPlatformChange,
+  enabledPlatforms,
 }: InsightsFiltersProps) {
+  const platformOpts = platformOptions(enabledPlatforms);
   return (
     <div
       style={{
@@ -105,7 +123,7 @@ export function InsightsFilters({
       {/* ── CHANNEL ── */}
       <GroupLabel>Channel</GroupLabel>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} role="group" aria-label="Channel filter">
-        {PLATFORM_OPTS.map((opt) => {
+        {platformOpts.map((opt) => {
           const active = platform === opt.value;
           return (
             <button

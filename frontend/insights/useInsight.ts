@@ -18,7 +18,7 @@ export interface UseInsightResult<T> {
  *
  * @param section   API path segment, e.g. "narrative", "goal", "top"
  * @param period    "week" | "30day" | "90day"
- * @param platform  "all" | "instagram" | "facebook" | "youtube" | "tiktok"
+ * @param platform  "all" | "instagram" | "facebook" | "youtube" | "x" | "reddit" | "linkedin"
  * @param extra     Any additional query params (e.g. { sort: "reach" })
  *
  * @example
