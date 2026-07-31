@@ -298,3 +298,77 @@ export ARTIFACT_STAGE4_CACHE_DIR="${ARIES_SHARED_DATA_ROOT:-/home/node/data}/her
 The container defaults to `/data/hermes-stage{N}-cache` in `docker-compose.yml`,
 which equals those host paths via the `/data` bind. Override either side only
 if you have a reason — if they diverge, Aries silently cannot see the files.
+
+## Insights activation profile (analytics + comments)
+
+The insights pipeline — account metrics, post metrics, comments, and comment
+classification — is **dormant on a fresh deploy**. Nothing is broken; it is
+gated off by default. This section records exactly which variables turn it on
+and which service needs each, because they exist only as host-`.env`
+passthroughs in `docker-compose.yml` and are otherwise undocumented.
+
+### The one blocker
+
+`COMPOSIO_ENABLED` defaults to `false` in **three** places
+(`aries-app`, `aries-insights-sync-worker`, `aries-composio-reconciler-worker`).
+`ANALYTICS_PROVIDER` already defaults to `composio` in both compose and code, so
+`COMPOSIO_ENABLED=false` is the only default-deploy blocker for the Facebook
+insights path. Setting `ANALYTICS_PROVIDER=direct_meta` explicitly disables that
+path instead.
+
+### Minimum host `.env` to activate
+
+```bash
+COMPOSIO_ENABLED=true
+COMPOSIO_API_KEY=<composio api key>
+# Provider auth configs — at minimum the ones you actually connect:
+COMPOSIO_DEFAULT_AUTH_CONFIG_ID=<id>
+COMPOSIO_FACEBOOK_AUTH_CONFIG_ID=<id>
+COMPOSIO_INSTAGRAM_AUTH_CONFIG_ID=<id>
+```
+
+`ANALYTICS_PROVIDER` needs no entry unless you are opting out (`direct_meta`).
+
+### Which service needs what
+
+| Variable | `aries-app` | `aries-insights-sync-worker` | Notes |
+| --- | --- | --- | --- |
+| `COMPOSIO_ENABLED` | yes | yes | must be `true` on **both**; the worker executes Composio tools itself |
+| `COMPOSIO_API_KEY` | yes | yes | same key both places |
+| `COMPOSIO_*_AUTH_CONFIG_ID` | yes (all 9 providers) | 6: `DEFAULT`, `FACEBOOK`, `X`, `YOUTUBE`, `REDDIT`, `LINKEDIN` | the app owns the connect flow; the worker gets the providers it can pull insights for. Note the worker has **no** `INSTAGRAM`, `METAADS` or `TIKTOK` entry — IG insights resolve through the Facebook/default config |
+| `ANALYTICS_PROVIDER` | — | yes | defaults to `composio` |
+| `HERMES_GATEWAY_URL` / `HERMES_API_SERVER_KEY` | yes | yes | the worker needs them for comment classification |
+| `ARIES_COMMENT_CLASSIFICATION_ENABLED` | — | yes (**ships `1`**) | see the trap below |
+| `ARIES_INSIGHTS_SWEEP_GRACE_MINUTES` | — | yes (default `60`) | stranded `running` sync-run sweep |
+| `COMPOSIO_FACEBOOK_POST_INSIGHTS_ACTION` | — | optional | verified code default; set only to override |
+
+`DB_POOL_MAX` is pinned to `3` on the sidecar — see the connection-budget
+section above before changing it.
+
+### The empty-default trap
+
+`ARIES_COMMENT_CLASSIFICATION_ENABLED` ships **ON** (`:-1`) on the sync worker.
+With the flag on but `HERMES_GATEWAY_URL` / `HERMES_API_SERVER_KEY` missing from
+that service's environment, any sync run that has unclassified comments in its
+batch window reports `not_configured` and downgrades to `partial` — deliberately
+loud rather than silent. The other legs still persist. Runs with nothing to
+classify stay `ok`, so a misconfigured deploy can look healthy until the first
+comment arrives.
+
+Without classification the comments still land in `insights_comments`, but
+`insights_comment_classifications` stays empty — which surfaces as
+`0% positive` in Conversations, an empty "What people are asking" panel, and a
+`lead_generation` goal count of 0. There is no other production classifier.
+
+### Verifying activation
+
+```bash
+docker compose exec aries-app node -e "console.log(process.env.COMPOSIO_ENABLED)"
+docker compose exec aries-insights-sync-worker node -e "console.log(process.env.COMPOSIO_ENABLED, !!process.env.HERMES_API_SERVER_KEY)"
+docker compose logs --tail=50 aries-insights-sync-worker
+```
+
+Then confirm a clean tick in the database: one `insights_sync_runs` row per
+tenant per interval with `status='ok'` (or `partial` plus a populated
+`error_message` naming the failed leg). A tenant only syncs when it has a
+connected `insights_accounts` row.
