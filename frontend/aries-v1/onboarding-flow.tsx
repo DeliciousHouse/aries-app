@@ -2560,7 +2560,53 @@ function PreviewStat(props: { label: string; value: string }) {
   );
 }
 
-function VisualBoard(props: {
+/** Longest brand-name specimen a font tile will render. The scraper's
+ *  brand_name is often a full site title ("Sugar & Leather — Human at the
+ *  core…"), which overflowed the tile and read as body copy rather than a type
+ *  sample. */
+const FONT_SPECIMEN_MAX_LENGTH = 22;
+
+export function fontSpecimen(brandName: string): string {
+  const trimmed = brandName.trim();
+  if (!trimmed) return 'Ag';
+  if (trimmed.length <= FONT_SPECIMEN_MAX_LENGTH) return trimmed;
+  // Prefer cutting at a word boundary so the specimen still reads as a name.
+  const clipped = trimmed.slice(0, FONT_SPECIMEN_MAX_LENGTH);
+  const lastSpace = clipped.lastIndexOf(' ');
+  return (lastSpace > 8 ? clipped.slice(0, lastSpace) : clipped).trimEnd();
+}
+
+/**
+ * One logo candidate. Scraped logo URLs frequently 404 or point at a
+ * white-on-transparent mark, and the tile is a hard `bg-white` square — so a
+ * broken candidate painted an indistinguishable blank white rectangle with no
+ * indication anything was wrong. Track the load failure and label it instead.
+ */
+function LogoCandidateTile(props: { logoUrl: string; brandName: string; index: number }) {
+  const [failed, setFailed] = useState(false);
+
+  if (failed) {
+    return (
+      <div className="flex h-[7.5rem] items-center justify-center rounded-[1rem] border border-dashed border-white/15 bg-white/[0.03] px-4 py-4">
+        <p className="text-center text-xs text-white/50">Logo preview unavailable</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-hidden rounded-[1rem] border border-white/10 bg-white px-4 py-4">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={props.logoUrl}
+        alt={`${props.brandName} logo ${props.index + 1}`}
+        className="h-20 w-full object-contain"
+        onError={() => setFailed(true)}
+      />
+    </div>
+  );
+}
+
+export function VisualBoard(props: {
   logoUrls: string[];
   colors: string[];
   fontFamilies: string[];
@@ -2575,10 +2621,12 @@ function VisualBoard(props: {
         {logoUrls.length > 0 ? (
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {logoUrls.map((logoUrl, index) => (
-              <div key={`${logoUrl}-${index}`} className="overflow-hidden rounded-[1rem] border border-white/10 bg-white px-4 py-4">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={logoUrl} alt={`${props.brandName} logo ${index + 1}`} className="h-20 w-full object-contain" />
-              </div>
+              <LogoCandidateTile
+                key={`${logoUrl}-${index}`}
+                logoUrl={logoUrl}
+                brandName={props.brandName}
+                index={index}
+              />
             ))}
           </div>
         ) : (
@@ -2608,11 +2656,15 @@ function VisualBoard(props: {
             <div className="mt-4 space-y-3">
               {props.fontFamilies.map((font) => (
                 <div key={font} className="rounded-[1rem] border border-white/8 bg-white/[0.03] px-4 py-4">
+                  {/* The family NAME is the point of a font card — it used to
+                      live only in the style attribute, so the tile showed the
+                      brand headline and nothing identifying the typeface. */}
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/54">{font}</p>
                   <p
-                    className="text-2xl text-white"
+                    className="mt-2 truncate text-2xl text-white"
                     style={{ fontFamily: `"${font}", ${font}, ui-sans-serif, system-ui, sans-serif` }}
                   >
-                    {props.brandName}
+                    {fontSpecimen(props.brandName)}
                   </p>
                 </div>
               ))}
