@@ -34,8 +34,12 @@ const STATUS_KEYS: MarketingDashboardItemStatus[] = [
 const DASHBOARD_REDACTED_VALUE = '[redacted]';
 const DASHBOARD_SENSITIVE_ASSIGNMENT_PATTERN =
   /\b(access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|clientSecret|api[_-]?key|apiKey|access[_-]?key|accessKey|AWSAccessKeyId|authorization|password|passwd|token|signature|sig|secret|key)\b\s*[:=]\s*(Bearer\s+)?[^\s&;,'"<>]+/gi;
+// The leading group is the delimiter the path may sit behind. It deliberately
+// covers punctuation adjacency (`foo,/srv/secret`, `path:/srv/secret`,
+// `[/srv/secret]`, `--/srv/secret`) and not just whitespace/quote/paren/=,
+// because a filesystem path pasted mid-sentence otherwise leaked unredacted.
 const DASHBOARD_ABSOLUTE_PATH_PATTERN =
-  /(^|[\s("'=])((?:[a-z]:[\\/]|~[\\/]|\/)(?:[^\\/\s,;!?<>"')]+[\\/])+[^\\/\s,;!?<>"')]+)/gi;
+  /(^|[\s("'=,;:[\]{}<>|-])((?:[a-z]:[\\/]|~[\\/]|\/)(?:[^\\/\s,;!?<>"')]+[\\/])+[^\\/\s,;!?<>"')]+)/gi;
 
 type UnknownRecord = Record<string, unknown>;
 
