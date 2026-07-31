@@ -595,8 +595,18 @@ export interface MarketingDashboardSocialContentJobContent {
   statuses: MarketingDashboardStatusSummary;
 }
 
+/**
+ * AA-153 — what kind of job a workspace is showing, so the header can say so
+ * instead of always reading "Post". Resolved server-side from the runtime
+ * document's `job_type` + the reel companion's `created_by` marker
+ * (`backend/marketing/job-kind.ts`).
+ */
+export type MarketingJobKind = 'weekly_social_content' | 'one_off_post' | 'reel';
+
 export interface GetSocialContentJobStatusResponse {
   jobId: string;
+  /** Absent on responses cached before AA-153; treat as 'weekly_social_content'. */
+  jobKind?: MarketingJobKind;
   tenantName: string | null;
   brandWebsiteUrl: string | null;
   postWindow: SocialContentWindow | null;

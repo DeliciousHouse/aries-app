@@ -5,6 +5,7 @@ import type { MarketingApprovalSummary, SocialContentJobStatusResponse } from '@
 import { getMarketingJobStatusCached } from '@/backend/marketing/jobs-status';
 import { countPublishedPostsForJob } from '@/backend/marketing/published-posts-count';
 import { loadSocialContentJobRuntime } from '@/backend/marketing/runtime-state';
+import { resolveMarketingJobKind } from '@/backend/marketing/job-kind';
 import { buildSocialContentWorkspaceView } from '@/backend/marketing/workspace-views';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
@@ -218,6 +219,8 @@ async function buildResponsePayload(
 ) {
   const base = {
     jobId: result.jobId,
+    // AA-153: read off the runtime doc so a weekly job stops rendering as "Post".
+    jobKind: resolveMarketingJobKind(runtimeDoc),
     tenantName: result.tenantName,
     brandWebsiteUrl: result.brandWebsiteUrl,
     postWindow: result.postWindow,

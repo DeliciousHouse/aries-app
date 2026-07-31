@@ -2,6 +2,7 @@ import type {
   GetSocialContentJobStatusResponse,
   MarketingCreativeAssetReviewPayload,
   MarketingDashboardAsset,
+  MarketingJobKind,
   MarketingStageCard,
 } from '@/lib/api/marketing';
 
@@ -363,6 +364,23 @@ function safeReviewCampaignName(value: string | null | undefined): string | null
     return null;
   }
   return trimmed;
+}
+
+/**
+ * AA-153 — the workspace header eyebrow. It was hardcoded to "Post", so a
+ * week-long weekly_social_content job read as a single post. A response from
+ * before this shipped carries no `jobKind`; weekly is the right fallback
+ * because it is what `createSocialContentJobRuntimeDocument` defaults an
+ * unrecognized jobType to, and it is by far the common case.
+ */
+const JOB_KIND_EYEBROW: Record<MarketingJobKind, string> = {
+  weekly_social_content: 'Weekly plan',
+  one_off_post: 'Post',
+  reel: 'Reel',
+};
+
+export function marketingJobKindEyebrow(kind: MarketingJobKind | undefined | null): string {
+  return (kind && JOB_KIND_EYEBROW[kind]) || JOB_KIND_EYEBROW.weekly_social_content;
 }
 
 export function deriveWorkspaceHeaderState(
