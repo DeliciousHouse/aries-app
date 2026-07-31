@@ -23,6 +23,7 @@ export const C = {
   liBlue:   "#0a66c2",
   xText:    "#e7e9ea",
   ytRed:    "#ff0033",
+  rdOrange: "#ff4500",
   ttBlack:  "#f4f4f8",
 } as const;
 
@@ -32,7 +33,7 @@ export const platformColor: Record<string, string> = {
   linkedin:  C.liBlue,
   x:         C.xText,
   youtube:   C.ytRed,
-  tiktok:    C.t1,
+  reddit:    C.rdOrange,
   all:       C.accent,
 };
 
@@ -42,7 +43,6 @@ export const platformLabel: Record<string, string> = {
   linkedin:  "LinkedIn",
   x:         "X",
   youtube:   "YouTube",
-  tiktok:    "TikTok",
   reddit:    "Reddit",
   all:       "All channels",
 };

@@ -182,10 +182,16 @@ export function ChannelIcon({ platform, size = 15 }: { platform: string; size?: 
           <path d="M10 8.6 15.2 12 10 15.4V8.6Z" fill="#fff" />
         </svg>
       );
-    case "tiktok":
+    // TikTok is deliberately absent: there is no TikTok insights adapter
+    // (backend/insights/platforms/registry.ts SUPPORTED_PLATFORMS), so a TikTok
+    // chip could never return data. Reddit replaces it — that adapter exists.
+    case "reddit":
       return (
         <svg width={s} height={s} viewBox="0 0 24 24" aria-hidden>
-          <path d="M16.5 3c.3 2.1 1.5 3.4 3.5 3.6v2.5c-1.2.1-2.4-.2-3.5-.8v5.6c0 3.2-2.4 5.5-5.4 5.5-3 0-5.1-2.4-5.1-5 0-2.8 2.3-4.9 5.2-4.7v2.6c-.4-.1-.9-.2-1.3-.1-1.2.2-2.1 1.1-2 2.4.1 1.2 1 2.1 2.2 2.1 1.3 0 2.2-1 2.2-2.4V3h3.7Z" fill={C.t1} />
+          <circle cx="12" cy="12" r="10" fill={C.rdOrange} />
+          <circle cx="9" cy="11.5" r="1.15" fill="#fff" />
+          <circle cx="15" cy="11.5" r="1.15" fill="#fff" />
+          <path d="M8.6 15.1c1.9 1.4 4.9 1.4 6.8 0" stroke="#fff" strokeWidth="1.3" strokeLinecap="round" fill="none" />
         </svg>
       );
     default: // all

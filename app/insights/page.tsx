@@ -1,6 +1,9 @@
 import AppShellLayout from "@/frontend/app-shell/layout";
 import { InsightsDashboard } from "@/frontend/insights/InsightsDashboard";
 import { isNativeReplyEnabled } from "@/backend/integrations/meta-reply-env";
+import { SUPPORTED_PLATFORMS } from "@/backend/insights/platforms/registry";
+import { isPlatformInsightsEnabled } from "@/backend/insights/sync/adapter-factory";
+import type { Platform } from "@/frontend/insights/types";
 
 export const metadata = {
   title: "Insights — Aries AI",
@@ -21,9 +24,20 @@ export default function InsightsPage() {
   // cannot succeed.
   const nativeReplyEnabled = isNativeReplyEnabled();
 
+  // Only offer a channel chip when an insights adapter can actually produce
+  // data for it. `isPlatformInsightsEnabled` is the same predicate the sync
+  // adapter factory uses, so the filter bar and the adapters cannot drift —
+  // which is how a TikTok chip survived with no TikTok adapter behind it.
+  const enabledPlatforms = SUPPORTED_PLATFORMS.filter((platform) =>
+    isPlatformInsightsEnabled(platform),
+  ) as readonly Platform[];
+
   return (
     <AppShellLayout currentRouteId="insights" loginRedirectPath="/insights">
-      <InsightsDashboard nativeReplyEnabled={nativeReplyEnabled} />
+      <InsightsDashboard
+        nativeReplyEnabled={nativeReplyEnabled}
+        enabledPlatforms={enabledPlatforms}
+      />
     </AppShellLayout>
   );
 }

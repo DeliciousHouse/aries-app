@@ -24,7 +24,14 @@ import { AudienceSection }      from "@/frontend/insights/AudienceSection";
  * operator identity — is provided by the shared AppShellLayout in
  * app/insights/page.tsx, so this component owns content only.
  */
-export function InsightsDashboard({ nativeReplyEnabled = false }: { nativeReplyEnabled?: boolean } = {}) {
+export function InsightsDashboard({
+  nativeReplyEnabled = false,
+  enabledPlatforms = [],
+}: {
+  nativeReplyEnabled?: boolean;
+  /** Platforms with a live insights adapter, resolved server-side. */
+  enabledPlatforms?: readonly Platform[];
+} = {}) {
   const [period, setPeriod]     = useState<Period>("90day");
   const [platform, setPlatform] = useState<Platform>("all");
 
@@ -51,6 +58,7 @@ export function InsightsDashboard({ nativeReplyEnabled = false }: { nativeReplyE
               platform={platform}
               onPeriodChange={setPeriod}
               onPlatformChange={setPlatform}
+              enabledPlatforms={enabledPlatforms}
             />
             <FreshnessStamp />
           </div>

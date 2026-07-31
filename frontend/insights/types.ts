@@ -8,7 +8,14 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type Period   = "week" | "30day" | "90day";
-export type Platform = "all" | "instagram" | "facebook" | "youtube" | "tiktok";
+export type Platform =
+  | "all"
+  | "instagram"
+  | "facebook"
+  | "youtube"
+  | "x"
+  | "reddit"
+  | "linkedin";
 export type SortKey  = "reach" | "engagement" | "saves" | "shares" | "comments";
 
 /** Fields every successful insights response carries at the top level. */
