@@ -586,3 +586,33 @@ test('rendered-video projection redacts ordinary single-backslash Windows displa
     assert.equal(video.summary, 'weekly_primary');
   });
 });
+test('rendered-video projection redacts filesystem paths sitting behind punctuation (AA-60)', async () => {
+  await withVideoRuntimeEnv(async () => {
+    const jobId = 'mkt_123e4567-e89b-42d3-a456-426614174028';
+    const doc = seedVideoJob(jobId);
+    const runtime = ensureSocialContentRuntimeState(doc);
+    // The redaction pattern's leading delimiter group previously covered only
+    // whitespace, quote, paren and `=`, so a path pasted after a comma, colon,
+    // bracket or hyphen survived into operator-visible dashboard copy.
+    runtime.stages.video_render.output = {
+      artifacts: [{
+        id: 'clip-punctuation-path',
+        path: '/hermes-video-media/safe-clip.mp4',
+        url: `/api/marketing/jobs/${jobId}/assets/video-safe-clip`,
+        mime_type: 'video/mp4',
+        platform_slug: 'social',
+        family_id: 'weekly_primary',
+        title: 'render,/srv/secrets/private.mp4 done',
+        summary: 'source:/var/lib/aries/private-summary.mp4 ok',
+      }],
+    };
+
+    const dashboard = buildSocialContentDashboardProjection(doc, emptyDashboard());
+    const video = dashboard.assets.find((asset) => asset.type === 'video_ad');
+    assert.ok(video);
+    for (const field of [video.title, video.summary]) {
+      assert.ok(!/\/srv\/secrets/.test(String(field)), `leaked path in ${String(field)}`);
+      assert.ok(!/\/var\/lib\/aries/.test(String(field)), `leaked path in ${String(field)}`);
+    }
+  });
+});

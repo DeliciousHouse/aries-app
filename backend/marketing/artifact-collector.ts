@@ -36,6 +36,28 @@ function cacheRoot(envKey: string, fallbackFolder: string): string {
   return process.env[envKey]?.trim() || path.join(tmpdir(), fallbackFolder);
 }
 
+/**
+ * Rejects anything that is not a single safe filesystem component.
+ *
+ * `runId` and `stepName` are Hermes-controlled and are interpolated straight
+ * into a cache read path, so a value carrying a separator or `..` would escape
+ * the per-tenant directory and defeat the tenant scoping that the `tenantId`
+ * check below exists to enforce.
+ */
+function assertSafePathComponent(label: string, value: string): void {
+  if (
+    !value
+    || value === '.'
+    || value === '..'
+    || value.includes('/')
+    || value.includes('\\')
+    || value.includes('\0')
+    || path.isAbsolute(value)
+  ) {
+    throw new Error(`stepPayloadPath received an unsafe ${label} component`);
+  }
+}
+
 function stepPayloadPath(
   stage: 1 | 2 | 3 | 4,
   runId: string,
@@ -47,6 +69,9 @@ function stepPayloadPath(
     // shared-root cache path.
     throw new Error(`stepPayloadPath requires a non-empty tenantId (stage=${stage}, run=${runId})`);
   }
+  assertSafePathComponent('tenantId', tenantId);
+  assertSafePathComponent('runId', runId);
+  assertSafePathComponent('stepName', stepName);
   const root =
     stage === 1
       ? cacheRoot('ARTIFACT_STAGE1_CACHE_DIR', 'hermes-stage1-cache')

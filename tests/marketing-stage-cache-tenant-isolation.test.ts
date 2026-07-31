@@ -214,3 +214,38 @@ test('a stage-cache read never creates directories at the shared root', async ()
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Path-component containment (AA-60)
+//
+// `runId` reaching stepPayloadPath is Hermes-controlled and is interpolated
+// straight into the per-tenant cache read path. A value carrying a separator or
+// `..` would escape the tenant directory and defeat the scoping the tenantId
+// check above enforces, so the collector rejects unsafe components outright.
+// ---------------------------------------------------------------------------
+
+test('collectResearchStageArtifacts rejects a traversal runId instead of reading outside the tenant root', async () => {
+  const { collectResearchStageArtifacts } = await import('../backend/marketing/artifact-collector');
+  type Facts = Parameters<typeof collectResearchStageArtifacts>[0];
+
+  await withScratch(async ({ stage1 }) => {
+    await withEnv({ ARTIFACT_STAGE1_CACHE_DIR: stage1 }, async () => {
+      const doc = makeRuntimeDoc('tenant-a', 'mkt_traversal_guard', 'https://competitor.example');
+
+      for (const hostileRunId of ['../tenant-b/run-1', '..', 'a/b', 'a\\b', '/abs/run']) {
+        const facts = {
+          runtimeDoc: doc,
+          runId: hostileRunId,
+          stagePayload: async () => null,
+          jsonAtPath: async () => null,
+        } as unknown as Facts;
+
+        await assert.rejects(
+          () => collectResearchStageArtifacts(facts, null),
+          /unsafe runId component/,
+          `runId ${JSON.stringify(hostileRunId)} must be rejected`,
+        );
+      }
+    });
+  });
+});
