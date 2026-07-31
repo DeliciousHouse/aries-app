@@ -877,7 +877,7 @@ test('dashboard adapter prefers live platform schedule signals over fallback eve
   });
 });
 
-test('dashboard adapter surfaces rendered .mp4 video assets from veo contract fields', async () => {
+test('dashboard adapter surfaces rendered .mp4 video assets from the provider-neutral contract fields', async () => {
   await withDashboardEnv(async (env) => {
     const jobId = 'video-ready';
     const platformSlug = 'tiktok';

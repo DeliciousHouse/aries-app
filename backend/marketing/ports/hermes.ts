@@ -24,6 +24,11 @@ import type { ResearchMemoryContextEntry } from '../../memory/orchestrator';
 import { SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY } from '../../social-content/defaults';
 import { approvalStepFromWorkflowStepId } from '../../social-content/runtime-state';
 import {
+  isVideoRenderHermesSubmission,
+  validateVideoRenderHermesSubmission,
+  validateVideoRenderSourceUrls,
+} from '../../video-runtime/hermes-contract';
+import {
   buildProductionResumeContext,
   buildSocialContentWeeklyRequest,
   ensureFreshBrandKitForWeeklyRun,
@@ -498,12 +503,22 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       throw new Error(`hermes_gateway_not_configured:${keys.join(', ')} required for Hermes execution.`);
     }
 
-    await this.persistCallbackTokenHash(input.ariesRunId, input.tenantId, input.callbackToken);
-
     // Always stamp protocol_version at the chokepoint so callers that build
     // their own payload objects (e.g. submitSocialCopyFinalizeRun) can't
     // accidentally omit it.
     const wirePayload: Record<string, unknown> = { ...input.payload, protocol_version: PROTOCOL_VERSION };
+    try {
+      if (isVideoRenderHermesSubmission(wirePayload)) {
+        validateVideoRenderHermesSubmission(wirePayload);
+      }
+      await validateVideoRenderSourceUrls(wirePayload);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      markSubmissionFailed(input.ariesRunId, 'video_render_submission_invalid', message);
+      throw error;
+    }
+
+    await this.persistCallbackTokenHash(input.ariesRunId, input.tenantId, input.callbackToken);
     const idempotencyKey = typeof wirePayload.idempotency_key === 'string' ? wirePayload.idempotency_key : '';
 
     let response: Response;
@@ -732,6 +747,16 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     const payload = this.submissionPayload(
       action, run.aries_run_id, resolvedInput, workflowKey, callbackToken, memoryContextSnapshot, productionDoc, tasteProjection,
     );
+    try {
+      if (effectiveStage === 'production' && isVideoRenderHermesSubmission(payload)) {
+        validateVideoRenderHermesSubmission(payload);
+      }
+      await validateVideoRenderSourceUrls(payload);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      markSubmissionFailed(run.aries_run_id, 'video_render_submission_invalid', message);
+      throw error;
+    }
     const idempotencyKey = typeof payload.idempotency_key === 'string' ? payload.idempotency_key : '';
 
     // Route this stage's submission to its dedicated Hermes profile gateway.
@@ -1363,8 +1388,13 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         : prompt;
       return {
         input: promptWithMemory,
-        instructions: this.instructions(request.workflow_key, 'research'),
+        instructions: this.instructions(request.workflow_key, input.stage ?? 'research'),
         session_id: this.sessionKey(),
+        workflow_key: request.workflow_key,
+        action: 'run',
+        aries_run_id: request.aries_run_id,
+        job_id: request.job_id,
+        tenant_id: request.tenant_id,
         callback_url: request.callback_url,
         callback_auth: callbackAuth,
         callback_context: {

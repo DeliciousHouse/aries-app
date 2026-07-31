@@ -34,6 +34,8 @@ const STATUS_KEYS: MarketingDashboardItemStatus[] = [
 const DASHBOARD_REDACTED_VALUE = '[redacted]';
 const DASHBOARD_SENSITIVE_ASSIGNMENT_PATTERN =
   /\b(access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|clientSecret|api[_-]?key|apiKey|access[_-]?key|accessKey|AWSAccessKeyId|authorization|password|passwd|token|signature|sig|secret|key)\b\s*[:=]\s*(Bearer\s+)?[^\s&;,'"<>]+/gi;
+const DASHBOARD_ABSOLUTE_PATH_PATTERN =
+  /(^|[\s("'=])((?:[a-z]:[\\/]|~[\\/]|\/)(?:[^\\/\s,;!?<>"')]+[\\/])+[^\\/\s,;!?<>"')]+)/gi;
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -81,14 +83,62 @@ function escapeRegExp(value: string): string {
 
 function containsTenantId(doc: SocialContentJobRuntimeDocument, value: string): boolean {
   const tenantId = typeof doc.tenant_id === 'string' ? doc.tenant_id.trim() : '';
-  return tenantId.length > 0 && value.includes(tenantId);
+  return tenantId.length > 0 && value.toLowerCase().includes(tenantId.toLowerCase());
 }
 
 function tenantSafeString(doc: SocialContentJobRuntimeDocument, value: unknown, fallback = ''): string {
   const tenantId = typeof doc.tenant_id === 'string' ? doc.tenant_id.trim() : '';
   const redacted = stringValue(value, fallback);
   if (!tenantId) return redacted;
-  return redacted.replace(new RegExp(escapeRegExp(tenantId), 'g'), 'tenant');
+  return redacted.replace(new RegExp(escapeRegExp(tenantId), 'gi'), 'tenant');
+}
+
+function redactEmbeddedFilesystemPaths(value: string): string {
+  return value.replace(
+    DASHBOARD_ABSOLUTE_PATH_PATTERN,
+    (_match, prefix: string) => `${prefix}${DASHBOARD_REDACTED_VALUE}`,
+  );
+}
+
+function safeVideoDisplayString(
+  doc: SocialContentJobRuntimeDocument,
+  value: unknown,
+  fallback: string,
+  maxLength: number,
+): string {
+  const raw = stringValue(value);
+  if (!raw || containsTenantId(doc, raw)) return fallback;
+  const redacted = redactEmbeddedFilesystemPaths(raw);
+  if (redacted.trim() === DASHBOARD_REDACTED_VALUE) return fallback;
+  const normalized = redacted.replace(/\\/g, '/').toLowerCase();
+  if (
+    /^[a-z]:\//.test(normalized)
+    || normalized.startsWith('/')
+    || normalized.includes('/.hermes/')
+    || normalized.includes('/cache/')
+    || normalized.includes('hermes-video-media')
+  ) {
+    return fallback;
+  }
+  return redacted.slice(0, maxLength);
+}
+
+function safeVideoPlatform(value: unknown): string {
+  const normalized = rawStringValue(value).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  const allowed = new Set([
+    'facebook',
+    'instagram',
+    'instagram_reels',
+    'linkedin',
+    'meta',
+    'reddit',
+    'social',
+    'tiktok',
+    'x',
+    'youtube',
+    'youtube_shorts',
+  ]);
+  return allowed.has(normalized) ? normalized : 'social';
 }
 
 function publicId(doc: SocialContentJobRuntimeDocument, value: unknown, fallback: string): string {
@@ -688,29 +738,49 @@ function createRenderedVideoAssets(input: {
         metadata.posterPath,
       ]),
     );
-    const platform = firstStringValue([metadata.platform_slug, metadata.platformSlug, metadata.platform]) || 'social';
-    const familyLabel = tenantSafeString(
+    const platform = safeVideoPlatform(firstRawStringValue([
+      metadata.platform_slug,
+      metadata.platformSlug,
+      metadata.platform,
+    ]));
+    const familyLabel = safeVideoDisplayString(
       input.doc,
       firstStringValue([metadata.family_name, metadata.familyName, metadata.family_id, metadata.familyId]),
+      '',
+      80,
     );
-    const aspectRatio = tenantSafeString(input.doc, firstStringValue([metadata.aspect_ratio, metadata.aspectRatio]));
-    const durationSeconds = tenantSafeString(
+    const rawAspectRatio = firstRawStringValue([metadata.aspect_ratio, metadata.aspectRatio]);
+    const aspectRatio = ['9:16', '16:9', '1:1'].includes(rawAspectRatio) ? rawAspectRatio : '';
+    const rawDurationSeconds = Number(firstRawStringValue([metadata.duration_seconds, metadata.durationSeconds]));
+    const durationSeconds = Number.isFinite(rawDurationSeconds) && rawDurationSeconds > 0 && rawDurationSeconds <= 300
+      ? String(rawDurationSeconds)
+      : '';
+    const fallbackTitle = `${platformLabel(platform)} rendered video ${index + 1}`;
+    const title = safeVideoDisplayString(
       input.doc,
-      firstStringValue([metadata.duration_seconds, metadata.durationSeconds]),
+      firstStringValue([artifact.title, metadata.title, metadata.family_name, metadata.familyName]),
+      fallbackTitle,
+      160,
     );
-    const title =
-      tenantSafeString(input.doc, artifact.title) ||
-      tenantSafeString(input.doc, firstStringValue([metadata.title, metadata.family_name, metadata.familyName])) ||
-      `${platformLabel(platform)} rendered video ${index + 1}`;
     const detailSummary = [familyLabel, aspectRatio, durationSeconds ? `${durationSeconds}s` : ''].filter(Boolean).join(' · ');
+    const summary = safeVideoDisplayString(
+      input.doc,
+      artifact.summary,
+      detailSummary || 'Rendered video ready for review.',
+      500,
+    );
+    const rawArtifactId = rawStringValue(artifact.artifactId);
+    const assetId = /^[a-z0-9][a-z0-9_-]{0,127}$/i.test(rawArtifactId) && !containsTenantId(input.doc, rawArtifactId)
+      ? rawArtifactId
+      : `social-video-render-${safeHash(input.doc.job_id, rawArtifactId || String(index)).slice(0, 12)}`;
 
     return [{
-      id: publicId(input.doc, artifact.artifactId, `social-video-render-${index + 1}`),
+      id: assetId,
       postId: input.postId,
       jobId: input.doc.job_id,
       type: 'video_ad',
       title,
-      summary: tenantSafeString(input.doc, artifact.summary) || detailSummary || title,
+      summary,
       platform,
       platformLabel: platformLabel(platform),
       postName: input.postName,
@@ -1032,12 +1102,25 @@ export function buildSocialContentDashboardProjection(
     typeof options.realPublishedPostCount === 'number' && options.realPublishedPostCount > 0
       ? options.realPublishedPostCount
       : 0;
-  const projection = latestSocialProjection(runtimeDoc);
+  const runtime = readSocialContentRuntimeState(runtimeDoc);
+  const videoStage = runtime?.stages.video_render;
+  const hasRenderedVideo = (videoStage?.artifacts.length ?? 0) > 0
+    || recordArray(videoStage?.output?.artifacts).length > 0;
+  const projection = latestSocialProjection(runtimeDoc) ?? (hasRenderedVideo
+    ? {
+        summary: '',
+        weekly_content_plan: {
+          window_days: null,
+          posts: [],
+          image_creatives: [],
+          video_scripts: [],
+        },
+      }
+    : null);
   if (!projection) {
     return dashboard;
   }
 
-  const runtime = readSocialContentRuntimeState(runtimeDoc);
   const existingCampaignId = dashboard.post?.id || '';
   const postId = existingCampaignId && !containsTenantId(runtimeDoc, existingCampaignId) ? existingCampaignId : publicCampaignId(runtimeDoc.job_id);
   const postName = tenantSafeString(runtimeDoc, dashboard.post?.name) || brandName(runtimeDoc);

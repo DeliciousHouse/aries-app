@@ -41,6 +41,19 @@
         "scope": "all",
         "agents": []
       }
+    },
+    {
+      "name": "video-render-runtime",
+      "category": "media-production",
+      "path": "skills/video-render-runtime/SKILL.md",
+      "owner": "aries",
+      "status": "active",
+      "last_updated": "2026-07-27",
+      "version": "2.0.0",
+      "visibility": {
+        "scope": "all",
+        "agents": []
+      }
     }
   ]
 }

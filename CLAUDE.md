@@ -43,6 +43,8 @@ Each stage can pause for human approval. `backend/marketing/orchestrator.ts` dri
 
 **Resumability rule:** Stages must preserve partial artifacts on rate-limit or transient gateway failures so a resume can pick up where it left off. Do not discard work on a non-fatal stage error — persist what completed, surface the failure, and let the orchestrator decide whether to retry. This rule exists because of past media-generation rate-limit incidents that lost completed creative on retry.
 
+**Video execution rule:** Required video work must use the index-managed `skills/video-render-runtime/SKILL.md` contract. Aries supplies provider-neutral intent and ownership; Hermes owns provider and model selection.
+
 ### Auth & Tenant Model
 
 Auth uses next-auth v5 (`auth.ts` at repo root) with Credentials + Google providers. Sessions are enriched with tenant claims (`tenantId`, `tenantSlug`, `role`) via JWT callbacks. `lib/tenant-context.ts` provides `getTenantContext()` which first checks session claims, then falls back to a DB lookup. Tenant roles: `tenant_admin`, `tenant_analyst`, `tenant_viewer`. All authenticated API routes should resolve tenant context server-side.

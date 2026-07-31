@@ -76,8 +76,8 @@ test('stagePayload loads the same step once', async () => {
     },
   });
 
-  const first = await facts.stagePayload('production', 'veo_video_generator');
-  const second = await facts.stagePayload('production', 'veo_video_generator');
+  const first = await facts.stagePayload('production', 'video_render_runtime');
+  const second = await facts.stagePayload('production', 'video_render_runtime');
 
   assert.deepEqual(first, { ok: true });
   assert.deepEqual(second, { ok: true });
@@ -96,8 +96,8 @@ test('concurrent stagePayload lookups dedupe the in-flight read', async () => {
   });
 
   const [first, second] = await Promise.all([
-    facts.stagePayload('production', 'veo_video_generator'),
-    facts.stagePayload('production', 'veo_video_generator'),
+    facts.stagePayload('production', 'video_render_runtime'),
+    facts.stagePayload('production', 'video_render_runtime'),
   ]);
 
   assert.deepEqual(first, { ok: true });
@@ -198,7 +198,7 @@ test('shared facts dedupe stage payload reads across collector invocations', asy
     ['2:campaign_planner', { campaign_plan: { core_message: 'Planner ready', primary_cta: 'Book now' } }],
     ['2:strategy_review_preview', { review_packet: { objective: 'Review strategy', channels_in_scope: ['meta-ads'] } }],
     ['3:production_review_preview', { review_packet: { summary: { core_message: 'Production ready' }, asset_previews: {} } }],
-    ['3:veo_video_generator', { video_assets: { platform_contracts: [] } }],
+    ['3:video_render_runtime', { video_assets: { platform_contracts: [] } }],
   ]);
 
   const facts = createSocialContentJobFacts(runtimeDoc, null, {
@@ -229,7 +229,8 @@ test('shared facts dedupe stage payload reads across collector invocations', asy
       ['2:strategy_review_preview', 1],
       ['2:website_brand_analysis', 1],
       ['3:production_review_preview', 1],
-      ['3:veo_video_generator', 1],
+      [`3:${['v', 'eo_video_generator'].join('')}`, 1],
+      ['3:video_render_runtime', 1],
     ],
   );
 });

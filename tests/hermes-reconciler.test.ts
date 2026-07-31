@@ -14,7 +14,7 @@
  */
 import assert from 'node:assert/strict';
 import { closeSync, openSync, utimesSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -175,7 +175,7 @@ async function makePort(fetchImpl: typeof fetch, env: Record<string, string> = H
   );
 }
 
-async function seedMarketingJob(jobId: string, tenantId: string) {
+async function seedMarketingJob(jobId: string, tenantId: string, videoRenderCount = 0) {
   const { createSocialContentJobRuntimeDocument, saveSocialContentJobRuntime } = await import(
     '../backend/marketing/runtime-state'
   );
@@ -186,6 +186,7 @@ async function seedMarketingJob(jobId: string, tenantId: string) {
       brandUrl: 'https://brand.example',
       businessType: 'performance marketing agency',
       competitorUrl: 'https://betterup.com',
+      ...(videoRenderCount > 0 ? { videoRenderCount } : {}),
     },
     brandKit: {
       path: '/tmp/brand-kit.json',
@@ -414,6 +415,119 @@ test('reconcileExecutionRun delivers a fresh terminal run into the marketing doc
       if (prevAutoApprove === undefined) delete process.env.ARIES_AUTO_APPROVE_MARKETING_PIPELINE;
       else process.env.ARIES_AUTO_APPROVE_MARKETING_PIPELINE = prevAutoApprove;
     }
+  });
+});
+
+test('reconcileExecutionRun ingests a later canonical production video output before completing', async () => {
+  await withDataRoot(async (dataRoot) => {
+    const previousVideoMount = process.env.HERMES_VIDEO_CACHE_MOUNT;
+    const videoMount = path.join(dataRoot, 'hermes-video-media');
+    process.env.HERMES_VIDEO_CACHE_MOUNT = videoMount;
+    await mkdir(videoMount, { recursive: true });
+    const sourcePath = path.join(videoMount, 'reconciler-later-output.mp4');
+    await writeFile(sourcePath, 'reconciler-video');
+    try {
+      const store = await import('../backend/execution/run-store');
+      const runtime = await import('../backend/marketing/runtime-state');
+      const doc = await seedMarketingJob('job-recon-video-success', 'tenant-recon-video', 1);
+      doc.stages.publish.status = 'completed';
+      runtime.saveSocialContentJobRuntime(doc.job_id, doc);
+      const run = store.createExecutionRunRecord({
+        provider: 'hermes',
+        domain: 'marketing',
+        workflowKey: 'social_content_weekly',
+        action: 'run',
+        tenantId: doc.tenant_id,
+        marketingJobId: doc.job_id,
+        stage: 'production',
+      });
+      store.markExecutionRunSubmitted(run.aries_run_id, {
+        externalRunId: 'hrun-reconcile-video-success',
+        targetProfile: null,
+      });
+      store.markExecutionRunEventApplied(run.aries_run_id, { eventId: 'init-running', status: 'running' });
+      const port = await makePort((async () => new Response(JSON.stringify({
+        run_id: 'hrun-reconcile-video-success',
+        status: 'completed',
+        output: {
+          ok: true,
+          status: 'completed',
+          workflowKey: 'social_content_weekly',
+          output: [
+            { artifacts: [] },
+            {
+              artifacts: [{
+                id: 'reconciler-later-output',
+                path: sourcePath,
+                mime_type: 'video/mp4',
+                platform_slug: 'instagram_reels',
+                family_id: 'weekly_primary',
+              }],
+            },
+          ],
+        },
+      }), { status: 200 })) as unknown as typeof fetch);
+
+      assert.deepEqual(
+        await port.reconcileExecutionRun(run.aries_run_id),
+        { status: 'ingested', callbackStatus: 'completed', duplicate: false },
+      );
+      assert.equal(store.loadExecutionRunRecord(run.aries_run_id)?.status, 'completed');
+      const after = await runtime.loadSocialContentJobRuntime(doc.job_id);
+      const artifacts = (after?.stages.production.primary_output as {
+        artifacts?: Array<Record<string, unknown>>;
+      } | null)?.artifacts ?? [];
+      assert.equal(artifacts.length, 1);
+      assert.equal(artifacts[0].id, 'reconciler-later-output');
+    } finally {
+      if (previousVideoMount === undefined) delete process.env.HERMES_VIDEO_CACHE_MOUNT;
+      else process.env.HERMES_VIDEO_CACHE_MOUNT = previousVideoMount;
+    }
+  });
+});
+
+test('reconcileExecutionRun fails closed when a production run omits required video output', async () => {
+  await withDataRoot(async () => {
+    const store = await import('../backend/execution/run-store');
+    const runtime = await import('../backend/marketing/runtime-state');
+    const doc = await seedMarketingJob('job-recon-video-skipped', 'tenant-recon-video', 1);
+    const run = store.createExecutionRunRecord({
+      provider: 'hermes',
+      domain: 'marketing',
+      workflowKey: 'social_content_weekly',
+      action: 'run',
+      tenantId: doc.tenant_id,
+      marketingJobId: doc.job_id,
+      stage: 'production',
+    });
+    store.markExecutionRunSubmitted(run.aries_run_id, {
+      externalRunId: 'hrun-reconcile-video-skipped',
+      targetProfile: null,
+    });
+    store.markExecutionRunEventApplied(run.aries_run_id, { eventId: 'init-running', status: 'running' });
+    const port = await makePort((async () => new Response(JSON.stringify({
+      run_id: 'hrun-reconcile-video-skipped',
+      status: 'completed',
+      output: {
+        ok: true,
+        status: 'completed',
+        workflowKey: 'social_content_weekly',
+        output: [{ artifacts: [] }],
+      },
+    }), { status: 200 })) as unknown as typeof fetch);
+
+    assert.deepEqual(
+      await port.reconcileExecutionRun(run.aries_run_id),
+      { status: 'ingested', callbackStatus: 'completed', duplicate: false },
+    );
+    assert.equal(store.loadExecutionRunRecord(run.aries_run_id)?.status, 'failed');
+    const after = await runtime.loadSocialContentJobRuntime(doc.job_id);
+    assert.equal(after?.state, 'failed');
+    assert.equal(after?.last_error?.code, 'hermes_video_artifact_ingest_failed');
+    const videoStage = (after?.social_content_runtime as {
+      stages?: { video_render?: { status?: string } };
+    } | undefined)?.stages?.video_render;
+    assert.equal(videoStage?.status, 'failed');
   });
 });
 

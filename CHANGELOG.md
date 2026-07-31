@@ -2,6 +2,61 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.48.0 — feat(video): ship provider-neutral Hermes rendering
+
+Aries can now request, track, ingest, and review rendered social videos through
+Hermes without selecting a provider or model inside the application.
+
+### Added
+
+- A versioned, index-managed video runtime skill and JSON contract validate live
+  run, resume, callback, and terminal-event payloads at the execution boundary.
+- Rendered callback artifacts are copied from the deployed Hermes cache mount into
+  durable job media and projected as tenant-safe dashboard video previews.
+- Regression coverage exercises live submissions and resumes, authenticated
+  callbacks, cache remapping, dashboard sanitization, executable self-host upgrades,
+  collision-safe artifact identities, and real execution-record schemas.
+
+### Fixed
+
+- Production submissions fail closed before dispatch when video jobs omit required
+  context, hide provider or model routing selectors anywhere in structured input,
+  or carry unsafe source URLs.
+- Public source validation pins requests to DNS-approved addresses, falls through
+  unreachable public addresses, rejects private pivots, and applies bounded
+  per-source and total deadlines with limited asset-validation concurrency.
+- Self-host upgrades merge the managed video skill into an existing registry
+  without overwriting operator-owned entries or unrelated registry arrays.
+- Collision-resistant, length-bounded media keys keep distinct artifact identities
+  on distinct files and URLs while remaining servable through the asset route.
+- Canonical media identities include the stable artifact ID even when two artifacts
+  share a platform and family, including reads from compatibility destinations.
+- Dashboard video labels redact POSIX, UNC, and ordinary Windows filesystem paths,
+  and marketing approval storage rejects traversal and multi-component IDs.
+- Callback ingestion persists one consistent terminal failure across marketing,
+  social-content, and execution-run state when required video output has no
+  ingestible artifact, including stopped cancellations.
+- The artifact collector retains read-only compatibility with persisted predecessor
+  payloads while projecting newly ingested provider-neutral asset IDs and URLs.
+- Selector validation normalizes camel-, kebab-, and snake-case routing aliases
+  across both request and prior-stage JSON before any live Hermes dispatch.
+- Default polling and reconciler callbacks now ingest canonical production video
+  outputs before terminal convergence, preserve every localized output artifact,
+  and fail closed when required renders are all skipped.
+- Production review prefers persisted canonical video artifacts, embedded dashboard
+  paths are redacted without discarding safe surrounding copy, and non-git self-host
+  reruns refresh managed runtime files while preserving operator-owned state.
+- Video ingest reads the production stage's object-shaped artifacts as well as the
+  array shape, so requesting a rendered video no longer fails the whole job.
+- A weekly job that rendered its images keeps its copy, images, and approval gate
+  when a clip is missing or unusable; only a job with nothing publishable fails
+  closed. Consolidating video artifacts no longer overwrites the rendered images
+  carried by the same output entry.
+
+### Removed
+
+- Provider-specific runtime contracts and active guidance; historical release notes
+  remain unchanged as immutable evidence.
 ## v0.1.47.2 — docs(testing): scope local card verification
 
 Contributors can now focus local verification on card-relevant tests plus the
