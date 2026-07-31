@@ -222,6 +222,13 @@ const steps = [
     args: ['--test', 'tests/insights-attribution-scope.test.ts'],
   },
   {
+    // AA-153: the workspace header eyebrow follows the job's actual kind
+    // instead of a hardcoded "Post" (a week-long weekly job read as a single
+    // post). Pure resolver + label, no DB or I/O.
+    name: 'marketing job kind eyebrow',
+    args: ['--test', 'tests/marketing-job-kind.test.ts'],
+  },
+  {
     // 2026-07-13 duplicate-posting incident (AA-134 / PR #841) regression wall:
     // scheduler day-mapping + same-instant de-collision, the reel-companion
     // synthesis clamp, the publish-boundary duplicate/spacing guards, and the

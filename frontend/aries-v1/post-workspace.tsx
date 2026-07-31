@@ -25,6 +25,7 @@ import {
   deriveGenerationProgressState,
   derivePublishSurfaceState,
   deriveWorkspaceHeaderState,
+  marketingJobKindEyebrow,
   resolveWorkspaceView,
   type GateFallbackState,
   type GenerationProgressState,
@@ -368,7 +369,7 @@ export default function AriesPostWorkspace(props: { postId: string; initialView?
 
   return (
     <div className="space-y-6">
-      <ShellPanel eyebrow="Post" title={headerState.title}>
+      <ShellPanel eyebrow={marketingJobKindEyebrow(status.jobKind)} title={headerState.title}>
         <div className="space-y-5">
           <div className="flex flex-wrap items-center gap-3">
             <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium tracking-[0.03em] ${workflowStateTone(workflowState)}`}>
