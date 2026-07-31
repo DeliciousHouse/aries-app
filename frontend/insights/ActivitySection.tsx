@@ -7,7 +7,7 @@
 import type { ReactNode } from "react";
 import type { Period, Platform, ActivityData } from "@/frontend/insights/types";
 import { useInsight } from "@/frontend/insights/useInsight";
-import { C } from "@/frontend/insights/tokens";
+import { C, attributionScopeLabel } from "@/frontend/insights/tokens";
 import {
   SectionHeader, Panel, Donut, Icon, ChannelIcon, ErrorState, EmptyState, LoadingRows,
 } from "@/frontend/insights/ui";
@@ -79,10 +79,13 @@ export function ActivitySection({ period, platform }: ActivitySectionProps) {
 
   const platforms = data?.meta?.platforms ?? [];
   const mixTotal  = (data?.contentMix ?? []).reduce((s, m) => s + m.count, 0);
+  // S4-1: say which post set these numbers cover — Aries-published only, or
+  // everything on the channel (the fallback while attribution is thin).
+  const scopeNote = attributionScopeLabel(data?.meta?.attribution?.scope);
 
   return (
     <section>
-      <SectionHeader title={PERIOD_TITLE[period]} note={`${fmtRange(period)} · running on Aries Pro`} />
+      <SectionHeader title={PERIOD_TITLE[period]} note={`${fmtRange(period)} · ${scopeNote} · running on Aries Pro`} />
 
       {loading ? (
         <Panel><LoadingRows n={4} /></Panel>

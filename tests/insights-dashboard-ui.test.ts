@@ -6,6 +6,7 @@ import test from 'node:test';
 import { resolveProjectRoot } from './helpers/project-root';
 import { APP_ROUTES, getRouteById } from '../frontend/app-shell/routes';
 import { platformSupports } from '../backend/insights/platforms/capabilities';
+import { attributionScopeLabel } from '../frontend/insights/tokens';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
@@ -153,12 +154,45 @@ test('comments read-api exposes replied state so the inbox can render it', () =>
   assert.match(readApi, /repliedAt:/);
 });
 
-test('insights sections use all-channel copy — no Aries-published misattribution (#785)', () => {
+test('insights sections never hardcode their scope label — no Aries-published misattribution (#785, S4-1)', () => {
+  // #785: these sections read ALL channel posts, so claiming "Aries-published"
+  // misattributes other people's work. S4-1 makes the scope conditional rather
+  // than fixed, so the guard moves from "the words never appear" to "the words
+  // are derived from the scope the backend actually applied". A hardcoded label
+  // in either section would reintroduce the same lie for every tenant below the
+  // attribution-coverage threshold.
   assert.match(insightsActivitySection, /No posts published on your channels in this period\./);
   assert.match(insightsTopPostsSection, /Top performing content/);
   assert.match(insightsTopPostsSection, /No published posts in this period\./);
-  assert.doesNotMatch(insightsActivitySection, /Aries-published/);
-  assert.doesNotMatch(insightsTopPostsSection, /Aries-published/);
+
+  // Both sections take their label from the shared helper, keyed on the scope
+  // the response reported — never from a literal in the JSX.
+  for (const [name, source] of [
+    ['ActivitySection', insightsActivitySection],
+    ['TopPostsSection', insightsTopPostsSection],
+  ] as const) {
+    assert.match(source, /attributionScopeLabel\(/, `${name} must derive its scope label`);
+    assert.match(
+      source,
+      /attributionScopeLabel\(\s*data\?\.meta\?\.attribution\?\.scope\s*\)/,
+      `${name} must key the label on the reported attribution scope`,
+    );
+    // Comments may discuss the label; only rendered code may not contain it.
+    const code = source
+      .replace(/\/\*[\s\S]*?\*\//g, '')   // block + JSX comments
+      .replace(/^\s*\/\/.*$/gm, '');      // line comments
+    assert.doesNotMatch(
+      code,
+      /Aries-published/,
+      `${name} must not hardcode an Aries-published label`,
+    );
+  }
+
+  // The helper is the single place the mapping lives, and its fallback for an
+  // absent scope (a cached pre-split body) is all-channel, not Aries.
+  assert.equal(attributionScopeLabel('aries'), 'Aries-published posts');
+  assert.equal(attributionScopeLabel('all-channel'), 'all channel activity');
+  assert.equal(attributionScopeLabel(undefined), 'all channel activity');
 });
 
 // ─── #684 honest analytics "metric unavailable" states ───────────────────────

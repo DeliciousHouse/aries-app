@@ -31,7 +31,14 @@ import crypto from 'crypto';
 // always NULL outside the demo seed), so the content-mix donut and
 // pendingClassification count shift from an all-"uncategorized" cache row to
 // real buckets on the next fetch. Bump invalidates stale v5 bodies.
-const TEMPLATE_VERSION = 'activity-v6';
+// v7: S4-1 — the section is scoped to Aries-published posts once the window's
+// attribution coverage clears the threshold (all-channel below it, as in #785),
+// so every strip number, the content mix and the footer line change for a
+// backfilled tenant. Bump invalidates stale v6 bodies. NOTE: the scope is a
+// property of the data, not of the request, so it is deliberately NOT part of
+// the cache key — a tenant that crosses the threshold mid-cache keeps serving
+// the all-channel body until the 1h TTL expires.
+const TEMPLATE_VERSION = 'activity-v7';
 const CACHE_TTL_MS     = 60 * 60 * 1000; // 1 hour
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);
@@ -102,9 +109,17 @@ async function upsert(
 // An insight line — NOT a restatement of the posts-published count (which has
 // its own card). Surfaces what Aries noticed: the leading content type when one
 // clearly dominates, otherwise the always-true learning message.
-function buildFooterLine(snap: { postsPublished: number; contentMix: Array<{ contentType: string; pct: number }> }): string {
+function buildFooterLine(snap: {
+  postsPublished: number;
+  contentMix: Array<{ contentType: string; pct: number }>;
+  attribution: { scope: 'aries' | 'all-channel' };
+}): string {
   if (snap.postsPublished === 0) {
-    return 'No Aries-published posts in this period.';
+    // S4-1: only claim "Aries-published" when the section is actually scoped to
+    // attributed posts; under the all-channel fallback that would be a lie.
+    return snap.attribution.scope === 'aries'
+      ? 'No Aries-published posts in this period.'
+      : 'No posts published on your channels in this period.';
   }
   const top = snap.contentMix[0];
   if (top && top.contentType !== 'uncategorized' && top.pct >= 35) {
@@ -172,6 +187,7 @@ export async function handleGetInsightsActivity(
         platforms:             snap.platforms,
         pendingClassification: snap.pendingClassification,
         hasData:               snap.postsPublished > 0,
+        attribution:           snap.attribution,
       },
     };
 

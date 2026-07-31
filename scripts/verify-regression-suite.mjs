@@ -214,6 +214,14 @@ const steps = [
     args: ['--test', 'tests/insights-attribution-coverage.test.ts'],
   },
   {
+    // S4-1/AA-104: the Activity/Top attribution scope decision that consumes
+    // the S3-7 gate above. Pins the never-re-empty property (#785) across a
+    // threshold/count grid, the three fail-open paths, and the default-OFF
+    // rollout flag. Fake queryable, no DB or I/O.
+    name: 'insights attribution scope decision',
+    args: ['--test', 'tests/insights-attribution-scope.test.ts'],
+  },
+  {
     // 2026-07-13 duplicate-posting incident (AA-134 / PR #841) regression wall:
     // scheduler day-mapping + same-instant de-collision, the reel-companion
     // synthesis clamp, the publish-boundary duplicate/spacing guards, and the

@@ -37,6 +37,17 @@ export const platformColor: Record<string, string> = {
   all:       C.accent,
 };
 
+/**
+ * S4-1 — how a section labels the post set it is describing. Sections fall back
+ * to all-channel when attribution coverage is untrustworthy, so the label has to
+ * follow the data rather than assume "Aries". An absent scope (a cached body
+ * from before the split shipped) reads as all-channel, which is what those
+ * bodies actually contain.
+ */
+export function attributionScopeLabel(scope: "aries" | "all-channel" | undefined): string {
+  return scope === "aries" ? "Aries-published posts" : "all channel activity";
+}
+
 export const platformLabel: Record<string, string> = {
   instagram: "Instagram",
   facebook:  "Facebook",
