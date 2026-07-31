@@ -170,6 +170,22 @@ const steps = [
     ],
   },
   {
+    // AA-165: the INTERNAL cross-company usage & cost dashboard. This is the one
+    // route that deliberately reads across tenants, so its tests are primarily
+    // security: a customer's tenant_admin gets no data, an empty staff
+    // allow-list denies everyone, flag-off is a 404 before any session or DB
+    // work, and an auth outage fails CLOSED. The margin tests pin the finance
+    // honesty rules — an all-AI company must not report 100% margin off a
+    // measured cost that summed to zero because nothing reported it.
+    name: 'internal usage & cost attribution (AA-165)',
+    args: [
+      '--test',
+      'tests/billing/margin.test.ts',
+      'tests/telemetry/usage-attribution.test.ts',
+      'tests/telemetry/usage-attribution-route.test.ts',
+    ],
+  },
+  {
     // Regression for the 2026-06-09 prod wedge: a failed tick must release the
     // insights-sync worker's overlap guard. Fast and fully in-memory.
     name: 'insights-sync worker tick guard',

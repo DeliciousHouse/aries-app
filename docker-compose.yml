@@ -232,6 +232,18 @@ services:
       # ARIES_USAGE_ROLLUP_ENABLED to show anything: with no rollup watermark the
       # payload reports metered:false rather than a zeroed dashboard.
       ARIES_USAGE_ANALYTICS_ENABLED: ${ARIES_USAGE_ANALYTICS_ENABLED:-0}
+      # AA-165 INTERNAL usage & cost attribution dashboard (/internal/usage):
+      # cross-company usage, engine mix, and margin per client for our own
+      # ops/finance staff. Default OFF — page and route are real 404s.
+      #
+      # ARIES_INTERNAL_OPS_EMAILS is the ENTIRE access model and has no default:
+      # Aries has no platform-staff role (every tenant role is scoped to one
+      # workspace), so this list is what separates our staff from a customer's
+      # admin. An empty or unset list denies everyone — never "open when unset",
+      # whose failure mode is disclosing every company's usage to every
+      # logged-in customer.
+      ARIES_INTERNAL_USAGE_DASHBOARD_ENABLED: ${ARIES_INTERNAL_USAGE_DASHBOARD_ENABLED:-0}
+      ARIES_INTERNAL_OPS_EMAILS: ${ARIES_INTERNAL_OPS_EMAILS:-}
       # Multi-workspace membership-aware auth resolution (Phase 1). When ON, the
       # active-workspace pointer is validated against an ACTIVE
       # organization_memberships row (role from the membership; workspaceCount on

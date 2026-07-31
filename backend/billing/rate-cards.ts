@@ -35,6 +35,22 @@ export type RateCard = {
   monthlyTokenAllowance: number | null;
   /** Configured price. Declarative only — never used to compute a charge. */
   costPerMillionTokensCents: number | null;
+  /**
+   * AA-165: what the customer is billed for this tier, per month. The billed
+   * side of margin on the INTERNAL dashboard. null = no configured price
+   * (Enterprise, whose price is negotiated per company), which renders as
+   * unknown — never as a free client.
+   */
+  monthlyPriceCents: number | null;
+  /**
+   * AA-165: the MODELED cost of running one task. An explicitly configured
+   * assumption, not a measurement: `task_execution_log.cost_cents` is a hard 0
+   * on the zero-cost engines and NULL on every AI row until Hermes reports
+   * usage, so a margin built on measured cost reads "100%" for every client.
+   * Surfaced only as `costBasis: 'modeled'`, and superseded automatically the
+   * moment real usage is reported (see backend/billing/margin.ts).
+   */
+  costPerTaskCents: number | null;
 };
 
 /**
@@ -49,6 +65,8 @@ export const DEFAULT_RATE_CARDS: Record<PlanTier, RateCard> = {
     monthlyTaskAllowance: 1000,
     monthlyTokenAllowance: 2_000_000,
     costPerMillionTokensCents: 1500,
+    monthlyPriceCents: 9900,
+    costPerTaskCents: 2,
   },
   growth: {
     tier: 'growth',
@@ -56,6 +74,8 @@ export const DEFAULT_RATE_CARDS: Record<PlanTier, RateCard> = {
     monthlyTaskAllowance: 5000,
     monthlyTokenAllowance: 10_000_000,
     costPerMillionTokensCents: 1200,
+    monthlyPriceCents: 29900,
+    costPerTaskCents: 2,
   },
   scale: {
     tier: 'scale',
@@ -63,6 +83,8 @@ export const DEFAULT_RATE_CARDS: Record<PlanTier, RateCard> = {
     monthlyTaskAllowance: 25_000,
     monthlyTokenAllowance: 50_000_000,
     costPerMillionTokensCents: 1000,
+    monthlyPriceCents: 99900,
+    costPerTaskCents: 2,
   },
   enterprise: {
     tier: 'enterprise',
@@ -70,6 +92,9 @@ export const DEFAULT_RATE_CARDS: Record<PlanTier, RateCard> = {
     monthlyTaskAllowance: null,
     monthlyTokenAllowance: null,
     costPerMillionTokensCents: null,
+    // Negotiated per company via company_subscriptions.monthly_price_cents_override.
+    monthlyPriceCents: null,
+    costPerTaskCents: 2,
   },
 };
 
@@ -134,4 +159,43 @@ export function parseAllowance(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+/**
+ * AA-165 — a NUMERIC money/rate column, which `pg` returns as a string
+ * ('9900.0000'). Unlike parseAllowance this keeps the fractional part, and a
+ * NULL or unparseable value stays null: "no configured price" is not "free",
+ * and a 0 would silently turn an unpriced client into 100% loss (or 100%
+ * margin) on the finance dashboard.
+ */
+export function parseRateCents(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) && value >= 0 ? value : null;
+  if (typeof value === 'bigint') return value >= 0n ? Number(value) : null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!/^\d+(\.\d+)?$/.test(trimmed)) return null;
+    const parsed = Number.parseFloat(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+/**
+ * AA-165 — the monthly price a company is billed, from one joined
+ * subscription+card row. A per-company override beats the tier's card, the same
+ * shape resolveIncludedAllowance uses, so a negotiated Enterprise price needs no
+ * bespoke code path. null = no configured price (rendered as unknown).
+ *
+ * INTERNAL surfaces only. Nothing customer-facing and nothing in the enforcement
+ * gate reads this — a price must never become a ceiling.
+ */
+export function resolveBilledPriceCents(
+  row: Record<string, unknown> | undefined,
+  tier: PlanTier,
+): number | null {
+  if (!row) return rateCardForTier(tier).monthlyPriceCents;
+  return (
+    parseRateCents(row.monthly_price_cents_override) ?? parseRateCents(row.monthly_price_cents)
+  );
 }

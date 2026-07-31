@@ -1884,6 +1884,45 @@ async function initDb() {
         ON CONFLICT (company_id) DO NOTHING;
     `);
 
+    // AA-165: the two operands margin needs. Mirrors
+    // migrations/20260731000000_plan_pricing_and_modeled_cost.sql.
+    //
+    // There was no subscription PRICE column anywhere in the schema, so
+    // "billed price - net API cost" had neither side. monthly_price_cents is
+    // the billed side (per-company override for negotiated deals, the same
+    // shape the allowances use). cost_per_task_cents is a MODELED cost: the
+    // measured one (task_execution_log.cost_cents) is a hard 0 on the zero-cost
+    // engines and NULL on every AI row until Hermes reports usage, so a margin
+    // built on it reads "100%" for every client.
+    //
+    // The AA-163 boundary is NOT relaxed: daily_company_usage.total_cogs_cents
+    // stays sum(cost_cents), the gate still reads allowances only, and no
+    // customer-facing surface reads these columns.
+    await client.query(`
+      ALTER TABLE plan_rate_cards
+        ADD COLUMN IF NOT EXISTS monthly_price_cents NUMERIC(12,4);
+      ALTER TABLE plan_rate_cards
+        ADD COLUMN IF NOT EXISTS cost_per_task_cents NUMERIC(12,6);
+      ALTER TABLE company_subscriptions
+        ADD COLUMN IF NOT EXISTS monthly_price_cents_override NUMERIC(12,4);
+    `);
+
+    // Seed WHERE NULL only — never a blanket UPDATE. An edited price must
+    // survive every container start, exactly like the ON CONFLICT DO NOTHING
+    // that protects the allowance seed above. Enterprise stays NULL: its price
+    // is negotiated per company via monthly_price_cents_override, and NULL
+    // renders as "unknown", never as a free client.
+    await client.query(`
+      UPDATE plan_rate_cards SET monthly_price_cents = 9900.0000
+        WHERE tier_key = 'starter' AND monthly_price_cents IS NULL;
+      UPDATE plan_rate_cards SET monthly_price_cents = 29900.0000
+        WHERE tier_key = 'growth' AND monthly_price_cents IS NULL;
+      UPDATE plan_rate_cards SET monthly_price_cents = 99900.0000
+        WHERE tier_key = 'scale' AND monthly_price_cents IS NULL;
+      UPDATE plan_rate_cards SET cost_per_task_cents = 2.000000
+        WHERE cost_per_task_cents IS NULL;
+    `);
+
     // AA-164: purchased task credits + quota-alert dedupe. Mirrors
     // migrations/20260730000000_company_credits_and_quota_alerts.sql.
     //
