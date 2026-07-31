@@ -17,6 +17,10 @@
  *   - array of { contentType, count, pct } ordered by count DESC
  *   - NULL content_type rows grouped as 'uncategorized'
  *   - pendingClassification count included for frontend nudge
+ *
+ * S4-1: every query below is scoped by resolveAttributionScope — Aries-published
+ * posts when the window's attribution coverage is trustworthy, all channel posts
+ * otherwise. See attribution-scope.ts for why the fallback is mandatory.
  */
 
 import pool from '@/lib/db';
@@ -24,6 +28,7 @@ import { LATEST_POST_METRICS_LATERAL } from '../latest-post-metrics-sql';
 import { resolveTenantInsightsTimeZone } from '../tenant-timezone';
 import { tenantZonePeriodStart } from '@/lib/format-timestamp';
 import { estimateHoursSaved } from '../hours-saved';
+import { resolveAttributionScope, type AttributionScopeResult } from '../attribution-scope';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 
 export interface ContentMixSlice {
@@ -43,6 +48,7 @@ export interface ActivitySnapshot {
   platforms:              string[]; // distinct platforms the posts went out on
   contentMix:             ContentMixSlice[];
   pendingClassification:  number;   // rows where content_type IS NULL
+  attribution:            AttributionScopeResult;
 }
 
 // ── Period helpers ─────────────────────────────────────────────────────────────
@@ -70,6 +76,16 @@ export async function buildActivitySnapshot(
     const tz       = await resolveTenantInsightsTimeZone(client, tenantId);
     const fromDate = tenantZonePeriodStart(days, tz);
 
+    // S4-1: decided once, applied to every query below so the strip, the
+    // high-performer count and the content mix all describe the same post set.
+    const attribution = await resolveAttributionScope({
+      db: client,
+      tenantId,
+      fromDate,
+      platformFilter,
+    });
+    const attributedOnly = attribution.attributedOnly;
+
     // ── Posts published + platform count ─────────────────────────────────────
     const postsRes = await client.query<{
       post_count:     string;
@@ -83,8 +99,9 @@ export async function buildActivitySnapshot(
        FROM insights_posts
        WHERE tenant_id      = $1
          AND published_at   >= $2
-         AND ($3::text IS NULL OR platform = $3)`,
-      [tenantId, fromDate, platformFilter],
+         AND ($3::text IS NULL OR platform = $3)
+         AND ($4::boolean IS NOT TRUE OR aries_post_id IS NOT NULL)`,
+      [tenantId, fromDate, platformFilter, attributedOnly],
     );
 
     const postsPublished = Number(postsRes.rows[0].post_count);
@@ -100,8 +117,9 @@ export async function buildActivitySnapshot(
        JOIN insights_posts p ON p.id = c.post_id
        WHERE c.tenant_id     = $1
          AND c.received_at   >= $2
-         AND ($3::text IS NULL OR c.platform = $3)`,
-      [tenantId, fromDate, platformFilter],
+         AND ($3::text IS NULL OR c.platform = $3)
+         AND ($4::boolean IS NOT TRUE OR p.aries_post_id IS NOT NULL)`,
+      [tenantId, fromDate, platformFilter, attributedOnly],
     );
 
     const commentsReceived  = Number(commentsRes.rows[0].count);
@@ -124,6 +142,7 @@ export async function buildActivitySnapshot(
            WHERE p.tenant_id    = $1
              AND p.published_at >= $2
              AND ($3::text IS NULL OR p.platform = $3)
+             AND ($4::boolean IS NOT TRUE OR p.aries_post_id IS NOT NULL)
          ),
          avg_reach AS (
            SELECT AVG(total_reach) AS avg FROM post_totals
@@ -132,7 +151,7 @@ export async function buildActivitySnapshot(
          FROM post_totals, avg_reach
          WHERE avg_reach.avg > 0
            AND post_totals.total_reach >= 2 * avg_reach.avg`,
-        [tenantId, fromDate, platformFilter],
+        [tenantId, fromDate, platformFilter, attributedOnly],
       );
       highPerformers = Number(hpRes.rows[0].hp_count);
     }
@@ -149,9 +168,10 @@ export async function buildActivitySnapshot(
        WHERE tenant_id     = $1
          AND published_at  >= $2
          AND ($3::text IS NULL OR platform = $3)
+         AND ($4::boolean IS NOT TRUE OR aries_post_id IS NOT NULL)
        GROUP BY COALESCE(content_type, 'uncategorized')
        ORDER BY cnt DESC`,
-      [tenantId, fromDate, platformFilter],
+      [tenantId, fromDate, platformFilter, attributedOnly],
     );
 
     const totalPosts = mixRes.rows.reduce((s, r) => s + Number(r.cnt), 0);
@@ -172,8 +192,9 @@ export async function buildActivitySnapshot(
        WHERE tenant_id     = $1
          AND published_at  >= $2
          AND content_type  IS NULL
-         AND ($3::text IS NULL OR platform = $3)`,
-      [tenantId, fromDate, platformFilter],
+         AND ($3::text IS NULL OR platform = $3)
+         AND ($4::boolean IS NOT TRUE OR aries_post_id IS NOT NULL)`,
+      [tenantId, fromDate, platformFilter, attributedOnly],
     );
     const pendingClassification = Number(pendingRes.rows[0].count);
 
@@ -188,6 +209,7 @@ export async function buildActivitySnapshot(
       platforms,
       contentMix,
       pendingClassification,
+      attribution,
     };
 
   } finally {

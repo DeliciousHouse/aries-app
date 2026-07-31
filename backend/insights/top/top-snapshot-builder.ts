@@ -4,9 +4,13 @@
  * Fetches the top-performing posts for Section 6.
  * All queries sequential (DB_POOL_MAX guardrail — no Promise.all on DB calls).
  *
- * Returns up to 5 posts (Aries-generated only), sorted by the requested metric,
- * each decorated with per-post sentiment, reach-vs-average multiplier, and the
- * best-performing day-of-week (used by the template builder for "why it worked").
+ * Returns up to 5 posts, sorted by the requested metric, each decorated with
+ * per-post sentiment, reach-vs-average multiplier, and the best-performing
+ * day-of-week (used by the template builder for "why it worked").
+ *
+ * S4-1: the candidate set is Aries-published posts when the window's attribution
+ * coverage is trustworthy and all channel posts otherwise (#785's behavior).
+ * See attribution-scope.ts for why the fallback is mandatory.
  *
  * followerSplit and per-post audience are read from platform_data JSONB when
  * present (Instagram only) and returned null otherwise — the frontend hides
@@ -18,6 +22,7 @@ import type { NarrativePeriod } from '../narrative/snapshot-builder';
 import { LATEST_POST_METRICS_LATERAL } from '../latest-post-metrics-sql';
 import { resolveTenantInsightsTimeZone } from '../tenant-timezone';
 import { tenantZonePeriodStart } from '@/lib/format-timestamp';
+import { resolveAttributionScope, type AttributionScopeResult } from '../attribution-scope';
 
 export type TopSortKey = 'reach' | 'engagement' | 'saves' | 'shares' | 'comments';
 
@@ -61,8 +66,9 @@ export interface TopPost {
 export interface TopSnapshot {
   posts:        TopPost[];
   avgReach:     number;   // period average reach (for the multiplier context)
-  postCount:    number;   // total Aries posts in period (for "still calibrating")
+  postCount:    number;   // posts in the scoped period set (for "still calibrating")
   sortBy:       TopSortKey;
+  attribution:  AttributionScopeResult;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -160,6 +166,16 @@ export async function buildTopSnapshot(
     const tz       = await resolveTenantInsightsTimeZone(client, tenantId);
     const fromDate = tenantZonePeriodStart(days, tz);
 
+    // S4-1: decided once so the average, the post count and the ranked list all
+    // describe the same set — a multiplier against a different baseline lies.
+    const attribution = await resolveAttributionScope({
+      db: client,
+      tenantId,
+      fromDate,
+      platformFilter,
+    });
+    const attributedOnly = attribution.attributedOnly;
+
     // ── 1. Period average reach (for the multiplier) ─────────────────────────
     const avgRes = await client.query<{ avg_reach: string | null; post_count: string }>(
       `WITH post_totals AS (
@@ -172,10 +188,11 @@ export async function buildTopSnapshot(
          WHERE p.tenant_id     = $1
            AND p.published_at  >= $2
            AND ($3::text IS NULL OR p.platform = $3)
+           AND ($4::boolean IS NOT TRUE OR p.aries_post_id IS NOT NULL)
        )
        SELECT AVG(total_reach) AS avg_reach, COUNT(*) AS post_count
        FROM post_totals`,
-      [tenantId, fromDate, platformFilter],
+      [tenantId, fromDate, platformFilter, attributedOnly],
     );
     const avgReach  = Number(avgRes.rows[0]?.avg_reach ?? 0);
     const postCount = Number(avgRes.rows[0]?.post_count ?? 0);
@@ -221,12 +238,13 @@ export async function buildTopSnapshot(
          WHERE p.tenant_id     = $1
            AND p.published_at  >= $2
            AND ($3::text IS NULL OR p.platform = $3)
+           AND ($4::boolean IS NOT TRUE OR p.aries_post_id IS NOT NULL)
        )
        SELECT *
        FROM post_metrics
        ORDER BY ${orderCol} DESC
        LIMIT 10`,
-      [tenantId, fromDate, platformFilter],
+      [tenantId, fromDate, platformFilter, attributedOnly],
     );
 
     // ── 3. Per-post sentiment (single grouped query for the candidate set) ────
@@ -306,7 +324,7 @@ export async function buildTopSnapshot(
     // the DB ORDER BY. Behavior-identical to the previous inline logic.
     posts = rankTopPosts(posts, sortBy);
 
-    return { posts, avgReach, postCount, sortBy };
+    return { posts, avgReach, postCount, sortBy, attribution };
 
   } finally {
     client.release();

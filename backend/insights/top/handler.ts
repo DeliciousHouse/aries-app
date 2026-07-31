@@ -38,7 +38,14 @@ import crypto from 'crypto';
 // always NULL outside the demo seed), so whyItWorked's content-type sentence
 // and the pattern-card breakdown shift from all-"uncategorized" to real
 // buckets on the next fetch. Bump invalidates stale v6 bodies.
-const TEMPLATE_VERSION = 'top-v7';
+// v8: S4-1 — the candidate set is scoped to Aries-published posts once the
+// window's attribution coverage clears the threshold (all-channel below it, as
+// in #785), so the ranked posts, the period average reach and every multiplier
+// derived from it change for a backfilled tenant. Bump invalidates stale v7
+// bodies. NOTE: the scope is a property of the data, not of the request, so it
+// is deliberately NOT part of the cache key — a tenant that crosses the
+// threshold mid-cache keeps serving the all-channel body until the 1h TTL.
+const TEMPLATE_VERSION = 'top-v8';
 const CACHE_TTL_MS     = 60 * 60 * 1000;
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);
@@ -165,9 +172,10 @@ export async function handleGetInsightsTop(
       pattern,
       sortBy,
       meta: {
-        postCount: snap.postCount,
-        avgReach:  Math.round(snap.avgReach),
-        hasData:   snap.posts.length > 0,
+        postCount:   snap.postCount,
+        avgReach:    Math.round(snap.avgReach),
+        hasData:     snap.posts.length > 0,
+        attribution: snap.attribution,
       },
     };
 

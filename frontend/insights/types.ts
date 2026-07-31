@@ -121,6 +121,20 @@ export interface AttentionData extends ApiBase {
   };
 }
 
+// § Attribution scope — backend/insights/attribution-scope.ts (S4-1)
+// Which post set the Activity and Top sections describe. 'aries' means the
+// window's attribution coverage cleared the threshold and the numbers cover
+// Aries-published posts only; 'all-channel' is the fallback that keeps the
+// sections populated for tenants with unstamped history.
+export interface AttributionScopeMeta {
+  scope:           "aries" | "all-channel";
+  attributedOnly:  boolean;
+  totalPosts:      number;
+  attributedPosts: number;
+  coverage:        number;   // 0–1
+  threshold:       number;   // 0–1
+}
+
 // § Activity — backend/insights/activity/handler.ts
 export interface ContentMixSlice {
   contentType: string;
@@ -143,6 +157,7 @@ export interface ActivityData extends ApiBase {
     platforms:             string[];
     pendingClassification: number;
     hasData:               boolean;   // ← emptiness flag lives HERE
+    attribution?:          AttributionScopeMeta;   // absent on pre-v7 cached bodies
   };
 }
 
@@ -230,9 +245,10 @@ export interface TopData extends ApiBase {
   };
   sortBy: SortKey;
   meta: {
-    postCount: number;
-    avgReach:  number;
-    hasData:   boolean;   // ← emptiness flag lives HERE
+    postCount:    number;
+    avgReach:     number;
+    hasData:      boolean;   // ← emptiness flag lives HERE
+    attribution?: AttributionScopeMeta;   // absent on pre-v8 cached bodies
   };
 }
 

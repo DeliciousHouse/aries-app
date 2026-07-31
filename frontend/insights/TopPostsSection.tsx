@@ -13,7 +13,7 @@ import type {
   SortKey,
 } from "@/frontend/insights/types";
 import { useInsight } from "@/frontend/insights/useInsight";
-import { C, platformLabel } from "@/frontend/insights/tokens";
+import { C, platformLabel, attributionScopeLabel } from "@/frontend/insights/tokens";
 import {
   SectionHeader,
   Panel,
@@ -341,7 +341,11 @@ export function TopPostsSection({ period, platform }: TopPostsSectionProps) {
     <section id="top-performing">
       {/* Header row: title on the left, sort select on the right */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
-        <SectionHeader title="Top performing content" />
+        {/* S4-1: name the ranked set — Aries-published only, or all channel. */}
+        <SectionHeader
+          title="Top performing content"
+          note={`Ranked across ${attributionScopeLabel(data?.meta?.attribution?.scope)}`}
+        />
         <select
           value={sort}
           onChange={(e) => setSort(e.target.value as SortKey)}
