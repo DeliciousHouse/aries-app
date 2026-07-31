@@ -15,6 +15,7 @@ import { buildAttentionSnapshot } from './attention-snapshot-builder';
 import { buildAttentionCards } from './attention-card-builder';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 import crypto from 'crypto';
+import { insightsCacheTtlMs, buildInsightsSectionOnce } from '../cache-policy';
 
 // v2: fix the unreplied-card CTA link (/conversations 404 → /dashboard/comments,
 // S1-1/AA-80). Bump regenerates cached attention snapshots holding the bad link.
@@ -29,7 +30,7 @@ import crypto from 'crypto';
 // UTC), so a post near midnight can move to a different weekday and the DOW
 // ranking / window membership change. Bump invalidates stale v4 bodies.
 const TEMPLATE_VERSION = 'attention-v5';
-const CACHE_TTL_MS     = 15 * 60 * 1000; // 15 minutes
+const CACHE_TTL_BASE_MS     = 15 * 60 * 1000; // 15 minutes
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);
 
@@ -50,6 +51,7 @@ async function getCached(
   tenantId: number,
   period: string,
   platform: string,
+  ttlMs:    number,
 ): Promise<{ body: Record<string, unknown>; generatedAt: Date } | null> {
   const res = await client.query<{
     body: Record<string, unknown>;
@@ -68,7 +70,7 @@ async function getCached(
   if (res.rows.length === 0) return null;
   const row   = res.rows[0];
   const ageMs = Date.now() - new Date(row.generated_at).getTime();
-  if (ageMs >= CACHE_TTL_MS || row.model !== TEMPLATE_VERSION) return null;
+  if (ageMs >= ttlMs || row.model !== TEMPLATE_VERSION) return null;
   return { body: row.body, generatedAt: row.generated_at };
 }
 
@@ -119,10 +121,15 @@ export async function handleGetInsightsAttention(
   const period   = periodParam;
   const platform = platformParam;
 
+  // AA-122: one key for both the jittered expiry and the singleflight,
+  // so a section's staleness and its in-flight build always agree.
+  const cacheKey = inputHash(tenantId, period, platform);
+  const ttlMs    = insightsCacheTtlMs(cacheKey, CACHE_TTL_BASE_MS);
+
   const client = await pool.connect();
   try {
     if (!force) {
-      const cached = await getCached(client, tenantId, period, platform);
+      const cached = await getCached(client, tenantId, period, platform, ttlMs);
       if (cached) {
         return NextResponse.json({
           status:       'ok',
@@ -135,9 +142,9 @@ export async function handleGetInsightsAttention(
       }
     }
 
-    const snapshot = await buildAttentionSnapshot(tenantId, period, platform);
+    const snapshot = await buildInsightsSectionOnce(cacheKey, () => buildAttentionSnapshot(tenantId, period, platform, client));
     const cards    = buildAttentionCards(snapshot, platform, period);
-    const hash     = inputHash(tenantId, period, platform);
+    const hash     = cacheKey;
 
     const body: Record<string, unknown> = {
       cards,

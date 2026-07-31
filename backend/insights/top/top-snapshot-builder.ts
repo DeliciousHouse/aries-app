@@ -17,7 +17,7 @@
  * those rows when null.
  */
 
-import pool from '@/lib/db';
+import type { PoolClient } from '@/lib/db';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 import { LATEST_POST_METRICS_LATERAL } from '../latest-post-metrics-sql';
 import { resolveTenantInsightsTimeZone } from '../tenant-timezone';
@@ -156,177 +156,175 @@ export async function buildTopSnapshot(
   period:    NarrativePeriod,
   platform:  string,
   sortBy:    TopSortKey,
+  /** AA-122: supplied by the handler, which already holds a pooled client.
+   * The builder must not acquire (or release) a second one. */
+  client:   PoolClient,
 ): Promise<TopSnapshot> {
   const days           = periodDays(period);
   const platformFilter = platform === 'all' ? null : platform;
 
-  const client = await pool.connect();
-  try {
-    // S2-3: window filters published_at (timestamptz) → tenant-tz-midnight instant.
-    const tz       = await resolveTenantInsightsTimeZone(client, tenantId);
-    const fromDate = tenantZonePeriodStart(days, tz);
+  // S2-3: window filters published_at (timestamptz) → tenant-tz-midnight instant.
+  const tz       = await resolveTenantInsightsTimeZone(client, tenantId);
+  const fromDate = tenantZonePeriodStart(days, tz);
 
-    // S4-1: decided once so the average, the post count and the ranked list all
-    // describe the same set — a multiplier against a different baseline lies.
-    const attribution = await resolveAttributionScope({
-      db: client,
-      tenantId,
-      fromDate,
-      platformFilter,
-    });
-    const attributedOnly = attribution.attributedOnly;
+  // S4-1: decided once so the average, the post count and the ranked list all
+  // describe the same set — a multiplier against a different baseline lies.
+  const attribution = await resolveAttributionScope({
+    db: client,
+    tenantId,
+    fromDate,
+    platformFilter,
+  });
+  const attributedOnly = attribution.attributedOnly;
 
-    // ── 1. Period average reach (for the multiplier) ─────────────────────────
-    const avgRes = await client.query<{ avg_reach: string | null; post_count: string }>(
-      `WITH post_totals AS (
-         SELECT
-           p.id,
-           -- S2-1: latest lifetime snapshot per post, NOT SUM across dated rows.
-           COALESCE(m.reach, m.views, 0) AS total_reach
-         FROM insights_posts p
-         ${LATEST_POST_METRICS_LATERAL}
-         WHERE p.tenant_id     = $1
-           AND p.published_at  >= $2
-           AND ($3::text IS NULL OR p.platform = $3)
-           AND ($4::boolean IS NOT TRUE OR p.aries_post_id IS NOT NULL)
-       )
-       SELECT AVG(total_reach) AS avg_reach, COUNT(*) AS post_count
-       FROM post_totals`,
-      [tenantId, fromDate, platformFilter, attributedOnly],
-    );
-    const avgReach  = Number(avgRes.rows[0]?.avg_reach ?? 0);
-    const postCount = Number(avgRes.rows[0]?.post_count ?? 0);
+  // ── 1. Period average reach (for the multiplier) ─────────────────────────
+  const avgRes = await client.query<{ avg_reach: string | null; post_count: string }>(
+    `WITH post_totals AS (
+       SELECT
+         p.id,
+         -- S2-1: latest lifetime snapshot per post, NOT SUM across dated rows.
+         COALESCE(m.reach, m.views, 0) AS total_reach
+       FROM insights_posts p
+       ${LATEST_POST_METRICS_LATERAL}
+       WHERE p.tenant_id     = $1
+         AND p.published_at  >= $2
+         AND ($3::text IS NULL OR p.platform = $3)
+         AND ($4::boolean IS NOT TRUE OR p.aries_post_id IS NOT NULL)
+     )
+     SELECT AVG(total_reach) AS avg_reach, COUNT(*) AS post_count
+     FROM post_totals`,
+    [tenantId, fromDate, platformFilter, attributedOnly],
+  );
+  const avgReach  = Number(avgRes.rows[0]?.avg_reach ?? 0);
+  const postCount = Number(avgRes.rows[0]?.post_count ?? 0);
 
-    // ── 2. Top posts with aggregated metrics ─────────────────────────────────
-    const orderCol = orderColumn(sortBy);
-    const postsRes = await client.query<{
-      id:            number;
-      platform:      string;
-      title:         string | null;
-      caption:       string | null;
-      permalink:     string | null;
-      published_at:  string;
-      content_type:  string | null;
-      media_type:    string;
-      platform_data: Record<string, unknown> | null;
-      reach:         string;
-      likes:         string;
-      comments:      string;
-      saves:         string;
-      shares:        string;
+  // ── 2. Top posts with aggregated metrics ─────────────────────────────────
+  const orderCol = orderColumn(sortBy);
+  const postsRes = await client.query<{
+    id:            number;
+    platform:      string;
+    title:         string | null;
+    caption:       string | null;
+    permalink:     string | null;
+    published_at:  string;
+    content_type:  string | null;
+    media_type:    string;
+    platform_data: Record<string, unknown> | null;
+    reach:         string;
+    likes:         string;
+    comments:      string;
+    saves:         string;
+    shares:        string;
+  }>(
+    `WITH post_metrics AS (
+       SELECT
+         p.id,
+         p.platform,
+         p.title,
+         p.caption,
+         p.permalink,
+         p.published_at,
+         p.content_type,
+         p.media_type,
+         p.platform_data,
+         -- S2-1: latest lifetime snapshot per post, NOT SUM across dated rows
+         -- (each daily row is a cumulative all-time total → SUM inflated ~N×).
+         COALESCE(m.reach, m.views, 0) AS reach,
+         COALESCE(m.likes, 0)          AS likes,
+         COALESCE(m.comments_count, 0) AS comments,
+         COALESCE(m.saves, 0)          AS saves,
+         COALESCE(m.shares, 0)         AS shares
+       FROM insights_posts p
+       ${LATEST_POST_METRICS_LATERAL}
+       WHERE p.tenant_id     = $1
+         AND p.published_at  >= $2
+         AND ($3::text IS NULL OR p.platform = $3)
+         AND ($4::boolean IS NOT TRUE OR p.aries_post_id IS NOT NULL)
+     )
+     SELECT *
+     FROM post_metrics
+     ORDER BY ${orderCol} DESC
+     LIMIT 10`,
+    [tenantId, fromDate, platformFilter, attributedOnly],
+  );
+
+  // ── 3. Per-post sentiment (single grouped query for the candidate set) ────
+  const candidateIds = postsRes.rows.map(r => r.id);
+  const sentimentByPost = new Map<number, PostSentiment>();
+
+  if (candidateIds.length > 0) {
+    const sentRes = await client.query<{
+      post_id:  number;
+      positive: string;
+      neutral:  string;
+      negative: string;
+      total:    string;
     }>(
-      `WITH post_metrics AS (
-         SELECT
-           p.id,
-           p.platform,
-           p.title,
-           p.caption,
-           p.permalink,
-           p.published_at,
-           p.content_type,
-           p.media_type,
-           p.platform_data,
-           -- S2-1: latest lifetime snapshot per post, NOT SUM across dated rows
-           -- (each daily row is a cumulative all-time total → SUM inflated ~N×).
-           COALESCE(m.reach, m.views, 0) AS reach,
-           COALESCE(m.likes, 0)          AS likes,
-           COALESCE(m.comments_count, 0) AS comments,
-           COALESCE(m.saves, 0)          AS saves,
-           COALESCE(m.shares, 0)         AS shares
-         FROM insights_posts p
-         ${LATEST_POST_METRICS_LATERAL}
-         WHERE p.tenant_id     = $1
-           AND p.published_at  >= $2
-           AND ($3::text IS NULL OR p.platform = $3)
-           AND ($4::boolean IS NOT TRUE OR p.aries_post_id IS NOT NULL)
-       )
-       SELECT *
-       FROM post_metrics
-       ORDER BY ${orderCol} DESC
-       LIMIT 10`,
-      [tenantId, fromDate, platformFilter, attributedOnly],
+      `SELECT
+         c.post_id,
+         COUNT(*) FILTER (WHERE cc.sentiment = 'positive') AS positive,
+         COUNT(*) FILTER (WHERE cc.sentiment = 'neutral')  AS neutral,
+         COUNT(*) FILTER (WHERE cc.sentiment = 'negative') AS negative,
+         COUNT(*)                                          AS total
+       FROM insights_comments c
+       JOIN insights_comment_classifications cc ON cc.comment_id = c.id
+       WHERE c.tenant_id = $1
+         AND c.post_id   = ANY($2::bigint[])
+       GROUP BY c.post_id`,
+      [tenantId, candidateIds],
     );
 
-    // ── 3. Per-post sentiment (single grouped query for the candidate set) ────
-    const candidateIds = postsRes.rows.map(r => r.id);
-    const sentimentByPost = new Map<number, PostSentiment>();
-
-    if (candidateIds.length > 0) {
-      const sentRes = await client.query<{
-        post_id:  number;
-        positive: string;
-        neutral:  string;
-        negative: string;
-        total:    string;
-      }>(
-        `SELECT
-           c.post_id,
-           COUNT(*) FILTER (WHERE cc.sentiment = 'positive') AS positive,
-           COUNT(*) FILTER (WHERE cc.sentiment = 'neutral')  AS neutral,
-           COUNT(*) FILTER (WHERE cc.sentiment = 'negative') AS negative,
-           COUNT(*)                                          AS total
-         FROM insights_comments c
-         JOIN insights_comment_classifications cc ON cc.comment_id = c.id
-         WHERE c.tenant_id = $1
-           AND c.post_id   = ANY($2::bigint[])
-         GROUP BY c.post_id`,
-        [tenantId, candidateIds],
-      );
-
-      for (const r of sentRes.rows) {
-        const total = Number(r.total);
-        if (total === 0) continue;
-        sentimentByPost.set(Number(r.post_id), {
-          positive: Math.round((Number(r.positive) / total) * 100),
-          neutral:  Math.round((Number(r.neutral)  / total) * 100),
-          negative: Math.round((Number(r.negative) / total) * 100),
-        });
-      }
+    for (const r of sentRes.rows) {
+      const total = Number(r.total);
+      if (total === 0) continue;
+      sentimentByPost.set(Number(r.post_id), {
+        positive: Math.round((Number(r.positive) / total) * 100),
+        neutral:  Math.round((Number(r.neutral)  / total) * 100),
+        negative: Math.round((Number(r.negative) / total) * 100),
+      });
     }
-
-    // ── 4. Assemble + compute engagement, multiplier, sort finalize ───────────
-    let posts: TopPost[] = postsRes.rows.map(row => {
-      const reach    = Number(row.reach);
-      const likes    = Number(row.likes);
-      const comments = Number(row.comments);
-      const saves    = Number(row.saves);
-      const shares   = Number(row.shares);
-      const { engagement, saveRate, multiplier } = deriveTopPostMetrics(
-        { reach, likes, comments, saves, shares },
-        avgReach,
-      );
-
-      return {
-        id:            Number(row.id),
-        platform:      row.platform,
-        title:         row.title,
-        caption:       row.caption,
-        permalink:     row.permalink,
-        publishedAt:   new Date(row.published_at).toISOString(),
-        dateLabel:     fmtDate(row.published_at, tz),
-        contentType:   row.content_type,
-        mediaType:     row.media_type,
-        reach,
-        engagement,
-        saves,
-        shares,
-        comments,
-        saveRate,
-        multiplier,
-        bestDow:       fmtDow(row.published_at, tz),
-        sentiment:     sentimentByPost.get(Number(row.id)) ?? null,
-        followerSplit: extractFollowerSplit(row.platform_data),
-      };
-    });
-
-    // Final ordering + top-5 trim (extracted to rankTopPosts, pinned by S2-5).
-    // Engagement is a JS-computed column so it is re-sorted here; other keys trust
-    // the DB ORDER BY. Behavior-identical to the previous inline logic.
-    posts = rankTopPosts(posts, sortBy);
-
-    return { posts, avgReach, postCount, sortBy, attribution };
-
-  } finally {
-    client.release();
   }
+
+  // ── 4. Assemble + compute engagement, multiplier, sort finalize ───────────
+  let posts: TopPost[] = postsRes.rows.map(row => {
+    const reach    = Number(row.reach);
+    const likes    = Number(row.likes);
+    const comments = Number(row.comments);
+    const saves    = Number(row.saves);
+    const shares   = Number(row.shares);
+    const { engagement, saveRate, multiplier } = deriveTopPostMetrics(
+      { reach, likes, comments, saves, shares },
+      avgReach,
+    );
+
+    return {
+      id:            Number(row.id),
+      platform:      row.platform,
+      title:         row.title,
+      caption:       row.caption,
+      permalink:     row.permalink,
+      publishedAt:   new Date(row.published_at).toISOString(),
+      dateLabel:     fmtDate(row.published_at, tz),
+      contentType:   row.content_type,
+      mediaType:     row.media_type,
+      reach,
+      engagement,
+      saves,
+      shares,
+      comments,
+      saveRate,
+      multiplier,
+      bestDow:       fmtDow(row.published_at, tz),
+      sentiment:     sentimentByPost.get(Number(row.id)) ?? null,
+      followerSplit: extractFollowerSplit(row.platform_data),
+    };
+  });
+
+  // Final ordering + top-5 trim (extracted to rankTopPosts, pinned by S2-5).
+  // Engagement is a JS-computed column so it is re-sorted here; other keys trust
+  // the DB ORDER BY. Behavior-identical to the previous inline logic.
+  posts = rankTopPosts(posts, sortBy);
+
+  return { posts, avgReach, postCount, sortBy, attribution };
+
 }

@@ -16,7 +16,7 @@
  * visitsAvailable is false when the selected platform has no visit data.
  */
 
-import pool from '@/lib/db';
+import type { PoolClient } from '@/lib/db';
 import { LATEST_POST_METRICS_LATERAL } from '../latest-post-metrics-sql';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 
@@ -173,6 +173,9 @@ export async function buildTrendsSnapshot(
   tenantId:  number,
   period:    NarrativePeriod,
   platform:  string,
+  /** AA-122: supplied by the handler, which already holds a pooled client.
+   * The builder must not acquire (or release) a second one. */
+  client:   PoolClient,
 ): Promise<TrendsSnapshot> {
   const days           = periodDays(period);
   const weekly         = period === '90day';
@@ -191,353 +194,348 @@ export async function buildTrendsSnapshot(
     ? `DATE_TRUNC('week', date AT TIME ZONE 'UTC')::date`
     : `date::date`;
 
-  const client = await pool.connect();
-  try {
 
-    // ── 1. Account-level series — both periods in one query ──────────────────
-    const acctRes = await client.query<{
-      bucket:         string;
-      reach:          string;
-      followers:      string;
-      visits:         string;
-      comments:       string;
-      interactions:   string;   // likes + comments + saves + shares
-    }>(
-      `SELECT
-         ${bucketExpr}                                                       AS bucket,
-         SUM(COALESCE(reach, views, 0))                                     AS reach,
-         SUM(COALESCE(followers_delta, 0))                                  AS followers,
-         SUM(COALESCE(profile_visits, 0))                                   AS visits,
-         SUM(COALESCE(comments_count, 0))                                   AS comments,
-         -- Prefer the authoritative aggregate engagement column (Facebook's
-         -- page_post_engagements); fall back to the like/comment/save/share sum
-         -- for platforms that report those instead. Mirrors read-api.ts — the
-         -- per-column values are 0 for Facebook, so summing them alone yielded a
-         -- 0% engagement rate despite real engagement.
-         SUM(
-           COALESCE(engagement,
-                    COALESCE(likes,0) + COALESCE(comments_count,0) +
-                    COALESCE(saves,0) + COALESCE(shares,0))
-         )                                                                   AS interactions,
-         SUM(COALESCE(reach, views, 0))                                     AS base_reach
-       FROM insights_account_metrics_daily
-       WHERE tenant_id = $1
-         AND date      >= $2
-         AND date      <  $3
-         AND ($4::text IS NULL OR platform = $4)
-       GROUP BY ${bucketExpr}
-       ORDER BY bucket`,
-      [tenantId, priorStart, currentEnd, platformFilter],
-    );
+  // ── 1. Account-level series — both periods in one query ──────────────────
+  const acctRes = await client.query<{
+    bucket:         string;
+    reach:          string;
+    followers:      string;
+    visits:         string;
+    comments:       string;
+    interactions:   string;   // likes + comments + saves + shares
+  }>(
+    `SELECT
+       ${bucketExpr}                                                       AS bucket,
+       SUM(COALESCE(reach, views, 0))                                     AS reach,
+       SUM(COALESCE(followers_delta, 0))                                  AS followers,
+       SUM(COALESCE(profile_visits, 0))                                   AS visits,
+       SUM(COALESCE(comments_count, 0))                                   AS comments,
+       -- Prefer the authoritative aggregate engagement column (Facebook's
+       -- page_post_engagements); fall back to the like/comment/save/share sum
+       -- for platforms that report those instead. Mirrors read-api.ts — the
+       -- per-column values are 0 for Facebook, so summing them alone yielded a
+       -- 0% engagement rate despite real engagement.
+       SUM(
+         COALESCE(engagement,
+                  COALESCE(likes,0) + COALESCE(comments_count,0) +
+                  COALESCE(saves,0) + COALESCE(shares,0))
+       )                                                                   AS interactions,
+       SUM(COALESCE(reach, views, 0))                                     AS base_reach
+     FROM insights_account_metrics_daily
+     WHERE tenant_id = $1
+       AND date      >= $2
+       AND date      <  $3
+       AND ($4::text IS NULL OR platform = $4)
+     GROUP BY ${bucketExpr}
+     ORDER BY bucket`,
+    [tenantId, priorStart, currentEnd, platformFilter],
+  );
 
-    // Separate into current / prior maps keyed by ISO date string
-    const curMap = { reach: new Map<string,number>(), followers: new Map<string,number>(), visits: new Map<string,number>(), comments: new Map<string,number>(), interactions: new Map<string,number>(), baseReach: new Map<string,number>() };
-    const priMap = { reach: new Map<string,number>(), followers: new Map<string,number>(), visits: new Map<string,number>(), comments: new Map<string,number>(), interactions: new Map<string,number>(), baseReach: new Map<string,number>() };
+  // Separate into current / prior maps keyed by ISO date string
+  const curMap = { reach: new Map<string,number>(), followers: new Map<string,number>(), visits: new Map<string,number>(), comments: new Map<string,number>(), interactions: new Map<string,number>(), baseReach: new Map<string,number>() };
+  const priMap = { reach: new Map<string,number>(), followers: new Map<string,number>(), visits: new Map<string,number>(), comments: new Map<string,number>(), interactions: new Map<string,number>(), baseReach: new Map<string,number>() };
 
-    const currentStartStr = currentStart.toISOString().slice(0, 10);
+  const currentStartStr = currentStart.toISOString().slice(0, 10);
 
-    for (const row of acctRes.rows) {
-      const bucketKey = normalizeBucketKey(row.bucket);
-      const isCurrent = bucketKey >= currentStartStr;
-      const m = isCurrent ? curMap : priMap;
-      m.reach.set(bucketKey,        Number(row.reach));
-      m.followers.set(bucketKey,    Number(row.followers));
-      m.visits.set(bucketKey,       Number(row.visits));
-      m.comments.set(bucketKey,     Number(row.comments));
-      m.interactions.set(bucketKey, Number(row.interactions));
-      m.baseReach.set(bucketKey,    Number(row.reach));
-    }
+  for (const row of acctRes.rows) {
+    const bucketKey = normalizeBucketKey(row.bucket);
+    const isCurrent = bucketKey >= currentStartStr;
+    const m = isCurrent ? curMap : priMap;
+    m.reach.set(bucketKey,        Number(row.reach));
+    m.followers.set(bucketKey,    Number(row.followers));
+    m.visits.set(bucketKey,       Number(row.visits));
+    m.comments.set(bucketKey,     Number(row.comments));
+    m.interactions.set(bucketKey, Number(row.interactions));
+    m.baseReach.set(bucketKey,    Number(row.reach));
+  }
 
-    // ── 1b. Comments series — from insights_comments (the real per-comment rows) ─
-    // NOT insights_account_metrics_daily.comments_count, which Facebook reports as
-    // 0 (page-level insights expose no daily comment count). Sourcing the Comments
-    // trend from the account column left it empty despite unreplied comments
-    // existing — so read the actual comment rows, bucketed by received_at.
-    const commentBucketExpr = weekly
-      ? `DATE_TRUNC('week', received_at AT TIME ZONE 'UTC')::date`
-      : `(received_at AT TIME ZONE 'UTC')::date`;
-    const commentsSeriesRes = await client.query<{ bucket: string; comments: string }>(
-      `SELECT ${commentBucketExpr} AS bucket, COUNT(*) AS comments
-         FROM insights_comments
-        WHERE tenant_id    = $1
-          AND received_at >= $2
-          AND received_at <  $3
-          AND ($4::text IS NULL OR platform = $4)
-        GROUP BY ${commentBucketExpr}`,
-      [tenantId, priorStart, currentEnd, platformFilter],
-    );
-    const curCommentsMap = new Map<string, number>();
-    const priCommentsMap = new Map<string, number>();
-    for (const row of commentsSeriesRes.rows) {
-      const key = normalizeBucketKey(row.bucket);
-      (key >= currentStartStr ? curCommentsMap : priCommentsMap).set(key, Number(row.comments));
-    }
-
-    // Build per-bucket engagement rate: interactions / reach * 100
-    const curEngMap = new Map<string, number>();
-    const priEngMap = new Map<string, number>();
-
-    for (const b of currentBuckets) {
-      const int = curMap.interactions.get(b.key) ?? 0;
-      const rch = curMap.baseReach.get(b.key) ?? 0;
-      curEngMap.set(b.key, rch > 0 ? Math.round((int / rch) * 1000) / 10 : 0);
-    }
-    for (const b of priorBuckets) {
-      const int = priMap.interactions.get(b.key) ?? 0;
-      const rch = priMap.baseReach.get(b.key) ?? 0;
-      priEngMap.set(b.key, rch > 0 ? Math.round((int / rch) * 1000) / 10 : 0);
-    }
-
-    // Aggregate totals for the metric summary cards
-    const sumCur = (m: Map<string,number>) => [...m.values()].reduce((a, b) => a + b, 0);
-    const sumPri = (m: Map<string,number>) => [...m.values()].reduce((a, b) => a + b, 0);
-
-    const curReach    = sumCur(curMap.reach);
-    const priReach    = sumPri(priMap.reach);
-    const curFollow   = sumCur(curMap.followers);
-    const priFollow   = sumPri(priMap.followers);
-    const curVisits   = sumCur(curMap.visits);
-    const priVisits   = sumPri(priMap.visits);
-    const curComments = sumCur(curCommentsMap);
-    const priComments = sumPri(priCommentsMap);
-
-    const curIntTotal = sumCur(curMap.interactions);
-    const priIntTotal = sumPri(priMap.interactions);
-    const curEngRate  = curReach > 0 ? Math.round((curIntTotal / curReach) * 1000) / 10 : 0;
-    const priEngRate  = priReach > 0 ? Math.round((priIntTotal / priReach) * 1000) / 10 : 0;
-
-    // pctDelta extracted to the module-level `trendsPctDelta` (pinned by S2-5).
-    const pctDelta = trendsPctDelta;
-
-    // Visits available if any profile_visits data exists for this selection
-    const visitsAvailable = curVisits > 0 || priVisits > 0;
-
-    // ── 2. Platform breakdown — current period only ──────────────────────────
-    const platRes = await client.query<{
-      platform:      string;
-      reach:         string;
-      followers:     string;
-      visits:        string;
-      comments:      string;
-      interactions:  string;
-      base_reach:    string;
-    }>(
-      `SELECT
-         platform,
-         SUM(COALESCE(reach, views, 0))   AS reach,
-         SUM(COALESCE(followers_delta,0)) AS followers,
-         SUM(COALESCE(profile_visits,0))  AS visits,
-         SUM(COALESCE(comments_count,0))  AS comments,
-         SUM(COALESCE(engagement, COALESCE(likes,0)+COALESCE(comments_count,0)+COALESCE(saves,0)+COALESCE(shares,0))) AS interactions,
-         SUM(COALESCE(reach, views, 0))   AS base_reach
-       FROM insights_account_metrics_daily
-       WHERE tenant_id = $1
-         AND date      >= $2
-         AND date      <  $3
-         AND ($4::text IS NULL OR platform = $4)
-       GROUP BY platform
-       ORDER BY reach DESC`,
-      [tenantId, currentStart, currentEnd, platformFilter],
-    );
-
-    function toSlices(
-      rows: typeof platRes.rows,
-      getValue: (r: typeof platRes.rows[0]) => number,
-    ): PlatformSlice[] {
-      const vals = rows.map(r => ({ platform: r.platform, value: getValue(r) }));
-      const total = vals.reduce((s, v) => s + v.value, 0);
-      return vals.map(v => ({
-        ...v,
-        pct: total > 0 ? Math.round((v.value / total) * 1000) / 10 : 0,
-      }));
-    }
-
-    // Per-platform comment counts from insights_comments (same reason as the
-    // comments series: the account column is 0 for Facebook). Powers the
-    // "Where comments came from" breakdown.
-    const commentsByPlatformRes = await client.query<{ platform: string; comments: string }>(
-      `SELECT platform, COUNT(*) AS comments
-         FROM insights_comments
-        WHERE tenant_id    = $1
-          AND received_at >= $2
-          AND received_at <  $3
-          AND ($4::text IS NULL OR platform = $4)
-        GROUP BY platform
-        ORDER BY comments DESC`,
-      [tenantId, currentStart, currentEnd, platformFilter],
-    );
-    const commentSlices: PlatformSlice[] = (() => {
-      const vals = commentsByPlatformRes.rows.map(r => ({ platform: r.platform, value: Number(r.comments) }));
-      const total = vals.reduce((s, v) => s + v.value, 0);
-      return vals.map(v => ({ ...v, pct: total > 0 ? Math.round((v.value / total) * 1000) / 10 : 0 }));
-    })();
-
-    const breakdown = {
-      reach:      toSlices(platRes.rows, r => Number(r.reach)),
-      followers:  toSlices(platRes.rows, r => Number(r.followers)),
-      visits:     visitsAvailable ? toSlices(platRes.rows, r => Number(r.visits)) : null,
-      comments:   commentSlices,
-      engagement: toSlices(platRes.rows, r => {
-        const int = Number(r.interactions);
-        const rch = Number(r.base_reach);
-        return rch > 0 ? Math.round((int / rch) * 1000) / 10 : 0;
-      }),
-    };
-
-    // ── 3. Post count ────────────────────────────────────────────────────────
-    const postCountRes = await client.query<{ count: string }>(
-      `SELECT COUNT(*) AS count
-       FROM insights_posts
-       WHERE tenant_id     = $1
-         AND published_at  >= $2
-         AND ($3::text IS NULL OR platform = $3)`,
-      [tenantId, currentStart, platformFilter],
-    );
-    const postCount = Number(postCountRes.rows[0].count);
-
-    // ── 4. Unreplied comments ────────────────────────────────────────────────
-    const unrepliedRes = await client.query<{ count: string }>(
-      `SELECT COUNT(*) AS count
+  // ── 1b. Comments series — from insights_comments (the real per-comment rows) ─
+  // NOT insights_account_metrics_daily.comments_count, which Facebook reports as
+  // 0 (page-level insights expose no daily comment count). Sourcing the Comments
+  // trend from the account column left it empty despite unreplied comments
+  // existing — so read the actual comment rows, bucketed by received_at.
+  const commentBucketExpr = weekly
+    ? `DATE_TRUNC('week', received_at AT TIME ZONE 'UTC')::date`
+    : `(received_at AT TIME ZONE 'UTC')::date`;
+  const commentsSeriesRes = await client.query<{ bucket: string; comments: string }>(
+    `SELECT ${commentBucketExpr} AS bucket, COUNT(*) AS comments
        FROM insights_comments
-       WHERE tenant_id    = $1
-         AND received_at  >= $2
-         AND is_replied   = false
-         AND ($3::text IS NULL OR platform = $3)`,
-      [tenantId, currentStart, platformFilter],
+      WHERE tenant_id    = $1
+        AND received_at >= $2
+        AND received_at <  $3
+        AND ($4::text IS NULL OR platform = $4)
+      GROUP BY ${commentBucketExpr}`,
+    [tenantId, priorStart, currentEnd, platformFilter],
+  );
+  const curCommentsMap = new Map<string, number>();
+  const priCommentsMap = new Map<string, number>();
+  for (const row of commentsSeriesRes.rows) {
+    const key = normalizeBucketKey(row.bucket);
+    (key >= currentStartStr ? curCommentsMap : priCommentsMap).set(key, Number(row.comments));
+  }
+
+  // Build per-bucket engagement rate: interactions / reach * 100
+  const curEngMap = new Map<string, number>();
+  const priEngMap = new Map<string, number>();
+
+  for (const b of currentBuckets) {
+    const int = curMap.interactions.get(b.key) ?? 0;
+    const rch = curMap.baseReach.get(b.key) ?? 0;
+    curEngMap.set(b.key, rch > 0 ? Math.round((int / rch) * 1000) / 10 : 0);
+  }
+  for (const b of priorBuckets) {
+    const int = priMap.interactions.get(b.key) ?? 0;
+    const rch = priMap.baseReach.get(b.key) ?? 0;
+    priEngMap.set(b.key, rch > 0 ? Math.round((int / rch) * 1000) / 10 : 0);
+  }
+
+  // Aggregate totals for the metric summary cards
+  const sumCur = (m: Map<string,number>) => [...m.values()].reduce((a, b) => a + b, 0);
+  const sumPri = (m: Map<string,number>) => [...m.values()].reduce((a, b) => a + b, 0);
+
+  const curReach    = sumCur(curMap.reach);
+  const priReach    = sumPri(priMap.reach);
+  const curFollow   = sumCur(curMap.followers);
+  const priFollow   = sumPri(priMap.followers);
+  const curVisits   = sumCur(curMap.visits);
+  const priVisits   = sumPri(priMap.visits);
+  const curComments = sumCur(curCommentsMap);
+  const priComments = sumPri(priCommentsMap);
+
+  const curIntTotal = sumCur(curMap.interactions);
+  const priIntTotal = sumPri(priMap.interactions);
+  const curEngRate  = curReach > 0 ? Math.round((curIntTotal / curReach) * 1000) / 10 : 0;
+  const priEngRate  = priReach > 0 ? Math.round((priIntTotal / priReach) * 1000) / 10 : 0;
+
+  // pctDelta extracted to the module-level `trendsPctDelta` (pinned by S2-5).
+  const pctDelta = trendsPctDelta;
+
+  // Visits available if any profile_visits data exists for this selection
+  const visitsAvailable = curVisits > 0 || priVisits > 0;
+
+  // ── 2. Platform breakdown — current period only ──────────────────────────
+  const platRes = await client.query<{
+    platform:      string;
+    reach:         string;
+    followers:     string;
+    visits:        string;
+    comments:      string;
+    interactions:  string;
+    base_reach:    string;
+  }>(
+    `SELECT
+       platform,
+       SUM(COALESCE(reach, views, 0))   AS reach,
+       SUM(COALESCE(followers_delta,0)) AS followers,
+       SUM(COALESCE(profile_visits,0))  AS visits,
+       SUM(COALESCE(comments_count,0))  AS comments,
+       SUM(COALESCE(engagement, COALESCE(likes,0)+COALESCE(comments_count,0)+COALESCE(saves,0)+COALESCE(shares,0))) AS interactions,
+       SUM(COALESCE(reach, views, 0))   AS base_reach
+     FROM insights_account_metrics_daily
+     WHERE tenant_id = $1
+       AND date      >= $2
+       AND date      <  $3
+       AND ($4::text IS NULL OR platform = $4)
+     GROUP BY platform
+     ORDER BY reach DESC`,
+    [tenantId, currentStart, currentEnd, platformFilter],
+  );
+
+  function toSlices(
+    rows: typeof platRes.rows,
+    getValue: (r: typeof platRes.rows[0]) => number,
+  ): PlatformSlice[] {
+    const vals = rows.map(r => ({ platform: r.platform, value: getValue(r) }));
+    const total = vals.reduce((s, v) => s + v.value, 0);
+    return vals.map(v => ({
+      ...v,
+      pct: total > 0 ? Math.round((v.value / total) * 1000) / 10 : 0,
+    }));
+  }
+
+  // Per-platform comment counts from insights_comments (same reason as the
+  // comments series: the account column is 0 for Facebook). Powers the
+  // "Where comments came from" breakdown.
+  const commentsByPlatformRes = await client.query<{ platform: string; comments: string }>(
+    `SELECT platform, COUNT(*) AS comments
+       FROM insights_comments
+      WHERE tenant_id    = $1
+        AND received_at >= $2
+        AND received_at <  $3
+        AND ($4::text IS NULL OR platform = $4)
+      GROUP BY platform
+      ORDER BY comments DESC`,
+    [tenantId, currentStart, currentEnd, platformFilter],
+  );
+  const commentSlices: PlatformSlice[] = (() => {
+    const vals = commentsByPlatformRes.rows.map(r => ({ platform: r.platform, value: Number(r.comments) }));
+    const total = vals.reduce((s, v) => s + v.value, 0);
+    return vals.map(v => ({ ...v, pct: total > 0 ? Math.round((v.value / total) * 1000) / 10 : 0 }));
+  })();
+
+  const breakdown = {
+    reach:      toSlices(platRes.rows, r => Number(r.reach)),
+    followers:  toSlices(platRes.rows, r => Number(r.followers)),
+    visits:     visitsAvailable ? toSlices(platRes.rows, r => Number(r.visits)) : null,
+    comments:   commentSlices,
+    engagement: toSlices(platRes.rows, r => {
+      const int = Number(r.interactions);
+      const rch = Number(r.base_reach);
+      return rch > 0 ? Math.round((int / rch) * 1000) / 10 : 0;
+    }),
+  };
+
+  // ── 3. Post count ────────────────────────────────────────────────────────
+  const postCountRes = await client.query<{ count: string }>(
+    `SELECT COUNT(*) AS count
+     FROM insights_posts
+     WHERE tenant_id     = $1
+       AND published_at  >= $2
+       AND ($3::text IS NULL OR platform = $3)`,
+    [tenantId, currentStart, platformFilter],
+  );
+  const postCount = Number(postCountRes.rows[0].count);
+
+  // ── 4. Unreplied comments ────────────────────────────────────────────────
+  const unrepliedRes = await client.query<{ count: string }>(
+    `SELECT COUNT(*) AS count
+     FROM insights_comments
+     WHERE tenant_id    = $1
+       AND received_at  >= $2
+       AND is_replied   = false
+       AND ($3::text IS NULL OR platform = $3)`,
+    [tenantId, currentStart, platformFilter],
+  );
+  const unreplied = Number(unrepliedRes.rows[0].count);
+
+  // ── 5. Sentiment distribution ─────────────────────────────────────────────
+  const sentRes = await client.query<{ sentiment: string | null; count: string }>(
+    `SELECT cc.sentiment, COUNT(*) AS count
+     FROM insights_comments c
+     JOIN insights_comment_classifications cc ON cc.comment_id = c.id
+     WHERE c.tenant_id   = $1
+       AND c.received_at >= $2
+       AND ($3::text IS NULL OR c.platform = $3)
+     GROUP BY cc.sentiment`,
+    [tenantId, currentStart, platformFilter],
+  );
+
+  let sentTotal = 0;
+  let sentPositive = 0;
+  for (const r of sentRes.rows) {
+    const n = Number(r.count);
+    sentTotal += n;
+    if (r.sentiment === 'positive') sentPositive += n;
+  }
+  const sentimentPositivePct = sentTotal > 0
+    ? Math.round((sentPositive / sentTotal) * 100)
+    : 0;
+
+  // ── 6. Top post title ────────────────────────────────────────────────────
+  // S2-1: rank by each post's LATEST lifetime reach, NOT SUM across dated
+  // cumulative rows (which over-weighted longer-synced posts).
+  const topPostRes = await client.query<{ title: string | null }>(
+    `SELECT p.title
+     FROM insights_posts p
+     ${LATEST_POST_METRICS_LATERAL}
+     WHERE p.tenant_id     = $1
+       AND p.published_at  >= $2
+       AND ($3::text IS NULL OR p.platform = $3)
+     ORDER BY COALESCE(m.reach, m.views, 0) DESC
+     LIMIT 1`,
+    [tenantId, currentStart, platformFilter],
+  );
+  const topPostTitle = topPostRes.rows[0]?.title ?? null;
+
+  // ── 7. 90-day engagement baseline (for key-movement benchmark) ────────────
+  // Fetch when the period is not already 90day (avoid re-fetching the same data).
+  let engagementBaseline = curEngRate;
+  if (period !== '90day') {
+    const baselineStart = utcDayStart(90);
+    const blRes = await client.query<{ interactions: string; base_reach: string }>(
+      `SELECT
+         SUM(COALESCE(engagement, COALESCE(likes,0)+COALESCE(comments_count,0)+COALESCE(saves,0)+COALESCE(shares,0))) AS interactions,
+         SUM(COALESCE(reach, views, 0)) AS base_reach
+       FROM insights_account_metrics_daily
+       WHERE tenant_id = $1
+         AND date      >= $2
+         AND date      <  $3
+         AND ($4::text IS NULL OR platform = $4)`,
+      [tenantId, baselineStart, currentEnd, platformFilter],
     );
-    const unreplied = Number(unrepliedRes.rows[0].count);
+    const blInt = Number(blRes.rows[0]?.interactions ?? 0);
+    const blRch = Number(blRes.rows[0]?.base_reach   ?? 0);
+    engagementBaseline = blRch > 0
+      ? Math.round((blInt / blRch) * 1000) / 10
+      : curEngRate;
+  }
 
-    // ── 5. Sentiment distribution ─────────────────────────────────────────────
-    const sentRes = await client.query<{ sentiment: string | null; count: string }>(
-      `SELECT cc.sentiment, COUNT(*) AS count
-       FROM insights_comments c
-       JOIN insights_comment_classifications cc ON cc.comment_id = c.id
-       WHERE c.tenant_id   = $1
-         AND c.received_at >= $2
-         AND ($3::text IS NULL OR c.platform = $3)
-       GROUP BY cc.sentiment`,
-      [tenantId, currentStart, platformFilter],
-    );
+  // ── Assemble series ───────────────────────────────────────────────────────
+  const labels = currentBuckets.map(b => b.label);
 
-    let sentTotal = 0;
-    let sentPositive = 0;
-    for (const r of sentRes.rows) {
-      const n = Number(r.count);
-      sentTotal += n;
-      if (r.sentiment === 'positive') sentPositive += n;
-    }
-    const sentimentPositivePct = sentTotal > 0
-      ? Math.round((sentPositive / sentTotal) * 100)
-      : 0;
+  return {
+    reach: {
+      value:     curReach,
+      valuePrev: priReach,
+      delta:     pctDelta(curReach, priReach),
+    },
+    engagement: {
+      value:     curEngRate,
+      valuePrev: priEngRate,
+      delta:     Math.round((curEngRate - priEngRate) * 10) / 10,
+    },
+    followers: {
+      value:     curFollow,
+      valuePrev: priFollow,
+      delta:     null,
+    },
+    comments: {
+      value:     curComments,
+      valuePrev: priComments,
+      delta:     null,
+    },
+    visits: visitsAvailable ? {
+      value:     curVisits,
+      valuePrev: priVisits,
+      delta:     pctDelta(curVisits, priVisits),
+    } : null,
 
-    // ── 6. Top post title ────────────────────────────────────────────────────
-    // S2-1: rank by each post's LATEST lifetime reach, NOT SUM across dated
-    // cumulative rows (which over-weighted longer-synced posts).
-    const topPostRes = await client.query<{ title: string | null }>(
-      `SELECT p.title
-       FROM insights_posts p
-       ${LATEST_POST_METRICS_LATERAL}
-       WHERE p.tenant_id     = $1
-         AND p.published_at  >= $2
-         AND ($3::text IS NULL OR p.platform = $3)
-       ORDER BY COALESCE(m.reach, m.views, 0) DESC
-       LIMIT 1`,
-      [tenantId, currentStart, platformFilter],
-    );
-    const topPostTitle = topPostRes.rows[0]?.title ?? null;
-
-    // ── 7. 90-day engagement baseline (for key-movement benchmark) ────────────
-    // Fetch when the period is not already 90day (avoid re-fetching the same data).
-    let engagementBaseline = curEngRate;
-    if (period !== '90day') {
-      const baselineStart = utcDayStart(90);
-      const blRes = await client.query<{ interactions: string; base_reach: string }>(
-        `SELECT
-           SUM(COALESCE(engagement, COALESCE(likes,0)+COALESCE(comments_count,0)+COALESCE(saves,0)+COALESCE(shares,0))) AS interactions,
-           SUM(COALESCE(reach, views, 0)) AS base_reach
-         FROM insights_account_metrics_daily
-         WHERE tenant_id = $1
-           AND date      >= $2
-           AND date      <  $3
-           AND ($4::text IS NULL OR platform = $4)`,
-        [tenantId, baselineStart, currentEnd, platformFilter],
-      );
-      const blInt = Number(blRes.rows[0]?.interactions ?? 0);
-      const blRch = Number(blRes.rows[0]?.base_reach   ?? 0);
-      engagementBaseline = blRch > 0
-        ? Math.round((blInt / blRch) * 1000) / 10
-        : curEngRate;
-    }
-
-    // ── Assemble series ───────────────────────────────────────────────────────
-    const labels = currentBuckets.map(b => b.label);
-
-    return {
+    series: {
       reach: {
-        value:     curReach,
-        valuePrev: priReach,
-        delta:     pctDelta(curReach, priReach),
+        current: fillSeries(currentBuckets, curMap.reach),
+        prior:   fillSeries(priorBuckets,   priMap.reach),
+        labels,
       },
       engagement: {
-        value:     curEngRate,
-        valuePrev: priEngRate,
-        delta:     Math.round((curEngRate - priEngRate) * 10) / 10,
+        current: fillSeries(currentBuckets, curEngMap),
+        prior:   fillSeries(priorBuckets,   priEngMap),
+        labels,
       },
       followers: {
-        value:     curFollow,
-        valuePrev: priFollow,
-        delta:     null,
+        current: fillSeries(currentBuckets, curMap.followers),
+        prior:   fillSeries(priorBuckets,   priMap.followers),
+        labels,
       },
       comments: {
-        value:     curComments,
-        valuePrev: priComments,
-        delta:     null,
+        current: fillSeries(currentBuckets, curCommentsMap),
+        prior:   fillSeries(priorBuckets,   priCommentsMap),
+        labels,
       },
       visits: visitsAvailable ? {
-        value:     curVisits,
-        valuePrev: priVisits,
-        delta:     pctDelta(curVisits, priVisits),
+        current: fillSeries(currentBuckets, curMap.visits),
+        prior:   fillSeries(priorBuckets,   priMap.visits),
+        labels,
       } : null,
+    },
 
-      series: {
-        reach: {
-          current: fillSeries(currentBuckets, curMap.reach),
-          prior:   fillSeries(priorBuckets,   priMap.reach),
-          labels,
-        },
-        engagement: {
-          current: fillSeries(currentBuckets, curEngMap),
-          prior:   fillSeries(priorBuckets,   priEngMap),
-          labels,
-        },
-        followers: {
-          current: fillSeries(currentBuckets, curMap.followers),
-          prior:   fillSeries(priorBuckets,   priMap.followers),
-          labels,
-        },
-        comments: {
-          current: fillSeries(currentBuckets, curCommentsMap),
-          prior:   fillSeries(priorBuckets,   priCommentsMap),
-          labels,
-        },
-        visits: visitsAvailable ? {
-          current: fillSeries(currentBuckets, curMap.visits),
-          prior:   fillSeries(priorBuckets,   priMap.visits),
-          labels,
-        } : null,
-      },
+    platformBreakdown: breakdown,
 
-      platformBreakdown: breakdown,
+    postCount,
+    unreplied,
+    sentimentPositivePct,
+    topPostTitle,
+    engagementBaseline,
+    visitsAvailable,
+  };
 
-      postCount,
-      unreplied,
-      sentimentPositivePct,
-      topPostTitle,
-      engagementBaseline,
-      visitsAvailable,
-    };
-
-  } finally {
-    client.release();
-  }
 }

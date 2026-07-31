@@ -229,6 +229,13 @@ const steps = [
     args: ['--test', 'tests/marketing-job-kind.test.ts'],
   },
   {
+    // S7-4/AA-122: insights cache expiry jitter + per-key singleflight, and the
+    // source guarantee that a cache-miss request holds ONE pooled connection
+    // instead of two (guardrail #1). Pure policy + source assertions, no DB.
+    name: 'insights cache jitter + singleflight + connection budget',
+    args: ['--test', 'tests/insights-cache-policy.test.ts'],
+  },
+  {
     // 2026-07-13 duplicate-posting incident (AA-134 / PR #841) regression wall:
     // scheduler day-mapping + same-instant de-collision, the reel-companion
     // synthesis clamp, the publish-boundary duplicate/spacing guards, and the

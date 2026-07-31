@@ -19,6 +19,7 @@ import { buildGoalSnapshot } from './goal-snapshot-builder';
 import { buildGoalText } from './goal-template-builder';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 import crypto from 'crypto';
+import { insightsCacheTtlMs, buildInsightsSectionOnce } from '../cache-policy';
 
 // v3: normalize free-form primary_goal → canonical GoalType, so the goal label
 // and Aries narrative are no longer blank when onboarding stored natural-language
@@ -40,7 +41,7 @@ import crypto from 'crypto';
 // provenance instead of treating an unmatched explicit onboarding label as a
 // guess. Bump invalidates v7 bodies that cached the old inferred flag.
 const TEMPLATE_VERSION = 'goal-template-v8';
-const CACHE_TTL_MS     = 60 * 60 * 1000;
+const CACHE_TTL_BASE_MS     = 60 * 60 * 1000;
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);
 
@@ -61,6 +62,7 @@ async function getCached(
   tenantId: number,
   period: string,
   platform: string,
+  ttlMs:    number,
 ): Promise<{ body: Record<string, unknown>; generatedAt: Date } | null> {
   const res = await client.query<{
     body: Record<string, unknown>;
@@ -79,7 +81,7 @@ async function getCached(
   if (res.rows.length === 0) return null;
   const row   = res.rows[0];
   const ageMs = Date.now() - new Date(row.generated_at).getTime();
-  if (ageMs >= CACHE_TTL_MS || row.model !== TEMPLATE_VERSION) return null;
+  if (ageMs >= ttlMs || row.model !== TEMPLATE_VERSION) return null;
   return { body: row.body, generatedAt: row.generated_at };
 }
 
@@ -130,10 +132,15 @@ export async function handleGetInsightsGoal(
   const period   = periodParam;
   const platform = platformParam;
 
+  // AA-122: one key for both the jittered expiry and the singleflight,
+  // so a section's staleness and its in-flight build always agree.
+  const cacheKey = inputHash(tenantId, period, platform);
+  const ttlMs    = insightsCacheTtlMs(cacheKey, CACHE_TTL_BASE_MS);
+
   const client = await pool.connect();
   try {
     if (!force) {
-      const cached = await getCached(client, tenantId, period, platform);
+      const cached = await getCached(client, tenantId, period, platform, ttlMs);
       if (cached) {
         return NextResponse.json({
           status:       'ok',
@@ -146,14 +153,14 @@ export async function handleGetInsightsGoal(
       }
     }
 
-    const snapshot = await buildGoalSnapshot(tenantId, period, platform, client);
+    const snapshot = await buildInsightsSectionOnce(cacheKey, () => buildGoalSnapshot(tenantId, period, platform, client));
 
     if (!snapshot) {
       return NextResponse.json({ status: 'no_goal' });
     }
 
     const ariesLine = buildGoalText(snapshot);
-    const hash      = inputHash(tenantId, period, platform);
+    const hash      = cacheKey;
 
     const body: Record<string, unknown> = {
       goal:            snapshot.goal,

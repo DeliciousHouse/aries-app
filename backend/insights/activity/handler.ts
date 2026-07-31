@@ -19,6 +19,7 @@ import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/ten
 import { buildActivitySnapshot } from './activity-snapshot-builder';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 import crypto from 'crypto';
+import { insightsCacheTtlMs, buildInsightsSectionOnce } from '../cache-policy';
 
 // v4: S2-1 — the high-performers count (posts ≥2× average reach) now compares
 // latest lifetime snapshots per post, not SUM across dated cumulative rows.
@@ -39,7 +40,7 @@ import crypto from 'crypto';
 // the cache key — a tenant that crosses the threshold mid-cache keeps serving
 // the all-channel body until the 1h TTL expires.
 const TEMPLATE_VERSION = 'activity-v7';
-const CACHE_TTL_MS     = 60 * 60 * 1000; // 1 hour
+const CACHE_TTL_BASE_MS     = 60 * 60 * 1000; // 1 hour
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);
 
@@ -60,6 +61,7 @@ async function getCached(
   tenantId: number,
   period:   string,
   platform: string,
+  ttlMs:    number,
 ): Promise<{ body: Record<string, unknown>; generatedAt: Date } | null> {
   const res = await client.query<{
     body:         Record<string, unknown>;
@@ -78,7 +80,7 @@ async function getCached(
   if (res.rows.length === 0) return null;
   const row   = res.rows[0];
   const ageMs = Date.now() - new Date(row.generated_at).getTime();
-  if (ageMs >= CACHE_TTL_MS || row.model !== TEMPLATE_VERSION) return null;
+  if (ageMs >= ttlMs || row.model !== TEMPLATE_VERSION) return null;
   return { body: row.body, generatedAt: row.generated_at };
 }
 
@@ -152,10 +154,15 @@ export async function handleGetInsightsActivity(
   const period   = periodParam;
   const platform = platformParam;
 
+  // AA-122: one key for both the jittered expiry and the singleflight,
+  // so a section's staleness and its in-flight build always agree.
+  const cacheKey = inputHash(tenantId, period, platform);
+  const ttlMs    = insightsCacheTtlMs(cacheKey, CACHE_TTL_BASE_MS);
+
   const client = await pool.connect();
   try {
     if (!force) {
-      const cached = await getCached(client, tenantId, period, platform);
+      const cached = await getCached(client, tenantId, period, platform, ttlMs);
       if (cached) {
         return NextResponse.json({
           status:       'ok',
@@ -168,8 +175,8 @@ export async function handleGetInsightsActivity(
       }
     }
 
-    const snap = await buildActivitySnapshot(tenantId, period, platform);
-    const hash = inputHash(tenantId, period, platform);
+    const snap = await buildInsightsSectionOnce(cacheKey, () => buildActivitySnapshot(tenantId, period, platform, client));
+    const hash = cacheKey;
 
     const body: Record<string, unknown> = {
       strip: {

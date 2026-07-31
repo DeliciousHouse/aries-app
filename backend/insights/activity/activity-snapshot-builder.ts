@@ -23,7 +23,7 @@
  * otherwise. See attribution-scope.ts for why the fallback is mandatory.
  */
 
-import pool from '@/lib/db';
+import type { PoolClient } from '@/lib/db';
 import { LATEST_POST_METRICS_LATERAL } from '../latest-post-metrics-sql';
 import { resolveTenantInsightsTimeZone } from '../tenant-timezone';
 import { tenantZonePeriodStart } from '@/lib/format-timestamp';
@@ -65,154 +65,152 @@ export async function buildActivitySnapshot(
   tenantId:  number,
   period:    NarrativePeriod,
   platform:  string,
+  /** AA-122: supplied by the handler, which already holds a pooled client.
+   * The builder must not acquire (or release) a second one. */
+  client:   PoolClient,
 ): Promise<ActivitySnapshot> {
   const days           = periodDays(period);
   const platformFilter = platform === 'all' ? null : platform;
 
-  const client = await pool.connect();
-  try {
-    // S2-3: all activity windows filter timestamptz columns (published_at /
-    // received_at), so the lower bound is the tenant-tz-midnight instant.
-    const tz       = await resolveTenantInsightsTimeZone(client, tenantId);
-    const fromDate = tenantZonePeriodStart(days, tz);
+  // S2-3: all activity windows filter timestamptz columns (published_at /
+  // received_at), so the lower bound is the tenant-tz-midnight instant.
+  const tz       = await resolveTenantInsightsTimeZone(client, tenantId);
+  const fromDate = tenantZonePeriodStart(days, tz);
 
-    // S4-1: decided once, applied to every query below so the strip, the
-    // high-performer count and the content mix all describe the same post set.
-    const attribution = await resolveAttributionScope({
-      db: client,
-      tenantId,
-      fromDate,
-      platformFilter,
-    });
-    const attributedOnly = attribution.attributedOnly;
+  // S4-1: decided once, applied to every query below so the strip, the
+  // high-performer count and the content mix all describe the same post set.
+  const attribution = await resolveAttributionScope({
+    db: client,
+    tenantId,
+    fromDate,
+    platformFilter,
+  });
+  const attributedOnly = attribution.attributedOnly;
 
-    // ── Posts published + platform count ─────────────────────────────────────
-    const postsRes = await client.query<{
-      post_count:     string;
-      platform_count: string;
-      platforms:      string[] | null;
-    }>(
-      `SELECT
-         COUNT(*)                    AS post_count,
-         COUNT(DISTINCT platform)    AS platform_count,
-         array_agg(DISTINCT platform) AS platforms
-       FROM insights_posts
-       WHERE tenant_id      = $1
-         AND published_at   >= $2
-         AND ($3::text IS NULL OR platform = $3)
-         AND ($4::boolean IS NOT TRUE OR aries_post_id IS NOT NULL)`,
+  // ── Posts published + platform count ─────────────────────────────────────
+  const postsRes = await client.query<{
+    post_count:     string;
+    platform_count: string;
+    platforms:      string[] | null;
+  }>(
+    `SELECT
+       COUNT(*)                    AS post_count,
+       COUNT(DISTINCT platform)    AS platform_count,
+       array_agg(DISTINCT platform) AS platforms
+     FROM insights_posts
+     WHERE tenant_id      = $1
+       AND published_at   >= $2
+       AND ($3::text IS NULL OR platform = $3)
+       AND ($4::boolean IS NOT TRUE OR aries_post_id IS NOT NULL)`,
+    [tenantId, fromDate, platformFilter, attributedOnly],
+  );
+
+  const postsPublished = Number(postsRes.rows[0].post_count);
+  const platformCount  = Number(postsRes.rows[0].platform_count);
+  const platforms      = (postsRes.rows[0].platforms ?? []).filter((p): p is string => p != null);
+
+  // ── Comments received (+ handled / needs-reply split) ─────────────────────
+  const commentsRes = await client.query<{ count: string; needs_reply: string }>(
+    `SELECT
+       COUNT(*)                                       AS count,
+       COUNT(*) FILTER (WHERE c.is_replied = false)   AS needs_reply
+     FROM insights_comments c
+     JOIN insights_posts p ON p.id = c.post_id
+     WHERE c.tenant_id     = $1
+       AND c.received_at   >= $2
+       AND ($3::text IS NULL OR c.platform = $3)
+       AND ($4::boolean IS NOT TRUE OR p.aries_post_id IS NOT NULL)`,
+    [tenantId, fromDate, platformFilter, attributedOnly],
+  );
+
+  const commentsReceived  = Number(commentsRes.rows[0].count);
+  const commentsNeedReply = Number(commentsRes.rows[0].needs_reply);
+  const commentsHandled   = commentsReceived - commentsNeedReply;
+
+  // ── High performers — posts ≥2x period average reach ─────────────────────
+  // Mirrors the Section 3 detection so both sections agree.
+  let highPerformers = 0;
+
+  if (postsPublished > 0) {
+    const hpRes = await client.query<{ hp_count: string }>(
+      `WITH post_totals AS (
+         SELECT
+           p.id,
+           -- S2-1: latest lifetime snapshot per post, NOT SUM across dated rows.
+           COALESCE(m.reach, m.views, 0) AS total_reach
+         FROM insights_posts p
+         ${LATEST_POST_METRICS_LATERAL}
+         WHERE p.tenant_id    = $1
+           AND p.published_at >= $2
+           AND ($3::text IS NULL OR p.platform = $3)
+           AND ($4::boolean IS NOT TRUE OR p.aries_post_id IS NOT NULL)
+       ),
+       avg_reach AS (
+         SELECT AVG(total_reach) AS avg FROM post_totals
+       )
+       SELECT COUNT(*) AS hp_count
+       FROM post_totals, avg_reach
+       WHERE avg_reach.avg > 0
+         AND post_totals.total_reach >= 2 * avg_reach.avg`,
       [tenantId, fromDate, platformFilter, attributedOnly],
     );
-
-    const postsPublished = Number(postsRes.rows[0].post_count);
-    const platformCount  = Number(postsRes.rows[0].platform_count);
-    const platforms      = (postsRes.rows[0].platforms ?? []).filter((p): p is string => p != null);
-
-    // ── Comments received (+ handled / needs-reply split) ─────────────────────
-    const commentsRes = await client.query<{ count: string; needs_reply: string }>(
-      `SELECT
-         COUNT(*)                                       AS count,
-         COUNT(*) FILTER (WHERE c.is_replied = false)   AS needs_reply
-       FROM insights_comments c
-       JOIN insights_posts p ON p.id = c.post_id
-       WHERE c.tenant_id     = $1
-         AND c.received_at   >= $2
-         AND ($3::text IS NULL OR c.platform = $3)
-         AND ($4::boolean IS NOT TRUE OR p.aries_post_id IS NOT NULL)`,
-      [tenantId, fromDate, platformFilter, attributedOnly],
-    );
-
-    const commentsReceived  = Number(commentsRes.rows[0].count);
-    const commentsNeedReply = Number(commentsRes.rows[0].needs_reply);
-    const commentsHandled   = commentsReceived - commentsNeedReply;
-
-    // ── High performers — posts ≥2x period average reach ─────────────────────
-    // Mirrors the Section 3 detection so both sections agree.
-    let highPerformers = 0;
-
-    if (postsPublished > 0) {
-      const hpRes = await client.query<{ hp_count: string }>(
-        `WITH post_totals AS (
-           SELECT
-             p.id,
-             -- S2-1: latest lifetime snapshot per post, NOT SUM across dated rows.
-             COALESCE(m.reach, m.views, 0) AS total_reach
-           FROM insights_posts p
-           ${LATEST_POST_METRICS_LATERAL}
-           WHERE p.tenant_id    = $1
-             AND p.published_at >= $2
-             AND ($3::text IS NULL OR p.platform = $3)
-             AND ($4::boolean IS NOT TRUE OR p.aries_post_id IS NOT NULL)
-         ),
-         avg_reach AS (
-           SELECT AVG(total_reach) AS avg FROM post_totals
-         )
-         SELECT COUNT(*) AS hp_count
-         FROM post_totals, avg_reach
-         WHERE avg_reach.avg > 0
-           AND post_totals.total_reach >= 2 * avg_reach.avg`,
-        [tenantId, fromDate, platformFilter, attributedOnly],
-      );
-      highPerformers = Number(hpRes.rows[0].hp_count);
-    }
-
-    // ── Content mix ───────────────────────────────────────────────────────────
-    const mixRes = await client.query<{
-      content_type: string | null;
-      cnt:          string;
-    }>(
-      `SELECT
-         COALESCE(content_type, 'uncategorized') AS content_type,
-         COUNT(*) AS cnt
-       FROM insights_posts
-       WHERE tenant_id     = $1
-         AND published_at  >= $2
-         AND ($3::text IS NULL OR platform = $3)
-         AND ($4::boolean IS NOT TRUE OR aries_post_id IS NOT NULL)
-       GROUP BY COALESCE(content_type, 'uncategorized')
-       ORDER BY cnt DESC`,
-      [tenantId, fromDate, platformFilter, attributedOnly],
-    );
-
-    const totalPosts = mixRes.rows.reduce((s, r) => s + Number(r.cnt), 0);
-
-    const contentMix: ContentMixSlice[] = mixRes.rows.map(r => {
-      const count = Number(r.cnt);
-      return {
-        contentType: r.content_type ?? 'uncategorized',
-        count,
-        pct: totalPosts > 0 ? Math.round((count / totalPosts) * 1000) / 10 : 0,
-      };
-    });
-
-    // How many posts are still awaiting content-type classification
-    const pendingRes = await client.query<{ count: string }>(
-      `SELECT COUNT(*) AS count
-       FROM insights_posts
-       WHERE tenant_id     = $1
-         AND published_at  >= $2
-         AND content_type  IS NULL
-         AND ($3::text IS NULL OR platform = $3)
-         AND ($4::boolean IS NOT TRUE OR aries_post_id IS NOT NULL)`,
-      [tenantId, fromDate, platformFilter, attributedOnly],
-    );
-    const pendingClassification = Number(pendingRes.rows[0].count);
-
-    return {
-      postsPublished,
-      commentsReceived,
-      commentsHandled,
-      commentsNeedReply,
-      highPerformers,
-      hoursSaved:   estimateHoursSaved(postsPublished),
-      platformCount,
-      platforms,
-      contentMix,
-      pendingClassification,
-      attribution,
-    };
-
-  } finally {
-    client.release();
+    highPerformers = Number(hpRes.rows[0].hp_count);
   }
+
+  // ── Content mix ───────────────────────────────────────────────────────────
+  const mixRes = await client.query<{
+    content_type: string | null;
+    cnt:          string;
+  }>(
+    `SELECT
+       COALESCE(content_type, 'uncategorized') AS content_type,
+       COUNT(*) AS cnt
+     FROM insights_posts
+     WHERE tenant_id     = $1
+       AND published_at  >= $2
+       AND ($3::text IS NULL OR platform = $3)
+       AND ($4::boolean IS NOT TRUE OR aries_post_id IS NOT NULL)
+     GROUP BY COALESCE(content_type, 'uncategorized')
+     ORDER BY cnt DESC`,
+    [tenantId, fromDate, platformFilter, attributedOnly],
+  );
+
+  const totalPosts = mixRes.rows.reduce((s, r) => s + Number(r.cnt), 0);
+
+  const contentMix: ContentMixSlice[] = mixRes.rows.map(r => {
+    const count = Number(r.cnt);
+    return {
+      contentType: r.content_type ?? 'uncategorized',
+      count,
+      pct: totalPosts > 0 ? Math.round((count / totalPosts) * 1000) / 10 : 0,
+    };
+  });
+
+  // How many posts are still awaiting content-type classification
+  const pendingRes = await client.query<{ count: string }>(
+    `SELECT COUNT(*) AS count
+     FROM insights_posts
+     WHERE tenant_id     = $1
+       AND published_at  >= $2
+       AND content_type  IS NULL
+       AND ($3::text IS NULL OR platform = $3)
+       AND ($4::boolean IS NOT TRUE OR aries_post_id IS NOT NULL)`,
+    [tenantId, fromDate, platformFilter, attributedOnly],
+  );
+  const pendingClassification = Number(pendingRes.rows[0].count);
+
+  return {
+    postsPublished,
+    commentsReceived,
+    commentsHandled,
+    commentsNeedReply,
+    highPerformers,
+    hoursSaved:   estimateHoursSaved(postsPublished),
+    platformCount,
+    platforms,
+    contentMix,
+    pendingClassification,
+    attribution,
+  };
+
 }
