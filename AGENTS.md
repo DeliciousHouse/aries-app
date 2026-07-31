@@ -40,6 +40,8 @@ Do not let remembered context override the current repository.
 
 Use these checks to keep the repo clean:
 
+Testing: For each card, run the tests covering every changed file or module plus directly affected integration tests, then run `npm run verify`. A full local test run is neither required nor expected before opening a PR; the full 498-file suite runs only in CI on `ubuntu-latest` with Node 24 and a real PostgreSQL service. Scoped local testing is safe only while reviewers refuse to merge red CI.
+
 - `npm run validate:repo-boundary`
 - `npm run validate:banned-patterns`
 - `npm run verify`

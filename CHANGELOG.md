@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.47.2 — docs(testing): scope local card verification
+
+Contributors can now focus local verification on card-relevant tests plus the
+canonical guardrail suite while the complete test suite remains the CI merge gate.
+
+### Changed
+
+- Repository guidance now requires tests covering each changed module and affected
+  integrations followed by `npm run verify`, without requiring a full local test
+  run before a draft pull request.
+
 ## v0.1.47.1 — docs(agents): keep resumability guidance provider-neutral
 
 Agent-facing guidance now explains the resumability contract without tying it to
