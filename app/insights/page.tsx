@@ -1,5 +1,6 @@
 import AppShellLayout from "@/frontend/app-shell/layout";
 import { InsightsDashboard } from "@/frontend/insights/InsightsDashboard";
+import { isNativeReplyEnabled } from "@/backend/integrations/meta-reply-env";
 
 export const metadata = {
   title: "Insights — Aries AI",
@@ -14,9 +15,15 @@ export const metadata = {
  * The dark insights canvas + the nine data sections live in InsightsDashboard.
  */
 export default function InsightsPage() {
+  // Read the native-reply rollout flag server-side and pass it down, mirroring
+  // how the review page gates the image-edit drawer. When it is off the reply
+  // endpoint returns a real 404, so the UI must not offer a control that
+  // cannot succeed.
+  const nativeReplyEnabled = isNativeReplyEnabled();
+
   return (
     <AppShellLayout currentRouteId="insights" loginRedirectPath="/insights">
-      <InsightsDashboard />
+      <InsightsDashboard nativeReplyEnabled={nativeReplyEnabled} />
     </AppShellLayout>
   );
 }

@@ -36,16 +36,34 @@ test('no placeholder alert() remains anywhere under frontend/insights/', () => {
   assert.deepEqual(offenders, [], `alert() must be gone; still present in: ${offenders.join(', ')}`);
 });
 
-test('Conversations Reply button is kept visible but disabled with a "ships soon" tooltip', () => {
+// AA-111 (S5-2) wired this button up for real, so the original assertion — that
+// Reply is hardcoded `disabled` with a "Reply ships soon" tooltip — no longer
+// describes intended behaviour and was replaced rather than deleted. The intent
+// worth keeping is unchanged: the control must still EXIST (not be quietly
+// removed) and must be backed by the real endpoint rather than a placeholder.
+// Behavioural coverage of the wiring lives in
+// tests/insights-conversations-reply-ui.test.ts.
+test('Conversations Reply button is present and wired to the real reply endpoint', () => {
   const src = read('ConversationsSection.tsx');
-  // Still present (not deleted).
+
   assert.match(src, /label="Reply"/, 'the Reply button must NOT be removed');
-  // Rendered disabled with the ships-soon tooltip.
+
+  // Gated on the rollout flag, not permanently disabled.
   assert.match(
     src,
-    /label="Reply"\s+disabled\s+title="Reply ships soon"/,
-    'Reply must be disabled with a "Reply ships soon" tooltip',
+    /disabled=\{!nativeReplyEnabled\}/,
+    'Reply must be gated on nativeReplyEnabled, not hardcoded disabled',
   );
+
+  // Backed by the shipped endpoint — no placeholder, no fake success.
+  assert.match(
+    src,
+    /fetch\(`\/api\/insights\/comments\/\$\{item\.id\}\/reply`/,
+    'Reply must POST to the real comment reply endpoint',
+  );
+
+  // The ships-soon copy survives only as the flag-off tooltip.
+  assert.match(src, /Reply ships soon/, 'flag-off state still explains why Reply is unavailable');
 });
 
 test('demographics empty state no longer tells the user to connect', () => {
