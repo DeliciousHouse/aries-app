@@ -229,6 +229,15 @@ const steps = [
     args: ['--test', 'tests/marketing-job-kind.test.ts'],
   },
   {
+    // S6-2/AA-115: goal_type backfill with low-confidence flagging. Pins the
+    // safety invariant (a confident key always equals the goal the read path
+    // already renders, so backfilling never moves a tenant's metric), the
+    // refusal to persist the brand_awareness fallthrough, and the NULL ->
+    // pre-AA-115 resolution fallback. Fake db, no DB or I/O.
+    name: 'insights goal_type backfill + low-confidence flagging',
+    args: ['--test', 'tests/insights-goal-type-backfill.test.ts'],
+  },
+  {
     // S7-4/AA-122: insights cache expiry jitter + per-key singleflight, and the
     // source guarantee that a cache-miss request holds ONE pooled connection
     // instead of two (guardrail #1). Pure policy + source assertions, no DB.
