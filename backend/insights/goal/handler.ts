@@ -40,7 +40,13 @@ import { insightsCacheTtlMs, buildInsightsSectionOnce } from '../cache-policy';
 // v8: AA-151 — goal confirmation now follows persisted explicit/inferred
 // provenance instead of treating an unmatched explicit onboarding label as a
 // guess. Bump invalidates v7 bodies that cached the old inferred flag.
-const TEMPLATE_VERSION = 'goal-template-v8';
+// v9: AA-115 / S6-2 — a confidently backfilled business_profiles.goal_type is
+// now authoritative, so a tenant whose free-text goal maps unambiguously stops
+// rendering the "Goal inferred — confirm" chip. The goal itself is unchanged by
+// construction (the backfill shares its keyword families with this read path),
+// but `goalInferred` in the cached body flips for those tenants. Bump
+// invalidates v8 bodies that cached the pre-backfill flag.
+const TEMPLATE_VERSION = 'goal-template-v9';
 const CACHE_TTL_BASE_MS     = 60 * 60 * 1000;
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);

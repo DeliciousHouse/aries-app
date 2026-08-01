@@ -396,6 +396,7 @@ async function initDb() {
         business_type TEXT,
         primary_goal TEXT,
         primary_goal_source TEXT NOT NULL DEFAULT 'inferred' CHECK (primary_goal_source IN ('explicit', 'inferred')),
+        goal_type TEXT CHECK (goal_type IS NULL OR goal_type IN ('lead_generation', 'content_growth', 'product_sales', 'brand_awareness')),
         launch_approver_user_id TEXT,
         launch_approver_name TEXT,
         offer TEXT,
@@ -435,6 +436,33 @@ async function initDb() {
           ALTER TABLE business_profiles
             ADD COLUMN IF NOT EXISTS primary_goal_source TEXT NOT NULL DEFAULT 'inferred'
             CHECK (primary_goal_source IN ('explicit', 'inferred'));
+        END IF;
+      END $$;
+
+      -- AA-115 / S6-2: canonical goal key beside the descriptive free text.
+      -- NULL means Aries has not confidently mapped the goal, which is what the
+      -- S1-5 confirm chip surfaces. Never populated here: the read path defaults
+      -- every unmatched goal to brand_awareness, and writing that default would
+      -- turn a visible guess into a settled-looking fact. The data pass is
+      -- scripts/backfill-business-profile-goal-type.ts (confident matches only).
+      ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS goal_type TEXT;
+
+      -- Matches the name PostgreSQL auto-generates for the inline column CHECK
+      -- above, so a fresh database skips this and a pre-existing one (which got
+      -- goal_type from the bare ADD COLUMN) gains the identical constraint.
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conrelid = 'business_profiles'::regclass
+            AND conname = 'business_profiles_goal_type_check'
+        ) THEN
+          ALTER TABLE business_profiles
+            ADD CONSTRAINT business_profiles_goal_type_check
+            CHECK (goal_type IS NULL OR goal_type IN (
+              'lead_generation', 'content_growth', 'product_sales', 'brand_awareness'
+            ));
         END IF;
       END $$;
     `);
