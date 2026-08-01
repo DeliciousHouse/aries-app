@@ -246,6 +246,17 @@ services:
       # read all channel posts (the #785 behavior), so a tenant with unstamped
       # history never sees an empty section. Out-of-range/unparseable → 0.8.
       ARIES_INSIGHTS_ATTRIBUTION_THRESHOLD: ${ARIES_INSIGHTS_ATTRIBUTION_THRESHOLD:-0.8}
+      # AA-120: bound the authenticated ?force=true cache bypass on the six
+      # cached insights sections. Defaults ON — a rate limit that ships off
+      # protects nothing — so this is the kill switch, not the on switch. The
+      # gate runs before pool.connect(), so a throttled request never holds a
+      # connection. 5 per (tenant, section) per 5 min is invisible to the only
+      # human force path (the Retry button on a failed section) and cuts a
+      # scripted hammer by ~1000x. Per-process state: real ceiling is
+      # ARIES_WEB_CONCURRENCY x the burst.
+      ARIES_INSIGHTS_FORCE_THROTTLE_ENABLED: ${ARIES_INSIGHTS_FORCE_THROTTLE_ENABLED:-1}
+      ARIES_INSIGHTS_FORCE_THROTTLE_BURST: ${ARIES_INSIGHTS_FORCE_THROTTLE_BURST:-5}
+      ARIES_INSIGHTS_FORCE_THROTTLE_WINDOW_MS: ${ARIES_INSIGHTS_FORCE_THROTTLE_WINDOW_MS:-300000}
       # 2026-05-23: flipped ON per TODOS rollout. Narrow first-name-denylist
       # heuristic replaces the legacy /[A-Z][a-z]+\s+[A-Z][a-z]+/ regex in
       # backend/memory/write-events.ts::scrubPreferenceLabelForHoncho. Effect:

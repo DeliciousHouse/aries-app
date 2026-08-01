@@ -16,6 +16,7 @@ import { buildAttentionCards } from './attention-card-builder';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 import crypto from 'crypto';
 import { insightsCacheTtlMs, buildInsightsSectionOnce } from '../cache-policy';
+import { checkInsightsForceThrottle } from '../force-throttle';
 
 // v2: fix the unreplied-card CTA link (/conversations 404 → /dashboard/comments,
 // S1-1/AA-80). Bump regenerates cached attention snapshots holding the bad link.
@@ -125,6 +126,13 @@ export async function handleGetInsightsAttention(
   // so a section's staleness and its in-flight build always agree.
   const cacheKey = inputHash(tenantId, period, platform);
   const ttlMs    = insightsCacheTtlMs(cacheKey, CACHE_TTL_BASE_MS);
+
+  // AA-120: bound the forced cache bypass BEFORE the pooled client is acquired
+  // below. Past that point a throttled request already holds the very resource
+  // the throttle exists to protect. (Deliberately does not name the connect
+  // call: tests/insights-cache-policy.test.ts counts that literal in source.)
+  const throttled = checkInsightsForceThrottle(force, tenantId, 'attention');
+  if (throttled) return throttled;
 
   const client = await pool.connect();
   try {

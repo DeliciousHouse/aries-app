@@ -22,6 +22,7 @@ import { buildNarrativeText } from './template-builder';
 import { computeAriesScore } from './score-builder';
 import crypto from 'crypto';
 import { insightsCacheTtlMs, buildInsightsSectionOnce } from '../cache-policy';
+import { checkInsightsForceThrottle } from '../force-throttle';
 
 // v2: S2-1 — hero top-post reach now uses the latest lifetime snapshot per post
 // (not SUM across dated cumulative rows), so the displayed reach number (and
@@ -165,6 +166,19 @@ export async function handleGetInsightsNarrative(
   const tenantIdStr = String(tenantResult.tenantContext.tenantId);
   const period     = periodParam;
   const platform   = platformParam;
+
+  // AA-120: bound the forced cache bypass before ANY database work. This sits
+  // above the connection check, not just above the pooled-client acquisition
+  // below, because that check issues its own query — leaving the gate lower
+  // would let a throttled forced request still reach the pool on this one
+  // section. The cost is that a forced request for an unconnected platform can
+  // spend a token and answer 429 rather than `not_connected`; that only happens
+  // on the sixth forced refresh inside five minutes, and a uniform "a throttled
+  // request issues no query from this handler" invariant is worth more than
+  // that edge. (The tenant lookup above still takes its own brief checkout —
+  // see the note in force-throttle.ts; that one is unavoidable here.)
+  const throttled = checkInsightsForceThrottle(force, tenantId, 'narrative');
+  if (throttled) return throttled;
 
   // ── Connection check (skip for 'all') ────────────────────────────────────
   if (platform !== 'all' && isSupportedPlatform(platform)) {

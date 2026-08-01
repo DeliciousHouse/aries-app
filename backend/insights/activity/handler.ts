@@ -20,6 +20,7 @@ import { buildActivitySnapshot } from './activity-snapshot-builder';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 import crypto from 'crypto';
 import { insightsCacheTtlMs, buildInsightsSectionOnce } from '../cache-policy';
+import { checkInsightsForceThrottle } from '../force-throttle';
 
 // v4: S2-1 — the high-performers count (posts ≥2× average reach) now compares
 // latest lifetime snapshots per post, not SUM across dated cumulative rows.
@@ -158,6 +159,13 @@ export async function handleGetInsightsActivity(
   // so a section's staleness and its in-flight build always agree.
   const cacheKey = inputHash(tenantId, period, platform);
   const ttlMs    = insightsCacheTtlMs(cacheKey, CACHE_TTL_BASE_MS);
+
+  // AA-120: bound the forced cache bypass BEFORE the pooled client is acquired
+  // below. Past that point a throttled request already holds the very resource
+  // the throttle exists to protect. (Deliberately does not name the connect
+  // call: tests/insights-cache-policy.test.ts counts that literal in source.)
+  const throttled = checkInsightsForceThrottle(force, tenantId, 'activity');
+  if (throttled) return throttled;
 
   const client = await pool.connect();
   try {
