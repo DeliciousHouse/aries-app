@@ -245,6 +245,18 @@ const steps = [
     args: ['--test', 'tests/insights-cache-policy.test.ts'],
   },
   {
+    // S7-2/AA-120: the per-tenant/section bound on the authenticated
+    // ?force=true cache bypass. Pins both halves of the acceptance bar —
+    // scripted hammering yields exactly the burst allowance, and the browser's
+    // only force affordance (the Retry button) still recovers, including that
+    // hammering while throttled cannot push recovery further out. The
+    // load-bearing assertion is source-level: the gate must sit BEFORE
+    // pool.connect() in all six handlers, or a denied request still holds the
+    // connection the throttle exists to protect. Pure policy, no DB.
+    name: 'insights force-bypass throttle (AA-120)',
+    args: ['--test', 'tests/insights-force-throttle.test.ts'],
+  },
+  {
     // 2026-07-13 duplicate-posting incident (AA-134 / PR #841) regression wall:
     // scheduler day-mapping + same-instant de-collision, the reel-companion
     // synthesis clamp, the publish-boundary duplicate/spacing guards, and the

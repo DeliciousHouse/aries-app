@@ -14,17 +14,29 @@ export interface UseInsightResult<T> {
 }
 
 /**
- * Fetches a single Insights section.
- *
- * @param section   API path segment, e.g. "narrative", "goal", "top"
- * @param period    "week" | "30day" | "90day"
- * @param platform  "all" | "instagram" | "facebook" | "youtube" | "x" | "reddit" | "linkedin"
- * @param extra     Any additional query params (e.g. { sort: "reach" })
- *
- * @example
- *   const { data, loading, error, refetch } =
- *     useInsight<NarrativeData>("narrative", period, platform);
+ * Remaining cooldown for a 429, in whole seconds, or null when the server did
+ * not say. Prefers the JSON body's `retry_after_ms` (exact) and falls back to
+ * the `Retry-After` header (already whole seconds). Never throws: a throttle
+ * response we cannot parse still has to produce a usable message.
  */
+async function retryAfterSeconds(res: Response): Promise<number | null> {
+  try {
+    const body: unknown = await res.clone().json();
+    const ms =
+      typeof body === "object" && body !== null
+        ? (body as { retry_after_ms?: unknown }).retry_after_ms
+        : undefined;
+    if (typeof ms === "number" && Number.isFinite(ms) && ms > 0) {
+      return Math.ceil(ms / 1000);
+    }
+  } catch {
+    // Fall through to the header.
+  }
+
+  const header = Number(res.headers.get("Retry-After"));
+  return Number.isFinite(header) && header > 0 ? header : null;
+}
+
 export function useInsight<T>(
   section:  string,
   period:   Period,
@@ -55,6 +67,22 @@ export function useInsight<T>(
         const res = await fetch(`/api/insights/${section}?${params}`);
 
         if (res.status === 401) throw new Error("Session expired — please log in again.");
+
+        // AA-120: the server bounds forced rebuilds (?force=true) per tenant and
+        // section. A 429 does not mean the section is broken — it means this
+        // refresh arrived too soon — so it earns its own message carrying the
+        // real remaining cooldown rather than a bare "Server error (429)".
+        // Note `data` is deliberately left untouched (setData only runs on
+        // success), so a populated panel keeps whatever it was already showing.
+        if (res.status === 429) {
+          const seconds = await retryAfterSeconds(res);
+          throw new Error(
+            seconds === null
+              ? "Refreshing too fast — give it a moment and try again."
+              : `Refreshing too fast — try again in ${seconds}s.`,
+          );
+        }
+
         if (!res.ok)            throw new Error(`Server error (${res.status})`);
 
         const json = await res.json();
