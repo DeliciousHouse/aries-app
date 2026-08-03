@@ -1,6 +1,37 @@
 # Weekly Results Report + one approved Next Action (with performance memory candidates)
 
-> Status: draft plan (2026-06-01). Roadmap area **#11** ("Results → Next Action" loop), priority 6. Build #8 of the "10 best to build first". This plan builds the **weekly report UI + the learning-approval loop**. It is a *reader/presenter* over already-shipped state plus a *thin promotion route* over the already-shipped Honcho performance-insights write leg (#522). It does **not** add a new Meta fetch, does **not** publish anything, and must **degrade gracefully when post/story insights scopes are absent** (per memory: insights scopes are not granted, so real engagement numbers are frequently unavailable).
+> Status: **REBASED 2026-08-02** against as-built insights (S3-4 / AA-100 / gap F1a). Original draft 2026-06-01. Roadmap area **#11** ("Results → Next Action" loop), priority 6. Build #8 of the "10 best to build first". This plan builds the **weekly report UI + the learning-approval loop**. It is a *reader/presenter* over already-shipped state. It does **not** add a new Meta fetch and does **not** publish anything. Engagement ranking is now **buildable** from the shipped insights pipeline — see the rebase section below.
+
+## Rebase (2026-08-02 — S3-4 / AA-100)
+
+The 2026-06-01 draft was written when the Meta insights pipeline did not exist on master. It does now (`backend/insights/**`, `insights_posts`, `insights_post_metrics_daily`, the `aries-insights-sync-worker` sidecar). Five corrections; the MVP slice is agreed at the bottom.
+
+**1. The `#513` gate is not merely stale — it is un-flippable.** The draft routed all engagement through `insights513TablesPresent()` → `backend/memory/perf-insights-read.ts`. That module's SQL was frozen against a contract (`backend/memory/insights-513-contract.ts`) that mismatches the **landed** schema on six axes:
+
+| `insights-513-contract.ts` expects | Landed `insights_post_metrics_daily` (`scripts/init-db.js:1361`) |
+|---|---|
+| `external_post_id TEXT` | `post_id BIGINT REFERENCES insights_posts(id)` |
+| `day DATE` | `date DATE` |
+| `comments` | `comments_count` |
+| `saved` | `saves` |
+| `impressions` | *no counterpart* |
+| `video_views` | *no counterpart* (`views` exists) |
+
+Setting `ARIES_INSIGHTS_513_TABLES_PRESENT=1` today would **error every tick** (roadmap gap B2). So the draft gated engagement behind a flag that cannot be turned on, while the data itself sits unflagged in the shipped tables. **Correction: the weekly report reads `insights_posts` / `insights_post_metrics_daily` directly and does not touch the `#513` gate at all.** Repairing `perf-insights-read.ts` is B2's job, not this plan's.
+
+**2. Metric math is a trap — reuse the shipped helper, never re-derive.** `insights_post_metrics_daily` stores **lifetime-cumulative** snapshots, one row per post per sync date. Summing across dates inflates totals ~N× over N days (gap A1). S2-1/AA-92 fixed this repo-wide with a single source of truth: **`LATEST_POST_METRICS_LATERAL` (`backend/insights/latest-post-metrics-sql.ts`)**. Any weekly-results query touching per-post metrics MUST use it. This is the most likely way this build reintroduces an already-fixed bug.
+
+**3. Do not rebuild ranking.** `backend/insights/top/top-snapshot-builder.ts` already ranks posts by `reach | engagement | saves | shares | comments` with divisor-guarded formulas (`engagement = (likes+comments+saves+shares)/reach`, guarded at `reach<=0`). **Best post = that query; weakest post = the same query inverted.** The draft's 4h phase-A estimate assumed building this from scratch.
+
+**4. The honesty contract survives; its trigger changes.** "Never fabricate a winner" is still right. But the trigger is no longer "Meta insights scopes are not granted" — it is **"this tenant has no connected `insights_accounts` row, or no synced metrics in the window."** Reuse `backend/insights/freshness/freshness-logic.ts` so a `partial`/stale sync is distinguishable from a genuinely quiet week rather than silently reading as zero.
+
+**5. S5-1's stated dependencies have moved.** S2-1 (metric semantics) and S2-3 (tenant-tz read policy) have **landed**. S4-1 (attribution scope) shipped but is **flag-default-OFF** (`ARIES_INSIGHTS_ATTRIBUTION_SCOPE_ENABLED`), so the report must not assume Aries-attribution scoping is active.
+
+### MVP slice (agreed 2026-08-02)
+
+**In (ships as S5-1):** phases **A, B, C, F** — publish-state truth (published / skipped / blocked + reconnect CTA), best/weakest post over the shipped insights tables, top channel, one derived next action, rendered on `/dashboard/results` behind `ARIES_WEEKLY_RESULTS_ENABLED` (default OFF).
+
+**Deferred (own follow-up ticket):** phases **D** and **E** — memory-candidate surfacing and the Approve/Edit/Reject promotion route. These are the only parts that genuinely still depend on the Honcho `#513` read leg, which is blocked on B2's SQL repair. Cutting here splits the plan along the **real** blocker rather than an arbitrary line, and takes the estimate from XL to ~L. The report's "What Aries learned / Recommended next week" still ships in the MVP as the **derived, insights-free publish-reliability learning** (D.2), which needs no Honcho finding and no promotion route — it is informational, carries `findingId:null`, and is not promotable.
 
 ## Context
 
@@ -14,7 +45,9 @@ Three pieces of this already exist and must be **reconciled, not rebuilt**:
 
 So the data spine for "what Aries learned → memory candidate" is half-built (write leg in, read route in, **promotion missing**), and the report itself does not exist. This plan closes both: a real weekly report and the Approve/Edit/Reject promotion that turns a performance finding into an approved memory the planner can use.
 
-**Hard constraint (memory: Meta insights scopes missing).** `read_insights` / `instagram_manage_insights` are **not granted**; the #513 insights tables that `recordPerformanceEvent` reads do not exist on master (`insights513TablesPresent()` returns false unless `ARIES_INSIGHTS_513_TABLES_PRESENT=1`). Therefore **best/weakest post by engagement is frequently unavailable**. The report must derive everything it can from *publish-state truth* Aries already owns (published vs skipped vs blocked, per-channel counts, failure taxonomy / reconnect signal) and clearly label engagement-ranked sections as "insights not yet connected" rather than fabricating numbers.
+**~~Hard constraint (memory: Meta insights scopes missing)~~ — SUPERSEDED by the 2026-08-02 rebase.** The original constraint read: insights scopes are not granted, the #513 tables do not exist on master, therefore best/weakest post is frequently unavailable. **That is no longer true.** The insights pipeline shipped: `insights_posts` + `insights_post_metrics_daily` are live on master, populated per tenant by the `aries-insights-sync-worker` sidecar through **Composio** (`COMPOSIO_ENABLED=true` + `ANALYTICS_PROVIDER=composio`, the default since #681 — so metric access rides the tenant's Composio connection rather than a Graph scope Aries holds itself), and **best/weakest post by engagement is now buildable** — see rebase note 1.
+
+What survives is the **honesty rule, not the blanket unavailability**: the report still derives publish-state truth (published vs skipped vs blocked, per-channel counts, reconnect signal) from state Aries owns, and still refuses to fabricate an engagement ranking. It now degrades only when *this tenant* has no connected `insights_accounts` row or no synced metrics in the window (rebase note 4) — a per-tenant data condition, not a global scope blocker.
 
 ## Who cares
 
@@ -24,19 +57,19 @@ So the data spine for "what Aries learned → memory candidate" is half-built (w
 
 ## Decisions (locked — do not re-litigate)
 
-1. **Reader/presenter + thin promotion route. No new Meta fetch, no new insights pipeline.** Engagement metrics come only from #513's tables *if/when present*; otherwise the report runs on publish-state truth. This plan never calls `graph.facebook.com`.
+1. **Reader/presenter + thin promotion route. No new Meta fetch, no new insights pipeline.** *(REBASED 2026-08-02.)* Engagement metrics come from the **shipped** insights read model — `insights_posts` + `insights_post_metrics_daily` via `LATEST_POST_METRICS_LATERAL` — **not** from the `#513` / `perf-insights-read.ts` gate, which is un-flippable (rebase note 1). The report still runs on publish-state truth for everything non-engagement. This plan never calls `graph.facebook.com` and does not implement any part of the insights pipeline; it reads it.
 2. **Week boundary = the tenant's most-recent completed ISO week (Mon–Sun, UTC), with a `?week=YYYY-WW` override.** Derived server-side from `posts.published_at` / `scheduled_posts.scheduled_for`. No per-tenant cadence config in v1.
 3. **"Published / skipped / blocked" is computed from state Aries owns**, not insights:
    - **Published** = `posts.published_status='published'` with a `platform_post_id`, `published_at` in the week.
    - **Skipped** = `scheduled_posts` rows that were due-but-never-dispatched in the week (`dispatch_status='pending'` past `scheduled_for`). (The synthesis `skipped` counter — video stripped while `ARIES_VIDEO_PUBLISH_ENABLED=0`, no-image-fallback — is returned by `synthesizePublishPostsFromContentPackage` but **not persisted per-reason**; v1 derives skipped from publish-state only and labels it honestly.)
    - **Blocked** = `scheduled_posts.dispatch_status='failed'` in the week. **There is no persisted per-row failure code.** The `MetaPublishFailureKind` (`backend/integrations/meta-publishing.ts:153`, `MetaPublishFailureKind`) is classified at dispatch time (`app/api/internal/publishing/scheduled-dispatch/route.ts:277`) and surfaced in the HTTP response, but **not stored** — only free-text `error_message` / `error_at` is persisted on `scheduled_posts` (and per-platform on `scheduled_post_dispatches`). The report therefore derives the **auth / "Reconnect Meta"** signal from `oauth_connections.status='reauthorization_required'` (the shipped #519 reconnect surface), and reports other blocked posts as a single `failed` count (optionally bucketed by re-classifying `error_message` text). It does **not** GROUP BY a `last_error_code` column — that column does not exist on `scheduled_posts`.
-4. **Top channel = the channel with the most *published* posts this week** (a count, not an engagement rank) when insights are absent; if `ARIES_INSIGHTS_513_TABLES_PRESENT=1` it upgrades to "most reach". Always labeled with which basis it used.
-5. **Best/weakest post is insights-gated and fails soft.** With insights absent, the report shows a neutral "Engagement ranking is not available yet — connect post insights to rank posts" panel, NOT a guessed winner. With insights present (post-#513), rank by the same metric the perf payload already carries (reach, then engagement sum).
+4. **Top channel = the channel with the most *published* posts this week** (a count, not an engagement rank) when the tenant has no synced metrics; with metrics present it upgrades to "most reach", read via `LATEST_POST_METRICS_LATERAL`. Always labeled with which basis it used. *(REBASED: the basis switch is per-tenant data availability, no longer `ARIES_INSIGHTS_513_TABLES_PRESENT`.)*
+5. **Best/weakest post ranks from the shipped insights read model and fails soft.** *(REBASED 2026-08-02 — this is the decision the rebase most changes.)* Rank with `backend/insights/top/top-snapshot-builder.ts`'s existing ordering (best = top of that ranking, weakest = the same query inverted), reading metrics through `LATEST_POST_METRICS_LATERAL` — **never** `SUM` across a post's dated snapshot rows. The soft-fail panel ("Engagement ranking isn't available yet — connect an account to rank posts") now renders only when *this tenant* has no connected `insights_accounts` row or no synced metrics in the window. Still NEVER a guessed winner.
 6. **The "learning" + "next-week adjustment" is the memory candidate.** The report surfaces the queued `aries_research_findings` rows for the week (curator `queue_for_review`, market-signal peer) AND a deterministic publish-reliability learning Aries derives itself (e.g. "2 Instagram posts blocked on auth — reconnect before next week's run"). Each is one approve-able candidate.
 7. **Promotion is approval-gated and human-only (CLAUDE.md + guardrails).** Approve calls a new `POST /api/memory/findings/[findingId]/resolve` with `{ action: 'approve' | 'edit' | 'reject', editedClaim? }`. Approve writes the finding to Honcho as an **approved** memory (via the existing `appendHonchoApproved` path) and flips the finding's `curator_decision`; Edit approves an operator-edited claim; Reject marks it dropped. **AI never auto-approves its own learning.** No autonomous publish is involved anywhere.
 8. **Flag `ARIES_WEEKLY_RESULTS_ENABLED`** (default OFF) gates the whole surface — the report tab/panel and the promotion route. OFF ⇒ `/dashboard/results` renders exactly today's screen; the route returns 404-equivalent `{ enabled:false }`. It is a rollout switch over a multi-PR feature, not the feature.
 
-## Current State (VERIFIED — branch `fix/story-composer-serving` @ image-stories-live worktree)
+## Current State (originally VERIFIED against branch `fix/story-composer-serving` @ image-stories-live worktree; insights subsection re-verified against **master** 2026-08-02)
 
 **Results UI:**
 - `app/dashboard/results/page.tsx` renders `AriesResultsScreen` inside `AppShellLayout currentRouteId="results"`.
@@ -63,8 +96,12 @@ So the data spine for "what Aries learned → memory candidate" is half-built (w
 - `app/api/tenant/research/review-queue/route.ts` — `GET`, `tenant_admin` only (`getTenantContext()` → role gate → 403), returns `{ items }`. **No POST / mutation. No approve. No reject.** This is the gap.
 - `appendHonchoApproved` (`write-events.ts:124`, called by `recordScheduleEvent`/auto-approve paths at `:607`) is the existing "write an approved memory to Honcho" primitive to reuse for promotion. **It is not a one-arg call:** its signature is `{ ctx, client: TenantMemoryClient, peer: PeerRef, session: SessionRef, message: ApprovedMessage }`. The promotion route must construct a `TenantMemoryClient`, derive the `PeerRef` (market-signal / brand) + a `SessionRef`, and rebuild an `ApprovedMessage` from the stored finding's parsed claim. Budget for this reconstruction in phase E.
 
-**Insights gate (graceful degradation contract):**
-- `backend/memory/insights-513-contract.ts` — `insights513TablesPresent()` is `false` unless `ARIES_INSIGHTS_513_TABLES_PRESENT=1` (`:99-103`). `backend/memory/perf-insights-read.ts` short-circuits `selectDuePerformancePosts` to `[]` while false (`:134-137`). `perf-insights-payload.ts` defines the metric shape (`reach, impressions, likes, comments, shares, saves, video_views`; #513 column `saved` maps to payload `saves`) the report would use *if* present.
+**Insights read model (re-verified against master 2026-08-02 — this replaces the old "insights gate" subsection):**
+- `insights_post_metrics_daily` (`scripts/init-db.js:1361`) — `PRIMARY KEY (tenant_id, post_id, date)`, columns `views, reach, watch_time_minutes, avg_view_duration_sec, avg_view_percentage, likes, comments_count, shares, saves`. Rows are **lifetime-cumulative snapshots**, one per post per sync date.
+- **`backend/insights/latest-post-metrics-sql.ts`** — `LATEST_POST_METRICS_LATERAL`, the S2-1/AA-92 single source of truth for reading per-post metrics. A `LEFT JOIN LATERAL … ORDER BY d.date DESC LIMIT 1` aliased `m`; the outer query must alias `insights_posts` as `p`. **Aggregate `m.*` ACROSS posts, never across one post's dated rows.** This builder MUST use it.
+- `backend/insights/top/top-snapshot-builder.ts` — shipped ranking (`TopSortKey = reach | engagement | saves | shares | comments`), divisor-guarded metric math, already consumes the lateral. Best/weakest reuses this rather than re-deriving.
+- `backend/insights/freshness/freshness-logic.ts` — pure sync-state logic (`fresh | partial | stale | never_synced`, worst-wins across accounts). The report's availability check should key off this so a broken sync is not rendered as a quiet week.
+- **Deliberately NOT used:** `backend/memory/insights-513-contract.ts` / `perf-insights-read.ts`. Their SQL is frozen against a contract that mismatches the landed schema on six axes (rebase note 1) — `insights513TablesPresent()` stays `false`, and flipping `ARIES_INSIGHTS_513_TABLES_PRESENT=1` would error every tick. Repairing that is roadmap gap **B2**, out of scope here.
 
 **Approval route precedent (the promotion handler shape):**
 - `app/api/social-content/jobs/[jobId]/approve/route.ts` → `handleApproveMarketingJob(...)` — the existing pattern for an approval POST that resolves tenant context and mutates state. The memory-promotion route mirrors this shape (tenant context → validate → mutate → typed safe response). Tenant resolution reuses `loadTenantContextOrResponse` (`lib/tenant-context-http.ts`) or `getTenantContext()` (`lib/tenant-context.ts`), as the existing routes do.
@@ -78,8 +115,9 @@ posts + scheduled_posts + oauth_connections (publish-state truth Aries owns)
 backend/marketing/weekly-results-report.ts        ← NEW (pure builder, no Meta)
    ├─ publishedCount / skippedCount / blockedCount   (posts + scheduled_posts.dispatch_status)
    ├─ reconnectNeeded = oauth_connections.status='reauthorization_required'   (the auth signal; #519)
-   ├─ topChannel = max published-per-channel  (or max reach if insights present)
-   ├─ best/weakest post:  insights present? rank by reach : { available:false, reason:'insights_not_connected' }
+   ├─ topChannel = max published-per-channel  (or max reach when the tenant has synced metrics)
+   ├─ best/weakest post:  insights_posts + LATEST_POST_METRICS_LATERAL (reuse top-snapshot-builder ranking)
+   │                      no connected account / no metrics in window ⇒ { available:false, reason:'insights_not_connected' }
    ├─ learnings[]:  derived publish-reliability learning(s)  +  queued perf findings for the week
    └─ nextAction:   the single highest-priority adjustment (e.g. "Reconnect Instagram before next run")
    │
@@ -106,18 +144,27 @@ app/api/memory/findings/[findingId]/resolve/route.ts   ← NEW (POST, tenant_adm
 
 | # | Phase | Priority | Effort (human / CC) | Dependencies |
 |---|-------|----------|---------------------|--------------|
-| A | Report builder: pure `weekly-results-report.ts` over posts/scheduled_posts + oauth_connections reconnect signal + synthesis-free skipped (insights-gated best/weakest) | Critical | 4h / 1.5h | none |
-| B | Read API: `GET /api/dashboard/weekly-results` (flag-gated, tenant-scoped) + client hook | High | 2h / 45m | A |
-| C | Report UI panel on `/dashboard/results` (published/skipped/blocked + top channel + best/weakest + learned + next action) | High | 5h / 2h | B |
-| D | Memory-candidate surfacing in the report (queued findings for the week + derived publish-reliability learning) | High | 3h / 1h | A, C |
-| E | Promotion route `POST /api/memory/findings/[id]/resolve` (Approve/Edit/Reject) + wire the report buttons; verify it shows on the memory screen | High | 4h / 1.5h | D |
-| F | Flag `ARIES_WEEKLY_RESULTS_ENABLED`, docs, live verify on @sugarandleather, ship | Medium | 3h / 1h | C, E |
+*(Slice REBASED 2026-08-02: **A, B, C, F + D.2 ship as the S5-1 MVP**; D.1/D.3 and E defer to a follow-up ticket — see the rebase section.)*
 
-**Sequencing:** A first (everything reads its output). B/C are the visible report. D/E are the learning loop (D surfaces candidates, E promotes them). F gates + ships. C can land behind the flag before D/E so the report is reviewable while the promotion loop is finished.
+| # | Phase | Slice | Priority | Effort (human / CC) | Dependencies |
+|---|-------|-------|----------|---------------------|--------------|
+| A | Report builder: pure `weekly-results-report.ts` over posts/scheduled_posts + oauth_connections reconnect signal + synthesis-free skipped + best/weakest over the shipped insights read model | **MVP** | Critical | 3h / 1.5h | none |
+| B | Read API: `GET /api/dashboard/weekly-results` (flag-gated, tenant-scoped) + client hook | **MVP** | High | 2h / 45m | A |
+| C | Report UI panel on `/dashboard/results` (published/skipped/blocked + top channel + best/weakest + learned + next action) | **MVP** | High | 5h / 2h | B |
+| D.2 | Derived publish-reliability learning + `nextAction` (insights-free, no Honcho, `findingId:null`) | **MVP** | High | 1h / 30m | A |
+| D.1/D.3 | Queued Honcho perf-finding surfacing in the report | **deferred** | High | 2h / 45m | B2 repair |
+| E | Promotion route `POST /api/memory/findings/[id]/resolve` (Approve/Edit/Reject) + wire the report buttons; verify it shows on the memory screen | **deferred** | High | 4h / 1.5h | D.1 |
+| F | Flag `ARIES_WEEKLY_RESULTS_ENABLED`, docs, live verify on @sugarandleather, ship | **MVP** | Medium | 3h / 1h | C |
+
+**Why D.1/D.3 + E defer:** they are the only phases that read Honcho performance findings, whose source leg (`perf-insights-read.ts`) is blocked on the roadmap's **B2** SQL repair. Everything else in the report is independent of it. Phase A's estimate drops 4h → 3h because best/weakest now reuses `top-snapshot-builder.ts` instead of being built from scratch.
+
+**Sequencing (MVP):** A first (everything reads its output). B/C are the visible report. D.2 is a pure addition to A's output. F gates + ships.
 
 ```
-A ─> B ─> C ──┬─> D ─> E ─> F
-              └────────────┘
+MVP:       A ─> B ─> C ─> F
+            └─> D.2 ─┘
+
+deferred:  (B2 repair) ─> D.1/D.3 ─> E
 ```
 
 ---
@@ -145,10 +192,10 @@ Implementation notes:
 2. **Published** — `SELECT platform, surface, count(*) FROM posts WHERE tenant_id=$1 AND published_status='published' AND platform_post_id IS NOT NULL AND published_at >= $2 AND published_at < $3 GROUP BY platform, surface`.
 3. **Skipped** — derive from publish-state only: `scheduled_posts` rows in-week that are still `dispatch_status='pending'` past their `scheduled_for` (due-but-not-dispatched). Label the bucket honestly. The synthesis-time `skipped` counter is **not** persisted per-reason and is out of scope (do not retrofit storage).
 4. **Blocked** — `SELECT count(*) FROM scheduled_posts WHERE tenant_id=$1 AND dispatch_status='failed' AND scheduled_for IN week` ⇒ `blocked.failedCount`. **Do not** GROUP BY `last_error_code` — that column does not exist on `scheduled_posts`. The auth / reconnect determination comes from a *separate* read: `SELECT provider, status FROM oauth_connections WHERE tenant_id=$1 AND status='reauthorization_required'` ⇒ `reconnect=true` + `reconnectChannels`. (Optionally, a coarse text bucket can be derived by re-running `classifyMetaPublishFailureKind` over the stored `error_message`, but v1 only needs `failedCount` + the oauth-driven reconnect flag.)
-5. **Top channel** — `insights513TablesPresent()` ? max-reach (from #513 read model, reuse `selectDuePerformancePosts` shape) : max published count. Always set `basis`.
-6. **Best/weakest** — gated on `insightsConnected = insights513TablesPresent()`. False ⇒ `{ available:false, reason:'insights_not_connected' }` (NEVER guess). True ⇒ rank by reach using the existing perf read model.
+5. **Top channel** *(REBASED)* — has the tenant synced metrics in the window? max-reach (via `LATEST_POST_METRICS_LATERAL`) : max published count. Always set `basis`.
+6. **Best/weakest** *(REBASED — see rebase notes 1–3)* — `insightsConnected` is now a **per-tenant data check** (a `status='connected'` `insights_accounts` row **and** ≥1 metrics row in the window), **not** `insights513TablesPresent()`. False ⇒ `{ available:false, reason:'insights_not_connected' }` (NEVER guess). True ⇒ rank via `top-snapshot-builder.ts`'s existing ordering — best = top, weakest = the same query inverted — reading metrics **only** through `LATEST_POST_METRICS_LATERAL`. **Never `SUM` across a post's dated rows** (rows are lifetime-cumulative; summing inflates ~N×, gap A1). Do **not** import `perf-insights-read.ts`.
 
-**Acceptance:** unit table — a fixture of in-week posts (3 published IG, 2 published FB, 1 failed IG `scheduled_post`, 1 due-undispatched FB, + an IG `oauth_connections` row at `reauthorization_required`) yields `published.total=5`, `byChannel={instagram:3,facebook:2}`, `blocked={failedCount:1, reconnect:true, reconnectChannels:['instagram']}`, `skipped.total≥1`, `topChannel={channel:'instagram',basis:'published_count',value:3}`, `bestPost.available=false reason:'insights_not_connected'`. With `ARIES_INSIGHTS_513_TABLES_PRESENT=1` + a metrics fixture, `bestPost.available=true` and ranks by reach.
+**Acceptance:** unit table — a fixture of in-week posts (3 published IG, 2 published FB, 1 failed IG `scheduled_post`, 1 due-undispatched FB, + an IG `oauth_connections` row at `reauthorization_required`) yields `published.total=5`, `byChannel={instagram:3,facebook:2}`, `blocked={failedCount:1, reconnect:true, reconnectChannels:['instagram']}`, `skipped.total≥1`, `topChannel={channel:'instagram',basis:'published_count',value:3}`, `bestPost.available=false reason:'insights_not_connected'`. *(REBASED)* With a connected `insights_accounts` row + a metrics fixture carrying **three cumulative snapshot rows for one post**, `bestPost.available=true`, ranks by reach, and reports that post's **latest** snapshot value — not the sum of its three rows (the A1 regression this fixture exists to catch).
 
 ### B — Read API + hook (High, 2h)
 
@@ -165,8 +212,8 @@ Sections (rendered UI = the success bar):
 1. **"This week" header** — week label + a one-line summary ("8 published · 1 skipped · 2 blocked").
 2. **Published / Skipped / Blocked** — three counts; the Blocked card, when `blocked.reconnect`, shows an amber **"Reconnect Meta"** link to `/dashboard/settings/channel-integrations` (reuse the shipped reconnect surface; do not build a new one).
 3. **Top channel** — channel + basis label ("by posts published" / "by reach").
-4. **Best post / Weakest post** — when `available:false`, a neutral panel: "Engagement ranking isn't available yet — connect post insights to rank posts." (No fabricated winner — memory: insights scopes missing.)
-5. **What Aries learned** + **Recommended next week** — filled by D.
+4. **Best post / Weakest post** *(REBASED)* — normally renders a real ranked best + weakest post from the shipped insights read model. When `available:false` (this tenant has no connected account or no synced metrics in the window), a neutral panel: "Engagement ranking isn't available yet — connect an account to rank posts." (No fabricated winner, ever.)
+5. **What Aries learned** + **Recommended next week** — filled by **D.2** in the MVP (the derived, insights-free publish-reliability learning). The approve-able Honcho finding cards arrive with the deferred D.1/E slice; until then these cards render **without** `[Approve memory] [Edit] [Reject]` buttons, since no promotion route exists yet.
 
 Wire into `app/dashboard/results/page.tsx`: render `<WeeklyResultsReport />` above `<AriesResultsScreen />` **only when the hook reports `enabled:true`**; otherwise render today's screen unchanged. (Flag OFF ⇒ visually identical to today.)
 
@@ -201,7 +248,8 @@ Wire the report's `[Approve memory] [Edit] [Reject]` buttons (C/D) to this route
 ### F — Flag + docs + live verify + ship (Medium, 3h)
 
 1. **`ARIES_WEEKLY_RESULTS_ENABLED`** (default OFF). Add to `.env.example`, `docker-compose.yml` (`${ARIES_WEEKLY_RESULTS_ENABLED:-0}`), and a CLAUDE.md "Environment Variables" entry in the house style:
-   > `ARIES_WEEKLY_RESULTS_ENABLED=1` — enables the weekly results report panel on `/dashboard/results` and the memory-promotion route (`POST /api/memory/findings/[id]/resolve`). Aries treats `1`, `true`, `yes`, or `on` as enabled. Default OFF. When OFF, `/dashboard/results` renders the legacy live-posts screen unchanged and the weekly-results + promotion routes return `{enabled:false}` / 404. The report reads only publish-state Aries already owns (posts/scheduled_posts publish status, `oauth_connections` reconnect signal); engagement-ranked best/weakest sections degrade to "insights not connected" until post/story insights scopes are granted and `ARIES_INSIGHTS_513_TABLES_PRESENT=1`. Approve/Edit/Reject promotes a queued performance finding to approved memory (human-only; never auto-approved). No publishing occurs.
+   > *(REBASED 2026-08-02 — MVP wording; the promotion-route sentence returns with the deferred D.1/E slice.)*
+   > `ARIES_WEEKLY_RESULTS_ENABLED=1` — enables the weekly results report panel on `/dashboard/results`. Aries treats `1`, `true`, `yes`, or `on` as enabled. Default OFF. When OFF, `/dashboard/results` renders the legacy live-posts screen unchanged and the weekly-results route returns `{enabled:false}`. The report reads publish-state Aries already owns (posts/scheduled_posts publish status, `oauth_connections` reconnect signal) plus the shipped insights read model (`insights_posts` + `insights_post_metrics_daily` via `LATEST_POST_METRICS_LATERAL`) for the best/weakest ranking; those two sections degrade to an explicit "insights not connected" panel when the tenant has no connected `insights_accounts` row or no synced metrics in the window — never a guessed winner. It does **not** read the `#513` / `ARIES_INSIGHTS_513_TABLES_PRESENT` path. No publishing occurs.
 2. **Live verify on @sugarandleather** (treat-as-production): flip the flag ON for the prod tenant, open `/dashboard/results`, confirm the rendered panel shows real this-week counts and the insights-absent best/weakest panel; approve one derived/queued learning and confirm it leaves the review queue and appears as approved memory.
 3. `npm run verify` then `npm run test:concurrent` (touches a new route + backend + a memory mutation), allowlist new test files in `scripts/verify-regression-suite.mjs`, then `/ship-triage-deploy`; bump `VERSION` (minor — new route + flag + builder) + `CHANGELOG.md`.
 
@@ -214,22 +262,25 @@ Wire the report's `[Approve memory] [Edit] [Reject]` buttons (C/D) to this route
 | Unit | `buildWeeklyResultsReport`: week boundary math (most-recent completed week, `?week` override, UTC) | +3 |
 | Unit | published/skipped/blocked counts from a posts+scheduled_posts fixture; `byChannel`; `blocked.failedCount` | +4 |
 | Unit | reconnect signal derived from an `oauth_connections.status='reauthorization_required'` fixture (NOT from a per-post code) | +1 |
-| Unit | `topChannel` basis switch (published_count vs reach when `ARIES_INSIGHTS_513_TABLES_PRESENT=1`) | +2 |
-| Unit | best/weakest **insights-gated**: absent ⇒ `{available:false,reason:'insights_not_connected'}` (no guess); present ⇒ ranks by reach | +3 |
+| Unit | `topChannel` basis switch (published_count vs reach — driven by per-tenant metric availability, **not** `ARIES_INSIGHTS_513_TABLES_PRESENT`) | +2 |
+| Unit | best/weakest: no connected account / no in-window metrics ⇒ `{available:false,reason:'insights_not_connected'}` (no guess); metrics present ⇒ ranks best + inverted weakest | +3 |
+| Unit | **A1 regression (load-bearing):** a post with THREE cumulative snapshot rows ranks on its **latest** snapshot, not the sum — pins `LATEST_POST_METRICS_LATERAL` usage | +2 |
+| Unit | source-level pin: the builder does **not** import `perf-insights-read.ts` / `insights-513-contract.ts` (precedent: the `pool.connect` ordering assertion in `tests/insights-force-throttle.test.ts`) | +1 |
 | Unit | derived publish-reliability learning: reconnect-needed ⇒ reconnect next action; video-skipped ⇒ skip learning; none ⇒ calm state | +3 |
 | Unit | perf-finding filter parses stringified `raw.claim` and matches `event==='publish_stage_performance'` (not top-level `raw.event`) | +1 |
 | Integration | `GET /api/dashboard/weekly-results`: flag OFF ⇒ `{enabled:false}`; ON ⇒ report; unauth ⇒ 403; `?week=` selects week | +4 |
-| Integration | `POST /api/memory/findings/[id]/resolve`: approve flips `curator_decision` + Honcho append; edit uses editedClaim; reject ⇒ dropped; cross-tenant finding ⇒ 404; double-approve ⇒ idempotent no-op | +5 |
-| Integration | flag-gated promotion route is inert (404/disabled) when `ARIES_WEEKLY_RESULTS_ENABLED` off | +1 |
-| Live-DB | weekly report built against a real tenant's posts (precedent: `tests/marketing/ingest-production-assets-live-db.test.ts`, DB-gated `t.skip`) | +1 |
-| E2E (live, manual) | @sugarandleather: render report, approve one learning, confirm it appears as approved memory | manual |
+| Integration | *(deferred with E)* `POST /api/memory/findings/[id]/resolve`: approve flips `curator_decision` + Honcho append; edit uses editedClaim; reject ⇒ dropped; cross-tenant finding ⇒ 404; double-approve ⇒ idempotent no-op | +5 |
+| Integration | *(deferred with E)* flag-gated promotion route is inert (404/disabled) when `ARIES_WEEKLY_RESULTS_ENABLED` off | +1 |
+| Integration | tenant isolation: a tenant sees only its own posts/metrics in the report (no insights GET route has such a test today — roadmap gap E) | +1 |
+| Live-DB | weekly report built against a real tenant's posts (precedent: `tests/marketing/ingest-production-assets-live-db.test.ts`, DB-gated `t.skip` via `tests/helpers/requires-infra.ts`; index it in `tests/REQUIRES_INFRA.md`) | +1 |
+| E2E (live, manual) | @sugarandleather: render the report with a real best/weakest post | manual |
 
-**~28 automated + 1 manual.** New test files: `tests/weekly-results-report.test.ts`, `tests/weekly-results-route.test.ts`, `tests/memory-finding-resolve-route.test.ts`. All set `APP_BASE_URL=https://aries.example.com`. Allowlist in `scripts/verify-regression-suite.mjs`. Run `npm run verify` then `npm run test:concurrent` before ship (routes + backend + memory mutation).
+***(REBASED counts.)* MVP: ~25 automated + 1 manual** across `tests/weekly-results-report.test.ts` + `tests/weekly-results-route.test.ts`. **Deferred with D.1/E: +6** in `tests/memory-finding-resolve-route.test.ts`. All set `APP_BASE_URL=https://aries.example.com`. Allowlist in `scripts/verify-regression-suite.mjs`. Run `npm run verify` then `npm run test:concurrent` before ship (routes + backend). Any cached-section template touched needs a `TEMPLATE_VERSION` bump — the standing roadmap acceptance criterion.
 
 ## Rollback
 
 - **Flag:** `ARIES_WEEKLY_RESULTS_ENABLED=0` — instant kill switch. `/dashboard/results` reverts to today's screen; both new routes return disabled. No data path is touched when off.
-- **No schema migration.** This plan adds *no* columns — it reads existing `posts`/`scheduled_posts`/`oauth_connections` and writes only to the existing `aries_research_findings.curator_decision` (an in-place status flip, reversible: a rejected/approved finding can be set back to `queue_for_review` by SQL if needed). If a migration is later wanted to persist per-reason skips or a per-dispatch failure code, that is a separate, additive, idempotent change — explicitly out of scope here.
+- **No schema migration.** This plan adds *no* columns. *(REBASED: the **MVP slice is READ-ONLY** — it reads existing `posts` / `scheduled_posts` / `oauth_connections` / `insights_posts` / `insights_post_metrics_daily` and writes nothing at all, so its rollback is the flag alone.)* The only write in the full plan is the deferred phase E's flip of the existing `aries_research_findings.curator_decision` (an in-place status change, reversible: a rejected/approved finding can be set back to `queue_for_review` by SQL if needed). If a migration is later wanted to persist per-reason skips or a per-dispatch failure code, that is a separate, additive, idempotent change — explicitly out of scope here.
 - **Promotion mistake:** an over-eager Approve writes one approved Honcho memory; supersede/delete it via the memory surface (or `UPDATE aries_research_findings SET curator_decision='dropped'`). No publish, no external side effect.
 
 ## Out of Scope
@@ -258,7 +309,7 @@ Wire the report's `[Approve memory] [Edit] [Reject]` buttons (C/D) to this route
 ## Related
 
 - #522 — Honcho performance-insights WRITE leg (`backend/memory/write-events.ts:652-748`). This plan gives its queued findings a human promotion gate + a destination. Reconciled, not re-planned.
-- `docs/plans/2026-05-30-honcho-performance-insights.md` — the READ-side worker (#513-gated). This plan consumes its read model behind the same `insights513TablesPresent()` gate; disjoint from its implementation.
+- `docs/plans/2026-05-30-honcho-performance-insights.md` — the READ-side worker (#513-gated). *(REBASED 2026-08-02: this plan no longer consumes that read model. Engagement comes from the shipped `backend/insights/**` tables; the `#513` leg is reached only by the **deferred** D.1/E slice, and is itself blocked on the roadmap's B2 SQL repair.)*
 - `docs/plans/2026-05-30-publishing-reliability.md` (#519) — the failure taxonomy + `oauth_connections` reconnect signal the "blocked" section reuses (the report derives reconnect from `oauth_connections.status`, not a per-post code).
 - `docs/plans/2026-05-30-story-reel-video-publishing.md` (#520) — the `surface`/`media_type` axes the published breakdown reads; shipped, treated as read-only here.
 - Memory: "Meta insights scopes missing" (best/weakest degrade gracefully); "User-visible completion = only PASS" (rendered `/dashboard/results` panel is the bar); "Honcho writes already live" (auth-off local Honcho means `appendHonchoApproved` lands unauthenticated — no JWT change needed); "trace actual wire bytes" (perf event lives in stringified `raw.claim`; `scheduled_posts` has no `last_error_code`).
