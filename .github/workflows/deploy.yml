@@ -161,6 +161,14 @@ jobs:
         run: |
           set -euo pipefail
 
+          # --- Disk hygiene: reclaim stale Docker artifacts before the preflight ---
+          # Registry-backed: every release image is re-pullable from the registry,
+          # so pruning locally never destroys the only copy. The 7-day filter keeps
+          # recent images and build cache for fast rollback. Added 2026-08-03 after
+          # run 30641123123 failed the 10 GB preflight with ~30 GB of prunable
+          # images accumulated on the host.
+          docker image prune -af --filter "until=168h" || true
+          docker builder prune -af --filter "until=168h" || true
           # --- Disk preflight: fail fast if Docker storage filesystem is too full ---
           # Resolves Docker root via 'docker info' with /var/lib/docker fallback, then
           # checks df available space. Fails below 10 GB so low-disk is caught before
