@@ -55,7 +55,9 @@ Produce a verdict: **APPROVE** or **REQUEST CHANGES** with a numbered list of mu
 1. **Refresh the base:** `git fetch origin --prune`, then `git rebase origin/master`. Never merge
    master into the feature branch. Confirm `git rev-list --count HEAD..origin/master` is 0 and run
    `npm run verify` plus `npm run guardrails:agent`. If the branch has no unique diff or looks
-   duplicate/already-landed, stop and tell the orchestrator.
+   duplicate/already-landed, stop and tell the orchestrator. Push the final rebased head with
+   `git push --force-with-lease --set-upstream origin "$(git branch --show-current)"`; never use bare
+   `--force`. Confirm the remote head matches local `HEAD` before creating the PR.
 2. **Open the PR as a draft:**
    ```bash
    gh pr create --base master --head "$(git branch --show-current)" \
