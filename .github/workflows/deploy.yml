@@ -115,6 +115,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Docker Buildx
+        id: buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Publish exact deploy image
@@ -156,18 +157,116 @@ jobs:
         env:
           TARGET_IMAGE: ${{ steps.resolve.outputs.image_ref }}
           TARGET_CHECKOUT_REF: ${{ steps.resolve.outputs.checkout_ref }}
+          BUILDX_BUILDER_NAME: ${{ steps.buildx.outputs.name }}
           WORKFLOW_GIT_TOKEN: ${{ secrets.GHCR_WORKFLOW_TOKEN || github.token }}
         run: |
           set -euo pipefail
 
           # --- Disk hygiene: reclaim stale Docker artifacts before the preflight ---
-          # Registry-backed: every release image is re-pullable from the registry,
-          # so pruning locally never destroys the only copy. The 7-day filter keeps
-          # recent images and build cache for fast rollback. Added 2026-08-03 after
-          # run 30641123123 failed the 10 GB preflight with ~30 GB of prunable
-          # images accumulated on the host.
-          docker image prune -af --filter "until=168h" || true
-          docker builder prune -af --filter "until=168h" || true
+          # Scope both cleanup paths narrowly: Buildx cache belongs to the builder
+          # selected above, and image tags must belong to TARGET_IMAGE's registry
+          # repository. Keep seven days, the newest three release images, and every
+          # image referenced by any container. Exact SHA tags remain re-pullable.
+          target_image_repository="${TARGET_IMAGE%:*}"
+          cleanup_cutoff_epoch=""
+          if ! cleanup_now_epoch="$(date -u +%s)" || [[ ! "${cleanup_now_epoch}" =~ ^[0-9]+$ ]]; then
+            echo "WARNING: unable to determine the Docker cleanup age cutoff; skipping image cleanup and continuing to disk preflight." >&2
+          else
+            cleanup_cutoff_epoch=$(( cleanup_now_epoch - 168 * 60 * 60 ))
+          fi
+
+          if [[ -z "${BUILDX_BUILDER_NAME}" ]]; then
+            echo "WARNING: setup-buildx-action did not expose a builder name; skipping cache cleanup and continuing to disk preflight." >&2
+          elif ! docker buildx prune \
+            --builder "${BUILDX_BUILDER_NAME}" \
+            --all \
+            --force \
+            --filter "until=168h" \
+            --keep-storage=2GB; then
+            echo "WARNING: selected Buildx builder cleanup failed; continuing to disk preflight." >&2
+          fi
+
+          if [[ -z "${cleanup_cutoff_epoch}" ]]; then
+            : # The warning above already explains why image cleanup is skipped.
+          elif [[ -z "${target_image_repository}" || "${target_image_repository}" == "${TARGET_IMAGE}" ]]; then
+            echo "WARNING: unable to derive the target image repository; skipping image cleanup and continuing to disk preflight." >&2
+          elif ! container_ids="$(docker ps -aq)"; then
+            echo "WARNING: unable to list Docker containers; skipping image cleanup and continuing to disk preflight." >&2
+          elif ! image_rows="$(docker image ls --no-trunc --filter "reference=${target_image_repository}:*" --format '{{.ID}}|{{.Repository}}|{{.Tag}}')"; then
+            echo "WARNING: unable to list target-repository images; skipping image cleanup and continuing to disk preflight." >&2
+          else
+            declare -A container_referenced_image_ids=()
+            container_inspection_failed=0
+            while IFS= read -r container_id; do
+              [[ -n "${container_id}" ]] || continue
+              if ! container_image_id="$(docker inspect -f '{{.Image}}' "${container_id}")" || [[ -z "${container_image_id}" ]]; then
+                container_inspection_failed=1
+                break
+              fi
+              container_referenced_image_ids["${container_image_id}"]=1
+            done <<<"${container_ids}"
+
+            if (( container_inspection_failed != 0 )); then
+              echo "WARNING: unable to inspect every container image; skipping image cleanup and continuing to disk preflight." >&2
+            else
+              declare -A image_refs_by_id=()
+              declare -A seen_candidate_ids=()
+              candidate_image_ids=()
+              while IFS='|' read -r listed_image_id listed_repository listed_tag; do
+                [[ -n "${listed_image_id}" && -n "${listed_repository}" && -n "${listed_tag}" ]] || continue
+                [[ "${listed_repository}" == "${target_image_repository}" ]] || continue
+                [[ "${listed_tag}" != "<none>" ]] || continue
+                image_ref="${listed_repository}:${listed_tag}"
+                image_refs_by_id["${listed_image_id}"]="${image_refs_by_id[${listed_image_id}]:-}${image_ref}"$'\n'
+                if [[ -z "${seen_candidate_ids[${listed_image_id}]:-}" ]]; then
+                  seen_candidate_ids["${listed_image_id}"]=1
+                  candidate_image_ids+=("${listed_image_id}")
+                fi
+              done <<<"${image_rows}"
+
+              image_metadata_failed=0
+              image_metadata_rows=()
+              for listed_image_id in "${candidate_image_ids[@]}"; do
+                if ! image_metadata="$(docker image inspect -f '{{.Id}}|{{.Created}}' "${listed_image_id}")"; then
+                  image_metadata_failed=1
+                  break
+                fi
+                full_image_id="${image_metadata%%|*}"
+                created_at="${image_metadata#*|}"
+                if [[ -z "${full_image_id}" || "${created_at}" == "${image_metadata}" ]] ||
+                  ! created_epoch="$(date -u -d "${created_at}" +%s)" ||
+                  [[ ! "${created_epoch}" =~ ^[0-9]+$ ]]; then
+                  image_metadata_failed=1
+                  break
+                fi
+                image_metadata_rows+=("${created_epoch}|${listed_image_id}|${full_image_id}")
+              done
+
+              if (( image_metadata_failed != 0 )); then
+                echo "WARNING: unable to inspect all target image timestamps; skipping image cleanup and continuing to disk preflight." >&2
+              else
+                image_index=0
+                while IFS='|' read -r created_epoch listed_image_id full_image_id; do
+                  [[ -n "${full_image_id}" ]] || continue
+                  if (( image_index < 3 )); then
+                    echo "Keeping target image ${full_image_id} in the newest-three rollback cache."
+                  elif [[ -n "${container_referenced_image_ids[${full_image_id}]:-}" ]]; then
+                    echo "Keeping target image ${full_image_id} because a container references it."
+                  elif (( created_epoch >= cleanup_cutoff_epoch )); then
+                    echo "Keeping target image ${full_image_id} because it is newer than 168h."
+                  else
+                    while IFS= read -r image_ref; do
+                      [[ -n "${image_ref}" ]] || continue
+                      if ! docker image rm "${image_ref}"; then
+                        echo "WARNING: failed to remove old target image tag ${image_ref}; continuing to disk preflight." >&2
+                      fi
+                    done <<<"${image_refs_by_id[${listed_image_id}]}"
+                  fi
+                  image_index=$(( image_index + 1 ))
+                done < <(printf '%s\n' "${image_metadata_rows[@]}" | sort -t'|' -k1,1nr)
+              fi
+            fi
+          fi
           # --- Disk preflight: fail fast if Docker storage filesystem is too full ---
           # Resolves Docker root via 'docker info' with /var/lib/docker fallback, then
           # checks df available space. Fails below 10 GB so low-disk is caught before
@@ -475,56 +574,7 @@ jobs:
           fi
           echo "Post-deploy check: all sidecar workers are running on the target image."
 
-          echo "Post-deploy cleanup: pruning Docker buildx cache to keep approximately 2GB."
-          if ! docker buildx prune --keep-storage=2GB --force; then
-            echo "WARNING: docker buildx prune failed; deploy is healthy, continuing." >&2
-          fi
-
-          echo "Post-deploy cleanup: pruning old aries-app images while keeping the newest 3 and all running images."
-          if ! running_image_list="$(docker ps -q | xargs -r docker inspect -f '{{.Image}}')"; then
-            echo "WARNING: unable to inspect running Docker images; skipping aries-app image prune to avoid removing an active image." >&2
-          elif ! image_rows="$(docker image ls --format '{{.ID}} {{.Repository}} {{.Tag}}')"; then
-            echo "WARNING: unable to list Docker images; skipping aries-app image prune." >&2
-          else
-            declare -A running_image_ids=()
-            while IFS= read -r image_id; do
-              [[ -n "${image_id}" ]] && running_image_ids["${image_id}"]=1
-            done <<<"${running_image_list}"
-
-            declare -A seen_candidate_ids=()
-            aries_candidate_ids=()
-            while read -r image_id repository tag; do
-              [[ -n "${image_id}" && -n "${repository}" && -n "${tag}" ]] || continue
-              [[ "${repository}" == "aries-app" || "${repository}" == */aries-app ]] || continue
-              full_image_id="$(docker image inspect -f '{{.Id}}' "${image_id}" 2>/dev/null || true)"
-              [[ -n "${full_image_id}" ]] || continue
-              if [[ -z "${seen_candidate_ids[${full_image_id}]:-}" ]]; then
-                seen_candidate_ids["${full_image_id}"]=1
-                aries_candidate_ids+=("${full_image_id}")
-              fi
-            done <<<"${image_rows}"
-
-            aries_remove_ids=()
-            for index in "${!aries_candidate_ids[@]}"; do
-              image_id="${aries_candidate_ids[${index}]}"
-              if (( index < 3 )); then
-                continue
-              fi
-              if [[ -n "${running_image_ids[${image_id}]:-}" ]]; then
-                echo "Keeping older aries-app image ${image_id} because a running container uses it."
-                continue
-              fi
-              aries_remove_ids+=("${image_id}")
-            done
-
-            if (( ${#aries_remove_ids[@]} == 0 )); then
-              echo "No old aries-app images eligible for removal."
-            elif ! docker image rm "${aries_remove_ids[@]}"; then
-              echo "WARNING: failed to remove one or more old aries-app images; deploy is healthy, continuing." >&2
-            fi
-          fi
-
-          cleanup_actions_attempted="docker buildx prune --keep-storage=2GB; aries-app image prune (keep newest 3 + running)"
+          cleanup_actions_attempted="preflight selected-builder cache prune + target-repository image cleanup (older than 168h; keep newest 3 + container-referenced)"
           docker_disk_after_snapshot="$(read_disk_snapshot "${docker_disk_path}")"
           IFS='|' read -r docker_disk_after_filesystem docker_disk_after_checked_path docker_disk_after_free_gb <<< "${docker_disk_after_snapshot:-${docker_disk_filesystem}|${docker_disk_checked_path}|unknown}"
           append_deploy_disk_summary \

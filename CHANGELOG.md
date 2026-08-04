@@ -213,6 +213,18 @@ without prematurely blocking unrelated pull requests.
   review path for making new secret findings and fixable high or critical
   dependency advisories blocking after the observation period.
 
+## v0.1.49.0 — fix(deploy): scope stale Docker cleanup
+
+### Fixed
+
+- Self-hosted deploys reclaim cache only from the selected Buildx builder and
+  remove only target-repository image tags older than seven days before the
+  existing 10 GB disk preflight.
+- Cleanup keeps the newest three rollback images plus every image referenced by
+  any container, while sole-local and unrelated images remain untouched.
+- Cleanup metadata, cache-prune, and image-removal failures remain non-blocking,
+  with the complete safety contract enforced in the fast regression gate.
+
 ## v0.1.48.0 — feat(video): ship provider-neutral Hermes rendering
 
 Aries can now request, track, ingest, and review rendered social videos through
