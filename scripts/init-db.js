@@ -1409,6 +1409,16 @@ async function initDb() {
         cost_cents         NUMERIC(10,4) NOT NULL,
         classified_at      TIMESTAMPTZ NOT NULL DEFAULT now()
       );
+      -- S4-3 (gap C5): serves the re-classify sweep's predicate
+      -- (classifier_version IS DISTINCT FROM <current>), which the dispatcher
+      -- runs once per account per tick. Without it that predicate seq-scans the
+      -- whole table on every tick of every account. comment_id stays the PRIMARY
+      -- KEY -- one row per comment, holding its CURRENT label -- because nine
+      -- reader joins across five builders join plainly on comment_id with no
+      -- version predicate; a per-version row would silently double-count them.
+      -- Mirrors migrations/20260804000000_comment_classifier_version_index.sql.
+      CREATE INDEX IF NOT EXISTS idx_insights_comment_classifications_version
+        ON insights_comment_classifications (classifier_version);
 
       -- Demographics snapshots. demographics is NULL when unavailable;
       -- unavailable_reason explains why (e.g. 'below_threshold', 'permission_missing').

@@ -29,6 +29,31 @@ const DEFAULT_MODEL_HINT = 'gemini/gemini-3-flash-preview';
 /** Max comments classified per Hermes run — bounds prompt size + tick latency. */
 export const MAX_CLASSIFY_BATCH = 40;
 
+/**
+ * S4-3 (gap C5) — the label vocabulary + prompt this module currently produces.
+ *
+ * BUMP THIS whenever `instructionsBlock()`, the model hint, or the output
+ * vocabulary changes in a way that would produce different labels. It lives in
+ * this file, beside the prompt it describes, so a prompt edit and its version
+ * bump are a one-file change and cannot drift apart.
+ *
+ * What a bump DOES: every already-classified comment inside the sync's 30-day
+ * comment window stops matching the current version, becomes eligible for the
+ * dispatcher's re-classify sweep, and is re-labelled at one bounded batch per
+ * account per tick (the same bound as first-time classification). Newer
+ * comments are re-swept first — the sweep orders by received_at DESC — so a
+ * bump never starves incoming comments behind a backlog.
+ *
+ * What a bump COSTS: one Hermes run per batch until the window converges. That
+ * is the intended price of shipping a better classifier; the per-tick bound is
+ * what keeps it from becoming a stampede.
+ *
+ * Before this existed, `ON CONFLICT (comment_id) DO NOTHING` plus a hardcoded
+ * version froze every label at whatever the first classifier produced, which is
+ * why the S1-11 flag flip shipped with a documented "labels are frozen" caveat.
+ */
+export const CURRENT_CLASSIFIER_VERSION = 'hermes-comment-v1';
+
 const SENTIMENTS = new Set(['positive', 'neutral', 'negative']);
 const CATEGORIES = new Set(['question', 'compliment', 'complaint', 'spam', 'other']);
 
