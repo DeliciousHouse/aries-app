@@ -32,6 +32,19 @@ test('package exposes concurrent test and agent guardrail commands', () => {
   assert.match(scripts.verify ?? '', /guardrails:agent/, 'canonical verification should run agent guardrails');
 });
 
+test('release metadata stays synchronized across package manifests and VERSION', () => {
+  const packageJson = JSON.parse(readRepoFile('package.json')) as { version?: string };
+  const packageLock = JSON.parse(readRepoFile('package-lock.json')) as {
+    version?: string;
+    packages?: Record<string, { version?: string }>;
+  };
+  const version = readRepoFile('VERSION').trim();
+
+  assert.equal(packageJson.version, version, 'package.json should match VERSION');
+  assert.equal(packageLock.version, version, 'package-lock.json should match VERSION');
+  assert.equal(packageLock.packages?.['']?.version, version, 'package-lock root package should match VERSION');
+});
+
 test('Claude guidance promotes lessons into active rules for future agents', () => {
   const claude = readRepoFile('CLAUDE.md');
 
@@ -49,6 +62,36 @@ test('Aries reviewer pushes its rebased branch before opening a draft PR', () =>
   assert.notEqual(pushIndex, -1, 'reviewer should preserve rebased work with force-with-lease');
   assert.ok(createIndex > pushIndex, 'reviewer should push the final rebased head before opening the PR');
   assert.match(reviewer, /gh pr create[\s\S]*--draft/, 'reviewer should open the implementation PR as a draft');
+});
+
+test('executable Aries orchestration prompts preserve the draft review-lane handoff', () => {
+  const promptPaths = [
+    '.claude/commands/aries-goal.md',
+    '.claude/commands/aries-multibrand-goal.md',
+  ];
+
+  for (const promptPath of promptPaths) {
+    const prompt = readRepoFile(promptPath);
+
+    assert.match(prompt, /opens? (?:the )?PR as a draft/i, `${promptPath} should require a draft PR`);
+    assert.match(
+      prompt,
+      /even\s+PR(?:\s+number)?[\s\S]{0,120}dev-reviewer[\s\S]{0,120}odd\s+PR(?:\s+number)?[\s\S]{0,120}dev-reviewer-2/i,
+      `${promptPath} should route the PR to the deterministic review lane`,
+    );
+    assert.match(
+      prompt,
+      /never (?:merges?|merge)[^\n]*enable(?:s)? auto-merge/i,
+      `${promptPath} should forbid reviewer-side merge and auto-merge`,
+    );
+    assert.doesNotMatch(prompt, /ready, not draft/i, `${promptPath} must not require a ready PR`);
+    assert.doesNotMatch(prompt, /gh pr merge/i, `${promptPath} must not direct an agent to merge the PR`);
+    assert.doesNotMatch(
+      prompt,
+      /auto-merge on green CI is the policy/i,
+      `${promptPath} must not make auto-merge the orchestration policy`,
+    );
+  }
 });
 
 test('database health route singleflights 50-person smoke checks', () => {
