@@ -40,7 +40,12 @@ import { checkInsightsForceThrottle } from '../force-throttle';
 // property of the data, not of the request, so it is deliberately NOT part of
 // the cache key — a tenant that crosses the threshold mid-cache keeps serving
 // the all-channel body until the 1h TTL expires.
-const TEMPLATE_VERSION = 'activity-v7';
+// v8: S4-2 — the sync now writes a real `reach` column. Every reach read here
+// is COALESCE(m.reach, m.views, 0), so until now this section was silently
+// ranking on VIEWS as a reach proxy. Real reach is a smaller, different number,
+// which moves the period average and therefore which posts clear the ≥2x
+// high-performer bar. Bump invalidates v7 bodies computed on the proxy.
+const TEMPLATE_VERSION = 'activity-v8';
 const CACHE_TTL_BASE_MS     = 60 * 60 * 1000; // 1 hour
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);

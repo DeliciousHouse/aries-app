@@ -47,7 +47,12 @@ import { checkInsightsForceThrottle } from '../force-throttle';
 // construction (the backfill shares its keyword families with this read path),
 // but `goalInferred` in the cached body flips for those tenants. Bump
 // invalidates v8 bodies that cached the pre-backfill flag.
-const TEMPLATE_VERSION = 'goal-template-v9';
+// v10: S4-2 — product_sales saves now come from the POST table (the account
+// column had no writer and read 0 for every tenant), brand_awareness reach is a
+// real column rather than a views proxy, and the profile-visits secondary is
+// NULL instead of a fabricated 0 so the UI omits that line. Bump invalidates v9
+// bodies that cached the zeros.
+const TEMPLATE_VERSION = 'goal-template-v10';
 const CACHE_TTL_BASE_MS     = 60 * 60 * 1000;
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);

@@ -313,6 +313,10 @@ export class InstagramInsightsAdapter implements InsightsAdapter {
         commentsCount: 0,
         shares: 0,
         // No composite engagement aggregate at the account level from these metrics.
+        // S4-2: daily account reach lifted into its real column. Stays null (NOT
+        // 0) on a day the metric returned no value — the pivot above already
+        // refuses to coerce a missing day to zero.
+        reach: d.reach,
         rawSource: {
           source: 'INSTAGRAM_GET_USER_INSIGHTS',
           reach: d.reach,
@@ -335,7 +339,10 @@ export class InstagramInsightsAdapter implements InsightsAdapter {
    * we return [] (mirrors Facebook adapter nil-emission guard).
    *
    * 'impressions' is DEPRECATED; we request 'views' instead.
-   * 'saved' has no dedicated DB column but is carried in rawSource.
+   * S4-2: 'reach' and 'saved' are now lifted into the reach/saves columns (they
+   * stay in rawSource too, for auditability). On the fail-soft path both remain
+   * NULL — the engagement cache carries like/comment counts only, and a
+   * fabricated 0 would be indistinguishable from a measured 0 downstream.
    */
   async fetchPostMetrics(externalPostId: string, _range?: DateRange): Promise<RawPostMetricsDay[]> {
     const engagement = this.engagementCache.get(externalPostId) ?? null;
@@ -397,6 +404,12 @@ export class InstagramInsightsAdapter implements InsightsAdapter {
         likes: insightLikes ?? engagement?.likes ?? 0,
         commentsCount: insightComments ?? engagement?.comments ?? 0,
         shares: insightShares ?? 0,
+        // S4-2: lifted into real columns. These stay null (NOT 0) when the
+        // post_insights call failed and we fell back to the list_posts
+        // engagement cache — that cache carries like/comment counts only, so
+        // "reach unknown" must not render as "reach zero".
+        reach: reach,
+        saves: saved,
         rawSource: {
           source: 'INSTAGRAM_GET_IG_MEDIA_INSIGHTS',
           views,

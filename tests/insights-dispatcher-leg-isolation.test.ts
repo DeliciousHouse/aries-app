@@ -186,3 +186,124 @@ test('S3-2: insights_posts INSERT binds content_type and DO UPDATE preserves it 
   assert.equal(result.postsSeen, 1);
   assert.equal(result.status, 'ok');
 });
+
+// ── S4-2 (gap C3): reach / saves persistence ──────────────────────────────────
+// The columns existed and five builders read them, but neither INSERT bound
+// them — Instagram fetched reach/saved and buried both in raw_source JSONB.
+// These pin the write, and the COALESCE-on-conflict that keeps a fail-soft tick
+// from erasing a value the previous tick measured.
+
+const metricsAdapter = (
+  post: Partial<{ reach: number | null; saves: number | null }>,
+): InsightsAdapter => ({
+  ...throwingPostMetricsAdapter,
+  fetchPostMetrics: async () => [
+    {
+      date: '2026-06-11',
+      views: 4200,
+      watchTimeMinutes: 0,
+      avgViewDurationSec: 0,
+      avgViewPercentage: 0,
+      likes: 88,
+      commentsCount: 12,
+      shares: 5,
+      ...post,
+      rawSource: { source: 'test' },
+    },
+  ],
+});
+
+test('S4-2: per-post INSERT binds reach/saves and preserves them via COALESCE on conflict', async () => {
+  const recorded: Recorded[] = [];
+  await syncAccountForTenant(42, 7, 'interval', {
+    pool: fakePool(recorded),
+    resolveAdapter: () => metricsAdapter({ reach: 3900, saves: 60 }),
+  });
+
+  const insert = recorded.find((q) => /INSERT INTO insights_post_metrics_daily/i.test(q.text));
+  assert.ok(insert, 'the per-post metrics INSERT ran');
+  assert.match(insert!.text, /\breach\b/i, 'reach is in the column list');
+  assert.match(insert!.text, /\bsaves\b/i, 'saves is in the column list');
+
+  // Values reach the statement rather than staying stuck in raw_source.
+  assert.ok(insert!.params.includes(3900), 'reach is bound');
+  assert.ok(insert!.params.includes(60), 'saves is bound');
+
+  // COALESCE-preserve, NOT a bare EXCLUDED. The IG adapter fails soft to the
+  // list_posts engagement cache, which has no reach/saves — a bare assignment
+  // would wipe the last measured value on every such tick.
+  assert.match(
+    insert!.text,
+    /reach\s*=\s*COALESCE\(\s*EXCLUDED\.reach\s*,\s*insights_post_metrics_daily\.reach\s*\)/i,
+    'reach must be preserved via COALESCE on conflict',
+  );
+  assert.match(
+    insert!.text,
+    /saves\s*=\s*COALESCE\(\s*EXCLUDED\.saves\s*,\s*insights_post_metrics_daily\.saves\s*\)/i,
+    'saves must be preserved via COALESCE on conflict',
+  );
+});
+
+test('S4-2: an adapter that cannot measure reach/saves binds NULL, never 0', async () => {
+  // The NULL-vs-0 contract at the persistence boundary. Facebook omits both
+  // fields entirely; that must land as NULL so a reader can tell "not measured"
+  // from "measured zero" (the product_sales silent-zero trap).
+  const recorded: Recorded[] = [];
+  await syncAccountForTenant(42, 7, 'interval', {
+    pool: fakePool(recorded),
+    resolveAdapter: () => metricsAdapter({}),
+  });
+
+  const insert = recorded.find((q) => /INSERT INTO insights_post_metrics_daily/i.test(q.text));
+  assert.ok(insert, 'the per-post metrics INSERT ran');
+  // reach and saves are the two params immediately before the raw_source JSON.
+  const rawSourceIdx = insert!.params.findIndex(
+    (p) => typeof p === 'string' && p.includes('"source"'),
+  );
+  assert.ok(rawSourceIdx > 1, 'raw_source param located');
+  assert.equal(insert!.params[rawSourceIdx - 2], null, 'reach binds NULL, not 0');
+  assert.equal(insert!.params[rawSourceIdx - 1], null, 'saves binds NULL, not 0');
+});
+
+test('S4-2: account INSERT binds reach with COALESCE-preserve; saves/profile_visits stay unwritten', async () => {
+  const recorded: Recorded[] = [];
+  await syncAccountForTenant(42, 7, 'interval', {
+    pool: fakePool(recorded),
+    resolveAdapter: () => ({
+      ...throwingPostMetricsAdapter,
+      fetchPostMetrics: async () => [],
+      fetchAccountMetrics: async () => [
+        {
+          date: '2026-06-11',
+          views: 950,
+          watchTimeMinutes: 0,
+          followers: 1234,
+          followersDelta: 0,
+          likes: 0,
+          commentsCount: 0,
+          shares: 0,
+          reach: 820,
+          rawSource: { source: 'test' },
+        },
+      ],
+    }),
+  });
+
+  const insert = recorded.find((q) => /INSERT INTO insights_account_metrics_daily/i.test(q.text));
+  assert.ok(insert, 'the account metrics INSERT ran');
+  assert.ok(insert!.params.includes(820), 'account reach is bound');
+  assert.match(
+    insert!.text,
+    /reach\s*=\s*COALESCE\(\s*EXCLUDED\.reach\s*,\s*insights_account_metrics_daily\.reach\s*\)/i,
+    'account reach must be preserved via COALESCE on conflict',
+  );
+
+  // saves / profile_visits have NO source at the account level (IG exposes
+  // neither and its profile_views metric is deprecated; FB Pages have no saves),
+  // so they must stay OUT of the executable statement. Binding them would write
+  // NULL over any future writer's value on every tick. Strip `--` comments
+  // first: the statement's own comments discuss these columns by name.
+  const sql = insert!.text.replace(/--[^\n]*/g, '');
+  assert.doesNotMatch(sql, /\bsaves\b/i, 'account saves must not be written');
+  assert.doesNotMatch(sql, /profile_visits/i, 'profile_visits must not be written');
+});

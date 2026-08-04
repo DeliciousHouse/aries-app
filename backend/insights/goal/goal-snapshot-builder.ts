@@ -7,7 +7,12 @@
  * Goal → primary metric mapping:
  *   lead_generation  → comments classified as is_lead (insights_comment_classifications)
  *   content_growth   → net new followers (SUM of followers_delta)
- *   product_sales    → saves (best native purchase-intent proxy)
+ *   product_sales    → saves (best native purchase-intent proxy). S4-2: read
+ *                      per-POST via LATEST_POST_METRICS_LATERAL — the account
+ *                      table's saves column has no writer and never will.
+ *                      Its secondary metric (profile visits) has no source
+ *                      either and is returned as NULL, not 0, so the UI omits
+ *                      the line instead of asserting a measured zero.
  *   brand_awareness  → reach (COALESCE(reach, views))
  *
  * contributors: top 2 posts that drove the goal metric this period.
@@ -272,28 +277,48 @@ async function queryProductSales(
   fromKey: string,
   prevKey: string,
   platformFilter: string | null,
-): Promise<{ current: number; prev: number; secondary: number }> {
-  // S2-3: bare DATE column bounded by a tenant-tz calendar date ($n::date).
+): Promise<{ current: number; prev: number; secondary: number | null }> {
+  // S4-2 (gap C3): saves are read from the POST table, not the account table.
+  // `insights_account_metrics_daily.saves` has no writer and never will — saves
+  // are a per-post metric on Instagram, its account insights do not expose them,
+  // and Facebook Pages have no saves concept at all. So this headline read 0 for
+  // every tenant forever, while `queryContributors` below already ranked posts
+  // by `m.saves` from the post table: the section could name the posts that drove
+  // saves underneath a headline that said there were none.
+  //
+  // S2-1: per-post rows are lifetime-CUMULATIVE snapshots, so metrics are read
+  // through LATEST_POST_METRICS_LATERAL (each post's newest row) and summed
+  // ACROSS posts. Never SUM a single post's dated rows — that inflates ~Nx.
+  // Windowing is by p.published_at, matching every other post-level builder.
   const [curr, prev, visits] = await Promise.all([
     client.query<{ saves: string }>(
-      `SELECT COALESCE(SUM(saves), 0) AS saves
-       FROM insights_account_metrics_daily
-       WHERE tenant_id = $1
-         AND date >= $2::date
-         AND ($3::text IS NULL OR platform = $3)`,
+      `SELECT COALESCE(SUM(m.saves), 0) AS saves
+       FROM insights_posts p
+       ${LATEST_POST_METRICS_LATERAL}
+       WHERE p.tenant_id = $1
+         AND p.published_at >= $2::date
+         AND ($3::text IS NULL OR p.platform = $3)`,
       [tenantId, fromKey, platformFilter],
     ),
     client.query<{ saves: string }>(
-      `SELECT COALESCE(SUM(saves), 0) AS saves
-       FROM insights_account_metrics_daily
-       WHERE tenant_id = $1
-         AND date >= $2::date
-         AND date < $3::date
-         AND ($4::text IS NULL OR platform = $4)`,
+      `SELECT COALESCE(SUM(m.saves), 0) AS saves
+       FROM insights_posts p
+       ${LATEST_POST_METRICS_LATERAL}
+       WHERE p.tenant_id = $1
+         AND p.published_at >= $2::date
+         AND p.published_at < $3::date
+         AND ($4::text IS NULL OR p.platform = $4)`,
       [tenantId, prevKey, fromKey, platformFilter],
     ),
-    client.query<{ visits: string }>(
-      `SELECT COALESCE(SUM(profile_visits), 0) AS visits
+    // profile_visits has NO source and is expected to stay NULL indefinitely:
+    // Instagram's `profile_views` metric is DEPRECATED by Meta and Facebook's
+    // nearest equivalent (page_views_total) counts something else. So this
+    // deliberately does NOT COALESCE to 0 — SUM over all-NULL returns NULL, and
+    // a null `secondary` makes the UI OMIT the line entirely
+    // (GoalSection renders it only when `secondaryValue != null`). Coalescing
+    // here is what rendered a confident "0 profile visits" to every operator.
+    client.query<{ visits: string | null }>(
+      `SELECT SUM(profile_visits) AS visits
        FROM insights_account_metrics_daily
        WHERE tenant_id = $1
          AND date >= $2::date
@@ -301,10 +326,11 @@ async function queryProductSales(
       [tenantId, fromKey, platformFilter],
     ),
   ]);
+  const rawVisits = visits.rows[0]?.visits ?? null;
   return {
     current:   Number(curr.rows[0].saves),
     prev:      Number(prev.rows[0].saves),
-    secondary: Number(visits.rows[0].visits),
+    secondary: rawVisits === null ? null : Number(rawVisits),
   };
 }
 

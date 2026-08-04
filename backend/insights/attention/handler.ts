@@ -30,7 +30,11 @@ import { checkInsightsForceThrottle } from '../force-throttle';
 // computed in the tenant's business timezone (weekday via AT TIME ZONE $tz, not
 // UTC), so a post near midnight can move to a different weekday and the DOW
 // ranking / window membership change. Bump invalidates stale v4 bodies.
-const TEMPLATE_VERSION = 'attention-v5';
+// v6: S4-2 — same cause as activity-v8. Every reach read is
+// COALESCE(m.reach, m.views, 0), so this section ranked on a views proxy; a real
+// reach column changes the per-weekday averages, the channel multiplier copy
+// ("Nx the average daily reach") and the ≥2x detection. Bump invalidates v5.
+const TEMPLATE_VERSION = 'attention-v6';
 const CACHE_TTL_BASE_MS     = 15 * 60 * 1000; // 15 minutes
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);

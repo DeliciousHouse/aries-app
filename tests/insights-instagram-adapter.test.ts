@@ -172,7 +172,11 @@ test('fetchPostMetrics: views/reach/saved from INSTAGRAM_GET_IG_MEDIA_INSIGHTS; 
   assert.equal(metrics[0].likes, 88);            // from MEDIA_INSIGHTS (not list cache)
   assert.equal(metrics[0].commentsCount, 12);    // from MEDIA_INSIGHTS
   assert.equal(metrics[0].shares, 5);
-  // saved is in rawSource (no dedicated DB column)
+  // S4-2: reach/saved are lifted into real contract fields (they used to exist
+  // ONLY inside rawSource, so the reach/saves columns were never written).
+  assert.equal(metrics[0].reach, 3900);
+  assert.equal(metrics[0].saves, 60);
+  // ...and are still carried in rawSource for auditability.
   assert.equal(metrics[0].rawSource.saved, 60);
   assert.equal(metrics[0].rawSource.reach, 3900);
 });
@@ -263,6 +267,36 @@ test('fetchPostMetrics: fail-soft on unsuccessful insights call → falls back t
   assert.equal(metrics[0].views, 0);
   assert.equal(metrics[0].likes, 44);        // from engagement cache
   assert.equal(metrics[0].commentsCount, 6); // from engagement cache
+  // S4-2 NULL-vs-0, the load-bearing case: the engagement cache carries
+  // like/comment counts ONLY. reach/saves were never measured on this tick, so
+  // they must stay NULL — a 0 here would be indistinguishable from a real zero
+  // and would render to the operator as fact in the goal section.
+  assert.equal(metrics[0].reach ?? null, null, 'reach stays NULL on the fail-soft path');
+  assert.equal(metrics[0].saves ?? null, null, 'saves stays NULL on the fail-soft path');
+});
+
+test('fetchPostMetrics: a platform-reported zero is preserved as 0, not conflated with unmeasured', async () => {
+  // The other half of the NULL-vs-0 contract: when IG genuinely reports 0 saves,
+  // that is a measurement and must survive as 0 rather than being nulled out.
+  const gateway = routingGateway({
+    INSTAGRAM_GET_IG_MEDIA_INSIGHTS: {
+      successful: true,
+      error: null,
+      data: {
+        data: [
+          { name: 'views', values: [{ value: 10 }] },
+          { name: 'reach', values: [{ value: 0 }] },
+          { name: 'saved', values: [{ value: 0 }] },
+        ],
+      },
+    },
+  });
+  const adapter = new InstagramInsightsAdapter(gateway, fakeConfig({ actions: {} }), ctx);
+  const metrics = await adapter.fetchPostMetrics(IG_POST_ID);
+
+  assert.equal(metrics.length, 1);
+  assert.equal(metrics[0].reach, 0);
+  assert.equal(metrics[0].saves, 0);
 });
 
 // ── fetchAccountMetrics ───────────────────────────────────────────────────────
@@ -307,6 +341,10 @@ test('fetchAccountMetrics: pivots INSTAGRAM_GET_USER_INSIGHTS per day + folds IN
   const d10 = days.find((d) => d.date === '2026-06-10');
   assert.ok(d9, 'June 9 is present');
   assert.ok(d10, 'June 10 is present');
+
+  // S4-2: daily account reach lifted out of rawSource into a real field.
+  assert.equal(d9?.reach, 700);
+  assert.equal(d10?.reach, 820);
 
   assert.equal(d9?.views, 800);
   // On the non-latest day the daily follower_count metric is used

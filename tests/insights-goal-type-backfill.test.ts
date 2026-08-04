@@ -364,7 +364,16 @@ test('the goal read path selects goal_type and the cache version was bumped', ()
     path.join(PROJECT_ROOT, 'backend', 'insights', 'goal', 'handler.ts'),
     'utf8',
   );
-  assert.match(handler, /TEMPLATE_VERSION = 'goal-template-v9'/);
+  // The guarantee is "the goal template was bumped at or after the backfill",
+  // not "it is pinned at v9" — the section legitimately keeps versioning as
+  // later tickets change its output (S4-2 took it to v10). Assert the floor so
+  // this stays a real guard instead of a tripwire on every future bump.
+  const version = handler.match(/TEMPLATE_VERSION = 'goal-template-v(\d+)'/);
+  assert.ok(version, 'goal handler declares a goal-template-vN TEMPLATE_VERSION');
+  assert.ok(
+    Number(version![1]) >= 9,
+    `goal TEMPLATE_VERSION must be >= v9 (the backfill bump); found v${version![1]}`,
+  );
 });
 
 test('every primary_goal write path derives goal_type alongside the text', () => {

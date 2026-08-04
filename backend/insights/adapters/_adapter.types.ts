@@ -45,6 +45,19 @@ export interface RawAccountMetricsDay {
    * falls back to likes+comments+shares when null. Omit/null when not exposed.
    */
   engagement?: number | null;
+  /**
+   * S4-2 (gap C3). Unique accounts reached that day. Same NULL-vs-0 contract as
+   * `RawPostMetricsDay.reach` — null means "not exposed / not read", never zero.
+   *
+   * Deliberately NOT added here: `saves` and `profileVisits`, even though
+   * `insights_account_metrics_daily` has columns for both. Neither has a source.
+   * Instagram's account insights expose neither (its `profile_views` metric is
+   * DEPRECATED by Meta), and Facebook Pages have no saves concept. Adding
+   * contract fields nothing can populate would just move the silent-zero
+   * problem up a layer. The product_sales goal now reads saves from the POST
+   * table, where Instagram genuinely reports them.
+   */
+  reach?: number | null;
   /** Original platform API response fields — stored in raw_source JSONB. */
   rawSource: Record<string, unknown>;
 }
@@ -72,6 +85,23 @@ export interface RawPostMetricsDay {
   likes: number;
   commentsCount: number;
   shares: number;
+  /**
+   * S4-2 (gap C3). Unique accounts reached, and saves/bookmarks.
+   *
+   * NULL-vs-0 IS LOAD-BEARING and is the whole point of these being optional:
+   *   null/omitted — this platform does not expose the metric, or this fetch
+   *                  could not read it. NEVER coerce to 0.
+   *   0            — the platform reported a real zero.
+   *
+   * A fabricated 0 is indistinguishable from a measured 0 downstream, and the
+   * goal section renders that number to the operator as fact (the product_sales
+   * "0 saves" trap). Availability today: Instagram reports both per post;
+   * Facebook Pages have no saves concept at all and its reach metric is a
+   * separate follow-up (deliberately split out of this ticket), so FB leaves
+   * both null.
+   */
+  reach?: number | null;
+  saves?: number | null;
   rawSource: Record<string, unknown>;
 }
 
