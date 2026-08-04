@@ -324,6 +324,13 @@ const steps = [
     args: ['--test', 'tests/deploy-manifest-parity.test.ts'],
   },
   {
+    // Self-hosted deploy cleanup is destructive host policy. Keep its repository
+    // scope, seven-day bound, rollback retention, and nonfatal behavior in the
+    // fast gate so a workflow-only edit cannot silently broaden Docker deletion.
+    name: 'deploy Docker cleanup safety contract',
+    args: ['--test', 'tests/deploy-docker-cleanup.test.ts'],
+  },
+  {
     // The nightly caller must stay surfacing-only while the reusable Tests
     // workflow remains the single source of truth for the full CI suite.
     name: 'nightly build workflow contract',
