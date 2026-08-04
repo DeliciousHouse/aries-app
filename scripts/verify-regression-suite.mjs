@@ -170,6 +170,15 @@ const steps = [
     args: ['--test', 'tests/insights-sync-worker-stranded-runs.test.ts'],
   },
   {
+    // S3-5/AA-101: the sync worker must be able to override the Composio action
+    // slug of every adapter it runs. Instagram had none wired while FB, X,
+    // YouTube, Reddit and LinkedIn all did — pinning IG to its hardcoded slugs
+    // with no .env escape hatch, despite riding the same always-on gate as FB.
+    // Pins the general rule so the next adapter cannot repeat it.
+    name: 'insights-sync worker adapter slug passthrough (S3-5)',
+    args: ['--test', 'tests/insights-sync-worker-adapter-slugs.test.ts'],
+  },
+  {
     // S2-4/AA-95: day-boundary timezone AGREEMENT guardrail. Pure + no DB, so it
     // runs here on every PR (unlike the S2-3/S2-1 requires-infra tz tests that
     // self-skip in CI). Fails if audience or attention reverts to UTC bucketing.

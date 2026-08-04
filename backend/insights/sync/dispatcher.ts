@@ -30,6 +30,7 @@ import { isSupportedPlatform, type Platform } from '../platforms/registry';
 import { getAdapter } from './adapter-factory';
 import {
   classifyCommentsWithHermes,
+  CURRENT_CLASSIFIER_VERSION,
   isCommentClassificationEnabled,
   MAX_CLASSIFY_BATCH,
   resolveClassifyModelHint,
@@ -284,18 +285,28 @@ export async function syncAccountForTenant(
              (tenant_id, account_id, platform, date,
               views, watch_time_minutes, followers, followers_delta,
               likes, comments_count, shares, engagement,
+              reach,
               platform_data, raw_source)
            VALUES ($1, $2, $3, $4,
                    $5, $6, $7, $8,
                    $9, $10, $11, $12,
-                   '{}', $13)
+                   $13,
+                   '{}', $14)
            -- S2-2 (AA-93): intraday upsert. Sync runs ~every 30 min; the first
            -- run of a calendar day inserted the row and every later same-day run
            -- was discarded by DO NOTHING, freezing the day's row at its earliest
            -- value. DO UPDATE refreshes the row to each later sync's latest value.
-           -- Only value columns this INSERT provides are updated (via EXCLUDED);
-           -- reach/profile_visits/saves are NOT written here so are omitted (their
-           -- EXCLUDED is NULL and would clobber any other writer); the conflict key
+           -- Only value columns this INSERT provides are updated (via EXCLUDED).
+           -- S4-2: reach IS now written (Instagram reports daily account reach).
+           -- Its DO UPDATE arm is COALESCE(EXCLUDED.reach, <table>.reach) rather
+           -- than a bare EXCLUDED: an adapter that could not read reach on this
+           -- tick emits NULL, and a bare assignment would erase a previously
+           -- measured value — turning "we already know this day's reach" into
+           -- "unknown" on every failed fetch. profile_visits/saves remain
+           -- unwritten here and so stay omitted (no source exists at the ACCOUNT
+           -- level: IG's profile_views is deprecated and exposes no saves; FB
+           -- Pages have no saves concept) -- their EXCLUDED would be NULL and
+           -- would clobber any future writer. The conflict key
            -- (tenant_id, account_id, date) is never touched. This table holds
            -- genuine daily values (not cumulative snapshots), so the account half
            -- is safe independently of the per-post S2-1 latest-snapshot fix.
@@ -316,11 +327,13 @@ export async function syncAccountForTenant(
              comments_count     = EXCLUDED.comments_count,
              shares             = EXCLUDED.shares,
              engagement         = EXCLUDED.engagement,
+             reach              = COALESCE(EXCLUDED.reach, insights_account_metrics_daily.reach),
              raw_source         = EXCLUDED.raw_source`,
           [
             tenantId, accountId, platform, m.date,
             m.views, m.watchTimeMinutes, m.followers, m.followersDelta,
             m.likes, m.commentsCount, m.shares, m.engagement ?? null,
+            m.reach ?? null,
             JSON.stringify(m.rawSource),
           ],
         );
@@ -361,19 +374,30 @@ export async function syncAccountForTenant(
                 views, watch_time_minutes,
                 avg_view_duration_sec, avg_view_percentage,
                 likes, comments_count, shares,
+                reach, saves,
                 platform_data, raw_source)
              VALUES ($1, $2, $3, $4,
                      $5, $6, $7, $8,
                      $9, $10, $11,
-                     '{}', $12)
+                     $12, $13,
+                     '{}', $14)
              -- S2-2 (AA-93) part 2/2: intraday upsert. Sync runs ~every 30 min;
              -- the first run of a calendar day inserted the row and every later
              -- same-day run was discarded by DO NOTHING, freezing the day's row at
              -- its earliest value. DO UPDATE refreshes it to each later sync's
              -- latest value. Only value columns this INSERT provides are updated
-             -- (via EXCLUDED); reach/saves are NOT written here so are omitted
-             -- (their EXCLUDED is NULL and would clobber any other writer); the
-             -- conflict key (tenant_id, post_id, date) is never touched.
+             -- (via EXCLUDED). S4-2: reach/saves ARE now written — Instagram
+             -- reports both per post and previously buried them in raw_source.
+             -- Both DO UPDATE arms are COALESCE(EXCLUDED.x, <table>.x) rather
+             -- than bare EXCLUDED, because this adapter FAILS SOFT: when
+             -- post_insights errors it falls back to the list_posts engagement
+             -- cache, which carries like/comment counts only and emits NULL
+             -- reach/saves. A bare assignment would erase the last measured
+             -- value on every such tick. Facebook leaves both NULL (Pages have
+             -- no saves concept; its reach metric is a deliberate follow-up),
+             -- and NULL must STAY null -- never 0 -- so a reader can tell "not
+             -- measured" from "measured zero". The conflict key
+             -- (tenant_id, post_id, date) is never touched.
              -- SAFE ONLY WITH S2-1 LIVE: per-post rows are lifetime-cumulative
              -- snapshots. Under S2-1's latest-snapshot readers (ORDER BY date DESC
              -- LIMIT 1), DO UPDATE only freshens the single newest row a reader
@@ -388,12 +412,15 @@ export async function syncAccountForTenant(
                likes                 = EXCLUDED.likes,
                comments_count        = EXCLUDED.comments_count,
                shares                = EXCLUDED.shares,
+               reach                 = COALESCE(EXCLUDED.reach, insights_post_metrics_daily.reach),
+               saves                 = COALESCE(EXCLUDED.saves, insights_post_metrics_daily.saves),
                raw_source            = EXCLUDED.raw_source`,
             [
               tenantId, post.id, platform, pm.date,
               pm.views, pm.watchTimeMinutes,
               pm.avgViewDurationSec, pm.avgViewPercentage,
               pm.likes, pm.commentsCount, pm.shares,
+              pm.reach ?? null, pm.saves ?? null,
               JSON.stringify(pm.rawSource),
             ],
           );
@@ -461,6 +488,18 @@ export async function syncAccountForTenant(
     // without extending the tick unboundedly. A failure is isolated to legErrors.
     if (isCommentClassificationEnabled(process.env)) {
       try {
+        // S4-3 (gap C5): this selects comments that are UNCLASSIFIED **or**
+        // classified by a superseded classifier. Bumping
+        // CURRENT_CLASSIFIER_VERSION is therefore the whole trigger for a
+        // re-classify sweep — no separate job, no backfill script.
+        //
+        // The same MAX_CLASSIFY_BATCH bound covers both cases, so a version bump
+        // costs exactly one Hermes run per account per tick and converges over
+        // ticks instead of stampeding. ORDER BY received_at DESC is load-bearing
+        // here: brand-new comments are the newest rows, so they are always
+        // picked before a re-sweep backlog and a bump can never starve incoming
+        // classification. The 30-day window bounds the sweep's total size —
+        // comments older than that are never re-classified, by design.
         const unclassified = await client.query<{ id: number; body_text: string }>(
           `SELECT c.id, c.body_text
              FROM insights_comments c
@@ -469,11 +508,12 @@ export async function syncAccountForTenant(
              LEFT JOIN insights_comment_classifications cl ON cl.comment_id = c.id
             WHERE c.tenant_id  = $1
               AND p.account_id = $2
-              AND cl.comment_id IS NULL
+              AND (cl.comment_id IS NULL
+                   OR cl.classifier_version IS DISTINCT FROM $3)
               AND c.received_at > now() - INTERVAL '30 days'
             ORDER BY c.received_at DESC
-            LIMIT $3`,
-          [tenantId, accountId, MAX_CLASSIFY_BATCH],
+            LIMIT $4`,
+          [tenantId, accountId, CURRENT_CLASSIFIER_VERSION, MAX_CLASSIFY_BATCH],
         );
 
         if (unclassified.rows.length > 0) {
@@ -508,11 +548,39 @@ export async function syncAccountForTenant(
             apiUnitsUsed++;
             for (const [commentId, label] of result.labels) {
               await client.query(
+                // S4-3: versioned upsert, replacing ON CONFLICT DO NOTHING.
+                // The conflict target stays (comment_id) — the PRIMARY KEY — so
+                // there is still exactly ONE row per comment holding its current
+                // label. That is load-bearing: nine reader joins across five
+                // builders (conversations, goal x4, attention, top, trends) join
+                // plainly on cc.comment_id = c.id with no version predicate, and
+                // a second row per comment would silently double-count every
+                // lead count, sentiment percentage and per-post sentiment.
+                //
+                // The WHERE guard makes the upsert a no-op when the stored label
+                // is already at the current version, so a re-delivered or raced
+                // batch never rewrites a row (and never churns classified_at)
+                // for no reason. Old labels are replaced, not archived — the
+                // point of the ticket is that a bad label stops being served.
                 `INSERT INTO insights_comment_classifications
                    (comment_id, tenant_id, sentiment, is_lead, category, classifier_version, cost_cents)
-                 VALUES ($1, $2, $3, $4, $5, 'hermes-comment-v1', 0)
-                 ON CONFLICT (comment_id) DO NOTHING`,
-                [commentId, tenantId, label.sentiment, label.isLead, label.category],
+                 VALUES ($1, $2, $3, $4, $5, $6, 0)
+                 ON CONFLICT (comment_id) DO UPDATE SET
+                   sentiment          = EXCLUDED.sentiment,
+                   is_lead            = EXCLUDED.is_lead,
+                   category           = EXCLUDED.category,
+                   classifier_version = EXCLUDED.classifier_version,
+                   classified_at      = now()
+                 WHERE insights_comment_classifications.classifier_version
+                       IS DISTINCT FROM EXCLUDED.classifier_version`,
+                [
+                  commentId,
+                  tenantId,
+                  label.sentiment,
+                  label.isLead,
+                  label.category,
+                  CURRENT_CLASSIFIER_VERSION,
+                ],
               );
             }
           } else if (result.reason !== 'disabled' && result.reason !== 'empty_input') {

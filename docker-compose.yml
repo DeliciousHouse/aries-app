@@ -794,6 +794,21 @@ services:
       COMPOSIO_FACEBOOK_POST_INSIGHTS_ACTION: ${COMPOSIO_FACEBOOK_POST_INSIGHTS_ACTION:-}
       COMPOSIO_FACEBOOK_ACCOUNT_INSIGHTS_ACTION: ${COMPOSIO_FACEBOOK_ACCOUNT_INSIGHTS_ACTION:-}
       COMPOSIO_FACEBOOK_LIST_COMMENTS_ACTION: ${COMPOSIO_FACEBOOK_LIST_COMMENTS_ACTION:-}
+      # Instagram analytics (#692/#693), read by this worker's IG adapter
+      # (backend/insights/adapters/instagram). IG runs on the SAME gate as
+      # Facebook — ANALYTICS_PROVIDER=composio + COMPOSIO_ENABLED, no separate
+      # rollout flag — so whenever the FB adapter is live the IG adapter is too.
+      # Until S3-5 these five were the ONLY insights adapter's slug overrides not
+      # wired here (FB, X, YouTube, Reddit and LinkedIn all had theirs), which
+      # pinned IG to its hardcoded defaults with no escape hatch: a renamed
+      # toolkit slug could only be corrected by editing this file and
+      # redeploying, mid-incident. Optional like every other row here — blank
+      # means "use the verified code default" (the adapter's DEFAULT_SLUGS).
+      COMPOSIO_INSTAGRAM_LIST_POSTS_ACTION: ${COMPOSIO_INSTAGRAM_LIST_POSTS_ACTION:-}
+      COMPOSIO_INSTAGRAM_POST_INSIGHTS_ACTION: ${COMPOSIO_INSTAGRAM_POST_INSIGHTS_ACTION:-}
+      COMPOSIO_INSTAGRAM_ACCOUNT_INSIGHTS_ACTION: ${COMPOSIO_INSTAGRAM_ACCOUNT_INSIGHTS_ACTION:-}
+      COMPOSIO_INSTAGRAM_ACCOUNT_INFO_ACTION: ${COMPOSIO_INSTAGRAM_ACCOUNT_INFO_ACTION:-}
+      COMPOSIO_INSTAGRAM_LIST_COMMENTS_ACTION: ${COMPOSIO_INSTAGRAM_LIST_COMMENTS_ACTION:-}
       # X (Twitter) analytics + comment replies (#632/#633), read by the
       # insights-sync worker's X adapter (backend/insights/adapters/x). The X
       # insights path (account bridge + adapter) turns on ONLY when
