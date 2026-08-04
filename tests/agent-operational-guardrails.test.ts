@@ -41,6 +41,16 @@ test('Claude guidance promotes lessons into active rules for future agents', () 
   assert.match(claude, /50[\s\S]*(people|users)/i, 'guidance should include the initial 50-person scale target');
 });
 
+test('Aries reviewer pushes its rebased branch before opening a draft PR', () => {
+  const reviewer = readRepoFile('.claude/agents/aries-reviewer.md');
+  const pushIndex = reviewer.indexOf('git push --force-with-lease');
+  const createIndex = reviewer.indexOf('gh pr create');
+
+  assert.notEqual(pushIndex, -1, 'reviewer should preserve rebased work with force-with-lease');
+  assert.ok(createIndex > pushIndex, 'reviewer should push the final rebased head before opening the PR');
+  assert.match(reviewer, /gh pr create[\s\S]*--draft/, 'reviewer should open the implementation PR as a draft');
+});
+
 test('database health route singleflights 50-person smoke checks', () => {
   const healthRoute = readRepoFile('app/api/health/db/route.ts');
 
