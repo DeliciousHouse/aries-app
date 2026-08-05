@@ -285,6 +285,18 @@ const steps = [
     args: ['--test', 'tests/insights-export-csv.test.ts'],
   },
   {
+    // S5-4/AA-113 (gap B5): the /insights channel chips are derived from
+    // `isPlatformInsightsEnabled` — the same predicate the sync adapter factory
+    // uses — so a chip exists exactly when an adapter can produce data for it.
+    // The drift this guards is silent in both directions: a chip with no adapter
+    // is a filter that can only return nothing, and a missing chip hides a
+    // channel that does have data. The shipped fix (#912/#914) was covered only
+    // by the CI full suite; gating it here catches a regression pre-push.
+    // Renders the real component via react-test-renderer. No DB.
+    name: 'insights platform filter truthing (B5)',
+    args: ['--test', 'tests/insights-platform-filter-truthing.test.ts'],
+  },
+  {
     // AA-153: the workspace header eyebrow follows the job's actual kind
     // instead of a hardcoded "Post" (a week-long weekly job read as a single
     // post). Pure resolver + label, no DB or I/O.
