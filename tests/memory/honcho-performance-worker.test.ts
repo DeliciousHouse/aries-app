@@ -6,8 +6,8 @@ import type { Queryable } from '../../backend/memory/perf-insights-read';
 import type { SocialContentJobRuntimeDocument } from '../../backend/marketing/runtime-state';
 
 // P2 — worker tick. recordPerformanceEvent / loadDoc / markWritten are injected
-// mocks; selectDuePerformancePosts reads the gated #513 query, so we run with
-// ARIES_INSIGHTS_513_TABLES_PRESENT=1 and a stub client returning seeded rows.
+// mocks; selectDuePerformancePosts reads the gated due-posts query, so we run
+// with ARIES_INSIGHTS_513_TABLES_PRESENT=1 and a stub client returning seeded rows.
 
 const TENANT_ID = 7;
 
@@ -52,13 +52,14 @@ const DUE_ROW = {
   publish_day: '2026-05-25',
   permalink: 'https://www.instagram.com/p/ABC/',
   reach: '1200',
-  impressions: '1500',
   likes: '300',
-  comments: '12',
+  comments_count: '12',
   shares: '5',
-  saved: '9',
-  video_views: '0',
-  metric_day: '2026-05-25',
+  saves: '9',
+  video_views: null,
+  // Deliberately LATER than publish_day: snapshots are re-synced daily, so these
+  // two dates diverge in production and the ledger must key on the publish day.
+  snapshot_date: '2026-05-28',
 };
 
 test('one tick calls recordPerformanceEvent once with scrubbed payload + writes ledger (gate ON)', async () => {
@@ -86,6 +87,36 @@ test('one tick calls recordPerformanceEvent once with scrubbed payload + writes 
     assert.equal(report.written, 1);
     assert.equal(ledgerInserts.length, 1);
     assert.deepEqual(ledgerInserts[0], [TENANT_ID, 'job-1', 'instagram', '2026-05-25']);
+  } finally {
+    delete process.env.ARIES_INSIGHTS_513_TABLES_PRESENT;
+  }
+});
+
+test('ledger day is the PUBLISH day, not the metrics snapshot date', async () => {
+  // S4-4: metrics snapshots are re-synced daily, so snapshot_date advances while
+  // publish_day is fixed. recordPerformanceEvent keys its idempotency claim on
+  // the publish day, so the ledger must too — otherwise every sync day mints a
+  // fresh ledger row, the dedup join stops excluding the post, and an
+  // already-written post is re-driven on every tick forever.
+  process.env.ARIES_INSIGHTS_513_TABLES_PRESENT = '1';
+  try {
+    const laterSnapshot = { ...DUE_ROW, snapshot_date: '2026-06-14' };
+    const { client, ledgerInserts } = makeClient([laterSnapshot]);
+    const recorded: { publishedAtYmd: string }[] = [];
+    await runTick(client, {
+      loadDoc: async () => makeDoc('job-1'),
+      record: async (input) => {
+        recorded.push(input as unknown as { publishedAtYmd: string });
+      },
+      gateEnabled: () => true,
+    });
+
+    assert.equal(ledgerInserts.length, 1);
+    const [, , , ledgerDay] = ledgerInserts[0] as [number, string, string, string];
+    assert.equal(ledgerDay, '2026-05-25', 'ledger day must be the publish day');
+    assert.notEqual(ledgerDay, '2026-06-14', 'must not be the snapshot sync date');
+    // The ledger day and the Honcho idempotency day are the same day.
+    assert.equal(recorded[0].publishedAtYmd, ledgerDay.replace(/-/g, ''));
   } finally {
     delete process.env.ARIES_INSIGHTS_513_TABLES_PRESENT;
   }
