@@ -231,6 +231,20 @@ const steps = [
     args: ['--test', 'tests/insights-attribution-scope.test.ts'],
   },
   {
+    // S4-5/AA-108 (gap E1): auth + tenant-isolation coverage for EVERY insights
+    // GET route — the highest-risk untested read paths with multi-workspace in
+    // flight, so this is a never-cut gate. Behavioural: each of the 14 handlers
+    // refuses an unauthenticated caller and a membership-less session, and does
+    // so before reading any tenant id (a spoofed ?tenantId= changes nothing).
+    // Structural: tenantId comes only from the resolved context, every route's
+    // read surface scopes with a parameterized tenant_id predicate, and each
+    // cached section keys its cache on tenantId (a cache hit serves a body
+    // without ever running the scoped query). Route registry is coverage-guarded
+    // against app/api/insights, so a new route without tests fails here. No DB.
+    name: 'insights route auth + tenant isolation (E1)',
+    args: ['--test', 'tests/insights-route-auth-tenant-isolation.test.ts'],
+  },
+  {
     // AA-153: the workspace header eyebrow follows the job's actual kind
     // instead of a hardcoded "Post" (a week-long weekly job read as a single
     // post). Pure resolver + label, no DB or I/O.
