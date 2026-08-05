@@ -61,7 +61,11 @@ export function InsightsDashboard({
               onPlatformChange={setPlatform}
               enabledPlatforms={enabledPlatforms}
             />
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {/* marginLeft:auto keeps this group hard-right even when the row
+                wraps. Without it, adding the export control tipped a row that
+                was already near capacity (six channel chips) onto a second
+                line, where space-between left-aligns it under the filters. */}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginLeft: "auto" }}>
               {/* S5-3: export sits on the control row so it inherits the same
                   period + platform the sections below are showing. */}
               <ExportMenu period={period} platform={platform} />
