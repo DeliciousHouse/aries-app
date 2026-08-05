@@ -154,6 +154,11 @@ services:
       # slot). Default OFF; the clip only renders/publishes when ARIES_VIDEO_PUBLISH_
       # ENABLED is also on. Idempotent per weekly job.
       ARIES_WEEKLY_REEL_ENABLED: ${ARIES_WEEKLY_REEL_ENABLED:-0}
+      # Weekly results report panel on /dashboard/results (S5-1). Read-only: it
+      # reads publish state Aries already owns plus the shipped insights read
+      # model, writes nothing, and never fabricates an engagement ranking.
+      # Default OFF; OFF ⇒ the results screen is byte-identical to today.
+      ARIES_WEEKLY_RESULTS_ENABLED: ${ARIES_WEEKLY_RESULTS_ENABLED:-0}
       # ElevenLabs voiceover CAPABILITY GATE for reels: when ON (+ ELEVENLABS_API_KEY
       # set), voiceover becomes a selectable reel-audio option. It no longer forces
       # voiceover — the per-tenant Settings default / per-job override (reel audio
