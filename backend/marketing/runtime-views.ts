@@ -15,6 +15,10 @@ import { resolveDataPath } from '@/lib/runtime-paths';
 import { buildMarketingAssetLinks } from './asset-library';
 import { normalizeBrandKitSignals } from './brand-kit';
 import { creativeReviewTasteOutcome, recordStyleVibeTasteSignal } from './review-edit-taste';
+import {
+  creativeReviewLearningLabel,
+  recordMarketingReviewLearningLabel,
+} from './review-learning-labels';
 import { approveSocialContentJob } from './jobs-approve';
 import { denySocialContentJob } from './orchestrator';
 import {
@@ -2351,6 +2355,26 @@ export async function recordMarketingReviewDecision(input: {
       tenantId: input.tenantId,
       styleVibe: runtimeDoc.brand_kit?.style_vibe ?? null,
       outcome: tasteOutcome,
+    });
+  }
+
+  // S4-6/AA-109 (gap C4, best-effort, non-fatal): the same per-creative-ASSET
+  // decision is also the real event behind the "Working with Aries" approval-flow
+  // bar and learning curve. Until now the only writer of campaign_learning_labels
+  // was the manual Creative Memory tool, so that section read zeros for every
+  // tenant who never hand-labeled. Same creative+assetId discrimination as the
+  // taste hook above (a publish-gate item carries reviewType 'creative' with no
+  // assetId and must not be counted twice), but it keeps changes_requested
+  // distinct from reject — those are the bar's EDITED and REBUILT buckets.
+  // recordMarketingReviewLearningLabel never throws.
+  const learningLabel = creativeReviewLearningLabel(item, input.action);
+  if (learningLabel) {
+    await recordMarketingReviewLearningLabel({
+      tenantId: input.tenantId,
+      jobId,
+      assetId: item.assetId as string,
+      label: learningLabel,
+      note: input.note ?? null,
     });
   }
 

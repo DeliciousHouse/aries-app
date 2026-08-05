@@ -245,6 +245,19 @@ const steps = [
     args: ['--test', 'tests/insights-route-auth-tenant-isolation.test.ts'],
   },
   {
+    // S4-6/AA-109 (gap C4): the marketing review tray as the SECOND writer of
+    // campaign_learning_labels, so "Working with Aries" stops reading zeros for
+    // every tenant who never hand-labeled. Pins the action->label mapping
+    // (changes_requested stays distinct from reject — they are the bar's EDITED
+    // and REBUILT buckets), the creative+assetId discrimination that stops the
+    // publish gate double-counting, the deterministic idempotency key, the
+    // non-fatal write contract, the two-place schema rule, and the drift guard
+    // tying the emitted vocabulary to what aries-builder actually filters on.
+    // Fake query fn, no DB.
+    name: 'marketing review -> learning labels writer (C4)',
+    args: ['--test', 'tests/marketing/review-learning-labels.test.ts'],
+  },
+  {
     // AA-153: the workspace header eyebrow follows the job's actual kind
     // instead of a hardcoded "Post" (a week-long weekly job read as a single
     // post). Pure resolver + label, no DB or I/O.
