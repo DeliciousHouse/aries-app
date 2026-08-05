@@ -6,21 +6,20 @@ import {
 } from '../../backend/memory/perf-insights-payload';
 import type { InsightsPostMetricsDailyRow } from '../../backend/memory/insights-513-contract';
 
-// P1 — pure payload builder. No DB, no #513 tables needed: the input row is the
-// frozen contract shape. These tests run on master ahead of #513.
+// P1 — pure payload builder. No DB needed: the input row is the landed column
+// map from insights-513-contract.ts.
 
 const METRICS: InsightsPostMetricsDailyRow = {
   reach: 1200,
-  impressions: 1500,
   likes: 300,
-  comments: 12,
+  comments_count: 12,
   shares: 5,
-  saved: 9, // Meta column name -> payload `saves`
+  saves: 9,
   video_views: 0,
-  day: '2026-05-25',
+  snapshot_date: '2026-05-28',
 };
 
-test('maps #513 columns to payload metric keys (saved -> saves)', () => {
+test('maps landed columns to payload metric keys (comments_count -> comments)', () => {
   const out = buildPerformancePayloadRecord({
     platform: 'Instagram',
     publishDayYmd: '2026-05-25',
@@ -33,11 +32,56 @@ test('maps #513 columns to payload metric keys (saved -> saves)', () => {
   assert.equal(out.published_at_ymd, '2026-05-25');
   assert.equal(out.metrics.reach, 1200);
   assert.equal(out.metrics.saves, 9);
+  assert.equal(out.metrics.comments, 12);
   assert.equal(out.metrics.video_views, 0);
   assert.equal(out.metrics.source_url, 'https://www.instagram.com/p/ABC123/');
   assert.equal(out.metrics_source_url, 'https://www.instagram.com/p/ABC123/');
-  // No `saved` key leaks through.
+  // Raw DB column names never leak into the Honcho payload.
   assert.equal((out.metrics as Record<string, unknown>).saved, undefined);
+  assert.equal((out.metrics as Record<string, unknown>).comments_count, undefined);
+  assert.equal((out.metrics as Record<string, unknown>).snapshot_date, undefined);
+});
+
+test('impressions has no landed column: key is present and always null', () => {
+  // S4-4 decision — the payload SHAPE stays stable for Honcho, but the value is
+  // null ("not available"), never 0 and never sourced from another column.
+  const out = buildPerformancePayloadRecord({
+    platform: 'instagram',
+    publishDayYmd: '2026-05-25',
+    metricsRow: METRICS,
+    sourceUrl: 'https://www.instagram.com/p/ABC123/',
+    fetchedAt: '2026-05-27T00:00:00.000Z',
+  });
+  assert.ok(out);
+  assert.ok('impressions' in out.metrics, 'payload shape must keep the key');
+  assert.equal(out.metrics.impressions, null);
+
+  // Even if a caller smuggles an `impressions` value in, it is not read.
+  const smuggled = { ...METRICS, impressions: 9999 } as unknown as InsightsPostMetricsDailyRow;
+  const out2 = buildPerformancePayloadRecord({
+    platform: 'instagram',
+    publishDayYmd: '2026-05-25',
+    metricsRow: smuggled,
+    sourceUrl: 'https://www.instagram.com/p/ABC123/',
+    fetchedAt: '2026-05-27T00:00:00.000Z',
+  });
+  assert.ok(out2);
+  assert.equal(out2.metrics.impressions, null);
+});
+
+test('null metrics stay null (never coerced to 0)', () => {
+  // The silent-zero trap: an image post has no video_views, and "not available"
+  // must not read as "zero views".
+  const out = buildPerformancePayloadRecord({
+    platform: 'instagram',
+    publishDayYmd: '2026-05-25',
+    metricsRow: { ...METRICS, video_views: null, saves: null },
+    sourceUrl: 'https://www.instagram.com/p/ABC123/',
+    fetchedAt: '2026-05-27T00:00:00.000Z',
+  });
+  assert.ok(out);
+  assert.equal(out.metrics.video_views, null);
+  assert.equal(out.metrics.saves, null);
 });
 
 test('published_at_ymd is the POST publish day, not UTC-now', () => {

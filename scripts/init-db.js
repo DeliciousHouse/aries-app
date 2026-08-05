@@ -622,7 +622,15 @@ async function initDb() {
         source TEXT NOT NULL DEFAULT 'operator',
         confidence_basis TEXT NOT NULL DEFAULT 'manual_label' CHECK (confidence_basis IN ('manual_label','review_decision','performance_result')),
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        CHECK (prompt_recipe_id IS NOT NULL OR generated_asset_id IS NOT NULL),
+        -- S4-6 (gap C4): the marketing review tray is the second writer of this
+        -- table. Its decisions reference a marketing job + a RUNTIME asset key
+        -- (e.g. 'img_1'), not a Creative Memory prompt_recipes/generated_assets
+        -- UUID, so they get their own untyped reference columns. Deliberately no
+        -- FK: the runtime asset key lives in a job document under DATA_ROOT, not
+        -- in a table, and job_id is TEXT with no rows of its own to point at.
+        marketing_job_id TEXT,
+        marketing_asset_id TEXT,
+        CHECK (prompt_recipe_id IS NOT NULL OR generated_asset_id IS NOT NULL OR marketing_job_id IS NOT NULL),
         UNIQUE (tenant_id, id),
         UNIQUE (tenant_id, idempotency_key),
         FOREIGN KEY (tenant_id, prompt_recipe_id) REFERENCES prompt_recipes(tenant_id, id) ON DELETE CASCADE,
@@ -680,6 +688,22 @@ async function initDb() {
         'rejected',
         $check$label IN ('useful','not_useful','winner','loser','used_in_campaign','needs_changes','approved','rejected')$check$
       );
+      -- S4-6 (gap C4): widen an already-created table for the marketing-review
+      -- writer. Columns first, then the target CHECK — the constraint references
+      -- marketing_job_id, so it cannot be added before the column exists.
+      -- 'campaign_learning_labels_check' is the name Postgres auto-assigns to
+      -- this table's single unnamed table-level CHECK.
+      ALTER TABLE campaign_learning_labels ADD COLUMN IF NOT EXISTS marketing_job_id TEXT;
+      ALTER TABLE campaign_learning_labels ADD COLUMN IF NOT EXISTS marketing_asset_id TEXT;
+      SELECT pg_temp.ensure_check_constraint(
+        'campaign_learning_labels'::regclass, 'campaign_learning_labels_check',
+        'marketing_job_id',
+        $check$prompt_recipe_id IS NOT NULL OR generated_asset_id IS NOT NULL OR marketing_job_id IS NOT NULL$check$
+      );
+      -- Serves the marketing writer's idempotent re-read and any per-job audit.
+      CREATE INDEX IF NOT EXISTS idx_campaign_learning_labels_tenant_marketing_job
+        ON campaign_learning_labels (tenant_id, marketing_job_id)
+        WHERE marketing_job_id IS NOT NULL;
       CREATE UNIQUE INDEX IF NOT EXISTS idx_creative_assets_tenant_checksum_unique ON creative_assets (tenant_id, checksum) WHERE checksum IS NOT NULL;
       CREATE INDEX IF NOT EXISTS idx_creative_assets_variant_batch ON creative_assets (tenant_id, variant_batch_id) WHERE variant_batch_id IS NOT NULL;
       CREATE UNIQUE INDEX IF NOT EXISTS idx_style_cards_tenant_name_unique ON style_cards (tenant_id, name);

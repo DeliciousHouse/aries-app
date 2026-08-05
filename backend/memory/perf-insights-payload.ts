@@ -1,11 +1,13 @@
 /**
  * P1 — Pure payload builder for the honcho-performance-worker.
  *
- * Maps a #513-E `insights_post_metrics_daily` row + post permalink into the
+ * Maps an `insights_post_metrics_daily` row + post permalink into the
  * `payloadRecord` shape `recordPerformanceEvent` (backend/memory/write-events.ts)
- * consumes. NO DB, NO Meta, NO side effects — fully unit-testable on master
- * ahead of #513 (the input row shape is the frozen contract in
- * insights-513-contract.ts).
+ * consumes. NO DB, NO Meta, NO side effects — fully unit-testable (the input row
+ * shape is the landed column map in insights-513-contract.ts).
+ *
+ * This is the single DB-column → payload-key mapping point: the payload keys are
+ * the stable Honcho contract and deliberately do NOT track column renames.
  *
  * Boundary: this epic owns the Honcho write leg only. See
  *   docs/plans/2026-05-30-honcho-performance-insights.md
@@ -23,7 +25,7 @@ export interface BuildPerformancePayloadInput {
    * idempotency window so 24h/72h/7d/30d re-polls of the same metric-day collapse.
    */
   publishDayYmd: string;
-  /** Latest #513 metrics snapshot row for the post. */
+  /** Latest metrics snapshot row for the post. */
   metricsRow: InsightsPostMetricsDailyRow;
   /**
    * https permalink / insights URL for the post. MUST be https — mirrors
@@ -43,10 +45,12 @@ export interface PerformancePayloadRecord {
     reach: number | null;
     impressions: number | null;
     likes: number | null;
+    /** Landed column `comments_count` → payload key `comments`. */
     comments: number | null;
     shares: number | null;
-    /** #513 column `saved` → payload key `saves`. */
+    /** Landed column `saves`. */
     saves: number | null;
+    /** Landed `views`, video media types only; null otherwise. */
     video_views: number | null;
     source_url: string;
   };
@@ -95,11 +99,15 @@ export function buildPerformancePayloadRecord(
     published_at_ymd: publishedAtYmd,
     metrics: {
       reach: m.reach ?? null,
-      impressions: m.impressions ?? null,
+      // No landed `impressions` column (S4-4 decision, insights-513-contract.ts).
+      // The key stays in the payload so the Honcho record shape is unchanged;
+      // null means "not available", never 0.
+      impressions: null,
       likes: m.likes ?? null,
-      comments: m.comments ?? null,
+      comments: m.comments_count ?? null,
       shares: m.shares ?? null,
-      saves: m.saved ?? null,
+      saves: m.saves ?? null,
+      // Already resolved to NULL for non-video media types by the read model.
       video_views: m.video_views ?? null,
       source_url: sourceUrl,
     },
