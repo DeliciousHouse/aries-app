@@ -274,6 +274,17 @@ const steps = [
     ],
   },
   {
+    // S5-3/AA-112 (gap F2a): insights CSV export. Pins RFC-4180 quoting (a
+    // caption with a comma must not shift columns), the spreadsheet
+    // formula-injection guard (captions are public, untrusted input heading for
+    // an operator's Excel), comments refused BY NAME with the PII reason, no
+    // exported column carrying commenter details, the S2-1 latest-snapshot read
+    // so exported numbers are true, the row clamp, and the pooled client being
+    // released BEFORE the response streams. No DB.
+    name: 'insights CSV export (F2a)',
+    args: ['--test', 'tests/insights-export-csv.test.ts'],
+  },
+  {
     // AA-153: the workspace header eyebrow follows the job's actual kind
     // instead of a hardcoded "Post" (a week-long weekly job read as a single
     // post). Pure resolver + label, no DB or I/O.
