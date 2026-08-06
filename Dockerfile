@@ -59,7 +59,8 @@ RUN python3 -m venv /opt/hermes \
   && curl -fsSL \
     "https://github.com/NousResearch/hermes-agent/archive/${HERMES_AGENT_REF}.tar.gz" \
     | tar -xz --strip-components=1 -C /opt/hermes-agent-src \
-  && /opt/hermes/bin/pip install --no-cache-dir -e /opt/hermes-agent-src
+  && /opt/hermes/bin/pip install --no-cache-dir /opt/hermes-agent-src \
+  && rm -rf /opt/hermes-agent-src
 ENV PATH="/opt/hermes/bin:${PATH}"
 # Build-time regression gate: both root and the final runtime user must resolve
 # and execute Hermes from PATH.

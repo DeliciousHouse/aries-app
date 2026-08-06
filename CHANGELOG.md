@@ -20,7 +20,8 @@ cadence window when preflight state is stale or Hermes submission fails.
 - HTTP 200 trigger responses carrying `{ status: "error" }` now revert the
   atomic cadence claim instead of being misclassified as a deliberate skip.
 - The production runtime image installs the commit-pinned Hermes Agent v0.20.0
-  CLI into `PATH` and verifies both its version and Kanban command at build time.
+  CLI into `PATH` and verifies its version at build time (both as root and the
+  runtime `node` user).
 
 ## v0.1.48.0 — feat(video): ship provider-neutral Hermes rendering
 

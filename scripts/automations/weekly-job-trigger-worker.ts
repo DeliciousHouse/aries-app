@@ -286,8 +286,8 @@ type EnabledRow = {
   hour: number;
   timezone: string | null;
   last_triggered_at: string | Date | null;
-  last_attempt_at?: string | Date | null;
-  last_success_at?: string | Date | null;
+  last_attempt_at: string | Date | null;
+  last_success_at: string | Date | null;
 };
 
 function validDate(value: string | Date | null | undefined): Date | null {
@@ -459,7 +459,7 @@ export async function tick(
         console.log('[weekly-trigger-worker] started weekly job', {
           tenantId, status: body.status, jobId: body.jobId ?? null,
         });
-      } else {
+      } else if (body.status === 'skipped') {
         // Deliberate skip (gate). Keep the claim (no retry this window) but
         // conclude the attempt by releasing the in-flight marker — a skip must
         // never look like a stranded claim to the heal arm.
@@ -467,6 +467,14 @@ export async function tick(
         report.skipped += 1;
         console.warn('[weekly-trigger-worker] tenant skipped by a gate', {
           tenantId, reason: body.reason ?? 'unknown',
+        });
+      } else {
+        // Unknown/unexpected status — treat as a failure to avoid silently
+        // losing the week by keeping a bad claim.
+        await pool.query(REVERT_CLAIM_SQL, [row.tenant_id, priorClaim]);
+        report.failed += 1;
+        console.error('[weekly-trigger-worker] unexpected trigger response — reverted claim, will retry', {
+          tenantId, httpStatus, status: body.status ?? '(missing)',
         });
       }
     } catch (err) {
