@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.50.0 — feat(release): publish verifiable supply-chain evidence
+
+Operators can now publish Aries releases with independently verifiable image
+provenance, dependency inventory, vulnerability results, and keyless signatures.
+
+### Added
+
+- GitHub Releases attach a CycloneDX SBOM, Trivy vulnerability report, signed
+  SLSA provenance and SBOM bundles, and a signed checksum manifest.
+- The public container image and release artifacts use keyless Sigstore signing,
+  with copy-paste verification commands documented for GitHub CLI and Cosign.
+- A release policy defines the four-component version scheme, monthly and
+  out-of-band cadence, production-health gate, and reviewer-confirmed procedure.
+
+### Changed
+
+- Release jobs now pin every external action to a full commit SHA, validate the
+  requested version against repository metadata, and release only current
+  `master` after vulnerability, attestation, and signing gates pass.
+- Version and `latest` image aliases move only after the digest passes the
+  fixable-critical vulnerability gate and all supply-chain evidence is signed.
+
 ## v0.1.48.0 — feat(video): ship provider-neutral Hermes rendering
 
 Aries can now request, track, ingest, and review rendered social videos through
