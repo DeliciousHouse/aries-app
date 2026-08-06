@@ -17,6 +17,7 @@ RUN npm run build
 FROM node:24-bookworm AS runner
 ARG ARIES_NODE_UID=1004
 ARG ARIES_NODE_GID=1004
+ARG HERMES_AGENT_REF=ea0d54db1d22416ea07cd98abfb5d6e160aa86c9
 WORKDIR /app
 
 ENV NODE_ENV=production
@@ -48,6 +49,22 @@ RUN set -eux; \
   fi; \
   mkdir -p /home/node /data/generated/draft /data/generated/validated; \
   chown -R node:node /home/node /data /app
+
+# The runtime starts Hermes-backed workers from this same image. Install from
+# an immutable upstream commit (the v0.20.0 source currently deployed on the
+# host) so rebuilds cannot silently drop or drift the CLI again.
+RUN python3 -m venv /opt/hermes \
+  && /opt/hermes/bin/pip install --no-cache-dir --upgrade pip \
+  && mkdir -p /opt/hermes-agent-src \
+  && curl -fsSL \
+    "https://github.com/NousResearch/hermes-agent/archive/${HERMES_AGENT_REF}.tar.gz" \
+    | tar -xz --strip-components=1 -C /opt/hermes-agent-src \
+  && /opt/hermes/bin/pip install --no-cache-dir -e /opt/hermes-agent-src
+ENV PATH="/opt/hermes/bin:${PATH}"
+# Build-time regression gate: both root and the final runtime user must resolve
+# and execute Hermes from PATH.
+RUN hermes --version \
+  && su -s /bin/sh node -c 'hermes --version'
 
 COPY package*.json ./
 RUN npm ci --omit=dev \

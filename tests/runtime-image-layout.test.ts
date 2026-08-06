@@ -26,3 +26,27 @@ test('runtime image copies the repo-root sources required by the deployed Aries 
     );
   }
 });
+
+test('runtime image bundles a commit-pinned Hermes CLI and proves it is invocable during build', () => {
+  assert.match(
+    dockerfileSource,
+    /ARG HERMES_AGENT_REF=[0-9a-f]{40}/,
+    'Hermes must be pinned to an immutable upstream commit',
+  );
+  assert.match(
+    dockerfileSource,
+    /python3 -m venv \/opt\/hermes/,
+    'Hermes should live in an isolated image venv',
+  );
+  assert.match(
+    dockerfileSource,
+    /hermes-agent\/archive\/\$\{HERMES_AGENT_REF\}\.tar\.gz/,
+    'the image must install the pinned Hermes source, not an unversioned latest release',
+  );
+  assert.match(dockerfileSource, /ENV PATH="\/opt\/hermes\/bin:\$\{PATH\}"/);
+  assert.match(
+    dockerfileSource,
+    /RUN hermes --version/,
+    'a missing or broken Hermes executable must fail the image build',
+  );
+});

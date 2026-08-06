@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.48.1 — fix(marketing): restore weekly generation retries
+
+Weekly social-content generation now recovers instead of silently losing a
+cadence window when preflight state is stale or Hermes submission fails.
+
+### Changed
+
+- Weekly generation no longer blocks on channel connection or brand-kit
+  freshness; job startup owns brand-kit creation and the Hermes port refreshes
+  it before submission, allowing disconnected tenants to prepare content.
+- Failed trigger attempts retry on a 24-hour cadence until success, and attempts
+  that remain newer than the last success for 24 hours emit an explicit error.
+
+### Fixed
+
+- HTTP 200 trigger responses carrying `{ status: "error" }` now revert the
+  atomic cadence claim instead of being misclassified as a deliberate skip.
+- The production runtime image installs the commit-pinned Hermes Agent v0.20.0
+  CLI into `PATH` and verifies both its version and Kanban command at build time.
+
 ## v0.1.48.0 — feat(video): ship provider-neutral Hermes rendering
 
 Aries can now request, track, ingest, and review rendered social videos through
