@@ -152,6 +152,7 @@ Full documentation lives in `docs/`, organized by the [Diátaxis](https://diatax
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Explanation | System architecture and the Hermes execution boundary |
 | [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md) | How-to | Running Aries AI locally, environment variables |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | How-to | Production deployment with Docker |
+| [docs/RELEASES.md](docs/RELEASES.md) | Reference | Versioning, release cadence, supply-chain evidence, and verification |
 | [docs/OAUTH_SCOPES.md](docs/OAUTH_SCOPES.md) | Reference | OAuth providers and required scopes |
 | [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md) | Explanation | Auth, tenant isolation, callback trust boundary |
 | [docs/COMMERCIAL.md](docs/COMMERCIAL.md) | Explanation | What is open source vs. commercial / managed hosting |

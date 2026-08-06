@@ -1,58 +1,257 @@
-# Publish the public self-host image to GHCR.
+# Publish the public self-host image and its supply-chain evidence.
 #
 # Distinct from deploy.yml (the self-hosted production pipeline): this runs on
-# GitHub-hosted runners and exists so the one-line installer (install.sh) can
-# `docker pull ghcr.io/delicioushouse/aries-app:latest` without building.
-#
-# One-time setup after the first run: flip the `aries-app` package to Public
-# in the org's GHCR package settings, or anonymous pulls will 401 and the
-# installer will fall back to a local build.
-#
-# TODO(arm64): add a second build job on the free public-repo `ubuntu-24.04-arm`
-# runner and merge manifests with `docker buildx imagetools create` — building
-# arm64 under QEMU is prohibitively slow for the Next.js build.
+# GitHub-hosted runners after the same source revision is healthy in production.
+# It fails closed before moving version/latest tags or creating a GitHub Release.
 name: release-image
+run-name: Release ${{ inputs.version || github.ref_name }}
 
 on:
   push:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: Exact VERSION value to release (for example 0.1.48.0)
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ inputs.version || github.ref_name }}
+  cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
   packages: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+env:
+  IMAGE: ghcr.io/delicioushouse/aries-app
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
-      - uses: docker/setup-buildx-action@v4
+      - name: Validate version and release source
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF_NAME: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
 
-      - uses: docker/login-action@v4
+          IFS= read -r release_version < VERSION
+          package_version="$(node -p "require('./package.json').version")"
+          expected_tag="v${release_version}"
+          if [[ ! "${release_version}" =~ ^0\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "ERROR: VERSION must use the documented pre-1.0 MAJOR.MINOR.TRAIN.PATCH format." >&2
+            exit 1
+          fi
+          if [[ "${package_version}" != "${release_version}" ]]; then
+            echo "ERROR: package.json (${package_version}) does not match VERSION (${release_version})." >&2
+            exit 1
+          fi
+          if [[ "${RELEASE_TAG}" != "${expected_tag}" ]]; then
+            echo "ERROR: release tag ${RELEASE_TAG} does not match VERSION (${expected_tag})." >&2
+            exit 1
+          fi
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" && "${EVENT_REF_NAME}" != "${DEFAULT_BRANCH}" ]]; then
+            echo "ERROR: manual releases must be dispatched from ${DEFAULT_BRANCH}, not ${EVENT_REF_NAME}." >&2
+            exit 1
+          fi
+
+          git fetch --no-tags origin "${DEFAULT_BRANCH}"
+          checkout_sha="$(git rev-parse HEAD)"
+          default_sha="$(git rev-parse FETCH_HEAD)"
+          if [[ "${checkout_sha}" != "${default_sha}" ]]; then
+            echo "ERROR: releases must target the current origin/${DEFAULT_BRANCH} (${default_sha}), not ${checkout_sha}." >&2
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --refs --tags origin "refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            git fetch origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+            tag_sha="$(git rev-parse "${RELEASE_TAG}^{commit}")"
+            if [[ "${tag_sha}" != "${checkout_sha}" ]]; then
+              echo "ERROR: existing tag ${RELEASE_TAG} targets ${tag_sha}, not ${checkout_sha}." >&2
+              exit 1
+            fi
+          fi
+          if gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "ERROR: GitHub Release ${RELEASE_TAG} already exists." >&2
+            exit 1
+          fi
+
+          mkdir -p release-assets
+          {
+            echo "RELEASE_VERSION=${release_version}"
+            echo "SBOM_PATH=release-assets/aries-app-${RELEASE_TAG}.cdx.json"
+            echo "VULNERABILITY_REPORT_PATH=release-assets/aries-app-${RELEASE_TAG}.trivy.json"
+            echo "PROVENANCE_PATH=release-assets/aries-app-${RELEASE_TAG}.provenance.sigstore.json"
+            echo "SBOM_ATTESTATION_PATH=release-assets/aries-app-${RELEASE_TAG}.sbom-attestation.sigstore.json"
+            echo "CHECKSUMS_PATH=release-assets/SHA256SUMS"
+          } >> "${GITHUB_ENV}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - id: meta
-        uses: docker/metadata-action@v6
+      - name: Create immutable build metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
-          images: ghcr.io/delicioushouse/aries-app
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=sha,format=long,enable=${{ github.event_name == 'workflow_dispatch' }}
+          images: ${{ env.IMAGE }}
+          tags: type=raw,value=${{ github.sha }}
+          labels: |
+            org.opencontainers.image.version=${{ env.RELEASE_VERSION }}
+            org.opencontainers.image.revision=${{ github.sha }}
 
-      - uses: docker/build-push-action@v7
+      - name: Build and push immutable image
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+          sbom: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Record vulnerability report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          format: json
+          output: ${{ env.VULNERABILITY_REPORT_PATH }}
+          exit-code: '0'
+          ignore-unfixed: 'true'
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          timeout: 15m
+          version: v0.73.0
+
+      - name: Block releases with fixable critical vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          format: table
+          exit-code: '1'
+          ignore-unfixed: 'true'
+          scanners: vuln
+          severity: CRITICAL
+          skip-setup-trivy: 'true'
+          timeout: 15m
+          version: v0.73.0
+
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          format: cyclonedx-json
+          output-file: ${{ env.SBOM_PATH }}
+          artifact-name: aries-app-${{ env.RELEASE_TAG }}.cdx.json
+          dependency-snapshot: 'true'
+          upload-artifact: 'false'
+          upload-release-assets: 'false'
+          syft-version: v1.50.0
+
+      - name: Generate SLSA provenance
+        id: provenance
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-version: ${{ env.RELEASE_VERSION }}
+          push-to-registry: true
+
+      - name: Attest SBOM
+        id: sbom-attestation
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-version: ${{ env.RELEASE_VERSION }}
+          sbom-path: ${{ env.SBOM_PATH }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
+
+      - name: Keyless-sign image and release artifacts
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          PROVENANCE_BUNDLE_PATH: ${{ steps.provenance.outputs.bundle-path }}
+          SBOM_ATTESTATION_BUNDLE_PATH: ${{ steps.sbom-attestation.outputs.bundle-path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cp "${PROVENANCE_BUNDLE_PATH}" "${PROVENANCE_PATH}"
+          cp "${SBOM_ATTESTATION_BUNDLE_PATH}" "${SBOM_ATTESTATION_PATH}"
+
+          cosign sign --yes "${IMAGE}@${IMAGE_DIGEST}"
+          cosign sign-blob --yes --bundle "${SBOM_PATH}.sigstore.json" "${SBOM_PATH}"
+
+          (
+            cd release-assets
+            sha256sum *.json > SHA256SUMS
+          )
+          cosign sign-blob --yes --bundle "${CHECKSUMS_PATH}.sigstore.json" "${CHECKSUMS_PATH}"
+
+      - name: Promote verified image tags
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            --tag "${IMAGE}:${RELEASE_VERSION}" \
+            --tag "${IMAGE}:latest" \
+            "${IMAGE}@${IMAGE_DIGEST}"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          PROVENANCE_URL: ${{ steps.provenance.outputs.attestation-url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_notes="$(printf '%s\n' \
+            '## Supply-chain evidence' \
+            '' \
+            "- Image: \`${IMAGE}:${RELEASE_VERSION}@${IMAGE_DIGEST}\`" \
+            "- SLSA provenance: ${PROVENANCE_URL}" \
+            '- Assets include the CycloneDX SBOM, vulnerability report, GitHub attestation bundles, checksums, and Sigstore verification bundles.' \
+            '- Verification instructions: `docs/RELEASES.md`.')"
+
+          gh release create "${RELEASE_TAG}" release-assets/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${GITHUB_SHA}" \
+            --title "${RELEASE_TAG}" \
+            --generate-notes \
+            --notes "${release_notes}" \
+            --latest
