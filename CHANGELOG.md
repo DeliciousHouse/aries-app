@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.49.0 — chore(ci): harden GitHub Actions supply chain
+
+Repository maintainers can now track the project's public OpenSSF Scorecard and
+code-scanning results while every active workflow uses immutable dependencies and
+an explicit least-privilege permission boundary.
+
+### Added
+
+- An official OpenSSF Scorecard workflow publishes results weekly, on protected
+  branch changes, and on default-branch pushes, with a public README badge and
+  SARIF upload to GitHub code scanning.
+- Repository policy regression tests reject mutable action tags, implicit workflow
+  permissions, missing Scorecard publishing, and reintroduced blind agent workflows.
+
+### Changed
+
+- Every external GitHub Action is pinned to a full commit SHA while retaining a
+  reviewed release comment, including deployment, release, and full-suite CI paths.
+- Active agent guidance now requires draft implementation PRs and a separate,
+  deliberately assigned reviewer lane instead of self-merge or auto-merge.
+
+### Removed
+
+- The superseded issue-agent fixer and blind PR autofix/automerge workflows.
+
 ## v0.1.48.0 — feat(video): ship provider-neutral Hermes rendering
 
 Aries can now request, track, ingest, and review rendered social videos through
