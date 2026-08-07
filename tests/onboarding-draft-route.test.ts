@@ -191,12 +191,13 @@ test('/api/onboarding/draft creates, reads, and updates an onboarding draft by e
           websiteUrl: 'https://theframex.com',
           channels: ['meta-ads'],
           goal: 'Book more design consultations',
+          goalType: 'lead_generation',
           status: 'ready_for_auth',
         }),
       }),
     );
     const patchedBody = (await patchResponse.json()) as {
-      draft: { businessName: string; websiteUrl: string; channels: string[]; goal: string; status: string };
+      draft: { businessName: string; websiteUrl: string; channels: string[]; goal: string; goalType: string | null; status: string };
     };
 
     assert.equal(patchResponse.status, 200);
@@ -204,6 +205,7 @@ test('/api/onboarding/draft creates, reads, and updates an onboarding draft by e
     assert.equal(patchedBody.draft.websiteUrl, 'https://theframex.com/');
     assert.deepEqual(patchedBody.draft.channels, ['meta-ads']);
     assert.equal(patchedBody.draft.goal, 'Book more design consultations');
+    assert.equal(patchedBody.draft.goalType, 'lead_generation');
     assert.equal(patchedBody.draft.status, 'ready_for_auth');
 
     const getResponse = await route.GET(

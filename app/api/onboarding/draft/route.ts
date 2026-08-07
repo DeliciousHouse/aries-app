@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { isCanonicalGoalType } from '@/backend/insights/goal/goal-options';
 import {
   createOnboardingDraft,
   getOnboardingDraft,
@@ -94,6 +95,14 @@ export async function PATCH(req: Request) {
     payload = {};
   }
 
+  if (
+    payload.goalType !== undefined
+    && payload.goalType !== null
+    && !isCanonicalGoalType(payload.goalType)
+  ) {
+    return NextResponse.json({ error: 'invalid_goal_type' }, { status: 400 });
+  }
+
   try {
     const draft = await updateOnboardingDraft(draftId, {
       status: validStatus(payload.status),
@@ -103,6 +112,7 @@ export async function PATCH(req: Request) {
       approverName: payload.approverName === undefined ? undefined : stringValue(payload.approverName),
       channels: payload.channels === undefined ? undefined : stringArray(payload.channels),
       goal: payload.goal === undefined ? undefined : stringValue(payload.goal),
+      goalType: payload.goalType === undefined ? undefined : payload.goalType,
       offer: payload.offer === undefined ? undefined : stringValue(payload.offer),
       brandVoice: payload.brandVoice === undefined ? undefined : stringValue(payload.brandVoice),
       notes: payload.notes === undefined ? undefined : stringValue(payload.notes),

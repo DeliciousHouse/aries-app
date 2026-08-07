@@ -23,7 +23,12 @@ import {
 
 import { useBusinessProfile } from '@/hooks/use-business-profile';
 import { createAriesV1Api, type UrlPreviewBrandKitPreview, type UrlPreviewResponse } from '@/lib/api/aries-v1';
-import { ONBOARDING_GOAL_PRESETS, presetLabelForGoalType } from '@/backend/insights/goal/goal-options';
+import {
+  ONBOARDING_GOAL_PRESETS,
+  goalTypeForPresetLabel,
+  isCanonicalGoalType,
+  resolveOnboardingGoalState,
+} from '@/backend/insights/goal/goal-options';
 import type { GoalType } from '@/backend/insights/goal/goal-type-classification';
 import {
   getRequiredFieldError,
@@ -58,6 +63,7 @@ type ChannelOption = {
 type GoalOption = {
   label: string;
   description: string;
+  goalType: GoalType | null;
 };
 
 const STEP_DEFINITIONS: StepDefinition[] = [
@@ -133,6 +139,7 @@ const CHANNEL_OPTIONS: ChannelOption[] = [
 const GOAL_OPTIONS: GoalOption[] = ONBOARDING_GOAL_PRESETS.map((preset) => ({
   label: preset.label,
   description: preset.description,
+  goalType: preset.goalType,
 }));
 
 function stepIndexFromStepParam(stepParam: string | null | undefined): number {
@@ -158,11 +165,7 @@ function goalFromBusinessProfile(
   primaryGoal: string | null | undefined,
   goalType?: GoalType | null,
 ): string {
-  const presetForStoredGoal = presetLabelForGoalType(goalType);
-  if (presetForStoredGoal) {
-    return presetForStoredGoal;
-  }
-  return primaryGoal?.trim() || '';
+  return resolveOnboardingGoalState(primaryGoal, goalType).selection;
 }
 
 export function normalizeHttpsUrlInput(value: string): string {
@@ -355,6 +358,8 @@ type LocalDraftSnapshot = {
   selectedChannels: string[];
   goal: string;
   customGoal: string;
+  primaryGoal: string;
+  goalType: GoalType | null;
   offer: string;
   brandVoice: string;
   scrapedBrandVoice: string;
@@ -381,6 +386,8 @@ function readLocalDraft(): LocalDraftSnapshot | null {
       selectedChannels: Array.isArray(parsed.selectedChannels) ? parsed.selectedChannels : [],
       goal: parsed.goal || '',
       customGoal: parsed.customGoal || '',
+      primaryGoal: parsed.primaryGoal || (parsed.goal === 'Other' ? parsed.customGoal : parsed.goal) || '',
+      goalType: isCanonicalGoalType(parsed.goalType) ? parsed.goalType : goalTypeForPresetLabel(parsed.goal),
       offer: parsed.offer || '',
       brandVoice: parsed.brandVoice || '',
       scrapedBrandVoice: parsed.scrapedBrandVoice || '',
@@ -427,6 +434,7 @@ function serverDraftHasContent(draft: {
   approverName?: string;
   channels?: string[];
   goal?: string;
+  goalType?: GoalType | null;
   offer?: string;
   brandVoice?: string;
   notes?: string;
@@ -439,6 +447,7 @@ function serverDraftHasContent(draft: {
       draft.approverName?.trim() ||
       (draft.channels?.length ?? 0) > 0 ||
       draft.goal?.trim() ||
+      draft.goalType ||
       draft.offer?.trim() ||
       draft.brandVoice?.trim() ||
       draft.notes?.trim() ||
@@ -456,6 +465,7 @@ function localDraftHasContent(snapshot: LocalDraftSnapshot | null): boolean {
       snapshot.selectedChannels.length > 0 ||
       snapshot.goal.trim() ||
       snapshot.customGoal.trim() ||
+      snapshot.primaryGoal.trim() ||
       snapshot.offer.trim() ||
       snapshot.brandVoice.trim() ||
       snapshot.notes.trim() ||
@@ -597,6 +607,8 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
   const [goal, setGoal] = useState('');
   const [customGoal, setCustomGoal] = useState('');
+  const [primaryGoal, setPrimaryGoal] = useState('');
+  const [goalType, setGoalType] = useState<GoalType | null>(null);
   const [offer, setOffer] = useState('');
   const [brandVoice, setBrandVoice] = useState('');
   const [notes, setNotes] = useState('');
@@ -831,14 +843,11 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         setBusinessType(draft.businessType);
         setApproverName(draft.approverName);
         setSelectedChannels(draft.channels);
-        const knownGoalLabels = GOAL_OPTIONS.map((o) => o.label);
-        if (draft.goal && !knownGoalLabels.includes(draft.goal)) {
-          setGoal('Other');
-          setCustomGoal(draft.goal);
-        } else {
-          setGoal(draft.goal);
-          setCustomGoal('');
-        }
+        const goalState = resolveOnboardingGoalState(draft.goal, draft.goalType);
+        setGoal(goalState.selection);
+        setCustomGoal(goalState.customGoal);
+        setPrimaryGoal(goalState.primaryGoal);
+        setGoalType(draft.goalType);
         setOffer(draft.offer);
         setBrandVoice(draft.brandVoice);
         setNotes(draft.notes);
@@ -857,14 +866,13 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         // everything". An explicit `?step=` in the URL always wins — that is a
         // deliberate navigation.
         if (!stepParam) {
-          const resolvedGoal = draft.goal && !knownGoalLabels.includes(draft.goal) ? 'Other' : draft.goal;
           const resumeValues = {
             businessName: draft.businessName,
             businessType: draft.businessType,
             websiteUrl: draft.websiteUrl,
             selectedChannels: draft.channels,
-            goal: resolvedGoal,
-            customGoal: resolvedGoal === 'Other' ? draft.goal : '',
+            goal: goalState.selection,
+            customGoal: goalState.customGoal,
             offer: draft.offer,
             competitorUrl: draft.competitorUrl,
           };
@@ -932,7 +940,11 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
           setWebsiteUrl(normalizeHttpsUrlInput(nextProfile.websiteUrl || nextProfile.brandKit?.source_url || ''));
           setBusinessType(nextProfile.businessType || '');
           setApproverName(nextProfile.launchApproverName || '');
+          const goalState = resolveOnboardingGoalState(nextProfile.primaryGoal, nextProfile.goalType);
           setGoal(goalFromBusinessProfile(nextProfile.primaryGoal, nextProfile.goalType));
+          setCustomGoal(goalState.customGoal);
+          setPrimaryGoal(goalState.primaryGoal);
+          setGoalType(nextProfile.goalType);
           setOffer(nextProfile.offer || nextProfile.brandIdentity?.offer || nextProfile.brandKit?.offer_summary || '');
           setBrandVoice(nextProfile.brandVoice || '');
           setNotes(nextProfile.notes || '');
@@ -979,7 +991,8 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         // only in localStorage until the final submit resolved it. Anyone who
         // lost the local snapshot lost their custom goal entirely. Resolve it
         // here the same way handleFinish does.
-        goal: goal === 'Other' ? customGoal.trim() : goal,
+        goal: primaryGoal.trim() || (goal === 'Other' ? customGoal.trim() : goal),
+        goalType,
         offer,
         brandVoice,
         notes,
@@ -1016,8 +1029,10 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     customGoal,
     draftId,
     goal,
+    goalType,
     notes,
     offer,
+    primaryGoal,
     selectedChannels,
     urlPreview,
     websiteUrl,
@@ -1057,6 +1072,8 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         selectedChannels,
         goal,
         customGoal,
+        primaryGoal,
+        goalType,
         offer,
         brandVoice,
         scrapedBrandVoice: preview?.brandVoiceSummary?.trim() || '',
@@ -1071,6 +1088,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         snapshot.selectedChannels.length > 0 ||
         snapshot.goal.trim() ||
         snapshot.customGoal.trim() ||
+        snapshot.primaryGoal.trim() ||
         snapshot.offer.trim() ||
         snapshot.brandVoice.trim() ||
         snapshot.notes.trim() ||
@@ -1100,8 +1118,10 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     customGoal,
     draftId,
     goal,
+    goalType,
     notes,
     offer,
+    primaryGoal,
     preview?.brandVoiceSummary,
     resumeChecked,
     resumePromptOpen,
@@ -1273,6 +1293,8 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     setSelectedChannels(snap.selectedChannels);
     setGoal(snap.goal);
     setCustomGoal(snap.customGoal);
+    setPrimaryGoal(snap.primaryGoal);
+    setGoalType(snap.goalType);
     setOffer(snap.offer);
     setBrandVoice(snap.brandVoice);
     setNotes(snap.notes);
@@ -1368,7 +1390,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         canonicalCompetitorUrl = competitorValidation.normalized ?? trimmedCompetitorUrl;
       }
 
-      const resolvedGoal = goal === 'Other' ? customGoal.trim() : goal;
+      const resolvedGoal = primaryGoal.trim() || (goal === 'Other' ? customGoal.trim() : goal);
       const normalizedWebsiteUrl = normalizeHttpsUrlInput(websiteUrl);
       if (normalizedWebsiteUrl !== websiteUrl) {
         setWebsiteUrl(normalizedWebsiteUrl);
@@ -1381,6 +1403,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         approverName,
         channels: selectedChannels,
         goal: resolvedGoal,
+        goalType,
         offer,
         brandVoice: brandVoice,
         notes: notes,
@@ -2180,6 +2203,11 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                             tabIndex={0}
                             onClick={() => {
                               setGoal(option.label);
+                              setGoalType(option.goalType);
+                              setPrimaryGoal((current) => {
+                                const hasCustomProse = current.length > 0 && !GOAL_OPTIONS.some((item) => item.label === current);
+                                return hasCustomProse ? current : option.label === 'Other' ? customGoal.trim() : option.label;
+                              });
                               markTouched('goal');
                               if (option.label !== 'Other') {
                                 setCustomGoal('');
@@ -2189,6 +2217,11 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                               if (event.key === 'Enter' || event.key === ' ') {
                                 event.preventDefault();
                                 setGoal(option.label);
+                                setGoalType(option.goalType);
+                                setPrimaryGoal((current) => {
+                                  const hasCustomProse = current.length > 0 && !GOAL_OPTIONS.some((item) => item.label === current);
+                                  return hasCustomProse ? current : option.label === 'Other' ? customGoal.trim() : option.label;
+                                });
                                 markTouched('goal');
                                 if (option.label !== 'Other') {
                                   setCustomGoal('');
@@ -2212,7 +2245,10 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                           <input
                             ref={customGoalInputRef}
                             value={customGoal}
-                            onChange={(event) => setCustomGoal(event.target.value)}
+                            onChange={(event) => {
+                              setCustomGoal(event.target.value);
+                              setPrimaryGoal(event.target.value);
+                            }}
                             onBlur={() => markTouched('customGoal')}
                             className={inputClassForValidity(customGoalValidity)}
                             placeholder="Describe your business outcome goal"

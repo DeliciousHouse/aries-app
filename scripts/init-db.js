@@ -373,6 +373,7 @@ async function initDb() {
         approver_name TEXT NOT NULL DEFAULT '',
         channels TEXT[] NOT NULL DEFAULT '{}',
         goal TEXT NOT NULL DEFAULT '',
+        goal_type TEXT CHECK (goal_type IS NULL OR goal_type IN ('lead_generation', 'content_growth', 'product_sales', 'brand_awareness')),
         offer TEXT NOT NULL DEFAULT '',
         brand_voice TEXT NOT NULL DEFAULT '',
         notes TEXT NOT NULL DEFAULT '',
@@ -387,6 +388,13 @@ async function initDb() {
 
       ALTER TABLE onboarding_drafts ADD COLUMN IF NOT EXISTS brand_voice TEXT NOT NULL DEFAULT '';
       ALTER TABLE onboarding_drafts ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT '';
+      ALTER TABLE onboarding_drafts ADD COLUMN IF NOT EXISTS goal_type TEXT;
+      SELECT pg_temp.ensure_check_constraint(
+        'onboarding_drafts'::regclass,
+        'onboarding_drafts_goal_type_check',
+        'goal_type',
+        $check$goal_type IS NULL OR goal_type IN ('lead_generation', 'content_growth', 'product_sales', 'brand_awareness')$check$
+      );
 
       CREATE TABLE IF NOT EXISTS business_profiles (
         tenant_id INTEGER PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,

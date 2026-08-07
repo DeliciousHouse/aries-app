@@ -141,6 +141,14 @@ export async function PATCH(req: Request) {
     payload = {};
   }
 
+  if (
+    payload.goalType !== undefined
+    && payload.goalType !== null
+    && !isCanonicalGoalType(payload.goalType)
+  ) {
+    return json({ error: 'invalid_goal_type' }, 400);
+  }
+
   const normalizedWebsiteUrl = payload.websiteUrl === undefined
     ? undefined
     : normalizeMarketingWebsiteUrl(payload.websiteUrl) || null;
@@ -174,15 +182,11 @@ export async function PATCH(req: Request) {
       businessType: stringOrNull(payload.businessType),
       primaryGoal: stringOrNull(payload.primaryGoal),
       // S6-1/AA-114: undefined = the caller did not touch the goal select;
-      // null clears it; anything not in the canonical vocabulary is rejected to
-      // null rather than persisted, since the column has a CHECK constraint and
-      // a junk key would fail the whole save.
+      // null clears it; invalid non-null values were rejected above.
       goalType:
         payload.goalType === undefined
           ? undefined
-          : isCanonicalGoalType(payload.goalType)
-            ? payload.goalType
-            : null,
+          : payload.goalType,
       launchApproverUserId: stringOrNull(payload.launchApproverUserId),
       launchApproverName: stringOrNull(payload.launchApproverName),
       offer: stringOrNull(payload.offer),

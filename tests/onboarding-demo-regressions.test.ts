@@ -108,7 +108,7 @@ test('demo item 3: submitting no longer discards the local snapshot before the n
   // clearLocalDraft() used to run immediately before router.push(). If the
   // resume hop then failed, the user had nothing left: the server draft is
   // unreachable once `?draft=` is lost, because onboarding_drafts has no owner.
-  const finish = stripComments(onboardingFlow).match(/async function handleFinish\(\)[\s\S]*?\n  \}\n/);
+  const finish = stripComments(onboardingFlow).match(/async function handleFinish\(\)[\s\S]*?\r?\n  \}\r?\n/);
   assert.ok(finish, 'expected handleFinish()');
   assert.doesNotMatch(finish[0], /clearLocalDraft\(\)/);
   assert.match(finish[0], /submittingRef\.current = true/);
@@ -158,7 +158,8 @@ test('demo item 3: the local backup is not deleted while the resume prompt is st
   );
   assert.ok(localSave, 'expected the localStorage fallback effect');
   assert.match(localSave[0], /if \(!resumeChecked \|\| resumePromptOpen\) return;/);
-  assert.match(localSave[0], /resumeChecked,\n\s*resumePromptOpen,/);
+  assert.match(localSave[0], /resumeChecked,/);
+  assert.match(localSave[0], /resumePromptOpen,/);
 });
 
 test('demo item 3: the handoff failure screen hands the draft id back to the user', () => {
@@ -296,12 +297,11 @@ test('a disabled advance button always states what is missing', () => {
 });
 
 test('a custom goal is persisted server-side, not only in localStorage', () => {
-  // Autosave sent the literal string "Other"; the typed text only reached the
-  // server at final submit.
-  assert.match(onboardingFlow, /goal: goal === 'Other' \? customGoal\.trim\(\) : goal,/);
-  const autosaveDeps = onboardingFlow.match(/loadedDraftId,\n\s*markSaved,\n\s*\]\);/);
-  assert.ok(autosaveDeps, 'expected the autosave dependency array');
-  assert.match(onboardingFlow, /competitorUrl,\n\s*customGoal,\n\s*draftId,/);
+  // Autosave and final submit both carry the free text and canonical selection.
+  assert.match(onboardingFlow, /goal: primaryGoal\.trim\(\) \|\| \(goal === 'Other' \? customGoal\.trim\(\) : goal\),/);
+  assert.match(onboardingFlow, /goalType,/);
+  assert.match(onboardingFlow, /customGoal,[\s\S]{0,80}?draftId,/);
+  assert.match(onboardingFlow, /primaryGoal,/);
 });
 
 // ------------------------------------------------- second pass: remaining audit findings

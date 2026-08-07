@@ -130,6 +130,31 @@ export function presetLabelForGoalType(goalType: GoalType | null | undefined): s
   return ONBOARDING_GOAL_PRESETS.find((p) => p.goalType === goalType)?.label ?? '';
 }
 
+export function resolveOnboardingGoalState(
+  primaryGoal: string | null | undefined,
+  goalType: GoalType | null | undefined,
+): { selection: string; customGoal: string; primaryGoal: string } {
+  const prose = primaryGoal?.trim() ?? '';
+  const mappedSelection = presetLabelForGoalType(goalType);
+  if (mappedSelection) {
+    return {
+      selection: mappedSelection,
+      customGoal: '',
+      primaryGoal: prose || mappedSelection,
+    };
+  }
+
+  const exactPreset = ONBOARDING_GOAL_PRESETS.find((preset) => preset.label === prose);
+  if (exactPreset && exactPreset.label !== 'Other') {
+    return { selection: exactPreset.label, customGoal: '', primaryGoal: prose };
+  }
+
+  const customGoal = prose || (goalType ? goalTypeLabel(goalType) : '');
+  return customGoal
+    ? { selection: 'Other', customGoal, primaryGoal: customGoal }
+    : { selection: '', customGoal: '', primaryGoal: '' };
+}
+
 /** Runtime guard for a value arriving from a form or an API body. */
 export function isCanonicalGoalType(value: unknown): value is GoalType {
   return (

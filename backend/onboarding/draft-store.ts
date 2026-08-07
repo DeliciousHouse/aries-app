@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import pool from '@/lib/db';
+import { goalTypeForPresetLabel, isCanonicalGoalType } from '@/backend/insights/goal/goal-options';
+import type { GoalType } from '@/backend/insights/goal/goal-type-classification';
 import { normalizeMarketingWebsiteUrl } from '@/lib/marketing-public-mode';
 import { resolveDataPath } from '@/lib/runtime-paths';
 
@@ -59,6 +61,7 @@ export type OnboardingDraft = {
   approverName: string;
   channels: string[];
   goal: string;
+  goalType: GoalType | null;
   offer: string;
   brandVoice: string;
   notes: string;
@@ -79,6 +82,7 @@ type OnboardingDraftMutation = Partial<{
   approverName: string | null;
   channels: string[] | null;
   goal: string | null;
+  goalType: GoalType | null;
   offer: string | null;
   brandVoice: string | null;
   notes: string | null;
@@ -114,6 +118,11 @@ function stringArray(value: unknown): string[] {
   );
 }
 
+function draftGoalType(value: unknown, goal: string): GoalType | null {
+  if (isCanonicalGoalType(value)) return value;
+  return value === undefined ? goalTypeForPresetLabel(goal) : null;
+}
+
 function normalizeCompetitorUrl(value: string | null | undefined): string {
   return normalizeMarketingWebsiteUrl(value) || stringValue(value);
 }
@@ -129,6 +138,7 @@ function normalizeDraftId(draftId: string): string {
 function emptyDraft(input?: Partial<OnboardingDraft>): OnboardingDraft {
   const timestamp = new Date().toISOString();
   const draftId = input?.draftId || crypto.randomUUID();
+  const goal = stringValue(input?.goal);
 
   return {
     draftId,
@@ -138,7 +148,8 @@ function emptyDraft(input?: Partial<OnboardingDraft>): OnboardingDraft {
     businessType: stringValue(input?.businessType),
     approverName: stringValue(input?.approverName),
     channels: stringArray(input?.channels),
-    goal: stringValue(input?.goal),
+    goal,
+    goalType: draftGoalType(input?.goalType, goal),
     offer: stringValue(input?.offer),
     brandVoice: stringValue(input?.brandVoice),
     notes: stringValue(input?.notes),
@@ -260,6 +271,9 @@ function applyDraftMutation(draft: OnboardingDraft, mutation: OnboardingDraftMut
     approverName: mutation.approverName === undefined ? draft.approverName : stringValue(mutation.approverName),
     channels: mutation.channels === undefined ? draft.channels : stringArray(mutation.channels),
     goal: mutation.goal === undefined ? draft.goal : stringValue(mutation.goal),
+    goalType: mutation.goalType === undefined
+      ? draft.goalType
+      : isCanonicalGoalType(mutation.goalType) ? mutation.goalType : null,
     offer: mutation.offer === undefined ? draft.offer : stringValue(mutation.offer),
     brandVoice: mutation.brandVoice === undefined ? draft.brandVoice : stringValue(mutation.brandVoice),
     notes: mutation.notes === undefined ? draft.notes : stringValue(mutation.notes),
@@ -291,6 +305,7 @@ type DraftRow = {
   approver_name: string;
   channels: string[];
   goal: string;
+  goal_type: GoalType | null;
   offer: string;
   brand_voice: string;
   notes: string;
@@ -318,6 +333,7 @@ function rowToDraft(row: DraftRow): OnboardingDraft {
     approverName: row.approver_name,
     channels: row.channels,
     goal: row.goal,
+    goalType: row.goal_type ?? undefined,
     offer: row.offer,
     brandVoice: row.brand_voice ?? '',
     notes: row.notes ?? '',
@@ -341,6 +357,7 @@ function draftToRow(draft: OnboardingDraft) {
     approver_name: draft.approverName,
     channels: draft.channels,
     goal: draft.goal,
+    goal_type: draft.goalType,
     offer: draft.offer,
     brand_voice: draft.brandVoice,
     notes: draft.notes,
@@ -488,13 +505,13 @@ export async function createOnboardingDraft(initial?: Partial<OnboardingDraft>):
     result = await pool.query<DraftRow>(
       `INSERT INTO onboarding_drafts (
         draft_id, status, website_url, business_name, business_type,
-        approver_name, channels, goal, offer, brand_voice, notes, competitor_url,
+        approver_name, channels, goal, goal_type, offer, brand_voice, notes, competitor_url,
         preview, provenance, materialized_tenant_id, materialized_job_id
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
       RETURNING *`,
       [
         row.draft_id, row.status, row.website_url, row.business_name, row.business_type,
-        row.approver_name, row.channels, row.goal, row.offer, row.brand_voice, row.notes,
+        row.approver_name, row.channels, row.goal, row.goal_type, row.offer, row.brand_voice, row.notes,
         row.competitor_url, row.preview, row.provenance, row.materialized_tenant_id, row.materialized_job_id,
       ],
     );
@@ -692,15 +709,15 @@ export async function updateOnboardingDraft(
     result = await pool.query<DraftRow>(
       `UPDATE onboarding_drafts SET
         status = $2, website_url = $3, business_name = $4, business_type = $5,
-        approver_name = $6, channels = $7, goal = $8, offer = $9,
-        brand_voice = $10, notes = $11, competitor_url = $12,
-        preview = $13, provenance = $14, materialized_tenant_id = $15,
-        materialized_job_id = $16, updated_at = now()
+        approver_name = $6, channels = $7, goal = $8, goal_type = $9, offer = $10,
+        brand_voice = $11, notes = $12, competitor_url = $13,
+        preview = $14, provenance = $15, materialized_tenant_id = $16,
+        materialized_job_id = $17, updated_at = now()
       WHERE draft_id = $1
       RETURNING *`,
       [
         row.draft_id, row.status, row.website_url, row.business_name, row.business_type,
-        row.approver_name, row.channels, row.goal, row.offer, row.brand_voice, row.notes,
+        row.approver_name, row.channels, row.goal, row.goal_type, row.offer, row.brand_voice, row.notes,
         row.competitor_url, row.preview, row.provenance, row.materialized_tenant_id, row.materialized_job_id,
       ],
     );

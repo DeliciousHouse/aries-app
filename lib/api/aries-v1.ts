@@ -235,6 +235,7 @@ export type OnboardingDraft = {
   approverName: string;
   channels: string[];
   goal: string;
+  goalType: GoalType | null;
   offer: string;
   brandVoice: string;
   notes: string;
@@ -359,6 +360,7 @@ export type OnboardingDraftPatch = {
   approverName?: string | null;
   channels?: string[] | null;
   goal?: string | null;
+  goalType?: GoalType | null;
   offer?: string | null;
   brandVoice?: string | null;
   notes?: string | null;

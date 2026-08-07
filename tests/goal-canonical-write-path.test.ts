@@ -12,6 +12,7 @@ import {
   goalTypeLabel,
   isCanonicalGoalType,
   presetLabelForGoalType,
+  resolveOnboardingGoalState,
   resolveGoalTypeForWrite,
 } from '../backend/insights/goal/goal-options';
 import { GOAL_TYPES, deriveStoredGoalType } from '../backend/insights/goal/goal-type-classification';
@@ -91,6 +92,39 @@ test('preset ↔ goal mapping round-trips for every mapped preset', () => {
     );
   }
   assert.equal(presetLabelForGoalType(null), '');
+});
+
+test('onboarding hydration keeps mapped selection separate from custom prose', () => {
+  assert.deepEqual(
+    resolveOnboardingGoalState('Book high-ticket strategy calls', 'lead_generation'),
+    {
+      selection: 'Get leads',
+      customGoal: '',
+      primaryGoal: 'Book high-ticket strategy calls',
+    },
+  );
+});
+
+test('onboarding hydration gives unmapped canonical goals a valid custom state', () => {
+  assert.deepEqual(
+    resolveOnboardingGoalState('Become the category name', 'brand_awareness'),
+    {
+      selection: 'Other',
+      customGoal: 'Become the category name',
+      primaryGoal: 'Become the category name',
+    },
+  );
+});
+
+test('onboarding hydration round-trips custom prose with no canonical key', () => {
+  assert.deepEqual(
+    resolveOnboardingGoalState('Open a second studio', null),
+    {
+      selection: 'Other',
+      customGoal: 'Open a second studio',
+      primaryGoal: 'Open a second studio',
+    },
+  );
 });
 
 test('free-form text still falls through to the keyword derivation', () => {
@@ -178,7 +212,7 @@ test('onboarding no longer keyword-guesses the goal from free text', () => {
   for (const smell of ["includes('lead')", "includes('sell')", "includes('quiz')", "includes('social')"]) {
     assert.ok(!fnBody.includes(smell), `keyword guess ${smell} must be gone`);
   }
-  assert.match(fnBody, /presetLabelForGoalType/, 'it must read the canonical key instead');
+  assert.match(fnBody, /resolveOnboardingGoalState/, 'it must read the canonical key instead');
 });
 
 test('onboarding presets come from the shared list, not a local copy', () => {
@@ -212,11 +246,20 @@ test('the Business Profile screen offers the canonical select AND keeps the free
   assert.match(screen, /value=\{primaryGoal\}/);
 });
 
-test('the API rejects a non-canonical goalType instead of persisting it', () => {
+test('the API rejects a non-canonical goalType instead of persisting it', async () => {
   const route = readFileSync(
     path.join(PROJECT_ROOT, 'app', 'api', 'business', 'profile', 'route.ts'),
     'utf8',
   );
   assert.match(route, /isCanonicalGoalType\(payload\.goalType\)/);
   assert.match(route, /payload\.goalType === undefined/, 'undefined must mean "unchanged"');
+
+  const { PATCH } = await import('../app/api/business/profile/route');
+  const response = await PATCH(new Request('https://aries.example.com/api/business/profile', {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ goalType: 'not-a-canonical-goal' }),
+  }));
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), { error: 'invalid_goal_type' });
 });
