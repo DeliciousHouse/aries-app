@@ -19,10 +19,10 @@ provenance, dependency inventory, vulnerability results, and keyless signatures.
 ### Changed
 
 - Release jobs now pin every external action to a full commit SHA, validate the
-  requested version against repository metadata, and release only current
-  `master` after vulnerability, attestation, and signing gates pass.
-- Version and `latest` image aliases move only after the digest passes the
-  fixable-critical vulnerability gate and all supply-chain evidence is signed.
+  requested version against repository metadata, gate first attempts to current
+  `master`, and permit only commit-pinned retries.
+- Signed evidence is uploaded and verified before Release publication; immutable
+  version aliases follow the Release, and the mutable `latest` alias moves last.
 
 ## v0.1.48.0 — feat(video): ship provider-neutral Hermes rendering
 

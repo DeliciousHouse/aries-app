@@ -2,7 +2,7 @@
 #
 # Distinct from deploy.yml (the self-hosted production pipeline): this runs on
 # GitHub-hosted runners after the same source revision is healthy in production.
-# It fails closed before moving version/latest tags or creating a GitHub Release.
+# It fails closed before publishing a GitHub Release or moving image aliases.
 name: release-image
 run-name: Release ${{ inputs.version || github.ref_name }}
 
@@ -18,7 +18,7 @@ on:
         type: string
 
 concurrency:
-  group: release-${{ inputs.version || github.ref_name }}
+  group: release-${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}
   cancel-in-progress: false
 
 permissions:
@@ -43,6 +43,7 @@ jobs:
           fetch-depth: 0
 
       - name: Validate version and release source
+        id: validate
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           EVENT_NAME: ${{ github.event_name }}
@@ -75,33 +76,69 @@ jobs:
           git fetch --no-tags origin "${DEFAULT_BRANCH}"
           checkout_sha="$(git rev-parse HEAD)"
           default_sha="$(git rev-parse FETCH_HEAD)"
-          if [[ "${checkout_sha}" != "${default_sha}" ]]; then
-            echo "ERROR: releases must target the current origin/${DEFAULT_BRANCH} (${default_sha}), not ${checkout_sha}." >&2
-            exit 1
-          fi
 
+          tag_sha=""
           if git ls-remote --exit-code --refs --tags origin "refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
-            git fetch origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+            git fetch --force origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
             tag_sha="$(git rev-parse "${RELEASE_TAG}^{commit}")"
             if [[ "${tag_sha}" != "${checkout_sha}" ]]; then
               echo "ERROR: existing tag ${RELEASE_TAG} targets ${tag_sha}, not ${checkout_sha}." >&2
               exit 1
             fi
           fi
+
+          existing_release=false
           if gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            echo "ERROR: GitHub Release ${RELEASE_TAG} already exists." >&2
+            existing_release=true
+            release_target="$(gh release view "${RELEASE_TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --json targetCommitish \
+              --jq .targetCommitish)"
+            if [[ -n "${tag_sha}" ]]; then
+              release_target_sha="${tag_sha}"
+            elif [[ "${release_target}" =~ ^[0-9a-f]{40}$ ]]; then
+              release_target_sha="${release_target}"
+            else
+              echo "ERROR: draft GitHub Release ${RELEASE_TAG} is not pinned to a commit SHA." >&2
+              exit 1
+            fi
+            if [[ "${release_target_sha}" != "${checkout_sha}" ]]; then
+              echo "ERROR: existing GitHub Release ${RELEASE_TAG} targets ${release_target_sha}, not ${checkout_sha}." >&2
+              exit 1
+            fi
+          fi
+
+          if [[ "${checkout_sha}" != "${default_sha}" && "${existing_release}" != true ]]; then
+            echo "ERROR: first release attempt must target current origin/${DEFAULT_BRANCH} (${default_sha}), not ${checkout_sha}." >&2
             exit 1
           fi
 
           mkdir -p release-assets
           {
             echo "RELEASE_VERSION=${release_version}"
+            echo "RELEASE_SHA=${checkout_sha}"
             echo "SBOM_PATH=release-assets/aries-app-${RELEASE_TAG}.cdx.json"
             echo "VULNERABILITY_REPORT_PATH=release-assets/aries-app-${RELEASE_TAG}.trivy.json"
             echo "PROVENANCE_PATH=release-assets/aries-app-${RELEASE_TAG}.provenance.sigstore.json"
             echo "SBOM_ATTESTATION_PATH=release-assets/aries-app-${RELEASE_TAG}.sbom-attestation.sigstore.json"
             echo "CHECKSUMS_PATH=release-assets/SHA256SUMS"
           } >> "${GITHUB_ENV}"
+          echo "release_sha=${checkout_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Prepare staged GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release create "${RELEASE_TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --target "${RELEASE_SHA}" \
+              --title "${RELEASE_TAG}" \
+              --notes "Supply-chain evidence is being staged." \
+              --draft
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
@@ -118,10 +155,10 @@ jobs:
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.IMAGE }}
-          tags: type=raw,value=${{ github.sha }}
+          tags: type=raw,value=${{ steps.validate.outputs.release_sha }}
           labels: |
             org.opencontainers.image.version=${{ env.RELEASE_VERSION }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.revision=${{ steps.validate.outputs.release_sha }}
 
       - name: Build and push immutable image
         id: build
@@ -221,18 +258,7 @@ jobs:
           )
           cosign sign-blob --yes --bundle "${CHECKSUMS_PATH}.sigstore.json" "${CHECKSUMS_PATH}"
 
-      - name: Promote verified image tags
-        env:
-          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker buildx imagetools create \
-            --tag "${IMAGE}:${RELEASE_VERSION}" \
-            --tag "${IMAGE}:latest" \
-            "${IMAGE}@${IMAGE_DIGEST}"
-
-      - name: Publish GitHub Release
+      - name: Stage and verify GitHub Release evidence
         env:
           GH_TOKEN: ${{ github.token }}
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
@@ -240,18 +266,154 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          release_notes="$(printf '%s\n' \
-            '## Supply-chain evidence' \
-            '' \
-            "- Image: \`${IMAGE}:${RELEASE_VERSION}@${IMAGE_DIGEST}\`" \
-            "- SLSA provenance: ${PROVENANCE_URL}" \
-            '- Assets include the CycloneDX SBOM, vulnerability report, GitHub attestation bundles, checksums, and Sigstore verification bundles.' \
-            '- Verification instructions: `docs/RELEASES.md`.')"
+          generated_notes="$(gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+            -f tag_name="${RELEASE_TAG}" \
+            -f target_commitish="${RELEASE_SHA}" \
+            --jq .body)"
+          {
+            printf '%s\n' \
+              '## Supply-chain evidence' \
+              '' \
+              "- Image: \`${IMAGE}:${RELEASE_VERSION}@${IMAGE_DIGEST}\`" \
+              "- SLSA provenance: ${PROVENANCE_URL}" \
+              '- Assets include the CycloneDX SBOM, vulnerability report, GitHub attestation bundles, checksums, and Sigstore verification bundles.' \
+              '- Verification instructions: `docs/RELEASES.md`.'
+            if [[ -n "${generated_notes}" ]]; then
+              printf '\n%s\n' "${generated_notes}"
+            fi
+          } > "${RUNNER_TEMP}/release-notes.md"
 
-          gh release create "${RELEASE_TAG}" release-assets/* \
+          gh release edit "${RELEASE_TAG}" \
             --repo "${GITHUB_REPOSITORY}" \
-            --target "${GITHUB_SHA}" \
             --title "${RELEASE_TAG}" \
-            --generate-notes \
-            --notes "${release_notes}" \
-            --latest
+            --notes-file "${RUNNER_TEMP}/release-notes.md"
+
+          expected_assets="${RUNNER_TEMP}/expected-release-assets.tsv"
+          existing_assets="${RUNNER_TEMP}/existing-release-assets.txt"
+          uploaded_assets="${RUNNER_TEMP}/uploaded-release-assets.tsv"
+          : > "${expected_assets}"
+          for asset_path in release-assets/*; do
+            asset_name="${asset_path##*/}"
+            local_size="$(wc -c < "${asset_path}" | tr -d ' ')"
+            printf '%s\t%s\n' "${asset_name}" "${local_size}" >> "${expected_assets}"
+          done
+          sort -o "${expected_assets}" "${expected_assets}"
+
+          gh release view "${RELEASE_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --json assets \
+            --jq '.assets[].name' > "${existing_assets}"
+          while IFS= read -r existing_asset; do
+            if [[ -n "${existing_asset}" ]] && ! cut -f1 "${expected_assets}" | grep -Fxq "${existing_asset}"; then
+              gh release delete-asset "${RELEASE_TAG}" "${existing_asset}" --yes \
+                --repo "${GITHUB_REPOSITORY}"
+            fi
+          done < "${existing_assets}"
+
+          gh release upload "${RELEASE_TAG}" release-assets/* --clobber \
+            --repo "${GITHUB_REPOSITORY}"
+          gh release view "${RELEASE_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --json assets \
+            --jq '.assets[] | [.name, .size] | @tsv' \
+            | sort > "${uploaded_assets}"
+
+          if [[ "$(wc -l < "${uploaded_assets}" | tr -d ' ')" != "$(wc -l < "${expected_assets}" | tr -d ' ')" ]]; then
+            echo "ERROR: GitHub Release ${RELEASE_TAG} does not contain the complete evidence set." >&2
+            exit 1
+          fi
+          while IFS=$'\t' read -r asset_name local_size; do
+            uploaded_size="$(awk -F '\t' -v name="${asset_name}" '$1 == name { print $2 }' "${uploaded_assets}")"
+            if [[ "${uploaded_size}" != "${local_size}" ]]; then
+              echo "ERROR: uploaded asset ${asset_name} has size ${uploaded_size}, expected ${local_size}." >&2
+              exit 1
+            fi
+          done < "${expected_assets}"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release edit "${RELEASE_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --draft=false \
+            --latest=false
+          if [[ "$(gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --json isDraft --jq .isDraft)" != false ]]; then
+            echo "ERROR: GitHub Release ${RELEASE_TAG} did not publish." >&2
+            exit 1
+          fi
+          git fetch --force origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          published_tag_sha="$(git rev-parse "${RELEASE_TAG}^{commit}")"
+          if [[ "${published_tag_sha}" != "${RELEASE_SHA}" ]]; then
+            echo "ERROR: published tag ${RELEASE_TAG} targets ${published_tag_sha}, not ${RELEASE_SHA}." >&2
+            exit 1
+          fi
+
+      - name: Promote immutable version tag
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          resolve_registry_digest() {
+            local reference="$1"
+            local inspect_output digest
+            if inspect_output="$(docker buildx imagetools inspect "${reference}" 2>&1)"; then
+              digest="$(awk '/^Digest:/ { print $2; exit }' <<< "${inspect_output}")"
+              if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                echo "ERROR: could not resolve a digest for ${reference}." >&2
+                return 2
+              fi
+              printf '%s\n' "${digest}"
+              return 0
+            fi
+            if grep -Eqi 'manifest unknown|not found' <<< "${inspect_output}"; then
+              return 1
+            fi
+            echo "ERROR: registry lookup failed for ${reference}: ${inspect_output}" >&2
+            return 2
+          }
+
+          existing_version_digest=""
+          if existing_version_digest="$(resolve_registry_digest "${IMAGE}:${RELEASE_VERSION}")"; then
+            if [[ "${existing_version_digest}" != "${IMAGE_DIGEST}" ]]; then
+              echo "ERROR: immutable version tag ${IMAGE}:${RELEASE_VERSION} targets ${existing_version_digest}, not ${IMAGE_DIGEST}." >&2
+              exit 1
+            fi
+          else
+            resolve_status=$?
+            if [[ "${resolve_status}" -ne 1 ]]; then
+              exit "${resolve_status}"
+            fi
+            docker buildx imagetools create \
+              --tag "${IMAGE}:${RELEASE_VERSION}" \
+              "${IMAGE}@${IMAGE_DIGEST}"
+          fi
+
+          published_version_digest="$(resolve_registry_digest "${IMAGE}:${RELEASE_VERSION}")"
+          if [[ "${published_version_digest}" != "${IMAGE_DIGEST}" ]]; then
+            echo "ERROR: published version tag targets ${published_version_digest}, not ${IMAGE_DIGEST}." >&2
+            exit 1
+          fi
+
+      - name: Promote latest tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            --tag "${IMAGE}:latest" \
+            "${IMAGE}@${IMAGE_DIGEST}"
+          published_latest_digest="$(docker buildx imagetools inspect "${IMAGE}:latest" \
+            | awk '/^Digest:/ { print $2; exit }')"
+          if [[ "${published_latest_digest}" != "${IMAGE_DIGEST}" ]]; then
+            echo "ERROR: latest tag targets ${published_latest_digest}, not ${IMAGE_DIGEST}." >&2
+            exit 1
+          fi
+          gh release edit "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --latest

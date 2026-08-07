@@ -50,18 +50,64 @@ test('release workflow publishes only scanned, attested, keyless-signed artifact
   assert.match(workflow, /cosign sign --yes "\$\{IMAGE\}@\$\{IMAGE_DIGEST\}"/);
   assert.match(workflow, /cosign sign-blob --yes --bundle/);
   assert.match(workflow, /sha256sum \*\.json > SHA256SUMS/);
-  assert.match(workflow, /docker buildx imagetools create[\s\S]*?"\$\{IMAGE\}:\$\{RELEASE_VERSION\}"[\s\S]*?"\$\{IMAGE\}:latest"/);
-  assert.match(workflow, /gh release create "\$\{RELEASE_TAG\}"[\s\S]*?release-assets\/\*/);
-
   const buildIndex = workflow.indexOf('id: build');
   const scanIndex = workflow.indexOf('name: Record vulnerability report');
   const signIndex = workflow.indexOf('name: Keyless-sign image and release artifacts');
-  const promoteIndex = workflow.indexOf('name: Promote verified image tags');
+  const stageIndex = workflow.indexOf('name: Stage and verify GitHub Release evidence');
   const releaseIndex = workflow.indexOf('name: Publish GitHub Release');
+  const versionIndex = workflow.indexOf('name: Promote immutable version tag');
+  const latestIndex = workflow.indexOf('name: Promote latest tag');
   assert.ok(
-    buildIndex < scanIndex && scanIndex < signIndex && signIndex < promoteIndex && promoteIndex < releaseIndex,
-    'build, scan, sign, promote, and release must remain fail-closed and ordered',
+    buildIndex < scanIndex &&
+      scanIndex < signIndex &&
+      signIndex < stageIndex &&
+      stageIndex < releaseIndex &&
+      releaseIndex < versionIndex &&
+      versionIndex < latestIndex,
+    'evidence must be durable before release publication, with immutable version and latest aliases last',
   );
+});
+
+test('release entry points serialize on the same canonical v-prefixed key', () => {
+  const workflow = readRepoFile('.github/workflows/release.yml');
+  const concurrencyExpression = workflow.match(/^  group: release-(\$\{\{.+\}\})$/m)?.[1];
+  const releaseTagExpression = workflow.match(/^  RELEASE_TAG: (\$\{\{.+\}\})$/m)?.[1];
+
+  assert.ok(concurrencyExpression, 'missing release concurrency expression');
+  assert.equal(concurrencyExpression, releaseTagExpression);
+  assert.match(concurrencyExpression, /format\('v\{0\}', inputs\.version\)/);
+});
+
+test('release recovery is pinned, staged, complete, and mismatch-closed', () => {
+  const workflow = readRepoFile('.github/workflows/release.yml');
+
+  assert.match(workflow, /existing_release=false/);
+  assert.match(workflow, /gh release view "\$\{RELEASE_TAG\}"[\s\S]*?--json targetCommitish/);
+  assert.match(workflow, /existing GitHub Release \$\{RELEASE_TAG\} targets \$\{release_target_sha\}, not \$\{checkout_sha\}/);
+  assert.match(workflow, /"\$\{checkout_sha\}" != "\$\{default_sha\}" && "\$\{existing_release\}" != true/);
+  assert.doesNotMatch(workflow, /GitHub Release \$\{RELEASE_TAG\} already exists/);
+
+  assert.match(workflow, /name: Prepare staged GitHub Release[\s\S]*?gh release create "\$\{RELEASE_TAG\}"[\s\S]*?--draft/);
+  assert.match(workflow, /name: Stage and verify GitHub Release evidence[\s\S]*?gh release upload "\$\{RELEASE_TAG\}" release-assets\/\* --clobber/);
+  assert.match(workflow, /gh release delete-asset "\$\{RELEASE_TAG\}" "\$\{existing_asset\}" --yes/);
+  assert.match(workflow, /uploaded_size.*local_size/);
+  assert.match(workflow, /name: Publish GitHub Release[\s\S]*?gh release edit "\$\{RELEASE_TAG\}"[\s\S]*?--draft=false/);
+});
+
+test('version alias is absent or already pinned to the built digest', () => {
+  const workflow = readRepoFile('.github/workflows/release.yml');
+  const versionStep = workflow.slice(
+    workflow.indexOf('name: Promote immutable version tag'),
+    workflow.indexOf('name: Promote latest tag'),
+  );
+
+  assert.match(versionStep, /docker buildx imagetools inspect "\$\{reference\}"/);
+  assert.match(versionStep, /resolve_registry_digest "\$\{IMAGE\}:\$\{RELEASE_VERSION\}"/);
+  assert.match(versionStep, /existing_version_digest/);
+  assert.match(versionStep, /"\$\{existing_version_digest\}" != "\$\{IMAGE_DIGEST\}"/);
+  assert.match(versionStep, /manifest unknown\|not found/);
+  assert.match(versionStep, /docker buildx imagetools create[\s\S]*?--tag "\$\{IMAGE\}:\$\{RELEASE_VERSION\}"/);
+  assert.match(versionStep, /published_version_digest.*IMAGE_DIGEST/);
 });
 
 test('release policy documents versioning, cadence, release gates, and verification', () => {
