@@ -84,10 +84,9 @@ jobs:
             --no-banner \
             --no-color \
             --redact=100 \
-            --verbose \
             --exit-code 2 \
             --log-opts="--all" \
-            .
+            . > /dev/null 2>&1
           scan_status=$?
           set -e
 

@@ -53,6 +53,8 @@ test('warn-only security workflow scans dependencies and full git history', () =
   assert.match(workflow, /--log-opts=['"]--all['"]/);
   assert.match(workflow, /--redact=100/);
   assert.match(workflow, /--exit-code 2/);
+  assert.doesNotMatch(workflow, /--verbose/);
+  assert.match(workflow, /\n\s+\.\s*>\s*\/dev\/null\s+2>&1\r?\n\s+scan_status=\$\?/);
   assert.match(workflow, /::warning(?: title=[^:]*)?::/);
   assert.match(workflow, /exit 0/);
   assert.match(workflow, /fetch-depth: 0/);
