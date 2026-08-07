@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.0.0 — feat(insights): add sync operations and canonical goals
+
+Operators can now inspect social-sync health, receive tenant-safe outage alerts,
+and choose a canonical business goal without losing the goal's free-text context.
+
+### Added
+
+- A tenant-scoped sync-health endpoint reports bounded per-platform history,
+  consecutive failure streaks, restart interruptions, and safe actionable failure
+  categories without exposing provider response bodies.
+- An opt-in runtime worker sends one Slack alert per consecutive-failure episode,
+  with configurable thresholds, tenant-owned routing, stable outage identity, and
+  concurrency-safe delivery.
+- Business Profile and onboarding now persist the canonical goal selection beside
+  free-text goal prose, including mapped presets, custom goals, and brand awareness.
+
+### Changed
+
+- Runtime startup, Compose configuration, environment documentation, and regression
+  verification now include the sync-alert worker and its feature flag.
+- Onboarding drafts carry canonical goal selections through autosave and authenticated
+  materialization using an additive database migration.
+
+### Fixed
+
+- Sync summaries and alerts classify the newest real failed run in each platform's
+  current episode while skipping restart-abort audit rows.
+- Business Profile writes reject invalid non-null goal keys instead of silently
+  clearing the existing canonical goal.
+
 ## v0.1.56.0 — fix(marketing): make weekly generation retries durable
 
 Weekly social-content generation now recovers from immediate or stranded Hermes
