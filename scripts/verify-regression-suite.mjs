@@ -308,6 +308,15 @@ const steps = [
     args: ['--test', 'tests/goal-canonical-write-path.test.ts'],
   },
   {
+    // S6-3/AA-116 (gap F4a): sync-health read model over the previously
+    // write-only insights_sync_runs. Pins the restart-abort marker against the
+    // sweep's own SQL literal (if they drift, every deploy pages), the streak
+    // rules AA-117 alerts on, the failure categories, the row clamp, and the
+    // role boundary that keeps raw adapter error text admin-only. No DB.
+    name: 'insights sync health (F4a)',
+    args: ['--test', 'tests/insights-sync-health.test.ts'],
+  },
+  {
     // AA-153: the workspace header eyebrow follows the job's actual kind
     // instead of a hardcoded "Post" (a week-long weekly job read as a single
     // post). Pure resolver + label, no DB or I/O.

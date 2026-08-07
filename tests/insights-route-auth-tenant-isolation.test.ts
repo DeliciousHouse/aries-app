@@ -59,6 +59,7 @@ import { handleGetInsightsNarrative } from '../backend/insights/narrative/handle
 import { handleGetInsightsTop } from '../backend/insights/top/handler';
 import { handleGetInsightsTrends } from '../backend/insights/trends/handler';
 import { handleGetInsightsExport } from '../app/api/insights/export/route';
+import { handleGetInsightsSyncHealth } from '../backend/insights/sync-health/handler';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 const INSIGHTS_API_DIR = path.join(PROJECT_ROOT, 'app', 'api', 'insights');
@@ -139,6 +140,13 @@ const INSIGHTS_GET_ROUTES: readonly RegisteredRoute[] = [
     source: 'backend/insights/freshness/handler.ts',
     handler: handleGetInsightsFreshness,
     query: '',
+  },
+  {
+    // S6-3/AA-116: sync-health detail over insights_sync_runs.
+    route: 'sync-health',
+    source: 'backend/insights/sync-health/handler.ts',
+    handler: handleGetInsightsSyncHealth,
+    query: '?limit=20',
   },
   {
     route: 'goal',
