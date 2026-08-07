@@ -49,7 +49,7 @@ async function tickSafe(pool: Pool): Promise<void> {
   try {
     const report = await runSyncFailureAlertSweep({
       db: pool,
-      send: (candidate) => notifySyncFailure(candidate, { pool }),
+      send: (candidate, db) => notifySyncFailure(candidate, { pool: (db ?? pool) as typeof pool }),
       ...defaultDedupeDeps(pool),
     });
     if (report.candidates > 0 || report.failed > 0) {

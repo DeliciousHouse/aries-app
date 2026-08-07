@@ -56,6 +56,17 @@ test('env opt-in: no per-tenant config but both env vars set resolves the global
   assert.deepEqual(res, { botToken: 'xoxb-global', channel: 'C0GLOBAL' });
 });
 
+test('multi-tenant callers can disable the global fallback end to end', async () => {
+  const { pool } = chanPool(null);
+  const res = await loadSlackConfigForTenant(15, {
+    pool: pool as never,
+    getToken: tokenNull,
+    env: { SLACK_SINGLE_TENANT_CHANNEL: 'C0GLOBAL', SLACK_BOT_TOKEN: 'xoxb-global' },
+    allowSingleTenantFallback: false,
+  } as never);
+  assert.equal(res, null);
+});
+
 test('env opt-in requires BOTH the channel and the token', async () => {
   const { pool } = chanPool(null);
   const res = await loadSlackConfigForTenant(15, {

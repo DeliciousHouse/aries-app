@@ -41,6 +41,8 @@ export interface LoadSlackConfigDeps {
   ) => Promise<{ accessToken: string; connectionId: string; externalAccountId: string | null } | null>;
   /** Env bag for the global opt-in fallback. Defaults to `process.env`. */
   env?: Partial<Record<string, string | undefined>>;
+  /** Multi-tenant callers must not route one tenant's alert to the global channel. */
+  allowSingleTenantFallback?: boolean;
 }
 
 export async function loadSlackConfigForTenant(
@@ -89,6 +91,8 @@ export async function loadSlackConfigForTenant(
   } catch {
     // fail-open: never throw out of the resolver.
   }
+
+  if (deps.allowSingleTenantFallback === false) return null;
 
   // 2. Explicit single-tenant global opt-in — BOTH must be set, never a silent default.
   const globalChannel = (env.SLACK_SINGLE_TENANT_CHANNEL ?? '').trim();

@@ -7,6 +7,7 @@ import { resolveProjectRoot } from './helpers/project-root';
 import {
   DEFAULT_SYNC_FAILURE_ALERT_THRESHOLD,
   SYNC_ALERT_RUNS_SQL,
+  defaultDedupeDeps,
   isSyncFailureAlertEnabled,
   runSyncFailureAlertSweep,
   selectAlertCandidates,
@@ -125,6 +126,17 @@ test('a success anywhere in the window stops the alert', () => {
   assert.deepEqual(selectAlertCandidates(runs, 3), []);
 });
 
+test('classifies the newest failed non-restart row in the current episode', () => {
+  const candidates = selectAlertCandidates([
+    row({ status: 'running', errorMessage: null }),
+    row({ errorMessage: RESTART_ABORT_MESSAGE }),
+    row({ errorMessage: 'OAuthException: token expired' }),
+    row({ errorMessage: 'OAuthException: token expired' }),
+    row({ errorMessage: 'OAuthException: token expired' }),
+  ], 3);
+  assert.equal(candidates[0]?.failureCategory, 'auth');
+});
+
 // ── Threshold + grouping ─────────────────────────────────────────────────────
 
 test('fires at exactly N, not N-1', () => {
@@ -168,6 +180,15 @@ test('the dedupe key identifies the OUTAGE, not the tenant or the latest run', (
   assert.equal(after.streak, 4);
 });
 
+test('a long outage above the old 20-run window keeps one episode identity', () => {
+  const outage = Array.from({ length: 30 }, (_, index) => row({ id: 130 - index }));
+  const before = selectAlertCandidates(outage, 25)[0];
+  const after = selectAlertCandidates([row({ id: 131 }), ...outage], 25)[0];
+  assert.equal(before?.streak, 30);
+  assert.equal(after?.streak, 31);
+  assert.equal(after?.dedupKey, before?.dedupKey);
+});
+
 test('a NEW outage after a recovery gets a new key, so it pages again', () => {
   const oldEpisodeStart = row();
   const firstOutage = [row(), row(), oldEpisodeStart];
@@ -199,7 +220,7 @@ function sweepDeps(rows: Record<string, unknown>[], sent: Set<string>) {
     posted,
     recorded,
     deps: {
-      db: { async query() { return { rows: rows as never[] }; } },
+      db: { async query(_sql: string, params: unknown[] = []) { return { rows: episodeDbRows(rows, Number(params[0])) as never[] }; } },
       send: async (c: SyncAlertCandidate) => {
         posted.push(c);
         return true;
@@ -227,6 +248,34 @@ function dbRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function episodeDbRows(rows: Record<string, unknown>[], threshold = 3) {
+  const runs = rows.map((row) => ({
+    tenantId: Number(row.tenant_id),
+    id: Number(row.id),
+    platform: String(row.platform),
+    trigger: 'interval',
+    startedAt: String(row.started_at),
+    finishedAt: row.finished_at ? String(row.finished_at) : null,
+    status: String(row.status) as 'running' | 'ok' | 'partial' | 'failed',
+    postsSeen: 0,
+    commentsSeen: 0,
+    apiUnitsUsed: 0,
+    errorMessage: (row.error_message as string | null) ?? null,
+  }));
+  return selectAlertCandidates(runs, threshold).map((candidate) => ({
+    tenant_id: candidate.tenantId,
+    platform: candidate.platform,
+    streak: candidate.streak,
+    first_failed_run_id: candidate.firstFailedRunId,
+    latest_error_message: runs.find(
+      (run) => run.tenantId === candidate.tenantId
+        && run.platform === candidate.platform
+        && run.status === 'failed'
+        && run.errorMessage !== RESTART_ABORT_MESSAGE,
+    )?.errorMessage ?? null,
+  }));
+}
+
 test('a 3-failure streak posts exactly once and records the dedupe row', async () => {
   const { deps, posted, recorded } = sweepDeps([dbRow(), dbRow(), dbRow()], new Set());
   const report = await runSyncFailureAlertSweep(deps);
@@ -234,6 +283,56 @@ test('a 3-failure streak posts exactly once and records the dedupe row', async (
   assert.equal(report.sent, 1);
   assert.equal(posted.length, 1, 'exactly once');
   assert.equal(recorded.length, 1);
+});
+
+test('two concurrent sweeps cannot both deliver the same outage', async () => {
+  const rows = [dbRow(), dbRow(), dbRow()];
+  const recorded = new Set<string>();
+  let advisoryLocked = false;
+  let posted = 0;
+
+  const query = async (sql: string, params: unknown[] = []) => {
+    if (sql.includes('pg_try_advisory_lock')) {
+      if (advisoryLocked) return { rows: [{ locked: false }], rowCount: 1 };
+      advisoryLocked = true;
+      return { rows: [{ locked: true }], rowCount: 1 };
+    }
+    if (sql.includes('pg_advisory_unlock')) {
+      advisoryLocked = false;
+      return { rows: [{ unlocked: true }], rowCount: 1 };
+    }
+    if (sql.includes('SELECT 1 FROM slack_notifications')) {
+      const exists = recorded.has(String(params[0]));
+      return { rows: exists ? [{ found: 1 }] : [], rowCount: exists ? 1 : 0 };
+    }
+    if (sql.includes('INSERT INTO slack_notifications')) {
+      recorded.add(String(params[0]));
+      return { rows: [], rowCount: 1 };
+    }
+    throw new Error(`unexpected query: ${sql}`);
+  };
+  const fakePool = {
+    query,
+    connect: async () => ({ query, release() {} }),
+  };
+  const deps = {
+    db: { async query() { return { rows: episodeDbRows(rows) as never[] }; } },
+    send: async () => {
+      posted += 1;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return true;
+    },
+    ...defaultDedupeDeps(fakePool as never),
+    env: ON,
+  };
+
+  await Promise.all([
+    runSyncFailureAlertSweep(deps),
+    runSyncFailureAlertSweep(deps),
+  ]);
+
+  assert.equal(posted, 1);
+  assert.equal(recorded.size, 1);
 });
 
 test('an already-alerted outage is deduped, not re-posted', async () => {
@@ -278,8 +377,9 @@ test('with the flag OFF the sweep does no work at all', async () => {
 
 test('a failed send leaves NO dedupe row, so the next tick retries', async () => {
   const recorded: string[] = [];
+  const rows = [dbRow(), dbRow(), dbRow()];
   const report = await runSyncFailureAlertSweep({
-    db: { async query() { return { rows: [dbRow(), dbRow(), dbRow()] as never[] }; } },
+    db: { async query() { return { rows: episodeDbRows(rows) as never[] }; } },
     send: async () => false,
     alreadySent: async () => false,
     recordSent: async (c) => { recorded.push(c.dedupKey); },
@@ -297,7 +397,7 @@ test('one tenant failing does not suppress another tenant\'s alert', async () =>
   ];
   const posted: number[] = [];
   const report = await runSyncFailureAlertSweep({
-    db: { async query() { return { rows: rows as never[] }; } },
+    db: { async query() { return { rows: episodeDbRows(rows) as never[] }; } },
     send: async (c) => {
       if (c.tenantId === 7) throw new Error('tenant 7 slack is broken');
       posted.push(c.tenantId);
@@ -323,12 +423,25 @@ test('a scan failure degrades to no alerts rather than throwing', async () => {
   assert.deepEqual(report, { scanned: 0, candidates: 0, sent: 0, deduped: 0, failed: 0 });
 });
 
+test('a configured threshold above 20 is passed to the episode query', async () => {
+  const values: unknown[][] = [];
+  await runSyncFailureAlertSweep({
+    db: { async query(_sql, params = []) { values.push(params); return { rows: [] as never[] }; } },
+    send: async () => true,
+    alreadySent: async () => false,
+    recordSent: async () => {},
+    env: { ...ON, ARIES_SYNC_FAILURE_ALERT_THRESHOLD: '25' },
+  });
+  assert.equal(values[0]?.[0], 25);
+});
+
 // ── Query + message ──────────────────────────────────────────────────────────
 
-test('the scan is bounded per (tenant, platform) and by time', () => {
-  assert.match(SYNC_ALERT_RUNS_SQL, /PARTITION BY r\.tenant_id, r\.platform/);
-  assert.match(SYNC_ALERT_RUNS_SQL, /rn <= \$1/);
-  assert.match(SYNC_ALERT_RUNS_SQL, /now\(\) - interval '7 days'/);
+test('the episode query keeps a stable start beyond any recent-run window', () => {
+  assert.match(SYNC_ALERT_RUNS_SQL, /PARTITION BY (?:r\.)?tenant_id, (?:r\.)?platform/);
+  assert.match(SYNC_ALERT_RUNS_SQL, /first_failed_run_id/);
+  assert.match(SYNC_ALERT_RUNS_SQL, /HAVING COUNT\(\*\) >= \$1/);
+  assert.doesNotMatch(SYNC_ALERT_RUNS_SQL, /7 days|rn <=|LIMIT 20/);
 });
 
 test('the message states the real streak and links to Insights', () => {

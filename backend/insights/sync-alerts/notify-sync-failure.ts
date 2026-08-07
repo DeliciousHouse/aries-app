@@ -84,7 +84,11 @@ export async function notifySyncFailure(
 
   try {
     const resolve = deps.resolveConfig ?? loadSlackConfigForTenant;
-    const cfg = await resolve(candidate.tenantId, { env, pool: deps.pool });
+    const cfg = await resolve(candidate.tenantId, {
+      env,
+      pool: deps.pool,
+      allowSingleTenantFallback: false,
+    });
     if (!cfg) {
       // No Slack for this tenant. Not an error — and deliberately NOT a global
       // fallback channel, which would disclose one tenant's state to another.

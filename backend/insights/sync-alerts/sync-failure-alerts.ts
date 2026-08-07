@@ -20,23 +20,20 @@
  * worker, and because it still fires when the worker is dead or wedged — the
  * case where an operator most needs to hear from us.
  *
- * The streak definition is imported from the AA-116 read model rather than
- * restated, so the number that pages an operator and the number the sync-health
- * endpoint shows them are the same number by construction.
+ * The query applies the same per-platform terminal-run rules as AA-116 while
+ * aggregating the full current episode, so long outages keep a stable identity.
  */
 
 import type { Pool } from 'pg';
 
 import {
+  classifySyncFailure,
   currentFailureEpisode,
+  isRestartAbort,
   type SyncRunRow,
-  type SyncRunStatus,
 } from '../sync-health/sync-health-logic';
-import { classifySyncFailure } from '../sync-health/sync-health-logic';
 
 export const DEFAULT_SYNC_FAILURE_ALERT_THRESHOLD = 3;
-/** How many recent runs per (tenant, platform) the streak is computed over. */
-export const SYNC_ALERT_RUN_WINDOW = 20;
 
 type Env = Partial<Record<string, string | undefined>>;
 
@@ -66,39 +63,50 @@ export function syncAlertDedupKey(
   return `sync-failure:${tenantId}:${platform}:${firstFailedRunId}`;
 }
 
-/**
- * Recent terminal runs per (tenant, platform). Restart-aborts are fetched, not
- * filtered in SQL — the streak logic needs to SKIP them rather than have them
- * silently absent, which is a different thing (an absent row would let an older
- * success look adjacent to a newer failure).
- */
+/** Current failure episodes, aggregated so the outage identity never rolls off a window. */
 export const SYNC_ALERT_RUNS_SQL = `
-  SELECT tenant_id, id, platform, status, error_message, started_at, finished_at
-  FROM (
+  WITH meaningful AS (
     SELECT
       r.tenant_id,
       r.id,
       r.platform,
       r.status,
       r.error_message,
-      r.started_at,
-      r.finished_at,
-      ROW_NUMBER() OVER (
-        PARTITION BY r.tenant_id, r.platform
-        ORDER BY COALESCE(r.finished_at, r.started_at) DESC, r.id DESC
-      ) AS rn
+      COALESCE(r.finished_at, r.started_at) AS event_at
     FROM insights_sync_runs r
-    WHERE r.started_at > now() - interval '7 days'
-  ) ranked
-  WHERE rn <= $1
-  ORDER BY tenant_id, platform, rn
+    WHERE r.status <> 'running'
+      AND NOT (
+        r.status = 'failed'
+        AND lower(btrim(COALESCE(r.error_message, ''))) = 'aborted after application restart'
+      )
+  ), ordered AS (
+    SELECT
+      meaningful.*,
+      COUNT(*) FILTER (WHERE status IN ('ok', 'partial')) OVER (
+        PARTITION BY tenant_id, platform
+        ORDER BY event_at DESC, id DESC
+        ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+      ) AS newer_successes
+    FROM meaningful
+  )
+  SELECT
+    tenant_id,
+    platform,
+    COUNT(*)::int AS streak,
+    (array_agg(id ORDER BY event_at ASC, id ASC))[1] AS first_failed_run_id,
+    (array_agg(error_message ORDER BY event_at DESC, id DESC))[1] AS latest_error_message
+  FROM ordered
+  WHERE status = 'failed' AND newer_successes = 0
+  GROUP BY tenant_id, platform
+  HAVING COUNT(*) >= $1
+  ORDER BY tenant_id, platform
 `;
 
 export interface SyncAlertQueryable {
   query<R extends Record<string, unknown> = Record<string, unknown>>(
     text: string,
     values?: unknown[],
-  ): Promise<{ rows: R[] }>;
+  ): Promise<{ rows: R[]; rowCount?: number | null }>;
 }
 
 export interface SyncAlertCandidate {
@@ -109,6 +117,14 @@ export interface SyncAlertCandidate {
   failureCategory: string;
   dedupKey: string;
 }
+
+type SyncAlertEpisodeRow = {
+  tenant_id: number | string;
+  platform: string;
+  streak: number | string;
+  first_failed_run_id: number | string;
+  latest_error_message: string | null;
+};
 
 /**
  * Which (tenant, platform) pairs are currently in an alertable outage.
@@ -131,12 +147,13 @@ export function selectAlertCandidates(
     const { streak, firstFailedRunId } = currentFailureEpisode(runs);
     if (streak < threshold || firstFailedRunId === null) continue;
     const first = runs[0];
+    const latestFailed = runs.find((run) => run.status === 'failed' && !isRestartAbort(run));
     candidates.push({
       tenantId: first.tenantId,
       platform: first.platform,
       streak,
       firstFailedRunId,
-      failureCategory: classifySyncFailure(first.errorMessage),
+      failureCategory: classifySyncFailure(latestFailed?.errorMessage),
       dedupKey: syncAlertDedupKey(first.tenantId, first.platform, firstFailedRunId),
     });
   }
@@ -148,10 +165,14 @@ export function selectAlertCandidates(
 export interface SyncAlertDeps {
   db: SyncAlertQueryable;
   /** Sends one alert. Injected so the sweep is testable without Slack. */
-  send: (candidate: SyncAlertCandidate) => Promise<boolean>;
+  send: (candidate: SyncAlertCandidate, db?: SyncAlertQueryable) => Promise<boolean>;
   /** Already-delivered check + record, keyed on the episode. */
-  alreadySent: (dedupKey: string) => Promise<boolean>;
-  recordSent: (candidate: SyncAlertCandidate) => Promise<void>;
+  alreadySent: (dedupKey: string, db?: SyncAlertQueryable) => Promise<boolean>;
+  recordSent: (candidate: SyncAlertCandidate, db?: SyncAlertQueryable) => Promise<void>;
+  withCandidateLock?: <T>(
+    dedupKey: string,
+    task: (db: SyncAlertQueryable) => Promise<T>,
+  ) => Promise<T | null>;
   env?: Env;
 }
 
@@ -184,46 +205,46 @@ export async function runSyncFailureAlertSweep(
   };
   if (!isSyncFailureAlertEnabled(env)) return report;
 
-  let rows: (SyncRunRow & { tenantId: number })[];
+  const threshold = syncFailureAlertThreshold(env);
+  let rows: SyncAlertEpisodeRow[];
   try {
-    const res = await deps.db.query<Record<string, unknown>>(SYNC_ALERT_RUNS_SQL, [
-      SYNC_ALERT_RUN_WINDOW,
+    const res = await deps.db.query<SyncAlertEpisodeRow>(SYNC_ALERT_RUNS_SQL, [
+      threshold,
     ]);
-    rows = res.rows.map((r) => ({
-      tenantId: Number(r.tenant_id),
-      id: Number(r.id),
-      platform: String(r.platform ?? 'unknown'),
-      trigger: 'interval',
-      startedAt: String(r.started_at ?? ''),
-      finishedAt: r.finished_at ? String(r.finished_at) : null,
-      status: String(r.status ?? 'running') as SyncRunStatus,
-      postsSeen: 0,
-      commentsSeen: 0,
-      apiUnitsUsed: 0,
-      errorMessage: (r.error_message as string | null) ?? null,
-    }));
+    rows = res.rows;
   } catch (error) {
     console.error('[sync-failure-alerts] run scan failed', error);
     return report;
   }
-  report.scanned = rows.length;
-
-  const candidates = selectAlertCandidates(rows, syncFailureAlertThreshold(env));
+  report.scanned = rows.reduce((total, row) => total + Number(row.streak), 0);
+  const candidates = rows.map((row) => {
+    const tenantId = Number(row.tenant_id);
+    const firstFailedRunId = Number(row.first_failed_run_id);
+    return {
+      tenantId,
+      platform: row.platform,
+      streak: Number(row.streak),
+      firstFailedRunId,
+      failureCategory: classifySyncFailure(row.latest_error_message),
+      dedupKey: syncAlertDedupKey(tenantId, row.platform, firstFailedRunId),
+    };
+  });
   report.candidates = candidates.length;
 
   for (const candidate of candidates) {
     try {
-      if (await deps.alreadySent(candidate.dedupKey)) {
-        report.deduped += 1;
-        continue;
-      }
-      const delivered = await deps.send(candidate);
-      if (!delivered) {
-        report.failed += 1;
-        continue;
-      }
-      await deps.recordSent(candidate);
-      report.sent += 1;
+      const attempt = async (db?: SyncAlertQueryable): Promise<'sent' | 'deduped' | 'failed'> => {
+        if (await deps.alreadySent(candidate.dedupKey, db)) return 'deduped';
+        if (!await deps.send(candidate, db)) return 'failed';
+        await deps.recordSent(candidate, db);
+        return 'sent';
+      };
+      const outcome = deps.withCandidateLock
+        ? await deps.withCandidateLock(candidate.dedupKey, attempt)
+        : await attempt();
+      if (outcome === 'sent') report.sent += 1;
+      else if (outcome === 'failed') report.failed += 1;
+      else report.deduped += 1;
     } catch (error) {
       report.failed += 1;
       console.error('[sync-failure-alerts] candidate failed', {
@@ -237,12 +258,14 @@ export async function runSyncFailureAlertSweep(
   return report;
 }
 
-/** Default dedupe helpers over `slack_notifications`, matching the shipped kind pattern. */
-export function defaultDedupeDeps(pool: Pool): Pick<SyncAlertDeps, 'alreadySent' | 'recordSent'> {
+/** Default dedupe helpers over `slack_notifications`, serialized per outage in Postgres. */
+export function defaultDedupeDeps(
+  pool: Pool,
+): Pick<SyncAlertDeps, 'alreadySent' | 'recordSent' | 'withCandidateLock'> {
   return {
-    async alreadySent(dedupKey) {
+    async alreadySent(dedupKey, db = pool) {
       try {
-        const res = await pool.query(`SELECT 1 FROM slack_notifications WHERE dedup_key = $1`, [
+        const res = await db.query(`SELECT 1 FROM slack_notifications WHERE dedup_key = $1`, [
           dedupKey,
         ]);
         return (res.rowCount ?? 0) > 0;
@@ -252,15 +275,38 @@ export function defaultDedupeDeps(pool: Pool): Pick<SyncAlertDeps, 'alreadySent'
         return false;
       }
     },
-    async recordSent(candidate) {
-      await pool
-        .query(
-          `INSERT INTO slack_notifications (dedup_key, kind, tenant_id, marketing_job_id)
-           VALUES ($1, 'sync_failure', $2, $3)
-           ON CONFLICT (dedup_key) DO NOTHING`,
-          [candidate.dedupKey, candidate.tenantId, `sync:${candidate.platform}`],
-        )
-        .catch(() => {});
+    async recordSent(candidate, db = pool) {
+      await db.query(
+        `INSERT INTO slack_notifications (dedup_key, kind, tenant_id, marketing_job_id)
+         VALUES ($1, 'sync_failure', $2, $3)
+         ON CONFLICT (dedup_key) DO NOTHING`,
+        [candidate.dedupKey, candidate.tenantId, `sync:${candidate.platform}`],
+      );
+    },
+    async withCandidateLock<T>(dedupKey: string, task: (db: SyncAlertQueryable) => Promise<T>) {
+      const client = await pool.connect();
+      let locked = false;
+      let releaseError: Error | undefined;
+      try {
+        const result = await client.query<{ locked: boolean }>(
+          'SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS locked',
+          [dedupKey],
+        );
+        locked = result.rows[0]?.locked === true;
+        return locked ? await task(client) : null;
+      } finally {
+        if (locked) {
+          try {
+            await client.query(
+              'SELECT pg_advisory_unlock(hashtextextended($1, 0)) AS unlocked',
+              [dedupKey],
+            );
+          } catch (error) {
+            releaseError = error as Error;
+          }
+        }
+        client.release(releaseError);
+      }
     },
   };
 }
