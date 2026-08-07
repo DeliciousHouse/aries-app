@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## v0.1.49.0 — chore(ci): harden GitHub Actions supply chain
+## v0.1.54.0 — chore(ci): harden GitHub Actions supply chain
 
 Repository maintainers can now track the project's public OpenSSF Scorecard and
 code-scanning results while every active workflow uses immutable dependencies and
@@ -26,6 +26,50 @@ an explicit least-privilege permission boundary.
 ### Removed
 
 - The superseded issue-agent fixer and blind PR autofix/automerge workflows.
+
+## v0.1.53.0 — feat(runtime): add opt-in Hermes sidecar
+
+Aries operators can now run Hermes Agent beside the application on the shared
+Docker network without depending on a host-installed executable.
+
+### Added
+
+- An opt-in `hermes-sidecar` Compose profile runs the official Hermes Agent
+  v0.20.0 image pinned by manifest digest, reuses the durable Hermes data home,
+  and exposes a bounded healthcheck on the internal network.
+- Runtime contract coverage prevents new direct Hermes CLI process launches
+  outside the explicitly flagged maintenance compatibility worker.
+
+### Changed
+
+- The Aries container healthcheck now verifies both the web app and every
+  distinct configured Hermes stage gateway, while intentional `--no-hermes`
+  installs disable only the network dependency probe.
+- The remaining `hermes kanban gc` CLI worker is deprecated behind a temporary
+  compatibility switch for removal after the production sidecar cutover.
+
+## v0.1.51.0 — chore(security): add disclosure and scanning guardrails
+
+Security researchers can now report vulnerabilities through a defined private
+process, while maintainers receive continuous dependency and secret-risk signals
+without prematurely blocking unrelated pull requests.
+
+### Added
+
+- A coordinated-disclosure policy defines the private reporting channel, response
+  and remediation targets, a 90-day disclosure window, safe harbor, and handling
+  rules for sensitive findings.
+- A checksum-pinned GitHub Actions workflow audits dependencies and scans full Git
+  history for secrets on pull requests, master updates, weekly schedules, and
+  manual runs, with redacted warnings and no uploaded finding artifact.
+- Contract tests protect the reporting policy, immutable action and scanner pins,
+  warn-only behavior, least-privilege permissions, and promotion criteria.
+
+### Changed
+
+- Security scans begin in warn-only mode through 2026-09-05, with a documented
+  review path for making new secret findings and fixable high or critical
+  dependency advisories blocking after the observation period.
 
 ## v0.1.48.0 — feat(video): ship provider-neutral Hermes rendering
 

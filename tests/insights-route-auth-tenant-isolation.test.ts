@@ -58,6 +58,7 @@ import { handleGetInsightsGoal } from '../backend/insights/goal/handler';
 import { handleGetInsightsNarrative } from '../backend/insights/narrative/handler';
 import { handleGetInsightsTop } from '../backend/insights/top/handler';
 import { handleGetInsightsTrends } from '../backend/insights/trends/handler';
+import { handleGetInsightsExport } from '../app/api/insights/export/route';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 const INSIGHTS_API_DIR = path.join(PROJECT_ROOT, 'app', 'api', 'insights');
@@ -123,6 +124,15 @@ const INSIGHTS_GET_ROUTES: readonly RegisteredRoute[] = [
     source: 'backend/insights/conversations/handler.ts',
     handler: handleGetInsightsConversations,
     query: '?period=week',
+  },
+  {
+    // S5-3/AA-112: CSV export. Its handler lives in the route file rather than a
+    // backend/insights/* module, and it reaches its SQL through an `@/` alias
+    // import — see readSurfaceFor, which resolves both import styles.
+    route: 'export',
+    source: 'app/api/insights/export/route.ts',
+    handler: handleGetInsightsExport,
+    query: '?dataset=posts',
   },
   {
     route: 'freshness',
@@ -299,12 +309,26 @@ function readSurfaceFor(source: string): string[] {
   const text = readFileSync(abs, 'utf8');
   const surface = [source];
 
-  for (const match of text.matchAll(/from\s+['"](\.[^'"]+)['"]/g)) {
-    const resolved = path.resolve(path.dirname(abs), `${match[1]}.ts`);
-    const rel = path.relative(PROJECT_ROOT, resolved).split(path.sep).join('/');
+  // BOTH import styles. Relative (`./builder`) is how the section handlers reach
+  // their builders; alias (`@/backend/insights/...`) is how a route-file handler
+  // reaches its SQL module. Resolving only the first would let an alias-importing
+  // route pass the tenant-predicate check vacuously — the export route (AA-112)
+  // is exactly that shape.
+  const specifiers = [
+    ...[...text.matchAll(/from\s+['"](\.[^'"]+)['"]/g)].map((m) =>
+      path.resolve(path.dirname(abs), m[1]),
+    ),
+    ...[...text.matchAll(/from\s+['"]@\/([^'"]+)['"]/g)].map((m) =>
+      path.join(PROJECT_ROOT, m[1]),
+    ),
+  ];
+
+  for (const resolved of specifiers) {
+    const withExt = `${resolved}.ts`;
+    const rel = path.relative(PROJECT_ROOT, withExt).split(path.sep).join('/');
     if (!rel.startsWith('backend/insights/')) continue;
     try {
-      statSync(resolved);
+      statSync(withExt);
       surface.push(rel);
     } catch {
       // Directory import or type-only path — nothing to inspect.
