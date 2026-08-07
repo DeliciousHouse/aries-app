@@ -18,6 +18,8 @@ FROM node:24-bookworm AS runner
 ARG ARIES_NODE_UID=1004
 ARG ARIES_NODE_GID=1004
 ARG HERMES_AGENT_REF=ea0d54db1d22416ea07cd98abfb5d6e160aa86c9
+ARG HERMES_AGENT_SHA256=129ca02ccbb4c9c0e81c3bf4608cc9b150c2cd85aa29ad43e16c5b3602c92275
+ARG HERMES_UV_VERSION=0.11.7
 WORKDIR /app
 
 ENV NODE_ENV=production
@@ -50,22 +52,23 @@ RUN set -eux; \
   mkdir -p /home/node /data/generated/draft /data/generated/validated; \
   chown -R node:node /home/node /data /app
 
-# The runtime starts Hermes-backed workers from this same image. Install from
-# an immutable upstream commit (the v0.20.0 source currently deployed on the
-# host) so rebuilds cannot silently drop or drift the CLI again.
-RUN python3 -m venv /opt/hermes \
-  && /opt/hermes/bin/pip install --no-cache-dir --upgrade pip \
+# Hermes deliberately rejects wheel/sdist builds. Follow its supported editable
+# source install, using the committed uv.lock for dependency hashes/resolution.
+# The source tree remains because the editable runtime imports it directly.
+RUN python3 -m venv /opt/hermes-bootstrap \
+  && /opt/hermes-bootstrap/bin/pip install --no-cache-dir "uv==${HERMES_UV_VERSION}" \
+  && python3 -m venv /opt/hermes \
   && mkdir -p /opt/hermes-agent-src \
   && curl -fsSL \
     "https://github.com/NousResearch/hermes-agent/archive/${HERMES_AGENT_REF}.tar.gz" \
-    | tar -xz --strip-components=1 -C /opt/hermes-agent-src \
-  && /opt/hermes/bin/pip install --no-cache-dir /opt/hermes-agent-src \
-  && rm -rf /opt/hermes-agent-src
+    -o /tmp/hermes-agent.tar.gz \
+  && echo "${HERMES_AGENT_SHA256}  /tmp/hermes-agent.tar.gz" | sha256sum -c - \
+  && tar -xzf /tmp/hermes-agent.tar.gz --strip-components=1 -C /opt/hermes-agent-src \
+  && cd /opt/hermes-agent-src \
+  && UV_CACHE_DIR=/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/opt/hermes \
+    /opt/hermes-bootstrap/bin/uv sync --frozen --no-dev \
+  && rm -rf /opt/hermes-bootstrap /tmp/hermes-agent.tar.gz /tmp/uv-cache
 ENV PATH="/opt/hermes/bin:${PATH}"
-# Build-time regression gate: both root and the final runtime user must resolve
-# and execute Hermes from PATH.
-RUN hermes --version \
-  && su -s /bin/sh node -c 'hermes --version'
 
 COPY package*.json ./
 RUN npm ci --omit=dev \
@@ -100,6 +103,19 @@ COPY --from=builder --chown=node:node /app/tsconfig.json ./tsconfig.json
 COPY --from=builder --chown=node:node /app/VERSION ./VERSION
 
 USER node
+
+# Final-image gate runs as the real runtime user. Hermes stays root-owned and
+# non-writable while remaining executable through the shared PATH.
+RUN test "$(id -un)" = "node" \
+  && test "$(command -v hermes)" = "/opt/hermes/bin/hermes" \
+  && test "$(python -c 'from importlib.metadata import version; print(version("hermes-agent"))')" = "0.20.0" \
+  && hermes --version \
+  && hermes kanban --help >/dev/null \
+  && test "$(stat -c '%U:%G' /opt/hermes/bin/hermes)" = "root:root" \
+  && test ! -w /opt/hermes/bin/hermes \
+  && test ! -e /opt/hermes-bootstrap \
+  && test ! -e /tmp/hermes-agent.tar.gz \
+  && test ! -e /tmp/uv-cache
 
 EXPOSE 3000
 CMD ["npm", "run", "start"]

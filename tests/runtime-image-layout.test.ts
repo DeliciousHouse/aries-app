@@ -43,10 +43,28 @@ test('runtime image bundles a commit-pinned Hermes CLI and proves it is invocabl
     /hermes-agent\/archive\/\$\{HERMES_AGENT_REF\}\.tar\.gz/,
     'the image must install the pinned Hermes source, not an unversioned latest release',
   );
+  assert.match(
+    dockerfileSource,
+    /ARG HERMES_AGENT_SHA256=[0-9a-f]{64}/,
+    'the immutable Hermes archive must carry a pinned integrity digest',
+  );
+  assert.match(dockerfileSource, /sha256sum -c -/);
+  assert.match(
+    dockerfileSource,
+    /uv sync --frozen --no-dev/,
+    'Hermes source installs must use its supported editable, lockfile-backed path',
+  );
+  assert.doesNotMatch(
+    dockerfileSource,
+    /pip install --no-cache-dir \/opt\/hermes-agent-src/,
+    'Hermes rejects non-editable wheel builds',
+  );
   assert.match(dockerfileSource, /ENV PATH="\/opt\/hermes\/bin:\$\{PATH\}"/);
   assert.match(
     dockerfileSource,
-    /RUN hermes --version/,
-    'a missing or broken Hermes executable must fail the image build',
+    /USER node[\s\S]*RUN test "\$\(id -un\)" = "node"[\s\S]*hermes kanban --help/,
+    'the final runtime user must verify the exact CLI and Kanban command',
   );
+  assert.match(dockerfileSource, /test ! -e \/opt\/hermes-bootstrap/);
+  assert.match(dockerfileSource, /test ! -e \/tmp\/hermes-agent\.tar\.gz/);
 });
