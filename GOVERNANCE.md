@@ -163,12 +163,14 @@ process.
 The current default branch contains a tag-triggered workflow that can publish a
 container image to GHCR, and pushes to `master` drive the separate production
 deployment workflow. Those capabilities are not the same as a versioned public
-release. As of 2026-08-06 the repository has no GitHub Releases, and
-`docs/RELEASES.md` is not present on `master`; the proposed signed-release
-policy and first public release are therefore pending, not current capability.
+release. As of 2026-08-07 the repository has no GitHub Releases, and
+`docs/RELEASES.md` is not present on `master`. Signed-release proposal #937
+closed without merging. Security policy and scanning PR #938 merged, while
+OpenSSF Scorecard PR #936 and canonical-license PR #951 remain open and
+unmerged; none of the unmerged proposals defines current repository policy.
 
-If a release-policy change lands, `docs/RELEASES.md` becomes the detailed source
-for versioning, artifacts, signatures, cadence, and release procedure. This
+If a future release-policy change lands, `docs/RELEASES.md` becomes the detailed
+source for versioning, artifacts, signatures, cadence, and release procedure. This
 document remains the source for who may authorize a release: a maintainer after
 required checks and independent review, with the voting rules above for a
 release-process change. A Git tag, package version, deployment, or changelog

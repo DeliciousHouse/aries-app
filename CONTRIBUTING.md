@@ -69,7 +69,11 @@ git rebase upstream/master
 git rev-list --count HEAD..upstream/master  # must print 0
 git push --force-with-lease origin HEAD
 
-# Collaborator: use origin/master in the fetch, rebase, and distance command
+# Collaborator
+git fetch origin --prune
+git rebase origin/master
+git rev-list --count HEAD..origin/master  # must print 0
+git push --force-with-lease origin HEAD
 ```
 
 Resolve a conflict by reading the upstream change and rerunning affected tests;
@@ -160,6 +164,14 @@ regression test, unverifiable, unsafe, inconsistent with repository scope, or
 missing review evidence. A failing required check is never accepted as good
 enough.
 
+## Current repository publication state
+
+As of 2026-08-07, GitHub Releases contains zero releases and
+`docs/RELEASES.md` is absent from `master`. Signed-release proposal #937 closed
+without merging; security policy and scanning PR #938 merged; OpenSSF Scorecard
+PR #936 and canonical-license PR #951 remain open and unmerged. An unmerged or
+closed proposal is not current repository policy.
+
 ## Sensitive areas
 
 The following paths require an explicit security or platform-focused review:
@@ -191,7 +203,8 @@ or mutate production.
 
 ## License and conduct
 
-Unless explicitly marked otherwise, contributions submitted for inclusion are
-accepted under the repository's [Apache License 2.0](LICENSE), consistent with
-its contribution terms. By participating, you agree to follow the
+Contributions submitted for inclusion are accepted under the terms in the
+current [LICENSE](LICENSE). Package metadata declares `Apache-2.0`, but GitHub
+currently classifies that file as `Other` / `NOASSERTION`; canonical Apache-2.0
+replacement PR #951 remains unmerged. By participating, you agree to follow the
 [Contributor Covenant](CODE_OF_CONDUCT.md).
