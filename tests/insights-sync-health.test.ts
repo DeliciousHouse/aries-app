@@ -15,8 +15,10 @@ import {
 import {
   MAX_SYNC_HEALTH_RUNS,
   SYNC_HEALTH_RUNS_SQL,
+  aggregateFailureStreak,
   handleGetInsightsSyncHealth,
   loadSyncRuns,
+  safeSyncFailureDetail,
   type SyncHealthQueryable,
 } from '../backend/insights/sync-health/handler';
 import type { TenantContext } from '../lib/tenant-context';
@@ -121,6 +123,19 @@ test('classifies failures into actionable categories', () => {
   assert.equal(classifySyncFailure('   '), 'other');
 });
 
+test('safe failure detail never returns provider bodies, tokens, URLs, or unbounded text', () => {
+  const inputs = [
+    'OAuth token xoxb-secret-123 expired for https://graph.facebook.com/me?access_token=secret',
+    '429 provider body: ' + 'sensitive '.repeat(500),
+    'Request failed at https://api.example.com/private?id=acct_123 with bearer abc.def.ghi',
+  ];
+  for (const input of inputs) {
+    const detail = safeSyncFailureDetail(input);
+    assert.ok(detail.length <= 160);
+    assert.doesNotMatch(detail, /xoxb|access_token|https?:\/\/|acct_123|abc\.def|sensitive/i);
+  }
+});
+
 // ── Per-platform rollup ──────────────────────────────────────────────────────
 
 test('summarizes each platform independently', () => {
@@ -142,11 +157,21 @@ test('summarizes each platform independently', () => {
   assert.equal(ig.lastSuccessAt, '2026-08-05T09:00:00.000Z');
 });
 
+test('the aggregate streak is computed from platform streaks, not interleaved rows', () => {
+  const platforms = summarizeByPlatform([
+    run({ platform: 'facebook', status: 'failed', errorMessage: 'token expired' }),
+    run({ platform: 'instagram', status: 'ok' }),
+    run({ platform: 'facebook', status: 'failed', errorMessage: 'token expired' }),
+  ]);
+  assert.equal(aggregateFailureStreak(platforms), 2);
+});
+
 // ── Query ────────────────────────────────────────────────────────────────────
 
 test('the runs query is tenant-scoped, parameterized and newest-first', () => {
   assert.match(SYNC_HEALTH_RUNS_SQL, /r\.tenant_id = \$1/);
-  assert.match(SYNC_HEALTH_RUNS_SQL, /LIMIT \$3/);
+  assert.match(SYNC_HEALTH_RUNS_SQL, /PARTITION BY r\.platform/);
+  assert.match(SYNC_HEALTH_RUNS_SQL, /rn <= \$3/);
   assert.match(SYNC_HEALTH_RUNS_SQL, /ORDER BY COALESCE\(r\.finished_at, r\.started_at\) DESC/);
 });
 
@@ -185,6 +210,58 @@ test('a non-numeric tenant is refused rather than coerced', async () => {
   assert.equal(res.status, 403);
 });
 
+test('pool acquisition failures use the documented safe 503 JSON response', async () => {
+  const handler = handleGetInsightsSyncHealth as unknown as (
+    req: Request,
+    tenantLoader: TenantContextLoader,
+    dbPool: { connect: () => Promise<never> },
+  ) => Promise<Response>;
+  const res = await handler(
+    new Request(URL_BASE),
+    loader('tenant_admin'),
+    { async connect() { throw new Error('postgres://user:password@db/private'); } },
+  );
+  assert.equal(res.status, 503);
+  assert.deepEqual(await res.json(), { status: 'error', reason: 'sync_health_unavailable' });
+});
+
+test('platform=all returns each platform and a safe per-platform aggregate', async () => {
+  let released = false;
+  const handler = handleGetInsightsSyncHealth as unknown as (
+    req: Request,
+    tenantLoader: TenantContextLoader,
+    dbPool: { connect: () => Promise<SyncHealthQueryable & { release(): void }> },
+  ) => Promise<Response>;
+  const rows = [
+    { id: 5, platform: 'facebook', trigger: 'interval', started_at: new Date('2026-08-05T12:00:00Z'), finished_at: new Date('2026-08-05T12:01:00Z'), status: 'failed', posts_seen: 0, comments_seen: 0, api_units_used: 1, error_message: 'OAuth token xoxb-secret expired at https://provider.invalid' },
+    { id: 4, platform: 'instagram', trigger: 'interval', started_at: new Date('2026-08-05T11:00:00Z'), finished_at: new Date('2026-08-05T11:01:00Z'), status: 'ok', posts_seen: 2, comments_seen: 1, api_units_used: 1, error_message: null },
+    { id: 3, platform: 'facebook', trigger: 'interval', started_at: new Date('2026-08-05T10:00:00Z'), finished_at: new Date('2026-08-05T10:01:00Z'), status: 'failed', posts_seen: 0, comments_seen: 0, api_units_used: 1, error_message: 'OAuth token expired' },
+  ];
+  const res = await handler(
+    new Request(`${URL_BASE}?platform=all&limit=2`),
+    loader('tenant_admin'),
+    {
+      async connect() {
+        return {
+          async query() { return { rows: rows as never[] }; },
+          release() { released = true; },
+        };
+      },
+    },
+  );
+  const body = await res.json() as {
+    consecutiveFailures: number;
+    platforms: Array<{ platform: string }>;
+    runs: Array<{ failureReason: string | null }>;
+  };
+  assert.equal(res.status, 200);
+  assert.equal(body.consecutiveFailures, 2);
+  assert.deepEqual(body.platforms.map((platform) => platform.platform), ['facebook', 'instagram']);
+  assert.equal(body.runs[0]?.failureReason, 'Authentication failed; reconnect the account.');
+  assert.doesNotMatch(JSON.stringify(body), /xoxb-secret|provider\.invalid/);
+  assert.equal(released, true);
+});
+
 test('the response is never cached', () => {
   // A cached health view would report a sync as broken after it recovered.
   const source = readFileSync(
@@ -194,16 +271,14 @@ test('the response is never cached', () => {
   assert.match(source, /'Cache-Control': 'no-store'/);
 });
 
-test('SECURITY: the raw failure reason is admin-only; other roles get the category', () => {
-  // error_message is raw third-party adapter text — provider internals, request
-  // ids, sometimes the account identifier. The category is enough for a viewer
-  // to act on; the raw string is not theirs to see.
+test('SECURITY: raw provider failures never leave the server', () => {
   const source = readFileSync(
     path.join(PROJECT_ROOT, 'backend', 'insights', 'sync-health', 'handler.ts'),
     'utf8',
   );
   assert.match(source, /role === 'tenant_admin'/);
-  assert.match(source, /failureReason: isAdmin \? run\.errorMessage : null/);
+  assert.match(source, /failureReason: isAdmin .* safeSyncFailureDetail\(run\.errorMessage\) : null/);
+  assert.doesNotMatch(source, /failureReason: isAdmin \? run\.errorMessage : null/);
   // And the payload says WHY it is null, so the UI can tell "no error" apart
   // from "not visible to you".
   assert.match(source, /canSeeFailureDetail: isAdmin/);

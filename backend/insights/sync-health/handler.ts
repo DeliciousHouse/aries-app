@@ -11,12 +11,9 @@
  *
  * Guardrail #1: one clamped, tenant-scoped query on one pooled client.
  *
- * ROLE BOUNDARY. `error_message` is raw third-party adapter text: provider
- * internals, request ids, sometimes the account identifier. The ticket asks for
- * an "admin-visible failure reason", so the raw string is returned ONLY to a
- * tenant_admin. Every other role gets the coarse category, which is enough to
- * act on ("reconnect the account" vs "wait and retry") without pushing provider
- * internals at someone who cannot fix them.
+ * ROLE BOUNDARY. `error_message` is raw third-party adapter text and never leaves
+ * the server. Admins receive a bounded category-specific action; every other role
+ * receives only the coarse category.
  */
 
 import { NextResponse } from 'next/server';
@@ -24,7 +21,6 @@ import pool from '@/lib/db';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 import {
   classifySyncFailure,
-  consecutiveFailureStreak,
   isRestartAbort,
   summarizeByPlatform,
   type SyncRunRow,
@@ -48,11 +44,19 @@ export const SYNC_HEALTH_RUNS_SQL = `
     r.comments_seen  AS comments_seen,
     r.api_units_used AS api_units_used,
     r.error_message  AS error_message
-  FROM insights_sync_runs r
-  WHERE r.tenant_id = $1
-    AND ($2::text IS NULL OR r.platform = $2)
+  FROM (
+    SELECT
+      r.*,
+      ROW_NUMBER() OVER (
+        PARTITION BY r.platform
+        ORDER BY COALESCE(r.finished_at, r.started_at) DESC, r.id DESC
+      ) AS rn
+    FROM insights_sync_runs r
+    WHERE r.tenant_id = $1
+      AND ($2::text IS NULL OR r.platform = $2)
+  ) r
+  WHERE r.rn <= $3
   ORDER BY COALESCE(r.finished_at, r.started_at) DESC, r.id DESC
-  LIMIT $3
 `;
 
 function clampInt(value: number, min: number, max: number): number {
@@ -71,6 +75,26 @@ export interface SyncHealthQueryable {
     text: string,
     values?: unknown[],
   ): Promise<{ rows: R[] }>;
+}
+
+interface SyncHealthPool {
+  connect(): Promise<SyncHealthQueryable & { release(): void }>;
+}
+
+export function safeSyncFailureDetail(errorMessage: string | null): string {
+  switch (classifySyncFailure(errorMessage)) {
+    case 'auth': return 'Authentication failed; reconnect the account.';
+    case 'rate_limit': return 'Provider rate limit reached; retry later.';
+    case 'not_configured': return 'The integration is not configured.';
+    case 'restart_abort': return 'The sync was interrupted by an application restart.';
+    default: return 'The provider sync failed.';
+  }
+}
+
+export function aggregateFailureStreak(
+  platforms: ReturnType<typeof summarizeByPlatform>,
+): number {
+  return Math.max(0, ...platforms.map((platform) => platform.consecutiveFailures));
 }
 
 export async function loadSyncRuns(
@@ -102,6 +126,7 @@ export async function loadSyncRuns(
 export async function handleGetInsightsSyncHealth(
   req: Request,
   tenantContextLoader?: TenantContextLoader,
+  dbPool: SyncHealthPool = pool,
 ): Promise<Response> {
   const tenantResult = await loadTenantContextOrResponse(tenantContextLoader);
   if ('response' in tenantResult) return tenantResult.response;
@@ -121,21 +146,23 @@ export async function handleGetInsightsSyncHealth(
     MAX_SYNC_HEALTH_RUNS,
   );
 
-  const client = await pool.connect();
+  let client: (SyncHealthQueryable & { release(): void }) | undefined;
   let runs: SyncRunRow[];
   try {
+    client = await dbPool.connect();
     runs = await loadSyncRuns(client, tenantId, platform, limit);
   } catch (error) {
     console.error('[insights-sync-health] query failed', error);
     return NextResponse.json({ status: 'error', reason: 'sync_health_unavailable' }, { status: 503 });
   } finally {
-    client.release();
+    client?.release();
   }
 
+  const platforms = summarizeByPlatform(runs);
   const body = {
     status: 'ok' as const,
-    consecutiveFailures: consecutiveFailureStreak(runs),
-    platforms: summarizeByPlatform(runs),
+    consecutiveFailures: aggregateFailureStreak(platforms),
+    platforms,
     runs: runs.map((run) => ({
       id: run.id,
       platform: run.platform,
@@ -154,8 +181,8 @@ export async function handleGetInsightsSyncHealth(
       // broken integration — so nobody chases a deploy artifact as an incident.
       restartAbort: isRestartAbort(run),
       failureCategory: run.status === 'failed' ? classifySyncFailure(run.errorMessage) : null,
-      // Admin only; see the role-boundary note at the top of this file.
-      failureReason: isAdmin ? run.errorMessage : null,
+      // Admin only, but still category-safe: provider bodies and credentials are never returned.
+      failureReason: isAdmin && run.status === 'failed' ? safeSyncFailureDetail(run.errorMessage) : null,
     })),
     meta: {
       limit,

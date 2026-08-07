@@ -58,9 +58,9 @@ export function isRestartAbort(run: Pick<SyncRunRow, 'errorMessage'>): boolean {
  * Bucket a raw adapter error into something safe to show any role.
  *
  * The raw `error_message` is third-party API text and may carry request ids,
- * account identifiers or provider internals, so it is only ever handed to a
- * tenant_admin (see the handler). Everyone else gets one of these categories,
- * which is enough to act on — "reconnect the account" vs "wait and retry".
+ * account identifiers or provider internals, so the handler never returns it.
+ * Clients receive one of these categories and admins may also receive a fixed,
+ * category-specific action.
  */
 export function classifySyncFailure(errorMessage: string | null | undefined): SyncFailureCategory {
   const text = (errorMessage ?? '').toLowerCase();
@@ -160,13 +160,16 @@ export function summarizeByPlatform(runs: readonly SyncRunRow[]): PlatformSyncHe
       const latest = terminal[0] ?? null;
       const lastSuccess = terminal.find((r) => r.status === 'ok' || r.status === 'partial');
       const streak = consecutiveFailureStreak(platformRuns);
+      const latestEpisodeFailure = platformRuns.find(
+        (run) => run.status === 'failed' && !isRestartAbort(run),
+      );
       return {
         platform,
         latestStatus: latest?.status ?? null,
         lastSuccessAt: lastSuccess?.finishedAt ?? null,
         consecutiveFailures: streak,
         failureCategory:
-          streak > 0 && latest ? classifySyncFailure(latest.errorMessage) : null,
+          streak > 0 && latestEpisodeFailure ? classifySyncFailure(latestEpisodeFailure.errorMessage) : null,
       };
     })
     .sort((a, b) => a.platform.localeCompare(b.platform));
