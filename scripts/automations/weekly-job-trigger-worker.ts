@@ -17,8 +17,8 @@
  *
  * Submit failure is LOUD and does not lose the week: on an error response the
  * claim is reverted to the prior last_triggered_at so the next tick retries, and
- * a warning is logged. A deliberate skip (no Meta / stale brand kit / incomplete
- * profile) keeps the claim — it is a decision, not a failure — and is logged so
+ * a warning is logged. A deliberate skip (incomplete profile) keeps the claim —
+ * it is a decision, not a failure — and is logged so
  * an operator can act, without re-triggering every tick.
  *
  * Two hardenings against the 2026-07-20 silent week-skip (claim stamped at
@@ -249,14 +249,24 @@ export const REVERT_CLAIM_SQL = `WITH reverted AS (
      )
      DELETE FROM marketing_weekly_claims WHERE tenant_id = $1`;
 
-// A deliberate gate-skip keeps the schedule claim (no retry this window) but
-// concludes the attempt: the marker is released so heal never re-triggers it.
-export const RELEASE_CLAIM_MARKER_SQL = `DELETE FROM marketing_weekly_claims WHERE tenant_id = $1`;
+// A deliberate gate-skip keeps the cadence claim but clears the failed-attempt
+// candidate before releasing the in-flight marker.
+export const CONCLUDE_SKIP_SQL = `WITH concluded AS (
+    UPDATE marketing_schedule
+       SET last_attempt_at = last_success_at,
+           updated_at = now()
+     WHERE tenant_id = $1
+     RETURNING tenant_id
+  )
+  DELETE FROM marketing_weekly_claims c
+  USING concluded s
+  WHERE c.tenant_id = s.tenant_id`;
 
 // Heal arm: markers older than the stale window belong to attempts that died
 // mid-flight (kill between claim and revert — every live code path concludes
 // its marker). Revert the schedule claim to the marker's captured prior so the
-// tenant is due again, and clear the marker either way. The guard
+// tenant is due again, clear its stranded attempt classification, and clear the
+// marker either way. The guard
 // `ms.last_triggered_at = s.claimed_at` (claim + marker share one statement's
 // now()) ensures we only ever revert the exact claim the marker recorded,
 // never a newer one; a marker whose claim no longer matches is just cleared.
@@ -265,9 +275,10 @@ export const HEAL_STALE_CLAIMS_SQL = `WITH stale AS (
          FROM marketing_weekly_claims
         WHERE claimed_at < now() - make_interval(secs => $1)
      ), healed AS (
-     UPDATE marketing_schedule ms
-        SET last_triggered_at = s.prior_last_triggered_at,
-            updated_at        = now()
+       UPDATE marketing_schedule ms
+          SET last_triggered_at = s.prior_last_triggered_at,
+              last_attempt_at = ms.last_success_at,
+              updated_at = now()
        FROM stale s
       WHERE ms.tenant_id = s.tenant_id
         AND ms.last_triggered_at = s.claimed_at
@@ -460,10 +471,9 @@ export async function tick(
           tenantId, status: body.status, jobId: body.jobId ?? null,
         });
       } else if (body.status === 'skipped') {
-        // Deliberate skip (gate). Keep the claim (no retry this window) but
-        // conclude the attempt by releasing the in-flight marker — a skip must
-        // never look like a stranded claim to the heal arm.
-        await pool.query(RELEASE_CLAIM_MARKER_SQL, [row.tenant_id]);
+        // Deliberate skip (gate). Keep the claim (no retry this window), clear
+        // its failed-attempt classification, and release the in-flight marker.
+        await pool.query(CONCLUDE_SKIP_SQL, [row.tenant_id]);
         report.skipped += 1;
         console.warn('[weekly-trigger-worker] tenant skipped by a gate', {
           tenantId, reason: body.reason ?? 'unknown',

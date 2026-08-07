@@ -132,6 +132,9 @@ export async function triggerWeeklyJobForTenant(
     if (result.status === 'needs_connection') {
       return { status: 'needs_connection', jobId: result.jobId };
     }
+    if (result.immediateSubmissionStatus === 'failed') {
+      return { status: 'error', message: 'Stage 1 submission failed' };
+    }
     return {
       status: 'started',
       jobId: result.jobId,

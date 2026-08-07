@@ -18,7 +18,7 @@
  *     ./node_modules/.bin/tsx --test tests/marketing/weekly-trigger.test.ts
  */
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -177,6 +177,72 @@ test('helper: startJob throw → error result (worker can revert + retry)', asyn
   assert.equal(result.status, 'error');
 });
 
+test('helper: a real startSocialContentJob Stage 1 submission failure is retryable', async () => {
+  const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-weekly-stage1-failure-'));
+  const previous = {
+    CODE_ROOT: process.env.CODE_ROOT,
+    DATA_ROOT: process.env.DATA_ROOT,
+    ARIES_WEEKLY_REEL_ENABLED: process.env.ARIES_WEEKLY_REEL_ENABLED,
+  };
+  process.env.CODE_ROOT = process.cwd();
+  process.env.DATA_ROOT = dataRoot;
+  process.env.ARIES_WEEKLY_REEL_ENABLED = 'false';
+
+  const tenantId = '15';
+  const brandUrl = 'https://brand.example/';
+  const brandKitPath = path.join(dataRoot, 'generated', 'validated', tenantId, 'brand-kit.json');
+  await mkdir(path.dirname(brandKitPath), { recursive: true });
+  await writeFile(brandKitPath, JSON.stringify({
+    tenant_id: tenantId,
+    source_url: brandUrl,
+    canonical_url: brandUrl,
+    brand_name: 'Brand Example',
+    logo_urls: [],
+    colors: { primary: '#111111', secondary: '#222222', accent: '#333333', palette: ['#111111'] },
+    font_families: ['Inter'],
+    external_links: [],
+    extracted_at: new Date().toISOString(),
+  }));
+
+  const orchestrator = await import('../../backend/marketing/orchestrator');
+  orchestrator.__setMarketingExecutionPortForTests(() => ({
+    name: 'hermes',
+    runPipeline: async () => { throw new Error('Hermes Stage 1 submission failed'); },
+    resumePipeline: async () => { throw new Error('not used'); },
+    submitNextStage: async () => { throw new Error('not used'); },
+    getCallbackUrl: () => 'https://aries.example.com/callback',
+    getSessionKey: () => 'test-session',
+    submitRawRun: async () => { throw new Error('not used'); },
+  }));
+
+  try {
+    const { triggerWeeklyJobForTenant } = await import('../../backend/marketing/weekly-trigger');
+    const result = await triggerWeeklyJobForTenant(tenantId, {
+      loadPayloadDefaults: (async () => ({ websiteUrl: brandUrl, businessType: 'coaching' })) as never,
+      findRecentJobId: async () => null,
+      startJob: orchestrator.startSocialContentJob,
+      now: () => FRESH_NOW,
+    });
+    assert.equal(result.status, 'error', 'the worker must revert its claim instead of marking success');
+    if (result.status === 'error') assert.equal(result.message, 'Stage 1 submission failed');
+
+    const jobFiles = await readdir(path.join(dataRoot, 'generated', 'draft', 'marketing-jobs'));
+    assert.equal(jobFiles.length, 1, 'the failed submission remains durable for diagnosis');
+    const failedDoc = JSON.parse(await readFile(
+      path.join(dataRoot, 'generated', 'draft', 'marketing-jobs', jobFiles[0]),
+      'utf8',
+    ));
+    assert.equal(failedDoc.state, 'failed');
+  } finally {
+    orchestrator.__setMarketingExecutionPortForTests(null);
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await rm(dataRoot, { recursive: true, force: true });
+  }
+});
+
 test('helper idempotency: a recent worker-created weekly job → deduped, startJob NOT called', async () => {
   const { triggerWeeklyJobForTenant } = await import('../../backend/marketing/weekly-trigger');
   let started = false;
@@ -219,6 +285,8 @@ test('findRecentJobIdForTenant: matches only recent, same-tenant, worker-created
     const base = { schema_name: 'marketing_job_state_schema', tenant_id: '15', stages: { research: {} } };
     // MATCH: recent, tenant 15, worker-created weekly.
     await writeDoc({ ...base, job_id: 'mkt_match', job_type: 'weekly_social_content', created_by: 'weekly-trigger-worker', created_at: iso(NOW - 60 * 60 * 1000) });
+    // A failed Stage 1 submission is retryable, not a dedupe winner.
+    await writeDoc({ ...base, job_id: 'mkt_failed', job_type: 'weekly_social_content', created_by: 'weekly-trigger-worker', created_at: iso(NOW - 15 * 60 * 1000), state: 'failed', status: 'failed' });
     // too old (10d before NOW)
     await writeDoc({ ...base, job_id: 'mkt_old', job_type: 'weekly_social_content', created_by: 'weekly-trigger-worker', created_at: iso(NOW - 10 * 24 * 60 * 60 * 1000) });
     // manual (different created_by)
@@ -280,6 +348,64 @@ function makePool(
     },
   };
   return pool;
+}
+
+type StatefulScheduleRow = {
+  tenant_id: number;
+  day_of_week: number;
+  hour: number;
+  timezone: string;
+  last_triggered_at: string | null;
+  last_attempt_at?: string | null;
+  last_success_at?: string | null;
+};
+
+function makeStatefulPool(
+  initial: StatefulScheduleRow,
+  staleClaim?: { priorLastTriggeredAt: string | null },
+) {
+  const row = { ...initial };
+  const calls: Call[] = [];
+  let sqlNow = TICK_NOW;
+  let marker = staleClaim ? { ...staleClaim } : null;
+  return {
+    calls,
+    row,
+    setNow(now: Date) { sqlNow = now; },
+    async query(sql: string, params: unknown[] = []) {
+      calls.push({ sql, params });
+      if (sql.includes('WITH stale AS')) {
+        if (!marker) return { rows: [], rowCount: 0 };
+        row.last_triggered_at = marker.priorLastTriggeredAt;
+        if (sql.includes('last_attempt_at = ms.last_success_at')) {
+          row.last_attempt_at = row.last_success_at ?? null;
+        }
+        marker = null;
+        return { rows: [{ tenant_id: row.tenant_id, reverted: true }], rowCount: 1 };
+      }
+      if (sql.includes('WHERE enabled')) return { rows: [{ ...row }], rowCount: 1 };
+      if (sql.includes('UPDATE marketing_schedule m')) {
+        const priorLastTriggeredAt = row.last_triggered_at;
+        row.last_triggered_at = sqlNow.toISOString();
+        row.last_attempt_at = sqlNow.toISOString();
+        marker = { priorLastTriggeredAt };
+        return { rows: [{ prior_last_triggered_at: priorLastTriggeredAt }], rowCount: 1 };
+      }
+      if (sql.includes('last_success_at = now()')) {
+        row.last_success_at = sqlNow.toISOString();
+        marker = null;
+      } else if (sql.includes('SET last_triggered_at = $2')) {
+        row.last_triggered_at = params[1] as string | null;
+        marker = null;
+      } else if (sql.includes('DELETE FROM marketing_weekly_claims')) {
+        if (sql.includes('last_attempt_at = last_success_at')) {
+          row.last_attempt_at = row.last_success_at ?? null;
+        }
+        marker = null;
+      }
+      return { rows: [], rowCount: 1 };
+    },
+  };
 }
 
 function fakeFetch(response: { ok: boolean; status: number; body: unknown }): typeof fetch {
@@ -525,6 +651,10 @@ test('claim marker lifecycle: claim writes it atomically; success and skip relea
       skipPool.calls.some((c) => c.sql.includes('DELETE FROM marketing_weekly_claims') && !c.sql.includes('SET last_triggered_at')),
       'skip must release the marker without reverting the claim',
     );
+    assert.ok(
+      skipPool.calls.some((c) => c.sql.includes('last_attempt_at = last_success_at')),
+      'skip must not remain classified as a failed attempt',
+    );
   });
 });
 
@@ -537,6 +667,71 @@ test('heal arm: runs first each tick, stale markers are healed and counted', asy
     assert.ok(pool.calls[0].sql.includes('WITH stale AS'), 'heal must run BEFORE the enabled scan so the tenant is re-claimable this tick');
     const staleSecs = pool.calls[0].params[0] as number;
     assert.ok(Number.isFinite(staleSecs) && staleSecs >= 45 * 60, 'stale window must be at least 45 minutes');
+  });
+});
+
+test('heal arm: a stale failed attempt is immediately retryable without duplicate submission', async () => {
+  await withTickEnv({}, async () => {
+    const { tick } = await import('../../scripts/automations/weekly-job-trigger-worker');
+    const pool = makeStatefulPool({
+      ...DUE_ROW,
+      last_triggered_at: new Date(TICK_NOW.getTime() - 2 * 60 * 60 * 1000).toISOString(),
+      last_attempt_at: new Date(TICK_NOW.getTime() - 2 * 60 * 60 * 1000).toISOString(),
+      last_success_at: '2026-05-20T09:00:00.000Z',
+    }, { priorLastTriggeredAt: '2026-05-20T09:00:00.000Z' });
+    let submissions = 0;
+    const fetchImpl = (async () => {
+      submissions += 1;
+      return { ok: true, status: 200, json: async () => ({ status: 'started', jobId: 'healed_retry' }) };
+    }) as unknown as typeof fetch;
+
+    const healed = await tick(pool, { now: TICK_NOW, fetchImpl });
+    assert.equal(healed.healed, 1);
+    assert.equal(healed.due, 1, 'healing must clear the stranded attempt classification in the same tick');
+    assert.equal(healed.started, 1);
+    assert.equal(submissions, 1);
+
+    const nextScan = new Date(TICK_NOW.getTime() + 15 * 60 * 1000);
+    pool.setNow(nextScan);
+    const duplicate = await tick(pool, { now: nextScan, fetchImpl });
+    assert.equal(duplicate.due, 0, 'the successful healed retry must remain cadence-gated');
+    assert.equal(submissions, 1, 'the scanner must not submit a duplicate');
+  });
+});
+
+test('deliberate skip remains cadence-gated and never becomes an overdue failure', async () => {
+  await withTickEnv({}, async () => {
+    const { tick } = await import('../../scripts/automations/weekly-job-trigger-worker');
+    const pool = makeStatefulPool({
+      ...DUE_ROW,
+      last_success_at: '2026-05-20T09:00:00.000Z',
+    });
+    let submissions = 0;
+    const fetchImpl = (async () => {
+      submissions += 1;
+      return { ok: true, status: 200, json: async () => ({ status: 'skipped', reason: 'incomplete_profile' }) };
+    }) as unknown as typeof fetch;
+    const originalError = console.error;
+    const errors: unknown[][] = [];
+    console.error = (...args: unknown[]) => { errors.push(args); };
+
+    try {
+      const skipped = await tick(pool, { now: TICK_NOW, fetchImpl });
+      assert.equal(skipped.skipped, 1);
+      assert.equal(submissions, 1);
+
+      const nextDay = new Date(TICK_NOW.getTime() + 25 * 60 * 60 * 1000);
+      pool.setNow(nextDay);
+      const later = await tick(pool, { now: nextDay, fetchImpl });
+      assert.equal(later.due, 0, 'a terminal gate skip must not enter the daily failed-attempt retry path');
+      assert.equal(submissions, 1);
+      assert.ok(
+        !errors.some((args) => String(args[0]).includes('weekly trigger unsuccessful for more than 24h')),
+        'a deliberate skip must never page as an overdue failure',
+      );
+    } finally {
+      console.error = originalError;
+    }
   });
 });
 
