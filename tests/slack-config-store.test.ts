@@ -61,9 +61,9 @@ test('multi-tenant callers can disable the global fallback end to end', async ()
   const res = await loadSlackConfigForTenant(15, {
     pool: pool as never,
     getToken: tokenNull,
-    env: { SLACK_SINGLE_TENANT_CHANNEL: 'C0GLOBAL', SLACK_BOT_TOKEN: 'xoxb-global' },
+    env: { SLACK_SINGLE_TENANT_CHANNEL: 'C0GLOBAL', SLACK_BOT_TOKEN: 'bot-token-placeholder' },
     allowSingleTenantFallback: false,
-  } as never);
+  });
   assert.equal(res, null);
 });
 
