@@ -33,17 +33,38 @@ try {
     if (!gatewayUrl) {
       throw new Error('Hermes healthcheck failed: HERMES_GATEWAY_URL is required');
     }
-    const healthUrl = new URL('health', gatewayUrl.endsWith('/') ? gatewayUrl : `${gatewayUrl}/`);
-    const apiKey = process.env.HERMES_API_SERVER_KEY?.trim();
-    await requireHealthy(
-      'Hermes',
-      healthUrl,
-      apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined,
-    );
+
+    const gateways = new Map();
+    const defaultApiKey = process.env.HERMES_API_SERVER_KEY?.trim();
+    for (const [stage, urlEnvName, keyEnvName] of [
+      ['default', 'HERMES_GATEWAY_URL', 'HERMES_API_SERVER_KEY'],
+      ['research', 'HERMES_RESEARCH_GATEWAY_URL', 'HERMES_RESEARCH_API_SERVER_KEY'],
+      ['strategist', 'HERMES_STRATEGIST_GATEWAY_URL', 'HERMES_STRATEGIST_API_SERVER_KEY'],
+      ['content', 'HERMES_CONTENT_GATEWAY_URL', 'HERMES_CONTENT_API_SERVER_KEY'],
+    ]) {
+      const url = (process.env[urlEnvName]?.trim() || gatewayUrl).replace(/\/+$/, '');
+      const gateway = gateways.get(url);
+      if (gateway) {
+        gateway.stages.push(stage);
+      } else {
+        gateways.set(url, {
+          stages: [stage],
+          apiKey: process.env[keyEnvName]?.trim() || defaultApiKey,
+        });
+      }
+    }
+
+    for (const [url, { stages, apiKey }] of gateways) {
+      await requireHealthy(
+        `Hermes ${stages.join('/')} gateway`,
+        new URL('health', `${url}/`),
+        apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined,
+      );
+    }
   }
 
   console.log('[healthcheck] ok');
 } catch (error) {
   console.error(`[healthcheck] ${String(error?.message || error)}`);
-  process.exit(1);
+  process.exitCode = 1;
 }

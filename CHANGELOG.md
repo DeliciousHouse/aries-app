@@ -17,9 +17,9 @@ Docker network without depending on a host-installed executable.
 
 ### Changed
 
-- The Aries container healthcheck now verifies both the web app and its
-  configured Hermes gateway, while intentional `--no-hermes` installs disable
-  only the network dependency probe.
+- The Aries container healthcheck now verifies both the web app and every
+  distinct configured Hermes stage gateway, while intentional `--no-hermes`
+  installs disable only the network dependency probe.
 - The remaining `hermes kanban gc` CLI worker is deprecated behind a temporary
   compatibility switch for removal after the production sidecar cutover.
 

@@ -52,56 +52,136 @@ function sourceFiles(root: string): string[] {
   });
 }
 
-function directHermesCliCalls(): string[] {
+function directHermesCliCallsInSource(filePath: string, source: string): string[] {
   const calls: string[] = [];
-  for (const sourceRoot of SOURCE_ROOTS) {
-    const absoluteRoot = path.join(PROJECT_ROOT, sourceRoot);
-    for (const filePath of sourceFiles(absoluteRoot)) {
-      const source = readFileSync(filePath, 'utf8');
-      const sourceFile = ts.createSourceFile(
-        filePath,
-        source,
-        ts.ScriptTarget.Latest,
-        true,
-        /\.(?:ts|tsx)$/.test(filePath) ? ts.ScriptKind.TS : ts.ScriptKind.JS,
-      );
-      const commandBindings = new Set<string>();
-      for (const statement of sourceFile.statements) {
-        if (
-          !ts.isImportDeclaration(statement)
-          || statement.moduleSpecifier.getText(sourceFile).replaceAll(/["']/g, '') !== 'node:child_process'
-          || !statement.importClause?.namedBindings
-          || !ts.isNamedImports(statement.importClause.namedBindings)
-        ) {
-          continue;
-        }
-        for (const element of statement.importClause.namedBindings.elements) {
+  const sourceFile = ts.createSourceFile(
+    filePath,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    /\.(?:ts|tsx)$/.test(filePath) ? ts.ScriptKind.TS : ts.ScriptKind.JS,
+  );
+  const commandBindings = new Set<string>();
+  const namespaceBindings = new Set<string>();
+  const initializers = new Map<string, ts.Expression>();
+  const childProcessModule = (expression: ts.Expression): boolean => (
+    ts.isStringLiteral(expression)
+    && (expression.text === 'child_process' || expression.text === 'node:child_process')
+  );
+  const childProcessRequire = (expression: ts.Expression | undefined): boolean => (
+    Boolean(expression)
+    && ts.isCallExpression(expression!)
+    && ts.isIdentifier(expression!.expression)
+    && expression!.expression.text === 'require'
+    && expression!.arguments.length === 1
+    && childProcessModule(expression!.arguments[0])
+  );
+
+  const collectBindings = (node: ts.Node): void => {
+    if (
+      ts.isImportDeclaration(node)
+      && childProcessModule(node.moduleSpecifier)
+      && node.importClause?.namedBindings
+    ) {
+      if (ts.isNamedImports(node.importClause.namedBindings)) {
+        for (const element of node.importClause.namedBindings.elements) {
           const importedName = element.propertyName?.text ?? element.name.text;
           if (CHILD_PROCESS_COMMANDS.has(importedName)) {
             commandBindings.add(element.name.text);
           }
         }
+      } else {
+        namespaceBindings.add(node.importClause.namedBindings.name.text);
       }
-      if (commandBindings.size === 0) {
-        continue;
-      }
+    }
 
-      const visit = (node: ts.Node): void => {
-        if (
-          ts.isCallExpression(node)
-          && ts.isIdentifier(node.expression)
-          && commandBindings.has(node.expression.text)
-          && /hermes/i.test(node.arguments[0]?.getText(sourceFile) ?? '')
-        ) {
-          const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
-          calls.push(`${path.relative(PROJECT_ROOT, filePath).replaceAll('\\', '/')}:${line}`);
+    if (ts.isVariableDeclaration(node) && node.initializer) {
+      if (ts.isIdentifier(node.name)) {
+        initializers.set(node.name.text, node.initializer);
+        if (childProcessRequire(node.initializer)) {
+          namespaceBindings.add(node.name.text);
         }
-        ts.forEachChild(node, visit);
-      };
-      visit(sourceFile);
+      } else if (ts.isObjectBindingPattern(node.name) && childProcessRequire(node.initializer)) {
+        for (const element of node.name.elements) {
+          if (!ts.isIdentifier(element.name)) continue;
+          const importedName = element.propertyName?.getText(sourceFile) ?? element.name.text;
+          if (CHILD_PROCESS_COMMANDS.has(importedName)) {
+            commandBindings.add(element.name.text);
+          }
+        }
+      }
+    }
+    ts.forEachChild(node, collectBindings);
+  };
+  collectBindings(sourceFile);
+
+  for (const [name, initializer] of initializers) {
+    if (ts.isIdentifier(initializer) && commandBindings.has(initializer.text)) {
+      commandBindings.add(name);
+    }
+    if (
+      ts.isPropertyAccessExpression(initializer)
+      && CHILD_PROCESS_COMMANDS.has(initializer.name.text)
+      && (
+        (ts.isIdentifier(initializer.expression) && namespaceBindings.has(initializer.expression.text))
+        || childProcessRequire(initializer.expression)
+      )
+    ) {
+      commandBindings.add(name);
     }
   }
+
+  const resolveStaticString = (expression: ts.Expression | undefined, seen = new Set<string>()): string | null => {
+    if (!expression) return null;
+    if (ts.isStringLiteralLike(expression)) return expression.text;
+    if (ts.isNoSubstitutionTemplateLiteral(expression)) return expression.text;
+    if (ts.isParenthesizedExpression(expression)) return resolveStaticString(expression.expression, seen);
+    if (ts.isIdentifier(expression)) {
+      if (seen.has(expression.text)) return null;
+      const initializer = initializers.get(expression.text);
+      if (!initializer) return null;
+      return resolveStaticString(initializer, new Set([...seen, expression.text]));
+    }
+    if (ts.isBinaryExpression(expression) && expression.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      const left = resolveStaticString(expression.left, seen);
+      const right = resolveStaticString(expression.right, seen);
+      return left !== null && right !== null ? left + right : null;
+    }
+    return null;
+  };
+
+  const isChildProcessCommand = (expression: ts.LeftHandSideExpression): boolean => {
+    if (ts.isIdentifier(expression)) return commandBindings.has(expression.text);
+    return ts.isPropertyAccessExpression(expression)
+      && CHILD_PROCESS_COMMANDS.has(expression.name.text)
+      && (
+        (ts.isIdentifier(expression.expression) && namespaceBindings.has(expression.expression.text))
+        || childProcessRequire(expression.expression)
+      );
+  };
+
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node)
+      && isChildProcessCommand(node.expression)
+      && /hermes/i.test(resolveStaticString(node.arguments[0]) ?? node.arguments[0]?.getText(sourceFile) ?? '')
+    ) {
+      const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+      calls.push(`${path.relative(PROJECT_ROOT, filePath).replaceAll('\\', '/')}:${line}`);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
   return calls;
+}
+
+function directHermesCliCalls(): string[] {
+  return SOURCE_ROOTS.flatMap((sourceRoot) => {
+    const absoluteRoot = path.join(PROJECT_ROOT, sourceRoot);
+    return sourceFiles(absoluteRoot).flatMap((filePath) => (
+      directHermesCliCallsInSource(filePath, readFileSync(filePath, 'utf8'))
+    ));
+  });
 }
 
 function runHealthcheck(
@@ -154,31 +234,64 @@ test('the only direct Hermes CLI spawn is the explicitly flagged compatibility w
   assert.match(compatSource, /ARIES_HERMES_CLI_COMPAT_ENABLED/);
 });
 
-test('container healthcheck fails closed on Hermes failure and supports no-Hermes installs', async (t) => {
-  const server = createServer((request, response) => {
-    response.statusCode = request.url === '/app' ? 204 : 503;
+test('the direct Hermes CLI boundary catches command aliases, namespace imports, and require forms', () => {
+  const fixtures = [
+    `import { spawn as run } from 'node:child_process'; const command = 'hermes'; run(command, []);`,
+    `import * as cp from 'node:child_process'; const command = 'hermes'; cp.execFile(command, []);`,
+    `const cp = require('child_process'); const command = 'hermes'; cp.spawnSync(command, []);`,
+    `const { execFileSync: run } = require('node:child_process'); const command = 'hermes'; run(command, []);`,
+    `const command = 'hermes'; require('child_process').execFile(command, []);`,
+  ];
+  const calls = fixtures.flatMap((source, index) => (
+    directHermesCliCallsInSource(path.join(PROJECT_ROOT, `fixture-${index}.ts`), source)
+  ));
+
+  assert.equal(calls.length, fixtures.length, `undetected direct Hermes CLI fixtures: ${calls.join(', ')}`);
+});
+
+test('container healthcheck probes distinct stage gateways once and identifies failures', async (t) => {
+  const healthHits = [0, 0, 0];
+  const statuses = [200, 200, 503];
+  const expectedAuthorizations = ['Bearer base-key', 'Bearer strategist-key', 'Bearer content-key'];
+  const servers = statuses.map((status, index) => createServer((request, response) => {
+    if (request.url === '/health') healthHits[index] += 1;
+    response.statusCode = request.url === '/app'
+      ? 204
+      : request.headers.authorization === expectedAuthorizations[index] ? status : 401;
     response.end();
-  });
-  await new Promise<void>((resolve, reject) => {
+  }));
+  await Promise.all(servers.map((server) => new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', resolve);
-  });
-  t.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  })));
+  t.after(() => Promise.all(servers.map((server) => (
+    new Promise<void>((resolve) => server.close(() => resolve()))
+  ))).then(() => undefined));
 
-  const address = server.address();
-  assert.ok(address && typeof address === 'object');
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const urls = servers.map((server) => {
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+    return `http://127.0.0.1:${address.port}`;
+  });
   const baseEnv = {
-    ARIES_APP_HEALTHCHECK_URL: `${baseUrl}/app`,
-    HERMES_GATEWAY_URL: baseUrl,
+    ARIES_APP_HEALTHCHECK_URL: `${urls[0]}/app`,
+    HERMES_GATEWAY_URL: urls[0],
+    HERMES_API_SERVER_KEY: 'base-key',
+    HERMES_RESEARCH_GATEWAY_URL: urls[0],
+    HERMES_RESEARCH_API_SERVER_KEY: 'research-key',
+    HERMES_STRATEGIST_GATEWAY_URL: urls[1],
+    HERMES_STRATEGIST_API_SERVER_KEY: 'strategist-key',
+    HERMES_CONTENT_GATEWAY_URL: urls[2],
+    HERMES_CONTENT_API_SERVER_KEY: 'content-key',
   };
 
   const required = await runHealthcheck({
     ...baseEnv,
     ARIES_HERMES_NETWORK_HEALTHCHECK_ENABLED: '1',
   });
-  assert.equal(required.code, 1);
-  assert.match(required.stderr, /Hermes healthcheck failed/);
+  assert.equal(required.code, 1, `${required.stderr}\n${required.stdout}`);
+  assert.match(required.stderr, /content/);
+  assert.deepEqual(healthHits, [1, 1, 1]);
 
   const disabled = await runHealthcheck({
     ...baseEnv,
