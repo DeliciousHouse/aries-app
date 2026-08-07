@@ -128,7 +128,7 @@ test('production deploy starts autoheal before the web container and treats its 
   );
   assert.match(
     deployParitySource,
-    /const recreateExemptServices: string\[\] = \['aries-autoheal'\]/,
-    'the manifest parity test should exempt the separately deployed external image',
+    /const recreateExemptServices: string\[\] = \['aries-autoheal', 'aries-hermes'\]/,
+    'the manifest parity test should exempt both separately versioned external images',
   );
 });

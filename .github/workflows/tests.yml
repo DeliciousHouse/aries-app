@@ -64,6 +64,22 @@ jobs:
           tests/scheduled-worker-claim-lock-order.test.ts
           tests/scheduled-worker-sweep-lock-order.test.ts
           tests/scheduled-dispatch-cutover.requires-infra.test.ts
+
+  hermes-sidecar-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Verify pinned Hermes sidecar generation contract
+        run: node tests/hermes-sidecar-integration.mjs
+
   full-suite:
     needs: feedback-postgres
     runs-on: ubuntu-latest

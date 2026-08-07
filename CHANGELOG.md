@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.53.0 — feat(runtime): add opt-in Hermes sidecar
+
+Aries operators can now run Hermes Agent beside the application on the shared
+Docker network without depending on a host-installed executable.
+
+### Added
+
+- An opt-in `hermes-sidecar` Compose profile runs the official Hermes Agent
+  v0.20.0 image pinned by manifest digest, reuses the durable Hermes data home,
+  and exposes a bounded healthcheck on the internal network.
+- Runtime contract coverage prevents new direct Hermes CLI process launches
+  outside the explicitly flagged maintenance compatibility worker.
+
+### Changed
+
+- The Aries container healthcheck now verifies both the web app and every
+  distinct configured Hermes stage gateway, while intentional `--no-hermes`
+  installs disable only the network dependency probe.
+- The remaining `hermes kanban gc` CLI worker is deprecated behind a temporary
+  compatibility switch for removal after the production sidecar cutover.
+
 ## v0.1.51.1 — fix(marketing): restore weekly generation retries
 
 Weekly social-content generation now recovers instead of silently losing a

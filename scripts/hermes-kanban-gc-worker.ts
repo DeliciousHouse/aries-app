@@ -2,7 +2,8 @@
  * Hermes kanban GC worker — spawned by start-runtime.mjs when
  * ARIES_KANBAN_GC_ENABLED is not disabled. Archives completed kanban tasks
  * older than ARIES_KANBAN_GC_RETENTION_DAYS (default 7 days), then delegates
- * workspace/log/event pruning to the existing `hermes kanban gc` CLI.
+ * workspace/log/event pruning to the existing `hermes kanban gc` CLI. This is
+ * the one temporary direct-CLI compatibility path during the sidecar cutover.
  */
 import 'dotenv/config';
 
@@ -196,6 +197,11 @@ async function tick(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  if (!truthyUnlessDisabled(process.env.ARIES_HERMES_CLI_COMPAT_ENABLED)) {
+    console.log('[hermes-kanban-gc] ARIES_HERMES_CLI_COMPAT_ENABLED is off; exiting.');
+    process.exit(0);
+  }
+
   if (!truthyUnlessDisabled(process.env.ARIES_KANBAN_GC_ENABLED)) {
     console.log('[hermes-kanban-gc] ARIES_KANBAN_GC_ENABLED is off; exiting.');
     process.exit(0);
