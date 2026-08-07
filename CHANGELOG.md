@@ -2,6 +2,91 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.56.0 — fix(marketing): make weekly generation retries durable
+
+Weekly social-content generation now recovers from immediate or stranded Hermes
+submission failures without suppressing the next retry or duplicating a live job.
+
+### Changed
+
+- Weekly generation no longer blocks on channel connection or brand-kit
+  freshness; job startup owns brand-kit creation and the Hermes port refreshes
+  it before submission, allowing disconnected tenants to prepare content.
+- Failed trigger attempts retry on a 24-hour cadence until success, and attempts
+  that remain newer than the last success for 24 hours emit an explicit error.
+
+### Fixed
+
+- Immediate Stage 1 Hermes failures now reach the weekly worker as errors while
+  retaining the failed runtime record for diagnosis and retry deduplication skips
+  failed jobs.
+- Stale in-flight claims clear their stranded attempt state before retrying in the
+  same tick, while deliberate gate skips remain cadence-gated and non-failing.
+- HTTP 200 trigger responses carrying `{ status: "error" }` revert the atomic
+  cadence claim instead of being misclassified as a deliberate skip.
+- The production runtime image installs commit-pinned Hermes Agent v0.20.0 from
+  its checksum-verified source archive with its locked editable environment, then
+  proves the version, CLI help, ownership, and `node` user's `PATH` at build time.
+
+## v0.1.55.0 — chore(legal): adopt the canonical Apache-2.0 license
+
+Aries distributions now carry the canonical Apache License 2.0 text, concise
+project attribution, and package metadata protected against license drift.
+
+### Changed
+
+- Replaced the customized license copy with the complete official Apache 2.0
+  text and reduced NOTICE to attribution-only content.
+- Documented the approved SPDX source-header scope, exclusions, and requirement
+  to preserve third-party notices and attribution.
+- Added contract coverage for the legal files and root package metadata.
+
+## v0.1.54.0 — chore(ci): harden GitHub Actions supply chain
+
+Repository maintainers can now track the project's public OpenSSF Scorecard and
+code-scanning results while every active external GitHub Action is SHA-pinned and
+every active workflow has an explicit least-privilege permission boundary.
+
+### Added
+
+- An official OpenSSF Scorecard workflow publishes results weekly, on protected
+  branch changes, and on default-branch pushes, with a public README badge and
+  SARIF upload to GitHub code scanning.
+- Repository policy regression tests reject mutable action tags, implicit workflow
+  permissions, missing Scorecard publishing, and reintroduced blind agent workflows.
+
+### Changed
+
+- Every external GitHub Action is pinned to a full commit SHA while retaining a
+  reviewed release comment, including deployment, release, and full-suite CI paths.
+- Active agent guidance now requires draft implementation PRs and a separate,
+  deliberately assigned reviewer lane instead of self-merge or auto-merge.
+
+### Removed
+
+- The superseded issue-agent fixer and blind PR autofix/automerge workflows.
+
+## v0.1.53.0 — feat(runtime): add opt-in Hermes sidecar
+
+Aries operators can now run Hermes Agent beside the application on the shared
+Docker network without depending on a host-installed executable.
+
+### Added
+
+- An opt-in `hermes-sidecar` Compose profile runs the official Hermes Agent
+  v0.20.0 image pinned by manifest digest, reuses the durable Hermes data home,
+  and exposes a bounded healthcheck on the internal network.
+- Runtime contract coverage prevents new direct Hermes CLI process launches
+  outside the explicitly flagged maintenance compatibility worker.
+
+### Changed
+
+- The Aries container healthcheck now verifies both the web app and every
+  distinct configured Hermes stage gateway, while intentional `--no-hermes`
+  installs disable only the network dependency probe.
+- The remaining `hermes kanban gc` CLI worker is deprecated behind a temporary
+  compatibility switch for removal after the production sidecar cutover.
+
 ## v0.1.51.0 — chore(security): add disclosure and scanning guardrails
 
 Security researchers can now report vulnerabilities through a defined private

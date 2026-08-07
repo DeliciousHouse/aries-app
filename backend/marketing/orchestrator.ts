@@ -119,6 +119,7 @@ export type StartSocialContentJobRequest = {
 
 export type StartSocialContentJobResponse = {
   status: 'accepted' | 'needs_connection';
+  immediateSubmissionStatus?: 'accepted' | 'failed';
   jobId: string;
   tenantId: string;
   jobType: 'weekly_social_content' | 'one_off_post' | 'one_off_campaign';
@@ -1742,6 +1743,7 @@ export async function startSocialContentJob(input: StartSocialContentJobRequest)
   }
   saveSocialContentJobRuntime(jobId, doc);
 
+  let startError: unknown = null;
   try {
     await runResearchStage(doc);
   } catch (error) {
@@ -1752,6 +1754,21 @@ export async function startSocialContentJob(input: StartSocialContentJobRequest)
     } else {
       recordFailure(doc, doc.current_stage, error);
     }
+    startError = error;
+  }
+
+  if (startError) {
+    return {
+      status: 'accepted',
+      immediateSubmissionStatus: 'failed',
+      jobId,
+      tenantId: doc.tenant_id,
+      jobType: input.jobType,
+      runtimeArtifactPath: runtimeArtifactPath(jobId),
+      approvalRequired: false,
+      currentStage: doc.current_stage,
+      approval: null,
+    };
   }
 
   // Best-effort reel companion: for weekly jobs, fire a standalone one-off

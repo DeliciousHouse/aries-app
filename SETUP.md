@@ -75,6 +75,8 @@ npm run dev
 | `HERMES_GATEWAY_URL` | ✅ | Base URL for Aries execution submissions into Hermes |
 | `HERMES_API_SERVER_KEY` | ✅ | Bearer token for Hermes `/v1/runs` |
 | `HERMES_SESSION_KEY` | ✅ | Session key used for Hermes-submitted runs |
+| `ARIES_HERMES_NETWORK_HEALTHCHECK_ENABLED` | Optional | Defaults to `1`; set `0` only when intentionally running without Hermes |
+| `ARIES_HERMES_CLI_COMPAT_ENABLED` | Temporary | Defaults to `1`; keeps only the legacy kanban-GC CLI maintenance path during sidecar cutover |
 | `DB_HOST` | ✅ | Postgres host |
 | `DB_PORT` | ✅ | Postgres port |
 | `DB_USER` | ✅ | Postgres user |

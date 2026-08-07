@@ -89,8 +89,8 @@ test('deploy workflow force-recreates every docker-compose service', () => {
 
   // Services that do NOT run the shared ARIES_APP_IMAGE are exempt from the
   // app-image recreate command. aries-autoheal has its own pinned image and a
-  // dedicated, fail-closed recreate block in deploy.yml.
-  const recreateExemptServices: string[] = ['aries-autoheal'];
+  // dedicated deploy block; aries-hermes is an opt-in, digest-pinned profile.
+  const recreateExemptServices: string[] = ['aries-autoheal', 'aries-hermes'];
 
   const composeServices: string[] = [];
   let inServicesBlock = false;

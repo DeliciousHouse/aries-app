@@ -122,8 +122,10 @@ function reaperWorkerEnabled() {
 }
 
 function hermesKanbanGcWorkerEnabled() {
-  // Opt-out kill-switch: on unless explicitly disabled (compose default `:-1`).
-  return workerGateEnabled(process.env.ARIES_KANBAN_GC_ENABLED, { defaultWhenUnset: true });
+  // Temporary CLI compatibility path: the production image still carries the
+  // binary while the Hermes sidecar cutover is staged. Both switches default ON.
+  return workerGateEnabled(process.env.ARIES_KANBAN_GC_ENABLED, { defaultWhenUnset: true })
+    && workerGateEnabled(process.env.ARIES_HERMES_CLI_COMPAT_ENABLED, { defaultWhenUnset: true });
 }
 
 function syncFailureAlertWorkerEnabled() {
