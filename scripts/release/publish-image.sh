@@ -21,12 +21,6 @@ if [[ "${ALLOW_DIRTY:-0}" != "1" ]] && [[ "$(git rev-parse --git-dir)" == "$(git
   exit 1
 fi
 
-DEFAULT_BRANCH="${DEFAULT_BRANCH:-$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')}"
-if [[ -z "${DEFAULT_BRANCH}" ]]; then
-  echo "ERROR: Unable to determine DEFAULT_BRANCH. Set DEFAULT_BRANCH explicitly." >&2
-  exit 1
-fi
-
 if [[ -z "${GHCR_IMAGE:-}" ]]; then
   : "${GHCR_OWNER:?Set GHCR_OWNER or GHCR_IMAGE before publishing.}"
   owner_lc="${GHCR_OWNER,,}"
@@ -68,37 +62,34 @@ fi
 
 GIT_SHA="$(git rev-parse HEAD)"
 PLATFORMS="${PLATFORMS:-linux/amd64,linux/arm64}"
-PUBLISH_SHA_ONLY="${PUBLISH_SHA_ONLY:-0}"
-if [[ "${PUBLISH_SHA_ONLY}" != "0" && "${PUBLISH_SHA_ONLY}" != "1" ]]; then
-  echo "ERROR: PUBLISH_SHA_ONLY must be 0 or 1, got '${PUBLISH_SHA_ONLY}'." >&2
-  exit 1
-fi
+metadata_file="$(mktemp)"
+trap 'rm -f "${metadata_file}"' EXIT
 
 build_args=(
   --platform "${PLATFORMS}"
-  --push
+  --output "type=image,name=${GHCR_IMAGE},push-by-digest=true,name-canonical=true,push=true"
+  --metadata-file "${metadata_file}"
   --label "org.opencontainers.image.source=https://github.com/DeliciousHouse/aries-app"
   --label "org.opencontainers.image.revision=${GIT_SHA}"
   --annotation "index:org.opencontainers.image.description=${IMAGE_DESCRIPTION}"
-  -t "${GHCR_IMAGE}:${GIT_SHA}"
-)
-
-if [[ "${PUBLISH_SHA_ONLY}" != "1" ]]; then
-  build_args+=(
-    -t "${GHCR_IMAGE}:${DEFAULT_BRANCH}"
-    -t "${GHCR_IMAGE}:latest"
-  )
-fi
-
-build_args+=(
   -f Dockerfile
   .
 )
 
 docker buildx build "${build_args[@]}"
-
-echo "Published ${GHCR_IMAGE}:${GIT_SHA}"
-if [[ "${PUBLISH_SHA_ONLY}" != "1" ]]; then
-  echo "Published ${GHCR_IMAGE}:${DEFAULT_BRANCH}"
-  echo "Published ${GHCR_IMAGE}:latest"
+IMAGE_DIGEST="$(node -e "const m=require(process.argv[1]); process.stdout.write(m['containerimage.digest'] || '')" "${metadata_file}")"
+if [[ ! "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  echo "ERROR: Docker build did not return a valid image digest." >&2
+  exit 1
 fi
+
+IMAGE_ALIAS="${GHCR_IMAGE}:${GIT_SHA}" \
+  IMAGE_SOURCE="${GHCR_IMAGE}@${IMAGE_DIGEST}" \
+  IMAGE_DIGEST="${IMAGE_DIGEST}" \
+  ALIAS_DESCRIPTION="Deploy SHA tag" \
+  node scripts/release/release-state.mjs ensure-alias
+
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+  echo "digest=${IMAGE_DIGEST}" >> "${GITHUB_OUTPUT}"
+fi
+echo "Published immutable ${GHCR_IMAGE}:${GIT_SHA}@${IMAGE_DIGEST}"

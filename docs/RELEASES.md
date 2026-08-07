@@ -15,7 +15,7 @@ Until the public API is declared stable, Aries uses the existing four-component 
 
 `VERSION` and `package.json` carry the version without a prefix. The release tag is exactly `v$VERSION`; for example, `VERSION=0.1.48.0` produces GitHub Release `v0.1.48.0` and image tag `ghcr.io/delicioushouse/aries-app:0.1.48.0`. Tags and versioned image aliases are immutable. `latest` is the only mutable release alias.
 
-The workflow rejects a release whose requested tag does not match `VERSION`. A first attempt must target the current `origin/master`; a retry may use an existing staged or published Release only when its tag/target is pinned to the identical commit. Existing tag, Release, or version-image digest mismatches fail closed.
+The workflow rejects a release whose requested tag does not match `VERSION`. A first attempt must target the current `origin/master`; a retry may use an existing staged or published Release only when its tag/target is pinned to the identical commit. Existing tag, Release, or version-image digest mismatches fail closed. API, authentication, rate-limit, registry, and transport errors are never treated as absence.
 
 ## Cadence
 
@@ -23,7 +23,7 @@ The workflow rejects a release whose requested tag does not match `VERSION`. A f
 - A critical security correction is an out-of-band release: ship as soon as the fix is reviewed, deployed, and verified, with a target of no more than two business days after the fix is ready.
 - Do not publish an empty release in a month with no releasable source changes.
 
-Each release is cut only after the exact `master` commit has passed required CI, has deployed through `deploy.yml`, and has a successful production health check. The first attempt creates a draft Release pinned to that commit before the build, so a failed workflow can be rerun for the same version and commit even if `master` advances. It is never worked around by moving a version tag or uploading unsigned assets; mismatched recovery state aborts the retry.
+Each release is cut only after the exact `master` commit has passed required CI, has deployed through `deploy.yml`, and has a successful production health check. Deploy builds once by digest, creates the commit-SHA alias only when absent or identical, and health-checks that exact alias. Release requires a successful push-triggered Deploy run for the commit and signs the digest resolved from that immutable alias; it never rebuilds or overwrites it. The first attempt creates a draft Release pinned to that commit only after those immutable checks, so a failed workflow can be rerun for the same version and commit even if `master` advances. It is never worked around by moving a version tag or uploading unsigned assets; mismatched recovery state aborts the retry.
 
 ## Release procedure
 
@@ -39,7 +39,7 @@ Each release is cut only after the exact `master` commit has passed required CI,
 
 4. Confirm the run created `v$VERSION`, that the release assets are present, and that the versioned image resolves to the digest recorded in the release notes.
 
-A `v*` tag push enters the same serialized, fail-closed pipeline for recovery/automation, but the normal operator path is `workflow_dispatch`. The workflow prepares a private draft first, uploads and verifies the complete evidence set, publishes the Release and tag, and only then exposes image aliases.
+A `v*` tag push enters the same serialized, fail-closed pipeline for recovery/automation, but the normal operator path is `workflow_dispatch`. The workflow validates the tag, Release, deployed digest, successful Deploy run, and immutable version alias before preparing a private draft. It uploads and verifies the complete evidence set, publishes the Release and tag, and only then exposes image aliases. A retry of an already-published Release never edits its notes or assets; it only resumes alias promotion after revalidating the same immutable state.
 
 ## Supply-chain controls
 
@@ -47,7 +47,7 @@ Every external action in `release.yml` is pinned to a full commit SHA with its r
 
 For every release, the workflow:
 
-1. builds and pushes an immutable commit-SHA image;
+1. consumes the immutable commit-SHA image built, deployed, and health-checked by `deploy.yml`;
 2. records a Trivy HIGH/CRITICAL vulnerability report and blocks release promotion on fixable CRITICAL findings;
 3. generates a CycloneDX JSON SBOM from the built image and submits the dependency snapshot;
 4. creates signed SLSA build provenance and a signed SBOM attestation with GitHub artifact attestations, publishing both against the image digest and to GHCR;

@@ -48,7 +48,6 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           EVENT_NAME: ${{ github.event_name }}
           EVENT_REF_NAME: ${{ github.ref_name }}
-          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -77,46 +76,11 @@ jobs:
           checkout_sha="$(git rev-parse HEAD)"
           default_sha="$(git rev-parse FETCH_HEAD)"
 
-          tag_sha=""
-          if git ls-remote --exit-code --refs --tags origin "refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
-            git fetch --force origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
-            tag_sha="$(git rev-parse "${RELEASE_TAG}^{commit}")"
-            if [[ "${tag_sha}" != "${checkout_sha}" ]]; then
-              echo "ERROR: existing tag ${RELEASE_TAG} targets ${tag_sha}, not ${checkout_sha}." >&2
-              exit 1
-            fi
-          fi
-
-          existing_release=false
-          if gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            existing_release=true
-            release_target="$(gh release view "${RELEASE_TAG}" \
-              --repo "${GITHUB_REPOSITORY}" \
-              --json targetCommitish \
-              --jq .targetCommitish)"
-            if [[ -n "${tag_sha}" ]]; then
-              release_target_sha="${tag_sha}"
-            elif [[ "${release_target}" =~ ^[0-9a-f]{40}$ ]]; then
-              release_target_sha="${release_target}"
-            else
-              echo "ERROR: draft GitHub Release ${RELEASE_TAG} is not pinned to a commit SHA." >&2
-              exit 1
-            fi
-            if [[ "${release_target_sha}" != "${checkout_sha}" ]]; then
-              echo "ERROR: existing GitHub Release ${RELEASE_TAG} targets ${release_target_sha}, not ${checkout_sha}." >&2
-              exit 1
-            fi
-          fi
-
-          if [[ "${checkout_sha}" != "${default_sha}" && "${existing_release}" != true ]]; then
-            echo "ERROR: first release attempt must target current origin/${DEFAULT_BRANCH} (${default_sha}), not ${checkout_sha}." >&2
-            exit 1
-          fi
-
           mkdir -p release-assets
           {
             echo "RELEASE_VERSION=${release_version}"
             echo "RELEASE_SHA=${checkout_sha}"
+            echo "DEFAULT_SHA=${default_sha}"
             echo "SBOM_PATH=release-assets/aries-app-${RELEASE_TAG}.cdx.json"
             echo "VULNERABILITY_REPORT_PATH=release-assets/aries-app-${RELEASE_TAG}.trivy.json"
             echo "PROVENANCE_PATH=release-assets/aries-app-${RELEASE_TAG}.provenance.sigstore.json"
@@ -124,21 +88,6 @@ jobs:
             echo "CHECKSUMS_PATH=release-assets/SHA256SUMS"
           } >> "${GITHUB_ENV}"
           echo "release_sha=${checkout_sha}" >> "${GITHUB_OUTPUT}"
-
-      - name: Prepare staged GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            gh release create "${RELEASE_TAG}" \
-              --repo "${GITHUB_REPOSITORY}" \
-              --target "${RELEASE_SHA}" \
-              --title "${RELEASE_TAG}" \
-              --notes "Supply-chain evidence is being staged." \
-              --draft
-          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
@@ -150,34 +99,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create immutable build metadata
-        id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: ${{ env.IMAGE }}
-          tags: type=raw,value=${{ steps.validate.outputs.release_sha }}
-          labels: |
-            org.opencontainers.image.version=${{ env.RELEASE_VERSION }}
-            org.opencontainers.image.revision=${{ steps.validate.outputs.release_sha }}
+      - name: Validate deployed artifact and release state
+        id: preflight
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release/release-state.mjs preflight
 
-      - name: Build and push immutable image
-        id: build
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: .
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          provenance: false
-          sbom: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Prepare staged GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release/release-state.mjs prepare
 
       - name: Record vulnerability report
+        if: steps.preflight.outputs.release_state != 'published'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          image-ref: ${{ env.IMAGE }}@${{ steps.preflight.outputs.image_digest }}
           format: json
           output: ${{ env.VULNERABILITY_REPORT_PATH }}
           exit-code: '0'
@@ -188,9 +125,10 @@ jobs:
           version: v0.73.0
 
       - name: Block releases with fixable critical vulnerabilities
+        if: steps.preflight.outputs.release_state != 'published'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          image-ref: ${{ env.IMAGE }}@${{ steps.preflight.outputs.image_digest }}
           format: table
           exit-code: '1'
           ignore-unfixed: 'true'
@@ -201,9 +139,10 @@ jobs:
           version: v0.73.0
 
       - name: Generate CycloneDX SBOM
+        if: steps.preflight.outputs.release_state != 'published'
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
-          image: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          image: ${{ env.IMAGE }}@${{ steps.preflight.outputs.image_digest }}
           format: cyclonedx-json
           output-file: ${{ env.SBOM_PATH }}
           artifact-name: aries-app-${{ env.RELEASE_TAG }}.cdx.json
@@ -213,33 +152,37 @@ jobs:
           syft-version: v1.50.0
 
       - name: Generate SLSA provenance
+        if: steps.preflight.outputs.release_state != 'published'
         id: provenance
         uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
         with:
           subject-name: ${{ env.IMAGE }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-digest: ${{ steps.preflight.outputs.image_digest }}
           subject-version: ${{ env.RELEASE_VERSION }}
           push-to-registry: true
 
       - name: Attest SBOM
+        if: steps.preflight.outputs.release_state != 'published'
         id: sbom-attestation
         uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
         with:
           subject-name: ${{ env.IMAGE }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-digest: ${{ steps.preflight.outputs.image_digest }}
           subject-version: ${{ env.RELEASE_VERSION }}
           sbom-path: ${{ env.SBOM_PATH }}
           push-to-registry: true
           create-storage-record: false
 
       - name: Install Cosign
+        if: steps.preflight.outputs.release_state != 'published'
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         with:
           cosign-release: v3.1.3
 
       - name: Keyless-sign image and release artifacts
+        if: steps.preflight.outputs.release_state != 'published'
         env:
-          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE_DIGEST: ${{ steps.preflight.outputs.image_digest }}
           PROVENANCE_BUNDLE_PATH: ${{ steps.provenance.outputs.bundle-path }}
           SBOM_ATTESTATION_BUNDLE_PATH: ${{ steps.sbom-attestation.outputs.bundle-path }}
         shell: bash
@@ -259,13 +202,16 @@ jobs:
           cosign sign-blob --yes --bundle "${CHECKSUMS_PATH}.sigstore.json" "${CHECKSUMS_PATH}"
 
       - name: Stage and verify GitHub Release evidence
+        if: steps.preflight.outputs.release_state != 'published'
         env:
           GH_TOKEN: ${{ github.token }}
-          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE_DIGEST: ${{ steps.preflight.outputs.image_digest }}
           PROVENANCE_URL: ${{ steps.provenance.outputs.attestation-url }}
         shell: bash
         run: |
           set -euo pipefail
+          node scripts/release/release-state.mjs assert-draft
+          release_endpoint="repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}"
           generated_notes="$(gh api --method POST \
             "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
             -f tag_name="${RELEASE_TAG}" \
@@ -284,13 +230,13 @@ jobs:
             fi
           } > "${RUNNER_TEMP}/release-notes.md"
 
-          gh release edit "${RELEASE_TAG}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --title "${RELEASE_TAG}" \
-            --notes-file "${RUNNER_TEMP}/release-notes.md"
+          gh api --method PATCH "${release_endpoint}" \
+            -f name="${RELEASE_TAG}" \
+            -F body=@"${RUNNER_TEMP}/release-notes.md" \
+            --silent
 
           expected_assets="${RUNNER_TEMP}/expected-release-assets.tsv"
-          existing_assets="${RUNNER_TEMP}/existing-release-assets.txt"
+          existing_assets="${RUNNER_TEMP}/existing-release-assets.tsv"
           uploaded_assets="${RUNNER_TEMP}/uploaded-release-assets.tsv"
           : > "${expected_assets}"
           for asset_path in release-assets/*; do
@@ -300,23 +246,21 @@ jobs:
           done
           sort -o "${expected_assets}" "${expected_assets}"
 
-          gh release view "${RELEASE_TAG}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --json assets \
-            --jq '.assets[].name' > "${existing_assets}"
-          while IFS= read -r existing_asset; do
-            if [[ -n "${existing_asset}" ]] && ! cut -f1 "${expected_assets}" | grep -Fxq "${existing_asset}"; then
-              gh release delete-asset "${RELEASE_TAG}" "${existing_asset}" --yes \
-                --repo "${GITHUB_REPOSITORY}"
+          gh api "${release_endpoint}/assets" --paginate \
+            --jq '.[] | [.id, .name] | @tsv' > "${existing_assets}"
+          while IFS=$'\t' read -r existing_asset_id existing_asset_name; do
+            if [[ -n "${existing_asset_id}" ]]; then
+              gh api --method DELETE \
+                "repos/${GITHUB_REPOSITORY}/releases/assets/${existing_asset_id}" \
+                --silent
+              echo "Removed staged asset ${existing_asset_name}."
             fi
           done < "${existing_assets}"
 
           gh release upload "${RELEASE_TAG}" release-assets/* --clobber \
             --repo "${GITHUB_REPOSITORY}"
-          gh release view "${RELEASE_TAG}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --json assets \
-            --jq '.assets[] | [.name, .size] | @tsv' \
+          gh api "${release_endpoint}/assets" --paginate \
+            --jq '.[] | [.name, .size] | @tsv' \
             | sort > "${uploaded_assets}"
 
           if [[ "$(wc -l < "${uploaded_assets}" | tr -d ' ')" != "$(wc -l < "${expected_assets}" | tr -d ' ')" ]]; then
@@ -332,88 +276,21 @@ jobs:
           done < "${expected_assets}"
 
       - name: Publish GitHub Release
+        if: steps.preflight.outputs.release_state != 'published'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          gh release edit "${RELEASE_TAG}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --draft=false \
-            --latest=false
-          if [[ "$(gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --json isDraft --jq .isDraft)" != false ]]; then
-            echo "ERROR: GitHub Release ${RELEASE_TAG} did not publish." >&2
-            exit 1
-          fi
-          git fetch --force origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
-          published_tag_sha="$(git rev-parse "${RELEASE_TAG}^{commit}")"
-          if [[ "${published_tag_sha}" != "${RELEASE_SHA}" ]]; then
-            echo "ERROR: published tag ${RELEASE_TAG} targets ${published_tag_sha}, not ${RELEASE_SHA}." >&2
-            exit 1
-          fi
+          node scripts/release/release-state.mjs assert-draft
+          gh api --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+            -F draft=false \
+            -f make_latest=false \
+            --silent
+          node scripts/release/release-state.mjs assert-published
 
-      - name: Promote immutable version tag
-        env:
-          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          resolve_registry_digest() {
-            local reference="$1"
-            local inspect_output digest
-            if inspect_output="$(docker buildx imagetools inspect "${reference}" 2>&1)"; then
-              digest="$(awk '/^Digest:/ { print $2; exit }' <<< "${inspect_output}")"
-              if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-                echo "ERROR: could not resolve a digest for ${reference}." >&2
-                return 2
-              fi
-              printf '%s\n' "${digest}"
-              return 0
-            fi
-            if grep -Eqi 'manifest unknown|not found' <<< "${inspect_output}"; then
-              return 1
-            fi
-            echo "ERROR: registry lookup failed for ${reference}: ${inspect_output}" >&2
-            return 2
-          }
-
-          existing_version_digest=""
-          if existing_version_digest="$(resolve_registry_digest "${IMAGE}:${RELEASE_VERSION}")"; then
-            if [[ "${existing_version_digest}" != "${IMAGE_DIGEST}" ]]; then
-              echo "ERROR: immutable version tag ${IMAGE}:${RELEASE_VERSION} targets ${existing_version_digest}, not ${IMAGE_DIGEST}." >&2
-              exit 1
-            fi
-          else
-            resolve_status=$?
-            if [[ "${resolve_status}" -ne 1 ]]; then
-              exit "${resolve_status}"
-            fi
-            docker buildx imagetools create \
-              --tag "${IMAGE}:${RELEASE_VERSION}" \
-              "${IMAGE}@${IMAGE_DIGEST}"
-          fi
-
-          published_version_digest="$(resolve_registry_digest "${IMAGE}:${RELEASE_VERSION}")"
-          if [[ "${published_version_digest}" != "${IMAGE_DIGEST}" ]]; then
-            echo "ERROR: published version tag targets ${published_version_digest}, not ${IMAGE_DIGEST}." >&2
-            exit 1
-          fi
-
-      - name: Promote latest tag
+      - name: Promote release aliases
         env:
           GH_TOKEN: ${{ github.token }}
-          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker buildx imagetools create \
-            --tag "${IMAGE}:latest" \
-            "${IMAGE}@${IMAGE_DIGEST}"
-          published_latest_digest="$(docker buildx imagetools inspect "${IMAGE}:latest" \
-            | awk '/^Digest:/ { print $2; exit }')"
-          if [[ "${published_latest_digest}" != "${IMAGE_DIGEST}" ]]; then
-            echo "ERROR: latest tag targets ${published_latest_digest}, not ${IMAGE_DIGEST}." >&2
-            exit 1
-          fi
-          gh release edit "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --latest
+        run: node scripts/release/release-state.mjs promote

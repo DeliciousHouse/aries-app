@@ -118,12 +118,10 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
-      - name: Publish exact deploy image
+      - name: Publish immutable deploy image
         env:
           TARGET_IMAGE_TAG: ${{ steps.resolve.outputs.image_tag }}
           GHCR_IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
-          DEFAULT_BRANCH_NAME: ${{ github.event.repository.default_branch }}
-          PUBLISH_SHA_ONLY: "1"
           # Production runs amd64 only. Skip arm64 to avoid QEMU emulation cost
           # (10-20x slower) on x86_64 self-hosted runners.
           PLATFORMS: linux/amd64
@@ -140,18 +138,7 @@ jobs:
             exit 1
           fi
 
-          default_branch="${DEFAULT_BRANCH_NAME:-master}"
-          git fetch --no-tags origin "${default_branch}"
-          default_head="$(git rev-parse "origin/${default_branch}")"
-          publish_sha_only=0
-          if [[ "${TARGET_IMAGE_TAG}" != "${default_head}" ]]; then
-            publish_sha_only=1
-            echo "Publishing only ${TARGET_IMAGE_TAG}; not moving mutable aliases because origin/${default_branch} is ${default_head}."
-          else
-            echo "Publishing ${TARGET_IMAGE_TAG} plus ${default_branch}/latest aliases because it is the current default branch head."
-          fi
-
-          PUBLISH_SHA_ONLY="${publish_sha_only}" ./scripts/release/publish-image.sh
+          ./scripts/release/publish-image.sh
 
       - name: Deploy on host
         env:

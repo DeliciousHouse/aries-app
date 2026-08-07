@@ -11,7 +11,7 @@ function readRepoFile(relativePath: string): string {
   return readFileSync(path.join(PROJECT_ROOT, relativePath), 'utf8');
 }
 
-test('release workflow publishes only scanned, attested, keyless-signed artifacts', () => {
+test('release workflow signs only the production-health-checked deploy artifact', () => {
   const workflow = readRepoFile('.github/workflows/release.yml');
 
   for (const permission of [
@@ -31,8 +31,10 @@ test('release workflow publishes only scanned, attested, keyless-signed artifact
     assert.match(versionComment ?? '', /^v\d/, `${actionRef} must retain its human-readable version`);
   }
 
-  assert.match(workflow, /id: build[\s\S]*?docker\/build-push-action@[0-9a-f]{40}/);
-  assert.match(workflow, /IMAGE_DIGEST:\s*\$\{\{ steps\.build\.outputs\.digest \}\}/);
+  assert.match(workflow, /name: Validate deployed artifact and release state[\s\S]*?id: preflight/);
+  assert.match(workflow, /node scripts\/release\/release-state\.mjs preflight/);
+  assert.match(workflow, /IMAGE_DIGEST:\s*\$\{\{ steps\.preflight\.outputs\.image_digest \}\}/);
+  assert.doesNotMatch(workflow, /docker\/build-push-action@/);
   assert.match(workflow, /package_version=.*package\.json/);
   assert.match(workflow, /"\$\{package_version\}" != "\$\{release_version\}"/);
 
@@ -44,27 +46,27 @@ test('release workflow publishes only scanned, attested, keyless-signed artifact
 
   const attestations = [...workflow.matchAll(/uses: actions\/attest@[0-9a-f]{40}/g)];
   assert.equal(attestations.length, 2, 'expected one SLSA provenance and one SBOM attestation');
-  assert.match(workflow, /subject-digest:\s*\$\{\{ steps\.build\.outputs\.digest \}\}/);
+  assert.match(workflow, /subject-digest:\s*\$\{\{ steps\.preflight\.outputs\.image_digest \}\}/);
   assert.match(workflow, /push-to-registry: true/);
 
   assert.match(workflow, /cosign sign --yes "\$\{IMAGE\}@\$\{IMAGE_DIGEST\}"/);
   assert.match(workflow, /cosign sign-blob --yes --bundle/);
   assert.match(workflow, /sha256sum \*\.json > SHA256SUMS/);
-  const buildIndex = workflow.indexOf('id: build');
+  const preflightIndex = workflow.indexOf('id: preflight');
+  const prepareIndex = workflow.indexOf('name: Prepare staged GitHub Release');
   const scanIndex = workflow.indexOf('name: Record vulnerability report');
   const signIndex = workflow.indexOf('name: Keyless-sign image and release artifacts');
   const stageIndex = workflow.indexOf('name: Stage and verify GitHub Release evidence');
   const releaseIndex = workflow.indexOf('name: Publish GitHub Release');
-  const versionIndex = workflow.indexOf('name: Promote immutable version tag');
-  const latestIndex = workflow.indexOf('name: Promote latest tag');
+  const promoteIndex = workflow.indexOf('name: Promote release aliases');
   assert.ok(
-    buildIndex < scanIndex &&
+    preflightIndex < prepareIndex &&
+      prepareIndex < scanIndex &&
       scanIndex < signIndex &&
       signIndex < stageIndex &&
       stageIndex < releaseIndex &&
-      releaseIndex < versionIndex &&
-      versionIndex < latestIndex,
-    'evidence must be durable before release publication, with immutable version and latest aliases last',
+      releaseIndex < promoteIndex,
+    'validated deploy digest must precede draft mutation, evidence, publication, and alias promotion',
   );
 });
 
@@ -81,33 +83,32 @@ test('release entry points serialize on the same canonical v-prefixed key', () =
 test('release recovery is pinned, staged, complete, and mismatch-closed', () => {
   const workflow = readRepoFile('.github/workflows/release.yml');
 
-  assert.match(workflow, /existing_release=false/);
-  assert.match(workflow, /gh release view "\$\{RELEASE_TAG\}"[\s\S]*?--json targetCommitish/);
-  assert.match(workflow, /existing GitHub Release \$\{RELEASE_TAG\} targets \$\{release_target_sha\}, not \$\{checkout_sha\}/);
-  assert.match(workflow, /"\$\{checkout_sha\}" != "\$\{default_sha\}" && "\$\{existing_release\}" != true/);
-  assert.doesNotMatch(workflow, /GitHub Release \$\{RELEASE_TAG\} already exists/);
-
-  assert.match(workflow, /name: Prepare staged GitHub Release[\s\S]*?gh release create "\$\{RELEASE_TAG\}"[\s\S]*?--draft/);
-  assert.match(workflow, /name: Stage and verify GitHub Release evidence[\s\S]*?gh release upload "\$\{RELEASE_TAG\}" release-assets\/\* --clobber/);
-  assert.match(workflow, /gh release delete-asset "\$\{RELEASE_TAG\}" "\$\{existing_asset\}" --yes/);
+  assert.match(workflow, /name: Prepare staged GitHub Release[\s\S]*?release-state\.mjs prepare/);
+  assert.match(workflow, /name: Stage and verify GitHub Release evidence[\s\S]*?release-state\.mjs assert-draft/);
+  assert.match(workflow, /release_endpoint="repos\/\$\{GITHUB_REPOSITORY\}\/releases\/\$\{RELEASE_ID\}"/);
+  assert.match(workflow, /gh release upload "\$\{RELEASE_TAG\}" release-assets\/\* --clobber/);
+  assert.match(workflow, /releases\/assets\/\$\{existing_asset_id\}/);
   assert.match(workflow, /uploaded_size.*local_size/);
-  assert.match(workflow, /name: Publish GitHub Release[\s\S]*?gh release edit "\$\{RELEASE_TAG\}"[\s\S]*?--draft=false/);
+  assert.match(workflow, /name: Publish GitHub Release[\s\S]*?release-state\.mjs assert-published/);
+  for (const step of ['Record vulnerability report', 'Stage and verify GitHub Release evidence', 'Publish GitHub Release']) {
+    assert.match(
+      workflow,
+      new RegExp(`name: ${step}[\\s\\S]*?if: steps\\.preflight\\.outputs\\.release_state != 'published'`),
+    );
+  }
 });
 
-test('version alias is absent or already pinned to the built digest', () => {
+test('deploy is the sole immutable SHA writer and release owns public aliases', () => {
   const workflow = readRepoFile('.github/workflows/release.yml');
-  const versionStep = workflow.slice(
-    workflow.indexOf('name: Promote immutable version tag'),
-    workflow.indexOf('name: Promote latest tag'),
-  );
+  const deploy = readRepoFile('.github/workflows/deploy.yml');
+  const publisher = readRepoFile('scripts/release/publish-image.sh');
 
-  assert.match(versionStep, /docker buildx imagetools inspect "\$\{reference\}"/);
-  assert.match(versionStep, /resolve_registry_digest "\$\{IMAGE\}:\$\{RELEASE_VERSION\}"/);
-  assert.match(versionStep, /existing_version_digest/);
-  assert.match(versionStep, /"\$\{existing_version_digest\}" != "\$\{IMAGE_DIGEST\}"/);
-  assert.match(versionStep, /manifest unknown\|not found/);
-  assert.match(versionStep, /docker buildx imagetools create[\s\S]*?--tag "\$\{IMAGE\}:\$\{RELEASE_VERSION\}"/);
-  assert.match(versionStep, /published_version_digest.*IMAGE_DIGEST/);
+  assert.match(deploy, /name: Publish immutable deploy image[\s\S]*?\.\/scripts\/release\/publish-image\.sh/);
+  assert.doesNotMatch(deploy, /Publishing .*latest aliases|PUBLISH_SHA_ONLY/);
+  assert.match(publisher, /push-by-digest=true/);
+  assert.match(publisher, /release-state\.mjs ensure-alias/);
+  assert.doesNotMatch(publisher, /GHCR_IMAGE\}:latest|GHCR_IMAGE\}:\$\{DEFAULT_BRANCH\}/);
+  assert.match(workflow, /name: Promote release aliases[\s\S]*?release-state\.mjs promote/);
 });
 
 test('release policy documents versioning, cadence, release gates, and verification', () => {

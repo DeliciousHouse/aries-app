@@ -73,27 +73,23 @@ test('deploy workflow uses a self-hosted runner on the deploy host with no SSH h
   );
 });
 
-test('publish image script supports SHA-only deploy publishing', () => {
-  assert.doesNotMatch(
-    publishImageScript,
-    /\bnode\s+-p\b/,
-    'publish script should not depend on host Node being on PATH before publishing',
-  );
+test('publish image script creates one immutable SHA alias from a digest-only build', () => {
   assert.match(
     publishImageScript,
     /command -v python3[\s\S]*?package\.json[\s\S]*?Aries marketing automation runtime/,
-    'publish script should read package metadata without Node and fall back to a stable image description',
+    'publish script should preserve its stable image-description fallback',
   );
   assert.match(
     publishImageScript,
-    /PUBLISH_SHA_ONLY="\$\{PUBLISH_SHA_ONLY:-0\}"/,
-    'publish script should expose a SHA-only mode for rollback-safe deploy publishes',
+    /push-by-digest=true[\s\S]*?--metadata-file "\$\{metadata_file\}"/,
+    'deploy builds should enter GHCR by digest before any alias is created',
   );
   assert.match(
     publishImageScript,
-    /if \[\[ "\$\{PUBLISH_SHA_ONLY\}" != "1" \]\]; then[\s\S]*?-t "\$\{GHCR_IMAGE\}:\$\{DEFAULT_BRANCH\}"[\s\S]*?-t "\$\{GHCR_IMAGE\}:latest"[\s\S]*?fi/,
-    'mutable branch/latest tags should only be pushed outside SHA-only mode',
+    /IMAGE_ALIAS="\$\{GHCR_IMAGE\}:\$\{GIT_SHA\}"[\s\S]*?release-state\.mjs ensure-alias/,
+    'the state-machine gate should be the sole writer of the commit-SHA alias',
   );
+  assert.doesNotMatch(publishImageScript, /PUBLISH_SHA_ONLY|GHCR_IMAGE\}:latest|GHCR_IMAGE\}:\$\{DEFAULT_BRANCH\}/);
 });
 
 // Regression: PR merges made by GITHUB_TOKEN do not emit normal push-triggered workflows.
@@ -156,19 +152,11 @@ test('deploy workflow builds and force-recreates the exact commit image', () => 
   );
   assert.match(
     workflow,
-    /- name: Publish exact deploy image[\s\S]*?git fetch --no-tags origin "\$\{default_branch\}"[\s\S]*?publish_sha_only=1[\s\S]*?PUBLISH_SHA_ONLY="\$\{publish_sha_only\}" \.\/scripts\/release\/publish-image\.sh/,
-    'manual rollback deploys should publish only the requested SHA instead of retagging default-branch aliases',
+    /- name: Publish immutable deploy image[\s\S]*?\.\/scripts\/release\/publish-image\.sh/,
+    'push and manual deploys should use the same immutable SHA publisher',
   );
-  assert.match(
-    workflow,
-    /Publishing \$\{TARGET_IMAGE_TAG\} plus \$\{default_branch\}\/latest aliases because it is the current default branch head\./,
-    'push deploys and current default-branch deploys should still update default-branch/latest aliases',
-  );
-  assert.match(
-    publishImageScript,
-    /if \[\[ "\$\{PUBLISH_SHA_ONLY\}" != "1" \]\]; then[\s\S]*?-t "\$\{GHCR_IMAGE\}:\$\{DEFAULT_BRANCH\}"[\s\S]*?-t "\$\{GHCR_IMAGE\}:latest"/,
-    'publish-image should omit mutable branch/latest tags when PUBLISH_SHA_ONLY=1',
-  );
+  assert.doesNotMatch(workflow, /Publishing .*latest aliases|PUBLISH_SHA_ONLY/);
+  assert.match(publishImageScript, /release-state\.mjs ensure-alias/);
   assert.match(
     workflow,
     /ARIES_APP_IMAGE="\$\{TARGET_IMAGE\}" docker compose pull "\$\{SERVICE_NAME\}"/,
@@ -179,22 +167,17 @@ test('deploy workflow builds and force-recreates the exact commit image', () => 
     /replace_application_and_verify "\$\{TARGET_IMAGE\}" "\$\{target_image_id\}" "\$\{SERVICE_NAME\}"/,
     'deploy workflow should use the executable recreate-and-health verifier',
   );
-   assert.doesNotMatch(
-     workflow,
-     /image_tag="latest"/,
-     'deploy workflow should not deploy mutable :latest for push events',
-   );
-   assert.match(
-     publishImageScript,
-     /PUBLISH_SHA_ONLY="\$\{PUBLISH_SHA_ONLY:-0\}"/,
-     'publish script should support SHA-only publishes for rollback-safe deploys',
-   );
-   assert.match(
-     publishImageScript,
-     /if \[\[ "\$\{PUBLISH_SHA_ONLY\}" != "1" \]\]; then[\s\S]*?-t "\$\{GHCR_IMAGE\}:\$\{DEFAULT_BRANCH\}"[\s\S]*?-t "\$\{GHCR_IMAGE\}:latest"/,
-     'publish script should only update branch/latest tags when SHA-only mode is disabled',
-   );
- });
+  assert.doesNotMatch(
+    workflow,
+    /image_tag="latest"/,
+    'deploy workflow should not deploy mutable :latest for push events',
+  );
+  assert.doesNotMatch(
+    publishImageScript,
+    /GHCR_IMAGE\}:latest|GHCR_IMAGE\}:\$\{DEFAULT_BRANCH\}/,
+    'deploy publishing must never compete with release-owned aliases',
+  );
+});
 
 test('schema failure restores the exact old app and worker after mutation traffic was quiesced', () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), 'aries-schema-restore-'));
