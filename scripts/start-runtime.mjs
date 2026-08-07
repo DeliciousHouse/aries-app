@@ -126,6 +126,13 @@ function hermesKanbanGcWorkerEnabled() {
   return workerGateEnabled(process.env.ARIES_KANBAN_GC_ENABLED, { defaultWhenUnset: true });
 }
 
+function syncFailureAlertWorkerEnabled() {
+  // Opt-IN: an alerting worker that pages people must never start by accident.
+  return workerGateEnabled(process.env.ARIES_SYNC_FAILURE_ALERT_ENABLED, {
+    defaultWhenUnset: false,
+  });
+}
+
 function hermesReconcilerWorkerEnabled() {
   // Opt-out kill-switch: durable replacement for the in-process Hermes
   // poll-bridge; on unless explicitly disabled (compose default `:-1`).
@@ -278,6 +285,48 @@ function spawnHermesReconcilerWorker() {
   }
 }
 
+let syncFailureAlertChild = null;
+
+/**
+ * S6-4/AA-117: the sync-failure Slack alert tick.
+ *
+ * It lives HERE, as a child of the app runtime, because the Slack env is scoped
+ * to the `aries-app` service. Running it from the insights-sync worker — which
+ * has no SLACK_*, no OAUTH_TOKEN_ENCRYPTION_KEY and no APP_BASE_URL — would
+ * resolve no tenant config and skip silently, so the alert would never fire and
+ * nothing would look broken.
+ */
+function spawnSyncFailureAlertWorker() {
+  if (!syncFailureAlertWorkerEnabled()) {
+    return;
+  }
+  const tsx = path.join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+  const worker = path.join(projectRoot, 'scripts', 'insights-sync-alert-worker.ts');
+  try {
+    syncFailureAlertChild = spawn(process.execPath, [tsx, worker], {
+      stdio: 'inherit',
+      env: { ...runtimeEnv, APP_INSTANCE_ID: 'sync-failure-alerts', DB_POOL_MAX: '2' },
+      detached: false,
+    });
+    syncFailureAlertChild.on('exit', (code, signal) => {
+      syncFailureAlertChild = null;
+      console.error(
+        `[runtime] sync-failure alert worker exited code=${String(code)} signal=${String(signal ?? '')}`,
+      );
+    });
+    console.log('[runtime] started sync-failure alert worker');
+  } catch (error) {
+    console.error('[runtime] failed to start sync-failure alert worker', error);
+  }
+}
+
+function stopSyncFailureAlertWorker() {
+  if (syncFailureAlertChild && !syncFailureAlertChild.killed) {
+    syncFailureAlertChild.kill('SIGTERM');
+    syncFailureAlertChild = null;
+  }
+}
+
 function stopHermesReconcilerWorker() {
   hermesReconcilerStopping = true;
   if (hermesReconcilerChild && !hermesReconcilerChild.killed) {
@@ -326,6 +375,7 @@ function startClusterRuntime() {
   spawnStaleRunReaperWorker();
   spawnHermesKanbanGcWorker();
   spawnHermesReconcilerWorker();
+  spawnSyncFailureAlertWorker();
 
   cluster.on('exit', (worker, code, signal) => {
     const instanceId = workerInstanceIds.get(worker.id) ?? 0;
@@ -363,6 +413,7 @@ function startClusterRuntime() {
     stopStaleRunReaperWorker();
     stopHermesKanbanGcWorker();
     stopHermesReconcilerWorker();
+    stopSyncFailureAlertWorker();
     const workers = Object.values(cluster.workers ?? {}).filter(Boolean);
     if (workers.length === 0) {
       process.exit(0);
@@ -377,6 +428,7 @@ function startClusterRuntime() {
       stopStaleRunReaperWorker();
       stopHermesKanbanGcWorker();
       stopHermesReconcilerWorker();
+    stopSyncFailureAlertWorker();
       for (const worker of Object.values(cluster.workers ?? {}).filter(Boolean)) {
         worker.kill('SIGKILL');
       }
@@ -399,6 +451,7 @@ function startSingleNodeRuntime() {
   spawnStaleRunReaperWorker();
   spawnHermesKanbanGcWorker();
   spawnHermesReconcilerWorker();
+  spawnSyncFailureAlertWorker();
 
   const child = spawn(process.execPath, [nextCliPath(), 'start', '-p', String(parsedPort)], {
     stdio: 'inherit',
@@ -415,6 +468,7 @@ function startSingleNodeRuntime() {
     stopStaleRunReaperWorker();
     stopHermesKanbanGcWorker();
     stopHermesReconcilerWorker();
+    stopSyncFailureAlertWorker();
     if (!child.killed) {
       child.kill(signal);
     }

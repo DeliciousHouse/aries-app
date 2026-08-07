@@ -159,6 +159,14 @@ services:
       # model, writes nothing, and never fabricates an engagement ranking.
       # Default OFF; OFF ⇒ the results screen is byte-identical to today.
       ARIES_WEEKLY_RESULTS_ENABLED: ${ARIES_WEEKLY_RESULTS_ENABLED:-0}
+      # S6-4/AA-117: Slack alert on N consecutive failed insights sync runs.
+      # Runs as a child of THIS service (start-runtime.mjs), not the sync worker,
+      # because the Slack env is scoped here — a worker-side send would resolve
+      # no tenant config and skip silently. Deploy restarts are excluded from the
+      # streak, so a release never pages. Default OFF.
+      ARIES_SYNC_FAILURE_ALERT_ENABLED: ${ARIES_SYNC_FAILURE_ALERT_ENABLED:-0}
+      ARIES_SYNC_FAILURE_ALERT_THRESHOLD: ${ARIES_SYNC_FAILURE_ALERT_THRESHOLD:-3}
+      ARIES_SYNC_FAILURE_ALERT_INTERVAL_MS: ${ARIES_SYNC_FAILURE_ALERT_INTERVAL_MS:-900000}
       # ElevenLabs voiceover CAPABILITY GATE for reels: when ON (+ ELEVENLABS_API_KEY
       # set), voiceover becomes a selectable reel-audio option. It no longer forces
       # voiceover — the per-tenant Settings default / per-job override (reel audio

@@ -317,6 +317,16 @@ const steps = [
     args: ['--test', 'tests/insights-sync-health.test.ts'],
   },
   {
+    // S6-4/AA-117 (gap F4b): Slack alert on N consecutive failed sync runs.
+    // Pins the card's ARCHITECTURE requirement (spawned by the app runtime, and
+    // the sync worker still has no Slack env — a worker-side send would skip
+    // silently and the alert would never fire), that deploy restarts never page,
+    // that an ongoing outage does not re-page while a NEW one does, and that a
+    // failed send leaves no dedupe row. Injected db + send; no DB, no Slack.
+    name: 'insights sync failure alerts (F4b)',
+    args: ['--test', 'tests/insights-sync-failure-alerts.test.ts'],
+  },
+  {
     // AA-153: the workspace header eyebrow follows the job's actual kind
     // instead of a hardcoded "Post" (a week-long weekly job read as a single
     // post). Pure resolver + label, no DB or I/O.

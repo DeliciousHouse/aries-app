@@ -105,6 +105,38 @@ export function consecutiveFailureStreak(runs: readonly SyncRunRow[]): number {
   return streak;
 }
 
+export interface FailureEpisode {
+  streak: number;
+  /**
+   * The id of the OLDEST run in the current unbroken failure streak — a stable
+   * identifier for THIS outage.
+   *
+   * S6-4/AA-117 dedupes on it. Keying an alert on (tenant, platform) alone would
+   * page once ever and stay silent through every future outage; keying on the
+   * NEWEST run id would re-page on every tick, since each tick adds a run. The
+   * episode start is the only id that is constant while an outage continues and
+   * different once the sync recovers and later breaks again.
+   */
+  firstFailedRunId: number | null;
+}
+
+/** The current unbroken failure streak, and the run that started it. */
+export function currentFailureEpisode(runs: readonly SyncRunRow[]): FailureEpisode {
+  let streak = 0;
+  let firstFailedRunId: number | null = null;
+  for (const run of runs) {
+    if (run.status === 'running') continue;
+    if (isRestartAbort(run)) continue;
+    if (run.status === 'failed') {
+      streak += 1;
+      firstFailedRunId = run.id; // keeps moving back to the oldest in the streak
+      continue;
+    }
+    break;
+  }
+  return { streak, firstFailedRunId };
+}
+
 export interface PlatformSyncHealth {
   platform: string;
   latestStatus: SyncRunStatus | null;
