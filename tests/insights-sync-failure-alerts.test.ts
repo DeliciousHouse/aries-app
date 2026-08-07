@@ -437,6 +437,14 @@ test('a configured threshold above 20 is passed to the episode query', async () 
 
 // ── Query + message ──────────────────────────────────────────────────────────
 
+test('the production episode query excludes the sweep restart-abort marker', () => {
+  assert.ok(
+    SYNC_ALERT_RUNS_SQL.includes(`= '${RESTART_ABORT_MESSAGE}'`),
+    'the production query must exclude the exact marker stamped by the stranded-run sweep',
+  );
+  assert.doesNotMatch(SYNC_ALERT_RUNS_SQL, /aborted after application restart/);
+});
+
 test('the episode query keeps a stable start beyond any recent-run window', () => {
   assert.match(SYNC_ALERT_RUNS_SQL, /PARTITION BY (?:r\.)?tenant_id, (?:r\.)?platform/);
   assert.match(SYNC_ALERT_RUNS_SQL, /first_failed_run_id/);

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync, spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 
 function git(args, options = {}) {
   return execFileSync('git', args, {
@@ -23,6 +24,17 @@ function log(message) {
 
 function warn(message) {
   console.warn(`[agent-guardrails] WARNING: ${message}`);
+}
+
+function verifyVersionConsistency() {
+  const version = readFileSync(new URL('../VERSION', import.meta.url), 'utf8').trim();
+  const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const packageLock = JSON.parse(readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8'));
+  const versions = [version, packageJson.version, packageLock.version, packageLock.packages?.['']?.version];
+  if (versions.some((candidate) => candidate !== version)) {
+    throw new Error(`version metadata mismatch: ${versions.join(', ')}`);
+  }
+  log(`version metadata: ${version}`);
 }
 
 function detectBaseBranch() {
@@ -63,6 +75,8 @@ function main() {
   if (insideRepo !== 'true') {
     throw new Error('pre-ship agent guardrails must run inside a git repository');
   }
+
+  verifyVersionConsistency();
 
   const currentBranch = git(['branch', '--show-current']) || '(detached)';
   const baseBranch = detectBaseBranch();

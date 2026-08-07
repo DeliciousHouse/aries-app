@@ -32,6 +32,25 @@ test('package exposes concurrent test and agent guardrail commands', () => {
   assert.match(scripts.verify ?? '', /guardrails:agent/, 'canonical verification should run agent guardrails');
 });
 
+test('canonical version metadata stays in lockstep', () => {
+  const version = readRepoFile('VERSION').trim();
+  const packageJson = JSON.parse(readRepoFile('package.json')) as { version?: string };
+  const packageLock = JSON.parse(readRepoFile('package-lock.json')) as {
+    version?: string;
+    packages?: Record<string, { version?: string }>;
+  };
+
+  assert.deepEqual(
+    [packageJson.version, packageLock.version, packageLock.packages?.['']?.version],
+    [version, version, version],
+  );
+  assert.match(
+    readRepoFile('scripts/pre-ship-agent-guardrails.mjs'),
+    /packageLock\.packages\?\.\[''\]\?\.version/,
+    'npm run verify must enforce the same four-value check before shipping',
+  );
+});
+
 test('Claude guidance promotes lessons into active rules for future agents', () => {
   const claude = readRepoFile('CLAUDE.md');
 

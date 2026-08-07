@@ -27,6 +27,7 @@
 import type { Pool } from 'pg';
 
 import {
+  RESTART_ABORT_MESSAGE,
   classifySyncFailure,
   currentFailureEpisode,
   isRestartAbort,
@@ -77,7 +78,7 @@ export const SYNC_ALERT_RUNS_SQL = `
     WHERE r.status <> 'running'
       AND NOT (
         r.status = 'failed'
-        AND lower(btrim(COALESCE(r.error_message, ''))) = 'aborted after application restart'
+        AND lower(btrim(COALESCE(r.error_message, ''))) = '${RESTART_ABORT_MESSAGE}'
       )
   ), ordered AS (
     SELECT
