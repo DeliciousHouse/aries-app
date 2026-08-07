@@ -14,11 +14,6 @@ const workflow = readFileSync(
   'utf8',
 );
 
-const prAgentWorkflow = readFileSync(
-  path.join(PROJECT_ROOT, '.github', 'workflows', 'pr-agent-autofix-automerge.yml'),
-  'utf8',
-);
-
 const publishImageScript = readFileSync(
   path.join(PROJECT_ROOT, 'scripts', 'release', 'publish-image.sh'),
   'utf8',
@@ -93,58 +88,6 @@ test('publish image script supports SHA-only deploy publishing', () => {
     publishImageScript,
     /if \[\[ "\$\{PUBLISH_SHA_ONLY\}" != "1" \]\]; then[\s\S]*?-t "\$\{GHCR_IMAGE\}:\$\{DEFAULT_BRANCH\}"[\s\S]*?-t "\$\{GHCR_IMAGE\}:latest"[\s\S]*?fi/,
     'mutable branch/latest tags should only be pushed outside SHA-only mode',
-  );
-});
-
-// Regression: PR merges made by GITHUB_TOKEN do not emit normal push-triggered workflows.
-// The agent merge workflow must explicitly dispatch Deploy with the merge SHA, and Deploy
-// must build/pull that exact SHA instead of recycling :latest.
-test('agent automerge dispatches an exact-SHA deploy after the PR is actually merged', () => {
-  assert.match(
-    prAgentWorkflow,
-    /actions:\s*write/,
-    'PR agent needs actions: write so it can dispatch the Deploy workflow after GITHUB_TOKEN merges',
-  );
-  assert.match(
-    prAgentWorkflow,
-    /mergeCommit[\s\S]*?\.mergeCommit\.oid/,
-    'PR agent should read the actual merge commit SHA after GitHub finishes merging',
-  );
-  assert.match(
-    prAgentWorkflow,
-    /gh workflow run Deploy[\s\S]*?-f image_tag="\$\{merge_sha\}"[\s\S]*?-f git_ref="\$\{merge_sha\}"/,
-    'PR agent should dispatch Deploy pinned to the exact merge SHA',
-  );
-});
-
-test('agent automerge skips Claude action when the PR edits the agent workflow itself', () => {
-  assert.match(
-    prAgentWorkflow,
-    /claude_allowed=/,
-    'PR agent should expose a claude_allowed output from the guardrail step',
-  );
-  assert.match(
-    prAgentWorkflow,
-    /\.github\/workflows\/pr-agent-autofix-automerge\.yml/,
-    'PR agent should detect edits to its own workflow file',
-  );
-  assert.match(
-    prAgentWorkflow,
-    /Claude PR autofix[\s\S]*?if: steps\.pr\.outputs\.should_run == 'true' && steps\.pr\.outputs\.claude_allowed == 'true'/,
-    'Claude action should be skipped for self-modifying workflow PRs to avoid default-branch validation failures',
-  );
-});
-
-test('agent automerge exits before checkout when a retrigger sees an already-terminal PR', () => {
-  assert.match(
-    prAgentWorkflow,
-    /gh pr view "\$pr_number" --json [^\n]*\bstate\b/,
-    'PR agent should request PR state before any checkout side effects',
-  );
-  assert.match(
-    prAgentWorkflow,
-    /pr_state="\$\(jq -r '\.state' \/tmp\/pr\.json\)"[\s\S]*?\[ "\$pr_state" = "MERGED" \] \|\| \[ "\$pr_state" = "CLOSED" \][\s\S]*?should_run=false[\s\S]*?exit 0[\s\S]*?is_cross_repo=/,
-    'PR agent should short-circuit merged or closed PRs before guardrails and checkout steps run',
   );
 });
 

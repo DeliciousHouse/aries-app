@@ -21,6 +21,7 @@ Connect your social platforms, generate a full week of content, review and appro
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/DeliciousHouse/aries-app/badge)](https://scorecard.dev/viewer/?uri=github.com/DeliciousHouse/aries-app)
 [![GitHub Stars](https://img.shields.io/github/stars/DeliciousHouse/aries-app?style=social)](https://github.com/DeliciousHouse/aries-app/stargazers)
 
 </div>
