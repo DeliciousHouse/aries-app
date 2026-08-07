@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## v0.1.55.0 — fix(marketing): make weekly generation retries durable
+## v0.1.56.0 — fix(marketing): make weekly generation retries durable
 
 Weekly social-content generation now recovers from immediate or stranded Hermes
 submission failures without suppressing the next retry or duplicating a live job.
@@ -27,6 +27,44 @@ submission failures without suppressing the next retry or duplicating a live job
 - The production runtime image installs commit-pinned Hermes Agent v0.20.0 from
   its checksum-verified source archive with its locked editable environment, then
   proves the version, CLI help, ownership, and `node` user's `PATH` at build time.
+
+## v0.1.55.0 — chore(legal): adopt the canonical Apache-2.0 license
+
+Aries distributions now carry the canonical Apache License 2.0 text, concise
+project attribution, and package metadata protected against license drift.
+
+### Changed
+
+- Replaced the customized license copy with the complete official Apache 2.0
+  text and reduced NOTICE to attribution-only content.
+- Documented the approved SPDX source-header scope, exclusions, and requirement
+  to preserve third-party notices and attribution.
+- Added contract coverage for the legal files and root package metadata.
+
+## v0.1.54.0 — chore(ci): harden GitHub Actions supply chain
+
+Repository maintainers can now track the project's public OpenSSF Scorecard and
+code-scanning results while every active external GitHub Action is SHA-pinned and
+every active workflow has an explicit least-privilege permission boundary.
+
+### Added
+
+- An official OpenSSF Scorecard workflow publishes results weekly, on protected
+  branch changes, and on default-branch pushes, with a public README badge and
+  SARIF upload to GitHub code scanning.
+- Repository policy regression tests reject mutable action tags, implicit workflow
+  permissions, missing Scorecard publishing, and reintroduced blind agent workflows.
+
+### Changed
+
+- Every external GitHub Action is pinned to a full commit SHA while retaining a
+  reviewed release comment, including deployment, release, and full-suite CI paths.
+- Active agent guidance now requires draft implementation PRs and a separate,
+  deliberately assigned reviewer lane instead of self-merge or auto-merge.
+
+### Removed
+
+- The superseded issue-agent fixer and blind PR autofix/automerge workflows.
 
 ## v0.1.53.0 — feat(runtime): add opt-in Hermes sidecar
 

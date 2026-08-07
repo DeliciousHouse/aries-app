@@ -8,9 +8,8 @@ These agents are the **fix engine** of a two-session loop:
 - **`/aries-qa-loop`** drives *live production* as a first-time user, finds what's broken on the
   golden journey, and files each defect as a GitHub issue labeled **`qa-defect`**.
 - **`/aries-goal`** is the **orchestrator**: it pulls the `qa-defect` queue, routes each issue
-  through this team, and lands every fix via **auto-merge on green CI**. It runs until the QA
-  session writes `.qa-loop/VERIFIED.md` (all five gates green in prod) and the `qa-defect` queue
-  is empty.
+  through this team, and opens a draft PR for the sanctioned reviewer lane. The assigned reviewer
+  deliberately merges only after CI and acceptance criteria are green.
 
 The orchestrator does the routing; these agents do the work. GitHub issues + PRs are the durable
 shared state, so the loop resumes cleanly after any interruption.
@@ -25,7 +24,7 @@ shared state, so the loop resumes cleanly after any interruption.
 | `aries-frontend` | Implement `frontend/` · `components/` (rendered dashboard) fixes | edit + bash | sonnet |
 | `aries-integrations` | Meta Graph · Composio · Hermes port/reconciler · OAuth/token-crypto | edit + bash | sonnet¹ |
 | `aries-test-author` | Add/update `tsx --test` coverage; run `npm run verify` + the focused gate | edit + bash | sonnet |
-| `aries-reviewer` | Review diff for correctness + security (`/code-review`); then ship: guardrails → PR (`Closes #n`) → squash auto-merge | read + bash + Skill | opus |
+| `aries-reviewer` | Review diff for correctness + security (`/code-review`); then ship a draft PR (`Closes #n`) for the sanctioned reviewer lane | read + bash + Skill | opus |
 
 ¹ `aries-integrations` defaults to sonnet; the orchestrator should run it on **opus** for subtle
 token-race / Graph-API-contract / Hermes-polling bugs.
@@ -42,8 +41,8 @@ groomer (queue → ordered)
   → planner (issue → scoped plan + routing)
     → backend | frontend | integrations (implement on fix/<n>-<slug>)
       → test-author (regression test + npm run verify + focused gate)
-        → reviewer (correctness+security review → guardrails:agent → PR Closes #n → gh pr merge --squash --auto)
-          → CI full-suite green → auto-merge → Deploy → QA loop re-verifies in prod
+        → reviewer (correctness+security review → guardrails:agent → draft PR Closes #n)
+          → assigned reviewer lane → CI full-suite green → deliberate merge → Deploy → QA loop re-verifies in prod
 ```
 
 ## Conventions every agent honors (from `CLAUDE.md`)
@@ -65,18 +64,11 @@ groomer (queue → ordered)
 ## Labels & merge mechanics
 
 - Work queue: **`qa-defect`** (issues filed by the QA loop; the groomer also adds `gate:*` / `sev:*`).
-- The team does **not** add `agent:fix` (that triggers the separate *cloud* issue-agent workflow and
-  would race this local team).
-- PRs land via `gh pr merge --squash --auto`, gated by the required **`full-suite`** check on
-  `master`. A PAT-driven `--auto` merge triggers `deploy.yml`'s push deploy directly, so no extra
-  label is needed. The team does **not** add **`agent:auto-merge`** — that label triggers the cloud
-  `pr-agent-autofix-automerge.yml`, which spawns an autonomous cloud Claude agent that
-  commits/pushes/merges the branch, racing this local team (the same reason it avoids `agent:fix`).
-- **Branch-protection reality:** `master` requires **only the `full-suite` CI check** — there is
-  **no required approving review** (`enforce_admins` is off). So `gh pr merge --squash --auto` merges
-  every green PR automatically with zero human approval; there is no "awaiting approval" state. A
-  green PR that doesn't merge is a CI/branch issue (red or pending `full-suite`, behind `master`, or a
-  conflict), never an approval one.
+- The retired `agent:fix` and `agent:auto-merge` labels have no workflow consumer and must not be
+  used as routing or merge gates. Hermes Kanban is the canonical dev-team queue.
+- Every implementation PR opens as a **draft**. The sanctioned intake assigns one reviewer lane;
+  only that lane marks the PR ready and merges deliberately after required CI and acceptance
+  criteria are satisfied. This local team never enables auto-merge or merges its own PR.
 - Fixes auto-close their issue via `Closes #<n>`; **no agent closes a `qa-defect` issue by hand** —
   the QA session verifies in prod.
 
