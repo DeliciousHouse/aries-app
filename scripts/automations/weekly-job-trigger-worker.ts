@@ -1,25 +1,27 @@
 /**
  * Weekly-job trigger worker — standing process that starts a
- * weekly_social_content job for each opted-in tenant on its configured cadence.
+ * weekly_social_content job for each opted-in tenant. Evaluation runs daily at
+ * the configured local hour; marketing_schedule day/hour/timezone still defines
+ * the weekly content window used by route-level idempotency.
  *
  * Gated by ARIES_WEEKLY_TRIGGER_ENABLED (default OFF). Mirrors the
  * scheduled-posts-worker: a single-replica docker-compose service, self-
  * scheduling on an interval, hitting the in-network app over
- * http://aries-app:3000. It owns ONLY the cadence + dedup; job-start is
+ * http://aries-app:3000. It owns ONLY daily attempt claiming + cadence calculation; job-start is
  * delegated to POST /api/internal/marketing/weekly-trigger (which submits to
  * Hermes inside the app process).
  *
  * Dedup is an atomic conditional-claim UPDATE on marketing_schedule, NOT a
  * read-then-write: two ticks (or two containers) that both think a tenant is due
  * race on the UPDATE, and only the one whose WHERE still matches
- * (last_triggered_at < window-start) claims the row. One job per tenant per
- * cadence window.
+ * (last_triggered_at < daily-window-start) claims the row. The route receives
+ * the weekly cadence boundary and generates only when that window lacks content.
  *
  * Submit failure is LOUD and does not lose the week: on an error response the
  * claim is reverted to the prior last_triggered_at so the next tick retries, and
  * a warning is logged. A deliberate skip (no Meta / stale brand kit / incomplete
- * profile) keeps the claim — it is a decision, not a failure — and is logged so
- * an operator can act, without re-triggering every tick.
+ * profile) keeps the day's claim — it is a decision, not a failure — and is
+ * logged so an operator can act; it is evaluated again the following day.
  *
  * Two hardenings against the 2026-07-20 silent week-skip (claim stamped at
  * 14:08Z, POST hung against a wedged Hermes gateway, process recreated before
@@ -165,6 +167,21 @@ export function mostRecentSlotUtc(
   return slot;
 }
 
+/** Most recent daily evaluation hour at or before `now` in the tenant timezone. */
+export function mostRecentDailyAttemptUtc(now: Date, tz: string, hour: number): Date | null {
+  const local = tenantLocalParts(now, tz);
+  const daysBack = local.hour < hour ? 1 : 0;
+  const stepped = new Date(Date.UTC(local.year, local.month - 1, local.day - daysBack));
+  const wall = `${stepped.getUTCFullYear()}-${pad2(stepped.getUTCMonth() + 1)}-${pad2(stepped.getUTCDate())}T${pad2(hour)}:00`;
+  const attempt = wallTimeToUtc(wall, tz);
+  if (!attempt || attempt.getTime() <= now.getTime()) return attempt;
+  const previous = new Date(Date.UTC(local.year, local.month - 1, local.day - 1));
+  return wallTimeToUtc(
+    `${previous.getUTCFullYear()}-${pad2(previous.getUTCMonth() + 1)}-${pad2(previous.getUTCDate())}T${pad2(hour)}:00`,
+    tz,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // DB
 // ---------------------------------------------------------------------------
@@ -303,13 +320,17 @@ async function postTrigger(
   baseUrl: string,
   secret: string,
   tenantId: string,
+  cadenceWindowStart: Date,
   fetchImpl: typeof fetch,
   timeoutMs: number,
 ): Promise<{ ok: boolean; body: TriggerResponse; httpStatus: number }> {
   const res = await fetchImpl(`${baseUrl}/api/internal/marketing/weekly-trigger`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${secret}` },
-    body: JSON.stringify({ tenant_id: tenantId }),
+    body: JSON.stringify({
+      tenant_id: tenantId,
+      cadence_window_start: cadenceWindowStart.toISOString(),
+    }),
     // A hung submit must never outlive the revert logic: without a timeout a
     // stalled request (wedged Hermes gateway, 2026-07-20 incident) holds the
     // claim stamped and the whole week silently skips. On abort the caller's
@@ -382,25 +403,33 @@ export async function tick(
   for (const row of rows) {
     const tenantId = String(row.tenant_id);
     const tz = resolveTenantTz(row);
-    const windowStart = mostRecentSlotUtc(now, tz, row.day_of_week, row.hour);
-    if (!windowStart) {
+    const cadenceWindowStart = mostRecentSlotUtc(now, tz, row.day_of_week, row.hour);
+    const attemptWindowStart = mostRecentDailyAttemptUtc(now, tz, row.hour);
+    if (!cadenceWindowStart || !attemptWindowStart) {
       console.warn('[weekly-trigger-worker] unusable timezone; skipping', { tenantId, tz });
       continue;
     }
 
     const prior = row.last_triggered_at ? new Date(row.last_triggered_at) : null;
-    const isDue = prior === null || prior.getTime() < windowStart.getTime();
+    const isDue = prior === null || prior.getTime() < attemptWindowStart.getTime();
     if (!isDue) continue;
     report.due += 1;
 
     // Atomic claim. Only a returned row was actually claimed (won the race).
-    const claim = await pool.query(CLAIM_SQL, [row.tenant_id, windowStart.toISOString()]);
+    const claim = await pool.query(CLAIM_SQL, [row.tenant_id, attemptWindowStart.toISOString()]);
     if (!claim.rowCount) continue;
     report.claimed += 1;
     const priorClaim = (claim.rows[0] as { prior_last_triggered_at: string | Date | null })?.prior_last_triggered_at ?? null;
 
     try {
-      const { ok, body, httpStatus } = await postTrigger(baseUrl, secret, tenantId, fetchImpl, timeoutMs);
+      const { ok, body, httpStatus } = await postTrigger(
+        baseUrl,
+        secret,
+        tenantId,
+        cadenceWindowStart,
+        fetchImpl,
+        timeoutMs,
+      );
       if (!ok) {
         // Loud failure: revert the claim so the next tick retries this tenant.
         await pool.query(REVERT_CLAIM_SQL, [row.tenant_id, priorClaim]);

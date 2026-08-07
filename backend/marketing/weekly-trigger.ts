@@ -63,6 +63,7 @@ export type WeeklyTriggerDeps = {
   loadPayloadDefaults?: typeof marketingPayloadDefaultsFromBusinessProfile;
   startJob?: typeof startSocialContentJob;
   findRecentJobId?: typeof findRecentJobIdForTenant;
+  cadenceWindowStartMs?: number;
   now?: () => number;
 };
 
@@ -154,10 +155,16 @@ export async function triggerWeeklyJobForTenant(
     // duplicate it. Collapse onto the existing job instead of starting another.
     // Scoped to WEEKLY_TRIGGER_CREATED_BY so manual generations never block a
     // scheduled run, and bounded to < cadence so next week's run is never collapsed.
+    const cadenceWindowStartMs = deps.cadenceWindowStartMs;
+    const dedupSinceEpochMs = typeof cadenceWindowStartMs === 'number'
+      && Number.isFinite(cadenceWindowStartMs)
+      && cadenceWindowStartMs <= nowMs
+      ? cadenceWindowStartMs
+      : nowMs - WEEKLY_DEDUP_WINDOW_MS;
     const existingJobId = await findRecentJobId(tenantId, {
       jobType: 'weekly_social_content',
       createdBy: WEEKLY_TRIGGER_CREATED_BY,
-      sinceEpochMs: nowMs - WEEKLY_DEDUP_WINDOW_MS,
+      sinceEpochMs: dedupSinceEpochMs,
     });
     if (existingJobId) {
       return { status: 'started', jobId: existingJobId, deduped: true };

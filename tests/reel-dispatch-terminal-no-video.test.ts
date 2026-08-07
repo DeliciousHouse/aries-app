@@ -6,7 +6,7 @@
  * route must fail it TERMINALLY (retryable:false) instead of letting the media
  * validator reject it retryably on every worker tick until campaign end (the
  * posts 415/416 manual-defuse incident, 2026-07-13), and the worker must map
- * that outcome onto a terminal 'failed' child row.
+ * that outcome onto a terminal dead-letter child row.
  *
  * Run:
  *   APP_BASE_URL=https://aries.example.com INTERNAL_API_SECRET=test-secret \
@@ -84,7 +84,7 @@ test('dispatch route: video post with no media fails TERMINALLY per platform (42
   }
 });
 
-test('worker: the no_video_asset outcome maps to a terminal failed child row (never re-claimed)', async () => {
+test('worker: the no_video_asset outcome maps to a media-invalid dead letter (never re-claimed)', async () => {
   const { planPlatformOutcomes } = await loadWorker();
   const outcomes = planPlatformOutcomes(
     ['instagram', 'facebook'],
@@ -96,7 +96,8 @@ test('worker: the no_video_asset outcome maps to a terminal failed child row (ne
     'video',
   );
   for (const outcome of outcomes) {
-    assert.equal(outcome.status, 'failed', `${outcome.platform} child row must be terminal`);
+    assert.equal(outcome.status, 'dead_letter', `${outcome.platform} child row must be terminal`);
     assert.equal(outcome.retryable, false);
+    assert.equal((outcome as { failureClass?: string }).failureClass, 'media_invalid');
   }
 });

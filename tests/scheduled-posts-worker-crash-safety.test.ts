@@ -12,6 +12,7 @@ type WorkerModule = {
     processed: number;
     dispatched: number;
     failed: number;
+    deadLettered: number;
     skipped: number;
     manualReconciliation: number;
   }>;
@@ -54,6 +55,8 @@ type SchedRow = {
   dispatch_started_at: string | null;
   updated_at: string;
   next_attempt_backoff_minutes?: number | null;
+  failure_class?: string | null;
+  dead_lettered_at?: string | null;
 };
 type ChildRow = {
   scheduled_post_id: number;
@@ -63,6 +66,9 @@ type ChildRow = {
   dispatched_at: string | null;
   error_at: string | null;
   error_message: string | null;
+  failure_class?: string | null;
+  attempts?: number;
+  dead_lettered_at?: string | null;
 };
 type PostRow = {
   id: number;
@@ -190,6 +196,9 @@ class FakeClient {
             dispatched_at: null,
             error_at: null,
             error_message: null,
+            failure_class: null,
+            attempts: 0,
+            dead_lettered_at: null,
           });
         } else if (existing.status === 'pending' || existing.status === 'in_flight') {
           existing.status = 'in_flight';
@@ -200,13 +209,14 @@ class FakeClient {
 
     if (s.startsWith('UPDATE scheduled_post_dispatches')) {
       if (this.db.beforeOutcomeWrite) await this.db.beforeOutcomeWrite();
-      const [spId, platform, status, errMsg, platformPostId, attemptToken] = params as [
+      const [spId, platform, status, errMsg, platformPostId, attemptToken, failureClass] = params as [
         number,
         string,
         string,
         string | null,
         string | null,
         string,
+        string | null,
       ];
       const child = store.children.find(
         (c) => c.scheduled_post_id === spId && c.platform === platform,
@@ -216,30 +226,24 @@ class FakeClient {
         && owner.dispatch_attempt_token === attemptToken;
       if (child && ownsAttempt) {
         child.status = status;
+        child.attempts = (child.attempts ?? 0) + 1;
+        child.failure_class = failureClass;
         if (!child.platform_post_id && platformPostId) child.platform_post_id = platformPostId;
         if (status === 'dispatched') child.dispatched_at = new Date().toISOString();
-        if (status === 'failed' || status === 'manual_reconciliation') {
+        if (status === 'failed' || status === 'dead_letter' || status === 'manual_reconciliation') {
           child.error_at = new Date().toISOString();
           child.error_message = errMsg;
         }
+        if (status === 'dead_letter') child.dead_lettered_at = new Date().toISOString();
       }
       return { rows: [], rowCount: child && ownsAttempt ? 1 : 0 };
     }
 
-    if (s.startsWith('SELECT platform FROM scheduled_post_dispatches')) {
-      // The worker excludes platforms that already reached a terminal state
-      // (dispatched, failed, or manual reconciliation) from re-dispatch on a
-      // stale_in_flight reclaim.
+    if (s.startsWith('SELECT platform, status, attempts FROM scheduled_post_dispatches')) {
       const spId = Number(params[0]);
       const rows = store.children
-        .filter(
-          (c) =>
-            c.scheduled_post_id === spId &&
-            (c.status === 'dispatched'
-              || c.status === 'failed'
-              || c.status === 'manual_reconciliation'),
-        )
-        .map((c) => ({ platform: c.platform }));
+        .filter((c) => c.scheduled_post_id === spId)
+        .map((c) => ({ platform: c.platform, status: c.status, attempts: c.attempts ?? 0 }));
       return { rows, rowCount: rows.length };
     }
 
@@ -265,11 +269,15 @@ class FakeClient {
       };
     }
 
-    if (s.startsWith('SELECT status, error_message FROM scheduled_post_dispatches')) {
+    if (s.startsWith('SELECT status, error_message, failure_class FROM scheduled_post_dispatches')) {
       const spId = Number(params[0]);
       const rows = store.children
         .filter((c) => c.scheduled_post_id === spId)
-        .map((c) => ({ status: c.status, error_message: c.error_message }));
+        .map((c) => ({
+          status: c.status,
+          error_message: c.error_message,
+          failure_class: c.failure_class ?? null,
+        }));
       return { rows, rowCount: rows.length };
     }
 
@@ -303,10 +311,12 @@ class FakeClient {
           const status = String(params[1]);
           row.dispatch_status = status;
           if (status === 'dispatched') row.dispatched_at = new Date().toISOString();
-          if (status === 'failed' || status === 'manual_reconciliation') {
+          if (status === 'failed' || status === 'dead_letter' || status === 'manual_reconciliation') {
             row.error_at = new Date().toISOString();
             row.error_message = (params[2] as string | null) ?? null;
+            row.failure_class = (params[4] as string | null | undefined) ?? null;
           }
+          if (status === 'dead_letter') row.dead_lettered_at = new Date().toISOString();
         }
       }
       return { rows: [], rowCount: row ? 1 : 0 };
@@ -653,7 +663,7 @@ test('response loss reconciles every durable provider success without demoting o
   }
 });
 
-test('known terminal provider rejection marks canonical delivery failed', async () => {
+test('known terminal provider rejection dead-letters and counts canonical delivery failure', async () => {
   const { tick } = await loadWorker();
   const db = new FakeDb();
   seedDueRow(db);
@@ -669,8 +679,10 @@ test('known terminal provider rejection marks canonical delivery failed', async 
       ],
     }), { status: 422, headers: { 'content-type': 'application/json' } })) as typeof fetch;
 
-    await tick(makePool(db));
-    assert.equal(db.scheduled[0]!.dispatch_status, 'failed');
+    const report = await tick(makePool(db));
+    assert.equal(db.scheduled[0]!.dispatch_status, 'dead_letter');
+    assert.equal(db.scheduled[0]!.failure_class, 'media_invalid');
+    assert.equal(report.deadLettered, 1);
     assert.equal(db.posts[0]!.published_status, 'failed');
   } finally {
     globalThis.fetch = realFetch;
@@ -813,9 +825,9 @@ test('known Facebook success survives route finalization failure and a later Ins
   }
 });
 
-test('a stale reclaim does NOT re-dispatch a terminally-failed platform', async () => {
-  // F5(a): on a stale-in_flight reclaim, a platform whose child row is
-  // 'failed' (terminal, non-retryable) must be excluded from the re-dispatch
+test('a stale reclaim does NOT re-dispatch a dead-lettered platform', async () => {
+  // F5(a): on a stale_in_flight reclaim, a platform whose child row is
+  // 'dead_letter' (terminal, non-retryable) must be excluded from re-dispatch
   // set — exactly like a 'dispatched' platform. Re-sending it would risk a
   // duplicate publish if the original "failure" was a false negative, and at
   // best wastes a Graph API call on a permanently-dead platform.
@@ -831,7 +843,7 @@ test('a stale reclaim does NOT re-dispatch a terminally-failed platform', async 
     {
       scheduled_post_id: 1,
       platform: 'facebook',
-      status: 'failed',
+      status: 'dead_letter',
       platform_post_id: null,
       dispatched_at: null,
       error_at: new Date().toISOString(),
@@ -874,7 +886,7 @@ test('a stale reclaim does NOT re-dispatch a terminally-failed platform', async 
       'only the non-terminal platform is re-dispatched; the failed FB child is excluded',
     );
     const fb = db.children.find((c) => c.platform === 'facebook');
-    assert.equal(fb?.status, 'failed', 'the terminally-failed FB child stays failed, never reset');
+    assert.equal(fb?.status, 'dead_letter', 'the dead-lettered FB child stays terminal, never reset');
   } finally {
     globalThis.fetch = realFetch;
   }

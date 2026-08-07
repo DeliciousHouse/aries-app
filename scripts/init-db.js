@@ -1091,18 +1091,18 @@ async function initDb() {
       -- before the network publish so a crash mid-publish leaves a reclaimable
       -- row rather than a false 'dispatched'. The parent dispatch_status is a
       -- rollup derived from the per-platform scheduled_post_dispatches rows.
-      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dispatch_status TEXT NOT NULL DEFAULT 'pending' CHECK (dispatch_status IN ('pending','in_flight','dispatched','failed','manual_reconciliation'));
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dispatch_status TEXT NOT NULL DEFAULT 'pending' CHECK (dispatch_status IN ('pending','in_flight','dispatched','failed','dead_letter','manual_reconciliation'));
       DO $constraint$
       BEGIN
         IF NOT EXISTS (
           SELECT 1 FROM pg_constraint
            WHERE conrelid = 'scheduled_posts'::regclass
              AND conname = 'scheduled_posts_dispatch_status_check'
-             AND position('manual_reconciliation' in pg_get_constraintdef(oid)) > 0
+             AND position('dead_letter' in pg_get_constraintdef(oid)) > 0
         ) THEN
           ALTER TABLE scheduled_posts DROP CONSTRAINT IF EXISTS scheduled_posts_dispatch_status_check;
           ALTER TABLE scheduled_posts ADD CONSTRAINT scheduled_posts_dispatch_status_check
-            CHECK (dispatch_status IN ('pending','in_flight','dispatched','failed','manual_reconciliation'));
+            CHECK (dispatch_status IN ('pending','in_flight','dispatched','failed','dead_letter','manual_reconciliation'));
         END IF;
       END $constraint$;
       ALTER TABLE scheduled_posts
@@ -1128,6 +1128,8 @@ async function initDb() {
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dispatched_at TIMESTAMPTZ;
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS error_at TIMESTAMPTZ;
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS error_message TEXT;
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS failure_class TEXT;
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dead_lettered_at TIMESTAMPTZ;
       -- Retry backoff marker: a retryable dispatch failure sets this into the
       -- future and the worker's due-rows scan skips the row until it passes.
       -- NULL = no backoff (legacy behavior). Prevents the 60s-cadence retry
@@ -1150,11 +1152,14 @@ async function initDb() {
         id BIGSERIAL PRIMARY KEY,
         scheduled_post_id BIGINT NOT NULL REFERENCES scheduled_posts(id) ON DELETE CASCADE,
         platform TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','in_flight','dispatched','failed','manual_reconciliation')),
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','in_flight','dispatched','failed','dead_letter','manual_reconciliation')),
         platform_post_id TEXT,
         dispatched_at TIMESTAMPTZ,
         error_at TIMESTAMPTZ,
         error_message TEXT,
+        failure_class TEXT,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        dead_lettered_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         UNIQUE (scheduled_post_id, platform)
@@ -1164,17 +1169,20 @@ async function initDb() {
       -- was part of the CREATE TABLE definition.
       ALTER TABLE scheduled_post_dispatches
         ADD COLUMN IF NOT EXISTS platform_post_id TEXT;
+      ALTER TABLE scheduled_post_dispatches ADD COLUMN IF NOT EXISTS failure_class TEXT;
+      ALTER TABLE scheduled_post_dispatches ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE scheduled_post_dispatches ADD COLUMN IF NOT EXISTS dead_lettered_at TIMESTAMPTZ;
       DO $constraint$
       BEGIN
         IF NOT EXISTS (
           SELECT 1 FROM pg_constraint
            WHERE conrelid = 'scheduled_post_dispatches'::regclass
              AND conname = 'scheduled_post_dispatches_status_check'
-             AND position('manual_reconciliation' in pg_get_constraintdef(oid)) > 0
+             AND position('dead_letter' in pg_get_constraintdef(oid)) > 0
         ) THEN
           ALTER TABLE scheduled_post_dispatches DROP CONSTRAINT IF EXISTS scheduled_post_dispatches_status_check;
           ALTER TABLE scheduled_post_dispatches ADD CONSTRAINT scheduled_post_dispatches_status_check
-            CHECK (status IN ('pending','in_flight','dispatched','failed','manual_reconciliation'));
+            CHECK (status IN ('pending','in_flight','dispatched','failed','dead_letter','manual_reconciliation'));
         END IF;
       END $constraint$;
       CREATE INDEX IF NOT EXISTS idx_scheduled_post_dispatches_parent
@@ -1182,6 +1190,9 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_scheduled_post_dispatches_platform_post_id
         ON scheduled_post_dispatches (platform_post_id, platform)
         WHERE platform_post_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_scheduled_post_dispatches_dead_letter
+        ON scheduled_post_dispatches (dead_lettered_at DESC)
+        WHERE status = 'dead_letter';
 
       -- Phase 4 PR1: Slack Events API inbound dedupe. Every delivery has a
       -- stable event_id; the webhook inserts ON CONFLICT DO NOTHING to drop

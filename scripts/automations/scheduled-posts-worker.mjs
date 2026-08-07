@@ -643,6 +643,7 @@ export function rollupParentStatus(platformStatuses) {
   if (statuses.some((s) => s === 'in_flight')) return 'in_flight';
   if (statuses.some((s) => s === 'pending')) return 'pending';
   if (statuses.some((s) => s === 'manual_reconciliation')) return 'manual_reconciliation';
+  if (statuses.some((s) => s === 'dead_letter')) return 'dead_letter';
   if (statuses.every((s) => s === 'dispatched' || s === 'failed')) return 'failed';
   return 'pending';
 }
@@ -658,7 +659,7 @@ async function seedPlatformDispatches(client, rowId, platforms) {
   if (platforms.length === 0) return;
   // One multi-row INSERT instead of one round-trip per platform. $1 is the
   // scheduled_post id; $2.. are the platform names. ON CONFLICT keeps the
-  // re-claim semantics: terminal dispatched/failed/manual-review evidence is
+  // re-claim semantics: terminal dispatched/failed/dead-letter/manual-review evidence is
   // left untouched; only bounded-safe work is reset to 'in_flight'.
   const valueTuples = platforms
     .map((_, i) => `($1, $${i + 2}, 'in_flight', now())`)
@@ -686,6 +687,7 @@ async function setPlatformDispatchStatus(
   errorMessage,
   platformPostId,
   attemptToken,
+  failureClass,
 ) {
   const truncated = errorMessage ? String(errorMessage).slice(0, 1000) : null;
   // $4 is cast to text everywhere it appears: with the bare parameter in both
@@ -700,10 +702,13 @@ async function setPlatformDispatchStatus(
      SET status = $3,
          platform_post_id = COALESCE(platform_post_id, $5::text),
          dispatched_at = CASE WHEN $3 = 'dispatched' THEN now() ELSE dispatched_at END,
-         error_at = CASE WHEN $3 IN ('failed', 'manual_reconciliation') THEN now() ELSE error_at END,
-         error_message = CASE WHEN $3 IN ('failed', 'manual_reconciliation') THEN $4::text
+         error_at = CASE WHEN $3 IN ('failed', 'dead_letter', 'manual_reconciliation') THEN now() ELSE error_at END,
+         error_message = CASE WHEN $3 IN ('failed', 'dead_letter', 'manual_reconciliation') THEN $4::text
                               WHEN $3 = 'pending' AND $4::text IS NOT NULL THEN $4::text
                               ELSE error_message END,
+         failure_class = $7::text,
+         attempts = attempts + 1,
+         dead_lettered_at = CASE WHEN $3 = 'dead_letter' THEN now() ELSE dead_lettered_at END,
          updated_at = now()
      WHERE scheduled_post_id = $1
        AND platform = $2
@@ -714,7 +719,7 @@ async function setPlatformDispatchStatus(
            AND owner.dispatch_status = 'in_flight'
            AND owner.dispatch_attempt_token = $6
        )`,
-    [rowId, platform, status, truncated, platformPostId, attemptToken],
+    [rowId, platform, status, truncated, platformPostId, attemptToken, failureClass],
   );
   return result.rowCount === 1;
 }
@@ -838,6 +843,7 @@ async function syncCanonicalTerminalState(
 // Matched against the persisted error text — coarse by design; a false match
 // only lengthens a retry delay, never drops a post.
 const RATE_LIMIT_ERROR_RE = /\(code (368|4|17|613)\)|rate.?limit|request limit reached|try again later/i;
+const MEDIA_INVALID_ERROR_RE = /media[_ -]?invalid|invalid[_ -]?media|bad[_ -]?media|no_(video|image)_asset|unsupported (image|video)|aspect ratio|media metadata/i;
 
 function parseBackoffMinutesEnv(raw, fallback) {
   if (!raw || !/^\d+$/.test(raw.trim())) return fallback;
@@ -860,6 +866,41 @@ export function classifyRetryBackoffMinutes(outcomes, env = process.env) {
   return hitRateLimit ? rateLimit : general;
 }
 
+export function classifyDispatchFailure(result = {}) {
+  if (result.kind === 'outcome_unknown') return 'outcome_unknown';
+  if (result.kind === 'auth') return 'auth_token';
+  if (MEDIA_INVALID_ERROR_RE.test(String(result.error || ''))) return 'media_invalid';
+  if (result.kind === 'transient' || result.kind === 'pre_provider' || result.retryable === true) {
+    return 'platform_transient';
+  }
+  return 'platform_permanent';
+}
+
+export function resolveDispatchFailurePolicy(result, env = process.env) {
+  const failureClass = classifyDispatchFailure(result);
+  const maxAttempts = parseBackoffMinutesEnv(env.ARIES_DISPATCH_TRANSIENT_MAX_ATTEMPTS, 5);
+  if (failureClass !== 'platform_transient') {
+    return { failureClass, terminal: true, backoffMinutes: null, maxAttempts };
+  }
+  const backoffMinutes = RATE_LIMIT_ERROR_RE.test(String(result.error || ''))
+    ? parseBackoffMinutesEnv(env.ARIES_DISPATCH_RATE_LIMIT_BACKOFF_MINUTES, 180)
+    : parseBackoffMinutesEnv(env.ARIES_DISPATCH_RETRY_BACKOFF_MINUTES, 10);
+  return { failureClass, terminal: false, backoffMinutes, maxAttempts };
+}
+
+export function applyTransientRetryLimit(outcomes, priorAttempts, maxAttempts) {
+  return outcomes.map((outcome) => {
+    if (
+      outcome.status === 'pending'
+      && outcome.failureClass === 'platform_transient'
+      && (priorAttempts.get(outcome.platform) || 0) + 1 >= maxAttempts
+    ) {
+      return { ...outcome, status: 'dead_letter', retryable: false };
+    }
+    return outcome;
+  });
+}
+
 /** Persist the backoff marker so the due-rows scan skips the row until then. */
 async function setNextAttemptAt(client, rowId, backoffMinutes) {
   await client.query(
@@ -871,18 +912,19 @@ async function setNextAttemptAt(client, rowId, backoffMinutes) {
 /** Recompute and persist the parent rollup from the child rows. */
 async function syncParentRollup(client, rowId, postId, tenantId, attemptToken) {
   const childResult = await client.query(
-    `SELECT status, error_message FROM scheduled_post_dispatches WHERE scheduled_post_id = $1`,
+    `SELECT status, error_message, failure_class FROM scheduled_post_dispatches WHERE scheduled_post_id = $1`,
     [rowId],
   );
   const statuses = childResult.rows.map((r) => r.status);
   const rolled = rollupParentStatus(statuses);
   const hasManualEvidence = statuses.some((status) => status === 'manual_reconciliation');
   const firstError = childResult.rows.find(
-    (r) => (r.status === 'failed' || r.status === 'manual_reconciliation') && r.error_message,
+    (r) => (r.status === 'failed' || r.status === 'dead_letter' || r.status === 'manual_reconciliation') && r.error_message,
   )?.error_message ?? null;
+  const firstFailureClass = childResult.rows.find((r) => r.failure_class)?.failure_class ?? null;
   const canonicalTerminalStatus = hasManualEvidence
     ? 'manual_reconciliation'
-    : rolled === 'failed'
+    : rolled === 'failed' || rolled === 'dead_letter'
       ? 'failed'
       : null;
   if (canonicalTerminalStatus) {
@@ -899,12 +941,14 @@ async function syncParentRollup(client, rowId, postId, tenantId, attemptToken) {
     `UPDATE scheduled_posts
      SET dispatch_status = $2,
          dispatched_at = CASE WHEN $2 = 'dispatched' THEN now() ELSE dispatched_at END,
-         error_at = CASE WHEN $2 IN ('failed', 'manual_reconciliation') THEN now() ELSE error_at END,
-         error_message = CASE WHEN $2 IN ('failed', 'manual_reconciliation') THEN $3 ELSE error_message END
+         error_at = CASE WHEN $2 IN ('failed', 'dead_letter', 'manual_reconciliation') THEN now() ELSE error_at END,
+         error_message = CASE WHEN $2 IN ('failed', 'dead_letter', 'manual_reconciliation') THEN $3 ELSE error_message END,
+         failure_class = CASE WHEN $2 IN ('failed', 'dead_letter', 'manual_reconciliation') THEN $5::text ELSE failure_class END,
+         dead_lettered_at = CASE WHEN $2 = 'dead_letter' THEN now() ELSE dead_lettered_at END
      WHERE id = $1
        AND dispatch_status = 'in_flight'
        AND dispatch_attempt_token = $4`,
-    [rowId, rolled, firstError, attemptToken],
+    [rowId, rolled, firstError, attemptToken, firstFailureClass],
   );
   return result.rowCount === 1 ? rolled : null;
 }
@@ -945,6 +989,7 @@ export function planPlatformOutcomes(platforms, results, transportError) {
         error: `publish_outcome_unknown (manual reconciliation required; no auto-retry — may already be live): ${transportError}`,
         retryable: false,
         platformPostId: null,
+        failureClass: 'outcome_unknown',
       };
     }
     const result = byProvider.get(platform);
@@ -961,6 +1006,7 @@ export function planPlatformOutcomes(platforms, results, transportError) {
         error: `publish_outcome_unknown (manual reconciliation required; no auto-retry — may already be live): ${result.error || 'provider outcome unknown'}`,
         retryable: false,
         platformPostId: null,
+        failureClass: 'outcome_unknown',
       };
     }
     const retryable = result ? result.retryable !== false : true;
@@ -972,7 +1018,15 @@ export function planPlatformOutcomes(platforms, results, transportError) {
     if (result?.kind === 'auth') {
       error = `auth: Meta account disconnected — reconnect required. ${error}`;
     }
-    return { platform, status: retryable ? 'pending' : 'failed', error, retryable, platformPostId: null };
+    const policy = resolveDispatchFailurePolicy({ ...result, error, retryable });
+    return {
+      platform,
+      status: policy.terminal ? 'dead_letter' : 'pending',
+      error,
+      retryable: !policy.terminal,
+      platformPostId: null,
+      failureClass: policy.failureClass,
+    };
   });
 }
 
@@ -1112,6 +1166,7 @@ export async function tick(pool, { shouldStop = () => false } = {}) {
     processed: ids.length,
     dispatched: 0,
     failed: 0,
+    deadLettered: 0,
     skipped: 0,
     expired: sweep.swept,
     manualReconciliation: ambiguousSweep.manualReconciliation,
@@ -1130,6 +1185,7 @@ export async function tick(pool, { shouldStop = () => false } = {}) {
     // doubled the pool pressure (see guardrail #1, DB_POOL_MAX budgeting).
     let row;
     let platformsToDispatch;
+    let priorAttempts;
     let attemptToken;
     try {
       const client = await pool.connect();
@@ -1191,17 +1247,21 @@ export async function tick(pool, { shouldStop = () => false } = {}) {
           break;
         }
         // On a stale-in_flight re-claim, a platform that already reached a
-        // terminal state — 'dispatched' (went live), 'failed' (terminal,
-        // non-retryable), or 'manual_reconciliation' (outcome unknown) — must
+        // terminal state — 'dispatched' (went live), 'failed'/'dead_letter'
+        // (terminal, non-retryable), or 'manual_reconciliation' (outcome unknown) — must
         // not be dispatched again. A pending sibling keeps the parent
         // claimable, but the ambiguous child stays quarantined on every retry.
         const childResult = await client.query(
-          `SELECT platform FROM scheduled_post_dispatches
-           WHERE scheduled_post_id = $1
-             AND status IN ('dispatched', 'failed', 'manual_reconciliation')`,
+          `SELECT platform, status, attempts FROM scheduled_post_dispatches
+           WHERE scheduled_post_id = $1`,
           [rowId],
         );
-        const alreadyTerminal = new Set(childResult.rows.map((r) => r.platform));
+        const alreadyTerminal = new Set(
+          childResult.rows
+            .filter((r) => ['dispatched', 'failed', 'dead_letter', 'manual_reconciliation'].includes(r.status))
+            .map((r) => r.platform),
+        );
+        priorAttempts = new Map(childResult.rows.map((r) => [r.platform, Number(r.attempts) || 0]));
         if (shouldStop()) {
           report.skipped += ids.length - rowIndex;
           await client.query('ROLLBACK');
@@ -1238,7 +1298,12 @@ export async function tick(pool, { shouldStop = () => false } = {}) {
       const { results, transportError } = platformsToDispatch.length > 0
         ? await dispatchOnce({ ...row, target_platforms: platformsToDispatch }, attemptToken, baseUrl, secret)
         : { results: [], transportError: null };
-      let outcomes = planPlatformOutcomes(platformsToDispatch, results, transportError);
+      const maxAttempts = resolveDispatchFailurePolicy({ kind: 'transient' }).maxAttempts;
+      let outcomes = applyTransientRetryLimit(
+        planPlatformOutcomes(platformsToDispatch, results, transportError),
+        priorAttempts,
+        maxAttempts,
+      );
 
       const fc = await pool.connect();
       try {
@@ -1261,6 +1326,7 @@ export async function tick(pool, { shouldStop = () => false } = {}) {
             outcome.error,
             outcome.platformPostId,
             attemptToken,
+            outcome.failureClass,
           );
           if (!ownsAttempt) break;
         }
@@ -1291,6 +1357,7 @@ export async function tick(pool, { shouldStop = () => false } = {}) {
         }
         if (rolled !== 'dispatched'
           && rolled !== 'failed'
+          && rolled !== 'dead_letter'
           && rolled !== 'manual_reconciliation') {
           // Non-terminal: at least one platform is retrying. Back off instead
           // of re-claiming at tick cadence — 60s retries against a platform
@@ -1308,6 +1375,10 @@ export async function tick(pool, { shouldStop = () => false } = {}) {
           report.failed += 1;
           const errs = outcomes.filter((o) => o.status !== 'dispatched').map((o) => `${o.platform}:${o.error}`);
           console.error(`[scheduled-posts-worker] row=${rowId} rollup=${rolled}`, errs.join('; '));
+          if (rolled === 'dead_letter') {
+            report.deadLettered += 1;
+            console.error(`[scheduled-posts-worker] ALERT DispatchDeadLetter metric=aries_dispatch_dead_letters_total value=1 row=${rowId}`);
+          }
         }
       } catch (writeError) {
         try { await fc.query('ROLLBACK'); } catch { /* ignore */ }
