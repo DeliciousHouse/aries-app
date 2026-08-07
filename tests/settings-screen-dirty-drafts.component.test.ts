@@ -29,6 +29,7 @@ function installSettingsApi() {
     websiteUrl: 'https://stored.example',
     businessType: 'Consulting',
     primaryGoal: 'Increase social media presence',
+    goalType: null,
     launchApproverUserId: '10',
     launchApproverName: 'Owner',
     offer: null,

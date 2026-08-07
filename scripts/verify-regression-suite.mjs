@@ -297,6 +297,17 @@ const steps = [
     args: ['--test', 'tests/insights-platform-filter-truthing.test.ts'],
   },
   {
+    // S6-1/AA-114 (gaps A6a/F3): the canonical goal WRITE path. Pins the A6a fix
+    // ("Increase social media presence" means content_growth, not the
+    // brand_awareness fallback), that every onboarding preset states its goal
+    // explicitly (including the two that honestly map to none), and the write
+    // resolver's precedence — an explicit pick wins, an unrelated field edit
+    // never re-derives over it, and a changed goal text still re-resolves.
+    // Also source-pins that both keyword heuristics are actually retired.
+    name: 'canonical goal write path (A6a/F3)',
+    args: ['--test', 'tests/goal-canonical-write-path.test.ts'],
+  },
+  {
     // AA-153: the workspace header eyebrow follows the job's actual kind
     // instead of a hardcoded "Post" (a week-long weekly job read as a single
     // post). Pure resolver + label, no DB or I/O.

@@ -92,6 +92,7 @@ function buildProfile(overrides: Partial<BusinessProfileView> = {}): BusinessPro
     websiteUrl: 'https://acme.example',
     businessType: 'SaaS',
     primaryGoal: 'demos',
+    goalType: null,
     launchApproverUserId: null,
     launchApproverName: null,
     offer: null,

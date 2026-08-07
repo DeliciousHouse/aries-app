@@ -1,4 +1,5 @@
 import { requestJson, requestJsonWithRetry, type ApiClientOptions } from './http';
+import type { GoalType } from '@/backend/insights/goal/goal-type-classification';
 import type {
   SocialContentStatusHistoryEntry,
   MarketingDashboardAsset,
@@ -149,6 +150,8 @@ export type BusinessProfileView = {
   websiteUrl: string | null;
   businessType: string | null;
   primaryGoal: string | null;
+  /** S6-1/AA-114: canonical goal the operator chose; null = not set yet. */
+  goalType: GoalType | null;
   launchApproverUserId: string | null;
   launchApproverName: string | null;
   offer: string | null;
@@ -292,6 +295,8 @@ export type BusinessProfilePatch = {
   websiteUrl?: string | null;
   businessType?: string | null;
   primaryGoal?: string | null;
+  /** undefined = leave unchanged; null = clear back to "not set". */
+  goalType?: GoalType | null;
   launchApproverUserId?: string | null;
   launchApproverName?: string | null;
   offer?: string | null;

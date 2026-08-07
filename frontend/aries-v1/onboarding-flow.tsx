@@ -23,6 +23,8 @@ import {
 
 import { useBusinessProfile } from '@/hooks/use-business-profile';
 import { createAriesV1Api, type UrlPreviewBrandKitPreview, type UrlPreviewResponse } from '@/lib/api/aries-v1';
+import { ONBOARDING_GOAL_PRESETS, presetLabelForGoalType } from '@/backend/insights/goal/goal-options';
+import type { GoalType } from '@/backend/insights/goal/goal-type-classification';
 import {
   getRequiredFieldError,
   useDisabledUntilValid,
@@ -124,28 +126,14 @@ const CHANNEL_OPTIONS: ChannelOption[] = [
   },
 ];
 
-const GOAL_OPTIONS: GoalOption[] = [
-  {
-    label: 'Get leads',
-    description: 'Collect contact info, sign-ups, consultation requests, or quote inquiries.',
-  },
-  {
-    label: 'Sell a product or service',
-    description: 'Drive direct purchases, bookings, or paid sign-ups.',
-  },
-  {
-    label: 'Increase social media presence',
-    description: 'Grow followers, engagement, and brand visibility across platforms.',
-  },
-  {
-    label: 'Gather information',
-    description: 'Run quizzes, surveys, or polls to learn about your audience.',
-  },
-  {
-    label: 'Other',
-    description: 'Define a custom business outcome.',
-  },
-];
+// S6-1/AA-114: the presets now come from the SHARED list, where each carries
+// the canonical goal it means explicitly. Previously these labels were mapped
+// back to a goal by keyword, which is how gap A6a's "Increase social media
+// presence" ended up on brand awareness instead of audience growth.
+const GOAL_OPTIONS: GoalOption[] = ONBOARDING_GOAL_PRESETS.map((preset) => ({
+  label: preset.label,
+  description: preset.description,
+}));
 
 function stepIndexFromStepParam(stepParam: string | null | undefined): number {
   const normalized = stepParam?.trim() || '';
@@ -157,33 +145,22 @@ function stepIndexFromStepParam(stepParam: string | null | undefined): number {
   return index >= 0 ? index : 0;
 }
 
-function goalFromBusinessProfile(primaryGoal: string | null | undefined): string {
-  const normalized = primaryGoal?.trim().toLowerCase() || '';
-  if (!normalized) {
-    return '';
-  }
-  if (normalized.includes('lead') || normalized.includes('enquir') || normalized.includes('sign-up') || normalized.includes('contact')) {
-    return 'Get leads';
-  }
-  if (
-    normalized.includes('sell') ||
-    normalized.includes('sale') ||
-    normalized.includes('revenue') ||
-    normalized.includes('purchase') ||
-    normalized.includes('buy') ||
-    normalized.includes('book')
-  ) {
-    return 'Sell a product or service';
-  }
-  if (normalized.includes('social') || normalized.includes('follower') || normalized.includes('visible') || normalized.includes('awareness') || normalized.includes('brand') || normalized.includes('engag')) {
-    return 'Increase social media presence';
-  }
-  if (normalized.includes('quiz') || normalized.includes('survey') || normalized.includes('poll') || normalized.includes('gather') || normalized.includes('research')) {
-    return 'Gather information';
-  }
-  const knownLabels = GOAL_OPTIONS.map((option) => option.label);
-  if (knownLabels.includes(primaryGoal?.trim() || '')) {
-    return primaryGoal!.trim();
+/**
+ * Which preset to re-select for a returning operator.
+ *
+ * S6-1/AA-114 retired the keyword chain that used to live here (lead/sell/
+ * social/quiz substring tests over the free text). It guessed, and it disagreed
+ * with the backend's own families. The stored canonical `goalType` is now the
+ * answer when there is one; otherwise the stored text is shown back verbatim,
+ * which is what a custom "Other" goal always was.
+ */
+function goalFromBusinessProfile(
+  primaryGoal: string | null | undefined,
+  goalType?: GoalType | null,
+): string {
+  const presetForStoredGoal = presetLabelForGoalType(goalType);
+  if (presetForStoredGoal) {
+    return presetForStoredGoal;
   }
   return primaryGoal?.trim() || '';
 }
@@ -955,7 +932,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
           setWebsiteUrl(normalizeHttpsUrlInput(nextProfile.websiteUrl || nextProfile.brandKit?.source_url || ''));
           setBusinessType(nextProfile.businessType || '');
           setApproverName(nextProfile.launchApproverName || '');
-          setGoal(goalFromBusinessProfile(nextProfile.primaryGoal));
+          setGoal(goalFromBusinessProfile(nextProfile.primaryGoal, nextProfile.goalType));
           setOffer(nextProfile.offer || nextProfile.brandIdentity?.offer || nextProfile.brandKit?.offer_summary || '');
           setBrandVoice(nextProfile.brandVoice || '');
           setNotes(nextProfile.notes || '');

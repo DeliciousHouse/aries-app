@@ -12,6 +12,7 @@ import {
   COMPETITOR_URL_SOCIAL_ERROR,
 } from '@/lib/marketing-competitor';
 import { parseReelAudioMode } from '@/backend/marketing/reel-audio-mode';
+import { isCanonicalGoalType } from '@/backend/insights/goal/goal-options';
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -121,6 +122,8 @@ export async function PATCH(req: Request) {
     websiteUrl?: string | null;
     businessType?: string | null;
     primaryGoal?: string | null;
+    /** S6-1/AA-114: the canonical goal from the select, alongside the free text. */
+    goalType?: string | null;
     launchApproverUserId?: string | null;
     launchApproverName?: string | null;
     offer?: string | null;
@@ -170,6 +173,16 @@ export async function PATCH(req: Request) {
       websiteUrl: normalizedWebsiteUrl,
       businessType: stringOrNull(payload.businessType),
       primaryGoal: stringOrNull(payload.primaryGoal),
+      // S6-1/AA-114: undefined = the caller did not touch the goal select;
+      // null clears it; anything not in the canonical vocabulary is rejected to
+      // null rather than persisted, since the column has a CHECK constraint and
+      // a junk key would fail the whole save.
+      goalType:
+        payload.goalType === undefined
+          ? undefined
+          : isCanonicalGoalType(payload.goalType)
+            ? payload.goalType
+            : null,
       launchApproverUserId: stringOrNull(payload.launchApproverUserId),
       launchApproverName: stringOrNull(payload.launchApproverName),
       offer: stringOrNull(payload.offer),
