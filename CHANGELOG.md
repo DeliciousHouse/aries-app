@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.55.0 — fix(marketing): make weekly generation retries durable
+
+Weekly social-content generation now recovers from immediate or stranded Hermes
+submission failures without suppressing the next retry or duplicating a live job.
+
+### Changed
+
+- Weekly generation no longer blocks on channel connection or brand-kit
+  freshness; job startup owns brand-kit creation and the Hermes port refreshes
+  it before submission, allowing disconnected tenants to prepare content.
+- Failed trigger attempts retry on a 24-hour cadence until success, and attempts
+  that remain newer than the last success for 24 hours emit an explicit error.
+
+### Fixed
+
+- Immediate Stage 1 Hermes failures now reach the weekly worker as errors while
+  retaining the failed runtime record for diagnosis and retry deduplication skips
+  failed jobs.
+- Stale in-flight claims clear their stranded attempt state before retrying in the
+  same tick, while deliberate gate skips remain cadence-gated and non-failing.
+- HTTP 200 trigger responses carrying `{ status: "error" }` revert the atomic
+  cadence claim instead of being misclassified as a deliberate skip.
+- The production runtime image installs commit-pinned Hermes Agent v0.20.0 from
+  its checksum-verified source archive with its locked editable environment, then
+  proves the version, CLI help, ownership, and `node` user's `PATH` at build time.
+
 ## v0.1.53.0 — feat(runtime): add opt-in Hermes sidecar
 
 Aries operators can now run Hermes Agent beside the application on the shared
@@ -22,27 +48,6 @@ Docker network without depending on a host-installed executable.
   installs disable only the network dependency probe.
 - The remaining `hermes kanban gc` CLI worker is deprecated behind a temporary
   compatibility switch for removal after the production sidecar cutover.
-
-## v0.1.51.1 — fix(marketing): restore weekly generation retries
-
-Weekly social-content generation now recovers instead of silently losing a
-cadence window when preflight state is stale or Hermes submission fails.
-
-### Changed
-
-- Weekly generation no longer blocks on channel connection or brand-kit
-  freshness; job startup owns brand-kit creation and the Hermes port refreshes
-  it before submission, allowing disconnected tenants to prepare content.
-- Failed trigger attempts retry on a 24-hour cadence until success, and attempts
-  that remain newer than the last success for 24 hours emit an explicit error.
-
-### Fixed
-
-- HTTP 200 trigger responses carrying `{ status: "error" }` now revert the
-  atomic cadence claim instead of being misclassified as a deliberate skip.
-- The production runtime image installs the commit-pinned Hermes Agent v0.20.0
-  CLI into `PATH` and verifies its version at build time (both as root and the
-  runtime `node` user).
 
 ## v0.1.51.0 — chore(security): add disclosure and scanning guardrails
 
