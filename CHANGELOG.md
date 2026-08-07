@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.56.0 — fix(marketing): make weekly generation retries durable
+
+Weekly social-content generation now recovers from immediate or stranded Hermes
+submission failures without suppressing the next retry or duplicating a live job.
+
+### Changed
+
+- Weekly generation no longer blocks on channel connection or brand-kit
+  freshness; job startup owns brand-kit creation and the Hermes port refreshes
+  it before submission, allowing disconnected tenants to prepare content.
+- Failed trigger attempts retry on a 24-hour cadence until success, and attempts
+  that remain newer than the last success for 24 hours emit an explicit error.
+
+### Fixed
+
+- Immediate Stage 1 Hermes failures now reach the weekly worker as errors while
+  retaining the failed runtime record for diagnosis and retry deduplication skips
+  failed jobs.
+- Stale in-flight claims clear their stranded attempt state before retrying in the
+  same tick, while deliberate gate skips remain cadence-gated and non-failing.
+- HTTP 200 trigger responses carrying `{ status: "error" }` revert the atomic
+  cadence claim instead of being misclassified as a deliberate skip.
+- The production runtime image installs commit-pinned Hermes Agent v0.20.0 from
+  its checksum-verified source archive with its locked editable environment, then
+  proves the version, CLI help, ownership, and `node` user's `PATH` at build time.
+
 ## v0.1.55.0 — chore(legal): adopt the canonical Apache-2.0 license
 
 Aries distributions now carry the canonical Apache License 2.0 text, concise
