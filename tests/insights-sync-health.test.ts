@@ -125,7 +125,7 @@ test('classifies failures into actionable categories', () => {
 
 test('safe failure detail never returns provider bodies, tokens, URLs, or unbounded text', () => {
   const inputs = [
-    'OAuth token xoxb-secret-123 expired for https://graph.facebook.com/me?access_token=secret',
+    'OAuth token marker expired for https://graph.facebook.com/me?token_marker=secret',
     '429 provider body: ' + 'sensitive '.repeat(500),
     'Request failed at https://api.example.com/private?id=acct_123 with bearer abc.def.ghi',
   ];

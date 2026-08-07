@@ -22,7 +22,7 @@ function chanPool(channelId: string | null): {
   return { pool, queries };
 }
 
-const tokenOk = async () => ({ accessToken: 'xoxb-tenant', connectionId: 'c1', externalAccountId: null });
+const tokenOk = async () => ({ accessToken: 'bot-token-tenant', connectionId: 'c1', externalAccountId: null });
 const tokenNull = async () => null;
 
 // ── loadSlackConfigForTenant ───────────────────────────────────────────────────
@@ -30,7 +30,7 @@ const tokenNull = async () => null;
 test('present: per-tenant token + channel resolves the per-tenant config', async () => {
   const { pool, queries } = chanPool('C0TENANT');
   const res = await loadSlackConfigForTenant(15, { pool: pool as never, getToken: tokenOk, env: {} });
-  assert.deepEqual(res, { botToken: 'xoxb-tenant', channel: 'C0TENANT' });
+  assert.deepEqual(res, { botToken: 'bot-token-tenant', channel: 'C0TENANT' });
   // Exactly one channel SELECT, status-filtered, parameterized on the numeric tenant.
   assert.equal(queries.length, 1);
   assert.match(queries[0].sql, /status = 'connected'/);
@@ -51,9 +51,9 @@ test('env opt-in: no per-tenant config but both env vars set resolves the global
   const res = await loadSlackConfigForTenant(15, {
     pool: pool as never,
     getToken: tokenNull,
-    env: { SLACK_SINGLE_TENANT_CHANNEL: 'C0GLOBAL', SLACK_BOT_TOKEN: 'xoxb-global' },
+    env: { SLACK_SINGLE_TENANT_CHANNEL: 'C0GLOBAL', SLACK_BOT_TOKEN: 'bot-token-global' },
   });
-  assert.deepEqual(res, { botToken: 'xoxb-global', channel: 'C0GLOBAL' });
+  assert.deepEqual(res, { botToken: 'bot-token-global', channel: 'C0GLOBAL' });
 });
 
 test('multi-tenant callers can disable the global fallback end to end', async () => {
@@ -72,7 +72,7 @@ test('env opt-in requires BOTH the channel and the token', async () => {
   const res = await loadSlackConfigForTenant(15, {
     pool: pool as never,
     getToken: tokenNull,
-    env: { SLACK_BOT_TOKEN: 'xoxb-global' }, // channel missing
+    env: { SLACK_BOT_TOKEN: 'bot-token-global' }, // channel missing
   });
   assert.equal(res, null);
 });
@@ -96,9 +96,9 @@ test('missing channel + valid tenant token + env opt-in: global wins (tenant tok
   const res = await loadSlackConfigForTenant(15, {
     pool: pool as never,
     getToken: tokenOk,
-    env: { SLACK_SINGLE_TENANT_CHANNEL: 'C0GLOBAL', SLACK_BOT_TOKEN: 'xoxb-global' },
+    env: { SLACK_SINGLE_TENANT_CHANNEL: 'C0GLOBAL', SLACK_BOT_TOKEN: 'bot-token-global' },
   });
-  assert.deepEqual(res, { botToken: 'xoxb-global', channel: 'C0GLOBAL' });
+  assert.deepEqual(res, { botToken: 'bot-token-global', channel: 'C0GLOBAL' });
 });
 
 test('null tenantId skips the per-tenant path and uses the env opt-in', async () => {
@@ -109,9 +109,9 @@ test('null tenantId skips the per-tenant path and uses the env opt-in', async ()
   };
   const res = await loadSlackConfigForTenant(null, {
     getToken,
-    env: { SLACK_SINGLE_TENANT_CHANNEL: 'C0G', SLACK_BOT_TOKEN: 'xoxb-g' },
+    env: { SLACK_SINGLE_TENANT_CHANNEL: 'C0G', SLACK_BOT_TOKEN: 'bot-token-g' },
   });
-  assert.deepEqual(res, { botToken: 'xoxb-g', channel: 'C0G' });
+  assert.deepEqual(res, { botToken: 'bot-token-g', channel: 'C0G' });
   assert.equal(getTokenCalled, false, 'never resolves a token for a null tenant');
 });
 
@@ -121,9 +121,9 @@ test('fail-open: getToken throwing does not throw — falls through to env opt-i
   };
   const res = await loadSlackConfigForTenant(15, {
     getToken,
-    env: { SLACK_SINGLE_TENANT_CHANNEL: 'C0G', SLACK_BOT_TOKEN: 'xoxb-g' },
+    env: { SLACK_SINGLE_TENANT_CHANNEL: 'C0G', SLACK_BOT_TOKEN: 'bot-token-g' },
   });
-  assert.deepEqual(res, { botToken: 'xoxb-g', channel: 'C0G' });
+  assert.deepEqual(res, { botToken: 'bot-token-g', channel: 'C0G' });
 });
 
 test('fail-open: a throwing channel query does not throw — falls through to env opt-in', async () => {
@@ -135,9 +135,9 @@ test('fail-open: a throwing channel query does not throw — falls through to en
   const res = await loadSlackConfigForTenant(15, {
     pool: pool as never,
     getToken: tokenOk,
-    env: { SLACK_SINGLE_TENANT_CHANNEL: 'C0G', SLACK_BOT_TOKEN: 'xoxb-g' },
+    env: { SLACK_SINGLE_TENANT_CHANNEL: 'C0G', SLACK_BOT_TOKEN: 'bot-token-g' },
   });
-  assert.deepEqual(res, { botToken: 'xoxb-g', channel: 'C0G' });
+  assert.deepEqual(res, { botToken: 'bot-token-g', channel: 'C0G' });
 });
 
 test('fail-open with no env opt-in: an error resolves to null, never throws', async () => {
