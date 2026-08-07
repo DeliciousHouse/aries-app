@@ -5,8 +5,8 @@ All notable changes to this project will be documented in this file.
 ## v0.1.54.0 — chore(ci): harden GitHub Actions supply chain
 
 Repository maintainers can now track the project's public OpenSSF Scorecard and
-code-scanning results while every active workflow uses immutable dependencies and
-an explicit least-privilege permission boundary.
+code-scanning results while every active external GitHub Action is SHA-pinned and
+every active workflow has an explicit least-privilege permission boundary.
 
 ### Added
 

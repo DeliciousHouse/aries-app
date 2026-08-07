@@ -104,3 +104,27 @@ test('superseded issue-agent and blind-automerge workflows stay retired', () => 
   const activeWorkflowSource = workflowNames.map(readWorkflow).join('\n');
   assert.doesNotMatch(activeWorkflowSource, /agent:auto-merge|pr-agent-autofix-automerge/);
 });
+
+test('active goal commands hand draft PRs to the deterministic reviewer lane', () => {
+  const commandPaths = [
+    '.claude/commands/aries-goal.md',
+    '.claude/commands/aries-multibrand-goal.md',
+  ];
+  const reviewerHandoff =
+    'Open a **draft PR** and hand it to the deterministic sanctioned reviewer lane: even PR numbers → `dev-reviewer`; odd PR numbers → `dev-reviewer-2`. Only that assigned lane marks the PR ready and deliberately squash-merges after exact-head CI is green and its review passes.';
+
+  for (const commandPath of commandPaths) {
+    const source = fs.readFileSync(path.join(repoRoot, commandPath), 'utf8');
+    const normalizedSource = source.replace(/\s+/g, ' ');
+
+    assert.ok(
+      normalizedSource.includes(reviewerHandoff),
+      `${commandPath} must preserve the reviewer handoff`,
+    );
+    assert.doesNotMatch(normalizedSource, /ready, not draft|gh pr merge --squash --auto/i);
+    assert.doesNotMatch(
+      normalizedSource,
+      /auto-merge on green CI is the policy|requires? (?:\*\*)?1 approving review(?:\*\*)?/i,
+    );
+  }
+});
