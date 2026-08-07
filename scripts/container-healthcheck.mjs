@@ -26,7 +26,7 @@ async function requireHealthy(label, url, headers = {}) {
 try {
   const appUrl = process.env.ARIES_APP_HEALTHCHECK_URL
     || `http://127.0.0.1:${process.env.PORT?.trim() || '3000'}/`;
-  await requireHealthy('Aries', appUrl);
+  const probes = [{ label: 'Aries', url: appUrl }];
 
   if (enabledUnlessDisabled(process.env.ARIES_HERMES_NETWORK_HEALTHCHECK_ENABLED)) {
     const gatewayUrl = process.env.HERMES_GATEWAY_URL?.trim();
@@ -55,12 +55,21 @@ try {
     }
 
     for (const [url, { stages, apiKey }] of gateways) {
-      await requireHealthy(
-        `Hermes ${stages.join('/')} gateway`,
-        new URL('health', `${url}/`),
-        apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined,
-      );
+      probes.push({
+        label: `Hermes ${stages.join('/')} gateway`,
+        url: new URL('health', `${url}/`),
+        headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined,
+      });
     }
+  }
+
+  const failures = (await Promise.allSettled(
+    probes.map(({ label, url, headers }) => requireHealthy(label, url, headers)),
+  ))
+    .filter((result) => result.status === 'rejected')
+    .map((result) => String(result.reason?.message || result.reason));
+  if (failures.length > 0) {
+    throw new Error(failures.join('; '));
   }
 
   console.log('[healthcheck] ok');

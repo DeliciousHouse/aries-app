@@ -64,6 +64,7 @@ function directHermesCliCallsInSource(filePath: string, source: string): string[
   const commandBindings = new Set<string>();
   const namespaceBindings = new Set<string>();
   const initializers = new Map<string, ts.Expression>();
+  const variableDeclarations: Array<{ name: ts.BindingName; initializer: ts.Expression }> = [];
   const childProcessModule = (expression: ts.Expression): boolean => (
     ts.isStringLiteral(expression)
     && (expression.text === 'child_process' || expression.text === 'node:child_process')
@@ -96,6 +97,7 @@ function directHermesCliCallsInSource(filePath: string, source: string): string[
     }
 
     if (ts.isVariableDeclaration(node) && node.initializer) {
+      variableDeclarations.push({ name: node.name, initializer: node.initializer });
       if (ts.isIdentifier(node.name)) {
         initializers.set(node.name.text, node.initializer);
         if (childProcessRequire(node.initializer)) {
@@ -115,19 +117,36 @@ function directHermesCliCallsInSource(filePath: string, source: string): string[
   };
   collectBindings(sourceFile);
 
-  for (const [name, initializer] of initializers) {
-    if (ts.isIdentifier(initializer) && commandBindings.has(initializer.text)) {
-      commandBindings.add(name);
-    }
-    if (
-      ts.isPropertyAccessExpression(initializer)
-      && CHILD_PROCESS_COMMANDS.has(initializer.name.text)
-      && (
-        (ts.isIdentifier(initializer.expression) && namespaceBindings.has(initializer.expression.text))
-        || childProcessRequire(initializer.expression)
-      )
-    ) {
-      commandBindings.add(name);
+  let bindingCount = -1;
+  while (bindingCount !== commandBindings.size + namespaceBindings.size) {
+    bindingCount = commandBindings.size + namespaceBindings.size;
+    for (const { name, initializer } of variableDeclarations) {
+      const namespaceInitializer = childProcessRequire(initializer)
+        || (ts.isIdentifier(initializer) && namespaceBindings.has(initializer.text));
+      if (ts.isIdentifier(name)) {
+        if (namespaceInitializer) namespaceBindings.add(name.text);
+        if (ts.isIdentifier(initializer) && commandBindings.has(initializer.text)) {
+          commandBindings.add(name.text);
+        }
+        if (
+          ts.isPropertyAccessExpression(initializer)
+          && CHILD_PROCESS_COMMANDS.has(initializer.name.text)
+          && (
+            childProcessRequire(initializer.expression)
+            || (ts.isIdentifier(initializer.expression) && namespaceBindings.has(initializer.expression.text))
+          )
+        ) {
+          commandBindings.add(name.text);
+        }
+      } else if (ts.isObjectBindingPattern(name) && namespaceInitializer) {
+        for (const element of name.elements) {
+          if (!ts.isIdentifier(element.name)) continue;
+          const importedName = element.propertyName?.getText(sourceFile) ?? element.name.text;
+          if (CHILD_PROCESS_COMMANDS.has(importedName)) {
+            commandBindings.add(element.name.text);
+          }
+        }
+      }
     }
   }
 
@@ -241,6 +260,8 @@ test('the direct Hermes CLI boundary catches command aliases, namespace imports,
     `const cp = require('child_process'); const command = 'hermes'; cp.spawnSync(command, []);`,
     `const { execFileSync: run } = require('node:child_process'); const command = 'hermes'; run(command, []);`,
     `const command = 'hermes'; require('child_process').execFile(command, []);`,
+    `const cp = require('node:child_process'); const { spawn: run } = cp; run('hermes', []);`,
+    `import * as proc from 'node:child_process'; const cp = proc; cp.spawn('hermes', []);`,
   ];
   const calls = fixtures.flatMap((source, index) => (
     directHermesCliCallsInSource(path.join(PROJECT_ROOT, `fixture-${index}.ts`), source)
@@ -298,4 +319,57 @@ test('container healthcheck probes distinct stage gateways once and identifies f
     ARIES_HERMES_NETWORK_HEALTHCHECK_ENABLED: '0',
   });
   assert.equal(disabled.code, 0, `${disabled.stderr}\n${disabled.stdout}`);
+});
+
+test('container healthcheck probes five delayed responders before the Compose deadline', async (t) => {
+  const delayMs = 1_100;
+  const healthHits = [0, 0, 0, 0, 0];
+  const expectedAuthorizations = [
+    undefined,
+    'Bearer base-key',
+    'Bearer research-key',
+    'Bearer strategist-key',
+    'Bearer content-key',
+  ];
+  const servers = healthHits.map((_, index) => createServer((request, response) => {
+    healthHits[index] += 1;
+    setTimeout(() => {
+      response.statusCode = index === 4
+        ? 503
+        : request.headers.authorization === expectedAuthorizations[index] ? 204 : 401;
+      response.end();
+    }, delayMs);
+  }));
+  await Promise.all(servers.map((server) => new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  })));
+  t.after(() => Promise.all(servers.map((server) => (
+    new Promise<void>((resolve) => server.close(() => resolve()))
+  ))).then(() => undefined));
+
+  const urls = servers.map((server) => {
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+    return `http://127.0.0.1:${address.port}`;
+  });
+  const startedAt = Date.now();
+  const result = await runHealthcheck({
+    ARIES_APP_HEALTHCHECK_URL: `${urls[0]}/app`,
+    ARIES_HERMES_NETWORK_HEALTHCHECK_ENABLED: '1',
+    HERMES_GATEWAY_URL: urls[1],
+    HERMES_API_SERVER_KEY: 'base-key',
+    HERMES_RESEARCH_GATEWAY_URL: urls[2],
+    HERMES_RESEARCH_API_SERVER_KEY: 'research-key',
+    HERMES_STRATEGIST_GATEWAY_URL: urls[3],
+    HERMES_STRATEGIST_API_SERVER_KEY: 'strategist-key',
+    HERMES_CONTENT_GATEWAY_URL: urls[4],
+    HERMES_CONTENT_API_SERVER_KEY: 'content-key',
+  });
+  const elapsedMs = Date.now() - startedAt;
+
+  assert.equal(result.code, 1, `${result.stderr}\n${result.stdout}`);
+  assert.match(result.stderr, /content/);
+  assert.ok(elapsedMs < 5_000, `healthcheck exceeded Compose timeout: ${elapsedMs}ms`);
+  assert.deepEqual(healthHits, [1, 1, 1, 1, 1]);
 });
