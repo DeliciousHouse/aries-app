@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## v0.1.48.1 — fix(marketing): restore weekly generation retries
+## v0.1.51.1 — fix(marketing): restore weekly generation retries
 
 Weekly social-content generation now recovers instead of silently losing a
 cadence window when preflight state is stale or Hermes submission fails.
@@ -22,6 +22,29 @@ cadence window when preflight state is stale or Hermes submission fails.
 - The production runtime image installs the commit-pinned Hermes Agent v0.20.0
   CLI into `PATH` and verifies its version at build time (both as root and the
   runtime `node` user).
+
+## v0.1.51.0 — chore(security): add disclosure and scanning guardrails
+
+Security researchers can now report vulnerabilities through a defined private
+process, while maintainers receive continuous dependency and secret-risk signals
+without prematurely blocking unrelated pull requests.
+
+### Added
+
+- A coordinated-disclosure policy defines the private reporting channel, response
+  and remediation targets, a 90-day disclosure window, safe harbor, and handling
+  rules for sensitive findings.
+- A checksum-pinned GitHub Actions workflow audits dependencies and scans full Git
+  history for secrets on pull requests, master updates, weekly schedules, and
+  manual runs, with redacted warnings and no uploaded finding artifact.
+- Contract tests protect the reporting policy, immutable action and scanner pins,
+  warn-only behavior, least-privilege permissions, and promotion criteria.
+
+### Changed
+
+- Security scans begin in warn-only mode through 2026-09-05, with a documented
+  review path for making new secret findings and fixable high or critical
+  dependency advisories blocking after the observation period.
 
 ## v0.1.48.0 — feat(video): ship provider-neutral Hermes rendering
 
