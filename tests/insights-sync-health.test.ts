@@ -219,7 +219,7 @@ test('pool acquisition failures use the documented safe 503 JSON response', asyn
   const res = await handler(
     new Request(URL_BASE),
     loader('tenant_admin'),
-    { async connect() { throw new Error('postgres://user:password@db/private'); } },
+    { async connect() { throw new Error('database pool acquisition failed: credential marker'); } },
   );
   assert.equal(res.status, 503);
   assert.deepEqual(await res.json(), { status: 'error', reason: 'sync_health_unavailable' });
@@ -233,7 +233,7 @@ test('platform=all returns each platform and a safe per-platform aggregate', asy
     dbPool: { connect: () => Promise<SyncHealthQueryable & { release(): void }> },
   ) => Promise<Response>;
   const rows = [
-    { id: 5, platform: 'facebook', trigger: 'interval', started_at: new Date('2026-08-05T12:00:00Z'), finished_at: new Date('2026-08-05T12:01:00Z'), status: 'failed', posts_seen: 0, comments_seen: 0, api_units_used: 1, error_message: 'OAuth token xoxb-secret expired at https://provider.invalid' },
+    { id: 5, platform: 'facebook', trigger: 'interval', started_at: new Date('2026-08-05T12:00:00Z'), finished_at: new Date('2026-08-05T12:01:00Z'), status: 'failed', posts_seen: 0, comments_seen: 0, api_units_used: 1, error_message: 'OAuth token credential-marker expired at https://provider.invalid' },
     { id: 4, platform: 'instagram', trigger: 'interval', started_at: new Date('2026-08-05T11:00:00Z'), finished_at: new Date('2026-08-05T11:01:00Z'), status: 'ok', posts_seen: 2, comments_seen: 1, api_units_used: 1, error_message: null },
     { id: 3, platform: 'facebook', trigger: 'interval', started_at: new Date('2026-08-05T10:00:00Z'), finished_at: new Date('2026-08-05T10:01:00Z'), status: 'failed', posts_seen: 0, comments_seen: 0, api_units_used: 1, error_message: 'OAuth token expired' },
   ];
@@ -258,7 +258,7 @@ test('platform=all returns each platform and a safe per-platform aggregate', asy
   assert.equal(body.consecutiveFailures, 2);
   assert.deepEqual(body.platforms.map((platform) => platform.platform), ['facebook', 'instagram']);
   assert.equal(body.runs[0]?.failureReason, 'Authentication failed; reconnect the account.');
-  assert.doesNotMatch(JSON.stringify(body), /xoxb-secret|provider\.invalid/);
+  assert.doesNotMatch(JSON.stringify(body), /credential-marker|provider\.invalid/);
   assert.equal(released, true);
 });
 
