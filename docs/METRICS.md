@@ -23,11 +23,19 @@ Measured values and targets are deliberately separate:
 No numerical targets are approved in this document. The first three monthly
 snapshots should establish normal variation before maintainers propose targets.
 
+Publication status was rechecked on 2026-08-07: GitHub Releases contains zero
+releases, `docs/RELEASES.md` is absent, signed-release PR #937 closed without
+merging, security PR #938 merged, and Scorecard PR #936 plus canonical-license
+PR #951 remain open and unmerged. Proposed work is not counted as current
+capability.
+
 ## Identity and privacy rules
 
 Contributor metrics count people, not raw Git author strings.
 
-1. Start with merged pull-request authors and `git shortlog -sne --all`.
+1. Start with paginated merged pull-request authors and
+   `git shortlog -sne origin/master`, which includes only commits reachable from
+   the fetched default branch.
 2. Exclude GitHub accounts whose API `type` is `Bot`, logins ending in `[bot]`,
    and repository-known automation identities such as dependency, model, or
    agent committers. Record the exclusion list in each snapshot.
@@ -45,9 +53,12 @@ Contributor metrics count people, not raw Git author strings.
    and keep vulnerability reports, customer data, and private contact data out
    of metrics artifacts.
 
-The 2026-08-06 identity inventory used these rules and deduplicated the human
-commit history to six people: **4 verified internal + 0 verified external**, with
-**2 unclassified human contributors (GAP)**. Bots and automation were excluded.
+The inventory was recomputed on 2026-08-07 at `origin/master`
+`a7ea053480f2c67f5e035d745fb0a867b9eb79ef`. Its merged-only shortlog produced
+19 raw signatures. After evidence-backed alias collapsing and bot/automation
+exclusions, the human history contains seven people: **4 verified internal + 0
+verified external**, with **3 unclassified human contributors (GAP)**. No
+`.mailmap` exists yet, so unresolved aliases remain explicit rather than guessed.
 This is an affiliation inventory, not a growth or retention result.
 
 ## Contributor growth
@@ -56,7 +67,7 @@ This is an affiliation inventory, not a growth or retention result.
 | --- | --- |
 | **Definition / formula** | For calendar month `m`, `new_humans(m)` is the number of deduplicated non-bot people whose first merged pull request landed in `m`. Absolute growth is `new_humans(m) - new_humans(m-1)`. Percentage growth is that difference divided by `new_humans(m-1)` when the denominator is greater than zero; otherwise report `not applicable`. Report verified internal, verified external, and unclassified cohorts separately. |
 | **Unit** | People, plus month-over-month people and percentage. |
-| **Data source** | GitHub pull requests API (`merged_at`, `user`) joined to `git shortlog -sne --all` and `.mailmap` when present. Reproducible starting commands: `gh api --paginate 'repos/DeliciousHouse/aries-app/pulls?state=closed&per_page=100&sort=created&direction=asc' --jq '.[] | select(.merged_at != null) | {number, user: .user.login, created_at, merged_at}'` and `git shortlog -sne --all`. Pagination is required; a fixed recent-result limit is not a complete contributor history. |
+| **Data source** | GitHub pull requests API (`merged_at`, `user.login`) joined to default-branch-reachable commits from `git shortlog -sne origin/master` and `.mailmap` when present. Reproducible starting commands: `gh api --paginate 'repos/DeliciousHouse/aries-app/pulls?state=closed&per_page=100&sort=created&direction=asc' --jq '.[] | select(.merged_at != null) | {number, user: .user.login, created_at, merged_at}'` and `git shortlog -sne origin/master`. Pagination is required; a fixed recent-result limit is not a complete contributor history. |
 | **Cohort / window** | Calendar month in UTC; all merged pull requests through the final UTC day of the month. |
 | **Cadence** | Monthly, collected within seven days after month end. |
 | **Owner** | Maintainers; prepared by a maintainer or contributor and independently reviewed in a pull request. |
@@ -84,7 +95,7 @@ This is an affiliation inventory, not a growth or retention result.
 | --- | --- |
 | **Definition / formula** | For each deduplicated human's first merged pull request, compute `merged_at - created_at`. Publish the monthly median and 75th percentile, plus the number of eligible first pull requests. Separate verified external and unclassified cohorts; do not silently combine them. |
 | **Unit** | Elapsed hours, with cohort size in pull requests. |
-| **Data source** | GitHub pull requests API fields `created_at`, `merged_at`, `author`, and `number`; identity classification follows this document. |
+| **Data source** | GitHub pull requests API fields `created_at`, `merged_at`, `user.login`, and `number`; identity classification follows this document. |
 | **Cohort / window** | Pull requests first merged during a calendar month in UTC. Draft time remains included because it is part of the contributor's experienced path. |
 | **Cadence** | Monthly. |
 | **Owner** | Maintainers. |
@@ -130,12 +141,12 @@ instances.
 | --- | --- |
 | **Definition / formula** | The overall score emitted by OpenSSF Scorecard for the default branch, on its 0-10 scale. Publish the overall score, tool version, commit SHA, run time, and per-check scores; do not recompute an average from rounded check values. |
 | **Unit** | Score out of 10, plus per-check scores out of 10. |
-| **Data source** | OpenSSF Scorecard CLI or the official Scorecard GitHub Action. Record the immutable workflow run or command, tool version, and scanned commit. Automated publication is pending while the Scorecard hardening pull request remains unmerged. |
+| **Data source** | OpenSSF Scorecard CLI or the official Scorecard GitHub Action. Record the immutable workflow run or command, tool version, and scanned commit. Automated publication is pending while open PR #936 remains unmerged. |
 | **Cohort / window** | Repository/default-branch state at one exact commit and collection timestamp. |
 | **Cadence** | Weekly and on default-branch changes after the official workflow lands; monthly snapshots use the latest completed scan in the month. |
 | **Owner** | Maintainers. |
 | **Publication** | Dated `docs/metrics/YYYY-MM.md`; after the official workflow lands, its public workflow result and security-results page are the primary evidence. |
-| **Baseline** | OpenSSF Scorecard CLI v5.5.0 measured commit `84f77eacb8ad3e94684af0dda90f829c29927e27` at **6.6 / 10** on 2026-08-06. Current `master` later moved to `c1aefef9cac8e7428248f752c29a9809bde2cec2`, so 6.6 is a historical baseline, not a claim about an unscanned commit. |
+| **Baseline** | OpenSSF Scorecard CLI v5.5.0 measured commit `84f77eacb8ad3e94684af0dda90f829c29927e27` at **6.6 / 10** on 2026-08-06. `master` had moved to `a7ea053480f2c67f5e035d745fb0a867b9eb79ef` when rechecked on 2026-08-07, so 6.6 is a historical baseline, not a claim about an unscanned commit. |
 | **Caveats** | The score reflects observable repository controls, not proof that the application is secure. A policy or workflow proposed in an unmerged pull request does not improve the default-branch baseline. GitHub outages and permission failures must be reported as missing scans, never converted into scores. |
 
 ## Reproduction checklist

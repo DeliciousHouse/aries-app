@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.1.56.0] - 2026-08-07
+## v0.1.56.0 — docs: publish governance and community truth pack
 
 Aries now publishes an evidence-based community operating model so prospective
 contributors can understand how decisions are made, how changes land, and which
@@ -23,8 +23,9 @@ project-health claims are measured rather than inferred.
 - The contribution guide now documents the fork and collaborator branch paths,
   draft pull requests, base freshness, scoped tests, required `full-suite` CI,
   independent review, and squash merging without inventing a chat channel.
-- Release governance distinguishes deploys, tags, and public GHCR images from a
-  versioned GitHub Release; the signed-release proposal closed without merging.
+- Publication status distinguishes deploys, tags, and public GHCR images from a
+  versioned GitHub Release: #937 closed unmerged, #938 merged, and #936 plus #951
+  remain open and unmerged.
 
 ## v0.1.53.0 — feat(runtime): add opt-in Hermes sidecar
 

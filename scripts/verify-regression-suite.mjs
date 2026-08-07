@@ -51,6 +51,10 @@ for (const { label, script, args } of typegenSteps) {
 // --- tsx test steps ---
 const steps = [
   {
+    name: 'community governance documentation contract',
+    args: ['--test', 'tests/community-governance-contract.test.ts'],
+  },
+  {
     name: 'public-route smoke tests',
     args: ['--test', 'tests/runtime-pages.test.ts'],
   },
