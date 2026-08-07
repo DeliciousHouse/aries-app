@@ -57,6 +57,15 @@ Changes to these areas require maintainer/security review:
 - `docker-compose*.yml`
 - `Dockerfile`
 
+## Source License Headers
+
+- New human-authored source files use `SPDX-License-Identifier: Apache-2.0` when the file format safely supports comments.
+- Existing files are not bulk-updated to add headers.
+- Generated, vendored, minified, binary/media, lock, fixture, and files that
+  cannot safely carry comments are excluded.
+- Third-party notices and license texts are preserved.
+- An SPDX identifier never replaces required third-party attribution.
+
 ## Code of Conduct
 
 This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md). By

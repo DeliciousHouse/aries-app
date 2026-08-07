@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.55.0 — chore(legal): adopt the canonical Apache-2.0 license
+
+Aries distributions now carry the canonical Apache License 2.0 text, concise
+project attribution, and package metadata protected against license drift.
+
+### Changed
+
+- Replaced the customized license copy with the complete official Apache 2.0
+  text and reduced NOTICE to attribution-only content.
+- Documented the approved SPDX source-header scope, exclusions, and requirement
+  to preserve third-party notices and attribution.
+- Added contract coverage for the legal files and root package metadata.
+
 ## v0.1.54.0 — chore(ci): harden GitHub Actions supply chain
 
 Repository maintainers can now track the project's public OpenSSF Scorecard and
