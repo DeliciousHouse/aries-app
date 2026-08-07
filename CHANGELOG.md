@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## v0.1.54.0 — chore(legal): adopt the canonical Apache-2.0 license
+## v0.1.55.0 — chore(legal): adopt the canonical Apache-2.0 license
 
 Aries distributions now carry the canonical Apache License 2.0 text, concise
 project attribution, and package metadata protected against license drift.
@@ -14,6 +14,52 @@ project attribution, and package metadata protected against license drift.
 - Documented the approved SPDX source-header scope, exclusions, and requirement
   to preserve third-party notices and attribution.
 - Added contract coverage for the legal files and root package metadata.
+
+## v0.1.54.0 — chore(ci): harden GitHub Actions supply chain
+
+Repository maintainers can now track the project's public OpenSSF Scorecard and
+code-scanning results while every active external GitHub Action is SHA-pinned and
+every active workflow has an explicit least-privilege permission boundary.
+
+### Added
+
+- An official OpenSSF Scorecard workflow publishes results weekly, on protected
+  branch changes, and on default-branch pushes, with a public README badge and
+  SARIF upload to GitHub code scanning.
+- Repository policy regression tests reject mutable action tags, implicit workflow
+  permissions, missing Scorecard publishing, and reintroduced blind agent workflows.
+
+### Changed
+
+- Every external GitHub Action is pinned to a full commit SHA while retaining a
+  reviewed release comment, including deployment, release, and full-suite CI paths.
+- Active agent guidance now requires draft implementation PRs and a separate,
+  deliberately assigned reviewer lane instead of self-merge or auto-merge.
+
+### Removed
+
+- The superseded issue-agent fixer and blind PR autofix/automerge workflows.
+
+## v0.1.53.0 — feat(runtime): add opt-in Hermes sidecar
+
+Aries operators can now run Hermes Agent beside the application on the shared
+Docker network without depending on a host-installed executable.
+
+### Added
+
+- An opt-in `hermes-sidecar` Compose profile runs the official Hermes Agent
+  v0.20.0 image pinned by manifest digest, reuses the durable Hermes data home,
+  and exposes a bounded healthcheck on the internal network.
+- Runtime contract coverage prevents new direct Hermes CLI process launches
+  outside the explicitly flagged maintenance compatibility worker.
+
+### Changed
+
+- The Aries container healthcheck now verifies both the web app and every
+  distinct configured Hermes stage gateway, while intentional `--no-hermes`
+  installs disable only the network dependency probe.
+- The remaining `hermes kanban gc` CLI worker is deprecated behind a temporary
+  compatibility switch for removal after the production sidecar cutover.
 
 ## v0.1.51.0 — chore(security): add disclosure and scanning guardrails
 
