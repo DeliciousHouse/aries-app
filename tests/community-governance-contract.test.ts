@@ -53,23 +53,23 @@ test('contributor guide documents the real newcomer and pull-request path', () =
   }
 
   assert.doesNotMatch(contributing, /Slack community|Discord community/i);
+  assert.match(
+    contributing,
+    /# Collaborator[\s\S]*git fetch origin --prune[\s\S]*git rebase origin\/master[\s\S]*git rev-list --count HEAD\.\.origin\/master/i,
+  );
 });
 
 test('published metrics define collection contracts and honest baselines', () => {
   const metrics = readRepoFile('docs/METRICS.md');
-
-  for (const metric of [
+  const metricNames = [
     'Contributor growth',
     'Contributor retention',
     'Time to first merged pull request',
     'Adoption',
     'Dependency health',
     'OpenSSF Scorecard',
-  ]) {
-    assert.match(metrics, new RegExp(metric, 'i'));
-  }
-
-  for (const field of [
+  ];
+  const requiredFields = [
     'Definition / formula',
     'Unit',
     'Data source',
@@ -79,8 +79,21 @@ test('published metrics define collection contracts and honest baselines', () =>
     'Publication',
     'Baseline',
     'Caveats',
-  ]) {
-    assert.match(metrics, new RegExp(field.replace('/', '\\/'), 'i'));
+  ];
+
+  for (const metric of metricNames) {
+    assert.match(metrics, new RegExp(metric, 'i'));
+    const start = metrics.indexOf(`## ${metric}`);
+    const next = metrics.indexOf('\n## ', start + 3);
+    const section = metrics.slice(start, next === -1 ? undefined : next);
+
+    for (const field of requiredFields) {
+      assert.match(
+        section,
+        new RegExp(field.replace('/', '\\/'), 'i'),
+        `${metric} must include ${field}`,
+      );
+    }
   }
 
   assert.match(metrics, /bot/i);
@@ -89,4 +102,13 @@ test('published metrics define collection contracts and honest baselines', () =>
   assert.match(metrics, /6\.6\s*\/\s*10/);
   assert.match(metrics, /84f77eacb8ad3e94684af0dda90f829c29927e27/);
   assert.match(metrics, /not (yet )?measured|pending/i);
+});
+
+test('community governance contract runs in verify and follows changelog format', () => {
+  const verifySuite = readRepoFile('scripts/verify-regression-suite.mjs');
+  const changelog = readRepoFile('CHANGELOG.md');
+  const version = readRepoFile('VERSION').trim().replaceAll('.', '\\.');
+
+  assert.match(verifySuite, /tests\/community-governance-contract\.test\.ts/);
+  assert.match(changelog, new RegExp(`^## v${version} — .+$`, 'm'));
 });
