@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## v0.1.50.0 — feat(release): publish verifiable supply-chain evidence
+## v0.1.52.0 — feat(release): publish verifiable supply-chain evidence
 
 Operators can now publish Aries releases with independently verifiable image
 provenance, dependency inventory, vulnerability results, and keyless signatures.
@@ -23,6 +23,29 @@ provenance, dependency inventory, vulnerability results, and keyless signatures.
   `master`, and permit only commit-pinned retries.
 - Signed evidence is uploaded and verified before Release publication; immutable
   version aliases follow the Release, and the mutable `latest` alias moves last.
+
+## v0.1.51.0 — chore(security): add disclosure and scanning guardrails
+
+Security researchers can now report vulnerabilities through a defined private
+process, while maintainers receive continuous dependency and secret-risk signals
+without prematurely blocking unrelated pull requests.
+
+### Added
+
+- A coordinated-disclosure policy defines the private reporting channel, response
+  and remediation targets, a 90-day disclosure window, safe harbor, and handling
+  rules for sensitive findings.
+- A checksum-pinned GitHub Actions workflow audits dependencies and scans full Git
+  history for secrets on pull requests, master updates, weekly schedules, and
+  manual runs, with redacted warnings and no uploaded finding artifact.
+- Contract tests protect the reporting policy, immutable action and scanner pins,
+  warn-only behavior, least-privilege permissions, and promotion criteria.
+
+### Changed
+
+- Security scans begin in warn-only mode through 2026-09-05, with a documented
+  review path for making new secret findings and fixable high or critical
+  dependency advisories blocking after the observation period.
 
 ## v0.1.48.0 — feat(video): ship provider-neutral Hermes rendering
 

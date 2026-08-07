@@ -258,6 +258,45 @@ const steps = [
     args: ['--test', 'tests/marketing/review-learning-labels.test.ts'],
   },
   {
+    // S5-1/AA-110 (gap F1b): the weekly results report + its flag-gated route.
+    // Pins the week boundary (most-recent COMPLETED ISO week in UTC, incl. the
+    // year-boundary and non-existent-W53 cases), the publish-state counts, the
+    // reconnect signal coming from oauth_connections rather than a per-post code
+    // (there is none), manual_reconciliation staying OUT of `blocked`, the
+    // honesty contract (an unavailable ranking carries no post payload), the A1
+    // regression (latest snapshot, never a SUM), the bounded ranking window, and
+    // the gate short-circuiting before any tenant/DB work. Fake queryable, no DB.
+    name: 'weekly results report + route (F1b)',
+    args: [
+      '--test',
+      'tests/weekly-results-report.test.ts',
+      'tests/weekly-results-route.test.ts',
+    ],
+  },
+  {
+    // S5-3/AA-112 (gap F2a): insights CSV export. Pins RFC-4180 quoting (a
+    // caption with a comma must not shift columns), the spreadsheet
+    // formula-injection guard (captions are public, untrusted input heading for
+    // an operator's Excel), comments refused BY NAME with the PII reason, no
+    // exported column carrying commenter details, the S2-1 latest-snapshot read
+    // so exported numbers are true, the row clamp, and the pooled client being
+    // released BEFORE the response streams. No DB.
+    name: 'insights CSV export (F2a)',
+    args: ['--test', 'tests/insights-export-csv.test.ts'],
+  },
+  {
+    // S5-4/AA-113 (gap B5): the /insights channel chips are derived from
+    // `isPlatformInsightsEnabled` — the same predicate the sync adapter factory
+    // uses — so a chip exists exactly when an adapter can produce data for it.
+    // The drift this guards is silent in both directions: a chip with no adapter
+    // is a filter that can only return nothing, and a missing chip hides a
+    // channel that does have data. The shipped fix (#912/#914) was covered only
+    // by the CI full suite; gating it here catches a regression pre-push.
+    // Renders the real component via react-test-renderer. No DB.
+    name: 'insights platform filter truthing (B5)',
+    args: ['--test', 'tests/insights-platform-filter-truthing.test.ts'],
+  },
+  {
     // AA-153: the workspace header eyebrow follows the job's actual kind
     // instead of a hardcoded "Post" (a week-long weekly job read as a single
     // post). Pure resolver + label, no DB or I/O.
