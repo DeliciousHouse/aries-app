@@ -14,6 +14,36 @@ function readWorkflow(name: string): string {
   return fs.readFileSync(path.join(workflowsDir, name), 'utf8');
 }
 
+function findUnpinnedRemoteActions(source: string): string[] {
+  const actions: string[] = [];
+
+  for (const line of source.split('\n')) {
+    if (line.trimStart().startsWith('#')) {
+      continue;
+    }
+    const action = line.match(/^\s*(?:-\s+)?uses:\s*([^\s#]+)/)?.[1];
+    if (action && !action.startsWith('./') && !/@[0-9a-f]{40}$/.test(action)) {
+      actions.push(action);
+    }
+  }
+
+  return actions;
+}
+
+function usesWriteAllPermissions(source: string): boolean {
+  return /^\s*permissions:\s*write-all\s*$/m.test(source);
+}
+
+test('remote-action scanner rejects an unpinned anonymous step', () => {
+  assert.deepEqual(findUnpinnedRemoteActions('steps:\n  - uses: actions/checkout@v7\n'), [
+    'actions/checkout@v7',
+  ]);
+});
+
+test('permissions guard rejects job-level write-all', () => {
+  assert.equal(usesWriteAllPermissions('jobs:\n  build:\n    permissions: write-all\n'), true);
+});
+
 test('every workflow declares least-privilege permissions and pins remote actions by commit SHA', () => {
   const unpinnedActions: string[] = [];
   const missingPermissions: string[] = [];
@@ -25,21 +55,12 @@ test('every workflow declares least-privilege permissions and pins remote action
     if (!/^permissions:\s*(?:read-all)?\s*$/m.test(source)) {
       missingPermissions.push(name);
     }
-    if (/^permissions:\s*write-all\s*$/m.test(source)) {
+    if (usesWriteAllPermissions(source)) {
       writeAllWorkflows.push(name);
     }
 
-    for (const line of source.split('\n')) {
-      if (line.trimStart().startsWith('#')) {
-        continue;
-      }
-      const action = line.match(/^\s*uses:\s*([^\s#]+)/)?.[1];
-      if (!action || action.startsWith('./')) {
-        continue;
-      }
-      if (!/@[0-9a-f]{40}$/.test(action)) {
-        unpinnedActions.push(`${name}: ${action}`);
-      }
+    for (const action of findUnpinnedRemoteActions(source)) {
+      unpinnedActions.push(`${name}: ${action}`);
     }
   }
 
