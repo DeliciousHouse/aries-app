@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.57.0 — docs: publish governance and community truth pack
+
+Aries now publishes an evidence-based community operating model so prospective
+contributors can understand how decisions are made, how changes land, and which
+project-health claims are measured rather than inferred.
+
+### Added
+
+- Role permissions, nomination criteria, conflict recusal, inactivity handling,
+  and measurable founder-led, maintainer-led, and community-led transitions.
+- Reproducible contracts for contributor growth and retention, first-merge time,
+  adoption, dependency health, and OpenSSF Scorecard reporting, with dated
+  observations, explicit gaps, identity safeguards, caveats, owners, and
+  publication locations.
+- Regression coverage that keeps governance, contribution, release, and metrics
+  documentation aligned with the public repository contract.
+
+### Changed
+
+- The contribution guide now documents the fork and collaborator branch paths,
+  draft pull requests, base freshness, scoped tests, required `full-suite` CI,
+  independent review, and squash merging without inventing a chat channel.
+- Publication status distinguishes deploys, tags, and public GHCR images from a
+  versioned GitHub Release: the signed-release proposal closed without merging,
+  while `master` now contains the official Scorecard workflow and canonical
+  Apache-2.0 license.
+
 ## v0.1.56.0 — fix(marketing): make weekly generation retries durable
 
 Weekly social-content generation now recovers from immediate or stranded Hermes
