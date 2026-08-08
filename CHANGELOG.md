@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.58.0 — fix(marketing): make scheduled content failures recoverable
+
+Aries now evaluates weekly content generation every day and makes terminal
+publishing failures visible, classified, and recoverable instead of silently
+parking work.
+
+### Added
+
+- Scheduled platform failures now persist an `auth_token`,
+  `platform_transient`, `platform_permanent`, or `media_invalid` class, with
+  bounded transient retries and a terminal dead-letter state.
+- Staged alert rules and an operator runbook cover new dispatch dead letters and
+  drafts entering their final 24 hours before expiry.
+
+### Changed
+
+- The weekly-content worker evaluates each tenant daily while preserving the
+  configured weekly cadence window, so missed slots heal without replaying old
+  weeks or changing weekly output volume.
+- Worker readiness, weekly results, and calendar status surfaces now recognize
+  the dead-letter schema and show terminal failures consistently.
+
+### Fixed
+
+- Stale trigger claims recover after process death and retry only the current
+  cadence window, including after a three-week outage.
+- Dead-letter transitions are counted and alerted even when another platform on
+  the same post remains retryable, and replay refuses ambiguous sibling outcomes.
+
 ## v0.1.56.0 — fix(marketing): make weekly generation retries durable
 
 Weekly social-content generation now recovers from immediate or stranded Hermes
