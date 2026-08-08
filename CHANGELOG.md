@@ -876,7 +876,8 @@ project-health claims are measured rather than inferred.
   and measurable founder-led, maintainer-led, and community-led transitions.
 - Reproducible contracts for contributor growth and retention, first-merge time,
   adoption, dependency health, and OpenSSF Scorecard reporting, with dated
-  baselines, identity safeguards, caveats, owners, and publication locations.
+  observations, explicit gaps, identity safeguards, caveats, owners, and
+  publication locations.
 - Regression coverage that keeps governance, contribution, release, and metrics
   documentation aligned with the public repository contract.
 
