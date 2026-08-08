@@ -30,6 +30,7 @@ import {
   runDraftExpirySweep,
   STRANDED_PREDICATE,
   COUNT_SQL,
+  EXPIRING_SOON_SQL,
   COUNT_BY_TENANT_SQL,
   SELECT_BATCH_SQL,
   EXPIRE_BATCH_SQL,
@@ -160,6 +161,19 @@ function fakePool(rows: Row[], nowIso = '2026-06-07T00:00:00.000Z'): Queryable {
         const n = rows.filter((r) => isStranded(r, cutoff)).length;
         return { rows: [{ n }], rowCount: 1 };
       }
+      if (sql === EXPIRING_SOON_SQL) {
+        const start = Date.parse(params[0] as string);
+        const end = Date.parse(params[1] as string);
+        const n = rows.filter((r) => (
+          !r.scheduled
+          && r.published_at === null
+          && r.platform_post_id === null
+          && PRE_PUBLISH.has(r.published_status)
+          && Date.parse(r.updated_at) >= start
+          && Date.parse(r.updated_at) < end
+        )).length;
+        return { rows: [{ n }], rowCount: 1 };
+      }
       if (sql === COUNT_BY_TENANT_SQL) {
         const cutoff = params[0] as string;
         const byTenant = new Map<number, number>();
@@ -240,6 +254,16 @@ test('dry-run: counts candidates + per-tenant, mutates nothing', async () => {
   ]);
   // Nothing mutated.
   assert.ok(rows.every((r) => r.published_status === 'approved'));
+});
+
+test('warning metric counts drafts that will expire in the next 24 hours', async () => {
+  const pool = fakePool([
+    mkRow({ id: 1, updated_at: '2026-05-24T12:00:00.000Z' }),
+    mkRow({ id: 2, updated_at: '2026-05-25T12:00:00.000Z' }),
+    mkRow({ id: 3, updated_at: '2026-05-24T12:00:00.000Z', scheduled: true }),
+  ]);
+  const report = await runDraftExpirySweep(pool, { dryRun: true, ageDays: AGE, now: NOW });
+  assert.equal(report.expiringWithin24Hours, 1);
 });
 
 test('commit: expires exactly the stranded population, nothing else', async () => {

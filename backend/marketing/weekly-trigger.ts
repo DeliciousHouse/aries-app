@@ -12,8 +12,8 @@
  * from preparing content for review.
  *
  * A skip is reported with a reason so the worker can alert without treating the
- * claim as a lost week (the claim already prevents re-trigger until the next
- * cadence window).
+ * claim as a lost week (the claim prevents re-trigger until the next daily
+ * evaluation).
  */
 import { startSocialContentJob } from '@/backend/marketing/orchestrator';
 import { findRecentJobIdForTenant } from '@/backend/marketing/runtime-state';
@@ -45,6 +45,7 @@ export type WeeklyTriggerDeps = {
   loadPayloadDefaults?: typeof marketingPayloadDefaultsFromBusinessProfile;
   startJob?: typeof startSocialContentJob;
   findRecentJobId?: typeof findRecentJobIdForTenant;
+  cadenceWindowStartMs?: number;
   now?: () => number;
 };
 
@@ -113,10 +114,16 @@ export async function triggerWeeklyJobForTenant(
     // duplicate it. Collapse onto the existing job instead of starting another.
     // Scoped to WEEKLY_TRIGGER_CREATED_BY so manual generations never block a
     // scheduled run, and bounded to < cadence so next week's run is never collapsed.
+    const cadenceWindowStartMs = deps.cadenceWindowStartMs;
+    const dedupSinceEpochMs = typeof cadenceWindowStartMs === 'number'
+      && Number.isFinite(cadenceWindowStartMs)
+      && cadenceWindowStartMs <= nowMs
+      ? cadenceWindowStartMs
+      : nowMs - WEEKLY_DEDUP_WINDOW_MS;
     const existingJobId = await findRecentJobId(tenantId, {
       jobType: 'weekly_social_content',
       createdBy: WEEKLY_TRIGGER_CREATED_BY,
-      sinceEpochMs: nowMs - WEEKLY_DEDUP_WINDOW_MS,
+      sinceEpochMs: dedupSinceEpochMs,
     });
     if (existingJobId) {
       return { status: 'started', jobId: existingJobId, deduped: true };

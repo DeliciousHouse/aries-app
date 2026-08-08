@@ -614,6 +614,7 @@ services:
       # cadence keeps the limit tripped indefinitely.
       ARIES_DISPATCH_RETRY_BACKOFF_MINUTES: ${ARIES_DISPATCH_RETRY_BACKOFF_MINUTES:-10}
       ARIES_DISPATCH_RATE_LIMIT_BACKOFF_MINUTES: ${ARIES_DISPATCH_RATE_LIMIT_BACKOFF_MINUTES:-180}
+      ARIES_DISPATCH_TRANSIENT_MAX_ATTEMPTS: ${ARIES_DISPATCH_TRANSIENT_MAX_ATTEMPTS:-5}
       # The longest publish request is 330s. SIGTERM drains its active tick for
       # 350s, while Compose grants 360s before SIGKILL.
       ARIES_SCHEDULED_POSTS_SHUTDOWN_TIMEOUT_MS: ${ARIES_SCHEDULED_POSTS_SHUTDOWN_TIMEOUT_MS:-350000}
@@ -622,9 +623,10 @@ services:
     networks:
       - docker_stack
 
-  # Weekly-job trigger worker — starts a weekly_social_content job for each
-  # opted-in tenant (a marketing_schedule row with enabled=true) on its
-  # configured day/hour/tz. Single replica: the atomic claim UPDATE makes
+  # Weekly-job trigger worker — evaluates each opted-in tenant daily at its
+  # configured hour/tz and starts weekly_social_content only when the current
+  # marketing_schedule cadence window has no worker-created job. Single replica:
+  # the atomic claim UPDATE makes
   # concurrency safe, but one replica keeps logs simple and load minimal. Gated
   # by ARIES_WEEKLY_TRIGGER_ENABLED (default OFF) so this ships dormant; flip it
   # on only after a marketing_schedule row exists for the test tenant. It POSTs

@@ -64,7 +64,11 @@ test('one-shot worker readiness proves DB, required schema, and provider-fence p
   assert.match(WORKER_READINESS_SQL, /scheduled_posts/);
   assert.match(WORKER_READINESS_SQL, /scheduled_post_dispatches/);
   assert.match(WORKER_READINESS_SQL, /dispatch_started_at/);
+  assert.match(WORKER_READINESS_SQL, /failure_class/);
+  assert.match(WORKER_READINESS_SQL, /attempts/);
+  assert.match(WORKER_READINESS_SQL, /dead_lettered_at/);
   assert.match(WORKER_READINESS_SQL, /manual_reconciliation/);
+  assert.match(WORKER_READINESS_SQL, /dead_letter/);
 });
 
 test('one-shot worker readiness exits through an error for DB, schema, or protocol failure', async (t) => {

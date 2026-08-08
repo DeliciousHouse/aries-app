@@ -17,6 +17,7 @@ import { triggerWeeklyJobForTenant } from '@/backend/marketing/weekly-trigger';
 type WeeklyTriggerBody = {
   tenant_id?: string;
   tenantId?: string;
+  cadence_window_start?: string;
 };
 
 async function readBody(req: Request): Promise<WeeklyTriggerBody> {
@@ -47,11 +48,14 @@ export async function POST(req: Request): Promise<Response> {
     return json({ error: 'missing_tenant_id' }, 400);
   }
 
-  const result = await triggerWeeklyJobForTenant(tenantId);
+  const cadenceWindowStartMs = Date.parse(body.cadence_window_start ?? '');
+  const result = await triggerWeeklyJobForTenant(tenantId, {
+    cadenceWindowStartMs: Number.isFinite(cadenceWindowStartMs) ? cadenceWindowStartMs : undefined,
+  });
 
   // Map the trigger result to an HTTP status the worker can branch on:
   //   error  → 500 so the worker reverts its claim and retries next tick.
-  //   others → 200; the worker keeps the claim (no retry until next window) and
+  //   others → 200; the worker keeps today's claim (no retry until tomorrow) and
   //            logs/alerts on skips and needs_connection.
   const status = result.status === 'error' ? 500 : 200;
   return json({ tenant_id: tenantId, ...result }, status);

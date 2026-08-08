@@ -5,9 +5,9 @@
  *   - the timezone "most recent slot" math (DST-aware, day/hour boundaries);
  *   - the ARIES_WEEKLY_TRIGGER_ENABLED flag parser;
  *   - the trigger helper's profile gate + channel/brand-kit recovery paths;
- *   - the worker tick: due detection, atomic-claim respected, success marks
- *     success, failure reverts the claim (loud, retry next tick), lost race is a
- *     no-op;
+ *   - the worker tick: daily due detection, atomic-claim respected, success
+ *     marks success, failure reverts the claim (loud, bounded daily retry), lost
+ *     race is a no-op;
  *   - the 2026-07-20 silent-week-skip regression: a hung submit POST is
  *     aborted by the submit timeout and the claim reverts (tick never hangs);
  *   - the in-flight claim-marker lifecycle (written with the claim, released
@@ -57,6 +57,20 @@ test('mostRecentSlotUtc: timezone is respected (UTC vs NY differ by the offset)'
   const now = new Date('2026-06-04T12:00:00.000Z');
   const utcSlot = mostRecentSlotUtc(now, 'UTC', 1, 9); // Mon 09:00 UTC = 2026-06-01T09:00Z
   assert.equal(utcSlot?.toISOString(), '2026-06-01T09:00:00.000Z');
+});
+
+test('mostRecentDailyAttemptUtc: evaluates every local day at the configured hour', async () => {
+  const { mostRecentDailyAttemptUtc } = await import('../../scripts/automations/weekly-job-trigger-worker');
+  assert.equal(
+    mostRecentDailyAttemptUtc(new Date('2026-06-04T12:00:00.000Z'), 'America/New_York', 9)?.toISOString(),
+    '2026-06-03T13:00:00.000Z',
+    '08:00 local is before the daily 09:00 attempt, so yesterday is current',
+  );
+  assert.equal(
+    mostRecentDailyAttemptUtc(new Date('2026-06-04T14:00:00.000Z'), 'America/New_York', 9)?.toISOString(),
+    '2026-06-04T13:00:00.000Z',
+    '10:00 local is after the daily 09:00 attempt, so today is current',
+  );
 });
 
 test('mostRecentSlotUtc: DST fall-back ambiguous hour never returns a FUTURE slot (dup-trigger guard)', async () => {
@@ -128,7 +142,7 @@ test('helper: channel and brand-kit recovery stay inside job startup, not prefli
   assert.equal(started, true, 'generation should proceed so content is ready when a channel connects');
 });
 
-test('helper gate 3: missing website/businessType → skipped(incomplete_profile)', async () => {
+test('helper profile gate: missing website/businessType → skipped(incomplete_profile)', async () => {
   const { triggerWeeklyJobForTenant } = await import('../../backend/marketing/weekly-trigger');
   const result = await triggerWeeklyJobForTenant('15', {
     loadPayloadDefaults: (async () => ({ businessType: 'coaching' })) as never, // no websiteUrl
@@ -264,6 +278,24 @@ test('helper idempotency: a recent worker-created weekly job → deduped, startJ
   assert.equal(args.opts.createdBy, 'weekly-trigger-worker');
   // 6-day dedup window, shorter than the weekly cadence.
   assert.equal(FRESH_NOW - args.opts.sinceEpochMs, 6 * 24 * 60 * 60 * 1000);
+});
+
+test('helper window idempotency uses the cadence boundary supplied by the daily evaluator', async () => {
+  const { triggerWeeklyJobForTenant } = await import('../../backend/marketing/weekly-trigger');
+  const cadenceWindowStartMs = Date.parse('2026-06-01T09:00:00.000Z');
+  let sinceEpochMs: number | null = null;
+  const result = await triggerWeeklyJobForTenant('15', {
+    loadPayloadDefaults: okDefaults as never,
+    findRecentJobId: (async (_tenantId: string, opts: { sinceEpochMs: number }) => {
+      sinceEpochMs = opts.sinceEpochMs;
+      return 'mkt_current_window';
+    }) as never,
+    startJob: (async () => { throw new Error('current-window content must dedupe'); }) as never,
+    cadenceWindowStartMs,
+    now: () => FRESH_NOW,
+  });
+  assert.equal(sinceEpochMs, cadenceWindowStartMs);
+  assert.deepEqual(result, { status: 'started', jobId: 'mkt_current_window', deduped: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -479,10 +511,10 @@ test('worker tick: due tenant, gate skip (200 skipped) → keeps claim, counts s
   try {
     const { tick } = await import('../../scripts/automations/weekly-job-trigger-worker');
     const pool = makePool([DUE_ROW], { claimRowCount: 1, prior: null });
-    const report = await tick(pool, { now: TICK_NOW, fetchImpl: fakeFetch({ ok: true, status: 200, body: { status: 'skipped', reason: 'no_channel' } }) });
+    const report = await tick(pool, { now: TICK_NOW, fetchImpl: fakeFetch({ ok: true, status: 200, body: { status: 'skipped', reason: 'incomplete_profile' } }) });
     assert.equal(report.skipped, 1);
     assert.equal(report.started, 0);
-    assert.ok(!pool.calls.some((c) => c.sql.includes('SET last_triggered_at = $2')), 'a deliberate skip keeps the claim (no retry this window)');
+    assert.ok(!pool.calls.some((c) => c.sql.includes('SET last_triggered_at = $2')), 'a deliberate skip keeps today\'s claim');
     assert.ok(!pool.calls.some((c) => c.sql.includes('last_success_at = now()')), 'a skip is not a success');
   } finally {
     process.env.APP_BASE_URL = prev; process.env.INTERNAL_API_SECRET = prevSecret;
@@ -506,21 +538,48 @@ test('worker tick: lost the claim race (0 rows returned) → no POST, no-op', as
   }
 });
 
-test('worker tick: not-due tenant (recent last_triggered_at) → not claimed', async () => {
+test('worker tick: tenant already evaluated today is not claimed again', async () => {
   const prev = process.env.APP_BASE_URL; const prevSecret = process.env.INTERNAL_API_SECRET;
   process.env.APP_BASE_URL = 'https://aries.example.com'; process.env.INTERNAL_API_SECRET = 'shh';
   try {
     const { tick } = await import('../../scripts/automations/weekly-job-trigger-worker');
-    // last_triggered_at AFTER this week's Monday slot → not due.
-    const row = { ...DUE_ROW, last_triggered_at: '2026-06-01T09:00:01.000Z' };
+    // last_triggered_at AFTER today's 09:00 daily attempt slot → not due.
+    const row = { ...DUE_ROW, last_triggered_at: '2026-06-04T09:00:01.000Z' };
     const pool = makePool([row], { claimRowCount: 1 });
     const report = await tick(pool, { now: TICK_NOW, fetchImpl: fakeFetch({ ok: true, status: 200, body: { status: 'started' } }) });
-    assert.equal(report.due, 0, 'already triggered this window → not due');
+    assert.equal(report.due, 0, 'already evaluated today → not due');
     assert.equal(report.claimed, 0);
     assert.ok(
       !pool.calls.some((c) => c.sql.includes('UPDATE marketing_schedule m') && !c.sql.includes('WITH stale AS')),
       'no claim attempted when not due',
     );
+  } finally {
+    process.env.APP_BASE_URL = prev; process.env.INTERNAL_API_SECRET = prevSecret;
+  }
+});
+
+test('three-week outage recovery evaluates only today and generates only the current cadence window', async () => {
+  const prev = process.env.APP_BASE_URL; const prevSecret = process.env.INTERNAL_API_SECRET;
+  process.env.APP_BASE_URL = 'https://aries.example.com'; process.env.INTERNAL_API_SECRET = 'shh';
+  try {
+    const { tick } = await import('../../scripts/automations/weekly-job-trigger-worker');
+    const pool = makePool(
+      [{ ...DUE_ROW, last_triggered_at: '2026-05-14T09:00:00.000Z' }],
+      { claimRowCount: 1, prior: '2026-05-14T09:00:00.000Z' },
+    );
+    const bodies: Array<Record<string, unknown>> = [];
+    const fetchImpl = (async (_url: unknown, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return { ok: true, status: 200, json: async () => ({ status: 'started', jobId: 'mkt_current' }) };
+    }) as unknown as typeof fetch;
+
+    const report = await tick(pool, { now: TICK_NOW, fetchImpl });
+
+    assert.equal(report.started, 1);
+    assert.equal(bodies.length, 1, 'missed historical windows must not be replayed');
+    assert.equal(bodies[0]?.cadence_window_start, '2026-06-01T09:00:00.000Z');
+    const claim = pool.calls.find((c) => c.sql.includes('UPDATE marketing_schedule m') && !c.sql.includes('WITH stale AS'));
+    assert.equal(claim?.params[1], '2026-06-04T09:00:00.000Z', 'claim frequency is daily, not weekly');
   } finally {
     process.env.APP_BASE_URL = prev; process.env.INTERNAL_API_SECRET = prevSecret;
   }
@@ -646,7 +705,7 @@ test('claim marker lifecycle: claim writes it atomically; success and skip relea
     // Gate-skip path: keeps the schedule claim but releases the marker, so the
     // heal arm can never mistake a deliberate skip for a stranded attempt.
     const skipPool = makePool([DUE_ROW], { claimRowCount: 1 });
-    await tick(skipPool, { now: TICK_NOW, fetchImpl: fakeFetch({ ok: true, status: 200, body: { status: 'skipped', reason: 'no_channel' } }) });
+    await tick(skipPool, { now: TICK_NOW, fetchImpl: fakeFetch({ ok: true, status: 200, body: { status: 'skipped', reason: 'incomplete_profile' } }) });
     assert.ok(
       skipPool.calls.some((c) => c.sql.includes('DELETE FROM marketing_weekly_claims') && !c.sql.includes('SET last_triggered_at')),
       'skip must release the marker without reverting the claim',
@@ -658,12 +717,16 @@ test('claim marker lifecycle: claim writes it atomically; success and skip relea
   });
 });
 
-test('heal arm: runs first each tick, stale markers are healed and counted', async () => {
+test('spawn-death regression: stale marker heals first and the tenant starts in the same tick', async () => {
   await withTickEnv({}, async () => {
     const { tick } = await import('../../scripts/automations/weekly-job-trigger-worker');
-    const pool = makePool([], { healRows: [{ tenant_id: 15, reverted: true }] });
-    const report = await tick(pool, { now: TICK_NOW, fetchImpl: fakeFetch({ ok: true, status: 200, body: {} }) });
+    const pool = makePool([DUE_ROW], { healRows: [{ tenant_id: 15, reverted: true }] });
+    const report = await tick(pool, {
+      now: TICK_NOW,
+      fetchImpl: fakeFetch({ ok: true, status: 200, body: { status: 'started', jobId: 'mkt_after_spawn_death' } }),
+    });
     assert.equal(report.healed, 1, 'a stranded claim must be healed and reported');
+    assert.equal(report.started, 1, 'healing must make the tenant triggerable without waiting another tick');
     assert.ok(pool.calls[0].sql.includes('WITH stale AS'), 'heal must run BEFORE the enabled scan so the tenant is re-claimable this tick');
     const staleSecs = pool.calls[0].params[0] as number;
     assert.ok(Number.isFinite(staleSecs) && staleSecs >= 45 * 60, 'stale window must be at least 45 minutes');
@@ -699,7 +762,7 @@ test('heal arm: a stale failed attempt is immediately retryable without duplicat
   });
 });
 
-test('deliberate skip remains cadence-gated and never becomes an overdue failure', async () => {
+test('deliberate skip is evaluated the next day and never becomes an overdue failure', async () => {
   await withTickEnv({}, async () => {
     const { tick } = await import('../../scripts/automations/weekly-job-trigger-worker');
     const pool = makeStatefulPool({
@@ -723,8 +786,9 @@ test('deliberate skip remains cadence-gated and never becomes an overdue failure
       const nextDay = new Date(TICK_NOW.getTime() + 25 * 60 * 60 * 1000);
       pool.setNow(nextDay);
       const later = await tick(pool, { now: nextDay, fetchImpl });
-      assert.equal(later.due, 0, 'a terminal gate skip must not enter the daily failed-attempt retry path');
-      assert.equal(submissions, 1);
+      assert.equal(later.due, 1, 'a gate skip is evaluated again in the next daily window');
+      assert.equal(later.skipped, 1);
+      assert.equal(submissions, 2);
       assert.ok(
         !errors.some((args) => String(args[0]).includes('weekly trigger unsuccessful for more than 24h')),
         'a deliberate skip must never page as an overdue failure',

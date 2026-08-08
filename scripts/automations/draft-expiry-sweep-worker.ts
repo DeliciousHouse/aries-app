@@ -62,6 +62,7 @@ function summarize(report: DraftExpirySweepReport): Record<string, unknown> {
     age_days: report.ageDays,
     cutoff: report.cutoff,
     candidates: report.candidates,
+    expiring_within_24_hours: report.expiringWithin24Hours,
     expired: report.expired,
     batches: report.batches,
     truncated: report.truncated,
@@ -87,6 +88,11 @@ async function tickSafe(pool: pg.Pool): Promise<void> {
     const dryRun = draftExpiryDryRun();
     const ageDays = resolveDraftExpiryAgeDays();
     const report = await runDraftExpirySweep(pool, { dryRun, ageDays });
+    if (report.expiringWithin24Hours > 0) {
+      console.warn(
+        `[draft-expiry-sweep-worker] metric=aries_drafts_expiring_24h value=${report.expiringWithin24Hours}`,
+      );
+    }
     if (report.candidates > 0 || report.expired > 0 || report.truncated) {
       console.log(`[draft-expiry-sweep-worker] summary ${JSON.stringify(summarize(report))}`);
     }
