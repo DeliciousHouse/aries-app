@@ -165,9 +165,9 @@ container image to GHCR, and pushes to `master` drive the separate production
 deployment workflow. Those capabilities are not the same as a versioned public
 release. As of 2026-08-07 the repository has no GitHub Releases, and
 `docs/RELEASES.md` is not present on `master`. Signed-release proposal #937
-closed without merging. Security policy and scanning PR #938 merged, while
-OpenSSF Scorecard PR #936 and canonical-license PR #951 remain open and
-unmerged; none of the unmerged proposals defines current repository policy.
+closed without merging. Security policy and scanning PR #938, OpenSSF Scorecard
+PR #936, and canonical-license PR #951 merged; those changes do not create a
+versioned GitHub Release or define the unmerged release proposal as policy.
 
 If a future release-policy change lands, `docs/RELEASES.md` becomes the detailed
 source for versioning, artifacts, signatures, cadence, and release procedure. This

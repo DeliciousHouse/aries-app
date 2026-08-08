@@ -25,9 +25,9 @@ snapshots should establish normal variation before maintainers propose targets.
 
 Publication status was rechecked on 2026-08-07: GitHub Releases contains zero
 releases, `docs/RELEASES.md` is absent, signed-release PR #937 closed without
-merging, security PR #938 merged, and Scorecard PR #936 plus canonical-license
-PR #951 remain open and unmerged. Proposed work is not counted as current
-capability.
+merging, and security PR #938, Scorecard PR #936, and canonical-license PR #951
+merged. The official Scorecard workflow and canonical Apache-2.0 license are
+current capability; the closed release proposal is not current policy.
 
 ## Identity and privacy rules
 
@@ -54,12 +54,9 @@ Contributor metrics count people, not raw Git author strings.
    of metrics artifacts.
 
 The inventory was recomputed on 2026-08-07 at `origin/master`
-`a7ea053480f2c67f5e035d745fb0a867b9eb79ef`. Its merged-only shortlog produced
+`89af7950879d3579b05584220cf0fd8a0396e1dc`. Its merged-only shortlog produced
 19 raw signatures. After evidence-backed alias collapsing and bot/automation
-exclusions, the human history contains seven people: **4 verified internal + 0
-verified external**, with **3 unclassified human contributors (GAP)**. No
-`.mailmap` exists yet, so unresolved aliases remain explicit rather than guessed.
-This is an affiliation inventory, not a growth or retention result.
+exclusions, the human history contains **7 people: 4 verified internal + 0 verified external + 3 unclassified human contributors (GAP)**. No `.mailmap` exists yet, so unresolved aliases remain explicit rather than guessed. This is an affiliation inventory, not a growth or retention result.
 
 ## Contributor growth
 
@@ -72,7 +69,7 @@ This is an affiliation inventory, not a growth or retention result.
 | **Cadence** | Monthly, collected within seven days after month end. |
 | **Owner** | Maintainers; prepared by a maintainer or contributor and independently reviewed in a pull request. |
 | **Publication** | Dated `docs/metrics/YYYY-MM.md` snapshot; latest status remains linked from this file. |
-| **Baseline** | **Not yet measured as of 2026-08-06.** The six-person identity inventory above cannot establish growth without first-merge dates and a prior-month comparison. |
+| **Baseline** | **Not yet measured as of 2026-08-06.** The 7-person identity inventory above cannot establish growth without first-merge dates and a prior-month comparison. |
 | **Caveats** | Squashed commits can hide original Git authors, so pull-request authorship is primary. Bot filtering and duplicate identity mapping materially affect the result. Affiliation gaps remain separate rather than being guessed into the external cohort. |
 
 ## Contributor retention
@@ -141,12 +138,12 @@ instances.
 | --- | --- |
 | **Definition / formula** | The overall score emitted by OpenSSF Scorecard for the default branch, on its 0-10 scale. Publish the overall score, tool version, commit SHA, run time, and per-check scores; do not recompute an average from rounded check values. |
 | **Unit** | Score out of 10, plus per-check scores out of 10. |
-| **Data source** | OpenSSF Scorecard CLI or the official Scorecard GitHub Action. Record the immutable workflow run or command, tool version, and scanned commit. Automated publication is pending while open PR #936 remains unmerged. |
+| **Data source** | OpenSSF Scorecard CLI or the official Scorecard GitHub Action in `.github/workflows/scorecard.yml`. Record the immutable workflow run or command, tool version, and scanned commit. |
 | **Cohort / window** | Repository/default-branch state at one exact commit and collection timestamp. |
-| **Cadence** | Weekly and on default-branch changes after the official workflow lands; monthly snapshots use the latest completed scan in the month. |
+| **Cadence** | Weekly and on default-branch changes; monthly snapshots use the latest completed scan in the month. |
 | **Owner** | Maintainers. |
-| **Publication** | Dated `docs/metrics/YYYY-MM.md`; after the official workflow lands, its public workflow result and security-results page are the primary evidence. |
-| **Baseline** | OpenSSF Scorecard CLI v5.5.0 measured commit `84f77eacb8ad3e94684af0dda90f829c29927e27` at **6.6 / 10** on 2026-08-06. `master` had moved to `a7ea053480f2c67f5e035d745fb0a867b9eb79ef` when rechecked on 2026-08-07, so 6.6 is a historical baseline, not a claim about an unscanned commit. |
+| **Publication** | Dated `docs/metrics/YYYY-MM.md`; the official workflow result and security-results page are the primary evidence. |
+| **Baseline** | OpenSSF Scorecard CLI v5.5.0 measured commit `84f77eacb8ad3e94684af0dda90f829c29927e27` at **6.6 / 10** on 2026-08-06. `master` had moved to `89af7950879d3579b05584220cf0fd8a0396e1dc` when rechecked on 2026-08-07, so 6.6 is a historical baseline, not a claim about an unscanned commit. |
 | **Caveats** | The score reflects observable repository controls, not proof that the application is secure. A policy or workflow proposed in an unmerged pull request does not improve the default-branch baseline. GitHub outages and permission failures must be reported as missing scans, never converted into scores. |
 
 ## Reproduction checklist

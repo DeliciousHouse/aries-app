@@ -57,6 +57,10 @@ test('contributor guide documents the real newcomer and pull-request path', () =
     contributing,
     /# Collaborator[\s\S]*git fetch origin --prune[\s\S]*git rebase origin\/master[\s\S]*git rev-list --count HEAD\.\.origin\/master/i,
   );
+  assert.match(
+    contributing,
+    /full-suite[\s\S]*complete test inventory[\s\S]*requires-infra[\s\S]*self-skip[\s\S]*feedback-postgres[\s\S]*four selected[\s\S]*PostgreSQL/i,
+  );
 });
 
 test('published metrics define collection contracts and honest baselines', () => {
@@ -95,6 +99,14 @@ test('published metrics define collection contracts and honest baselines', () =>
       );
     }
   }
+
+  const inventory = metrics.match(
+    /\*\*(\d+) people: (\d+) verified internal \+ (\d+) verified external \+ (\d+) unclassified human contributors \(GAP\)\*\*/i,
+  );
+  assert.ok(inventory, 'identity inventory must publish one numeric aggregate');
+  const [total, internal, external, unclassified] = inventory.slice(1).map(Number);
+  assert.equal(total, internal + external + unclassified);
+  assert.match(metrics, new RegExp(`\\*\\*Baseline\\*\\* \\|[^\\n]*The ${total}-person identity inventory above`));
 
   assert.match(metrics, /bot/i);
   assert.match(metrics, /duplicate identit|mailmap/i);
