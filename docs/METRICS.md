@@ -53,10 +53,11 @@ Contributor metrics count people, not raw Git author strings.
    and keep vulnerability reports, customer data, and private contact data out
    of metrics artifacts.
 
-The inventory was recomputed on 2026-08-07 at `origin/master`
+The inventory was recomputed at `2026-08-08T02:56:24Z` against `origin/master`
 `89af7950879d3579b05584220cf0fd8a0396e1dc`. Its merged-only shortlog produced
-19 raw signatures. After evidence-backed alias collapsing and bot/automation
-exclusions, the human history contains **7 people: 4 verified internal + 0 verified external + 3 unclassified human contributors (GAP)**. No `.mailmap` exists yet, so unresolved aliases remain explicit rather than guessed. This is an affiliation inventory, not a growth or retention result.
+19 raw signatures. Nine known automation signatures were excluded; three
+duplicate human signatures were collapsed using the same public commit address or
+GitHub identity. The remaining human history contains **7 people: 4 verified internal + 0 verified external + 3 unclassified human contributors (GAP)**. Public profile or commit evidence supports the four internal classifications; absence of equivalent evidence leaves three people unclassified. No `.mailmap` exists yet, so unresolved aliases remain explicit rather than guessed. This is an affiliation inventory, not a growth or retention result.
 
 ## Contributor growth
 
@@ -129,7 +130,7 @@ instances.
 | **Cadence** | Weekly alert review; monthly public aggregate. Critical alerts trigger the security policy rather than waiting for the monthly report. |
 | **Owner** | Maintainers, with sensitive details handled through the security process. |
 | **Publication** | Aggregate counts in `docs/metrics/YYYY-MM.md`; fixed advisories may be linked after disclosure is safe. |
-| **Baseline** | Partial measurement on 2026-08-06: the Dependabot alerts API returned **1 open high-severity alert**. Version-currency and update-age baselines are **not yet measured** from a clean lockfile install, so the combined dependency-health baseline remains **GAP**. |
+| **Baseline** | Partial observation on 2026-08-06: the Dependabot alerts API returned **1 open high-severity alert**, but the exact collection time was not retained. Version-currency and update-age baselines are **not yet measured** from a clean lockfile install, so the combined dependency-health baseline remains **GAP**. |
 | **Caveats** | Registry `latest` can be an incompatible or misleading channel, especially for prereleases. An alert count is not a risk score. Private advisory details, dependency paths, and exploit information must not be exposed merely to make the metric reproducible. |
 
 ## OpenSSF Scorecard
@@ -143,7 +144,7 @@ instances.
 | **Cadence** | Weekly and on default-branch changes; monthly snapshots use the latest completed scan in the month. |
 | **Owner** | Maintainers. |
 | **Publication** | Dated `docs/metrics/YYYY-MM.md`; the official workflow result and security-results page are the primary evidence. |
-| **Baseline** | OpenSSF Scorecard CLI v5.5.0 measured commit `84f77eacb8ad3e94684af0dda90f829c29927e27` at **6.6 / 10** on 2026-08-06. `master` had moved to `89af7950879d3579b05584220cf0fd8a0396e1dc` when rechecked on 2026-08-07, so 6.6 is a historical baseline, not a claim about an unscanned commit. |
+| **Baseline** | **Partial historical observation (GAP).** OpenSSF Scorecard CLI v5.5.0 reported **6.6 / 10** for commit `84f77eacb8ad3e94684af0dda90f829c29927e27` at `2026-08-06T07:53:25-07:00`. [Merged PR #936](https://github.com/DeliciousHouse/aries-app/pull/936) records the exact command, archive file mode, 18-check set, and selected per-check values. The complete per-check JSON was not preserved in the versioned repository, so this observation does not meet the full measured-baseline definition. `master` had moved to `89af7950879d3579b05584220cf0fd8a0396e1dc` when rechecked; 6.6 is not a claim about that unscanned commit. |
 | **Caveats** | The score reflects observable repository controls, not proof that the application is secure. A policy or workflow proposed in an unmerged pull request does not improve the default-branch baseline. GitHub outages and permission failures must be reported as missing scans, never converted into scores. |
 
 ## Reproduction checklist

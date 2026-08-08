@@ -107,6 +107,14 @@ test('published metrics define collection contracts and honest baselines', () =>
   const [total, internal, external, unclassified] = inventory.slice(1).map(Number);
   assert.equal(total, internal + external + unclassified);
   assert.match(metrics, new RegExp(`\\*\\*Baseline\\*\\* \\|[^\\n]*The ${total}-person identity inventory above`));
+  assert.match(metrics, /inventory was recomputed at `\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z`/i);
+  assert.match(metrics, /19 raw signatures[\s\S]*nine known automation signatures[\s\S]*three\s+duplicate human signatures/i);
+
+  const scorecardStart = metrics.indexOf('## OpenSSF Scorecard');
+  const scorecardSection = metrics.slice(scorecardStart);
+  assert.match(scorecardSection, /2026-08-06T07:53:25-07:00/);
+  assert.match(scorecardSection, /github\.com\/DeliciousHouse\/aries-app\/pull\/936/);
+  assert.match(scorecardSection, /partial historical observation[\s\S]*GAP/i);
 
   assert.match(metrics, /bot/i);
   assert.match(metrics, /duplicate identit|mailmap/i);
@@ -122,5 +130,7 @@ test('community governance contract runs in verify and follows changelog format'
   const version = readRepoFile('VERSION').trim().replaceAll('.', '\\.');
 
   assert.match(verifySuite, /tests\/community-governance-contract\.test\.ts/);
-  assert.match(changelog, new RegExp(`^## v${version} — .+$`, 'm'));
+  const firstVersionHeading = changelog.match(/^## v.+$/m);
+  assert.ok(firstVersionHeading, 'changelog must contain a version heading');
+  assert.match(firstVersionHeading[0], new RegExp(`^## v${version} — .+$`));
 });
