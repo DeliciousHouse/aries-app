@@ -108,9 +108,11 @@ npm run verify
 ```
 
 `npm run verify` is the canonical local pre-push gate. A full local `npm test`
-is optional; GitHub's `full-suite` job runs the complete test inventory on
-Ubuntu with Node 24 and PostgreSQL. Include screenshots for visible UI changes
-and exact command output for documentation, workflow, or schema changes.
+is optional. GitHub's `full-suite` job collects the complete test inventory on
+Ubuntu with Node 24; requires-infra tests self-skip when database configuration
+is absent. The separate `feedback-postgres` job runs four selected suites against
+PostgreSQL. Include screenshots for visible UI changes and exact command output
+for documentation, workflow, or schema changes.
 
 Do not mix unrelated refactors, generated artifacts, dependency updates, or
 formatting churn into the pull request. Do not weaken authentication, tenant
@@ -168,9 +170,9 @@ enough.
 
 As of 2026-08-07, GitHub Releases contains zero releases and
 `docs/RELEASES.md` is absent from `master`. Signed-release proposal #937 closed
-without merging; security policy and scanning PR #938 merged; OpenSSF Scorecard
-PR #936 and canonical-license PR #951 remain open and unmerged. An unmerged or
-closed proposal is not current repository policy.
+without merging; security policy and scanning PR #938, OpenSSF Scorecard PR
+#936, and canonical-license PR #951 merged. The closed release proposal is not
+current repository policy.
 
 ## Sensitive areas
 
@@ -203,8 +205,7 @@ or mutate production.
 
 ## License and conduct
 
-Contributions submitted for inclusion are accepted under the terms in the
-current [LICENSE](LICENSE). Package metadata declares `Apache-2.0`, but GitHub
-currently classifies that file as `Other` / `NOASSERTION`; canonical Apache-2.0
-replacement PR #951 remains unmerged. By participating, you agree to follow the
+Contributions submitted for inclusion are accepted under the repository's
+[Apache License 2.0](LICENSE); package metadata and GitHub's license API identify
+it as `Apache-2.0`. By participating, you agree to follow the
 [Contributor Covenant](CODE_OF_CONDUCT.md).
