@@ -1013,8 +1013,8 @@ export function planPlatformOutcomes(platforms, results, transportError) {
     let error = result?.error ?? 'no_result_for_platform';
     // Surface the failure taxonomy in the persisted error_message so an operator
     // inspecting a stuck terminal row sees *why* (e.g. an expired token →
-    // reconnect required) instead of an opaque code. Surface-only — the retry
-    // policy is still driven entirely by `retryable` above.
+    // reconnect required) instead of an opaque code. The policy below combines
+    // that provider detail with `retryable` to classify the failure.
     if (result?.kind === 'auth') {
       error = `auth: Meta account disconnected — reconnect required. ${error}`;
     }
