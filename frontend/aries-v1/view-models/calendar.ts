@@ -84,6 +84,7 @@ function dispatchStatusToEventStatus(dispatchStatus: string): CalendarEventStatu
     case 'dispatched':
       return 'live';
     case 'failed':
+    case 'dead_letter':
     case 'manual_reconciliation':
       return 'changes_requested';
     case 'in_flight':
@@ -163,7 +164,8 @@ export function createCalendarViewModel(input: CalendarViewModelInput): Calendar
   const unscheduled = input.unscheduledPosts ?? [];
 
   const failedCount = events.filter(
-    (event) => event.dispatchStatus === 'failed' && !event.manualReviewRequired,
+    (event) => (event.dispatchStatus === 'failed' || event.dispatchStatus === 'dead_letter')
+      && !event.manualReviewRequired,
   ).length;
   const manualReviewCount = events.filter((event) => event.manualReviewRequired).length;
   const dispatchedCount = events.filter((event) => event.dispatchStatus === 'dispatched').length;

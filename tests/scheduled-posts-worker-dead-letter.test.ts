@@ -107,4 +107,11 @@ test('schema migration persists attempts, failure class, and dead-letter state',
   assert.match(alertRules, /aries_dispatch_dead_letters_total/);
   assert.match(alertRules, /alert: AriesDraftsExpiringSoon/);
   assert.match(alertRules, /aries_drafts_expiring_24h/);
+
+  const runbook = readFileSync(
+    path.join(REPO_ROOT, 'docs/runbooks/content-pipeline-recovery.md'),
+    'utf8',
+  );
+  assert.match(runbook, /manual_reconciliation.*sibling/is);
+  assert.match(runbook, /ROLLBACK/i);
 });

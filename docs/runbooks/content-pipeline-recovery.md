@@ -20,26 +20,44 @@ The alert rules in `ops/alerts/aries-content-pipeline.rules.yml` are staged for 
    - `platform_permanent`: correct the rejected post/provider configuration.
    - `platform_transient`: confirm the provider has recovered; this class reached the configured attempt ceiling.
 3. Confirm the provider did not publish the post. Dead-letter classes are failures for which Aries received explicit non-success evidence; `outcome_unknown` remains quarantined in `manual_reconciliation` and must never be replayed blindly.
-4. Requeue only the corrected platform child and its parent in one transaction, using the concrete IDs from step 1:
+4. Do not requeue a dead-lettered child while any `manual_reconciliation` sibling exists. Resolve that sibling first; its provider outcome is unknown and the parent must remain quarantined.
+5. Requeue only the corrected platform child and its parent in one transaction, using the concrete IDs from step 1. The parent update runs first and both statements must return exactly one row. If either returns zero rows, `ROLLBACK` instead of leaving a pending child under a terminal parent:
 
    ```sql
    BEGIN;
-   UPDATE scheduled_post_dispatches
-      SET status = 'pending', failure_class = NULL, error_message = NULL,
-          error_at = NULL, dead_lettered_at = NULL, attempts = 0, updated_at = now()
-    WHERE scheduled_post_id = :scheduled_post_id
-      AND platform = :platform
-      AND status = 'dead_letter';
    UPDATE scheduled_posts
       SET dispatch_status = 'pending', failure_class = NULL, error_message = NULL,
           error_at = NULL, dead_lettered_at = NULL, next_attempt_at = NULL,
           updated_at = now()
     WHERE id = :scheduled_post_id
-      AND dispatch_status = 'dead_letter';
+      AND dispatch_status = 'dead_letter'
+      AND NOT EXISTS (
+        SELECT 1 FROM scheduled_post_dispatches
+         WHERE scheduled_post_id = :scheduled_post_id
+           AND status = 'manual_reconciliation'
+      )
+    RETURNING id;
+   UPDATE scheduled_post_dispatches child
+      SET status = 'pending', failure_class = NULL, error_message = NULL,
+          error_at = NULL, dead_lettered_at = NULL, attempts = 0, updated_at = now()
+    WHERE child.scheduled_post_id = :scheduled_post_id
+      AND child.platform = :platform
+      AND child.status = 'dead_letter'
+      AND EXISTS (
+        SELECT 1 FROM scheduled_posts parent
+         WHERE parent.id = child.scheduled_post_id
+           AND parent.dispatch_status = 'pending'
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM scheduled_post_dispatches sibling
+         WHERE sibling.scheduled_post_id = child.scheduled_post_id
+           AND sibling.status = 'manual_reconciliation'
+      )
+    RETURNING child.id;
    COMMIT;
    ```
 
-5. Watch the next worker summary and verify the child becomes `dispatched`. If it dead-letters again, stop replaying and fix the underlying class-specific cause.
+6. Watch the next worker summary and verify the child becomes `dispatched`. If it dead-letters again, stop replaying and fix the underlying class-specific cause.
 
 ## Drafts expiring within 24 hours
 

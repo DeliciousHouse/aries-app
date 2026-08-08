@@ -141,6 +141,19 @@ test('calendar view-model marks child manual-reconciliation evidence as review-o
   assert.match(manualMetric?.detail ?? '', /may already be live/i);
 });
 
+test('calendar view-model surfaces dead-lettered posts as failed and non-reschedulable', () => {
+  const model = createCalendarViewModel({
+    scheduledPosts: [buildScheduledPost({ dispatchStatus: 'dead_letter' })],
+    posts: [],
+    timeZone: 'UTC',
+  });
+
+  assert.equal(model.events[0]!.status, 'changes_requested');
+  assert.equal(model.events[0]!.reschedulable, false);
+  const failedMetric = model.hero.metrics.find((metric) => metric.label === 'Failed dispatch');
+  assert.equal(failedMetric?.value, '1');
+});
+
 test('calendar rescheduling matches the server safe-state predicate', () => {
   const childDispatch = (status: 'dispatched' | 'manual_reconciliation') => ({
     platform: 'facebook',

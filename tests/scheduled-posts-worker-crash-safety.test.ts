@@ -689,6 +689,34 @@ test('known terminal provider rejection dead-letters and counts canonical delive
   }
 });
 
+test('a newly dead-lettered child is counted while a retryable sibling keeps the parent pending', async () => {
+  const { tick } = await loadWorker();
+  const db = new FakeDb();
+  seedDueRow(db);
+  process.env.APP_BASE_URL = 'https://aries.example.test';
+  process.env.INTERNAL_API_SECRET = 'test-secret';
+
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      results: [
+        { provider: 'facebook', ok: false, retryable: false, kind: 'auth', error: 'oauth_token_missing' },
+        { provider: 'instagram', ok: false, retryable: true, kind: 'transient', error: 'gateway timeout' },
+      ],
+    }), { status: 502, headers: { 'content-type': 'application/json' } })) as typeof fetch;
+
+    const report = await tick(makePool(db));
+    assert.equal(db.scheduled[0]!.dispatch_status, 'pending');
+    assert.deepEqual(
+      db.children.map((child) => [child.platform, child.status]),
+      [['facebook', 'dead_letter'], ['instagram', 'pending']],
+    );
+    assert.equal(report.deadLettered, 1, 'the DLQ transition is counted before the parent becomes terminal');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 test('legacy orphaned schedules fail before provider I/O instead of remaining in flight', async () => {
   const { tick } = await loadWorker();
   const db = new FakeDb();

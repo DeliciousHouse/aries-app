@@ -1317,6 +1317,7 @@ export async function tick(pool, { shouldStop = () => false } = {}) {
           continue;
         }
         outcomes = await reconcileDurableProviderSuccesses(fc, rowId, outcomes);
+        const enteredDeadLetter = outcomes.some((outcome) => outcome.status === 'dead_letter');
         for (const outcome of outcomes) {
           ownsAttempt = await setPlatformDispatchStatus(
             fc,
@@ -1369,16 +1370,17 @@ export async function tick(pool, { shouldStop = () => false } = {}) {
         }
         await fc.query('COMMIT');
 
+        if (enteredDeadLetter) {
+          report.deadLettered += 1;
+          console.error(`[scheduled-posts-worker] ALERT DispatchDeadLetter metric=aries_dispatch_dead_letters_total value=1 row=${rowId}`);
+        }
+
         if (rolled === 'dispatched') {
           report.dispatched += 1;
         } else {
           report.failed += 1;
           const errs = outcomes.filter((o) => o.status !== 'dispatched').map((o) => `${o.platform}:${o.error}`);
           console.error(`[scheduled-posts-worker] row=${rowId} rollup=${rolled}`, errs.join('; '));
-          if (rolled === 'dead_letter') {
-            report.deadLettered += 1;
-            console.error(`[scheduled-posts-worker] ALERT DispatchDeadLetter metric=aries_dispatch_dead_letters_total value=1 row=${rowId}`);
-          }
         }
       } catch (writeError) {
         try { await fc.query('ROLLBACK'); } catch { /* ignore */ }
@@ -1449,26 +1451,35 @@ export const WORKER_READINESS_SQL = `
   SELECT
     to_regclass('public.scheduled_posts') IS NOT NULL
       AND to_regclass('public.scheduled_post_dispatches') IS NOT NULL
-      AND EXISTS (
-        SELECT 1
+      AND (
+        SELECT count(*) = 3
           FROM information_schema.columns
          WHERE table_schema = 'public'
            AND table_name = 'scheduled_posts'
-           AND column_name = 'dispatch_started_at'
+           AND column_name IN ('dispatch_started_at', 'failure_class', 'dead_lettered_at')
+      )
+      AND (
+        SELECT count(*) = 3
+          FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = 'scheduled_post_dispatches'
+           AND column_name IN ('failure_class', 'attempts', 'dead_lettered_at')
       ) AS schema_ready,
     EXISTS (
       SELECT 1
         FROM pg_constraint
-       WHERE conrelid = 'public.scheduled_posts'::regclass
+       WHERE conrelid = to_regclass('public.scheduled_posts')
          AND conname = 'scheduled_posts_dispatch_status_check'
          AND position('manual_reconciliation' in pg_get_constraintdef(oid)) > 0
+         AND position('dead_letter' in pg_get_constraintdef(oid)) > 0
     )
       AND EXISTS (
         SELECT 1
           FROM pg_constraint
-         WHERE conrelid = 'public.scheduled_post_dispatches'::regclass
+         WHERE conrelid = to_regclass('public.scheduled_post_dispatches')
            AND conname = 'scheduled_post_dispatches_status_check'
            AND position('manual_reconciliation' in pg_get_constraintdef(oid)) > 0
+           AND position('dead_letter' in pg_get_constraintdef(oid)) > 0
       ) AS protocol_ready
 `;
 

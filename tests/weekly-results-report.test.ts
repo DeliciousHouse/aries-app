@@ -5,6 +5,7 @@ import test from 'node:test';
 
 import { resolveProjectRoot } from './helpers/project-root';
 import {
+  DISPATCH_OUTCOMES_SQL,
   WEEK_POST_RANKING_SQL,
   buildWeeklyResultsReport,
   deriveLearnings,
@@ -16,6 +17,13 @@ import {
   parseWeekIso,
   resolveReportWeek,
 } from '../backend/marketing/weekly-results-week';
+
+test('terminal dead letters are included in the weekly failed-dispatch count', () => {
+  assert.match(
+    DISPATCH_OUTCOMES_SQL,
+    /dispatch_status IN \('failed', 'dead_letter'\)/,
+  );
+});
 
 /**
  * S5-1 / AA-110 (gap F1b) — the weekly results report builder.
