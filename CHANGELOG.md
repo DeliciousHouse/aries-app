@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.58.1 — fix(api): bound response-body loading
+
+Posts and other bounded list requests now leave their loading state when a
+successful HTTP response stalls before its body finishes downloading.
+
+### Fixed
+
+- Request timeouts now remain active through response-body parsing, so a stalled
+  HTTP 200 response becomes a retryable, customer-safe error instead of an
+  indefinite loading grid.
+
 ## v0.1.58.0 — fix(marketing): make scheduled content failures recoverable
 
 Aries now evaluates weekly content generation every day and makes terminal
