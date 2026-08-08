@@ -29,6 +29,9 @@ services:
       HERMES_GATEWAY_URL: ${HERMES_GATEWAY_URL:-}
       HERMES_API_SERVER_KEY: ${HERMES_API_SERVER_KEY:-}
       HERMES_SESSION_KEY: ${HERMES_SESSION_KEY:-main}
+      # Fail container health when the configured network Hermes endpoint is
+      # unavailable. Self-host installs without Hermes explicitly set this off.
+      ARIES_HERMES_NETWORK_HEALTHCHECK_ENABLED: ${ARIES_HERMES_NETWORK_HEALTHCHECK_ENABLED:-1}
       # Phase B three-profile routing — each marketing stage runs on its own
       # Hermes profile gateway, bound to its own port. The gateway URLs carry
       # the production cutover defaults; the per-profile API keys come from the
@@ -77,6 +80,9 @@ services:
       ARIES_RECONCILER_ENABLED: ${ARIES_RECONCILER_ENABLED:-1}
       ARIES_RECONCILER_INTERVAL_MS: ${ARIES_RECONCILER_INTERVAL_MS:-60000}
       ARIES_KANBAN_GC_ENABLED: ${ARIES_KANBAN_GC_ENABLED:-1}
+      # Temporary compatibility path for the in-container `hermes kanban gc`
+      # worker. Disable after the sidecar cutover moves maintenance out of Aries.
+      ARIES_HERMES_CLI_COMPAT_ENABLED: ${ARIES_HERMES_CLI_COMPAT_ENABLED:-1}
       ARIES_KANBAN_GC_INTERVAL_MS: ${ARIES_KANBAN_GC_INTERVAL_MS:-86400000}
       ARIES_KANBAN_GC_RETENTION_DAYS: ${ARIES_KANBAN_GC_RETENTION_DAYS:-7}
       ARIES_AUTO_APPROVE_MARKETING_PIPELINE: ${ARIES_AUTO_APPROVE_MARKETING_PIPELINE:-1}
@@ -509,13 +515,40 @@ services:
       - ${HERMES_VIDEO_CACHE_DIR:-/home/node/.hermes/profiles/aries-content-generator/cache/videos}:/hermes-video-media:ro
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:${PORT:-3000}/ >/dev/null"]
+      test: ["CMD", "node", "scripts/container-healthcheck.mjs"]
       interval: 30s
       timeout: 5s
       retries: 5
       start_period: 30s
     labels:
       com.delicioushouse.aries.autoheal: "true"
+    networks:
+      - docker_stack
+
+  # Optional production Hermes sidecar. It is dormant unless the
+  # `hermes-sidecar` profile is activated, so existing external gateways and
+  # the temporary in-image CLI compatibility path keep working during cutover.
+  # The release tag is paired with its immutable multi-arch manifest digest.
+  aries-hermes:
+    image: ${ARIES_HERMES_IMAGE:-nousresearch/hermes-agent:v2026.8.3@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e}
+    profiles: ["hermes-sidecar"]
+    command: ["gateway", "run"]
+    environment:
+      HERMES_UID: ${HERMES_UID:-1000}
+      HERMES_GID: ${HERMES_GID:-1000}
+      API_SERVER_ENABLED: "true"
+      API_SERVER_HOST: 0.0.0.0
+      API_SERVER_PORT: 8642
+      API_SERVER_KEY: ${HERMES_API_SERVER_KEY:-}
+    volumes:
+      - ${ARIES_HERMES_DATA_ROOT:-/home/node/.hermes}:/opt/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS --max-time 5 http://127.0.0.1:8642/health >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
     networks:
       - docker_stack
 

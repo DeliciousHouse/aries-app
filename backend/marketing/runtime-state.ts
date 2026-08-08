@@ -731,6 +731,7 @@ export async function findRecentJobIdForTenant(
       if (doc.created_by !== options.createdBy) continue;
       const deletedAtRaw = typeof doc.deleted_at === 'string' ? doc.deleted_at.trim() : '';
       if (deletedAtRaw.length > 0) continue;
+      if (doc.state === 'failed' || doc.status === 'failed' || doc.status === 'failed_stale') continue;
       const createdAt = Date.parse(typeof doc.created_at === 'string' ? doc.created_at : '');
       if (!Number.isFinite(createdAt) || createdAt < options.sinceEpochMs) continue;
       if (typeof doc.job_id !== 'string' || doc.job_id.length === 0) continue;

@@ -86,6 +86,11 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml build
 - `HERMES_API_SERVER_KEY` (outbound credential Aries sends to Hermes `/v1/runs`)
 - `INTERNAL_API_SECRET` (required for Hermes callbacks)
 - `HERMES_SESSION_KEY`
+- `ARIES_HERMES_NETWORK_HEALTHCHECK_ENABLED` (optional; default `1` — make the
+  app container unhealthy when the configured Hermes `/health` is unreachable;
+  the installer sets `0` for an explicit `--no-hermes` deployment)
+- `ARIES_HERMES_CLI_COMPAT_ENABLED` (temporary; default `1` — retains only the
+  in-image `hermes kanban gc` maintenance path during sidecar cutover)
 - `HERMES_RUN_TIMEOUT_MS` (optional general workflow polling timeout)
 - `HERMES_POLL_INTERVAL_MS` (optional general workflow polling interval)
 - `DB_HOST`
@@ -126,6 +131,31 @@ Aries submits Hermes runs to `${HERMES_GATEWAY_URL}/v1/runs` with
 The general Hermes workflow adapter
 currently supports the explicitly wired Hermes workflow set; marketing jobs use
 the separate marketing execution port and advance through async callbacks.
+
+### Optional production Hermes sidecar
+
+`docker-compose.yml` includes `aries-hermes` behind the `hermes-sidecar` profile.
+It uses the official Hermes Agent v0.20.0 (`v2026.8.3`) image pinned by manifest
+digest, mounts `${ARIES_HERMES_DATA_ROOT:-/home/node/.hermes}` at `/opt/data`, and
+shares the `docker_stack` network with Aries. Existing external gateways remain
+the default until an operator activates the profile.
+
+For a controlled cutover, first stop the host Hermes gateway that owns the same
+data directory, then persist all four stage URLs in the Compose `.env` and start
+the sidecar. The exports below are the equivalent one-invocation smoke command:
+
+```bash
+export HERMES_GATEWAY_URL=http://aries-hermes:8642
+export HERMES_RESEARCH_GATEWAY_URL=http://aries-hermes:8642
+export HERMES_STRATEGIST_GATEWAY_URL=http://aries-hermes:8642
+export HERMES_CONTENT_GATEWAY_URL=http://aries-hermes:8642
+docker compose --profile hermes-sidecar up -d aries-hermes aries-app
+```
+
+Do not run host and container gateways concurrently against the same Hermes data
+directory. Verify `aries-hermes` and `aries-app` are healthy before setting
+`ARIES_HERMES_CLI_COMPAT_ENABLED=0`; the follow-up activation task owns that
+production switch and rollback.
 
 ### Weekly social content operational flow
 

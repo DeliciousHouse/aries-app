@@ -18,10 +18,10 @@
  * the weekly cadence boundary and generates only when that window lacks content.
  *
  * Submit failure is LOUD and does not lose the week: on an error response the
- * claim is reverted to the prior last_triggered_at so the next tick retries, and
- * a warning is logged. A deliberate skip (no Meta / stale brand kit / incomplete
- * profile) keeps the day's claim — it is a decision, not a failure — and is
- * logged so an operator can act; it is evaluated again the following day.
+ * claim is reverted to the prior last_triggered_at, the failed attempt is kept
+ * for a bounded 24-hour retry, and a warning is logged. A deliberate skip
+ * (incomplete profile) keeps the day's claim — it is a decision, not a failure —
+ * and is evaluated again the following day.
  *
  * Two hardenings against the 2026-07-20 silent week-skip (claim stamped at
  * 14:08Z, POST hung against a wedged Hermes gateway, process recreated before
@@ -53,6 +53,7 @@ const DEFAULT_SUBMIT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 // A claim marker must outlive any legitimately in-flight submit before it can
 // be healed, or the heal would re-trigger a tenant whose POST is still running.
 const MIN_STALE_CLAIM_WINDOW_MS = 45 * 60 * 1000; // 45 minutes
+const FAILED_TRIGGER_RETRY_MS = 24 * 60 * 60 * 1000; // daily until success
 
 // ---------------------------------------------------------------------------
 // Config
@@ -197,7 +198,8 @@ export function buildPool(): pg.Pool {
   });
 }
 
-export const ENABLED_ROWS_SQL = `SELECT tenant_id, day_of_week, hour, timezone, last_triggered_at
+export const ENABLED_ROWS_SQL = `SELECT tenant_id, day_of_week, hour, timezone,
+           last_triggered_at, last_attempt_at, last_success_at
      FROM marketing_schedule
     WHERE enabled`;
 
@@ -232,7 +234,14 @@ export const CLAIM_SQL = `WITH prev AS (
        FROM prev
       WHERE m.tenant_id = prev.tenant_id
         AND m.enabled
-        AND (m.last_triggered_at IS NULL OR m.last_triggered_at < $2)
+        AND (
+          m.last_triggered_at IS NULL
+          OR m.last_triggered_at < $2
+          OR (
+            m.last_attempt_at > COALESCE(m.last_success_at, '-infinity'::timestamptz)
+            AND m.last_attempt_at <= $3
+          )
+        )
       RETURNING m.tenant_id, prev.prior AS prior_last_triggered_at
      ), marker AS (
        INSERT INTO marketing_weekly_claims (tenant_id, claimed_at, prior_last_triggered_at)
@@ -257,14 +266,24 @@ export const REVERT_CLAIM_SQL = `WITH reverted AS (
      )
      DELETE FROM marketing_weekly_claims WHERE tenant_id = $1`;
 
-// A deliberate gate-skip keeps the schedule claim (no retry this window) but
-// concludes the attempt: the marker is released so heal never re-triggers it.
-export const RELEASE_CLAIM_MARKER_SQL = `DELETE FROM marketing_weekly_claims WHERE tenant_id = $1`;
+// A deliberate gate-skip keeps the cadence claim but clears the failed-attempt
+// candidate before releasing the in-flight marker.
+export const CONCLUDE_SKIP_SQL = `WITH concluded AS (
+    UPDATE marketing_schedule
+       SET last_attempt_at = last_success_at,
+           updated_at = now()
+     WHERE tenant_id = $1
+     RETURNING tenant_id
+  )
+  DELETE FROM marketing_weekly_claims c
+  USING concluded s
+  WHERE c.tenant_id = s.tenant_id`;
 
 // Heal arm: markers older than the stale window belong to attempts that died
 // mid-flight (kill between claim and revert — every live code path concludes
 // its marker). Revert the schedule claim to the marker's captured prior so the
-// tenant is due again, and clear the marker either way. The guard
+// tenant is due again, clear its stranded attempt classification, and clear the
+// marker either way. The guard
 // `ms.last_triggered_at = s.claimed_at` (claim + marker share one statement's
 // now()) ensures we only ever revert the exact claim the marker recorded,
 // never a newer one; a marker whose claim no longer matches is just cleared.
@@ -273,9 +292,10 @@ export const HEAL_STALE_CLAIMS_SQL = `WITH stale AS (
          FROM marketing_weekly_claims
         WHERE claimed_at < now() - make_interval(secs => $1)
      ), healed AS (
-     UPDATE marketing_schedule ms
-        SET last_triggered_at = s.prior_last_triggered_at,
-            updated_at        = now()
+       UPDATE marketing_schedule ms
+          SET last_triggered_at = s.prior_last_triggered_at,
+              last_attempt_at = ms.last_success_at,
+              updated_at = now()
        FROM stale s
       WHERE ms.tenant_id = s.tenant_id
         AND ms.last_triggered_at = s.claimed_at
@@ -294,7 +314,23 @@ type EnabledRow = {
   hour: number;
   timezone: string | null;
   last_triggered_at: string | Date | null;
+  last_attempt_at: string | Date | null;
+  last_success_at: string | Date | null;
 };
+
+function validDate(value: string | Date | null | undefined): Date | null {
+  if (value === null || value === undefined) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+
+/** Return the newest attempt only when it has not yet been followed by success. */
+export function unsuccessfulAttemptAt(row: EnabledRow): Date | null {
+  const attempt = validDate(row.last_attempt_at);
+  if (!attempt) return null;
+  const success = validDate(row.last_success_at);
+  return !success || attempt.getTime() > success.getTime() ? attempt : null;
+}
 
 function resolveTenantTz(row: EnabledRow): string {
   const explicit = typeof row.timezone === 'string' ? row.timezone.trim() : '';
@@ -402,6 +438,18 @@ export async function tick(
 
   for (const row of rows) {
     const tenantId = String(row.tenant_id);
+    const unsuccessfulAttempt = unsuccessfulAttemptAt(row);
+    const failedAttemptAgeMs = unsuccessfulAttempt
+      ? now.getTime() - unsuccessfulAttempt.getTime()
+      : null;
+    const dailyRetryDue = failedAttemptAgeMs !== null && failedAttemptAgeMs >= FAILED_TRIGGER_RETRY_MS;
+    if (dailyRetryDue) {
+      console.error('[weekly-trigger-worker] weekly trigger unsuccessful for more than 24h', {
+        tenantId,
+        lastAttemptAt: unsuccessfulAttempt?.toISOString() ?? null,
+        lastSuccessAt: validDate(row.last_success_at)?.toISOString() ?? null,
+      });
+    }
     const tz = resolveTenantTz(row);
     const cadenceWindowStart = mostRecentSlotUtc(now, tz, row.day_of_week, row.hour);
     const attemptWindowStart = mostRecentDailyAttemptUtc(now, tz, row.hour);
@@ -410,13 +458,18 @@ export async function tick(
       continue;
     }
 
-    const prior = row.last_triggered_at ? new Date(row.last_triggered_at) : null;
-    const isDue = prior === null || prior.getTime() < attemptWindowStart.getTime();
+    const prior = validDate(row.last_triggered_at);
+    const dailyAttemptDue = prior === null || prior.getTime() < attemptWindowStart.getTime();
+    // Once an attempt is newer than the last success, wait 24 hours (avoid
+    // 15-minute hammering), then retry daily until success advances
+    // last_success_at. Otherwise every tenant is evaluated once per local day.
+    const isDue = unsuccessfulAttempt ? dailyRetryDue : dailyAttemptDue;
     if (!isDue) continue;
     report.due += 1;
 
     // Atomic claim. Only a returned row was actually claimed (won the race).
-    const claim = await pool.query(CLAIM_SQL, [row.tenant_id, attemptWindowStart.toISOString()]);
+    const retryCutoff = new Date(now.getTime() - FAILED_TRIGGER_RETRY_MS).toISOString();
+    const claim = await pool.query(CLAIM_SQL, [row.tenant_id, attemptWindowStart.toISOString(), retryCutoff]);
     if (!claim.rowCount) continue;
     report.claimed += 1;
     const priorClaim = (claim.rows[0] as { prior_last_triggered_at: string | Date | null })?.prior_last_triggered_at ?? null;
@@ -430,8 +483,9 @@ export async function tick(
         fetchImpl,
         timeoutMs,
       );
-      if (!ok) {
-        // Loud failure: revert the claim so the next tick retries this tenant.
+      if (!ok || body.status === 'error') {
+        // Loud failure: revert the claim and retain last_attempt_at so the
+        // bounded daily retry path owns the next attempt.
         await pool.query(REVERT_CLAIM_SQL, [row.tenant_id, priorClaim]);
         report.failed += 1;
         console.error('[weekly-trigger-worker] trigger failed — reverted claim, will retry', {
@@ -445,14 +499,21 @@ export async function tick(
         console.log('[weekly-trigger-worker] started weekly job', {
           tenantId, status: body.status, jobId: body.jobId ?? null,
         });
-      } else {
-        // Deliberate skip (gate). Keep the claim (no retry this window) but
-        // conclude the attempt by releasing the in-flight marker — a skip must
-        // never look like a stranded claim to the heal arm.
-        await pool.query(RELEASE_CLAIM_MARKER_SQL, [row.tenant_id]);
+      } else if (body.status === 'skipped') {
+        // Deliberate skip (gate). Keep today's claim, clear its failed-attempt
+        // classification, and release the in-flight marker.
+        await pool.query(CONCLUDE_SKIP_SQL, [row.tenant_id]);
         report.skipped += 1;
         console.warn('[weekly-trigger-worker] tenant skipped by a gate', {
           tenantId, reason: body.reason ?? 'unknown',
+        });
+      } else {
+        // Unknown/unexpected status — treat as a failure to avoid silently
+        // losing the week by keeping a bad claim.
+        await pool.query(REVERT_CLAIM_SQL, [row.tenant_id, priorClaim]);
+        report.failed += 1;
+        console.error('[weekly-trigger-worker] unexpected trigger response — reverted claim, will retry', {
+          tenantId, httpStatus, status: body.status ?? '(missing)',
         });
       }
     } catch (err) {
