@@ -21,7 +21,7 @@ function findUnpinnedRemoteActions(source: string): string[] {
     if (line.trimStart().startsWith('#')) {
       continue;
     }
-    const action = line.match(/^\s*(?:-\s+)?uses:\s*([^\s#]+)/)?.[1];
+    const action = line.match(/^\s*(?:-\s+)?(?:uses|"uses"|'uses'):\s*([^\s#]+)/)?.[1];
     if (action && !action.startsWith('./') && !/@[0-9a-f]{40}$/.test(action)) {
       actions.push(action);
     }
@@ -36,6 +36,12 @@ function usesWriteAllPermissions(source: string): boolean {
 
 test('remote-action scanner rejects an unpinned anonymous step', () => {
   assert.deepEqual(findUnpinnedRemoteActions('steps:\n  - uses: actions/checkout@v7\n'), [
+    'actions/checkout@v7',
+  ]);
+});
+
+test('remote-action scanner rejects an unpinned step with a quoted YAML key', () => {
+  assert.deepEqual(findUnpinnedRemoteActions('steps:\n  - "uses": actions/checkout@v7\n'), [
     'actions/checkout@v7',
   ]);
 });

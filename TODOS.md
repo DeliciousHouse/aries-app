@@ -193,17 +193,23 @@ auto-retries. The final publish calls remain one-shot.
 - [ ] Refactor Hermes media addressing to be ID-based. `/api/internal/hermes/media/[...path]` currently identifies assets by basename (last URL path segment) and proves ownership by string-matching `regexp_replace` over `served_asset_ref` / `storage_key`. v0.1.5.6 patched the ownership symptom but the design is still basename-coupled. Proper fix: make the route URL `/api/internal/hermes/media/<creative_assets.id>`, turn ownership into a primary-key + `tenant_id` lookup, and serve the file from `storage_key`. Update the `served_asset_ref` written at ingest (`backend/marketing/ingest-production-assets.ts`) and every consumer — calendar backlog thumbnails, creative-review previews, `scheduled-dispatch` media resolution. Removes basename coupling, the dual-column regex match, and basename-collision risk. (Logged 2026-05-21 after v0.1.5.6.)
 
 
-### CI infra — Autofix 401 + CodeQL flake runbook (RESOLVED)
+### CI infra — historical Autofix 401 + CodeQL flake runbook (RESOLVED)
 
-**Resolved** by `docs/plans/2026-05-30-ci-codeql-stabilization.md` (Phase 1 + Phase 4). The autofix-side
-`HTTP 401: Bad credentials` on `gh label create` is now hardened: both `pr-agent-autofix-automerge.yml`
-and `issue-agent-fix.yml` wrap label creation in a best-effort `ensure_label` helper (3 retries with
-backoff, then `::warning::` and `return 0`) so a transient labels-API flake can no longer abort the
-maintenance/fix run. Label creation is idempotent (`--force`) and the labels already exist in the repo.
+**Historical context (retired automation):** `docs/plans/2026-05-30-ci-codeql-stabilization.md`
+(Phase 1 + Phase 4) hardened label creation in the former
+`.github/workflows/pr-agent-autofix-automerge.yml` and `.github/workflows/issue-agent-fix.yml` paths.
+While those workflows existed, their `ensure_label` helper retried transient labels-API failures and
+then warned instead of aborting. PR #936 deleted both workflows. Their `agent:fix`,
+`agent:in-progress`, `agent:auto-merge`, and `agent:needs-attention` labels may remain on GitHub as
+inert historical metadata, but they are not a live automation interface; do not apply them or
+recreate either workflow.
 
-**Branch protection reminder:** `master` requires only the `full-suite` check, **not** the `CodeQL`
-rollup (`gh api repos/:owner/:repo/branches/master/protection --jq '.required_status_checks.contexts'`
-=> `["full-suite"]`). CodeQL is advisory, so the flake signatures below never block a merge.
+**Current merge guidance:** `master` requires the `full-suite` check, while CodeQL is advisory
+(`gh api repos/:owner/:repo/branches/master/protection --jq '.required_status_checks.contexts'` =>
+`["full-suite"]`). Fixes open as draft PRs and go to the deterministic sole-reviewer lane (even PR
+numbers → `dev-reviewer`; odd PR numbers → `dev-reviewer-2`). Only that reviewer deliberately marks
+the PR ready and squash-merges after exact-head required CI is green and its review passes; CI alone
+never merges.
 
 **CodeQL flake runbook (re-trigger, do not panic):**
 - **Rollup says `failure` in <5s but every sub-job is green** (#330 pattern): GitHub status-aggregation
@@ -212,17 +218,17 @@ rollup (`gh api repos/:owner/:repo/branches/master/protection --jq '.required_st
 - **`Prepare` stuck `queued` post-merge** (#336 pattern): orphaned check run. Ignore (the PR already
   merged) or cancel the run for tidiness.
 - **`terminal prompts disabled` on CodeQL checkout** (PR #438 pattern): `actions/checkout` lost its
-  token context on CodeQL's *own* default-setup checkout. Re-trigger with a push. The in-repo
-  `pr-agent`/`issue-agent` checkouts are unaffected — they pass `GH_TOKEN` explicitly.
+  token context on CodeQL's *own* default-setup checkout. Re-trigger with a push; the retired
+  `pr-agent`/`issue-agent` workflow comparison no longer applies.
 
-**Security-tab recommendations for Brendan (out of band, not landable code):**
+**Historical Security-tab notes (not landable code):**
 - If #421's `Analyze (python)` resolves to a phantom Python target (PR #404 removed the only `.py`
   files), remove Python from CodeQL default-setup languages so the phantom job stops being scheduled.
 - Confirm Copilot Autofix for CodeQL is intentionally on/off; the `Prepare`/`Agent` jobs only appear
   when it is enabled.
 
-**Priority:** P3 hygiene — code portion done; remaining items (#279/#280/#330/#336/#421 issue triage,
-Security-tab toggles) are GitHub-side actions tracked in the plan, executed by Brendan.
+**Historical priority:** P3 hygiene. The issue/toggle list above records the state at resolution time;
+it is provenance, not a current action queue. Re-check the live Security tab before acting.
 **Source:** Investigated 2026-05-23 (deferred); hardened 2026-05-30 via the CI/CodeQL stabilization plan.
 
 ### Honcho continuous-profile-writes — flip HONCHO_ENABLED and Phase 1 flag in prod

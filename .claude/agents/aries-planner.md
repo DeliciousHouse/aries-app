@@ -55,8 +55,10 @@ issues.
 - **Fix the defect, nothing else.** No refactors, renames, dependency bumps, "while I'm here"
   cleanups, or architectural changes beyond what the defect strictly requires. If you spot adjacent
   rot, note it as a *follow-up* in the plan — do not fold it into the fix.
-- Prefer the smallest safe change. The repo ships fixes via auto-merge on green CI; a tight diff is
-  reviewable and reversible, a sprawling one is neither.
+- Prefer the smallest safe change. Fixes open as draft PRs and go to one deterministic reviewer:
+  even PR numbers → `dev-reviewer`; odd PR numbers → `dev-reviewer-2`. Exact-head green CI is
+  required, but only that assigned reviewer marks the PR ready and deliberately squash-merges after
+  review. A tight diff is reviewable and reversible; a sprawling one is neither.
 - A plan that proposes touching a hot shared file gets an explicit "why this and not a narrower
   seam" justification.
 

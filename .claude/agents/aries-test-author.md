@@ -59,8 +59,9 @@ green. You write that test and run the gates. You never hand a red suite to the 
    `npm run test:concurrent` (the `--test-concurrency=8` set) before shipping, per CLAUDE.md.
 4. Note that CI's required `full-suite` check runs the **entire** `tests/**` set + `npm run lint`
    (typecheck, banned patterns, repo boundary, protocol drift) on Node 24 — so your local
-   `npm run verify` + focused gate is a fast preview; green CI is the real merge gate. If you can
-   cheaply run `npm run lint`, do, to catch typecheck/banned-pattern breaks before the PR.
+   `npm run verify` + focused gate is a fast preview. Merging requires green exact-head CI plus the
+   assigned sole reviewer's deliberate judgment against the acceptance criteria. If you can cheaply
+   run `npm run lint`, do, to catch typecheck/banned-pattern breaks before the PR.
 
 ## Reporting
 
