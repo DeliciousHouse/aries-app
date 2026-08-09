@@ -165,6 +165,78 @@ function peerRefForAutoApprove(
 }
 
 /**
+ * S6-5 / AA-118 — PeerRef for a peer kind read back off a STORED finding.
+ *
+ * `peerRefForAutoApprove` above cannot be reused: it takes an auto-approve
+ * outcome, and it does not handle `market_signal` — which is exactly the peer
+ * every performance finding carries (`curator.ts` maps `research_conclusion` →
+ * `market_signal`). Promotion needs the inverse direction: a stored peer string
+ * plus the topic it belongs to.
+ */
+export function peerRefFromStoredPeer(
+  peer: string | null,
+  opts: { topicPseudonym?: string | null; actorUserId?: string | null } = {},
+): PeerRef | null {
+  switch (peer) {
+    case 'brand':
+      return { kind: 'brand' };
+    case 'policy':
+      return { kind: 'policy' };
+    case 'market_signal': {
+      const topic = opts.topicPseudonym?.trim();
+      // Without a topic the memory would have no bucket to live in; refuse
+      // rather than invent one, so the caller can skip cleanly.
+      return topic ? { kind: 'market_signal', topicPseudonym: topic } : null;
+    }
+    case 'user': {
+      const actor = opts.actorUserId?.trim();
+      return actor ? { kind: 'user', userId: actor } : null;
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * S6-5 / AA-118 — append an operator-approved finding to Honcho memory.
+ *
+ * The promotion route's one Honcho call. It lives HERE, beside the auto-approve
+ * paths, so transport + client construction stays in the module that already
+ * owns that pattern instead of being reassembled in a route handler.
+ *
+ * Self-gates on `isHonchoEnabled()`: with Honcho off this returns `false` and
+ * the caller still flips the local decision, recording that the remote
+ * promotion is pending rather than failing the operator's click.
+ *
+ * Never throws — a Honcho outage must not cost the operator their decision.
+ */
+export async function appendApprovedFindingToHoncho(input: {
+  tenantCtx: MinimalTenantCtx;
+  peer: PeerRef;
+  session: SessionRef;
+  message: ApprovedMessage;
+  transport?: HonchoTransport;
+}): Promise<boolean> {
+  if (!isHonchoEnabled()) return false;
+  try {
+    const transport =
+      input.transport ??
+      new HonchoHttpTransport(process.env, fetchWithTimeout(HONCHO_WRITE_FETCH_TIMEOUT_MS));
+    await appendHonchoApproved({
+      ctx: input.tenantCtx,
+      client: new TenantMemoryClient(transport),
+      peer: input.peer,
+      session: input.session,
+      message: input.message,
+    });
+    return true;
+  } catch (err) {
+    console.error('[honcho-write-events] appendApprovedFindingToHoncho failed', err);
+    return false;
+  }
+}
+
+/**
  * Mirror a stage approval event into Honcho memory.
  *
  * All stages are valid inputs; Phase 1 scope filtering is handled by the
