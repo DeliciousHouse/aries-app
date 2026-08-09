@@ -262,6 +262,105 @@ export async function listQueuedResearchFindingsForTenant(
   }));
 }
 
+/**
+ * S6-5 / AA-118 — the terminal decisions a HUMAN can put on a queued finding.
+ *
+ * Deliberately `rejected`, not `dropped`: the curator's own vocabulary already
+ * contains `drop` (an automatic quality/safety rejection at write time), and two
+ * near-identical values would make "who rejected this, and why" unanswerable
+ * from the column alone.
+ */
+export const TERMINAL_CURATOR_DECISIONS = ['approved', 'rejected'] as const;
+export type TerminalCuratorDecision = (typeof TERMINAL_CURATOR_DECISIONS)[number];
+
+export function isTerminalCuratorDecision(value: string): value is TerminalCuratorDecision {
+  return (TERMINAL_CURATOR_DECISIONS as readonly string[]).includes(value);
+}
+
+export type TenantResearchFinding = ResearchFinding & {
+  /** `aries_research_jobs.tenant_id` — TEXT, hence the coercion at every call site. */
+  tenant_id: string;
+  /** `task_spec` of the owning job; carries `marketing_job_id` for queued marketing findings. */
+  job_task_spec: Record<string, unknown>;
+};
+
+/**
+ * Load ONE finding, scoped to the tenant that owns its job.
+ *
+ * The tenant filter lives in the SQL rather than being checked after the read:
+ * a finding belonging to another tenant must be indistinguishable from one that
+ * does not exist, so the caller can 404 without confirming its existence.
+ *
+ * `aries_research_jobs.tenant_id` is TEXT while session tenant ids are numeric,
+ * so the caller's id is coerced here — the same coercion the write path does.
+ */
+export async function getResearchFindingForTenant(
+  findingId: string,
+  tenantId: string | number,
+  client: Queryable = pool,
+): Promise<TenantResearchFinding | null> {
+  const result = await client.query(
+    `
+    SELECT
+      f.id,
+      f.job_id,
+      f.raw,
+      f.curator_decision,
+      f.peer,
+      f.approved_message_id,
+      f.created_at,
+      j.tenant_id,
+      j.task_spec
+    FROM aries_research_findings f
+    INNER JOIN aries_research_jobs j ON j.id = f.job_id
+    WHERE f.id = $1::uuid
+      AND j.tenant_id = $2
+    LIMIT 1
+    `,
+    [findingId, String(tenantId)],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    job_id: String(row.job_id),
+    raw: (row.raw ?? {}) as Record<string, unknown>,
+    curator_decision: String(row.curator_decision),
+    peer: row.peer == null ? null : String(row.peer),
+    approved_message_id: row.approved_message_id == null ? null : String(row.approved_message_id),
+    created_at: String(row.created_at),
+    tenant_id: String(row.tenant_id),
+    job_task_spec: (row.task_spec ?? {}) as Record<string, unknown>,
+  };
+}
+
+/**
+ * Flip a finding to a terminal decision.
+ *
+ * Guarded on `curator_decision = 'queue_for_review'` IN THE STATEMENT, so a
+ * concurrent double-approve settles in the database rather than in application
+ * code: the second UPDATE matches no row and reports 0. Returns whether this
+ * call was the one that transitioned it.
+ */
+export async function setFindingCuratorDecision(
+  findingId: string,
+  decision: TerminalCuratorDecision,
+  approvedMessageId: string | null,
+  client: Queryable = pool,
+): Promise<boolean> {
+  const result = await client.query(
+    `
+    UPDATE aries_research_findings
+       SET curator_decision = $2,
+           approved_message_id = COALESCE($3, approved_message_id)
+     WHERE id = $1::uuid
+       AND curator_decision = 'queue_for_review'
+    `,
+    [findingId, decision, approvedMessageId],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
 export async function getJobById(
   jobId: string,
   client: Queryable = pool,

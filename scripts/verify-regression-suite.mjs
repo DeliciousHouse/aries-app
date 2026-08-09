@@ -97,6 +97,20 @@ const steps = [
     args: ['--test', 'tests/verify-honcho-writes.test.ts'],
   },
   {
+    // S6-5/AA-118 (gap F8): Approve/Edit/Reject for queued memory candidates —
+    // the human gate `curator_decision='queue_for_review'` always implied but
+    // never had. Pins the properties that make a memory write safe: a
+    // cross-tenant finding is NOT FOUND (never confirmed to exist), an
+    // already-settled one performs no second Honcho append, reject writes
+    // nothing to memory at all, an edit promotes the operator's wording while
+    // the stored candidate keeps its provenance, an unsupported peer or an
+    // empty claim is refused rather than guessed, and Honcho being off still
+    // records the decision while reporting the memory as pending. Injected
+    // store + Honcho; no DB, no network.
+    name: 'memory-candidate promotion route (F8)',
+    args: ['--test', 'tests/memory-finding-resolve.test.ts'],
+  },
+  {
     // AA-159: task-execution engine classification. Pins the contracts the cost
     // analysis depends on — the engine vocabulary, hard-zero tokens on the
     // zero-cost engines vs NULL ("not reported") on AI rows, no model columns on
