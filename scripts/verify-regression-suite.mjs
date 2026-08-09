@@ -111,6 +111,19 @@ const steps = [
     args: ['--test', 'tests/memory-finding-resolve.test.ts'],
   },
   {
+    // S7-1/AA-119 (gap D6): the authenticated 50-user smoke harness. Pins the
+    // false-pass this card closes — the old harness accepted anything under 500
+    // and followed redirects, so appending /insights would have measured the
+    // LOGIN page and reported a healthy profile. A redirect now fails, only the
+    // expected status passes, redirect:manual is source-pinned, and a gated path
+    // with no session is a hard error rather than an unauthenticated
+    // measurement. Also pins the baseline comparison: jitter on a fast path must
+    // not fail an unchanged system, a real doubling must, and a baseline from a
+    // different concurrency is refused. Pure helpers + injected fetch; no server.
+    name: 'scale smoke harness auth + baseline (D6)',
+    args: ['--test', 'tests/smoke-scale-harness.test.ts'],
+  },
+  {
     // AA-159: task-execution engine classification. Pins the contracts the cost
     // analysis depends on — the engine vocabulary, hard-zero tokens on the
     // zero-cost engines vs NULL ("not reported") on AI rows, no model columns on
