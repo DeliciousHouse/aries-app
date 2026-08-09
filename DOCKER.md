@@ -273,6 +273,59 @@ repeatability:
 SCALE_SMOKE_BASE_URL="$BASE_URL" npm run smoke:scale50
 ```
 
+### Authenticated /insights profile (S7-1)
+
+The command above measures only the two PUBLIC paths. The real 50-user cost is
+`/insights`, because one page open fans out to ~10 concurrent section queries —
+which is exactly the pool pressure this check exists to find.
+
+Those paths are gated, so the harness needs a session. **Do not simply append
+`/insights` to an unauthenticated run:** the page answers with a redirect to
+`/login`, and the harness would then be measuring the login page rather than the
+dashboard. It refuses to run gated paths without a session for that reason.
+
+```bash
+# 1. Mint a session for the pinned QA sandbox identity (12h TTL cap).
+npx tsx scripts/qa/mint-qa-session.ts --out /tmp/qa-cookies.json --ttl-minutes 60
+
+# 2. Run the authenticated profile: public paths + /insights + every section endpoint.
+SCALE_SMOKE_BASE_URL="$BASE_URL" \
+SCALE_SMOKE_AUTHED=1 \
+SCALE_SMOKE_COOKIE_FILE=/tmp/qa-cookies.json \
+npm run smoke:scale50
+```
+
+Every request must return a real `200`. A redirect, a `403`, or anything other
+than the expected status fails the run.
+
+**Capture a baseline before tuning anything.** Later performance work is accepted
+by re-running against this file, so it has to be captured first:
+
+```bash
+SCALE_SMOKE_BASE_URL="$BASE_URL" SCALE_SMOKE_AUTHED=1 \
+SCALE_SMOKE_COOKIE_FILE=/tmp/qa-cookies.json \
+npm run smoke:scale50 -- --baseline-out docs/perf/insights-baseline.json
+
+# ...after a change, compare against it:
+SCALE_SMOKE_BASE_URL="$BASE_URL" SCALE_SMOKE_AUTHED=1 \
+SCALE_SMOKE_COOKIE_FILE=/tmp/qa-cookies.json \
+npm run smoke:scale50 -- --baseline docs/perf/insights-baseline.json
+```
+
+A p95 more than 25% above baseline (and at least 100ms worse, so a fast endpoint
+does not trip on jitter) fails the run. A path with no baseline entry is
+reported as uncompared rather than passing silently. Comparing against a
+baseline captured at a **different concurrency** is refused outright — latency
+scales with load, so those numbers cannot be compared.
+
+> **Capture the baseline against this container profile, never against
+> `npm run dev`.** A dev server recompiles on demand and shares the machine with
+> whatever else is running: measured against one, three consecutive *no-change*
+> runs failed on three different paths (`/` swinging 609→791ms, `/api/health/db`
+> 40→190ms). Those swings are the environment, not the code, and a baseline
+> taken there would make every later comparison meaningless. Run the container
+> profile, let it settle, then capture.
+
 Use the shell one-liner variant when Node dependencies are not available:
 
 ```bash
