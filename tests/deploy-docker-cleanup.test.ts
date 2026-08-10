@@ -41,6 +41,11 @@ test('deploy cleanup is age-bounded, target-repository-only, rollback-safe, and 
   );
   assert.match(
     workflow,
+    /- name: Set up Docker Buildx[\s\S]*?with:\s*\n\s*name: aries-app-deploy\s*\n\s*cleanup: false/,
+    'deploys must reuse a persistent repository-specific builder so seven-day cache cleanup reaches prior runs',
+  );
+  assert.match(
+    workflow,
     /BUILDX_BUILDER_NAME:\s*\$\{\{\s*steps\.buildx\.outputs\.name\s*\}\}/,
     'the deploy step must receive the exact builder selected by setup-buildx-action',
   );

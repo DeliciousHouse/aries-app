@@ -9,8 +9,8 @@ without deleting rollback images, active image references, or unrelated images.
 
 ### Changed
 
-- Deploys prune cache older than seven days only from the selected Buildx
-  builder and run cleanup before checking the existing 10 GB free-space floor.
+- Deploys reuse a repository-specific Buildx builder and prune only its cache
+  older than seven days before checking the existing 10 GB free-space floor.
 
 ### Fixed
 
