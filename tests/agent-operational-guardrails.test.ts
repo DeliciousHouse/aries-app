@@ -73,7 +73,7 @@ test('executable Aries orchestration prompts preserve the draft review-lane hand
   for (const promptPath of promptPaths) {
     const prompt = readRepoFile(promptPath);
 
-    assert.match(prompt, /opens? (?:the )?PR as a draft/i, `${promptPath} should require a draft PR`);
+    assert.match(prompt, /open(?:s)? (?:the PR as a draft|a \*\*draft PR\*\*)/i, `${promptPath} should require a draft PR`);
     assert.match(
       prompt,
       /even\s+PR(?:\s+number)?[\s\S]{0,120}dev-reviewer[\s\S]{0,120}odd\s+PR(?:\s+number)?[\s\S]{0,120}dev-reviewer-2/i,
