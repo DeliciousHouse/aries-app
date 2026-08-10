@@ -754,3 +754,81 @@ test('non-variant job + flag OFF + strategy → unchanged (no approve)', async (
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// ITEM A: memory-actor propagation. resolveMarketingApproval guards the Honcho
+// approval mirror on `tenantSlug && memoryActorUserId`; this call site used to
+// pass neither, so in autonomous mode NO approval or denial ever reached the
+// brand profile.
+// ---------------------------------------------------------------------------
+
+/** Run with the Honcho memory gates on so the mirror path is exercised. */
+function withHonchoGates<T>(fn: () => Promise<T>): Promise<T> {
+  return withEnvOverride('HONCHO_ENABLED', 'true', () =>
+    withEnvOverride('HONCHO_WRITE_APPROVALS_ENABLED', 'true', fn));
+}
+
+test('ITEM A: auto-approve propagates the memory actor + tenant slug', async () => {
+  await withDataRoot(async () => {
+    await withEnvOverride('ARIES_AUTO_APPROVE_MARKETING_PIPELINE', '1', async () => {
+      await withHonchoGates(async () => {
+        const doc = makeDoc();
+        const stub = makeApproveStub();
+
+        await maybeAutoApproveMarketingCheckpoint(doc, stub.approve, process.env, undefined, {
+          resolveTenantSlug: async () => 'sugar-and-leather',
+        });
+
+        assert.equal(stub.calls.length, 1);
+        const input = stub.calls[0]!.input;
+        assert.equal(input.memoryActorUserId, 'ai-orchestrator');
+        assert.equal(input.memoryActorRole, 'tenant_admin');
+        assert.equal(input.tenantSlug, 'sugar-and-leather');
+      });
+    });
+  });
+});
+
+test('ITEM A: slug lookup failure falls back to tenant-<id> and still approves', async () => {
+  await withDataRoot(async () => {
+    await withEnvOverride('ARIES_AUTO_APPROVE_MARKETING_PIPELINE', '1', async () => {
+      await withHonchoGates(async () => {
+        const doc = makeDoc();
+        const stub = makeApproveStub();
+
+        await maybeAutoApproveMarketingCheckpoint(doc, stub.approve, process.env, undefined, {
+          resolveTenantSlug: async () => {
+            throw new Error('db down');
+          },
+        });
+
+        assert.equal(stub.calls.length, 1, 'a memory-write lookup must never block shipping the week');
+        assert.equal(stub.calls[0]!.input.tenantSlug, 'tenant-42');
+        assert.equal(stub.calls[0]!.input.memoryActorUserId, 'ai-orchestrator');
+      });
+    });
+  });
+});
+
+test('ITEM A: with the memory gates off, no slug lookup happens at all', async () => {
+  await withDataRoot(async () => {
+    await withEnvOverride('ARIES_AUTO_APPROVE_MARKETING_PIPELINE', '1', async () => {
+      await withEnvOverride('HONCHO_ENABLED', 'false', async () => {
+        const doc = makeDoc();
+        const stub = makeApproveStub();
+        let lookups = 0;
+
+        await maybeAutoApproveMarketingCheckpoint(doc, stub.approve, process.env, undefined, {
+          resolveTenantSlug: async () => {
+            lookups += 1;
+            return 'never';
+          },
+        });
+
+        assert.equal(lookups, 0, 'no extra DB query per auto-approval when Honcho is off');
+        assert.equal(stub.calls.length, 1);
+        assert.equal(stub.calls[0]!.input.tenantSlug, undefined);
+      });
+    });
+  });
+});

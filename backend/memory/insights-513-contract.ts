@@ -1,138 +1,159 @@
 /**
- * INSIGHTS SCHEMA CONTRACT — the `insights_*` tables this epic
- * (honcho-performance-insights) reads. This file is the single documented seam.
+ * LIVE INSIGHTS CONTRACT — the `insights_*` tables this epic reads.
  *
- * HISTORY (S4-4 / roadmap gap B2): this contract was originally frozen as "#513"
- * against a *proposed* schema, before the tables existed. They landed with
- * different column names, so the frozen SQL referenced columns that were never
- * created and flipping the gate would have errored every tick. The shapes below
- * now mirror the LANDED schema in `scripts/init-db.js`.
+ * HISTORY: this file used to describe #513's PROPOSED schema (`external_post_id`
+ * / `day` / `impressions` / `saved` / `comments` / `video_views` on
+ * `insights_post_metrics_daily`). #513 shipped with a DIFFERENT shape, and the
+ * gate below stayed off, so the drift was never caught by anything: the SQL
+ * referenced columns that do not exist and would have thrown on first contact
+ * with the real DB. The shapes here now mirror `scripts/init-db.js` verbatim.
  *
- * DO NOT re-implement the Meta fetch/store here. This epic is a pure
- * reader-of-tables / writer-of-memory. See:
- *   docs/plans/2026-05-30-honcho-performance-insights.md
+ * This epic remains a PURE READER of those tables — it never fetches Meta.
  *
  * ---------------------------------------------------------------------------
- * LANDED schema (scripts/init-db.js), the columns this epic reads:
+ * REAL SCHEMA (scripts/init-db.js — insights_posts ~1289, metrics ~1348):
+ *
+ *   insights_accounts
+ *     id           BIGSERIAL PK
+ *     tenant_id    INTEGER
+ *     platform     TEXT
+ *     disabled_at  TIMESTAMPTZ   -- production reader contract: IS NULL only
  *
  *   insights_posts
- *     id               BIGSERIAL PK — the key metrics rows join on
- *     tenant_id        INTEGER  (FK organizations.id) — matches posts.tenant_id
- *     external_post_id TEXT     — equals posts.platform_post_id
- *     platform         TEXT     — 'facebook' | 'instagram'
- *     media_type       TEXT     — 'video'|'short'|'image'|'carousel'|'reel'|'story'|'text'|'live'
- *     permalink        TEXT     — https public/insights URL for the post
- *     published_at     TIMESTAMPTZ
- *     -- join to the Aries marketing job goes through `posts`:
- *     --   (external_post_id = posts.platform_post_id AND tenant_id = posts.tenant_id
- *     --    AND normalized platform match) then posts.job_id.
- *     -- NOT via the newer `aries_post_id` column: its coverage is partial by
- *     -- design (that is what S4-1's attribution coverage gate measures), so
- *     -- joining on it would silently drop unstamped history.
+ *     id                BIGSERIAL PK      -- the metrics FK target
+ *     tenant_id         INTEGER
+ *     account_id        BIGINT -> insights_accounts(id)
+ *     platform          TEXT
+ *     external_post_id  TEXT              -- equals posts.platform_post_id
+ *     published_at      TIMESTAMPTZ
+ *     media_type        TEXT              -- video|short|image|carousel|reel|story|text|live
+ *     caption           TEXT
+ *     permalink         TEXT
  *
- *   insights_post_metrics_daily   (latest row per post = the snapshot we read)
- *     tenant_id      INTEGER
- *     post_id        BIGINT  — FK insights_posts(id). There is no
- *                              external_post_id column on this table.
- *     platform       TEXT
- *     date           DATE    — the SYNC date, NOT the post's publish day
- *     reach          BIGINT
- *     views          BIGINT
- *     likes          INT
- *     comments_count INT
- *     shares         INT
- *     saves          INT
+ *   insights_post_metrics_daily            (PK tenant_id, post_id, date)
+ *     tenant_id       INTEGER
+ *     post_id         BIGINT -> insights_posts(id)   -- NOT external_post_id
+ *     platform        TEXT
+ *     date            DATE                            -- NOT `day`
+ *     views, reach    BIGINT
+ *     likes, comments_count, shares, saves  INT       -- NOT impressions/saved/comments/video_views
  *
- * Rows are lifetime-CUMULATIVE snapshots: the LATEST row per post is that post's
- * true running total, so readers take `ORDER BY date DESC LIMIT 1` and never SUM
- * across a post's dated rows (~N× inflation). See
- * backend/insights/latest-post-metrics-sql.ts for the shared read-model idiom.
- *
- * Payload fields with NO landed counterpart (S4-4 decision, recorded here so a
- * future reader does not "restore" them):
- *   impressions  — no landed column. The payload key is emitted as null.
- *   video_views  — mapped from `views`, but ONLY for video media types. `views`
- *                  is populated for every media type, so writing it
- *                  unconditionally would report an image post's view count as
- *                  video views.
- * For both, null means "not available" and never 0 (the silent-zero trap S4-2
- * documented for the ingest side).
+ * Rows are LIFETIME-CUMULATIVE snapshots, so the reader takes the LATEST row
+ * per post (LATERAL … ORDER BY date DESC LIMIT 1) and never SUMs them.
  * ---------------------------------------------------------------------------
+ *
+ * OBSERVATION CADENCE (deliberate decision — reviewer required change #2):
+ *
+ * The naive design — ledger on the latest `metric_day`, idempotency key on the
+ * publish day — is self-contradictory: the ledger LEFT JOIN makes a post due
+ * again every time a new daily snapshot lands, while the single publish-day
+ * idempotency key means every one of those re-drives is a no-op claim. That is
+ * ~29 days of pure ledger churn per post for exactly one observation.
+ *
+ * We take the LONGITUDINAL option: a post is observed at fixed horizons after
+ * publish — 24h, 7d and 28d (`OBSERVATION_HORIZON_DAYS`). Rationale:
+ *   - the compounding profile wants trajectory ("this reel kept earning saves
+ *     for a month") not a single 24h snapshot;
+ *   - the metrics visible when the gate is flipped on are a very different
+ *     signal from the metrics at 24h, and collapsing them loses that;
+ *   - it bounds writes at 3 per (post, platform) instead of 1 or 30.
+ *
+ * MECHANICS, so the ledger needs no migration: `honcho_perf_writes.metric_day`
+ * stores the horizon ANCHOR date (`publish_day + horizon_days`), not the raw
+ * snapshot date. It is deterministic, distinct per horizon, and slots into the
+ * existing PK (tenant_id, job_id, platform, metric_day) unchanged. The Honcho
+ * idempotency key likewise carries the anchor, so a re-drive of the same
+ * horizon is a no-op while a NEW horizon is a fresh observation.
+ *
+ * A post first seen after its 28d horizon simply emits the 28d observation
+ * once — a late gate flip does NOT backfill 3 observations per post.
  */
 
 /**
- * The metric columns this epic reads from `insights_post_metrics_daily`, named
- * after the LANDED columns. Numeric metrics are read as numbers.
- * `saves` maps to the payload key `saves` in P1; `comments_count` to `comments`.
+ * Post-publish horizons at which a post is observed, in days. A due row is
+ * assigned the LARGEST horizon its latest snapshot has reached; earlier
+ * horizons already in the ledger are skipped by the due query.
  */
-export interface InsightsPostMetricsDailyRow {
-  reach: number | null;
-  likes: number | null;
-  /** Landed column name (the proposed contract called this `comments`). */
-  comments_count: number | null;
-  shares: number | null;
-  /** Landed column name (the proposed contract called this `saved`). */
-  saves: number | null;
-  /**
-   * Landed `views`, but resolved to NULL for non-video media types — `views` is
-   * populated for every media type, so an image post's views must never be
-   * reported as video views. NULL = not available, never 0.
-   */
-  video_views: number | null;
-  /**
-   * The snapshot's SYNC date (YYYY-MM-DD) — provenance only. This is NOT the
-   * Honcho dedupe/ledger day: that is the post's UTC PUBLISH day
-   * (`DuePerformancePost.publishDay`), which is what `recordPerformanceEvent`
-   * keys its idempotency claim on. Keying the ledger on this date instead would
-   * mint a fresh ledger row on every sync day and re-drive an already-written
-   * post forever.
-   */
-  snapshot_date: string;
+export const OBSERVATION_HORIZON_DAYS = [1, 7, 28] as const;
+
+export type ObservationHorizonDays = (typeof OBSERVATION_HORIZON_DAYS)[number];
+
+/** Human label for a horizon, used in the observation prose. */
+export function observationHorizonLabel(days: number): string {
+  if (days <= 1) return '24h';
+  return `${days}d`;
 }
 
 /**
- * One due published post joined to its latest metrics snapshot. The resolved
- * shape `selectDuePerformancePosts` returns and the worker consumes.
+ * The metric columns this epic reads from the LIVE `insights_post_metrics_daily`.
+ * Numeric metrics are read as numbers; `date` is the snapshot day.
+ */
+export interface InsightsPostMetricsDailyRow {
+  views: number | null;
+  reach: number | null;
+  likes: number | null;
+  comments_count: number | null;
+  shares: number | null;
+  saves: number | null;
+  /** The snapshot day (YYYY-MM-DD) — `insights_post_metrics_daily.date`. */
+  date: string;
+}
+
+/**
+ * One due published post joined to its latest metrics row. The resolved shape
+ * `selectDuePerformancePosts` returns and the worker consumes.
  */
 export interface DuePerformancePost {
   /** organizations.id — INTEGER, matches posts.tenant_id. */
   tenantId: number;
   /** Aries marketing job id (posts.job_id) → loadSocialContentJobRuntime. */
   jobId: string;
-  /** 'facebook' | 'instagram' (lower-cased). */
+  /** Lower-cased platform. */
   platform: string;
-  /**
-   * The post's real UTC publish day, YYYY-MM-DD (NOT UTC-now, NOT the snapshot
-   * sync date). Drives BOTH the Honcho idempotency key and the
-   * `honcho_perf_writes` ledger day, so the two can never disagree.
-   */
+  /** The post's real UTC publish day, YYYY-MM-DD (NOT UTC-now). */
   publishDay: string;
   /**
-   * https permalink / insights URL for the post (insights_posts.permalink).
-   * Required by recordPerformanceEvent's https source_url guard. Without an
-   * https permalink the worker fail-soft-skips this post.
+   * https permalink / insights URL for the post (`insights_posts.permalink`).
+   * Required by the payload builder's https source_url guard; a post without
+   * one is fail-soft skipped by the worker.
    */
   permalink: string | null;
+  /** `insights_posts.caption` — sanitized before it reaches a prompt/memory. */
+  caption: string | null;
+  /** `insights_posts.media_type` — reel/image/carousel/… */
+  mediaType: string | null;
+  /** Which post-publish horizon this observation covers (1 | 7 | 28 days). */
+  horizonDays: number;
+  /**
+   * Horizon ANCHOR day (publish_day + horizonDays), YYYY-MM-DD. This is the
+   * value written to `honcho_perf_writes.metric_day` and folded into the Honcho
+   * idempotency key — see the cadence note above.
+   */
+  observationDay: string;
   /** Latest metrics snapshot for this post. */
   metrics: InsightsPostMetricsDailyRow;
 }
 
 /**
- * ROLLOUT GATE. Returns `true` once `insights_post_metrics_daily` is populated
- * for the deployment. While `false`, `selectDuePerformancePosts` returns []
- * without touching the DB, so the sidecar boots and ticks as a harmless no-op.
+ * INSIGHTS TABLE GATE. The `insights_*` tables ship in `scripts/init-db.js` on
+ * every deploy and are populated by the live insights sync, so this now DEFAULTS
+ * TO TRUE — the historical `=1`-to-enable semantics were the reason the drifted
+ * SQL above was never exercised.
+ *
+ * `ARIES_INSIGHTS_513_TABLES_PRESENT=0` is now the KILL SWITCH (the read model
+ * does no DB work at all); `1` still forces on. Any other value, including
+ * unset, means on.
  *
  * Read at CALL TIME (a function, not a load-time const) so the docker sidecar's
- * process env applies and tests / dynamic toggling work.
+ * process env applies and tests can toggle it.
  *
- * As of S4-4 the SQL behind this gate matches the landed schema, so flipping
- * `ARIES_INSIGHTS_513_TABLES_PRESENT=1` is now an ops action (flag-flip
- * checklist row 2 in docs/plans/2026-07-07-analytics-page-roadmap.md) rather
- * than a code change. The default stays OFF so the flip — and its rollback —
- * is an env change on the host, not a redeploy.
+ * Ship-dark is preserved by the Honcho gates, not by this one: the whole write
+ * leg stays inert unless HONCHO_ENABLED && HONCHO_WRITE_PUBLISH_ENABLED.
  */
 export function insights513TablesPresent(
   env: Partial<Record<string, string | undefined>> = process.env,
 ): boolean {
-  return env.ARIES_INSIGHTS_513_TABLES_PRESENT === '1';
+  const raw = env.ARIES_INSIGHTS_513_TABLES_PRESENT?.trim().toLowerCase();
+  if (raw === '0' || raw === 'false' || raw === 'no' || raw === 'off') return false;
+  return true;
 }

@@ -1008,6 +1008,16 @@ async function initDb() {
         written_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
 
+      -- Mutable operational state for performance-write claims. Successful
+      -- writes append their key to honcho_write_idempotency_keys; failures may
+      -- release this lease and crash orphans may take it over after one hour.
+      -- Keeping leases outside honcho_* preserves the PRD's append-only memory
+      -- contract without losing crash recovery.
+      CREATE TABLE IF NOT EXISTS memory_write_claim_leases (
+        key TEXT PRIMARY KEY,
+        claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
       -- Worker-side ledger for the honcho-performance-worker (delayed real-Meta
       -- performance -> Honcho memory). Distinct from honcho_write_idempotency_keys
       -- (the Honcho-side claim inside recordPerformanceEvent): this lets the

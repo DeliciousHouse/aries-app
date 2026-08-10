@@ -540,10 +540,24 @@ const steps = [
     // warning that covers the docker-compose HERMES_RESEARCH_GATEWAY_URL
     // default (a repointed URL with no per-profile key 401s every research
     // submission). Fully in-memory.
+    // agent-reach (ITEM B) rides the same step: it pins that the cookie-auth
+    // social-reading skill is offered to the WEEKLY research stage ONLY (the
+    // 8642 brand-campaign profile is not known to carry it, and an unknown
+    // slash command has no defined no-op — it errors or falls through to
+    // `terminal`, i.e. the 600s loop), that its raised 16-call ceiling is
+    // likewise weekly-only, and that RESEARCH_TOOL_POLICY is still
+    // byte-identical. That last assertion is the one
+    // tests/marketing/build-hermes-instructions.test.ts cannot make: its
+    // verbatim mirror of the policy does not import the module, so it rots
+    // silently rather than failing.
+    // The local-cookie test pins the VM-state allowlist and stdin/atomic-transfer
+    // security boundaries for the companion desktop refresh bundle.
     name: 'research depth + gateway auth pairing',
     args: [
       '--test',
       'tests/marketing/research-depth.test.ts',
+      'tests/marketing/agent-reach-research-policy.test.ts',
+      'tests/local-cookie-agent.test.ts',
     ],
   },
   {

@@ -236,6 +236,19 @@ const PERMALINK_HOSTS = [
   'linkedin.com',
 ];
 
+/**
+ * Token-redact, de-control-char, de-fence, collapse and truncate a
+ * tenant-authored caption so it is safe to place inside an LLM prompt or a
+ * durable memory record.
+ *
+ * Exported so the Honcho performance-observation write leg
+ * (backend/memory/perf-insights-payload.ts) uses the EXACT same pipeline
+ * instead of growing a second, subtly different one.
+ */
+export function sanitizeCaptionForPrompt(raw: string | null | undefined, maxChars: number): string {
+  return sanitizeCaption(raw, maxChars);
+}
+
 function sanitizeCaption(raw: string | null | undefined, maxChars: number): string {
   if (typeof raw !== 'string' || !raw) return '';
   const cleaned = redactTokenLikeString(raw)
