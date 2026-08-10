@@ -6,8 +6,8 @@ import type { Queryable } from '../../backend/memory/perf-insights-read';
 import type { SocialContentJobRuntimeDocument } from '../../backend/marketing/runtime-state';
 
 // P2 — worker tick. recordPerformanceEvent / loadDoc / markWritten are injected
-// mocks; selectDuePerformancePosts reads the gated due-posts query, so we run
-// with ARIES_INSIGHTS_513_TABLES_PRESENT=1 and a stub client returning seeded rows.
+// mocks; selectDuePerformancePosts runs the real (gated) query against a stub
+// client returning seeded rows.
 
 const TENANT_ID = 7;
 
@@ -51,163 +51,176 @@ const DUE_ROW = {
   platform: 'instagram',
   publish_day: '2026-05-25',
   permalink: 'https://www.instagram.com/p/ABC/',
+  caption: 'three ways to break in new leather',
+  media_type: 'reel',
+  views: '3400',
   reach: '1200',
   likes: '300',
   comments_count: '12',
   shares: '5',
   saves: '9',
-  video_views: null,
-  // Deliberately LATER than publish_day: snapshots are re-synced daily, so these
-  // two dates diverge in production and the ledger must key on the publish day.
-  snapshot_date: '2026-05-28',
+  metric_day: '2026-06-01',
+  horizon_days: '7',
+  observation_day: '2026-06-01',
 };
 
-test('one tick calls recordPerformanceEvent once with scrubbed payload + writes ledger (gate ON)', async () => {
-  process.env.ARIES_INSIGHTS_513_TABLES_PRESENT = '1';
-  try {
-    const { client, ledgerInserts } = makeClient([DUE_ROW]);
-    const recorded: unknown[] = [];
-    const report = await runTick(client, {
-      loadDoc: async () => makeDoc('job-1'),
-      record: async (input) => {
-        recorded.push(input);
-      },
-      gateEnabled: () => true,
-    });
+test('one tick records once with caption/media_type threaded + ledgers the horizon anchor', async () => {
+  const { client, ledgerInserts } = makeClient([DUE_ROW]);
+  const recorded: unknown[] = [];
+  const report = await runTick(client, {
+    loadDoc: async () => makeDoc('job-1'),
+    record: async (input) => {
+      recorded.push(input);
+      return 'appended';
+    },
+    gateEnabled: () => true,
+  });
 
-    assert.equal(recorded.length, 1);
-    const input = recorded[0] as { jobId: string; publishedAtYmd: string; payloadRecord: Record<string, unknown> };
-    assert.equal(input.jobId, 'job-1');
-    assert.equal(input.publishedAtYmd, '20260525'); // compact for idempotency key
-    const json = JSON.stringify(input.payloadRecord);
-    assert.ok(!json.includes('platform_post_id'));
-    assert.ok(!json.includes('instagram_media_id'));
-    assert.match(json, /https:\/\/www\.instagram\.com\/p\/ABC\//);
+  assert.equal(recorded.length, 1);
+  const input = recorded[0] as {
+    jobId: string;
+    publishedAtYmd: string;
+    observationDayYmd: string;
+    horizonDays: number;
+    payloadRecord: Record<string, unknown>;
+  };
+  assert.equal(input.jobId, 'job-1');
+  assert.equal(input.publishedAtYmd, '20260525'); // compact for idempotency key
+  assert.equal(input.observationDayYmd, '20260601');
+  assert.equal(input.horizonDays, 7);
+  assert.equal(input.payloadRecord.media_type, 'reel');
+  assert.equal(input.payloadRecord.caption_excerpt, 'three ways to break in new leather');
+  const json = JSON.stringify(input.payloadRecord);
+  assert.ok(!json.includes('platform_post_id'));
+  assert.ok(!json.includes('instagram_media_id'));
+  assert.match(json, /https:\/\/www\.instagram\.com\/p\/ABC\//);
 
-    assert.equal(report.written, 1);
-    assert.equal(ledgerInserts.length, 1);
-    assert.deepEqual(ledgerInserts[0], [TENANT_ID, 'job-1', 'instagram', '2026-05-25']);
-  } finally {
-    delete process.env.ARIES_INSIGHTS_513_TABLES_PRESENT;
-  }
+  assert.equal(report.written, 1);
+  assert.equal(ledgerInserts.length, 1);
+  // metric_day column carries the OBSERVATION ANCHOR, not the snapshot date.
+  assert.deepEqual(ledgerInserts[0], [TENANT_ID, 'job-1', 'instagram', '2026-06-01']);
 });
 
-test('ledger day is the PUBLISH day, not the metrics snapshot date', async () => {
-  // S4-4: metrics snapshots are re-synced daily, so snapshot_date advances while
-  // publish_day is fixed. recordPerformanceEvent keys its idempotency claim on
-  // the publish day, so the ledger must too — otherwise every sync day mints a
-  // fresh ledger row, the dedup join stops excluding the post, and an
-  // already-written post is re-driven on every tick forever.
-  process.env.ARIES_INSIGHTS_513_TABLES_PRESENT = '1';
-  try {
-    const laterSnapshot = { ...DUE_ROW, snapshot_date: '2026-06-14' };
-    const { client, ledgerInserts } = makeClient([laterSnapshot]);
-    const recorded: { publishedAtYmd: string }[] = [];
-    await runTick(client, {
-      loadDoc: async () => makeDoc('job-1'),
-      record: async (input) => {
-        recorded.push(input as unknown as { publishedAtYmd: string });
-      },
-      gateEnabled: () => true,
-    });
-
-    assert.equal(ledgerInserts.length, 1);
-    const [, , , ledgerDay] = ledgerInserts[0] as [number, string, string, string];
-    assert.equal(ledgerDay, '2026-05-25', 'ledger day must be the publish day');
-    assert.notEqual(ledgerDay, '2026-06-14', 'must not be the snapshot sync date');
-    // The ledger day and the Honcho idempotency day are the same day.
-    assert.equal(recorded[0].publishedAtYmd, ledgerDay.replace(/-/g, ''));
-  } finally {
-    delete process.env.ARIES_INSIGHTS_513_TABLES_PRESENT;
-  }
+test('gate OFF: no ledger write so posts re-drive when it flips on', async () => {
+  const { client, ledgerInserts } = makeClient([DUE_ROW]);
+  const report = await runTick(client, {
+    loadDoc: async () => makeDoc('job-1'),
+    record: async () => 'skipped_gated',
+    gateEnabled: () => false,
+  });
+  assert.equal(report.written, 0);
+  assert.equal(ledgerInserts.length, 0, 'no ledger row when gate off → re-drives later');
 });
 
-test('gate OFF (publish gate): no ledger write so posts re-drive when it flips on; record() self-gates in prod', async () => {
-  process.env.ARIES_INSIGHTS_513_TABLES_PRESENT = '1';
-  try {
-    const { client, ledgerInserts } = makeClient([DUE_ROW]);
-    let recordCalls = 0;
-    const report = await runTick(client, {
-      loadDoc: async () => makeDoc('job-1'),
-      record: async () => {
-        recordCalls += 1;
-      },
-      gateEnabled: () => false,
-    });
-    // record() is still invoked (it self-gates internally in prod), but our mock
-    // counts it; the contract that matters is NO ledger row when gate is off.
-    assert.equal(report.written, 0);
-    assert.equal(ledgerInserts.length, 0, 'no ledger row when gate off → re-drives later');
-    // The worker passes payload through regardless; the no-op is recordPerformanceEvent's.
-    assert.ok(recordCalls >= 0);
-  } finally {
-    delete process.env.ARIES_INSIGHTS_513_TABLES_PRESENT;
-  }
+test('append FAILURE is not ledgered, so the next tick retries', async () => {
+  const { client, ledgerInserts } = makeClient([DUE_ROW]);
+  const report = await runTick(client, {
+    loadDoc: async () => makeDoc('job-1'),
+    // recordPerformanceEvent releases its idempotency claim on failure; the
+    // worker must correspondingly leave the ledger alone. Ledgering here would
+    // silently drop the observation forever.
+    record: async () => 'failed',
+    gateEnabled: () => true,
+  });
+  assert.equal(report.written, 0);
+  assert.equal(report.writeFailed, 1);
+  assert.equal(ledgerInserts.length, 0);
+});
+
+test('already-claimed idempotency key still ledgers (the write landed on an earlier tick)', async () => {
+  const { client, ledgerInserts } = makeClient([DUE_ROW]);
+  const report = await runTick(client, {
+    loadDoc: async () => makeDoc('job-1'),
+    record: async () => 'skipped_idempotent',
+    gateEnabled: () => true,
+  });
+  assert.equal(report.written, 1);
+  assert.equal(ledgerInserts.length, 1);
+});
+
+test('invalid payload outcome (skipped_invalid) is not ledgered', async () => {
+  const { client, ledgerInserts } = makeClient([DUE_ROW]);
+  const report = await runTick(client, {
+    loadDoc: async () => makeDoc('job-1'),
+    record: async () => 'skipped_invalid',
+    gateEnabled: () => true,
+  });
+  assert.equal(report.written, 0);
+  assert.equal(ledgerInserts.length, 0);
 });
 
 test('missing runtime doc skips the post, no ledger, no throw', async () => {
-  process.env.ARIES_INSIGHTS_513_TABLES_PRESENT = '1';
-  try {
-    const { client, ledgerInserts } = makeClient([DUE_ROW]);
-    let recordCalls = 0;
-    const report = await runTick(client, {
-      loadDoc: async () => null,
-      record: async () => {
-        recordCalls += 1;
-      },
-      gateEnabled: () => true,
-    });
-    assert.equal(recordCalls, 0);
-    assert.equal(report.skippedNoDoc, 1);
-    assert.equal(ledgerInserts.length, 0);
-  } finally {
-    delete process.env.ARIES_INSIGHTS_513_TABLES_PRESENT;
-  }
+  const { client, ledgerInserts } = makeClient([DUE_ROW]);
+  let recordCalls = 0;
+  const report = await runTick(client, {
+    loadDoc: async () => null,
+    record: async () => {
+      recordCalls += 1;
+      return 'appended';
+    },
+    gateEnabled: () => true,
+  });
+  assert.equal(recordCalls, 0);
+  assert.equal(report.skippedNoDoc, 1);
+  assert.equal(ledgerInserts.length, 0);
 });
 
 test('per-post throw isolation: one bad post does not abort the batch', async () => {
-  process.env.ARIES_INSIGHTS_513_TABLES_PRESENT = '1';
-  try {
-    const rows = [
-      { ...DUE_ROW, job_id: 'job-bad' },
-      { ...DUE_ROW, job_id: 'job-good' },
-    ];
-    const { client, ledgerInserts } = makeClient(rows);
-    const writtenJobs: string[] = [];
-    const report = await runTick(client, {
-      loadDoc: async (jobId: string) => makeDoc(jobId),
-      record: async (input) => {
-        if ((input as { jobId: string }).jobId === 'job-bad') {
-          throw new Error('boom');
-        }
-        writtenJobs.push((input as { jobId: string }).jobId);
-      },
-      gateEnabled: () => true,
-    });
-    assert.deepEqual(writtenJobs, ['job-good']);
-    assert.equal(report.failed, 1);
-    assert.equal(report.written, 1);
-    assert.equal(ledgerInserts.length, 1);
-    assert.deepEqual(ledgerInserts[0], [TENANT_ID, 'job-good', 'instagram', '2026-05-25']);
-  } finally {
-    delete process.env.ARIES_INSIGHTS_513_TABLES_PRESENT;
-  }
+  const rows = [
+    { ...DUE_ROW, job_id: 'job-bad' },
+    { ...DUE_ROW, job_id: 'job-good' },
+  ];
+  const { client, ledgerInserts } = makeClient(rows);
+  const writtenJobs: string[] = [];
+  const report = await runTick(client, {
+    loadDoc: async (jobId: string) => makeDoc(jobId),
+    record: async (input) => {
+      if ((input as { jobId: string }).jobId === 'job-bad') {
+        throw new Error('boom');
+      }
+      writtenJobs.push((input as { jobId: string }).jobId);
+      return 'appended';
+    },
+    gateEnabled: () => true,
+  });
+  assert.deepEqual(writtenJobs, ['job-good']);
+  assert.equal(report.failed, 1);
+  assert.equal(report.written, 1);
+  assert.equal(ledgerInserts.length, 1);
+  assert.deepEqual(ledgerInserts[0], [TENANT_ID, 'job-good', 'instagram', '2026-06-01']);
 });
 
 test('null payload (no https permalink) is skipped, no ledger', async () => {
-  process.env.ARIES_INSIGHTS_513_TABLES_PRESENT = '1';
+  const { client, ledgerInserts } = makeClient([{ ...DUE_ROW, permalink: null }]);
+  let recordCalls = 0;
+  const report = await runTick(client, {
+    loadDoc: async () => makeDoc('job-1'),
+    record: async () => {
+      recordCalls += 1;
+      return 'appended';
+    },
+    gateEnabled: () => true,
+  });
+  assert.equal(recordCalls, 0);
+  assert.equal(report.skippedNoPayload, 1);
+  assert.equal(ledgerInserts.length, 0);
+});
+
+test('kill switch (ARIES_INSIGHTS_513_TABLES_PRESENT=0): tick does nothing', async () => {
+  process.env.ARIES_INSIGHTS_513_TABLES_PRESENT = '0';
   try {
-    const { client, ledgerInserts } = makeClient([{ ...DUE_ROW, permalink: null }]);
+    const { client, ledgerInserts } = makeClient([DUE_ROW]);
     let recordCalls = 0;
     const report = await runTick(client, {
       loadDoc: async () => makeDoc('job-1'),
       record: async () => {
         recordCalls += 1;
+        return 'appended';
       },
       gateEnabled: () => true,
     });
+    assert.equal(report.tenantsScanned, 0);
     assert.equal(recordCalls, 0);
-    assert.equal(report.skippedNoPayload, 1);
     assert.equal(ledgerInserts.length, 0);
   } finally {
     delete process.env.ARIES_INSIGHTS_513_TABLES_PRESENT;

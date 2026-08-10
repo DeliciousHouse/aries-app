@@ -332,6 +332,13 @@ services:
       HONCHO_WRITE_APPROVALS_ENABLED: ${HONCHO_WRITE_APPROVALS_ENABLED:-true}
       HONCHO_WRITE_PUBLISH_ENABLED: ${HONCHO_WRITE_PUBLISH_ENABLED:-true}
       HONCHO_WRITE_PREFERENCES_ENABLED: ${HONCHO_WRITE_PREFERENCES_ENABLED:-true}
+      # READ leg (ITEM A): the compounding per-brand profile injected into the
+      # research + strategy prompts. DEFAULT OFF — ships dark, because the
+      # dialectic answers are only worth prompt tokens once the write leg has
+      # soaked and the deriver has folded real observations into peer-brand.
+      # aries-app is the only service that submits stages, so no sidecar needs it.
+      ARIES_HONCHO_BRAND_CONTEXT_ENABLED: ${ARIES_HONCHO_BRAND_CONTEXT_ENABLED:-}
+      ARIES_HONCHO_DIALECTIC_TIMEOUT_MS: ${ARIES_HONCHO_DIALECTIC_TIMEOUT_MS:-}
       HONCHO_BASE_URL: ${HONCHO_BASE_URL:-}
       HONCHO_CONTROL_PLANE_JWT: ${HONCHO_CONTROL_PLANE_JWT:-}
       HONCHO_DATA_PLANE_JWT: ${HONCHO_DATA_PLANE_JWT:-}
@@ -948,12 +955,14 @@ services:
     networks:
       - docker_stack
 
-  # Delayed real-Meta performance -> Honcho memory. Reads #513's stored
-  # insights_post_metrics_daily snapshots (NEVER fetches Meta) and writes a
-  # research_conclusion to peer-market-signal-* via recordPerformanceEvent.
+  # Delayed real performance -> Honcho memory. Reads the stored
+  # insights_post_metrics_daily snapshots (NEVER fetches the platform APIs) and
+  # appends a prose observation to peer-brand / session-performance-<jobId> via
+  # recordPerformanceEvent — the material the brand-profile dialectic query
+  # reads back into the strategy prompt.
   # Gated by HONCHO_WRITE_PUBLISH_ENABLED (recordPerformanceEvent self-gates).
-  # No Meta env required. Until #513-A/E land, the due-posts query returns []
-  # so this sidecar ticks as a harmless no-op.
+  # Observes each post at 24h / 7d / 28d; ARIES_INSIGHTS_513_TABLES_PRESENT=0
+  # is the kill switch.
   aries-honcho-performance-worker:
     image: ${ARIES_APP_IMAGE:-aries-app:local}
     command: ["npx", "tsx", "scripts/automations/honcho-performance-worker.ts"]
@@ -981,7 +990,8 @@ services:
       HONCHO_CONTROL_PLANE_JWT: ${HONCHO_CONTROL_PLANE_JWT:-}
       HONCHO_DATA_PLANE_JWT: ${HONCHO_DATA_PLANE_JWT:-}
       ARIES_TENANT_PSEUDONYM_SALT: ${ARIES_TENANT_PSEUDONYM_SALT:-}
-      # #513 gate: flip to 1 once insights_post_metrics_daily is populated.
+      # Insights read-model KILL SWITCH. Unset = ON (the insights_* tables ship
+      # with init-db.js). Set to 0 to stop the due-posts scan entirely.
       ARIES_INSIGHTS_513_TABLES_PRESENT: ${ARIES_INSIGHTS_513_TABLES_PRESENT:-}
     restart: unless-stopped
     networks:

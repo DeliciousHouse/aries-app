@@ -22,7 +22,36 @@ export type PeerRef =
 export type SessionRef =
   | { kind: 'curated'; jobId: string }
   | { kind: 'onboarding'; runId: string }
-  | { kind: 'strategy'; jobId: string };
+  | { kind: 'strategy'; jobId: string }
+  /**
+   * Post-performance observations for one marketing job (ITEM A write leg).
+   * Separate from `curated` so the deriver sees a coherent thread of "how did
+   * this job's posts actually do" rather than interleaving it with research.
+   */
+  | { kind: 'performance'; jobId: string };
+
+/** Honcho dialectic reasoning levels (v3 `DialecticOptions.reasoning_level`). */
+export type DialecticReasoningLevel = 'minimal' | 'low' | 'medium' | 'high' | 'max';
+
+export type DialecticQueryInput = {
+  ctx: MinimalTenantContext;
+  peer: PeerRef;
+  /** Natural-language question, 1..10000 chars (Honcho v3 hard limit). */
+  query: string;
+  reasoningLevel?: DialecticReasoningLevel;
+};
+
+export type AppendObservationInput = {
+  ctx: MinimalTenantContext;
+  peer: PeerRef;
+  session: SessionRef;
+  /** Plain natural-language prose — the deriver digests sentences, not JSON. */
+  content: string;
+  metadata?: Record<string, unknown>;
+};
+
+/** Honcho v3 `DialecticOptions.query` maxLength. */
+const DIALECTIC_QUERY_MAX_CHARS = 10_000;
 
 export type AppendApprovedMessageInput = {
   ctx: MinimalTenantContext;
@@ -90,6 +119,8 @@ function sessionIdFor(s: SessionRef): string {
       return `session-onboarding-${assertSlug(s.runId)}`;
     case 'strategy':
       return `session-strategy-${assertSlug(s.jobId)}`;
+    case 'performance':
+      return `session-performance-${assertSlug(s.jobId)}`;
   }
 }
 
@@ -167,6 +198,77 @@ export class TenantMemoryClient {
     return { messageId: String(messageId ?? '') };
   }
 
+  /**
+   * Append a plain-prose observation to a session on behalf of a peer.
+   *
+   * Same batched v3 `MessageBatchCreate` body as `appendApprovedMessage`, but
+   * the content is natural language rather than a JSON-serialized
+   * `ApprovedMessage`. That is deliberate: the deriver builds a peer's working
+   * representation by reading message CONTENT, and a JSON blob derives into
+   * nothing useful. Prose on `peer-brand` is what later shows up in the
+   * dialectic answers `dialecticQuery` reads back.
+   */
+  async appendObservation(input: AppendObservationInput): Promise<{ messageId: string }> {
+    const workspaceId = this.workspaceId(input.ctx);
+    const peer = peerIdFor(input.peer);
+    const session = sessionIdFor(input.session);
+    const content = typeof input.content === 'string' ? input.content.trim() : '';
+    if (!content) {
+      throw new MemoryError('invalid_request', 'appendObservation requires non-empty content.');
+    }
+    const res = await this.transport.request<Array<{ id: string }> | { id: string }>({
+      method: 'POST',
+      path: `/v3/workspaces/${workspaceId}/sessions/${session}/messages`,
+      workspaceId,
+      body: {
+        messages: [
+          {
+            peer_id: peer,
+            content,
+            ...(input.metadata ? { metadata: input.metadata } : {}),
+          },
+        ],
+      },
+    });
+    const messageId = Array.isArray(res) ? res[0]?.id : res?.id;
+    return { messageId: String(messageId ?? '') };
+  }
+
+  /**
+   * Ask Honcho's dialectic endpoint a natural-language question about a peer's
+   * accumulated representation (Honcho v3 `POST /peers/{peer}/chat`, schema
+   * `DialecticOptions` → `DialecticResponse { content: string | null }`).
+   *
+   * This is the READ half of the compounding per-brand profile: everything the
+   * write legs append (approvals, denials, performance observations) is folded
+   * by the deriver into the peer's representation, and this is how we get it
+   * back out. It replaces the session-less `listApprovedMessages` path, which
+   * has no v3 endpoint and always returned [].
+   *
+   * The call is LLM-backed inside honcho-api and can be slow — callers must
+   * supply a timeout-wrapped transport and treat failure as "no context".
+   */
+  async dialecticQuery(input: DialecticQueryInput): Promise<string | null> {
+    const workspaceId = this.workspaceId(input.ctx);
+    const peer = peerIdFor(input.peer);
+    const query = typeof input.query === 'string' ? input.query.trim() : '';
+    if (!query) {
+      throw new MemoryError('invalid_request', 'dialecticQuery requires a non-empty query.');
+    }
+    const res = await this.transport.request<{ content?: string | null }>({
+      method: 'POST',
+      path: `/v3/workspaces/${workspaceId}/peers/${peer}/chat`,
+      workspaceId,
+      body: {
+        query: query.slice(0, DIALECTIC_QUERY_MAX_CHARS),
+        stream: false,
+        reasoning_level: input.reasoningLevel ?? 'low',
+      },
+    });
+    const content = res?.content;
+    return typeof content === 'string' && content.trim().length > 0 ? content.trim() : null;
+  }
+
   async listApprovedMessages(input: ListApprovedMessagesInput): Promise<ApprovedMessage[]> {
     const workspaceId = this.workspaceId(input.ctx);
     const peer = peerIdFor(input.peer);
@@ -177,8 +279,14 @@ export class TenantMemoryClient {
     // NO peer-scoped messages list endpoint in v3 — to enumerate a peer's
     // messages across sessions you must either iterate sessions or call
     // /peers/{peer}/representation. We log + no-op the peer-only call rather
-    // than throwing so existing callers (orchestrator.loadResearchMemoryContext)
-    // degrade quietly until a proper peer-scoped read is implemented.
+    // than throwing so existing callers degrade quietly.
+    //
+    // DEAD PATH (ITEM A): the peer-scoped brand read is now `dialecticQuery`
+    // above — orchestrator.loadBrandProfileContext / the Hermes port use it.
+    // `loadResearchMemoryContext` (session-less) is the only remaining caller
+    // and it is kept solely so the research-dispatch snapshot API keeps its
+    // shape; it will always yield [] and must never be treated as the brand
+    // profile source.
     if (!session) {
       console.warn(
         '[honcho-client] listApprovedMessages without session is not supported on Honcho v3 (peer-scoped read TODO); returning [].',

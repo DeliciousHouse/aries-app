@@ -36,7 +36,6 @@ import {
   recordScheduleEvent,
   scheduleMarketingApprovalHonchoWrites,
   scrubPreferenceLabelForHoncho,
-  topicPseudonymHexForPerformanceMemory,
 } from '../backend/memory/write-events';
 import { pseudonymForUser } from '../backend/memory/pseudonym';
 import pool from '@/lib/db';
@@ -396,39 +395,55 @@ test('V8 — schedule post: first-party constraint auto-approved to peer-policy,
   }));
 
 // ===========================================================================
-// V9 — Hermes publish-stage callback with https source_url → research_conclusion
-//      on market-signal, QUEUED; payload ran through the scrubber (platform_post_id
-//      dropped, 10-20 digit numeric string redacted).
+// V9 — publish performance with https source_url → PROSE observation appended
+//      to peer-brand / session-performance-<jobId>. The old expectation was a
+//      queued research_conclusion, which is precisely the dead end ITEM A
+//      removed: the curator queues every research_conclusion, so the write
+//      never reached Honcho. Payload still runs through the scrubber
+//      (platform_post_id dropped, 10-20 digit numeric string redacted).
 // ===========================================================================
-test('V9 — perf callback: scrubbed (platform_post_id + numeric id) research_conclusion queued', () =>
+test('V9 — perf observation: prose on peer-brand, scrubbed of platform ids', () =>
   withEnv({ ...BASE_ENV, HONCHO_WRITE_PUBLISH_ENABLED: 'true' }, async () => {
     const pool = buildPool();
-    const topic = topicPseudonymHexForPerformanceMemory('v9', null);
-    await recordPerformanceEvent(
+    const { transport, calls } = captureTransport();
+    const outcome = await recordPerformanceEvent(
       {
         tenantCtx: TENANT_CTX,
         jobId: 'v9',
-        topicPseudonymHex: topic,
         publishedAtYmd: '20260511',
+        observationDayYmd: '20260512',
+        horizonDays: 1,
         platform: 'facebook',
         payloadRecord: {
-          impressions: 10,
+          metrics: { reach: 10, likes: 2 },
           platform_post_id: 'should-be-stripped',
           some_numeric: '123456789012345',
           source_url: 'https://graph.facebook.com/v21.0/insights',
         },
       },
       pool as never,
+      { transport },
     );
-    const queued = pool.stats().findings.filter((f) => f.decision === 'queue_for_review');
-    assert.equal(queued.length, 1, 'research_conclusion queued (third-party market-signal)');
-    assert.equal(queued[0]!.raw.kind, 'research_conclusion');
-    const claim = JSON.parse(String(queued[0]!.raw.claim)) as Record<string, unknown>;
-    const metrics = claim.metrics as Record<string, unknown>;
-    assert.equal(metrics.platform_post_id, undefined, 'platform_post_id stripped');
-    assert.equal(metrics.some_numeric, '[redacted_numeric_id]', '15-digit numeric id redacted');
-    assert.equal(metrics.impressions, 10, 'real metric preserved');
-    assert.equal(claim.source_url, 'https://graph.facebook.com/v21.0/insights');
+    assert.equal(outcome, 'appended');
+    assert.equal(
+      pool.stats().findings.length,
+      0,
+      'observations bypass the curator/review queue entirely',
+    );
+
+    const writes = msgWrites(calls);
+    assert.equal(writes.length, 1);
+    assert.match(String(writes[0]!.path), /\/sessions\/session-performance-v9\/messages$/);
+    const msg = firstMessage(writes[0]!);
+    assert.equal(msg.peer_id, 'peer-brand');
+    const content = String(msg.content);
+    assert.match(content, /^Post performance observation \(facebook/);
+    assert.match(content, /measured 24h after publish/);
+    assert.match(content, /reach 10, likes 2/);
+    assert.match(content, /https:\/\/graph\.facebook\.com\/v21\.0\/insights/);
+    assert.ok(!content.includes('should-be-stripped'), 'platform_post_id never reaches memory');
+    assert.ok(!content.includes('123456789012345'), 'bare numeric id never reaches memory');
+    assert.equal((msg.metadata as Record<string, unknown>).kind, 'performance_observation');
   }));
 
 // ===========================================================================
