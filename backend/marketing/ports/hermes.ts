@@ -313,6 +313,17 @@ function markSubmissionFailed(ariesRunId: string, code: string, message: string)
  * competitor + any follow-up thread, which is why research historically
  * finished in ~30 s with thin findings. Both paths benefit and neither can
  * fail from a larger ceiling.
+ *
+ * A THIRD THING IS DELIBERATELY NOT IN HERE (ITEM B): the `agent-reach` skill.
+ * It is installed on the aries-research profile only, and — unlike last30days,
+ * whose worst case on a profile that lacks it is a silently skipped enrichment
+ * — an unknown slash command has no defined no-op. Advertising `/agent-reach`
+ * to the default-8642 brand-campaign agent invites either an unknown-command
+ * error or a fallthrough to `terminal`, which is exactly the 600s loop this
+ * policy exists to prevent. All agent-reach wording, INCLUDING its raised tool
+ * ceiling, lives in WEEKLY_RESEARCH_AGENT_REACH_GUIDANCE instead, so this
+ * string stays byte-for-byte what tests/marketing/build-hermes-instructions.ts
+ * and tests/hermes-runtime-contract.ts already pin.
  */
 const RESEARCH_TOOL_POLICY =
   'Research stage tool policy: during the research stage you may use ONLY these tools: web_extract, web_search, and the last30days Hermes skill. You MUST NOT call read_file, search_files, write_file, execute_code, or terminal. There is no Aries workspace available to this agent — calling local-workspace tools will loop until the 600s "did not reach a terminal status" timeout fires. Required tool sequence: (1) call web_extract once for the brand URL when present, (2) call web_search once for the brand, (3) if a competitor URL or competitor brand is provided, call web_extract once for the competitor URL and web_search once for the competitor, (4) optionally invoke `/last30days` for the brand and (if a competitor URL or competitor brand is provided) for the competitor, (5) spend any remaining budget on further web_search / web_extract calls that deepen the highest-value threads — audience language, competitor hooks, and seasonal angles, and, when the input carries a "Last 28 days performance" block, whatever that block reports as a winning or a losing hook, format or topic. Do not exceed 12 total tool calls during the research stage. After these tool calls, stop using tools and return the strict JSON checkpoint immediately.';
@@ -337,6 +348,61 @@ const WEEKLY_RESEARCH_LAST30DAYS_MANDATE =
   + ' brand URL or brand name, and again for the competitor whenever a competitor URL or competitor brand is provided.'
   + ' If a `/last30days` invocation returns nothing usable, say so explicitly in the research output rather than'
   + ' silently omitting the social-signal findings.';
+
+/**
+ * ITEM B — the `agent-reach` skill, WEEKLY-ONLY by construction.
+ *
+ * WHAT IT ADDS: `/last30days` is aggregate listening (what people *said* about
+ * a brand over 30 days). agent-reach is cookie-authenticated platform-native
+ * READING — the posts, hooks and formats currently winning in this niche on
+ * Instagram / X / Reddit / Facebook. Those are different questions, and the
+ * research stage has historically only been able to ask the first one.
+ *
+ * WHY NOT IN THE SHARED RESEARCH_TOOL_POLICY (reviewer requirement): the skill
+ * is installed into `~/.hermes/profiles/aries-research/skills/social-media/`
+ * only. The shared policy is also served to the default-8642 brand-campaign
+ * agent, which is not known to carry it; naming a slash command that profile
+ * does not have risks an unknown-command failure or a `terminal` fallthrough
+ * (the 600s "did not reach a terminal status" loop). Keeping every word of it
+ * here also leaves the shared string byte-identical, so the seven existing
+ * pinned copies of RESEARCH_TOOL_POLICY / "12 total tool calls" across
+ * tests/marketing/research-depth.test.ts (×3), tests/hermes-runtime-contract.
+ * test.ts (×2) and tests/marketing/build-hermes-instructions.test.ts (×2 — a
+ * verbatim mirror that does NOT import this module and therefore rots
+ * silently) stay true.
+ *
+ * WHY THE BUDGET OVERRIDE IS ALSO WEEKLY: the extra headroom exists solely to
+ * pay for agent-reach calls. Raising the shared ceiling would hand the 8642
+ * path four more calls it has no use for and break the pinned copies above.
+ *
+ * FAIL-SOFT IS LOAD-BEARING: cookie sessions go stale (see
+ * ops/agent-reach/README.md). The wrapper skill answers `{"status":
+ * "session_stale"}` rather than hanging, and this text is what tells the agent
+ * that such an answer is a normal outcome to report, not a stage failure to
+ * retry into the timeout.
+ */
+const WEEKLY_RESEARCH_AGENT_REACH_GUIDANCE = [
+  'Also installed on this profile: the `agent-reach` Hermes skill, invoked as the slash command'
+  + ' `/agent-reach <platform> <query>` where platform is one of instagram, twitter, reddit, facebook.'
+  + ' It reads those platforms natively with a logged-in session, so use it for the question `/last30days`'
+  + ' cannot answer: what is working ON-PLATFORM in this niche RIGHT NOW — live top posts, opening hooks,'
+  + ' formats, and the words real commenters use. Do NOT shell out to terminal for agent-reach and do not'
+  + ' try to browse these platforms with web_extract — invoke the slash command. There is still no terminal'
+  + ' and no workspace on this profile.',
+  'Prefer at least ONE `/agent-reach` call on a platform this brand actually publishes to (derive it from the'
+  + ' brand kit channels; default to instagram). Two platforms is the sensible maximum for a weekly run.',
+  'Tool budget override for this pipeline: the ceiling of 12 total tool calls stated in the tool policy above is'
+  + ' raised to 16 total tool calls here, and the four extra calls are reserved for `/agent-reach`. Every other'
+  + ' rule in that policy — the permitted tools, the forbidden ones, and the required opening sequence — still'
+  + ' applies unchanged.',
+  'Sessions are cookie-based and can expire. If `/agent-reach` answers with status "session_stale", or is'
+  + ' unavailable for any other reason, that is a NORMAL outcome and NOT a stage failure: say so explicitly in'
+  + ' the research output, then fall back to `/last30days` and web_search. Do not retry the same platform, do'
+  + ' not fall back to terminal, and try at most one alternative platform before moving on.',
+  'Fold agent-reach findings into the research artifacts labelled as platform-native observations (name the'
+  + ' platform and what you actually saw). They are competitor/market observation, never measured first-party'
+  + ' performance — only the "Last 28 days performance" block is that.',
+];
 
 /**
  * One-line framing that precedes the 28-day block on the RESEARCH submission.
@@ -515,6 +581,7 @@ function buildWeeklyResearchInstructions(workflowKey: string): string {
     RESEARCH_TOOL_POLICY,
     ...LAST30DAYS_GUIDANCE,
     WEEKLY_RESEARCH_LAST30DAYS_MANDATE,
+    ...WEEKLY_RESEARCH_AGENT_REACH_GUIDANCE,
     WEEKLY_RESEARCH_PERFORMANCE_DIRECTIVE,
     'Reply with a single strict JSON object only — no prose, no markdown fences.',
     'After completing the research stage, return status "requires_approval" with approval.stage="strategy", approval.approval_step="approve_weekly_plan", approval.workflowStepId="approve_stage_2", approval.prompt="Review research findings before strategy starts", approval.resumeToken set, and output:[{stage:"research", ...artifacts}].',

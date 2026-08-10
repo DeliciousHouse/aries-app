@@ -75,6 +75,12 @@ DATA_ROOT = Path(_env_str("DATA_ROOT", "/home/node/aries-data")).expanduser()
 STATE_DIR = Path(
     _env_str("STATE_DIR", str(Path.home() / ".local/state/aries-pipeline-monitor"))
 ).expanduser()
+# Written by ops/agent-reach/cookie-prober.py. READ-ONLY here, and read is all
+# this monitor will ever do to it: the prober owns the network probe (which can
+# block on a platform), this owns the operator alert. See detect_cookie_stale.
+COOKIE_STATE = Path(
+    _env_str("COOKIE_STATE", str(Path.home() / ".local/state/agent-reach-prober/state.json"))
+).expanduser()
 HERMES_BIN = _env_str("HERMES_BIN", "/home/node/.local/bin/hermes")
 TELEGRAM_TARGET = _env_str("TELEGRAM_TARGET", "telegram")
 PG_CONTAINER = _env_str("PG_CONTAINER", "n8n-postgres")
@@ -93,6 +99,12 @@ DEGRADED_MIN_BAD = _env_int("DEGRADED_MIN_BAD", 6)
 SILENT_AFTER_HOURS = _env_int("SILENT_AFTER_HOURS", 2)
 # TRIGGER_SILENCE: schedules enabled but no run doc created in this many days.
 TRIGGER_SILENCE_DAYS = _env_int("TRIGGER_SILENCE_DAYS", 8)
+# COOKIE_STALE: how old the prober's state file may be before its verdicts stop
+# counting. Wider than the prober's own cadence (every 4 h) so one skipped probe
+# is not an incident; a state file staler than this means the PROBER is dead,
+# which is a different (and deliberately unalerted) condition — see
+# detect_cookie_stale for why that is not escalated here.
+COOKIE_STATE_MAX_AGE_H = _env_int("COOKIE_STATE_MAX_AGE_H", 12)
 # Hard caps so a monitor bug can never produce a giant message or a giant query.
 MAX_NAMED_ITEMS = _env_int("MAX_NAMED_ITEMS", 5)
 MAX_ROWS = _env_int("MAX_ROWS", 200)
@@ -147,6 +159,7 @@ class Config:
     telegram_target: str = TELEGRAM_TARGET
     pg_container: str = PG_CONTAINER
     db_name: str = DB_NAME
+    cookie_state: Path = dataclasses.field(default_factory=lambda: COOKIE_STATE)
     dry_run: bool = False
     # Self-test hooks. Production never sets any of these.
     psql_stub = None          # callable(sql) -> list[list[str]] | None
@@ -520,6 +533,85 @@ def detect_trigger_silence(docs, reference=None):
     )]
 
 
+def read_cookie_state():
+    """The Agent-Reach prober's state file, or None when it cannot be read.
+
+    None means UNKNOWN (missing, unreadable, not JSON, wrong shape) — never
+    "everything is fine" and never "everything is dead".
+    """
+    try:
+        data = json.loads(Path(CFG.cookie_state).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    platforms = data.get("platforms")
+    if isinstance(platforms, dict):
+        return platforms
+    # Tolerate a bare {platform: {...}} root as well, so a hand-written or
+    # older state file still reads. Anything else is unknown.
+    if all(isinstance(v, dict) for v in data.values()) and data:
+        return data
+    return None
+
+
+def detect_cookie_stale(reference=None):
+    """Agent-Reach cookie sessions that the prober found expired.
+
+    WHY THIS DETECTOR READS A FILE INSTEAD OF PROBING
+    ------------------------------------------------
+    Checking a cookie session means network I/O against Instagram / X / Reddit
+    / Facebook: it can block, rate-limit, or trip an automation heuristic. This
+    monitor is deliberately network-free and read-only so an alerting bug can
+    never wedge the pipeline. So ops/agent-reach/cookie-prober.py owns the
+    probe and writes a state file; this owns the operator alert and only reads
+    it. The two halves fail independently.
+
+    THREE SILENCE RULES, all the same rule the sync detectors already follow —
+    an absence of information is never an incident:
+      * no state file / unreadable / wrong shape → nothing (the prober may not
+        be installed yet; the install runbook covers that, not a page).
+      * status is "unknown" → nothing. The prober emits unknown for a timeout,
+        a missing binary, an unparseable answer or a platform `doctor` did not
+        mention. None of those mean the cookie is dead.
+      * the whole state file is older than COOKIE_STATE_MAX_AGE_H → nothing.
+        Stale verdicts are not verdicts. A dead PROBER is a real condition, but
+        alerting on it from here would page the operator about the watchdog's
+        watchdog on every cron hiccup; `--status` reports the file's age
+        instead.
+
+    It is NOT gated on the database being reachable — the input is a file — so
+    collect() calls it outside the db_unavailable branch.
+    """
+    ref = reference or now()
+    platforms = read_cookie_state()
+    if not platforms:
+        return []
+    findings = []
+    for name in sorted(platforms):
+        entry = platforms.get(name)
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("status") or "").lower() != "stale":
+            continue
+        checked = parse_iso(entry.get("checked_at"))
+        if checked is None or ref - checked > dt.timedelta(hours=COOKIE_STATE_MAX_AGE_H):
+            continue
+        since = parse_iso(entry.get("since")) or checked
+        hours = max(0, int((ref - since).total_seconds() // 3600))
+        findings.append(Finding(
+            kind="COOKIE_STALE",
+            # Fingerprint on the platform only: one session going stale is one
+            # condition until it is fixed, however many ticks it spans.
+            fingerprint=_fp("cookie_stale", name),
+            label=f"{name}: session expired {hours} h ago — agent-reach reads on this platform are unavailable",
+            # The prober already redacts this; the needle self-test pins that a
+            # cookie value can never reach a message even if that ever changed.
+            detail=str(entry.get("detail") or "")[:160],
+        ))
+    return findings
+
+
 # ===========================================================================
 # SECTION D: messages
 # ===========================================================================
@@ -529,6 +621,7 @@ KIND_HEADLINE = {
     "SYNC_DEGRADED": "⚠️ Insights sync degraded",
     "SYNC_SILENT": "⛔ Insights sync worker silent",
     "TRIGGER_SILENCE": "⚠️ Weekly trigger silent",
+    "COOKIE_STALE": "🍪 Agent-Reach session stale",
 }
 
 
@@ -592,6 +685,11 @@ def collect(docs, reference=None):
     findings.extend(stage)
     notes["auth_suppressed"] = auth_suppressed
     notes["by_stage_code"] = by_stage_code
+
+    # File-based, like the run-doc detector: it must keep working during a
+    # database outage, and it must not be resolved away by one either (see the
+    # db_kinds set in tick()).
+    findings.extend(detect_cookie_stale(reference))
 
     for detector in (
         lambda: detect_sync_degraded(),
@@ -752,6 +850,30 @@ def build_report(reference=None) -> str:
         for f in by_kind.get(kind, []):
             lines.append(f"{kind}: {f.label}")
 
+    # Agent-Reach cookie sessions. Reported in full here — including the
+    # `unknown` verdicts and a stale state file — precisely because none of
+    # those alert. The digest is where "the prober has not run since Tuesday"
+    # is supposed to be noticed.
+    cookies = read_cookie_state()
+    if cookies is None:
+        lines.append("agent-reach sessions: no prober state (not installed, or it has never run)")
+    else:
+        summary = ", ".join(
+            f"{name}={str((entry or {}).get('status', '?'))}"
+            for name, entry in sorted(cookies.items()) if isinstance(entry, dict)
+        )
+        newest = max(
+            (parse_iso((entry or {}).get("checked_at")) for entry in cookies.values()
+             if isinstance(entry, dict)),
+            default=None,
+        )
+        age = f"{int((ref - newest).total_seconds() // 3600)} h old" if newest else "age unknown"
+        lines.append(f"agent-reach sessions ({age}): {summary or 'none tracked'}")
+        if newest is not None and ref - newest > dt.timedelta(hours=COOKIE_STATE_MAX_AGE_H):
+            lines.append(
+                f"  • NOTE: prober state is older than {COOKIE_STATE_MAX_AGE_H} h — its verdicts are being ignored"
+            )
+
     quarantine = psql_query(SQL_QUARANTINE)
     if quarantine is None:
         lines.append("quarantined objects: db unavailable")
@@ -796,15 +918,21 @@ def scenario(fn):
 
 
 @contextlib.contextmanager
-def fixture(docs=None, psql=None, armed=True, send_outcome=None):
+def fixture(docs=None, psql=None, armed=True, send_outcome=None, cookies=None):
     """Throwaway state dir + fixture run docs + a stubbed psql, with sends
     captured instead of delivered. `send_outcome` (callable(text) -> bool)
-    simulates delivery failures."""
+    simulates delivery failures. `cookies` writes a prober state file (dict) —
+    left absent, cookie_state points into the throwaway dir at a file that does
+    not exist, so no scenario can ever read the real host's prober state."""
     prev = (CFG.data_root, CFG.state_dir, CFG.psql_stub, CFG.capture_sends, CFG.dry_run,
-            CFG.send_outcome)
+            CFG.send_outcome, CFG.cookie_state)
     tmp = Path(tempfile.mkdtemp(prefix="pipemon-selftest-"))
     CFG.data_root = tmp / "data"
     CFG.state_dir = tmp / "state"
+    CFG.cookie_state = tmp / "agent-reach-prober" / "state.json"
+    if cookies is not None:
+        CFG.cookie_state.parent.mkdir(parents=True, exist_ok=True)
+        CFG.cookie_state.write_text(json.dumps(cookies), encoding="utf-8")
     jobs = CFG.data_root / "generated" / "draft" / "marketing-jobs"
     jobs.mkdir(parents=True, exist_ok=True)
     for i, doc in enumerate(docs or []):
@@ -823,7 +951,7 @@ def fixture(docs=None, psql=None, armed=True, send_outcome=None):
         yield tmp
     finally:
         (CFG.data_root, CFG.state_dir, CFG.psql_stub, CFG.capture_sends, CFG.dry_run,
-         CFG.send_outcome) = prev
+         CFG.send_outcome, CFG.cookie_state) = prev
         SENT.clear()
 
 
@@ -1065,6 +1193,119 @@ def trigger_silence_fires_when_schedules_enabled_but_no_runs():
         assert "Weekly trigger silent" in SENT[0], SENT[0]
 
 
+# ── COOKIE_STALE (Agent-Reach cookie sessions) ─────────────────────────────
+#
+# The monitor never probes a platform itself; it reads what
+# ops/agent-reach/cookie-prober.py wrote. Every scenario below therefore fixes
+# the state file, not a network response — and four of the five are about
+# STAYING QUIET, because the failure mode that actually costs the operator is a
+# 🍪 alert they cannot act on.
+
+
+def cookie_state(status="stale", platform="instagram", age_h=1, since_h=None, detail=""):
+    checked = iso(now() - dt.timedelta(hours=age_h))
+    return {
+        "generated_at": checked,
+        "platforms": {
+            platform: {
+                "status": status,
+                "checked_at": checked,
+                "since": iso(now() - dt.timedelta(hours=since_h if since_h is not None else age_h)),
+                "detail": detail,
+            },
+        },
+    }
+
+
+@scenario
+def cookie_stale_fires_from_stale_state():
+    with fixture(cookies=cookie_state(since_h=9, detail="auth_token=<redacted> expired")):
+        tick()
+        assert len(SENT) == 1, f"expected one cookie alert, got {SENT}"
+        assert "Agent-Reach session stale" in SENT[0], SENT[0]
+        assert "instagram" in SENT[0], SENT[0]
+        assert "9 h ago" in SENT[0], SENT[0]
+        SENT.clear()
+        tick()
+        assert SENT == [], f"one stale session is one condition, not one per tick: {SENT}"
+
+
+@scenario
+def cookie_stale_silent_when_fresh():
+    with fixture(cookies=cookie_state(status="fresh")):
+        tick()
+        assert SENT == [], f"a healthy session must not alert, got {SENT}"
+
+
+@scenario
+def cookie_stale_silent_when_state_missing():
+    """The prober may not be installed yet. That is the install runbook's
+    problem, not a 3 a.m. page."""
+    with fixture():
+        tick()
+        assert SENT == [], f"a missing prober state file must not alert, got {SENT}"
+    for junk in ("not json at all", "[]", '"a string"'):
+        with fixture() as tmp:
+            CFG.cookie_state.parent.mkdir(parents=True, exist_ok=True)
+            CFG.cookie_state.write_text(junk, encoding="utf-8")
+            tick()
+            assert SENT == [], f"unreadable prober state ({junk!r}) must not alert, got {SENT}"
+
+
+@scenario
+def cookie_stale_silent_when_status_is_unknown():
+    """`unknown` is what the prober emits for a timeout, a missing binary, or a
+    platform doctor did not mention. None of those mean the cookie is dead."""
+    with fixture(cookies=cookie_state(status="unknown", detail="doctor timed out after 90s")):
+        tick()
+        assert SENT == [], f"unknown must never be read as dead, got {SENT}"
+
+
+@scenario
+def cookie_stale_silent_when_state_is_too_old():
+    """A verdict from three days ago is not a verdict. It means the PROBER is
+    dead — a real condition, reported in the digest, deliberately not paged."""
+    with fixture(cookies=cookie_state(age_h=COOKIE_STATE_MAX_AGE_H + 6)):
+        tick()
+        assert SENT == [], f"a stale state file must not alert, got {SENT}"
+        report = build_report()
+        assert "prober state is older than" in report, report
+
+
+@scenario
+def cookie_stale_resolves_after_alert():
+    with fixture(cookies=cookie_state()) as tmp:
+        tick()
+        assert len(SENT) == 1, SENT
+        SENT.clear()
+        CFG.cookie_state.write_text(json.dumps(cookie_state(status="fresh")), encoding="utf-8")
+        tick()
+        assert len(SENT) == 1, f"expected one resolution note, got {SENT}"
+        assert SENT[0].startswith("✅ Resolved"), SENT[0]
+        assert "Agent-Reach session stale" in SENT[0], SENT[0]
+
+
+@scenario
+def cookie_stale_survives_a_db_outage():
+    """The input is a file, so a Postgres outage must neither hide the alert
+    nor (once alerted) fake a resolution."""
+    with fixture(cookies=cookie_state(), psql=no_db):
+        tick()
+        assert len(SENT) == 1, f"a db outage must not suppress a file-based detector: {SENT}"
+        assert "Agent-Reach session stale" in SENT[0], SENT[0]
+        SENT.clear()
+        tick()
+        assert SENT == [], SENT
+
+
+@scenario
+def cookie_digest_reports_unknowns_that_never_alert():
+    with fixture(cookies=cookie_state(status="unknown", platform="twitter")):
+        report = build_report()
+        assert "agent-reach sessions" in report, report
+        assert "twitter=unknown" in report, report
+
+
 @scenario
 def dry_run_sends_nothing_and_writes_no_state():
     docs = [failed_doc("mkt_dry", 15, "hermes_run_failed", "boom")]
@@ -1087,17 +1328,31 @@ def message_caps_named_items():
 
 @scenario
 def no_secret_material_in_messages():
-    """Nothing the monitor emits may carry a credential-shaped string."""
+    """Nothing the monitor emits may carry a credential-shaped string.
+
+    The cookie needles matter as much as the DB ones now: the COOKIE_STALE
+    detail line is passed through from the prober, and a session cookie in a
+    Telegram alert is a full account compromise. The prober redacts on write;
+    this pins that nothing downstream un-redacts it. The fixture below feeds a
+    detail line containing BOTH a redacted field name (which must survive,
+    because "auth_token expired" is the actionable part) and a raw-looking
+    value (which must not exist anywhere).
+    """
     docs = [failed_doc("mkt_sec", 15, "hermes_run_failed", "boom")]
     def psql(sql):
         if "max(started_at)" in sql:
             return [[iso(now())]]
         return [["0"]]
-    with fixture(docs=docs, psql=psql):
+    cookies = cookie_state(detail="auth_token=<redacted> expired; re-mint the throwaway")
+    with fixture(docs=docs, psql=psql, cookies=cookies):
         tick()
         blob = "\n".join(SENT) + build_report()
         for needle in ("POSTGRES_PASSWORD", "HERMES_API_SERVER_KEY", "Bearer ", "password="):
             assert needle not in blob, f"{needle} leaked into monitor output"
+        # Cookie-shaped needles. Each is the NAME plus a value separator, so the
+        # redacted form `auth_token=<redacted>` deliberately does not match.
+        for needle in ("auth_token=a", "ct0=", "sessionid=", "session=", "c_user=", "xs="):
+            assert needle not in blob, f"cookie material ({needle}) leaked into monitor output"
 
 
 def run_self_test() -> int:
