@@ -121,20 +121,21 @@ prose** (not JSON) because the deriver builds representations from message conte
 
 #### The claim is two-phase, and why
 
-`honcho_write_idempotency_keys` rows are inserted **before** the Honcho append and stamped
-`completed_at` only after it succeeds. The worker ledgers `skipped_idempotent` permanently,
-so "a claim exists" is not a good enough reason to ledger: a process killed between the
-claim and the append (OOM, deploy, SIGKILL) leaves a claim with no write behind it and no
-one to release it, and the next tick would record that lost observation as done.
+Performance writes use two tables with different contracts. `memory_write_claim_leases`
+holds mutable operational leases; `honcho_write_idempotency_keys` is the append-only
+completion ledger and receives a key only **after** the Honcho append succeeds. The worker
+ledgers `skipped_idempotent` permanently, so a lease alone is never treated as proof that
+the observation exists in Honcho.
 
-So `recordPerformanceEvent` reads the existing claim and distinguishes *completed* (report
-`skipped_idempotent` — safe to ledger), *in flight* (report `failed`, stay due, retry next
-tick) and *orphaned* — a claim older than the one-hour lease with no completion, which this
-caller takes over atomically and finishes. The takeover `UPDATE` is guarded by
-`completed_at IS NULL AND written_at < …` so two ticks can never both take it over.
+`recordPerformanceEvent` atomically distinguishes *completed* (the append-only key exists;
+report `skipped_idempotent`), *in flight* (report `failed`, stay due, retry next tick), and
+*acquired*. An acquired lease can be new or a one-hour crash orphan taken over atomically.
+Caught failures delete only the operational lease. Successful leases remain as a snapshot
+interlock while the completion key is retained permanently; no `honcho_*` row is updated or
+deleted.
 
-Failure leans toward a duplicate observation, never a dropped one: if the completion stamp
-itself fails after a good append, the outcome is still `appended` and the ledger still
+Failure leans toward a duplicate observation, never a dropped one: if the completion insert
+itself fails after a good append, the outcome is still `appended` and the worker ledger still
 records it.
 
 ## Peer and Session Model

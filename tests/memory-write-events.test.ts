@@ -475,7 +475,9 @@ test('Phase 2 — recordPerformanceEvent requires https source_url', () =>
   withEnv(PERF_ENV, async () => {
     const { transport, messageCalls } = capturePerfTransport();
     const pool = buildMockPool((sql) =>
-      sql.includes('honcho_write_idempotency_keys') ? { rows: [{ key: 'claimed' }] } : { rows: [] },
+      sql.includes('memory_write_claim_leases')
+        ? { rows: [{ disposition: 'acquired' }] }
+        : { rows: [] },
     );
 
     const noSource = await recordPerformanceEvent(
@@ -515,7 +517,9 @@ test('ITEM A — perf observation is prose on peer-brand / session-performance-<
   withEnv(PERF_ENV, async () => {
     const { transport, messageCalls } = capturePerfTransport();
     const pool = buildMockPool((sql) =>
-      sql.includes('honcho_write_idempotency_keys') ? { rows: [{ key: 'claimed' }] } : { rows: [] },
+      sql.includes('memory_write_claim_leases')
+        ? { rows: [{ disposition: 'acquired' }] }
+        : { rows: [] },
     );
 
     const outcome = await recordPerformanceEvent(
@@ -585,55 +589,60 @@ test('ITEM A — gates off: zero Honcho calls, zero idempotency claims', () =>
     assert.equal(messageCalls.length, 0);
   }));
 
+test('ITEM A — lease storage failure returns failed instead of throwing', () =>
+  withEnv(PERF_ENV, async () => {
+    const pool = buildMockPool(() => {
+      throw new Error('lease db down');
+    });
+    const outcome = await recordPerformanceEvent(
+      {
+        tenantCtx: TENANT_CTX,
+        jobId: 'job-lease-db-down',
+        publishedAtYmd: '20260516',
+        platform: 'facebook',
+        payloadRecord: { metrics: { reach: 1, source_url: 'https://x.example/p/1' } },
+      },
+      pool as never,
+      { transport: capturePerfTransport().transport },
+    );
+    assert.equal(outcome, 'failed');
+  }));
+
 /**
- * A stand-in for honcho_write_idempotency_keys that models the TWO-PHASE claim
- * the code actually relies on: a row is inserted at claim time and stamped
- * `completed_at` only once the Honcho append succeeded.
+ * Stand-in for the append-only completion ledger plus the mutable operational
+ * lease table used by performance writes.
  *
- * The old mock answered every query on this table with zero rows, which made
- * "already claimed" and "written" indistinguishable — exactly the conflation
- * that let a crash between claim and append be ledgered as a completed write.
+ * `honcho_write_idempotency_keys` records only completed writes and is never
+ * mutated. In-flight claims live in `memory_write_claim_leases`, where a failed
+ * write may release its lease and a crash orphan may be taken over after 1 h.
  */
-function buildClaimsPool(seed: Record<string, { writtenAtMs: number; completed: boolean }> = {}) {
-  const rows = new Map<string, { writtenAtMs: number; completed: boolean }>(Object.entries(seed));
+function buildClaimsPool() {
+  const completed = new Set<string>();
+  const leases = new Map<string, number>();
   const pool = buildMockPool((sql, params) => {
     const args = (params as unknown[] | undefined) ?? [];
     const key = String(args[0] ?? '');
+    if (sql.includes('INSERT INTO memory_write_claim_leases')) {
+      if (completed.has(key)) return { rows: [{ disposition: 'completed' }] };
+      const leaseMs = Number(args[1] ?? 0);
+      const claimedAt = leases.get(key);
+      if (claimedAt !== undefined && Date.now() - claimedAt <= leaseMs) {
+        return { rows: [{ disposition: 'in_flight' }] };
+      }
+      leases.set(key, Date.now());
+      return { rows: [{ disposition: 'acquired' }] };
+    }
     if (sql.includes('INSERT INTO honcho_write_idempotency_keys')) {
-      if (rows.has(key)) return { rows: [] };               // ON CONFLICT DO NOTHING
-      rows.set(key, { writtenAtMs: Date.now(), completed: false });
-      return { rows: [{ key }] };
-    }
-    if (sql.includes('SELECT completed_at')) {
-      const row = rows.get(key);
-      if (!row) return { rows: [] };
-      const leaseMs = Number(args[1] ?? 0);
-      return {
-        rows: [{
-          completed_at: row.completed ? new Date(row.writtenAtMs).toISOString() : null,
-          lease_expired: Date.now() - row.writtenAtMs > leaseMs,
-        }],
-      };
-    }
-    if (sql.includes('SET written_at = NOW()')) {           // lease takeover
-      const row = rows.get(key);
-      const leaseMs = Number(args[1] ?? 0);
-      if (!row || row.completed || Date.now() - row.writtenAtMs <= leaseMs) return { rows: [] };
-      row.writtenAtMs = Date.now();
-      return { rows: [{ key }] };
-    }
-    if (sql.includes('SET completed_at = NOW()')) {
-      const row = rows.get(key);
-      if (row) row.completed = true;
+      completed.add(key);
       return { rows: [] };
     }
-    if (sql.includes('DELETE FROM honcho_write_idempotency_keys')) {
-      rows.delete(key);
+    if (sql.includes('DELETE FROM memory_write_claim_leases')) {
+      leases.delete(key);
       return { rows: [] };
     }
     return { rows: [] };
   });
-  return { pool, rows };
+  return { pool, completed, leases };
 }
 
 const DUPE_INPUT = {
@@ -649,12 +658,13 @@ const DUPE_INPUT = {
 test('ITEM A — a COMPLETED claim: no Honcho call, reported as skipped_idempotent', () =>
   withEnv(PERF_ENV, async () => {
     const { transport, messageCalls } = capturePerfTransport();
-    const { pool, rows } = buildClaimsPool();
+    const { pool, completed, leases } = buildClaimsPool();
 
-    // First write completes and stamps the claim.
+    // First write completes and appends its final idempotency marker.
     assert.equal(await recordPerformanceEvent(DUPE_INPUT, pool as never, { transport }), 'appended');
     assert.equal(messageCalls.length, 1);
-    assert.equal([...rows.values()][0]!.completed, true, 'a successful append stamps completed_at');
+    assert.equal(completed.size, 1, 'a successful append records one completion key');
+    assert.equal(leases.size, 1, 'the completed lease remains as a concurrent-snapshot interlock');
 
     // Second sees the completed claim: safe to report as already written.
     const again = await recordPerformanceEvent(DUPE_INPUT, pool as never, { transport });
@@ -669,13 +679,14 @@ test('ITEM A — an UN-completed claim is never reported as idempotent (crash be
     // Reporting skipped_idempotent here makes the worker ledger a write that
     // never happened, and the observation is gone for good.
     const { transport, messageCalls } = capturePerfTransport();
-    const { pool, rows } = buildClaimsPool();
+    const { pool, completed, leases } = buildClaimsPool();
 
-    // Drive one real write so the row carries the real idempotency key…
+    // Drive one real write so the mock learns the real idempotency key…
     assert.equal(await recordPerformanceEvent(DUPE_INPUT, pool as never, { transport }), 'appended');
-    const key = [...rows.keys()][0]!;
-    // …then rewind it to "claimed just now, never completed".
-    rows.set(key, { writtenAtMs: Date.now(), completed: false });
+    const key = [...completed][0]!;
+    // …then rewind it to "leased just now, never completed".
+    completed.delete(key);
+    leases.set(key, Date.now());
 
     const outcome = await recordPerformanceEvent(DUPE_INPUT, pool as never, { transport });
     assert.equal(outcome, 'failed', 'an un-completed claim must stay due, not be ledgered as written');
@@ -685,33 +696,37 @@ test('ITEM A — an UN-completed claim is never reported as idempotent (crash be
 test('ITEM A — an orphaned claim past its lease is taken over and actually written', () =>
   withEnv(PERF_ENV, async () => {
     const { transport, messageCalls } = capturePerfTransport();
-    const { pool, rows } = buildClaimsPool();
+    const { pool, completed, leases } = buildClaimsPool();
 
     assert.equal(await recordPerformanceEvent(DUPE_INPUT, pool as never, { transport }), 'appended');
-    const key = [...rows.keys()][0]!;
+    const key = [...completed][0]!;
     // Older than the 1 h lease and never completed → a crash orphan, not a
     // live writer. Someone has to finish it or the observation is lost.
-    rows.set(key, { writtenAtMs: Date.now() - 3 * 60 * 60 * 1000, completed: false });
+    completed.delete(key);
+    leases.set(key, Date.now() - 3 * 60 * 60 * 1000);
 
     const outcome = await recordPerformanceEvent(DUPE_INPUT, pool as never, { transport });
     assert.equal(outcome, 'appended', 'the orphan is recovered rather than lost');
     assert.equal(messageCalls.length, 2);
-    assert.equal(rows.get(key)!.completed, true, 'and the recovered claim is stamped complete');
+    assert.equal(completed.has(key), true, 'and the recovered write appends its completion key');
   }));
 
 test('ITEM A — append failure releases the idempotency claim so the next tick retries', () =>
   withEnv(PERF_ENV, async () => {
-    const claimed = new Set<string>();
+    const leases = new Set<string>();
     const deletes: string[] = [];
     const pool = buildMockPool((sql, params) => {
       const key = String((params as unknown[] | undefined)?.[0] ?? '');
-      if (sql.includes('INSERT INTO honcho_write_idempotency_keys')) {
-        if (claimed.has(key)) return { rows: [] };
-        claimed.add(key);
-        return { rows: [{ key }] };
+      if (sql.includes('INSERT INTO memory_write_claim_leases')) {
+        if (leases.has(key)) return { rows: [{ disposition: 'in_flight' }] };
+        leases.add(key);
+        return { rows: [{ disposition: 'acquired' }] };
       }
-      if (sql.includes('DELETE FROM honcho_write_idempotency_keys')) {
-        claimed.delete(key);
+      if (sql.includes('INSERT INTO honcho_write_idempotency_keys')) {
+        return { rows: [] };
+      }
+      if (sql.includes('DELETE FROM memory_write_claim_leases')) {
+        leases.delete(key);
         deletes.push(key);
         return { rows: [] };
       }
@@ -733,7 +748,7 @@ test('ITEM A — append failure releases the idempotency claim so the next tick 
     const first = await recordPerformanceEvent(input, pool as never, { transport: down.transport });
     assert.equal(first, 'failed');
     assert.equal(deletes.length, 1, 'claim released');
-    assert.equal(claimed.size, 0);
+    assert.equal(leases.size, 0);
 
     // Tick 2: Honcho is back — the observation is NOT lost.
     const up = capturePerfTransport();

@@ -1008,30 +1008,15 @@ async function initDb() {
         written_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
 
-      -- written_at is the CLAIM time (the row is inserted BEFORE the Honcho
-      -- append). completed_at is stamped only once that append actually
-      -- succeeded, which is what makes "already claimed" answerable: a claim
-      -- with no completed_at is either in flight right now or was orphaned by a
-      -- crash between claim and append, and must NOT be reported as written.
-      --
-      -- The backfill has to run EXACTLY ONCE, at add time — hence the DO block
-      -- rather than ADD COLUMN IF NOT EXISTS plus an UPDATE. init-db runs on
-      -- every boot, and an unconditional backfill would stamp completed_at onto
-      -- claims that are genuinely in flight, silently re-breaking the thing this
-      -- column fixes. Every row that exists at add time predates the protocol,
-      -- where a surviving claim meant "written" (failures deleted their row), so
-      -- completed_at := written_at is the correct reading for exactly those.
-      DO $$
-      BEGIN
-        IF NOT EXISTS (
-          SELECT 1 FROM information_schema.columns
-          WHERE table_name = 'honcho_write_idempotency_keys'
-            AND column_name = 'completed_at'
-        ) THEN
-          ALTER TABLE honcho_write_idempotency_keys ADD COLUMN completed_at TIMESTAMPTZ;
-          UPDATE honcho_write_idempotency_keys SET completed_at = written_at;
-        END IF;
-      END $$;
+      -- Mutable operational state for performance-write claims. Successful
+      -- writes append their key to honcho_write_idempotency_keys; failures may
+      -- release this lease and crash orphans may take it over after one hour.
+      -- Keeping leases outside honcho_* preserves the PRD's append-only memory
+      -- contract without losing crash recovery.
+      CREATE TABLE IF NOT EXISTS memory_write_claim_leases (
+        key TEXT PRIMARY KEY,
+        claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
 
       -- Worker-side ledger for the honcho-performance-worker (delayed real-Meta
       -- performance -> Honcho memory). Distinct from honcho_write_idempotency_keys

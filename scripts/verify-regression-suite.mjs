@@ -550,11 +550,14 @@ const steps = [
     // tests/marketing/build-hermes-instructions.test.ts cannot make: its
     // verbatim mirror of the policy does not import the module, so it rots
     // silently rather than failing.
+    // The local-cookie test pins the VM-state allowlist and stdin/atomic-transfer
+    // security boundaries for the companion desktop refresh bundle.
     name: 'research depth + gateway auth pairing',
     args: [
       '--test',
       'tests/marketing/research-depth.test.ts',
       'tests/marketing/agent-reach-research-policy.test.ts',
+      'tests/local-cookie-agent.test.ts',
     ],
   },
   {

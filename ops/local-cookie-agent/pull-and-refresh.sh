@@ -37,7 +37,7 @@ if ! state="$(ssh -o BatchMode=yes -o ConnectTimeout=15 "$VM_SSH_TARGET" \
   exit 0
 fi
 
-stale="$(printf '%s' "$state" | ARIES_ALLOWED_PLATFORMS="$PLATFORMS" python3 - <<'PY'
+state_parser="$(cat <<'PY'
 import json, os, sys
 try:
     data = json.load(sys.stdin)
@@ -83,6 +83,8 @@ if ignored:
 print(" ".join(selected))
 PY
 )"
+stale="$(printf '%s' "$state" | ARIES_ALLOWED_PLATFORMS="$PLATFORMS" python3 -c "$state_parser")"
+unset state_parser
 
 if [ -z "${stale// /}" ]; then
   log "no stale sessions"

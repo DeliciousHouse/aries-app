@@ -75,6 +75,7 @@ function withEnv<T>(updates: Record<string, string | undefined>, fn: () => Promi
 // --- Mock pool -------------------------------------------------------------
 
 const IDEM_TABLE = 'honcho_write_idempotency_keys';
+const LEASE_TABLE = 'memory_write_claim_leases';
 const FINDINGS_TABLE = 'INSERT INTO aries_research_findings';
 
 type FindingInsert = { decision: string; peer: string | null; raw: Record<string, unknown> };
@@ -92,6 +93,13 @@ function buildPool() {
   let idemWins = 0;
   const pool = {
     query: async (sql: string, params?: unknown[]) => {
+      if (sql.includes(LEASE_TABLE) && sql.includes('INSERT')) {
+        const key = String((params as unknown[] | undefined)?.[0] ?? '');
+        return {
+          rows: [{ disposition: claimedKeys.has(key) ? 'completed' : 'acquired' }],
+          rowCount: 1,
+        };
+      }
       if (sql.includes(IDEM_TABLE) && sql.includes('ON CONFLICT')) {
         idemAttempts++;
         const key = String((params as unknown[] | undefined)?.[0] ?? '');

@@ -90,31 +90,12 @@ async function claimIdempotencyKey(key: string, client: typeof pool = pool): Pro
 }
 
 /**
- * Release a previously claimed idempotency key.
+ * How long a performance lease may sit before another tick may take it over.
  *
- * Claim-then-write is only safe if a failed write gives the key back. Without
- * this, one Honcho outage after a winning claim loses that observation
- * PERMANENTLY: the next tick re-claims nothing (key present → skip) and the
- * worker would ledger it as written. Best-effort — if the release itself fails
- * we log and move on rather than turning a soft failure into a thrown one.
- */
-async function releaseIdempotencyKey(key: string, client: typeof pool = pool): Promise<void> {
-  try {
-    await client.query('DELETE FROM honcho_write_idempotency_keys WHERE key = $1', [key]);
-  } catch (err) {
-    console.error('[honcho-write-events] failed to release idempotency key after write failure', err);
-  }
-}
-
-/**
- * How long a claim may sit un-completed before another tick may take it over.
- *
- * releaseIdempotencyKey only runs for failures this process CAUGHT. A process
- * killed between the claim and the append (OOM, deploy, SIGKILL) leaves a claim
- * with no write behind it and no one to release it. Without a lease the next
- * tick reads "already claimed", the worker ledgers it as written, and that
- * observation is lost permanently — the exact outcome the release path exists
- * to prevent, reached by a different road.
+ * A process killed between the lease and the append (OOM, deploy, SIGKILL)
+ * leaves no completion marker behind. The mutable lease is operational state,
+ * separate from the append-only `honcho_write_idempotency_keys` completion
+ * ledger, so it may be released or taken over without mutating Honcho records.
  *
  * Two worker ticks (30 min each). Long enough that a slow-but-live append is
  * never stolen mid-flight; short enough that a crash costs one extra cycle
@@ -122,64 +103,73 @@ async function releaseIdempotencyKey(key: string, client: typeof pool = pool): P
  */
 const PERFORMANCE_CLAIM_LEASE_MS = 60 * 60 * 1000;
 
-type ClaimDisposition = 'completed' | 'in_flight' | 'took_over' | 'gone';
+type PerformanceClaimDisposition = 'acquired' | 'completed' | 'in_flight';
 
 /**
- * Decide what an ALREADY-CLAIMED performance key means.
+ * Atomically acquire a performance-write lease unless the completion ledger
+ * already contains the key or another live writer owns the lease.
  *
- *   completed  — the append really happened; safe for the worker to ledger.
- *   in_flight  — someone claimed it recently and may still be writing; leave it
- *                due and retry next tick. Cheap: one row read.
- *   took_over  — the claim is older than the lease with no completion, i.e.
- *                orphaned by a crash. This caller now owns it and must write.
- *   gone       — the row vanished (a concurrent release after a failed write).
- *                Not written, so it must not be ledgered.
+ * The successful lease row is intentionally retained after completion. It
+ * closes a snapshot race where a concurrent caller can observe neither a just-
+ * committed completion nor a just-deleted lease and append twice.
  */
-async function resolveExistingClaim(key: string, client: typeof pool = pool): Promise<ClaimDisposition> {
-  const existing = await client.query(
-    `SELECT completed_at,
-            (written_at < NOW() - ($2::bigint * INTERVAL '1 millisecond')) AS lease_expired
-       FROM honcho_write_idempotency_keys
-      WHERE key = $1`,
+async function claimPerformanceWrite(
+  key: string,
+  client: typeof pool = pool,
+): Promise<PerformanceClaimDisposition> {
+  const result = await client.query(
+    `WITH acquired AS (
+       INSERT INTO memory_write_claim_leases (key, claimed_at)
+       SELECT $1, NOW()
+        WHERE NOT EXISTS (
+          SELECT 1 FROM honcho_write_idempotency_keys WHERE key = $1
+        )
+       ON CONFLICT (key) DO UPDATE
+         SET claimed_at = EXCLUDED.claimed_at
+       WHERE memory_write_claim_leases.claimed_at
+             < NOW() - ($2::bigint * INTERVAL '1 millisecond')
+       RETURNING key
+     )
+     SELECT CASE
+       WHEN EXISTS (SELECT 1 FROM honcho_write_idempotency_keys WHERE key = $1)
+         THEN 'completed'
+       WHEN EXISTS (SELECT 1 FROM acquired)
+         THEN 'acquired'
+       ELSE 'in_flight'
+     END AS disposition`,
     [key, PERFORMANCE_CLAIM_LEASE_MS],
   );
-  const row = existing.rows[0] as { completed_at?: unknown; lease_expired?: unknown } | undefined;
-  if (!row) return 'gone';
-  if (row.completed_at) return 'completed';
-  if (!row.lease_expired) return 'in_flight';
-
-  // Take over atomically. The WHERE clause is the interlock: if another tick
-  // completed or re-leased the claim between the read above and this update,
-  // zero rows come back and we defer to it rather than double-writing.
-  const takeover = await client.query(
-    `UPDATE honcho_write_idempotency_keys
-        SET written_at = NOW()
-      WHERE key = $1
-        AND completed_at IS NULL
-        AND written_at < NOW() - ($2::bigint * INTERVAL '1 millisecond')
-      RETURNING key`,
-    [key, PERFORMANCE_CLAIM_LEASE_MS],
-  );
-  return takeover.rows.length > 0 ? 'took_over' : 'in_flight';
+  const disposition = result.rows[0]?.disposition;
+  return disposition === 'completed' || disposition === 'acquired' ? disposition : 'in_flight';
 }
 
 /**
- * Stamp a claim as genuinely written. Best-effort by design.
+ * Append a final completion marker after the Honcho write succeeds.
  *
  * If this fails after a successful append, the caller still returns `appended`
  * and the worker still ledgers, so nothing is lost. The only cost is that a
- * later re-drive (ledger row also missing) could append the observation twice.
+ * later re-drive after the lease expires could append the observation twice.
  * A duplicate observation is visible and harmless; a dropped one is silent and
  * permanent — so this failure leans the safe way.
  */
-async function completeIdempotencyKey(key: string, client: typeof pool = pool): Promise<void> {
+async function completePerformanceWrite(key: string, client: typeof pool = pool): Promise<void> {
   try {
     await client.query(
-      'UPDATE honcho_write_idempotency_keys SET completed_at = NOW() WHERE key = $1',
+      `INSERT INTO honcho_write_idempotency_keys (key) VALUES ($1)
+       ON CONFLICT (key) DO NOTHING`,
       [key],
     );
   } catch (err) {
     console.error('[honcho-write-events] failed to mark idempotency key completed after a successful write', err);
+  }
+}
+
+/** Release only the mutable operational lease after a caught append failure. */
+async function releasePerformanceClaim(key: string, client: typeof pool = pool): Promise<void> {
+  try {
+    await client.query('DELETE FROM memory_write_claim_leases WHERE key = $1', [key]);
+  } catch (err) {
+    console.error('[honcho-write-events] failed to release performance lease after write failure', err);
   }
 }
 
@@ -768,9 +758,8 @@ export type RecordPublishPerformanceHonchoWriteInput = {
  * tick retries it.
  *
  * `skipped_idempotent` therefore carries a strong promise: the observation is
- * in Honcho. It is returned only for a claim stamped `completed_at`, never for
- * one that merely exists — a claim with no completion is an in-flight write or
- * a crash orphan, and both come back as `failed` so they stay due.
+ * in Honcho. It is returned only for a key in the append-only completion
+ * ledger, never for an operational lease by itself.
  */
 export type RecordPerformanceOutcome =
   | 'appended'
@@ -842,7 +831,7 @@ function dashYmd(ymd: string): string {
  *   "Brand memory" block in the strategy prompt.
  *
  * Fail-open: every failure path returns an outcome instead of throwing, and a
- * failed append RELEASES the idempotency claim so the next tick retries.
+ * failed append releases its operational lease so the next tick retries.
  */
 export async function recordPerformanceEvent(
   input: RecordPublishPerformanceHonchoWriteInput,
@@ -876,22 +865,15 @@ export async function recordPerformanceEvent(
   // note in insights-513-contract.ts. Keying on the publish day alone would cap
   // a post at one observation for life while the ledger re-offered it daily.
   const key = idempotencyKey([jobId, 'publish', platform, ymd, observationYmd]);
-  const claimed = await claimIdempotencyKey(key, client);
-  if (!claimed) {
-    // "Already claimed" is not the same as "already written" — see
-    // resolveExistingClaim. Only a COMPLETED claim may be reported as
-    // idempotent, because the worker ledgers that outcome permanently.
-    const disposition = await resolveExistingClaim(key, client);
-    if (disposition === 'completed') return 'skipped_idempotent';
-    if (disposition !== 'took_over') {
-      // in_flight (another writer is mid-append) or gone (its claim was
-      // released after a failure). Neither is written, so stay due.
-      return 'failed';
-    }
-    console.warn(
-      `[honcho-write-events] recovering an orphaned performance claim job=${jobId} platform=${platform} observation=${observationYmd}`,
-    );
+  let disposition: PerformanceClaimDisposition;
+  try {
+    disposition = await claimPerformanceWrite(key, client);
+  } catch (err) {
+    console.error('[honcho-write-events] failed to claim performance lease', err);
+    return 'failed';
   }
+  if (disposition === 'completed') return 'skipped_idempotent';
+  if (disposition === 'in_flight') return 'failed';
 
   const metricsBag =
     scrubbed.metrics && typeof scrubbed.metrics === 'object' && !Array.isArray(scrubbed.metrics)
@@ -935,15 +917,13 @@ export async function recordPerformanceEvent(
         ...(horizonLabel ? { observation_horizon: horizonLabel } : {}),
       },
     });
-    // The append is done — record that, so a later tick can tell this claim
-    // apart from one whose process died before ever reaching Honcho.
-    await completeIdempotencyKey(key, client);
+    // The append is done — record that in the append-only completion ledger.
+    await completePerformanceWrite(key, client);
     return 'appended';
   } catch (err) {
     console.error('[honcho-write-events] recordPerformanceEvent failed', err);
-    // Give the key back — otherwise this observation is lost forever while the
-    // worker's next tick sees "already claimed" and ledgers it as done.
-    await releaseIdempotencyKey(key, client);
+    // Give the lease back so the next tick can retry immediately.
+    await releasePerformanceClaim(key, client);
     return 'failed';
   }
 }
