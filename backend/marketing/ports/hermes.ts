@@ -254,6 +254,51 @@ const LAST30DAYS_GUIDANCE = [
   'Fold the social-signal findings from `last30days` into the research output artifacts.',
 ];
 
+/**
+ * The publish stage's schedule contract (audit item 4a).
+ *
+ * WHY THIS EXISTS: `readWeeklySchedule` (backend/marketing/hermes-callbacks.ts)
+ * reads `stages.publish.primary_output.schedule` and NOTHING else, and
+ * `computeAutoScheduleSlots` (backend/marketing/auto-schedule.ts) turns each
+ * entry's `recommended_day` into a concrete tenant-local timestamp. Until now
+ * the publish prompt never named that array, so the strategist-facing contract
+ * was implicit: a run that omitted `schedule` silently degraded to the generic
+ * consecutive-day cadence ladder with no error anywhere.
+ *
+ * The shape stated here is deliberately the shape the EXISTING parser already
+ * accepts (`platforms[]`, `placement`, `media_type`, per-entry
+ * `recommended_day`) — the prompt is being aligned to the parser, not the
+ * reverse. Do not describe fields the parser does not read.
+ */
+const PUBLISH_SCHEDULE_CONTRACT =
+  'SCHEDULE CONTRACT (load-bearing — Aries schedules from this array and from nothing else):'
+  + ' output[0].schedule MUST be an array with exactly ONE entry per post in the production content_package, in post_number order.'
+  + ' Each entry: {"post_number":<the SAME integer as the content_package entry>,'
+  + ' "recommended_day":"Monday"|"Tuesday"|"Wednesday"|"Thursday"|"Friday"|"Saturday"|"Sunday",'
+  + ' "platforms":["instagram","facebook",...], "placement":"feed"|"story"|"reel", "media_type":"image"|"video"}.'
+  + ' recommended_day is the FULL English weekday NAME only — never a date, never "Day 1", never an abbreviation, never null.'
+  + ' It is your editorial call on when that piece lands in the week: spread the week deliberately (do not put every post on the same day)'
+  + ' and order the days so the narrative reads in sequence (teaser before offer).'
+  + ' WHY IT MATTERS: Aries converts recommended_day into a concrete tenant-local timestamp per post.'
+  + ' When an entry is missing, or recommended_day is absent or unparseable, that post silently falls back to a generic'
+  + ' consecutive-day ladder and your sequencing is discarded — an omitted day is not a neutral default, it is a lost decision.'
+  + ' Emit the array even when a day repeats, and never emit a schedule entry for a post_number that does not exist in content_package.';
+
+/**
+ * The publish-finalize carry-through rule.
+ *
+ * WHY THIS EXISTS: `markStageCompleted` (backend/marketing/runtime-state.ts)
+ * does `record.primary_output = input.primaryOutput ?? record.primary_output`,
+ * so the FINALIZE run's output OVERWRITES the first publish run's stored
+ * artifact. A finalize response that drops `schedule` therefore erases the
+ * approved timing plan after the fact — the exact failure PUBLISH_SCHEDULE_CONTRACT
+ * exists to prevent. This instruction is required, not decorative.
+ */
+const PUBLISH_FINALIZE_SCHEDULE_CARRY_THROUGH =
+  'CARRY THE SCHEDULE THROUGH: the publish plan in your input already contains a `schedule` array.'
+  + ' Copy it into your output VERBATIM — the same entries, the same post_number values, the same recommended_day values.'
+  + ' This run OVERWRITES the stored publish artifact, so dropping or re-deriving the schedule here destroys the approved timing plan.';
+
 const PRODUCTION_EXECUTION_CONTRACT =
   'PRODUCTION STAGE EXECUTION CONTRACT: When the input contains "Production context (N images requested)", you MUST return BOTH content_package[] AND artifacts.creative_assets[]. One without the other is incomplete and will fail downstream publish. (A) Call the `image_generate` tool exactly once per image listed — do not return JSON until every image_generate call has completed. (B) Build content_package[] with one entry per post: {post_number, theme, hook, body, cta, hashtags (array of 3-6 relevant hashtags), platforms, format, visual_prompt}. The Nth creative_asset corresponds to the Nth content_package post via post_number. content_package carries the post COPY (caption text, hooks, hashtags). creative_assets carries the rendered IMAGES. Return output:[{stage:"production", content_package:[{post_number:1, theme:"...", hook:"...", body:"...", cta:"...", hashtags:["#tag1","#tag2","#tag3"], platforms:["instagram","facebook"], format:"single_image", visual_prompt:"..."},...], artifacts:{creative_assets:[{assetId:"img_1", type:"generated_image", path:<absolute path returned by image_generate>, prompt:<the rendered visual prompt>, placement:<which post number>}, ...], errors:[]}}]. If image_generate returns success:false for an item, record it in artifacts.errors[] and continue.';
 
@@ -344,6 +389,10 @@ function buildWeeklyStrategyInstructions(workflowKey: string): string {
     'The input contains the prior research stage output as JSON. Produce a weekly content strategy from it: positioning, creative direction, channel adaptation, and a post-by-post plan.',
     GROWTH_OBJECTIVE_KPI,
     STRATEGY_GROWTH_DIRECTIVE,
+    // Feeds the publish stage's schedule[] (PUBLISH_SCHEDULE_CONTRACT). Nothing
+    // parses `proposed_day` — it exists so the publish agent has a day to
+    // confirm or adjust rather than inventing the whole week from scratch.
+    'For each post in your post-by-post plan include a proposed_day (a full English weekday name) — the publish stage will confirm or adjust it into the final schedule[] that Aries actually schedules from.',
     'Reply with a single strict JSON object only — no prose, no markdown fences.',
     'After completing the strategy stage, return status "requires_approval" with approval.stage="production", approval.approval_step="approve_post_copy", approval.workflowStepId="approve_stage_3", approval.prompt="Review strategy before production starts", approval.resumeToken set, and output:[{stage:"strategy", ...artifacts}].',
     `Required schema: {"ok":true,"status":"requires_approval","workflowKey":"${workflowKey}","approval":{"stage":"production","approval_step":"approve_post_copy","workflowStepId":"approve_stage_3","prompt":"...","resumeToken":"..."},"output":[{"stage":"strategy", ...}]}.`,
@@ -368,9 +417,10 @@ function buildWeeklyPublishInstructions(workflowKey: string): string {
     'You have no tools — you reason purely over the production output supplied in the input. Produce a publish-ready plan: per-post platform targeting, scheduling notes, and a final pre-flight check.',
     GROWTH_OBJECTIVE_KPI,
     PUBLISH_GROWTH_DIRECTIVE,
+    PUBLISH_SCHEDULE_CONTRACT,
     'Reply with a single strict JSON object only — no prose, no markdown fences.',
     'After completing the publish stage, return status "requires_approval" with approval.stage="publish", approval.approval_step="approve_publish", approval.workflowStepId="approve_stage_4_publish", approval.prompt="Approve to publish the weekly social content", approval.resumeToken set, and output:[{stage:"publish", ...artifacts}].',
-    `Required schema: {"ok":true,"status":"requires_approval","workflowKey":"${workflowKey}","approval":{"stage":"publish","approval_step":"approve_publish","workflowStepId":"approve_stage_4_publish","prompt":"...","resumeToken":"..."},"output":[{"stage":"publish", ...}]}.`,
+    `Required schema: {"ok":true,"status":"requires_approval","workflowKey":"${workflowKey}","approval":{"stage":"publish","approval_step":"approve_publish","workflowStepId":"approve_stage_4_publish","prompt":"...","resumeToken":"..."},"output":[{"stage":"publish","schedule":[{"post_number":1,"recommended_day":"Tuesday","platforms":["instagram","facebook"],"placement":"feed","media_type":"image"}], ...}]}.`,
   ].join(' ');
 }
 
@@ -387,6 +437,7 @@ function buildWeeklyPublishFinalizeInstructions(workflowKey: string): string {
   return [
     'You are the Aries publish-finalize agent. The weekly social content publish review has ALREADY been approved.',
     'You have no tools. Reason over the publish plan supplied in the input and emit the final pipeline result.',
+    PUBLISH_FINALIZE_SCHEDULE_CARRY_THROUGH,
     'Reply with a single strict JSON object only — no prose, no markdown fences.',
     'This is the FINAL stage. Return status "completed" with NO approval object — the publish review is already approved and the pipeline is finished. Do not ask for any further approval.',
     `Required schema: {"ok":true,"status":"completed","workflowKey":"${workflowKey}","output":[{"stage":"publish", ...artifacts}]}.`,

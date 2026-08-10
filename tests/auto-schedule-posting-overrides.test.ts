@@ -89,7 +89,12 @@ const STRATEGIST_ROWS: AutoScheduleInputRow[] = [
   { postId: 2, platform: 'facebook', recommendedDay: 'Wednesday' },
 ];
 
-test('strategist path: override moves the hour, the strategist day still wins', () => {
+// NOTE: "the strategist day always wins here" is no longer the WHOLE contract —
+// an analytics-sourced override that ranks >= 2 days can nudge the day by up to
+// 2 calendar days (tests/auto-schedule-day-blend.test.ts). This override has
+// neither property (no `source`, one ranked day), so the day is still untouched;
+// the counterpart below shows the one case that does move.
+test('strategist path: override moves the hour; derived days without source=analytics never move the day', () => {
   const result = computeAutoScheduleSlots({
     rows: STRATEGIST_ROWS,
     tenantTimezone: TZ,
@@ -101,10 +106,30 @@ test('strategist path: override moves the hour, the strategist day still wins', 
   assert.equal(result.slots.length, 2);
   const ig = result.slots.find((s) => s.platform === 'instagram')!;
   const igLocal = localDayAndTime(ig.scheduledFor);
-  assert.equal(igLocal.day, 3, 'strategist Wednesday wins over derived days on this path');
+  assert.equal(igLocal.day, 3, 'strategist Wednesday survives a competitor/unsourced ranking');
   assert.equal(igLocal.time, '19:00', 'derived hour applies');
   const fb = result.slots.find((s) => s.platform === 'facebook')!;
   assert.equal(localDayAndTime(fb.scheduledFor).time, '13:05', 'un-overridden platform keeps its default');
+});
+
+test('strategist path: an analytics-sourced ranking of >= 2 days DOES move the day (and only that platform)', () => {
+  const result = computeAutoScheduleSlots({
+    rows: STRATEGIST_ROWS,
+    tenantTimezone: TZ,
+    campaignStart: WINDOW_START,
+    campaignEnd: WINDOW_END,
+    now: NOW,
+    slotOverrides: { instagram: { hour: 19, minute: 0, days: [5, 1], source: 'analytics' } },
+  });
+  const ig = result.slots.find((s) => s.platform === 'instagram')!;
+  assert.equal(localDayAndTime(ig.scheduledFor).day, 5, 'Wednesday nudged +2 onto the top-ranked Friday');
+  assert.equal(localDayAndTime(ig.scheduledFor).time, '19:00', 'derived hour still applies');
+  const fb = result.slots.find((s) => s.platform === 'facebook')!;
+  assert.equal(
+    localDayAndTime(fb.scheduledFor).day,
+    3,
+    'facebook has no override of its own, so it keeps the strategist day — the blend is per platform',
+  );
 });
 
 test('strategist path: no overrides is byte-identical to omitting the parameter', () => {

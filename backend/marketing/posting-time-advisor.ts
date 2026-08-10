@@ -562,8 +562,13 @@ export async function loadPostingTimeOverrides(
   if (!isAiPostingTimesEnabled(env)) return null;
   if (!Number.isFinite(tenantId) || tenantId <= 0) return null;
   try {
+    // `source` is selected so the auto-schedule day-blend can tell a ranking
+    // derived from the tenant's OWN engagement ('analytics') apart from an LLM
+    // guess about a competitor's habits ('competitor'). Only the former is
+    // allowed to move a strategist-chosen day; the hour override is unaffected
+    // by provenance and applies to both.
     const result = await queryable.query(
-      'SELECT platform, hour, minute, days FROM marketing_posting_times WHERE tenant_id = $1',
+      'SELECT platform, hour, minute, days, source FROM marketing_posting_times WHERE tenant_id = $1',
       [tenantId],
     );
     const overrides: PostingTimeSlotOverrides = {};
@@ -576,6 +581,9 @@ export async function loadPostingTimeOverrides(
         hour,
         minute: asIntInRange(raw.minute, 0, 59) ?? 0,
         days: normalizeDays(raw.days),
+        // Same normalization the settings-card projection uses: anything that
+        // is not exactly 'analytics' is treated as the weaker 'competitor'.
+        source: raw.source === 'analytics' ? 'analytics' : 'competitor',
       };
       count += 1;
     }

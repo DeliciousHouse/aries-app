@@ -104,10 +104,14 @@ services:
       ARIES_SAME_PLATFORM_MIN_SPACING_MINUTES: ${ARIES_SAME_PLATFORM_MIN_SPACING_MINUTES:-30}
       # Weekly cross-post fan-out: additionally synthesize x/linkedin/reddit posts
       # (platform-adapted captions, same feed image) for each FB/IG feed image,
-      # per platform whose flag is ON and that the tenant has connected. Default
-      # OFF => synthesis is byte-identical (FB/IG only). Go-live also needs the
-      # per-platform ARIES_<P>_ENABLED + COMPOSIO_<P>_PUBLISH_POST_ACTION slugs.
-      ARIES_WEEKLY_CROSSPOST_ENABLED: ${ARIES_WEEKLY_CROSSPOST_ENABLED:-0}
+      # per platform whose ARIES_<P>_ENABLED flag is ON and that the tenant has
+      # connected. Default ON: the fan-out is inert unless a per-platform flag is
+      # ON *and* an account is connected, so the effective distribution decision
+      # lives in ARIES_X_ENABLED / ARIES_LINKEDIN_ENABLED / ARIES_REDDIT_ENABLED
+      # (all default false) rather than in this master switch. Go-live per
+      # platform also needs COMPOSIO_<P>_PUBLISH_POST_ACTION. Reddit is skipped
+      # automatically when COMPOSIO_REDDIT_TARGET_SUBREDDIT is unset.
+      ARIES_WEEKLY_CROSSPOST_ENABLED: ${ARIES_WEEKLY_CROSSPOST_ENABLED:-1}
       # AI-derived per-platform posting times: every content-generation start
       # re-derives WHEN posts publish per platform — from the tenant's own
       # insights engagement once >= MIN_ANALYTICS_POSTS posts have metrics, else
@@ -116,6 +120,16 @@ services:
       # PLATFORM_POSTING_DEFAULTS, fail-open. Default OFF => scheduling is
       # byte-identical to today (no derivation runs, no reads).
       ARIES_AI_POSTING_TIMES_ENABLED: ${ARIES_AI_POSTING_TIMES_ENABLED:-0}
+      # Analytics day blend (kill switch, default ON). On the strategist path,
+      # when a platform's derived row is source='analytics' and ranks >= 2 days
+      # and the strategist's recommended_day is NOT among them, the post is
+      # nudged to the nearest ranked day — max 2 calendar days, feed surface
+      # only, abandoned if the target slot is already claimed by a sibling's
+      # explicit strategist day. Competitor-sourced rows never move a day. Set
+      # to 0 to revert to "strategist day always wins" WITHOUT losing the
+      # hour/minute override (which is what turning off AI posting times would
+      # cost). Inert while ARIES_AI_POSTING_TIMES_ENABLED=0.
+      ARIES_SCHEDULE_DAY_BLEND_ENABLED: ${ARIES_SCHEDULE_DAY_BLEND_ENABLED:-1}
       # Weekly performance context: injects the tenant's own last-28-day content
       # performance (top 3 + bottom 3 posts by engagement, 4-week follower
       # trend) into the STRATEGY prompt, plus a 2-line condensed version into
@@ -401,8 +415,11 @@ services:
       # Reddit publish (#641) — only consulted when ARIES_REDDIT_ENABLED=true and
       # PUBLISH_PROVIDER=composio/auto. Publish runs in the app process (the
       # scheduled-posts-worker only POSTs to the route), so these live here only.
-      # No media-upload action (image is the kind=link url). TARGET_SUBREDDIT
-      # unset → the connected user's own profile (u_<username>); FLAIR_ID optional.
+      # No media-upload action (image is the kind=link url). TARGET_SUBREDDIT is
+      # REQUIRED for reddit publish (Reddit's `sr` addresses communities only —
+      # there is no u_<username> profile fallback); unset → reddit is skipped by
+      # the weekly crosspost producer and refused up-front by the publisher.
+      # FLAIR_ID optional.
       #   COMPOSIO_REDDIT_PUBLISH_POST_ACTION=REDDIT_CREATE_REDDIT_POST
       COMPOSIO_REDDIT_PUBLISH_POST_ACTION: ${COMPOSIO_REDDIT_PUBLISH_POST_ACTION:-}
       COMPOSIO_REDDIT_TARGET_SUBREDDIT: ${COMPOSIO_REDDIT_TARGET_SUBREDDIT:-}

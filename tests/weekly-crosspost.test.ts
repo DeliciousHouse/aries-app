@@ -208,10 +208,14 @@ test('adaptCaptionForPlatform: reddit with empty body still yields a title', () 
 // resolveCrosspostPlatforms — flag + connected-account gating, fail-open.
 // ---------------------------------------------------------------------------
 
+// Reddit needs BOTH its rollout flag and an explicit target subreddit — the
+// publisher hard-refuses without one, so the producer skips it. "All flags on"
+// therefore has to include the subreddit to keep reddit in the eligible set.
 const ALL_FLAGS_ON = {
   ARIES_X_ENABLED: '1',
   ARIES_LINKEDIN_ENABLED: '1',
   ARIES_REDDIT_ENABLED: '1',
+  COMPOSIO_REDDIT_TARGET_SUBREDDIT: 'r/test',
 };
 
 function fakePool(rows: Array<{ platform: string }>, opts: { throwOnQuery?: boolean } = {}) {
@@ -241,6 +245,7 @@ test('resolveCrosspostPlatforms: a flag-OFF platform is excluded even if connect
     ARIES_X_ENABLED: '1',
     ARIES_LINKEDIN_ENABLED: '0', // OFF
     ARIES_REDDIT_ENABLED: '1',
+    COMPOSIO_REDDIT_TARGET_SUBREDDIT: 'r/test',
   });
   assert.deepEqual(out, ['x', 'reddit']);
   // The query is scoped to the flag-enabled platforms only ($2 = ['x','reddit']).
@@ -264,6 +269,48 @@ test('resolveCrosspostPlatforms: DB error fails open to []', async () => {
   const pool = fakePool([], { throwOnQuery: true });
   const out = await resolveCrosspostPlatforms(15, pool, ALL_FLAGS_ON);
   assert.deepEqual(out, [], 'a DB error must never break synthesis — fail open to []');
+});
+
+// ── reddit config gate (COMPOSIO_REDDIT_TARGET_SUBREDDIT) ───────────────────
+// The publisher throws ComposioCapabilityMissingError without a subreddit and
+// there is no u_<username> fallback, so synthesizing reddit rows here would
+// manufacture posts guaranteed to fail terminally at dispatch, every week.
+
+test('resolveCrosspostPlatforms: reddit is skipped when COMPOSIO_REDDIT_TARGET_SUBREDDIT is unset', async () => {
+  const pool = fakePool([{ platform: 'x' }, { platform: 'linkedin' }, { platform: 'reddit' }]);
+  const out = await resolveCrosspostPlatforms(15, pool, {
+    ARIES_X_ENABLED: '1',
+    ARIES_LINKEDIN_ENABLED: '1',
+    ARIES_REDDIT_ENABLED: '1', // flag ON, but no subreddit configured
+  });
+  assert.deepEqual(out, ['x', 'linkedin'], 'reddit dropped despite flag ON and account connected');
+  assert.deepEqual(pool.calls[0].params?.[1], ['x', 'linkedin'], 'the query is scoped to the surviving platforms');
+});
+
+test('resolveCrosspostPlatforms: a whitespace-only subreddit counts as unset', async () => {
+  const pool = fakePool([{ platform: 'reddit' }, { platform: 'x' }]);
+  const out = await resolveCrosspostPlatforms(15, pool, {
+    ARIES_X_ENABLED: '1',
+    ARIES_REDDIT_ENABLED: '1',
+    COMPOSIO_REDDIT_TARGET_SUBREDDIT: '   ',
+  });
+  assert.deepEqual(out, ['x']);
+});
+
+test('resolveCrosspostPlatforms: reddit-only with no subreddit => [] and no DB query', async () => {
+  const pool = fakePool([{ platform: 'reddit' }]);
+  const out = await resolveCrosspostPlatforms(15, pool, { ARIES_REDDIT_ENABLED: '1' });
+  assert.deepEqual(out, []);
+  assert.equal(pool.calls.length, 0, 'nothing eligible → the early return still short-circuits the query');
+});
+
+test('resolveCrosspostPlatforms: reddit IS included once the subreddit is set (happy-path guard)', async () => {
+  const pool = fakePool([{ platform: 'reddit' }]);
+  const out = await resolveCrosspostPlatforms(15, pool, {
+    ARIES_REDDIT_ENABLED: '1',
+    COMPOSIO_REDDIT_TARGET_SUBREDDIT: 'somecommunity',
+  });
+  assert.deepEqual(out, ['reddit']);
 });
 
 test('resolveCrosspostPlatforms: single query, no fan-out (guardrail #1)', async () => {
