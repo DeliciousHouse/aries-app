@@ -116,6 +116,14 @@ services:
       # PLATFORM_POSTING_DEFAULTS, fail-open. Default OFF => scheduling is
       # byte-identical to today (no derivation runs, no reads).
       ARIES_AI_POSTING_TIMES_ENABLED: ${ARIES_AI_POSTING_TIMES_ENABLED:-0}
+      # Weekly performance context: injects the tenant's own last-28-day content
+      # performance (top 3 + bottom 3 posts by engagement, 4-week follower
+      # trend) into the STRATEGY prompt, plus a 2-line condensed version into
+      # the weekly research request. Default ON because it is additive and
+      # fail-open — a tenant with no insights_* rows gets no block at all, and a
+      # query failure degrades to no block. Set to 0 to restore byte-identical
+      # prompts. Only aries-app submits Hermes runs, so no sidecar needs it.
+      ARIES_PERF_CONTEXT_ENABLED: ${ARIES_PERF_CONTEXT_ENABLED:-1}
       # Minimum measured own-posts per platform before the analytics source
       # replaces the competitor source (default 8).
       ARIES_POSTING_TIMES_MIN_ANALYTICS_POSTS: ${ARIES_POSTING_TIMES_MIN_ANALYTICS_POSTS:-8}

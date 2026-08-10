@@ -35,6 +35,12 @@ import {
 } from '../../social-content/workflow-request';
 import { isTasteBriefInjectionEnabled } from '../taste-brief-injection-env';
 import { loadTasteForBriefByTenant, type TasteDimensions } from '../taste-profile-store';
+import { isPerfContextEnabled } from '../performance-context-env';
+import {
+  loadPerformanceContext,
+  type PerformanceContext,
+  type PerformanceContextQueryable,
+} from '../performance-context';
 import type {
   HermesWorkflowOutput,
   MarketingExecutionResult,
@@ -423,6 +429,12 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       new Promise((resolve) => setTimeout(resolve, ms)),
     private readonly brandKitRefresher: HermesBrandKitRefresher = ensureFreshBrandKitForWeeklyRun,
     private readonly callbackTokenClient: HermesCallbackTokenClient = pool,
+    /**
+     * Query surface for the weekly performance context (insights_* reads).
+     * Positional + defaulted so every existing construction site compiles
+     * unchanged; tests inject a fake to keep the DB out of the loop.
+     */
+    private readonly perfQueryable: PerformanceContextQueryable = pool,
   ) {}
 
   async runPipeline(input: MarketingPipelineRunInput): Promise<MarketingExecutionResult> {
@@ -744,8 +756,38 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       ? await loadTasteForBriefByTenant(input.tenantId).catch(() => null)
       : null;
 
+    // GROWTH LOOP (ARIES_PERF_CONTEXT_ENABLED, default ON): the tenant's own
+    // last-28-day content performance, injected into the STRATEGY prompt and —
+    // condensed to two lines — into the weekly research request. Scoped to the
+    // stages that actually render it so production/publish auto-advance runs
+    // issue zero extra queries.
+    //
+    // The weekly resume→run conversion in submissionPayload defaults its stage
+    // to 'strategy' (`input.stage ?? 'strategy'`), and resumeStageFromInput
+    // returns undefined for a token-only resume with no approval step — so the
+    // resume arm must treat an unknown stage as 'strategy' too, otherwise that
+    // path submits a strategy run with the block silently missing.
+    const perfStage = isWeeklyResume ? (effectiveStage ?? 'strategy') : effectiveStage;
+    const perfTenantId = input.tenantId ?? productionDoc?.tenant_id ?? input.doc?.tenant_id;
+    const wantsPerfContext =
+      (action === 'run' && !!input.doc && usesPerStageProfilePipeline(input.doc)
+        // A regenerate/image-edit run is a single-creative operation carrying
+        // its own per-image scope; it neither renders the block nor benefits
+        // from it, so it keeps its byte-identical request (same exclusion the
+        // production context block makes).
+        && !input.regenerateCreative
+        && (perfStage === undefined || perfStage === 'research' || perfStage === 'strategy'))
+      || (isWeeklyResume && input.approve === true && perfStage === 'strategy');
+    const perfContext = wantsPerfContext && perfTenantId && isPerfContextEnabled(this.env)
+      ? await loadPerformanceContext({
+        tenantId: perfTenantId,
+        queryable: this.perfQueryable,
+        env: this.env,
+      }).catch(() => null)
+      : null;
+
     const payload = this.submissionPayload(
-      action, run.aries_run_id, resolvedInput, workflowKey, callbackToken, memoryContextSnapshot, productionDoc, tasteProjection,
+      action, run.aries_run_id, resolvedInput, workflowKey, callbackToken, memoryContextSnapshot, productionDoc, tasteProjection, perfContext,
     );
     try {
       if (effectiveStage === 'production' && isVideoRenderHermesSubmission(payload)) {
@@ -1190,6 +1232,11 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     productionDoc?: SocialContentJobRuntimeDocument | null,
     /** Pre-loaded per-tenant taste projection (PR2), spliced into the production brief. */
     tasteProjection?: TasteDimensions | null,
+    /**
+     * Pre-loaded 28-day performance block. Null when the flag is off, the
+     * stage does not render it, or the tenant has no measured insights rows.
+     */
+    perfContext?: PerformanceContext | null,
   ): Record<string, unknown> {
     const callbackAuth = {
       type: 'internal_api_secret_bearer',
@@ -1270,6 +1317,14 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         baseRunLines.push('', ctx.contextBlock);
       }
 
+      // GROWTH LOOP: last week's own-account performance, placed beside
+      // "Prior stage output (JSON)" so the strategist plans against the
+      // scoreboard instead of from zero. Guarded — with the flag off or no
+      // insights rows the prompt is byte-identical to pre-change.
+      if (stage === 'strategy' && perfContext) {
+        baseRunLines.push('', perfContext.full);
+      }
+
       const runPrompt = baseRunLines.join('\n');
       return {
         input: runPrompt,
@@ -1307,6 +1362,10 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         ariesRunId,
         callbackUrl: this.callbackUrl(),
         regenerateCreative: input.regenerateCreative,
+        // GROWTH LOOP: two-line performance summary on the weekly research
+        // request. Conditional-spread downstream, so a null keeps the request
+        // JSON byte-identical to pre-change.
+        performanceSummary: perfContext?.condensed ?? null,
       });
       const idempotencyKey = generateIdempotencyKey(ariesRunId, request.workflow_version, input.tenantId ?? '');
       // Hermes /v1/runs is an OpenAI-style chat-completions endpoint: `input`
@@ -1333,6 +1392,13 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       ];
       if (startingStage) {
         promptLines.push(`Starting stage: ${startingStage}`);
+      }
+      // GROWTH LOOP: the strategy stage is also reached through THIS branch
+      // when a stage completes without an approval checkpoint (submitNextStage
+      // → action:'run'). Inject the same full block the approval-resume path
+      // gets, so autonomous and gated runs stay in lockstep.
+      if (input.stage === 'strategy' && perfContext) {
+        promptLines.push('', perfContext.full);
       }
       // BRAND-RENDER FIX: the auto-advanced production run (submitNextStage →
       // action:'run' → buildSocialContentWeeklyRequest) must carry the SAME hard

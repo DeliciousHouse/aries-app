@@ -359,6 +359,21 @@ const steps = [
     ],
   },
   {
+    // Weekly performance context (ARIES_PERF_CONTEXT_ENABLED): the env flag
+    // (default ON), the pure block formatter + its SQL contract (latest
+    // lifetime snapshot, comments_count, caption/permalink sanitisation), and
+    // the port-level injection points — strategy prompt on both the
+    // approval-resume and auto-advance paths, plus the condensed line on the
+    // weekly research request. Fully in-memory.
+    name: 'weekly performance context',
+    args: [
+      '--test',
+      'tests/performance-context-env.test.ts',
+      'tests/marketing/performance-context.test.ts',
+      'tests/marketing/performance-context-injection.test.ts',
+    ],
+  },
+  {
     name: 'partner attribution (VMS) unit tests',
     args: [
       '--test',
