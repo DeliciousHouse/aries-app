@@ -34,7 +34,11 @@ import {
   type MarketingStage,
 } from './runtime-state';
 import { getMarketingExecutionPort, type MarketingExecutionPort } from './execution-port';
-import { scheduleHermesPublishPerformanceHonchoWrite } from '@/backend/memory/write-events';
+import {
+  resolveTenantSlugForMemoryWrite,
+  scheduleHermesPublishPerformanceHonchoWrite,
+} from '@/backend/memory/write-events';
+import { isHonchoEnabled, isHonchoWriteApprovalsEnabled } from '@/backend/memory/honcho-env';
 import { approveSocialContentJob } from './orchestrator';
 import type { ApproveSocialContentJobRequest, ApproveSocialContentJobResponse } from './orchestrator';
 import { ingestProductionCreativeAssetsToDb, isVariantBoardJobAwaitingPick } from './ingest-production-assets';
@@ -1255,6 +1259,8 @@ export async function maybeAutoApproveMarketingCheckpoint(
   approve: AutoApproveFn = approveSocialContentJob,
   env: NodeJS.ProcessEnv = process.env,
   payload?: HermesRunCallbackPayload,
+  /** Test seam for the memory-actor slug lookup (see the ITEM A block below). */
+  deps: { resolveTenantSlug?: (tenantId: string) => Promise<string> } = {},
 ): Promise<void> {
   // Onboarding variant-board jobs must auto-advance through strategy/production
   // on their own — the board + the user's pick IS the approval — even when the
@@ -1330,6 +1336,25 @@ export async function maybeAutoApproveMarketingCheckpoint(
   );
   saveSocialContentJobRuntime(doc.job_id, doc);
 
+  // ITEM A: the Honcho approval mirror in resolveMarketingApproval is guarded
+  // on `tenantSlug && memoryActorUserId` — both of which this call omitted, so
+  // in autonomous mode (ARIES_AUTO_APPROVE_MARKETING_PIPELINE=1, i.e. how the
+  // pipeline actually runs) NOT ONE approval or denial ever reached memory. The
+  // brand profile was being starved of exactly the signal that says "this plan
+  // was good enough to ship". `pseudonymForUser('ai-orchestrator')` yields a
+  // stable synthetic approver peer, same pattern as the existing 'system'
+  // sentinels. Slug resolution failure falls back rather than blocking the
+  // approval — shipping the week matters more than the memory write.
+  //
+  // Skipped entirely when the memory gates are off, so an installation without
+  // Honcho pays no extra query per auto-approval.
+  const memoryMirrorActive = isHonchoEnabled(env) && isHonchoWriteApprovalsEnabled(env);
+  const resolveSlug = deps.resolveTenantSlug
+    ?? ((tenantId: string) => resolveTenantSlugForMemoryWrite(tenantId, pool));
+  const memoryTenantSlug = memoryMirrorActive
+    ? await resolveSlug(String(doc.tenant_id)).catch(() => `tenant-${doc.tenant_id}`)
+    : undefined;
+
   try {
     const response = await approve(
       {
@@ -1338,6 +1363,9 @@ export async function maybeAutoApproveMarketingCheckpoint(
         approvedBy: 'ai-orchestrator',
         approvalId: checkpoint.approval_id,
         approvedStages: [stage],
+        tenantSlug: memoryTenantSlug,
+        memoryActorUserId: 'ai-orchestrator',
+        memoryActorRole: 'tenant_admin',
         publishConfig: stage === 'publish'
           ? (checkpoint.publish_config ?? undefined)
           : undefined,

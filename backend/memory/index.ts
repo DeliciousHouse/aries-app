@@ -1,5 +1,7 @@
 export { MemoryError } from './errors';
 export {
+  honchoDialecticTimeoutMs,
+  isHonchoBrandContextEnabled,
   isHonchoEnabled,
   isHonchoWriteApprovalsEnabled,
   isHonchoWritePreferencesEnabled,
@@ -24,6 +26,9 @@ export type {
   PeerRef,
   SessionRef,
   AppendApprovedMessageInput,
+  AppendObservationInput,
+  DialecticQueryInput,
+  DialecticReasoningLevel,
   ListApprovedMessagesInput,
 } from './honcho-client';
 export type {
@@ -39,7 +44,10 @@ export type {
 } from './types';
 export { HonchoHttpTransport } from './honcho-http-transport';
 export { createMemoryOrchestrator } from './orchestrator';
+export { BRAND_AVOID_QUERY, BRAND_PROFILE_QUERY } from './orchestrator';
 export type {
+  BrandProfileContext,
+  LoadBrandProfileContextInput,
   ResearchMemoryContextEntry,
   LoadResearchMemoryContextInput,
   LoadResearchMemoryContextResult,
@@ -92,8 +100,11 @@ export {
   scrubPreferenceLabelForHoncho,
   recordOnboardingVariantTasteSignalEvent,
   scheduleOnboardingVariantTasteSignalHoncho,
+  resolveTenantSlugForMemoryWrite,
+  formatPerformanceObservation,
 } from './write-events';
 export type {
+  RecordPerformanceOutcome,
   MarketingApprovalMemoryStage,
   RecordApprovalHonchoEventInput,
   RecordDenialHonchoEventInput,

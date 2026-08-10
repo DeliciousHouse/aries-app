@@ -150,3 +150,121 @@ test('Per-tenant workspace ids do not collide', async () => {
     assert.notEqual(client.workspaceId(makeCtx('t-a')), client.workspaceId(makeCtx('t-b')));
   });
 });
+
+// ---------------------------------------------------------------------------
+// ITEM A — dialectic read + prose observation write
+// ---------------------------------------------------------------------------
+
+/** Transport that answers /chat with a canned DialecticResponse. */
+function dialecticTransport(content: string | null): { transport: HonchoTransport; calls: Captured[] } {
+  const calls: Captured[] = [];
+  return {
+    calls,
+    transport: {
+      async request<T>(args: { method: string; path: string; workspaceId: string; body?: unknown }): Promise<T> {
+        calls.push({ method: args.method, path: args.path, workspaceId: args.workspaceId, body: args.body });
+        return { content } as unknown as T;
+      },
+    },
+  };
+}
+
+test('dialecticQuery POSTs the v3 chat contract and returns content', async () => {
+  await withSalt(async () => {
+    const { transport, calls } = dialecticTransport('Audience skews 25-40, reels outperform statics.');
+    const client = new TenantMemoryClient(transport);
+    const ctx = makeCtx('t-dq');
+    const wsid = client.workspaceId(ctx);
+
+    const answer = await client.dialecticQuery({
+      ctx,
+      peer: { kind: 'brand' },
+      query: 'What do we know about this brand?',
+    });
+
+    assert.equal(answer, 'Audience skews 25-40, reels outperform statics.');
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, 'POST');
+    assert.equal(calls[0].path, `/v3/workspaces/${wsid}/peers/peer-brand/chat`);
+    // Honcho v3 DialecticOptions: { query, stream, reasoning_level }.
+    const body = calls[0].body as Record<string, unknown>;
+    assert.equal(body.query, 'What do we know about this brand?');
+    assert.equal(body.stream, false);
+    assert.equal(body.reasoning_level, 'low');
+  });
+});
+
+test('dialecticQuery returns null for a null/blank representation answer', async () => {
+  await withSalt(async () => {
+    const nullish = dialecticTransport(null);
+    const client = new TenantMemoryClient(nullish.transport);
+    assert.equal(
+      await client.dialecticQuery({ ctx: makeCtx('t-dq2'), peer: { kind: 'policy' }, query: 'anything?' }),
+      null,
+    );
+
+    const blank = dialecticTransport('   ');
+    const client2 = new TenantMemoryClient(blank.transport);
+    assert.equal(
+      await client2.dialecticQuery({ ctx: makeCtx('t-dq3'), peer: { kind: 'policy' }, query: 'anything?' }),
+      null,
+    );
+  });
+});
+
+test('dialecticQuery refuses an empty query rather than burning a call', async () => {
+  await withSalt(async () => {
+    const { transport, calls } = dialecticTransport('x');
+    const client = new TenantMemoryClient(transport);
+    await assert.rejects(
+      () => client.dialecticQuery({ ctx: makeCtx('t-dq4'), peer: { kind: 'brand' }, query: '   ' }),
+      (err: unknown) => err instanceof MemoryError && err.code === 'invalid_request',
+    );
+    assert.equal(calls.length, 0);
+  });
+});
+
+test('appendObservation posts batched prose to session-performance-<jobId> on peer-brand', async () => {
+  await withSalt(async () => {
+    const { transport, calls } = recordingTransport();
+    const client = new TenantMemoryClient(transport);
+    const ctx = makeCtx('t-obs');
+    const wsid = client.workspaceId(ctx);
+
+    const { messageId } = await client.appendObservation({
+      ctx,
+      peer: { kind: 'brand' },
+      session: { kind: 'performance', jobId: 'job-42' },
+      content: 'Post performance observation (instagram reel, published 2026-05-25): reach 1200.',
+      metadata: { kind: 'performance_observation' },
+    });
+
+    assert.equal(messageId, 'msg-1');
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].path, `/v3/workspaces/${wsid}/sessions/session-performance-job-42/messages`);
+    const body = calls[0].body as { messages: Array<Record<string, unknown>> };
+    assert.equal(body.messages.length, 1);
+    assert.equal(body.messages[0].peer_id, 'peer-brand');
+    // Prose, not a JSON blob — the deriver reads content.
+    assert.match(String(body.messages[0].content), /^Post performance observation/);
+    assert.deepEqual(body.messages[0].metadata, { kind: 'performance_observation' });
+  });
+});
+
+test('appendObservation rejects a non-slug jobId before touching the transport', async () => {
+  await withSalt(async () => {
+    const { transport, calls } = recordingTransport();
+    const client = new TenantMemoryClient(transport);
+    await assert.rejects(
+      () =>
+        client.appendObservation({
+          ctx: makeCtx('t-obs2'),
+          peer: { kind: 'brand' },
+          session: { kind: 'performance', jobId: '../../escape' },
+          content: 'x',
+        }),
+      (err: unknown) => err instanceof MemoryError && err.code === 'invalid_request',
+    );
+    assert.equal(calls.length, 0);
+  });
+});

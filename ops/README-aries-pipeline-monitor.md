@@ -25,6 +25,7 @@ outside the app means an alerting bug cannot break the pipeline.
 | `SYNC_DEGRADED` | an account has ≥ `DEGRADED_MIN_BAD` (6) non-`ok` sync runs and **zero** `ok` runs in 24 h | `insights_sync_runs` |
 | `SYNC_SILENT` | no sync run started in `SILENT_AFTER_HOURS` (2) | `insights_sync_runs` |
 | `TRIGGER_SILENCE` | ≥1 enabled `marketing_schedule` row but no run doc created in `TRIGGER_SILENCE_DAYS` (8) | `marketing_schedule` + run docs |
+| `COOKIE_STALE` | an Agent-Reach cookie session is `stale` in a prober state file newer than `COOKIE_STATE_MAX_AGE_H` (12) | `$PIPEMON_COOKIE_STATE` (written by `ops/agent-reach/cookie-prober.py`) |
 
 Database reads go through `docker exec <container> psql -U "$POSTGRES_USER" -d
 <db> -tA` — the same idiom `scripts/09_pg_monitor.sh` has run every 5 minutes
@@ -53,6 +54,48 @@ nobody else is watching. The app therefore fails that submission as
 `hermes_gateway_key_misconfigured`, with wording that deliberately avoids the
 suppressed strings, so it alerts like any other stage failure. If you ever
 widen `AUTH_SIGNATURE`, keep that message outside it.
+
+## COOKIE_STALE: why this monitor does not probe
+
+`COOKIE_STALE` reads a **file** and makes no network call, unlike every other
+way you might check whether a cookie session is alive.
+
+Probing Instagram / X / Reddit / Facebook means network I/O that can block,
+rate-limit, or trip an automation heuristic. This monitor is deliberately
+read-only and network-free so that an alerting bug can never wedge the pipeline
+it watches. So the work is split:
+
+* `ops/agent-reach/cookie-prober.py` (its own cron, every 4 h) owns the probe —
+  it runs `agent-reach doctor`, classifies each platform `fresh` / `stale` /
+  `unknown`, and writes `~/.local/state/agent-reach-prober/state.json` (0600).
+* this monitor owns the **operator alert** and only ever reads that file.
+
+A hung probe delays a state file. It cannot delay an alert tick.
+
+Three things are deliberately **silent**, all the same rule as the empty
+`max(started_at)` case — an absence of information is not an incident:
+
+| Situation | Why silent |
+| --- | --- |
+| state file missing / unreadable / wrong shape | the prober may simply not be installed; that is the runbook's job, not a page |
+| `"status": "unknown"` | the prober emits it for a timeout, a missing binary, an unparseable answer, or a platform `doctor` did not mention — none of which mean the cookie is dead |
+| state file older than `COOKIE_STATE_MAX_AGE_H` | a three-day-old verdict is not a verdict; it means the *prober* is dead, which `--digest`/`--status` reports as `NOTE: prober state is older than …` instead of paging |
+
+A stale session resolves like any other condition: once the cookie is refreshed
+the finding disappears and one `✅ Resolved — 🍪 Agent-Reach session stale` note
+is sent. If it **never** clears, the account is probably suspended rather than
+logged out: the fix is to re-mint the throwaway, not to refresh it (see
+`ops/agent-reach/README.md`).
+
+Nothing from this path may carry cookie material into a message, and that is
+enforced **twice on purpose**. The prober redacts on write; the monitor redacts
+again in `detect_cookie_stale` before the string can become a Telegram message,
+because the state file is plain JSON it does not own — a prober regression, an
+older build, or the hand-edit the verification runbook asks for can all put a
+live value there. Two scenarios pin it: `no_secret_material_in_messages` (an
+already-redacted detail is not un-redacted downstream) and
+`cookie_detail_is_redacted_by_the_monitor_itself` (a **raw** `auth_token=…`
+planted in the state file never reaches the alert or the digest).
 
 ## Arming (read before the first real run)
 
@@ -127,6 +170,8 @@ if the deploy moves.
 | `PIPEMON_DEGRADED_MIN_BAD` | `6` |
 | `PIPEMON_SILENT_AFTER_HOURS` | `2` |
 | `PIPEMON_TRIGGER_SILENCE_DAYS` | `8` |
+| `PIPEMON_COOKIE_STATE` | `~/.local/state/agent-reach-prober/state.json` |
+| `PIPEMON_COOKIE_STATE_MAX_AGE_H` | `12` |
 
 State lives at `$PIPEMON_STATE_DIR/{state.json,monitor.log,tick.lock,cron.log}`,
 `0600` inside a `0700` directory, written atomically. Ticks are `flock`-guarded;

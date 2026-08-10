@@ -1,12 +1,15 @@
 /**
  * P2 — honcho-performance-worker
  *
- * Delayed, metric-bearing Honcho write leg for published Meta posts. 24h..30d
- * after publish, reads the stored `insights_post_metrics_daily` snapshot
- * (NEVER fetches Meta — see the boundary section in
- * docs/plans/2026-05-30-honcho-performance-insights.md), scrubs platform IDs,
- * and calls the already-shipped `recordPerformanceEvent` to write a
- * `research_conclusion` to `peer-market-signal-<topicPseudonym>`.
+ * Delayed, metric-bearing Honcho write leg for published posts. 24h..30d after
+ * publish, reads the stored `insights_post_metrics_daily` snapshot (NEVER
+ * fetches the platform APIs), scrubs platform IDs, and calls
+ * `recordPerformanceEvent` to append a prose observation to `peer-brand` /
+ * `session-performance-<jobId>` — the material the brand-profile dialectic
+ * query reads back into the strategy prompt.
+ *
+ * Each post is observed at three horizons (24h / 7d / 28d); the ledger stores
+ * the horizon anchor day. See the cadence note in insights-513-contract.ts.
  *
  * Run as a sidecar via `tsx scripts/automations/honcho-performance-worker.ts`
  * (mirrors scheduled-posts-worker.mjs's tick/finally + setInterval pattern, but
@@ -17,9 +20,8 @@
  * no-ops when off; the worker also reads the gate to decide whether to ledger,
  * so flipping the gate ON later re-drives the writes.
  *
- * ROLLOUT-GATED: while ARIES_INSIGHTS_513_TABLES_PRESENT is off,
- * `selectDuePerformancePosts` returns [] (see insights-513-contract.ts) so the
- * worker boots and ticks as a harmless no-op.
+ * Kill switch: ARIES_INSIGHTS_513_TABLES_PRESENT=0 makes
+ * `selectDuePerformancePosts` return [] without touching the DB.
  */
 
 import 'dotenv/config';
@@ -35,10 +37,7 @@ import {
   type Queryable,
 } from '@/backend/memory/perf-insights-read';
 import { buildPerformancePayloadRecord } from '@/backend/memory/perf-insights-payload';
-import {
-  recordPerformanceEvent,
-  topicPseudonymHexForPerformanceMemory,
-} from '@/backend/memory/write-events';
+import { recordPerformanceEvent } from '@/backend/memory/write-events';
 import { loadSocialContentJobRuntime } from '@/backend/marketing/runtime-state';
 import { isHonchoEnabled, isHonchoWritePublishEnabled } from '@/backend/memory/honcho-env';
 import { parsePoolMax, WORKER_POOL_MAX } from '@/lib/db-pool-config';
@@ -68,6 +67,17 @@ export interface TickReport {
   written: number;
   skippedNoDoc: number;
   skippedNoPayload: number;
+  /**
+   * recordPerformanceEvent rejected the input itself (no job id, unparseable
+   * day, no https source_url). Counted because it is otherwise INVISIBLE churn:
+   * nothing is ledgered, so the same rows re-drive every 30-min tick until the
+   * 30-day window closes, and the only trace is a console.warn deep inside
+   * write-events. A number that climbs tick after tick is the signal that a
+   * post's payload is permanently malformed rather than briefly unlucky.
+   */
+  skippedInvalid: number;
+  /** Honcho append failed (claim released) — stays due, retried next tick. */
+  writeFailed: number;
   failed: number;
 }
 
@@ -102,6 +112,8 @@ export async function runTick(
     written: 0,
     skippedNoDoc: 0,
     skippedNoPayload: 0,
+    skippedInvalid: 0,
+    writeFailed: 0,
     failed: 0,
   };
 
@@ -137,6 +149,11 @@ export async function runTick(
             publishDayYmd: post.publishDay,
             metricsRow: post.metrics,
             sourceUrl: post.permalink,
+            // The caption and media type are what make an observation legible
+            // to the deriver ("the reel with the X hook kept earning saves")
+            // instead of six bare integers. Sanitized inside the builder.
+            caption: post.caption,
+            mediaType: post.mediaType,
             fetchedAt: new Date().toISOString(),
           });
           if (!payloadRecord) {
@@ -146,10 +163,6 @@ export async function runTick(
             continue;
           }
 
-          const topicPseudonymHex = topicPseudonymHexForPerformanceMemory(
-            post.jobId,
-            doc.inputs?.competitor_url ?? null,
-          );
           const tenantIdStr = String(doc.tenant_id);
           const tenantCtx = {
             tenantId: tenantIdStr,
@@ -164,26 +177,41 @@ export async function runTick(
           // published_at_ymd is YYYY-MM-DD from the builder; recordPerformanceEvent
           // wants compact YYYYMMDD for its idempotency key.
           const publishedAtYmd = payloadRecord.published_at_ymd.replace(/-/g, '');
+          const observationDayYmd = post.observationDay.replace(/-/g, '');
 
-          await record(
+          const outcome = await record(
             {
               tenantCtx,
               jobId: post.jobId,
-              topicPseudonymHex,
               publishedAtYmd,
+              observationDayYmd,
+              horizonDays: post.horizonDays,
               platform: post.platform,
               payloadRecord: payloadRecord as unknown as Record<string, unknown>,
             },
           );
 
-          // Ledger only when the gate is ON (so a gate-OFF run leaves nothing to
-          // re-drive once it flips ON). metric_day = the post's UTC PUBLISH day,
-          // the same day recordPerformanceEvent keys its idempotency claim on.
-          // Using the metrics snapshot's sync date instead would mint a fresh
-          // ledger row every sync day and re-drive this post on every tick.
-          if (gateOn) {
-            await markWritten(tenantId, post.jobId, post.platform, post.publishDay, client);
+          // Ledger ONLY on a real outcome. Two rules matter here:
+          //  - gate OFF leaves nothing ledgered, so flipping it ON re-drives
+          //    every due observation;
+          //  - a FAILED append must not be ledgered. recordPerformanceEvent
+          //    releases its idempotency claim on failure, so leaving the ledger
+          //    untouched means the next tick genuinely retries instead of
+          //    marking a lost observation as written.
+          //
+          // `skipped_idempotent` is safe to ledger because it now means the
+          // claim was stamped COMPLETED — an un-completed claim (in flight, or
+          // orphaned by a crash between claim and append) comes back as
+          // `failed` and stays due. See resolveExistingClaim in write-events.
+          if (gateOn && (outcome === 'appended' || outcome === 'skipped_idempotent')) {
+            // metric_day column carries the OBSERVATION ANCHOR day (publish +
+            // horizon), matching the due query's ledger join.
+            await markWritten(tenantId, post.jobId, post.platform, post.observationDay, client);
             report.written += 1;
+          } else if (outcome === 'failed') {
+            report.writeFailed += 1;
+          } else if (outcome === 'skipped_invalid') {
+            report.skippedInvalid += 1;
           }
         } catch (postErr) {
           report.failed += 1;
@@ -210,7 +238,7 @@ async function tickSafe(pool: Pool): Promise<void> {
   running = true;
   try {
     const report = await runTick(pool as unknown as Queryable);
-    if (report.due > 0 || report.failed > 0) {
+    if (report.due > 0 || report.failed > 0 || report.writeFailed > 0) {
       console.log(`[honcho-performance-worker] summary ${JSON.stringify(report)}`);
     }
   } catch (error) {

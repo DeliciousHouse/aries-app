@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.0.0 — feat(growth): compound brand memory and social research
+
+Tier 2 closes the learning loop by compounding tenant-scoped approval and
+performance evidence in Honcho and adding optional cookie-backed social
+research to the dedicated Aries research profile.
+
+### Added
+
+- Curated approval, preference, publish, and measured-performance observations
+  now build a tenant-isolated Honcho brand profile that can inform research and
+  strategy behind an independent read gate.
+- A horizon-aware performance worker records sanitized 24-hour, 7-day, and
+  28-day observations from the landed insights schema with durable idempotency.
+- Agent-Reach VM ingest/probing, an allowlisted residential refresh agent, and
+  pipeline monitoring provide encrypted Instagram, X, Reddit, and Facebook
+  session enrichment without exposing credentials to Aries.
+- An operator runbook covers staged enablement, health checks, stale-session
+  recovery, data handling, and rollback for both Tier-2 systems.
+
+### Changed
+
+- Weekly dedicated-profile research can use `/agent-reach` within its widened
+  tool budget, while default-gateway prompts continue to use the shared policy
+  and stale sessions fail soft to `/last30days` plus web search.
+- Honcho performance idempotency now separates mutable operational leases from
+  the append-only completion ledger required by the memory contract.
+
+### Fixed
+
+- Legacy `meta` insight rows normalize to Facebook when matching published
+  posts, and local stale-session parsing now keeps VM state on standard input.
+
 ## v0.1.59.0 — feat(growth): close the weekly performance loop
 
 Weekly social-content planning now feeds measured tenant performance back into
