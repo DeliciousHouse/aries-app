@@ -173,6 +173,15 @@ async function accountProviderStatus(
       external_account_name: row.externalAccountName ?? undefined,
     };
   }
+  // Distinct from the legacy 'connection_not_found': this disconnected shape is
+  // produced only when an account-connection provider (Composio) is active, so
+  // the authoritative connect surface is the Composio screen, NOT the legacy
+  // OAuth broker. The 'account_provider_not_connected' marker lets
+  // buildIntegrationsPageDataAsync suppress the legacy 'connect' action on these
+  // cards — a successful legacy fallback connect would write a connected
+  // oauth_connections row that no consolidated status surface would ever reflect
+  // (write-legacy/read-composio split), recreating the stale-row class the
+  // reconciliation cleans up (and for x/reddit it dead-ends in a 503).
   return {
     schema_name: 'platform_connection_status_schema',
     schema_version: '1.0.0',
@@ -180,7 +189,7 @@ async function accountProviderStatus(
     integration_id: undefined,
     platform: provider,
     connection_status: 'disconnected',
-    status_reason: 'connection_not_found',
+    status_reason: 'account_provider_not_connected',
     health: 'unknown',
     updated_at: now,
     capabilities: [],

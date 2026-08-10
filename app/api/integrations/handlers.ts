@@ -296,7 +296,17 @@ export async function buildIntegrationsPageDataAsync(tenantId: string) {
                 status.connection_status === 'revoked' ||
                 status.connection_status === 'permission_denied'
               ? ['reconnect', 'view_permissions']
-              : ['connect', 'view_permissions'],
+              // A Composio-brokered disconnected card carries status_reason
+              // 'account_provider_not_connected'. Suppress the legacy 'connect'
+              // action: it routes to oauthConnect (the legacy broker), and a
+              // successful fallback connect would write a connected
+              // oauth_connections row that no consolidated status surface reads
+              // (re-diverging exactly like the rows the reconciliation cleans
+              // up); for x/reddit it dead-ends in a 503. The authoritative
+              // connect surface is the Composio channel-integrations screen.
+              : status.status_reason === 'account_provider_not_connected'
+                ? ['view_permissions']
+                : ['connect', 'view_permissions'],
         last_synced_at: null,
         expires_at: status.token_expires_at || null,
         permissions: [],

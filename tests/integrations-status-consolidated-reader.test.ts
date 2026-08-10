@@ -299,8 +299,9 @@ test('Composio ON: x with connected_accounts=connected reports connected even wi
 });
 
 // 4. Composio ON: reddit with NO connected_accounts row -> disconnected /
-//    connection_not_found (not 'misconfigured', not env-managed connected).
-test('Composio ON: reddit with no connected_accounts row reports disconnected/connection_not_found', async (t) => {
+//    account_provider_not_connected (not 'misconfigured', not env-managed
+//    connected).
+test('Composio ON: reddit with no connected_accounts row reports disconnected/account_provider_not_connected', async (t) => {
   await withComposioEnabled({}, async () => {
     resetOauthStore();
     t.mock.method(pool, 'query', makeQueryMock({ connectedAccounts: [] }) as typeof pool.query);
@@ -308,7 +309,9 @@ test('Composio ON: reddit with no connected_accounts row reports disconnected/co
     const status = await oauthStatusAsync('reddit', '15');
     assert.ok(!('broker_status' in status), 'expected a status shape');
     assert.equal(status.connection_status, 'disconnected');
-    assert.equal(status.status_reason, 'connection_not_found');
+    // Consolidated disconnected shape carries the distinct marker (not the
+    // legacy 'connection_not_found') so handlers can suppress the legacy connect.
+    assert.equal(status.status_reason, 'account_provider_not_connected');
   });
 });
 
@@ -414,5 +417,39 @@ test('handlers: Composio-connected facebook card has no scopes_outdated flag and
     assert.equal(facebook?.connection_state, 'connected');
     assert.equal(facebook?.scopes_outdated, undefined, 'Composio-connected facebook must not flag scopes_outdated');
     assert.deepEqual(facebook?.available_actions, ['view_permissions']);
+  });
+});
+
+// 8. handlers: a Composio-brokered DISCONNECTED card (no connected_accounts row)
+//    must NOT advertise the legacy 'connect' action. 'connect' routes to
+//    oauthConnect (the legacy broker); a successful fallback connect would write
+//    a connected oauth_connections row that no consolidated status surface reads
+//    (re-diverging exactly like the rows the reconciliation cleans up), and for
+//    x/reddit it dead-ends in a 503. Only 'view_permissions' is offered; the
+//    authoritative connect surface is the Composio channel-integrations screen.
+test('handlers: Composio-brokered disconnected card suppresses the legacy connect action (view_permissions only)', async (t) => {
+  await withComposioEnabled({}, async () => {
+    resetOauthStore();
+    // No connected_accounts rows and no oauth_connections rows anywhere: every
+    // integration platform resolves to the consolidated disconnected shape.
+    t.mock.method(pool, 'query', makeQueryMock({}) as typeof pool.query);
+
+    const page = (await buildIntegrationsPageDataAsync('15')) as {
+      cards: Array<{ platform: string; connection_state: string; available_actions: string[] }>;
+    };
+
+    for (const platform of ['facebook', 'linkedin', 'x', 'reddit']) {
+      const card = page.cards.find((c) => c.platform === platform);
+      assert.equal(card?.connection_state, 'not_connected', `${platform} should be not_connected`);
+      assert.deepEqual(
+        card?.available_actions,
+        ['view_permissions'],
+        `${platform} disconnected Composio card must not offer the legacy 'connect'`,
+      );
+      assert.ok(
+        !card?.available_actions.includes('connect'),
+        `${platform} must not route the legacy broker connect`,
+      );
+    }
   });
 });

@@ -114,7 +114,7 @@ revoked AS (
   FROM superseded s
   WHERE t.connection_id = s.id
     AND t.revoked_at IS NULL
-  RETURNING t.id
+  RETURNING t.id, t.connection_id
 )
 INSERT INTO oauth_audit_events (tenant_id, connection_id, provider, event_type, event_status, detail)
 SELECT s.tenant_id,
@@ -125,7 +125,10 @@ SELECT s.tenant_id,
        jsonb_build_object(
          'reason', 'row_reconciliation_2026_08',
          'note', 'connected_accounts is authoritative for composio-brokered platforms',
-         'revoked_token_count', (SELECT count(*) FROM revoked)
+         -- Per-connection count (correlated on connection_id) so each audit row
+         -- reflects the tokens revoked on ITS OWN connection, not the global
+         -- total across all reconciled rows.
+         'revoked_token_count', (SELECT count(*) FROM revoked r WHERE r.connection_id = s.id)
        )
 FROM superseded s;
 
