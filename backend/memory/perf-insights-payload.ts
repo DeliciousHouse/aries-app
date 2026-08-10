@@ -1,29 +1,33 @@
 /**
  * P1 — Pure payload builder for the honcho-performance-worker.
  *
- * Maps a #513-E `insights_post_metrics_daily` row + post permalink into the
- * `payloadRecord` shape `recordPerformanceEvent` (backend/memory/write-events.ts)
- * consumes. NO DB, NO Meta, NO side effects — fully unit-testable on master
- * ahead of #513 (the input row shape is the frozen contract in
- * insights-513-contract.ts).
+ * Maps a live `insights_post_metrics_daily` row + post permalink/caption into
+ * the `payloadRecord` shape `recordPerformanceEvent` (backend/memory/write-events.ts)
+ * consumes. NO DB, NO Meta, NO side effects — fully unit-testable.
  *
- * Boundary: this epic owns the Honcho write leg only. See
- *   docs/plans/2026-05-30-honcho-performance-insights.md
+ * Metric keys mirror the REAL columns (views/reach/likes/comments_count/
+ * shares/saves). The old `impressions` and `video_views` keys are gone: those
+ * columns never existed on the live table, so anything reading them was reading
+ * `undefined` dressed up as data.
  */
+
+import { sanitizeCaptionForPrompt } from '@/backend/marketing/performance-context';
 
 import type { InsightsPostMetricsDailyRow } from './insights-513-contract';
 import { scrubPlatformIdsFromPerformancePayload } from './write-events';
 
+/** Caption excerpts in memory are short on purpose — a hook, not the post. */
+export const OBSERVATION_CAPTION_CHARS = 160;
+
 export interface BuildPerformancePayloadInput {
-  /** 'facebook' | 'instagram' (lower-cased by the builder). */
+  /** Platform slug (lower-cased by the builder). */
   platform: string;
   /**
    * The post's real UTC publish day. Accepts YYYY-MM-DD or YYYYMMDD; normalized
-   * to YYYY-MM-DD in `published_at_ymd`. This is NOT UTC-now — it drives Honcho's
-   * idempotency window so 24h/72h/7d/30d re-polls of the same metric-day collapse.
+   * to YYYY-MM-DD in `published_at_ymd`. This is NOT UTC-now.
    */
   publishDayYmd: string;
-  /** Latest #513 metrics snapshot row for the post. */
+  /** Latest metrics snapshot row for the post. */
   metricsRow: InsightsPostMetricsDailyRow;
   /**
    * https permalink / insights URL for the post. MUST be https — mirrors
@@ -31,6 +35,10 @@ export interface BuildPerformancePayloadInput {
    * return (worker fail-soft skips).
    */
   sourceUrl: string | null;
+  /** Raw tenant-authored caption; sanitized + truncated by the builder. */
+  caption?: string | null;
+  /** `insights_posts.media_type` (reel/image/carousel/…). */
+  mediaType?: string | null;
   /** ISO timestamp the metrics snapshot was fetched (provenance only). */
   fetchedAt: string;
 }
@@ -39,15 +47,16 @@ export interface BuildPerformancePayloadInput {
 export interface PerformancePayloadRecord {
   platform: string;
   published_at_ymd: string;
+  media_type: string | null;
+  /** Sanitized, ≤160-char excerpt. Empty string when there is no caption. */
+  caption_excerpt: string;
   metrics: {
+    views: number | null;
     reach: number | null;
-    impressions: number | null;
     likes: number | null;
     comments: number | null;
     shares: number | null;
-    /** #513 column `saved` → payload key `saves`. */
     saves: number | null;
-    video_views: number | null;
     source_url: string;
   };
   metrics_fetched_at: string;
@@ -70,6 +79,13 @@ function isHttpsUrl(value: string | null | undefined): value is string {
   return typeof value === 'string' && /^https:\/\//i.test(value.trim());
 }
 
+/** Media type is a platform enum; keep it to a short safe slug regardless. */
+function normalizeMediaType(raw: string | null | undefined): string | null {
+  if (typeof raw !== 'string') return null;
+  const v = raw.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  return v ? v.slice(0, 32) : null;
+}
+
 /**
  * Build the scrubbed payloadRecord. Returns null (worker skips, fail-soft) when:
  *  - sourceUrl is missing/non-https (recordPerformanceEvent would skip anyway), or
@@ -78,7 +94,9 @@ function isHttpsUrl(value: string | null | undefined): value is string {
  * The returned record is run through `scrubPlatformIdsFromPerformancePayload`
  * here as belt-and-braces (idempotent with the scrub inside recordPerformanceEvent),
  * so no raw platform_post_id / ig_media_id / bare numeric-id string can leak even
- * if a future caller threads one through.
+ * if a future caller threads one through. The caption goes through the SAME
+ * sanitizer the prompt-side performance block uses (token redaction, control
+ * chars, code fences, whitespace collapse, truncation).
  */
 export function buildPerformancePayloadRecord(
   input: BuildPerformancePayloadInput,
@@ -93,14 +111,15 @@ export function buildPerformancePayloadRecord(
   const record: PerformancePayloadRecord = {
     platform: String(input.platform || 'unknown').toLowerCase(),
     published_at_ymd: publishedAtYmd,
+    media_type: normalizeMediaType(input.mediaType),
+    caption_excerpt: sanitizeCaptionForPrompt(input.caption, OBSERVATION_CAPTION_CHARS),
     metrics: {
+      views: m.views ?? null,
       reach: m.reach ?? null,
-      impressions: m.impressions ?? null,
       likes: m.likes ?? null,
-      comments: m.comments ?? null,
+      comments: m.comments_count ?? null,
       shares: m.shares ?? null,
-      saves: m.saved ?? null,
-      video_views: m.video_views ?? null,
+      saves: m.saves ?? null,
       source_url: sourceUrl,
     },
     metrics_fetched_at: input.fetchedAt,

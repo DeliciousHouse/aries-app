@@ -442,58 +442,216 @@ test('Phase 2 — recordScheduleEvent auto-approves to peer-policy', () =>
     },
   ));
 
-test('Phase 2 — recordPerformanceEvent requires https source_url', () =>
-  withEnv(
-    {
-      HONCHO_ENABLED: 'true',
-      HONCHO_WRITE_PUBLISH_ENABLED: 'true',
-      ARIES_TENANT_PSEUDONYM_SALT: TEST_SALT,
-      APP_BASE_URL: 'https://aries.example.com',
+/**
+ * ITEM A helpers: the performance leg now appends prose to Honcho instead of
+ * queuing a curator finding, so these tests capture the transport.
+ */
+function capturePerfTransport(behavior?: { failMessages?: boolean }): {
+  transport: HonchoTransport;
+  messageCalls: TransportCall[];
+} {
+  const messageCalls: TransportCall[] = [];
+  const transport: HonchoTransport = {
+    async request<T>(args: { method: string; path: string; workspaceId: string; body?: unknown }): Promise<T> {
+      if (args.path.includes('/messages')) {
+        if (behavior?.failMessages) throw new Error('honcho down');
+        messageCalls.push({ method: args.method, path: args.path, body: args.body });
+        return [{ id: 'msg-1' }] as unknown as T;
+      }
+      return {} as T;
     },
-    async () => {
-      let findings = 0;
-      const trackingPool = buildMockPool((sql) => {
-        if (sql.includes('honcho_write_idempotency_keys')) {
-          return { rows: [{ key: 'claimed' }] };
-        }
-        if (sql.includes('INSERT INTO aries_research_findings')) {
-          findings++;
-          return { rows: [] };
-        }
-        return { rows: [] };
-      });
+  };
+  return { transport, messageCalls };
+}
 
-      await recordPerformanceEvent(
-        {
-          tenantCtx: TENANT_CTX,
-          jobId: 'job-perf',
-          topicPseudonymHex: 'abcdabcdabcdabcdabcdabcdabcdabcd',
-          publishedAtYmd: '20260515',
-          platform: 'facebook',
-          payloadRecord: { impressions: 1, platform_post_id: 'should-strip' },
+const PERF_ENV = {
+  HONCHO_ENABLED: 'true',
+  HONCHO_WRITE_PUBLISH_ENABLED: 'true',
+  ARIES_TENANT_PSEUDONYM_SALT: TEST_SALT,
+  APP_BASE_URL: 'https://aries.example.com',
+};
+
+test('Phase 2 — recordPerformanceEvent requires https source_url', () =>
+  withEnv(PERF_ENV, async () => {
+    const { transport, messageCalls } = capturePerfTransport();
+    const pool = buildMockPool((sql) =>
+      sql.includes('honcho_write_idempotency_keys') ? { rows: [{ key: 'claimed' }] } : { rows: [] },
+    );
+
+    const noSource = await recordPerformanceEvent(
+      {
+        tenantCtx: TENANT_CTX,
+        jobId: 'job-perf',
+        publishedAtYmd: '20260515',
+        platform: 'facebook',
+        payloadRecord: { metrics: { reach: 1 }, platform_post_id: 'should-strip' },
+      },
+      pool as never,
+      { transport },
+    );
+    assert.equal(noSource, 'skipped_invalid', 'no source_url → no write');
+    assert.equal(messageCalls.length, 0);
+
+    const ok = await recordPerformanceEvent(
+      {
+        tenantCtx: TENANT_CTX,
+        jobId: 'job-perf2',
+        publishedAtYmd: '20260516',
+        platform: 'facebook',
+        payloadRecord: {
+          metrics: { reach: 10 },
+          source_url: 'https://www.facebook.com/insights/deleted/',
+          platform_post_id: 'secret-post',
         },
-        trackingPool as never,
-      );
-      assert.equal(findings, 0, 'no source_url → no write');
+      },
+      pool as never,
+      { transport },
+    );
+    assert.equal(ok, 'appended');
+    assert.equal(messageCalls.length, 1);
+  }));
 
-      await recordPerformanceEvent(
-        {
-          tenantCtx: TENANT_CTX,
-          jobId: 'job-perf2',
-          topicPseudonymHex: 'abcdabcdabcdabcdabcdabcdabcdabcd',
-          publishedAtYmd: '20260516',
-          platform: 'facebook',
-          payloadRecord: {
-            impressions: 10,
-            source_url: 'https://www.facebook.com/insights/deleted/',
-            platform_post_id: 'secret-post',
+test('ITEM A — perf observation is prose on peer-brand / session-performance-<jobId>', () =>
+  withEnv(PERF_ENV, async () => {
+    const { transport, messageCalls } = capturePerfTransport();
+    const pool = buildMockPool((sql) =>
+      sql.includes('honcho_write_idempotency_keys') ? { rows: [{ key: 'claimed' }] } : { rows: [] },
+    );
+
+    const outcome = await recordPerformanceEvent(
+      {
+        tenantCtx: TENANT_CTX,
+        jobId: 'job-obs',
+        publishedAtYmd: '20260516',
+        observationDayYmd: '20260523',
+        horizonDays: 7,
+        platform: 'Instagram',
+        payloadRecord: {
+          media_type: 'reel',
+          caption_excerpt: 'three ways to break in new leather',
+          metrics: {
+            reach: 1200,
+            views: 3400,
+            likes: 300,
+            comments: 12,
+            shares: 5,
+            saves: 9,
+            source_url: 'https://www.instagram.com/p/ABC/',
           },
         },
-        trackingPool as never,
-      );
-      assert.equal(findings, 1);
-    },
-  ));
+      },
+      pool as never,
+      { transport },
+    );
+
+    assert.equal(outcome, 'appended');
+    assert.equal(messageCalls.length, 1);
+    assert.match(String(messageCalls[0]!.path), /\/sessions\/session-performance-job-obs\/messages$/);
+    const msg = firstMessage(messageCalls[0]!);
+    assert.equal(msg.peer_id, 'peer-brand');
+    const content = String(msg.content);
+    // Prose, not JSON — the deriver reads sentences.
+    assert.ok(!content.trim().startsWith('{'), 'observation must not be a JSON blob');
+    assert.match(content, /Post performance observation \(instagram reel, published 2026-05-16, measured 7d after publish\)/);
+    assert.match(content, /reach 1200, views 3400, likes 300, comments 12, shares 5, saves 9/);
+    assert.match(content, /Caption excerpt: "three ways to break in new leather"/);
+    assert.match(content, /Source: https:\/\/www\.instagram\.com\/p\/ABC\//);
+    const metadata = msg.metadata as Record<string, unknown>;
+    assert.equal(metadata.kind, 'performance_observation');
+    assert.equal(metadata.observation_horizon, '7d');
+  }));
+
+test('ITEM A — gates off: zero Honcho calls, zero idempotency claims', () =>
+  withEnv({ ...PERF_ENV, HONCHO_WRITE_PUBLISH_ENABLED: 'false' }, async () => {
+    const { transport, messageCalls } = capturePerfTransport();
+    let claims = 0;
+    const pool = buildMockPool((sql) => {
+      if (sql.includes('honcho_write_idempotency_keys')) claims++;
+      return { rows: [{ key: 'claimed' }] };
+    });
+    const outcome = await recordPerformanceEvent(
+      {
+        tenantCtx: TENANT_CTX,
+        jobId: 'job-gated',
+        publishedAtYmd: '20260516',
+        platform: 'facebook',
+        payloadRecord: { metrics: { reach: 1, source_url: 'https://x.example/p/1' } },
+      },
+      pool as never,
+      { transport },
+    );
+    assert.equal(outcome, 'skipped_gated');
+    assert.equal(claims, 0);
+    assert.equal(messageCalls.length, 0);
+  }));
+
+test('ITEM A — already-claimed idempotency key: no Honcho call, reported as skipped_idempotent', () =>
+  withEnv(PERF_ENV, async () => {
+    const { transport, messageCalls } = capturePerfTransport();
+    const pool = buildMockPool((sql) =>
+      // ON CONFLICT DO NOTHING RETURNING → zero rows means someone else won.
+      sql.includes('honcho_write_idempotency_keys') ? { rows: [] } : { rows: [] },
+    );
+    const outcome = await recordPerformanceEvent(
+      {
+        tenantCtx: TENANT_CTX,
+        jobId: 'job-dupe',
+        publishedAtYmd: '20260516',
+        observationDayYmd: '20260517',
+        horizonDays: 1,
+        platform: 'facebook',
+        payloadRecord: { metrics: { reach: 1, source_url: 'https://x.example/p/1' } },
+      },
+      pool as never,
+      { transport },
+    );
+    assert.equal(outcome, 'skipped_idempotent');
+    assert.equal(messageCalls.length, 0);
+  }));
+
+test('ITEM A — append failure releases the idempotency claim so the next tick retries', () =>
+  withEnv(PERF_ENV, async () => {
+    const claimed = new Set<string>();
+    const deletes: string[] = [];
+    const pool = buildMockPool((sql, params) => {
+      const key = String((params as unknown[] | undefined)?.[0] ?? '');
+      if (sql.includes('INSERT INTO honcho_write_idempotency_keys')) {
+        if (claimed.has(key)) return { rows: [] };
+        claimed.add(key);
+        return { rows: [{ key }] };
+      }
+      if (sql.includes('DELETE FROM honcho_write_idempotency_keys')) {
+        claimed.delete(key);
+        deletes.push(key);
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    const input = {
+      tenantCtx: TENANT_CTX,
+      jobId: 'job-retry',
+      publishedAtYmd: '20260516',
+      observationDayYmd: '20260517',
+      horizonDays: 1,
+      platform: 'facebook',
+      payloadRecord: { metrics: { reach: 42, source_url: 'https://x.example/p/1' } },
+    };
+
+    // Tick 1: Honcho is down.
+    const down = capturePerfTransport({ failMessages: true });
+    const first = await recordPerformanceEvent(input, pool as never, { transport: down.transport });
+    assert.equal(first, 'failed');
+    assert.equal(deletes.length, 1, 'claim released');
+    assert.equal(claimed.size, 0);
+
+    // Tick 2: Honcho is back — the observation is NOT lost.
+    const up = capturePerfTransport();
+    const second = await recordPerformanceEvent(input, pool as never, { transport: up.transport });
+    assert.equal(second, 'appended');
+    assert.equal(up.messageCalls.length, 1);
+    assert.match(String(firstMessage(up.messageCalls[0]!).content), /reach 42/);
+  }));
 
 // ---------------------------------------------------------------------------
 // Phase 3 — explicit creative voice preference (HONCHO_WRITE_PREFERENCES_ENABLED)

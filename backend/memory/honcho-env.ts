@@ -26,6 +26,34 @@ export function isHonchoWritePublishEnabled(env: Env = process.env): boolean {
   return v === '1' || v === 'true' || v === 'yes' || v === 'on';
 }
 
+/**
+ * ITEM A READ LEG: inject the compounding per-brand Honcho profile (dialectic
+ * answers about audience / what works / what to avoid) into the research and
+ * strategy stage submissions.
+ *
+ * Default OFF — ships dark. The write leg needs roughly a week of soak before
+ * the deriver has folded enough performance observations and approvals into
+ * `peer-brand`/`peer-policy` for a dialectic answer to be worth prompt tokens;
+ * flipping this on early would spend budget on "unknown". Deploy notes flip it.
+ */
+export function isHonchoBrandContextEnabled(env: Env = process.env): boolean {
+  const v = env.ARIES_HONCHO_BRAND_CONTEXT_ENABLED?.trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+}
+
+/** Default dialectic timeout. /chat is LLM-backed — 15s clips legitimate answers. */
+export const HONCHO_DIALECTIC_TIMEOUT_DEFAULT_MS = 30_000;
+
+/**
+ * Per-call timeout for the dialectic read, tunable without a redeploy.
+ * Clamped to 1s..120s so a typo cannot make the stage submission hang.
+ */
+export function honchoDialecticTimeoutMs(env: Env = process.env): number {
+  const raw = Number.parseInt(env.ARIES_HONCHO_DIALECTIC_TIMEOUT_MS?.trim() ?? '', 10);
+  if (!Number.isFinite(raw) || raw <= 0) return HONCHO_DIALECTIC_TIMEOUT_DEFAULT_MS;
+  return Math.min(Math.max(raw, 1_000), 120_000);
+}
+
 /** Phase 3: explicit operator creative voice/style preference toggle → Honcho. */
 export function isHonchoWritePreferencesEnabled(env: Env = process.env): boolean {
   const v = env.HONCHO_WRITE_PREFERENCES_ENABLED?.trim().toLowerCase();

@@ -7,6 +7,7 @@ import type { SocialContentJobRuntimeDocument } from '@/backend/marketing/runtim
 
 import { curateFinding, type CurateOptions } from './curator';
 import { isApprovalDenialReasonCode } from '@/lib/marketing/approval-denial-reason-codes';
+import { observationHorizonLabel } from './insights-513-contract';
 import { HonchoHttpTransport } from './honcho-http-transport';
 import {
   isHonchoEnabled,
@@ -86,6 +87,23 @@ async function claimIdempotencyKey(key: string, client: typeof pool = pool): Pro
     [key],
   );
   return r.rows.length > 0;
+}
+
+/**
+ * Release a previously claimed idempotency key.
+ *
+ * Claim-then-write is only safe if a failed write gives the key back. Without
+ * this, one Honcho outage after a winning claim loses that observation
+ * PERMANENTLY: the next tick re-claims nothing (key present → skip) and the
+ * worker would ledger it as written. Best-effort — if the release itself fails
+ * we log and move on rather than turning a soft failure into a thrown one.
+ */
+async function releaseIdempotencyKey(key: string, client: typeof pool = pool): Promise<void> {
+  try {
+    await client.query('DELETE FROM honcho_write_idempotency_keys WHERE key = $1', [key]);
+  } catch (err) {
+    console.error('[honcho-write-events] failed to release idempotency key after write failure', err);
+  }
 }
 
 function firstPartyAriesSource(): FindingSource {
@@ -458,7 +476,14 @@ export function extractPerformanceMetricsSourceUrl(input: Record<string, unknown
   return null;
 }
 
-async function resolveTenantSlugForMemoryWrite(tenantId: string, client: typeof pool): Promise<string> {
+/**
+ * Resolve `organizations.slug` for a tenant id, falling back to `tenant-<id>`.
+ *
+ * Exported for the autonomous auto-approve path (hermes-callbacks): the Honcho
+ * approval mirror is guarded on a truthy `tenantSlug`, so an AI-driven approval
+ * that omits it silently drops the approval half of the brand profile.
+ */
+export async function resolveTenantSlugForMemoryWrite(tenantId: string, client: typeof pool): Promise<string> {
   const id = Number.parseInt(tenantId, 10);
   if (!Number.isFinite(id) || id < 1) {
     return `tenant-${tenantId}`;
@@ -637,71 +662,190 @@ export function scheduleScheduledPostHonchoWrite(input: RecordScheduledPostHonch
 export type RecordPublishPerformanceHonchoWriteInput = {
   tenantCtx: MinimalTenantCtx;
   jobId: string;
-  /** Hex topic pseudonym for `peer-market-signal-*`. */
-  topicPseudonymHex: string;
-  /** Calendar day for idempotency (YYYYMMDD, UTC). */
+  /**
+   * Legacy field from the market-signal design. Unused: observations are
+   * written to `peer-brand` so the deriver folds them into the representation
+   * the brand-profile dialectic reads back. Kept optional so the older Hermes
+   * callback caller compiles unchanged.
+   */
+  topicPseudonymHex?: string;
+  /** The post's UTC publish day (YYYYMMDD). */
   publishedAtYmd: string;
+  /**
+   * Horizon ANCHOR day (publish day + 1|7|28, YYYYMMDD) — the observation this
+   * write represents. Folded into the idempotency key so each horizon writes
+   * exactly once. Defaults to `publishedAtYmd` (single-shot) when absent, which
+   * is the behaviour the legacy Hermes-callback caller wants.
+   */
+  observationDayYmd?: string;
+  /** 1 | 7 | 28 — rendered as "24h"/"7d"/"28d" in the observation prose. */
+  horizonDays?: number;
   platform: string;
-  /** First output record from Hermes callback (metrics, etc.). */
+  /** Metrics payload (from buildPerformancePayloadRecord, or a Hermes output record). */
   payloadRecord: Record<string, unknown> | null;
 };
 
 /**
- * Hermes publish stage completed with performance-shaped output → `research_conclusion` on market-signal peer (queued).
+ * What `recordPerformanceEvent` actually did. The worker ledgers ONLY on
+ * `appended` / `skipped_idempotent`; anything else must stay due so the next
+ * tick retries it.
+ */
+export type RecordPerformanceOutcome =
+  | 'appended'
+  | 'skipped_idempotent'
+  | 'skipped_gated'
+  | 'skipped_invalid'
+  | 'failed';
+
+/** Metric keys we render, in display order, mapped to their prose label. */
+const OBSERVATION_METRIC_LABELS: ReadonlyArray<readonly [string, string]> = [
+  ['reach', 'reach'],
+  ['views', 'views'],
+  ['likes', 'likes'],
+  ['comments', 'comments'],
+  ['shares', 'shares'],
+  ['saves', 'saves'],
+];
+
+/**
+ * Render a performance observation as PLAIN PROSE.
+ *
+ * Deliberately not JSON: Honcho's deriver builds a peer's working
+ * representation from message content, and a serialized blob derives into
+ * nothing a dialectic query can answer with. Sentences are the interface.
+ */
+export function formatPerformanceObservation(input: {
+  platform: string;
+  mediaType: string | null;
+  publishedAtYmd: string;
+  horizonLabel: string | null;
+  metrics: Record<string, unknown>;
+  captionExcerpt: string | null;
+  sourceUrl: string;
+}): string {
+  const parts: string[] = [];
+  for (const [key, label] of OBSERVATION_METRIC_LABELS) {
+    const v = input.metrics[key];
+    if (typeof v === 'number' && Number.isFinite(v)) parts.push(`${label} ${v}`);
+  }
+  const descriptor = [input.platform, input.mediaType].filter(Boolean).join(' ');
+  const when = input.horizonLabel ? `, measured ${input.horizonLabel} after publish` : '';
+  const head =
+    `Post performance observation (${descriptor}, published ${input.publishedAtYmd}${when}): `
+    + (parts.length > 0 ? `${parts.join(', ')}.` : 'no metrics reported.');
+  const caption = input.captionExcerpt ? ` Caption excerpt: "${input.captionExcerpt}".` : '';
+  return `${head}${caption} Source: ${input.sourceUrl}`;
+}
+
+/** YYYYMMDD → YYYY-MM-DD. Callers validate the format first. */
+function dashYmd(ymd: string): string {
+  return `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`;
+}
+
+/**
+ * A published post's real measured performance → a prose observation on
+ * `peer-brand` / `session-performance-<jobId>`.
+ *
+ * WHY NOT THE CURATOR: the previous version curated this as a
+ * `research_conclusion`, and `curator.shouldQueueForReview` returns true for
+ * every `research_conclusion` unconditionally — so the write always landed in
+ * the review queue and NEVER reached Honcho. Not once. The curator exists to
+ * gate LLM-EXTRACTED claims about the outside world; these are deterministic
+ * first-party numbers out of our own `insights_*` tables, joined to our own
+ * `posts` rows. They need scrubbing (done — platform ids stripped, caption
+ * token-redacted), not human adjudication.
+ *
+ * Writing prose onto `peer-brand` is what closes the loop:
+ *   observation → deriver → peer representation → dialectic query →
+ *   "Brand memory" block in the strategy prompt.
+ *
+ * Fail-open: every failure path returns an outcome instead of throwing, and a
+ * failed append RELEASES the idempotency claim so the next tick retries.
  */
 export async function recordPerformanceEvent(
   input: RecordPublishPerformanceHonchoWriteInput,
   client = pool,
-): Promise<void> {
-  if (!isHonchoEnabled() || !isHonchoWritePublishEnabled()) return;
+  opts?: { transport?: HonchoTransport },
+): Promise<RecordPerformanceOutcome> {
+  if (!isHonchoEnabled() || !isHonchoWritePublishEnabled()) return 'skipped_gated';
   const jobId = input.jobId?.trim();
-  if (!jobId) return;
+  if (!jobId) return 'skipped_invalid';
   const ymd = input.publishedAtYmd?.trim();
   if (!ymd || !/^\d{8}$/.test(ymd)) {
     console.warn('[honcho-write-events] recordPerformanceEvent skipped: invalid publishedAtYmd');
-    return;
+    return 'skipped_invalid';
+  }
+  const observationYmd = input.observationDayYmd?.trim() || ymd;
+  if (!/^\d{8}$/.test(observationYmd)) {
+    console.warn('[honcho-write-events] recordPerformanceEvent skipped: invalid observationDayYmd');
+    return 'skipped_invalid';
   }
   const platform = String(input.platform || 'unknown').toLowerCase();
-  const topic = input.topicPseudonymHex?.trim();
-  if (!topic || !/^[a-f0-9]{8,64}$/i.test(topic)) {
-    console.warn('[honcho-write-events] recordPerformanceEvent skipped: invalid topicPseudonymHex');
-    return;
-  }
 
   const raw = input.payloadRecord && typeof input.payloadRecord === 'object' ? input.payloadRecord : {};
   const scrubbed = scrubPlatformIdsFromPerformancePayload(raw);
   const sourceUrl = extractPerformanceMetricsSourceUrl(scrubbed) ?? extractPerformanceMetricsSourceUrl(raw);
   if (!sourceUrl || !/^https:\/\//i.test(sourceUrl)) {
     console.warn('[honcho-write-events] recordPerformanceEvent skipped: no verifiable https source_url');
-    return;
+    return 'skipped_invalid';
   }
 
-  const key = idempotencyKey([jobId, 'publish', platform, ymd]);
+  // Idempotency is per (job, platform, OBSERVATION horizon) — see the cadence
+  // note in insights-513-contract.ts. Keying on the publish day alone would cap
+  // a post at one observation for life while the ledger re-offered it daily.
+  const key = idempotencyKey([jobId, 'publish', platform, ymd, observationYmd]);
   const claimed = await claimIdempotencyKey(key, client);
-  if (!claimed) return;
+  if (!claimed) return 'skipped_idempotent';
 
-  const claim = JSON.stringify({
-    event: 'publish_stage_performance',
-    research_job_id: jobId,
-    provider: platform,
-    metrics: scrubbed,
-    source_url: sourceUrl,
+  const metricsBag =
+    scrubbed.metrics && typeof scrubbed.metrics === 'object' && !Array.isArray(scrubbed.metrics)
+      ? (scrubbed.metrics as Record<string, unknown>)
+      : scrubbed;
+  const captionExcerpt =
+    typeof scrubbed.caption_excerpt === 'string' && scrubbed.caption_excerpt.trim()
+      ? scrubbed.caption_excerpt.trim()
+      : null;
+  const mediaType = typeof scrubbed.media_type === 'string' ? scrubbed.media_type : null;
+  const horizonLabel =
+    typeof input.horizonDays === 'number' && Number.isFinite(input.horizonDays)
+      ? observationHorizonLabel(input.horizonDays)
+      : null;
+
+  const content = formatPerformanceObservation({
+    platform,
+    mediaType,
+    publishedAtYmd: dashYmd(ymd),
+    horizonLabel,
+    metrics: metricsBag,
+    captionExcerpt,
+    sourceUrl,
   });
-  const finding: CandidateFinding = {
-    kind: 'research_conclusion',
-    claim,
-    sources: [{ url: sourceUrl, fetched_at: new Date().toISOString(), trust: 'third_party' }],
-    confidence: 0.88,
-    peerHint: 'market_signal',
-  };
-  const outcome = curateFinding(finding, { jobId, approvedBy: 'system' });
+
+  const transport = opts?.transport ?? new HonchoHttpTransport(process.env, fetchWithTimeout(HONCHO_WRITE_FETCH_TIMEOUT_MS));
+  const mem = new TenantMemoryClient(transport);
 
   try {
-    if (outcome.decision === 'queue_for_review') {
-      await persistQueuedFinding(String(input.tenantCtx.tenantId), jobId, finding, outcome, client);
-    }
+    await mem.ensureWorkspace(input.tenantCtx);
+    await mem.appendObservation({
+      ctx: input.tenantCtx,
+      peer: { kind: 'brand' },
+      session: { kind: 'performance', jobId },
+      content,
+      metadata: {
+        kind: 'performance_observation',
+        platform,
+        published_at_ymd: dashYmd(ymd),
+        observation_day: dashYmd(observationYmd),
+        ...(horizonLabel ? { observation_horizon: horizonLabel } : {}),
+      },
+    });
+    return 'appended';
   } catch (err) {
     console.error('[honcho-write-events] recordPerformanceEvent failed', err);
+    // Give the key back — otherwise this observation is lost forever while the
+    // worker's next tick sees "already claimed" and ledgers it as done.
+    await releaseIdempotencyKey(key, client);
+    return 'failed';
   }
 }
 
