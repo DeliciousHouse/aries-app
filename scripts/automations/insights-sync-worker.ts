@@ -30,6 +30,7 @@ import pool from '@/lib/db';
 import { syncAllAccountsForTenant } from '@/backend/insights/sync/dispatcher';
 import { sweepAbandonedSyncRuns } from '@/backend/insights/sync/sweep-stranded-runs';
 import { ensureInsightsAccountsForConnectedPlatforms } from '@/backend/insights/sync/ensure-account';
+import { classifyGatewayOrigin, probeClassifierGateway } from '@/backend/insights/sync/classify-comments';
 import type { Queryable } from '@/backend/integrations/composio/connection-store';
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -81,8 +82,11 @@ async function tick(dbPool: TickPool, syncFn: SyncAllAccountsFn): Promise<void> 
   const client = await dbPool.connect();
   let tenantIds: number[] = [];
   try {
+    // disabled_at IS NULL — orphaned rows (reconnect to a different page id, or
+    // a disconnect that deleted the connected_accounts row) are swept into
+    // disabled_at by the bridge and must not keep a tenant in the fan-out.
     const res = await client.query(
-      `SELECT DISTINCT tenant_id FROM insights_accounts ORDER BY tenant_id`,
+      `SELECT DISTINCT tenant_id FROM insights_accounts WHERE disabled_at IS NULL ORDER BY tenant_id`,
     );
     tenantIds = res.rows.map((r) => r.tenant_id);
   } finally {
@@ -125,6 +129,9 @@ async function tick(dbPool: TickPool, syncFn: SyncAllAccountsFn): Promise<void> 
         apiUnitsUsed: r.apiUnitsUsed,
         syncRunId:    r.syncRunId,
       };
+      // Only when non-zero: a quarantine is a state change worth reading, and
+      // every tick logging `quarantined: 0` would bury it.
+      if (r.quarantined > 0) entry['quarantined'] = r.quarantined;
       if (r.errorMessage) entry['error'] = r.errorMessage;
       log(entry);
 
@@ -180,13 +187,15 @@ export async function bridgeAndTick(
     // Pass the SAME pool the tick uses — so a test injecting a fake pool never
     // silently reaches the real database through the bridge.
     const res = await ensureInsightsAccountsForConnectedPlatforms(dbPool);
-    if (res.upserted > 0 || res.resolved > 0 || res.skippedNoPage > 0) {
+    if (res.upserted > 0 || res.resolved > 0 || res.skippedNoPage > 0 || res.disabled > 0 || res.reenabled > 0) {
       log({
         event: 'insights_sync_accounts_bridged',
         upserted: res.upserted,
         considered: res.considered,
         resolved: res.resolved,
         skippedNoPage: res.skippedNoPage,
+        disabled: res.disabled,
+        reenabled: res.reenabled,
       });
     }
   } catch (err) {
@@ -210,6 +219,22 @@ function log(obj: Record<string, unknown>): void {
 
 function main(): void {
   log({ event: 'insights_sync_worker_start', intervalMs: INTERVAL_MS });
+
+  // One-shot, non-fatal reachability probe for the comment-classification
+  // gateway. Classification failures are isolated into legErrors and only
+  // surface ~30 min later inside a `partial` run's error_message, so a sidecar
+  // that simply cannot resolve the gateway host looked healthy for months.
+  // This turns that into one line per container start. It never blocks the
+  // first tick and never rejects.
+  void probeClassifierGateway()
+    .then((r) => log({
+      event:   'insights_classifier_preflight',
+      ok:      r.ok,
+      reason:  r.ok ? null : r.reason,
+      detail:  r.ok ? null : (r.detail ?? null),
+      gateway: classifyGatewayOrigin() || null,
+    }))
+    .catch((err) => log({ event: 'insights_classifier_preflight', ok: false, reason: 'probe_threw', detail: describeError(err) }));
 
   // Run the first tick immediately on startup, then every INTERVAL_MS.
   // bridgeAndTick first projects connected Composio accounts into

@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { HermesMarketingPort } from '../../backend/marketing/ports/hermes';
+import { DEFAULT_GROWTH_PRIMARY_GOAL } from '../../backend/social-content/brand-kit-payload';
 import type { SocialContentJobRuntimeDocument } from '../../backend/marketing/runtime-state';
 
 /**
@@ -162,7 +163,16 @@ const WEEKLY_WORKFLOW_KEY = 'social_content_weekly';
  * loadSocialContentJobRuntime() resolves prior-stage outputs for the resume→run
  * conversion.
  */
-async function seedWeeklyJobDoc(jobId: string): Promise<void> {
+async function seedWeeklyJobDoc(
+  jobId: string,
+  /**
+   * Extra onboarding-request fields. The base request deliberately states NO
+   * primaryGoal/goal — that is the live shape for most tenants and is what
+   * makes DEFAULT_GROWTH_PRIMARY_GOAL fire through buildBrandKitPayload's
+   * doc.inputs.request fallback. Do not "fix" the fixture by adding a goal.
+   */
+  requestOverrides: Record<string, unknown> = {},
+): Promise<void> {
   const ts = new Date().toISOString();
   const stageRecord = (
     stage: string,
@@ -202,7 +212,12 @@ async function seedWeeklyJobDoc(jobId: string): Promise<void> {
     brand_kit: { brand_name: 'Brand Co' },
     inputs: {
       brand_url: 'https://brand.example',
-      request: { jobType: 'weekly_social_content', channels: ['instagram', 'meta'], imageCreativeCount: 7 },
+      request: {
+        jobType: 'weekly_social_content',
+        channels: ['instagram', 'meta'],
+        imageCreativeCount: 7,
+        ...requestOverrides,
+      },
     },
     created_at: ts,
     updated_at: ts,
@@ -358,6 +373,96 @@ test('weekly stage runs ship only their own stage instruction contract', async (
     assert.ok(
       !instructions.includes('image_generate'),
       'strategy run instructions must NOT mention image_generate (that is the production profile)',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ITEM 2 — the growth objective must actually REACH the strategist.
+//
+// `objective` is built by buildSocialContentWeeklyRequest for the research run
+// only. The resume->run conversion carries just ids + the prior stage's output,
+// so strategy and publish never saw the tenant's goal — which also meant
+// GROWTH_OBJECTIVE_KPI's "unless the Objective (JSON) states a different
+// primary_goal" clause had nothing to subordinate to.
+// ---------------------------------------------------------------------------
+
+test('the weekly strategy run carries an Objective (JSON) line, defaulted end-to-end when the tenant stated no goal', async () => {
+  await withDataRoot(async () => {
+    // seedWeeklyJobDoc's request has no primaryGoal/goal — the live shape for
+    // most tenants. Asserting only that "primary_goal" appears would pass even
+    // if the default never fired and the value were "", so assert the VALUE.
+    await seedWeeklyJobDoc('job_weekly_obj_default');
+    const { calls, fetchImpl } = recordingFetch();
+    const port = makePort(PER_PROFILE_ENV, fetchImpl as unknown as typeof fetch);
+    await port.resumePipeline(weeklyResumeInput('strategy', 'job_weekly_obj_default'));
+    const body = JSON.parse(calls[0].init.body as string) as Record<string, unknown>;
+    const runInput = String(body.input);
+    assert.ok(runInput.includes('Objective (JSON):'), 'strategy run input must carry the objective echo');
+    assert.ok(
+      runInput.includes(JSON.stringify(DEFAULT_GROWTH_PRIMARY_GOAL).slice(1, -1)),
+      'the goalless tenant must receive DEFAULT_GROWTH_PRIMARY_GOAL, not an empty primary_goal',
+    );
+    assert.ok(
+      !runInput.includes('"primary_goal":""'),
+      'a strategy run must never ship an empty objective again',
+    );
+    assert.ok(
+      String(body.instructions).includes('followers_delta'),
+      'the objective echo pairs with the KPI contract in the same submission',
+    );
+  });
+});
+
+test('an operator-stated goal reaches the strategist unchanged and suppresses the growth default', async () => {
+  await withDataRoot(async () => {
+    await seedWeeklyJobDoc('job_weekly_obj_stated', { primaryGoal: 'Book more consulting calls' });
+    const { calls, fetchImpl } = recordingFetch();
+    const port = makePort(PER_PROFILE_ENV, fetchImpl as unknown as typeof fetch);
+    await port.resumePipeline(weeklyResumeInput('strategy', 'job_weekly_obj_stated'));
+    const runInput = String((JSON.parse(calls[0].init.body as string) as Record<string, unknown>).input);
+    assert.ok(runInput.includes('Book more consulting calls'), 'the stated goal must survive to the strategist');
+    assert.ok(
+      !runInput.includes('Grow the audience'),
+      'the growth default must not override a stated goal — this is what the KPI subordination clause reads',
+    );
+  });
+});
+
+test('the objective echo is scoped to strategy and publish, not production or publish-finalize', async () => {
+  await withDataRoot(async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    const port = makePort(PER_PROFILE_ENV, fetchImpl as unknown as typeof fetch);
+
+    // Publish plans posts, so it gets the objective beside its KPI contract.
+    await seedWeeklyJobDoc('job_weekly_obj_pub');
+    await port.resumePipeline(weeklyResumeInput('publish', 'job_weekly_obj_pub'));
+    assert.ok(
+      String((JSON.parse(calls[0].init.body as string) as Record<string, unknown>).input)
+        .includes('Objective (JSON):'),
+      'the publish pre-flight carries the KPI contract, so it needs the objective too',
+    );
+
+    // Production already embeds the same objective inside its Production
+    // context block; a second copy would be redundant and would move a prompt
+    // this item does not own.
+    await seedWeeklyJobDoc('job_weekly_obj_prod');
+    await port.resumePipeline(weeklyResumeInput('production', 'job_weekly_obj_prod'));
+    const productionInput = String((JSON.parse(calls[1].init.body as string) as Record<string, unknown>).input);
+    assert.ok(!productionInput.includes('Objective (JSON):'), 'production must not gain a duplicate objective line');
+    assert.ok(productionInput.includes('Production context ('), 'production keeps its own context block');
+
+    // Publish-finalize is a terminal echo — no planning, no objective.
+    await seedWeeklyJobDoc('job_weekly_obj_fin');
+    await port.resumePipeline({
+      ...weeklyResumeInput('publish', 'job_weekly_obj_fin'),
+      workflowStepId: 'approve_stage_4_publish',
+      approvalStep: 'approve_publish',
+    });
+    assert.ok(
+      !String((JSON.parse(calls[2].init.body as string) as Record<string, unknown>).input)
+        .includes('Objective (JSON):'),
+      'the finalize run does no planning — an objective line there is pure prompt tax',
     );
   });
 });

@@ -45,7 +45,11 @@ async function queryAccountSyncState(tenantId: number): Promise<AccountSyncRow[]
      FROM insights_accounts a
      LEFT JOIN latest_run   lr ON lr.account_id = a.id
      LEFT JOIN last_success ls ON ls.account_id = a.id
-     WHERE a.tenant_id = $1
+     -- disabled_at IS NULL: an orphaned account row (reconnect to a different
+     -- page id, or a disconnect) never syncs again, so reporting its stale
+     -- freshness would show every tenant a permanently red panel for a
+     -- connection they no longer have.
+     WHERE a.tenant_id = $1 AND a.disabled_at IS NULL
      ORDER BY a.platform`,
     [tenantId],
   );

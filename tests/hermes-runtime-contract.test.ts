@@ -6,7 +6,7 @@ import {
   probeHermesGatewayCapabilities,
   probeHermesSocialContentRuntime,
 } from '../backend/marketing/hermes-runtime-contract';
-import { buildHermesInstructions } from '../backend/marketing/ports/hermes';
+import { buildHermesInstructions, buildHermesStageInstructions } from '../backend/marketing/ports/hermes';
 import { SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY } from '../backend/social-content/defaults';
 import { SOCIAL_CONTENT_WEEKLY_WORKFLOW_VERSION } from '../backend/social-content/defaults';
 
@@ -114,7 +114,7 @@ void test('instructions() forbids local-workspace tools during research — soci
   assert.ok(result.includes('search_files'), 'forbid clause must mention search_files');
   assert.ok(result.includes('write_file'), 'forbid clause must mention write_file');
   assert.ok(result.includes('execute_code'), 'forbid clause must mention execute_code');
-  assert.ok(result.includes('6 total tool calls'), '6-tool-call cap must be present');
+  assert.ok(result.includes('12 total tool calls'), '12-tool-call cap must be present');
   assert.ok(result.includes('no Aries workspace available'), 'workspace-unavailable rationale must be present');
 });
 
@@ -124,7 +124,7 @@ void test('instructions() forbids local-workspace tools during research — gene
   assert.ok(result.includes('search_files'), 'forbid clause must mention search_files');
   assert.ok(result.includes('write_file'), 'forbid clause must mention write_file');
   assert.ok(result.includes('execute_code'), 'forbid clause must mention execute_code');
-  assert.ok(result.includes('6 total tool calls'), '6-tool-call cap must be present');
+  assert.ok(result.includes('12 total tool calls'), '12-tool-call cap must be present');
   assert.ok(result.includes('no Aries workspace available'), 'workspace-unavailable rationale must be present');
 });
 
@@ -168,4 +168,62 @@ test('buildSocialContentWeeklyRequest payload: enrichment fields flow into brand
   assert.equal(payload.input.objective.audience, 'Early-stage founders.', 'audience should come from brandKit.audience');
   assert.equal(payload.input.brand.voice, 'Empowering leadership voice. Tone: warm, direct.', 'voice should include Tone: suffix');
   assert.ok(typeof payload.input.brand.offer === 'string' && payload.input.brand.offer.length > 0, 'offer should be non-empty');
+});
+
+// ---------------------------------------------------------------------------
+// Publish-stage schedule contract (audit item 4a).
+//
+// The per-stage builders are module-private, so these go through the exported
+// seam: buildHermesStageInstructions(key, 'publish') selects the first publish
+// run, and passing the FINAL_PUBLISH_WORKFLOW_STEP_ID ('approve_stage_4_publish')
+// selects the terminal finalize builder.
+// ---------------------------------------------------------------------------
+
+void test('publish instructions state the schedule[] + recommended_day contract', () => {
+  const result = buildHermesStageInstructions(SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY, 'publish');
+  assert.ok(result.includes('SCHEDULE CONTRACT'), 'the contract must be labelled so it survives prompt edits');
+  assert.ok(result.includes('recommended_day'), 'the field Aries actually schedules from must be named');
+  assert.ok(result.includes('"schedule"'), 'the array key must appear in the required schema');
+  assert.ok(
+    result.includes('ONE entry per post'),
+    'the one-entry-per-post cardinality is what keeps schedule[] aligned to content_package',
+  );
+  assert.ok(
+    result.includes('FULL English weekday NAME'),
+    'the day format must be pinned — dayIndexFromName parses weekday names only',
+  );
+  assert.ok(
+    result.includes('consecutive-day ladder'),
+    'the model must be told what an omitted day actually costs',
+  );
+});
+
+void test('publish-finalize instructions carry the schedule through (it overwrites the stored artifact)', () => {
+  const result = buildHermesStageInstructions(
+    SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
+    'publish',
+    'approve_stage_4_publish',
+  );
+  assert.ok(result.includes('CARRY THE SCHEDULE THROUGH'), 'carry-through instruction must be present');
+  assert.ok(result.includes('VERBATIM'), 'the schedule must be copied, not re-derived');
+  assert.ok(result.includes('OVERWRITES'), 'the markStageCompleted overwrite is the whole reason this exists');
+  // Sanity: this really is the terminal builder, not the first publish run.
+  assert.ok(result.includes('"completed"'), 'finalize returns a terminal completed envelope');
+  assert.ok(!result.includes('SCHEDULE CONTRACT'), 'the full authoring contract belongs to the first publish run only');
+});
+
+void test('strategy instructions ask for a proposed_day to feed the publish schedule', () => {
+  const result = buildHermesStageInstructions(SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY, 'strategy');
+  assert.ok(result.includes('proposed_day'), 'strategy proposes; publish confirms into schedule[]');
+});
+
+void test('the schedule contract is scoped to publish — no other weekly stage carries it', () => {
+  for (const stage of ['research', 'strategy', 'production'] as const) {
+    assert.ok(
+      !buildHermesStageInstructions(SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY, stage).includes('SCHEDULE CONTRACT'),
+      `${stage} must not carry the publish schedule contract`,
+    );
+  }
+  // The brand-campaign (marketing_pipeline) path is untouched by item 4.
+  assert.ok(!buildHermesStageInstructions('marketing_pipeline', 'publish').includes('SCHEDULE CONTRACT'));
 });

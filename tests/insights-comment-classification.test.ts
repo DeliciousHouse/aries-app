@@ -147,3 +147,85 @@ test('isCommentClassificationEnabled reads truthy variants', () => {
     assert.equal(isCommentClassificationEnabled({ ARIES_COMMENT_CLASSIFICATION_ENABLED: v }), false);
   }
 });
+
+// ── Gateway naming in unreachable details (audit item 5a) ────────────────────
+// `classifyComments: unreachable (fetch failed)` was logged on every sync for
+// months and named nothing. The cause was DNS: the sync sidecar had
+// HERMES_GATEWAY_URL=http://host.docker.internal:8642 but not the
+// `host.docker.internal:host-gateway` extra_hosts mapping, which was declared
+// on aries-app only. Naming the host in the failure is what makes that
+// diagnosable from a log line.
+
+const HOST_ENV = {
+  ARIES_COMMENT_CLASSIFICATION_ENABLED: '1',
+  HERMES_GATEWAY_URL: 'http://host.docker.internal:8642',
+  HERMES_API_SERVER_KEY: 'super-secret-key',
+};
+
+test('a submit-side unreachable names the gateway host:port', async () => {
+  const res = await classifyCommentsWithHermes({
+    comments: [{ id: 1, text: 'x' }],
+    env: HOST_ENV,
+    fetchImpl: (async () => { throw new TypeError('fetch failed'); }) as any,
+    sleep: noSleep,
+  });
+  assert.equal(res.ok, false);
+  if (res.ok) return;
+  assert.equal(res.reason, 'unreachable');
+  assert.match(String(res.detail), /fetch failed \(gateway host\.docker\.internal:8642\)/);
+});
+
+test('a poll-side unreachable names the gateway host:port too', async () => {
+  let calls = 0;
+  const fetchImpl = async (url: string | URL, init?: RequestInit): Promise<Response> => {
+    calls++;
+    if (String(url).endsWith('/v1/runs') && init?.method === 'POST') {
+      return new Response(JSON.stringify({ run_id: 'r' }), { status: 200 });
+    }
+    throw new TypeError('fetch failed');
+  };
+  const res = await classifyCommentsWithHermes({
+    comments: [{ id: 1, text: 'x' }], env: HOST_ENV, fetchImpl: fetchImpl as any, sleep: noSleep,
+  });
+  assert.ok(calls >= 2);
+  assert.equal(res.ok, false);
+  if (res.ok) return;
+  assert.equal(res.reason, 'unreachable');
+  assert.match(String(res.detail), /gateway host\.docker\.internal:8642/);
+});
+
+test('no failure detail ever contains the API server key', async () => {
+  const details: string[] = [];
+  const cases: Array<() => Promise<unknown>> = [
+    () => classifyCommentsWithHermes({
+      comments: [{ id: 1, text: 'x' }], env: HOST_ENV,
+      fetchImpl: (async () => { throw new Error('boom super-secret'); }) as any, sleep: noSleep,
+    }),
+    () => classifyCommentsWithHermes({
+      comments: [{ id: 1, text: 'x' }], env: HOST_ENV,
+      fetchImpl: (async () => new Response('', { status: 401 })) as any, sleep: noSleep,
+    }),
+  ];
+  for (const run of cases) {
+    const res = (await run()) as { ok: boolean; detail?: string };
+    if (!res.ok && res.detail) details.push(res.detail);
+  }
+  assert.ok(details.length > 0, 'the cases above must produce failure details');
+  for (const d of details) {
+    assert.ok(!d.includes('super-secret-key'), `API key leaked into a detail: ${d}`);
+  }
+});
+
+test('an unset gateway URL leaves the detail unadorned rather than saying "(gateway )"', async () => {
+  // not_configured short-circuits before any fetch, so exercise the unreachable
+  // path with a URL that has no parseable origin.
+  const res = await classifyCommentsWithHermes({
+    comments: [{ id: 1, text: 'x' }],
+    env: { ...HOST_ENV, HERMES_GATEWAY_URL: 'garbage-not-a-url' },
+    fetchImpl: (async () => { throw new TypeError('fetch failed'); }) as any,
+    sleep: noSleep,
+  });
+  assert.equal(res.ok, false);
+  if (res.ok) return;
+  assert.equal(res.detail, 'fetch failed');
+});

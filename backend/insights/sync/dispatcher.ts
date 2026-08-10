@@ -37,6 +37,11 @@ import {
 } from './classify-comments';
 import { recordTaskExecution } from '@/backend/telemetry/task-execution-log';
 import { classifyPostContentType } from './classify-post';
+import {
+  isPermanentObjectError,
+  quarantineThresholdFor,
+  REPROBE_AFTER_DAYS,
+} from './object-health';
 import type { DateRange, InsightsAdapter, InsightsAdapterContext } from '../adapters/_adapter.types';
 import type { SyncTrigger, SyncStatus } from '../types';
 import { getConnectionRow } from '@/backend/integrations/composio/connection-store';
@@ -104,7 +109,195 @@ export interface SyncResult {
   postsSeen: number;
   commentsSeen: number;
   apiUnitsUsed: number;
+  /**
+   * Objects that crossed the quarantine threshold on THIS run (the 0→
+   * quarantined transition only, never the standing total). Non-zero is the
+   * signal an operator wants: something just stopped being retried.
+   */
+  quarantined: number;
   errorMessage?: string;
+}
+
+/**
+ * Excludes quarantined objects from a selection query, while letting one
+ * re-probe through every REPROBE_AFTER_DAYS days so an object that came back
+ * (unarchived, permissions restored) heals with no operator involvement.
+ * `col` is a caller-supplied literal column name — never user input.
+ */
+function notQuarantined(col: 'metrics_unavailable_at' | 'comments_unavailable_at'): string {
+  return `(${col} IS NULL OR ${col} < now() - INTERVAL '${REPROBE_AFTER_DAYS} days')`;
+}
+
+/**
+ * The failure write for one leg of one object, as ONE atomic statement.
+ *
+ * Deliberately not a read-then-update: `syncAccountForTenant` also runs on the
+ * 'handler' trigger (a user hitting the integrations page), so two syncs for
+ * the same account can overlap, and the deploy notes hand operators a manual
+ * pre-quarantine UPDATE. A read-modify-write would silently drop strikes
+ * against either. Postgres reads `<col>_error_count` under the row lock it
+ * already takes for the write, so the increment and the threshold test see the
+ * same value.
+ *
+ * $1 post id, $2 error text, $3 threshold (from quarantineThresholdFor —
+ * QUARANTINE_NEVER_THRESHOLD when the failure is not object-specific, so the
+ * "don't strike during a platform outage" rule needs no branch here).
+ *
+ * The `prev` join carries the PRE-update watermark out of the statement (a
+ * plain RETURNING can only report post-update values), so the caller can log
+ * the 0→quarantined transition exactly once instead of on every later strike.
+ *
+ * A FAILED re-probe RE-STAMPS the watermark to now() (the first CASE arm).
+ * Without it the timestamp keeps the ORIGINAL quarantine date forever, so once
+ * that date ages past REPROBE_AFTER_DAYS the `notQuarantined` predicate is
+ * permanently true and the dead object is re-selected on EVERY tick again —
+ * ~96 wasted API calls a day per object instead of the ~2 a month
+ * object-health.ts promises, crowding the selection LIMITs, and silently
+ * (`was_quarantined` suppresses its legError).
+ *
+ * The re-stamp is deliberately NOT gated on $3: the threshold binding depends
+ * on whether a sibling happened to succeed EARLIER IN THE SAME LOOP, so gating
+ * would leave the bug alive on an ordering accident. The cost of not gating is
+ * that a re-probe landing inside a platform-wide outage defers the next probe
+ * by another REPROBE_AFTER_DAYS — a fortnight of latency on healing, against
+ * an unbounded call leak. The counter still climbs either way.
+ */
+function objectFailureSql(leg: 'metrics' | 'comments'): string {
+  const count = `${leg}_error_count`;
+  const lastError = `${leg}_last_error`;
+  const unavailable = `${leg}_unavailable_at`;
+  return `
+    UPDATE insights_posts p
+       SET ${count} = p.${count} + 1,
+           ${lastError} = $2,
+           ${unavailable} = CASE
+             WHEN p.${unavailable} IS NOT NULL THEN now()
+             WHEN p.${count} + 1 >= $3 THEN now()
+             ELSE p.${unavailable}
+           END
+      FROM (SELECT id, ${unavailable} AS prev_unavailable FROM insights_posts WHERE id = $1) prev
+     WHERE p.id = prev.id
+     RETURNING p.${count} AS error_count,
+               p.${unavailable} AS unavailable_at,
+               (prev.prev_unavailable IS NOT NULL) AS was_quarantined
+  `;
+}
+
+/**
+ * The success write for one leg: clears THAT leg's strike state and nothing
+ * else. Resetting the sibling leg is the bug the independent columns exist to
+ * prevent — a post whose metrics succeed and whose comments permanently fail
+ * would have its comments counter zeroed every tick before the comments failure
+ * could increment it, so it would never converge.
+ *
+ * The metrics leg always writes (it also stamps the `last_metrics_fetched_at`
+ * watermark the selection query depends on). The comments leg has no watermark
+ * to stamp, so it is guarded to a no-op when there is nothing to clear —
+ * otherwise every healthy account would dirty up to 20 rows per tick forever
+ * for no reason.
+ */
+function objectSuccessSql(leg: 'metrics' | 'comments'): string {
+  if (leg === 'metrics') {
+    return `
+      UPDATE insights_posts
+         SET last_metrics_fetched_at = now(),
+             metrics_error_count = 0,
+             metrics_last_error = NULL,
+             metrics_unavailable_at = NULL
+       WHERE id = $1
+    `;
+  }
+  return `
+    UPDATE insights_posts
+       SET comments_error_count = 0,
+           comments_last_error = NULL,
+           comments_unavailable_at = NULL
+     WHERE id = $1
+       AND (comments_error_count <> 0
+            OR comments_last_error IS NOT NULL
+            OR comments_unavailable_at IS NOT NULL)
+  `;
+}
+
+interface ObjectFailureRow {
+  error_count: number;
+  unavailable_at: Date | string | null;
+  was_quarantined: boolean | null;
+}
+
+interface ObjectStrike {
+  /** The object was ALREADY quarantined before this failure. */
+  wasQuarantined: boolean;
+  /** This failure is the one that crossed the threshold (log/count once). */
+  transitioned: boolean;
+}
+
+/**
+ * Record one leg failure for one object and report where that leaves it.
+ *
+ * Never throws: this runs inside a catch block that is already handling the
+ * real error, and losing a strike is strictly better than losing the sync. A
+ * write failure degrades to "not quarantined", which keeps today's behaviour
+ * (the error is reported, the object is retried next tick).
+ */
+async function recordObjectFailure(
+  client: SyncClient,
+  input: {
+    leg: 'metrics' | 'comments';
+    postId: number;
+    message: string;
+    postSpecific: boolean;
+    tenantId: number;
+    accountId: number;
+    platform: string;
+    externalPostId: string;
+  },
+): Promise<ObjectStrike> {
+  const permanent = isPermanentObjectError(input.message);
+  // A recognised permanent error is self-evidently object-specific — it names
+  // THIS object as gone — so it may strike even before a sibling has succeeded.
+  const postSpecific = input.postSpecific || permanent;
+  const threshold = quarantineThresholdFor({ permanent, postSpecific });
+
+  let row: ObjectFailureRow | undefined;
+  try {
+    const res = await client.query<ObjectFailureRow>(objectFailureSql(input.leg), [
+      input.postId,
+      input.message.slice(0, 2000),
+      threshold,
+    ]);
+    row = res.rows[0];
+  } catch (err) {
+    // Degrading to "not quarantined" is deliberate (see above), but doing it
+    // silently is not: a strike write that keeps failing — lock timeouts,
+    // encoding, a future schema drift — means quarantine never engages at all,
+    // and that is exactly the invisible-failure class this seam exists to end.
+    console.warn('[insights-sync] strike write failed', {
+      postId: input.postId,
+      leg: input.leg,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { wasQuarantined: false, transitioned: false };
+  }
+  if (!row) return { wasQuarantined: false, transitioned: false };
+
+  const wasQuarantined = row.was_quarantined === true;
+  const transitioned = !wasQuarantined && row.unavailable_at != null;
+  if (transitioned) {
+    console.log(JSON.stringify({
+      ts: new Date().toISOString(),
+      event: 'insights_post_object_quarantined',
+      tenantId: input.tenantId,
+      accountId: input.accountId,
+      platform: input.platform,
+      leg: input.leg,
+      externalPostId: input.externalPostId,
+      strikes: row.error_count,
+      permanent,
+      error: input.message.slice(0, 300),
+    }));
+  }
+  return { wasQuarantined, transitioned };
 }
 
 // ── Core sync ─────────────────────────────────────────────────────────────────
@@ -189,6 +382,8 @@ export async function syncAccountForTenant(
     let postsSeen = 0;
     let commentsSeen = 0;
     let apiUnitsUsed = 0;
+    /** Objects that crossed the quarantine threshold on this run. */
+    let quarantined = 0;
     // Each adapter leg below is isolated: one platform call failing (e.g. a
     // POST_INSIGHTS error for one post) is recorded here and the remaining legs
     // still run + persist. A non-empty list downgrades the run to 'partial'
@@ -343,7 +538,11 @@ export async function syncAccountForTenant(
     }
 
     // 5. Per-post daily metrics
-    //    Only posts that are at least 1 day old and haven't been refreshed in 6 hours.
+    //    Only posts that are at least 1 day old and haven't been refreshed in 6
+    //    hours — and that are not quarantined (see object-health.ts). Without
+    //    the quarantine filter a post deleted on-platform is re-selected by
+    //    every tick forever: `last_metrics_fetched_at` is stamped only on
+    //    success, so a permanently failing object never leaves this window.
     const postsToSync = await client.query<{
       id: number;
       external_post_id: string;
@@ -357,10 +556,18 @@ export async function syncAccountForTenant(
            last_metrics_fetched_at IS NULL
            OR last_metrics_fetched_at < now() - INTERVAL '6 hours'
          )
+         AND ${notQuarantined('metrics_unavailable_at')}
        ORDER BY published_at DESC
        LIMIT 50`,
       [tenantId, accountId],
     );
+
+    // Evidence that a given failure is about THAT object rather than the
+    // platform: at least one sibling object succeeded in this same run. Until
+    // that is true, only a recognised permanent error may strike (see
+    // quarantineThresholdFor) — so a page-token expiry or a Graph outage cannot
+    // quarantine an account's whole history in one bad afternoon.
+    let postMetricsOk = 0;
 
     for (const post of postsToSync.rows) {
       try {
@@ -426,20 +633,43 @@ export async function syncAccountForTenant(
           );
         }
 
-        await client.query(
-          `UPDATE insights_posts SET last_metrics_fetched_at = now() WHERE id = $1`,
-          [post.id],
-        );
+        await client.query(objectSuccessSql('metrics'), [post.id]);
+        postMetricsOk++;
       } catch (err) {
         // One post's metrics failing must not skip the rest of the loop OR the
         // comments leg below.
-        legErrors.push(
-          `fetchPostMetrics(${post.external_post_id}): ${err instanceof Error ? err.message : String(err)}`,
-        );
+        const message = err instanceof Error ? err.message : String(err);
+        const strike = await recordObjectFailure(client, {
+          leg: 'metrics',
+          postId: post.id,
+          message,
+          postSpecific: postMetricsOk > 0,
+          tenantId, accountId, platform,
+          externalPostId: post.external_post_id,
+        });
+        if (strike.transitioned) quarantined++;
+        // An ALREADY-quarantined object must stop poisoning the run status.
+        // Its errors were reported on every strike up to and including the
+        // quarantine transition, and it is now excluded from selection for
+        // REPROBE_AFTER_DAYS — continuing to report the failing re-probe would
+        // pin this account at 'partial' forever, which is the signal-destroying
+        // behaviour quarantine exists to end. The failure stays visible in
+        // insights_posts.metrics_last_error, in the health report, and in the
+        // one-time `insights_post_object_quarantined` log line.
+        if (!strike.wasQuarantined) {
+          legErrors.push(`fetchPostMetrics(${post.external_post_id}): ${message}`);
+        }
       }
     }
 
-    // 6. Comments — last 30 days of posts, up to 100 comments per post
+    // 6. Comments — last 30 days of posts, up to 100 comments per post.
+    //    This leg previously had NO watermark of any kind, so a dead object was
+    //    retried on every single tick with nothing to stop it. It now carries
+    //    its own quarantine columns, INDEPENDENT of the metrics leg: with
+    //    shared state, a post whose metrics succeed and whose comments
+    //    permanently fail would have its counter reset to 0 by the metrics
+    //    success on every tick before the comments failure could increment it —
+    //    it would never converge, reproducing the exact bug being fixed.
     const recentPosts = await client.query<{
       id: number;
       external_post_id: string;
@@ -449,15 +679,19 @@ export async function syncAccountForTenant(
        WHERE tenant_id = $1
          AND account_id = $2
          AND published_at > now() - INTERVAL '30 days'
+         AND ${notQuarantined('comments_unavailable_at')}
        ORDER BY published_at DESC
        LIMIT 20`,
       [tenantId, accountId],
     );
 
+    let commentsLegOk = 0;
+
     for (const post of recentPosts.rows) {
       try {
         const comments = await adapter.fetchComments(post.external_post_id, 100);
         apiUnitsUsed++;
+        commentsLegOk++;
 
         for (const c of comments) {
           await client.query(
@@ -473,10 +707,21 @@ export async function syncAccountForTenant(
           );
           commentsSeen++;
         }
+        await client.query(objectSuccessSql('comments'), [post.id]);
       } catch (err) {
-        legErrors.push(
-          `fetchComments(${post.external_post_id}): ${err instanceof Error ? err.message : String(err)}`,
-        );
+        const message = err instanceof Error ? err.message : String(err);
+        const strike = await recordObjectFailure(client, {
+          leg: 'comments',
+          postId: post.id,
+          message,
+          postSpecific: commentsLegOk > 0,
+          tenantId, accountId, platform,
+          externalPostId: post.external_post_id,
+        });
+        if (strike.transitioned) quarantined++;
+        if (!strike.wasQuarantined) {
+          legErrors.push(`fetchComments(${post.external_post_id}): ${message}`);
+        }
       }
     }
 
@@ -624,7 +869,7 @@ export async function syncAccountForTenant(
     return {
       syncRunId, accountId, platform,
       status,
-      postsSeen, commentsSeen, apiUnitsUsed,
+      postsSeen, commentsSeen, apiUnitsUsed, quarantined,
       ...(legErrors.length > 0 ? { errorMessage: legErrors.join(' | ') } : {}),
     };
 
@@ -651,6 +896,7 @@ export async function syncAccountForTenant(
       postsSeen: 0,
       commentsSeen: 0,
       apiUnitsUsed: 0,
+      quarantined: 0,
       errorMessage,
     };
 
@@ -674,8 +920,13 @@ export async function syncAllAccountsForTenant(
   const client = await pool.connect();
   let accounts: Array<{ id: number; platform: string }> = [];
   try {
+    // disabled_at IS NULL: an insights_accounts row whose connected_accounts
+    // counterpart was rewritten (reconnect to a different Page/IG id) or
+    // deleted (disconnect) is orphaned — it syncs a dead external id and fails
+    // every tick forever. ensure-account.ts sweeps those into disabled_at;
+    // every production reader must honour it or the sweep does nothing.
     const res = await client.query<{ id: number; platform: string }>(
-      `SELECT id, platform FROM insights_accounts WHERE tenant_id = $1`,
+      `SELECT id, platform FROM insights_accounts WHERE tenant_id = $1 AND disabled_at IS NULL`,
       [tenantId],
     );
     accounts = res.rows;

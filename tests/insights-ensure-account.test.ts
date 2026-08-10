@@ -912,3 +912,160 @@ test('(d) IG LIVE-ON-CONNECT (external_account_id null): back-heals via resolveI
   assert.ok(insert, 'an INSERT INTO insights_accounts was issued');
   assert.deepEqual(insert!.params, [15, 'instagram', '98765432101', 'sugarleather_ig']);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Orphan sweep (audit item 5b)
+//
+// TWO independent rot mechanisms, both of which leave an insights_accounts row
+// syncing a dead external id forever (nothing has ever DELETEd from that
+// table):
+//
+//   1. RECONNECT to a different Page/IG id. connected_accounts is
+//      UNIQUE (tenant_id, platform), so the reconnect REWRITES that row while
+//      the bridge inserts a NEW insights_accounts row. The old one still
+//      matches on (tenant, platform) — only the external id exposes it.
+//   2. DISCONNECT. connection-store.ts deleteConnectionRow DELETEs the
+//      connected_accounts row outright, so a guard of the form
+//      "a connected_accounts row for this (tenant, platform) must exist" would
+//      exclude exactly this case.
+//
+// The sweep is the highest-blast-radius statement in the module, so the exact
+// predicate is pinned here rather than described.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function sweepDb(connectedRows: Array<Record<string, unknown>>, sweepRowCounts: { disable?: number; reenable?: number } = {}) {
+  const queries: RecordedQuery[] = [];
+  return {
+    queries,
+    async query<T = Record<string, unknown>>(text: string, params: unknown[] = []) {
+      queries.push({ text, params });
+      if (/^\s*select/i.test(text) && /connected_accounts/i.test(text)) {
+        return { rows: connectedRows as T[], rowCount: connectedRows.length };
+      }
+      if (/SET disabled_at = now\(\)/i.test(text)) {
+        return { rows: [] as T[], rowCount: sweepRowCounts.disable ?? 0 };
+      }
+      if (/SET disabled_at = NULL/i.test(text)) {
+        return { rows: [] as T[], rowCount: sweepRowCounts.reenable ?? 0 };
+      }
+      return { rows: [] as T[], rowCount: 1 };
+    },
+  } as unknown as Queryable & { queries: RecordedQuery[] };
+}
+
+const CONNECTED_FB = {
+  id: 5, tenant_id: 15, platform: 'facebook',
+  external_account_id: 'PAGE_NEW', external_account_name: 'S&L', connected_account_id: 'ca_1',
+};
+
+function disableSweep(db: { queries: RecordedQuery[] }): RecordedQuery {
+  const q = db.queries.find((x) => /SET disabled_at = now\(\)/i.test(x.text));
+  assert.ok(q, 'the disable sweep ran');
+  return q!;
+}
+
+test('the sweep disables insights_accounts rows whose external id no longer matches (reconnect orphan)', async () => {
+  const db = sweepDb([CONNECTED_FB], { disable: 1 });
+  const result = await ensureInsightsAccountsForConnectedPlatforms(db, COMPOSIO_ENV, {
+    gateway: fakeGateway(), config: fakeConfig({ actions: {} }),
+  });
+
+  const sweep = disableSweep(db);
+  // The identity test is the external id — (tenant, platform) alone still
+  // matches after a reconnect, which is exactly why the old row survived.
+  assert.match(sweep.text, /ca\.external_account_id = ia\.external_account_id/);
+  assert.match(sweep.text, /ca\.status\s*=\s*'connected'/);
+  assert.match(sweep.text, /ca\.provider\s*=\s*'composio'/);
+  assert.match(sweep.text, /ia\.disabled_at IS NULL/);
+  assert.match(sweep.text, /NOT\s+EXISTS/i);
+  // Scoped to the platforms this env actually bridges — a platform whose flag
+  // is off must be left alone, not disabled.
+  assert.match(sweep.text, /ia\.platform = ANY\(\$1::text\[\]\)/);
+  assert.deepEqual(sweep.params, [[...BRIDGED_PLATFORMS]]);
+  assert.equal(result.disabled, 1);
+});
+
+test('the sweep also covers a DELETED connected_accounts row, with its own reason', async () => {
+  // Disconnect deletes the row entirely. A guard requiring a connected_accounts
+  // row to exist for (tenant, platform) would skip this case — the orphan would
+  // fail every tick forever and (with the host monitor) re-trip SYNC_DEGRADED
+  // every 6 h in perpetuity.
+  const db = sweepDb([CONNECTED_FB], { disable: 1 });
+  await ensureInsightsAccountsForConnectedPlatforms(db, COMPOSIO_ENV, {
+    gateway: fakeGateway(), config: fakeConfig({ actions: {} }),
+  });
+  const sweep = disableSweep(db);
+
+  // The outer predicate must NOT require a connected_accounts row to exist...
+  assert.doesNotMatch(
+    sweep.text,
+    /AND\s+EXISTS\s*\(\s*SELECT 1 FROM connected_accounts ca\s+WHERE ca\.tenant_id = ia\.tenant_id AND ca\.platform = ia\.platform\s*\)/,
+    'requiring a connected_accounts row to exist would exclude the disconnect case',
+  );
+  // ...it is used only to CLASSIFY the two mechanisms.
+  assert.match(sweep.text, /disabled_reason = CASE/);
+  assert.match(sweep.text, /'no_matching_connected_account'/);
+  assert.match(sweep.text, /'connected_account_deleted'/);
+});
+
+test('the sweep re-enables a row as soon as its connection comes back', async () => {
+  const db = sweepDb([CONNECTED_FB], { reenable: 2 });
+  const result = await ensureInsightsAccountsForConnectedPlatforms(db, COMPOSIO_ENV, {
+    gateway: fakeGateway(), config: fakeConfig({ actions: {} }),
+  });
+  const reenable = db.queries.find((q) => /SET disabled_at = NULL/i.test(q.text));
+  assert.ok(reenable, 'the re-enable sweep ran');
+  assert.match(reenable!.text, /disabled_reason = NULL/);
+  assert.match(reenable!.text, /ia\.disabled_at IS NOT NULL/);
+  // Same predicate as the disable half, un-negated — otherwise a row could flap
+  // between disabled and enabled on alternating ticks.
+  assert.match(reenable!.text, /ca\.external_account_id = ia\.external_account_id/);
+  assert.doesNotMatch(reenable!.text, /NOT\s+EXISTS/i);
+  assert.deepEqual(reenable!.params, [[...BRIDGED_PLATFORMS]]);
+  assert.equal(result.reenabled, 2);
+});
+
+test('NO sweep runs when the sources query returns zero rows', async () => {
+  // An empty read is indistinguishable from a transient failure or a mis-scoped
+  // filter. Acting on it would disable every analytics account in the deployment.
+  const db = sweepDb([]);
+  const result = await ensureInsightsAccountsForConnectedPlatforms(db, COMPOSIO_ENV, {
+    gateway: fakeGateway(), config: fakeConfig({ actions: {} }),
+  });
+  assert.equal(db.queries.filter((q) => /disabled_at/i.test(q.text)).length, 0, 'no sweep on an empty read');
+  assert.equal(result.disabled, 0);
+  assert.equal(result.reenabled, 0);
+});
+
+test('a sweep failure never costs the tenants their bridge upserts', async () => {
+  const queries: RecordedQuery[] = [];
+  const db = {
+    queries,
+    async query<T = Record<string, unknown>>(text: string, params: unknown[] = []) {
+      queries.push({ text, params });
+      if (/^\s*select/i.test(text) && /connected_accounts/i.test(text)) {
+        return { rows: [CONNECTED_FB] as unknown as T[], rowCount: 1 };
+      }
+      if (/disabled_at/i.test(text)) throw new Error('deadlock detected');
+      return { rows: [] as T[], rowCount: 1 };
+    },
+  } as unknown as Queryable & { queries: RecordedQuery[] };
+
+  const result = await ensureInsightsAccountsForConnectedPlatforms(db, COMPOSIO_ENV, {
+    gateway: fakeGateway(), config: fakeConfig({ actions: {} }),
+  });
+  assert.equal(result.upserted, 1, 'the upsert above the sweep still committed');
+  assert.equal(result.disabled, 0);
+  assert.equal(result.reenabled, 0);
+});
+
+test('the disabled-platform no-op path still reports the sweep counters', async () => {
+  const db = sweepDb([CONNECTED_FB]);
+  const result = await ensureInsightsAccountsForConnectedPlatforms(db, DIRECT_ENV, {
+    gateway: fakeGateway(), config: fakeConfig({ actions: {} }),
+  });
+  assert.equal(result.skippedReason, 'no_enabled_analytics_platforms');
+  assert.equal(result.disabled, 0);
+  assert.equal(result.reenabled, 0);
+  assert.equal(db.queries.length, 0, 'no DB query at all when nothing is bridged');
+});

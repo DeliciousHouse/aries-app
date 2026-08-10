@@ -257,6 +257,39 @@ const steps = [
     ],
   },
   {
+    // Audit item 5b: object quarantine + account self-heal. A post deleted
+    // on-platform used to answer Graph (#100) on every 30-minute tick forever
+    // and pin its account's sync run at 'partial' permanently (tenant 15, 72h+).
+    // Pins the two things that make quarantine safe rather than a silencer:
+    // the two legs have INDEPENDENT strike state (shared state never converges
+    // when metrics succeed and comments fail), and the failure write is ONE
+    // atomic UPDATE (no read-modify-write race with a concurrent
+    // handler-triggered sync). Also pins the orphan sweep's exact predicate —
+    // the highest-blast-radius statement in the insights module — including the
+    // disconnect case, where the connected_accounts row is DELETED. Fully
+    // in-memory (fake pool), no DB.
+    name: 'insights object quarantine + account orphan sweep',
+    args: [
+      '--test',
+      'tests/insights-object-health.test.ts',
+      'tests/insights-post-quarantine.test.ts',
+      'tests/insights-ensure-account.test.ts',
+    ],
+  },
+  {
+    // Audit item 5a: the comment classifier was unreachable on EVERY sync
+    // because the sync sidecar carried HERMES_GATEWAY_URL but not the
+    // host.docker.internal extra_hosts mapping. Pins the boot-time preflight
+    // probe's verdicts and the fact that every unreachable detail names the
+    // gateway host:port — and never the API key. No network.
+    name: 'insights classifier gateway preflight',
+    args: [
+      '--test',
+      'tests/insights-classifier-preflight.test.ts',
+      'tests/insights-comment-classification.test.ts',
+    ],
+  },
+  {
     // S3-7/AA-103: attribution coverage gate for the S4-1 all-channel fallback.
     // Pure count math, including empty-window and invalid-input fail-closed
     // behavior; no DB or I/O.
@@ -507,6 +540,51 @@ const steps = [
       'tests/posting-time-advisor.test.ts',
       'tests/posting-times-route.test.ts',
       'tests/settings-screen.test.ts',
+    ],
+  },
+  {
+    // Weekly performance context (ARIES_PERF_CONTEXT_ENABLED): the env flag
+    // (default ON), the pure block formatter + its SQL contract (latest
+    // lifetime snapshot, comments_count, caption/permalink sanitisation), and
+    // the port-level injection points — strategy prompt on both the
+    // approval-resume and auto-advance paths, plus the condensed line on the
+    // weekly research request. Fully in-memory.
+    name: 'weekly performance context',
+    args: [
+      '--test',
+      'tests/performance-context-env.test.ts',
+      'tests/marketing/performance-context.test.ts',
+      'tests/marketing/performance-context-injection.test.ts',
+    ],
+  },
+  {
+    // Growth objective (audit F1): the DEFAULT_GROWTH_PRIMARY_GOAL string is
+    // coupled to normalizeGoal() by KEYWORDS, not by a shared enum — rewording
+    // it can silently reclassify the goal and split the Insights goal card from
+    // what the content pipeline optimises for. Also pins the KPI contract to
+    // the strategy + publish stages only, its subordination clause (a stated
+    // non-growth goal stays primary), and that its engagement definition
+    // matches what the performance block actually reports. Fully in-memory.
+    name: 'growth objective + KPI contract',
+    args: [
+      '--test',
+      'tests/marketing/growth-objective.test.ts',
+    ],
+  },
+  {
+    // Research depth (audit item 3): the 28-day performance block reaching the
+    // RESEARCH submission (not just the condensed line in Request (JSON)), the
+    // 12-call tool budget, and the fact that the mandatory /last30days +
+    // performance_signals mandate is WEEKLY-ONLY — the shared tool policy also
+    // serves the brand-campaign path on the default gateway, whose profile is
+    // not known to carry the skill. Also pins the gateway URL/key pairing
+    // warning that covers the docker-compose HERMES_RESEARCH_GATEWAY_URL
+    // default (a repointed URL with no per-profile key 401s every research
+    // submission). Fully in-memory.
+    name: 'research depth + gateway auth pairing',
+    args: [
+      '--test',
+      'tests/marketing/research-depth.test.ts',
     ],
   },
   {
