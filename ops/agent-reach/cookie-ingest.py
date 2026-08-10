@@ -69,6 +69,7 @@ Install: see ops/agent-reach/README.md.
 from __future__ import annotations
 
 import argparse
+import builtins
 import contextlib
 import dataclasses
 import datetime as dt
@@ -79,6 +80,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import traceback
 from pathlib import Path
 
@@ -198,25 +200,39 @@ _TOP_LEVEL_KEY = re.compile(r"^([A-Za-z0-9_.\-]+)\s*:\s*(.*)$")
 
 
 def _structural_keys(text: str):
-    """(top-level keys, leaf values) from YAML-ish text without a YAML parser.
+    """(top-level keys, leaf values under TRACKED platforms) from YAML-ish text.
 
     Only ever used when PyYAML is absent. It is not a YAML implementation and
     does not pretend to be — it is enough to answer "does this look like a
     populated store keyed by platform", which is all the validator asks.
+
+    LEAVES ARE SCOPED TO TRACKED PLATFORMS, exactly like the PyYAML path.
+    Counting leaves from every top-level section instead let a payload such as
+
+        twitter:
+        github:
+          token: x
+
+    validate on a bare host while the parser path correctly rejected it ("no
+    values"). Since an install REPLACES the store wholesale, that divergence
+    installed an empty twitter section over a live twitter session — a silent
+    credential loss that only happened where PyYAML was missing.
     """
     top: list = []
     leaves: list = []
+    section = None
     for raw in text.splitlines():
         if not raw.strip() or raw.lstrip().startswith("#"):
             continue
         match = _TOP_LEVEL_KEY.match(raw)
         if match and not raw[0].isspace():
-            top.append(match.group(1).strip().lower())
-            if match.group(2).strip():
+            section = match.group(1).strip().lower()
+            top.append(section)
+            if section in CFG.platforms and match.group(2).strip():
                 leaves.append(match.group(2).strip())
             continue
         indented = _TOP_LEVEL_KEY.match(raw.strip())
-        if indented and indented.group(2).strip():
+        if indented and indented.group(2).strip() and section in CFG.platforms:
             leaves.append(indented.group(2).strip())
     return top, leaves
 
@@ -383,6 +399,34 @@ def save_state(entry: dict) -> None:
         os.chmod(CFG.state_path, 0o600)
 
 
+PARTIAL_SUFFIX = ".partial"
+PARTIAL_MAX_AGE_H = 24
+
+
+def sweep_partials() -> None:
+    """Delete in-flight uploads that were abandoned.
+
+    refresh-cookies.sh uploads to `<name>.gpg.partial` and renames into place,
+    so a blob is never read mid-transfer (the glob below only matches `.gpg`).
+    An interrupted scp leaves the `.partial` behind; without this it would sit
+    in the inbox forever. Age-gated so a transfer running RIGHT NOW is never
+    deleted out from under itself.
+    """
+    cutoff = time.time() - PARTIAL_MAX_AGE_H * 3600
+    try:
+        stragglers = [p for p in CFG.inbox.iterdir()
+                      if p.is_file() and p.suffix == PARTIAL_SUFFIX]
+    except OSError:
+        return
+    for path in stragglers:
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+                log(f"swept abandoned upload {path.name} (older than {PARTIAL_MAX_AGE_H} h)")
+        except OSError:
+            continue
+
+
 def ingest_once() -> int:
     """Process every blob in the inbox, oldest first. Returns install count."""
     ensure_dir(CFG.inbox, 0o700)
@@ -393,6 +437,8 @@ def ingest_once() -> int:
     except OSError as exc:
         log(f"cannot read inbox: {type(exc).__name__}")
         return 0
+
+    sweep_partials()
 
     installed = 0
     for blob in blobs:
@@ -663,6 +709,76 @@ def structural_fallback_matches_the_yaml_path():
     top, leaves = _structural_keys("# comment\ntwitter:\n  auth_token: v\n")
     assert top == ["twitter"], top
     assert leaves == ["v"], leaves
+
+    # THE CASE THAT ACTUALLY DIVERGED. A tracked platform with an empty section
+    # plus an UNtracked section that does carry values: the parser path counts
+    # leaves only under tracked keys and rejects this, so the fallback must too.
+    # It previously counted `x` as a value, validated, and installed an empty
+    # twitter section over the live twitter session.
+    empty_tracked_plus_populated_untracked = "twitter:\ngithub:\n  token: x\n"
+    top, leaves = _structural_keys(empty_tracked_plus_populated_untracked)
+    assert set(top) == {"twitter", "github"}, top
+    assert leaves == [], f"leaves must be scoped to tracked platforms, got {leaves}"
+
+    # And the validator itself must reject it, whichever path it took.
+    ok, reason = validate_store(empty_tracked_plus_populated_untracked)
+    assert not ok, f"should have been rejected, got ok with {reason}"
+    assert "carry no values" in reason, reason
+
+    # Cross-check both paths agree, on every payload the suite cares about, on
+    # the hosts that have PyYAML. Run the real validator, then the same text
+    # with the parser forcibly hidden, and compare the verdicts.
+    try:
+        import yaml  # noqa: F401,PLC0415
+        have_yaml = True
+    except ImportError:
+        have_yaml = False
+    if have_yaml:
+        cases = (
+            REAL_STORE,
+            empty_tracked_plus_populated_untracked,
+            "github:\n  token: x\n",
+            "twitter:\nreddit:\n",
+            "twitter:\n  auth_token: a-value\n",
+        )
+        real_import = builtins.__import__
+
+        def no_yaml(name, *args, **kwargs):
+            if name == "yaml":
+                raise ImportError("yaml hidden by the self-test")
+            return real_import(name, *args, **kwargs)
+
+        for text in cases:
+            with_yaml = validate_store(text)[0]
+            builtins.__import__ = no_yaml
+            try:
+                without_yaml = validate_store(text)[0]
+            finally:
+                builtins.__import__ = real_import
+            assert with_yaml == without_yaml, (
+                f"paths disagree on {text!r}: PyYAML={with_yaml} fallback={without_yaml}"
+            )
+
+
+@scenario
+def sweeps_abandoned_partial_uploads():
+    """`<name>.gpg.partial` is what an interrupted scp leaves behind.
+
+    The two-step upload in refresh-cookies.sh exists so a blob is never read
+    mid-transfer; this is the other half — the leftovers get cleaned, but only
+    once they are old enough that a live transfer cannot be the explanation.
+    """
+    with fixture():
+        fresh = CFG.inbox / "cookies-now.yaml.gpg.partial"
+        fresh.write_bytes(b"half a blob")
+        old = CFG.inbox / "cookies-old.yaml.gpg.partial"
+        old.write_bytes(b"half a blob")
+        ancient = time.time() - (PARTIAL_MAX_AGE_H + 1) * 3600
+        os.utime(old, (ancient, ancient))
+
+        assert ingest_once() == 0, "a .partial must never be ingested"
+        assert fresh.exists(), "an in-flight upload must not be deleted"
+        assert not old.exists(), "an abandoned upload should have been swept"
 
 
 @scenario

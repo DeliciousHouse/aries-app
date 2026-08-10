@@ -585,28 +585,118 @@ test('ITEM A — gates off: zero Honcho calls, zero idempotency claims', () =>
     assert.equal(messageCalls.length, 0);
   }));
 
-test('ITEM A — already-claimed idempotency key: no Honcho call, reported as skipped_idempotent', () =>
+/**
+ * A stand-in for honcho_write_idempotency_keys that models the TWO-PHASE claim
+ * the code actually relies on: a row is inserted at claim time and stamped
+ * `completed_at` only once the Honcho append succeeded.
+ *
+ * The old mock answered every query on this table with zero rows, which made
+ * "already claimed" and "written" indistinguishable — exactly the conflation
+ * that let a crash between claim and append be ledgered as a completed write.
+ */
+function buildClaimsPool(seed: Record<string, { writtenAtMs: number; completed: boolean }> = {}) {
+  const rows = new Map<string, { writtenAtMs: number; completed: boolean }>(Object.entries(seed));
+  const pool = buildMockPool((sql, params) => {
+    const args = (params as unknown[] | undefined) ?? [];
+    const key = String(args[0] ?? '');
+    if (sql.includes('INSERT INTO honcho_write_idempotency_keys')) {
+      if (rows.has(key)) return { rows: [] };               // ON CONFLICT DO NOTHING
+      rows.set(key, { writtenAtMs: Date.now(), completed: false });
+      return { rows: [{ key }] };
+    }
+    if (sql.includes('SELECT completed_at')) {
+      const row = rows.get(key);
+      if (!row) return { rows: [] };
+      const leaseMs = Number(args[1] ?? 0);
+      return {
+        rows: [{
+          completed_at: row.completed ? new Date(row.writtenAtMs).toISOString() : null,
+          lease_expired: Date.now() - row.writtenAtMs > leaseMs,
+        }],
+      };
+    }
+    if (sql.includes('SET written_at = NOW()')) {           // lease takeover
+      const row = rows.get(key);
+      const leaseMs = Number(args[1] ?? 0);
+      if (!row || row.completed || Date.now() - row.writtenAtMs <= leaseMs) return { rows: [] };
+      row.writtenAtMs = Date.now();
+      return { rows: [{ key }] };
+    }
+    if (sql.includes('SET completed_at = NOW()')) {
+      const row = rows.get(key);
+      if (row) row.completed = true;
+      return { rows: [] };
+    }
+    if (sql.includes('DELETE FROM honcho_write_idempotency_keys')) {
+      rows.delete(key);
+      return { rows: [] };
+    }
+    return { rows: [] };
+  });
+  return { pool, rows };
+}
+
+const DUPE_INPUT = {
+  tenantCtx: TENANT_CTX,
+  jobId: 'job-dupe',
+  publishedAtYmd: '20260516',
+  observationDayYmd: '20260517',
+  horizonDays: 1,
+  platform: 'facebook',
+  payloadRecord: { metrics: { reach: 1, source_url: 'https://x.example/p/1' } },
+};
+
+test('ITEM A — a COMPLETED claim: no Honcho call, reported as skipped_idempotent', () =>
   withEnv(PERF_ENV, async () => {
     const { transport, messageCalls } = capturePerfTransport();
-    const pool = buildMockPool((sql) =>
-      // ON CONFLICT DO NOTHING RETURNING → zero rows means someone else won.
-      sql.includes('honcho_write_idempotency_keys') ? { rows: [] } : { rows: [] },
-    );
-    const outcome = await recordPerformanceEvent(
-      {
-        tenantCtx: TENANT_CTX,
-        jobId: 'job-dupe',
-        publishedAtYmd: '20260516',
-        observationDayYmd: '20260517',
-        horizonDays: 1,
-        platform: 'facebook',
-        payloadRecord: { metrics: { reach: 1, source_url: 'https://x.example/p/1' } },
-      },
-      pool as never,
-      { transport },
-    );
-    assert.equal(outcome, 'skipped_idempotent');
-    assert.equal(messageCalls.length, 0);
+    const { pool, rows } = buildClaimsPool();
+
+    // First write completes and stamps the claim.
+    assert.equal(await recordPerformanceEvent(DUPE_INPUT, pool as never, { transport }), 'appended');
+    assert.equal(messageCalls.length, 1);
+    assert.equal([...rows.values()][0]!.completed, true, 'a successful append stamps completed_at');
+
+    // Second sees the completed claim: safe to report as already written.
+    const again = await recordPerformanceEvent(DUPE_INPUT, pool as never, { transport });
+    assert.equal(again, 'skipped_idempotent');
+    assert.equal(messageCalls.length, 1, 'no second append');
+  }));
+
+test('ITEM A — an UN-completed claim is never reported as idempotent (crash between claim and append)', () =>
+  withEnv(PERF_ENV, async () => {
+    // THE LOSS WINDOW. A process claimed the key and was killed (OOM, deploy,
+    // SIGKILL) before the Honcho append, so releaseIdempotencyKey never ran.
+    // Reporting skipped_idempotent here makes the worker ledger a write that
+    // never happened, and the observation is gone for good.
+    const { transport, messageCalls } = capturePerfTransport();
+    const { pool, rows } = buildClaimsPool();
+
+    // Drive one real write so the row carries the real idempotency key…
+    assert.equal(await recordPerformanceEvent(DUPE_INPUT, pool as never, { transport }), 'appended');
+    const key = [...rows.keys()][0]!;
+    // …then rewind it to "claimed just now, never completed".
+    rows.set(key, { writtenAtMs: Date.now(), completed: false });
+
+    const outcome = await recordPerformanceEvent(DUPE_INPUT, pool as never, { transport });
+    assert.equal(outcome, 'failed', 'an un-completed claim must stay due, not be ledgered as written');
+    assert.equal(messageCalls.length, 1, 'and no second append while the other writer may be live');
+  }));
+
+test('ITEM A — an orphaned claim past its lease is taken over and actually written', () =>
+  withEnv(PERF_ENV, async () => {
+    const { transport, messageCalls } = capturePerfTransport();
+    const { pool, rows } = buildClaimsPool();
+
+    assert.equal(await recordPerformanceEvent(DUPE_INPUT, pool as never, { transport }), 'appended');
+    const key = [...rows.keys()][0]!;
+    // Older than the 1 h lease and never completed → a crash orphan, not a
+    // live writer. Someone has to finish it or the observation is lost.
+    rows.set(key, { writtenAtMs: Date.now() - 3 * 60 * 60 * 1000, completed: false });
+
+    const outcome = await recordPerformanceEvent(DUPE_INPUT, pool as never, { transport });
+    assert.equal(outcome, 'appended', 'the orphan is recovered rather than lost');
+    assert.equal(messageCalls.length, 2);
+    assert.equal(rows.get(key)!.completed, true, 'and the recovered claim is stamped complete');
   }));
 
 test('ITEM A — append failure releases the idempotency claim so the next tick retries', () =>

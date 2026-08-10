@@ -555,6 +555,37 @@ def read_cookie_state():
     return None
 
 
+# Second, independent redaction of the prober's `detail` string.
+#
+# WHY A SECOND ONE. cookie-prober.py redacts on write, and that is the right
+# place for it. But this monitor is what actually puts the string in a Telegram
+# message, and it does not own the file it reads: the state file is plain JSON
+# on disk that a hand-edit (the local-cookie-agent runbook asks for exactly
+# that), an older prober build, or any other writer can populate. Trusting a
+# single write-side redaction means one regression over there is a session
+# cookie in a chat log over here — a full account compromise. So the send path
+# redacts what it sends, and the two halves fail independently.
+#
+# Kept deliberately in sync with cookie-prober.py's _KV/_BLOB: the field NAME
+# survives ("auth_token expired" is the actionable part), the value never does.
+_DETAIL_KV = re.compile(
+    r"\b(auth_token|ct0|sessionid|session|xs|c_user|csrftoken|token|cookie|password|secret|bearer)"
+    r"\s*[:=]\s*\S+",
+    re.IGNORECASE,
+)
+_DETAIL_BLOB = re.compile(r"\b[A-Za-z0-9_\-]{24,}\b")
+
+
+def redact_detail(text) -> str:
+    """Make an arbitrary prober-supplied string safe to put in a message."""
+    if not isinstance(text, str):
+        text = str(text)
+    text = " ".join(text.split())
+    text = _DETAIL_KV.sub(lambda m: f"{m.group(1)}=<redacted>", text)
+    text = _DETAIL_BLOB.sub("<redacted>", text)
+    return text[:160]
+
+
 def detect_cookie_stale(reference=None):
     """Agent-Reach cookie sessions that the prober found expired.
 
@@ -605,9 +636,11 @@ def detect_cookie_stale(reference=None):
             # condition until it is fixed, however many ticks it spans.
             fingerprint=_fp("cookie_stale", name),
             label=f"{name}: session expired {hours} h ago — agent-reach reads on this platform are unavailable",
-            # The prober already redacts this; the needle self-test pins that a
-            # cookie value can never reach a message even if that ever changed.
-            detail=str(entry.get("detail") or "")[:160],
+            # Redacted HERE, not just by the prober — see redact_detail above.
+            # This is the last code that touches the string before it becomes a
+            # Telegram message, so it is the one place that can actually
+            # guarantee the property.
+            detail=redact_detail(entry.get("detail") or ""),
         ))
     return findings
 
@@ -862,11 +895,20 @@ def build_report(reference=None) -> str:
             f"{name}={str((entry or {}).get('status', '?'))}"
             for name, entry in sorted(cookies.items()) if isinstance(entry, dict)
         )
-        newest = max(
-            (parse_iso((entry or {}).get("checked_at")) for entry in cookies.values()
-             if isinstance(entry, dict)),
-            default=None,
-        )
+        # Drop the unparseable timestamps BEFORE max(). `default=` only covers
+        # the empty case; a single entry with a missing or hand-typed
+        # `checked_at` yields None into the comparison and max() cannot order
+        # None against a datetime — which crashed --digest and --status outright.
+        # read_cookie_state deliberately tolerates a hand-written state file, and
+        # the local-cookie-agent runbook tells the operator to edit one, so this
+        # is a documented input, not a corrupt one.
+        checked_ats = [
+            parsed for parsed in (
+                parse_iso((entry or {}).get("checked_at")) for entry in cookies.values()
+                if isinstance(entry, dict)
+            ) if parsed is not None
+        ]
+        newest = max(checked_ats, default=None)
         age = f"{int((ref - newest).total_seconds() // 3600)} h old" if newest else "age unknown"
         lines.append(f"agent-reach sessions ({age}): {summary or 'none tracked'}")
         if newest is not None and ref - newest > dt.timedelta(hours=COOKIE_STATE_MAX_AGE_H):
@@ -1304,6 +1346,61 @@ def cookie_digest_reports_unknowns_that_never_alert():
         report = build_report()
         assert "agent-reach sessions" in report, report
         assert "twitter=unknown" in report, report
+
+
+@scenario
+def cookie_digest_survives_an_unparseable_checked_at():
+    """A hand-edited or older state file must not crash the digest.
+
+    read_cookie_state tolerates a hand-written file on purpose, and the
+    local-cookie-agent runbook asks the operator to edit one. When ONE entry
+    then carries an unparseable `checked_at` and another carries a good one,
+    the digest used to raise TypeError comparing None to a datetime — taking
+    out --digest and --status entirely (the alert path was unaffected, which is
+    why nothing caught it).
+    """
+    state = cookie_state(status="fresh", platform="instagram")
+    state["platforms"]["reddit"] = {
+        "status": "fresh",
+        "checked_at": "yesterday-ish",      # what a human actually types
+        "since": None,
+        "detail": "",
+    }
+    with fixture(cookies=state):
+        report = build_report()             # must not raise
+        assert "agent-reach sessions" in report, report
+        assert "reddit=fresh" in report, report
+        # The one good timestamp still drives the age line.
+        assert "age unknown" not in report, report
+
+    # And the all-unparseable case degrades to "age unknown" rather than lying.
+    only_bad = {"generated_at": "whenever", "platforms": {
+        "reddit": {"status": "fresh", "checked_at": "whenever", "since": None, "detail": ""},
+    }}
+    with fixture(cookies=only_bad):
+        report = build_report()
+        assert "age unknown" in report, report
+
+
+@scenario
+def cookie_detail_is_redacted_by_the_monitor_itself():
+    """A RAW cookie value in the state file must never reach a message.
+
+    This is the scenario no_secret_material_in_messages cannot be: that one
+    feeds an already-redacted detail, so it pins only that nothing UN-redacts.
+    The state file is plain JSON the monitor does not own — a prober regression,
+    an older build, or the hand-edit the runbook asks for can all put a live
+    value there. So the send path must redact, and this proves it does.
+    """
+    raw = "auth_token=SECRETRAWCOOKIEVALUE123 rejected; sessionid=ANOTHERLIVEVALUE456"
+    with fixture(cookies=cookie_state(detail=raw)):
+        tick()
+        assert len(SENT) == 1, SENT
+        blob = "\n".join(SENT) + build_report()
+        for needle in ("SECRETRAWCOOKIEVALUE123", "ANOTHERLIVEVALUE456"):
+            assert needle not in blob, f"raw cookie value {needle} reached the message: {blob}"
+        # The field name survives — "auth_token expired" is the actionable half.
+        assert "auth_token=<redacted>" in blob, blob
 
 
 @scenario
