@@ -98,13 +98,25 @@ if (split.requiresInfra.length === 0) {
 }
 
 console.log(`Running ${split.requiresInfra.length} requires-infra files against the live DB...`);
+// Spawn the tsx CLI through THIS node binary rather than the `npx` shim.
+// `spawnSync('npx', ...)` fails with ENOENT on Windows, where the executable is
+// npx.cmd and there is no shell to resolve it — and because the result's
+// `error` was never inspected, that surfaced as a bare exit 1 with no output,
+// i.e. this runner silently never worked on Windows. Matches how
+// scripts/verify-regression-suite.mjs invokes tsx.
+const tsxCli = path.join(REPO_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const result = spawnSync(
-  'npx',
-  ['--no-install', 'tsx', '--test', '--test-concurrency=1', ...split.requiresInfra],
+  process.execPath,
+  [tsxCli, '--test', '--test-concurrency=1', ...split.requiresInfra],
   {
     cwd: REPO_ROOT,
     stdio: 'inherit',
     env: { ...process.env, APP_BASE_URL: process.env.APP_BASE_URL || 'https://aries.example.com' },
   },
 );
+if (result.error) {
+  // Never let a spawn failure masquerade as a test failure again.
+  console.error(`Failed to start the requires-infra runner: ${result.error.message}`);
+  process.exit(1);
+}
 process.exit(result.status ?? 1);
