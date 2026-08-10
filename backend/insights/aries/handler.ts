@@ -9,10 +9,20 @@
  *   learningCurve — weekly avg-attempts-to-approval trend
  *
  * No caching — approval outcomes are operator-facing; staleness shows immediately.
+ *
+ * FRESHNESS: 60s micro-cache. This section counts approval-flow outcomes and
+ * a learning curve over weeks; a minute of lag is invisible at that grain.
  */
 
 import { NextResponse } from 'next/server';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
+import {
+  INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS,
+  insightsMicroCacheKey,
+  microCacheControlHeader,
+  readInsightsMicroCache,
+  writeInsightsMicroCache,
+} from '../micro-cache';
 import { buildWorkingWithAriesSnapshot } from './aries-builder';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 
@@ -42,11 +52,27 @@ export async function handleGetInsightsAries(
   const tenantId = Number(tenantResult.tenantContext.tenantId);
   const period   = periodParam;
 
+  // S7-3/AA-121: consult the cache BEFORE any pooled work — a hit must cost
+  // no database client at all, which is the point of caching these.
+  const cacheKey = insightsMicroCacheKey('aries', tenantId, { period });
+  const cached = readInsightsMicroCache<Record<string, unknown>>(cacheKey);
+  if (cached) {
+    return NextResponse.json(cached, {
+      headers: { 'Cache-Control': microCacheControlHeader(INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS) },
+    });
+  }
+
   const snapshot = await buildWorkingWithAriesSnapshot(tenantId, period);
 
-  return NextResponse.json({
+  const body = {
     status: 'ok',
     period,
     ...snapshot,
+  };
+
+  writeInsightsMicroCache(cacheKey, body, INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS);
+
+  return NextResponse.json(body, {
+    headers: { 'Cache-Control': microCacheControlHeader(INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS) },
   });
 }

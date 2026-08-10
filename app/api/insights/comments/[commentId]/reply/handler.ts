@@ -3,6 +3,7 @@ import type { Pool } from 'pg';
 import pool from '@/lib/db';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 import { isNativeReplyEnabled } from '@/backend/integrations/meta-reply-env';
+import { invalidateInsightsMicroCache } from '@/backend/insights/micro-cache';
 import { replyToComment, type MetaReplyRequest, type MetaReplySuccess } from '@/backend/integrations/meta-reply';
 import {
   replyToCommentViaComposio,
@@ -230,6 +231,19 @@ export async function handleReplyToComment(
         tenantId,
         error: String((stampError as Error)?.message ?? stampError),
       });
+    }
+
+    // S7-3/AA-121: the Conversations list is micro-cached for up to 60s and its
+    // payload carries is_replied. Without this the operator would watch their
+    // OWN reply fail to appear for up to a minute and reasonably conclude it did
+    // not send. Invalidating on the write is why that section can be cached at
+    // all. Best-effort: an in-memory clear cannot fail, but a cache miss must
+    // never affect a reply that is already live on the platform.
+    try {
+      invalidateInsightsMicroCache(tenantId, 'conversations');
+      invalidateInsightsMicroCache(tenantId, 'comments');
+    } catch {
+      // ignore — the reply is live; stale cache self-heals within 60s.
     }
 
     return json(
