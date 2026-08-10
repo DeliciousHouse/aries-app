@@ -388,6 +388,22 @@ const steps = [
     ],
   },
   {
+    // Research depth (audit item 3): the 28-day performance block reaching the
+    // RESEARCH submission (not just the condensed line in Request (JSON)), the
+    // 12-call tool budget, and the fact that the mandatory /last30days +
+    // performance_signals mandate is WEEKLY-ONLY — the shared tool policy also
+    // serves the brand-campaign path on the default gateway, whose profile is
+    // not known to carry the skill. Also pins the gateway URL/key pairing
+    // warning that covers the docker-compose HERMES_RESEARCH_GATEWAY_URL
+    // default (a repointed URL with no per-profile key 401s every research
+    // submission). Fully in-memory.
+    name: 'research depth + gateway auth pairing',
+    args: [
+      '--test',
+      'tests/marketing/research-depth.test.ts',
+    ],
+  },
+  {
     name: 'partner attribution (VMS) unit tests',
     args: [
       '--test',
