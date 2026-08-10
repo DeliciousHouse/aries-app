@@ -127,6 +127,18 @@ services:
       # platform also needs COMPOSIO_<P>_PUBLISH_POST_ACTION. Reddit is skipped
       # automatically when COMPOSIO_REDDIT_TARGET_SUBREDDIT is unset.
       ARIES_WEEKLY_CROSSPOST_ENABLED: ${ARIES_WEEKLY_CROSSPOST_ENABLED:-1}
+      # AA-217: let ANY connected publishable platform unblock weekly generation
+      # and publishing, not just Meta. OFF => the publish gate counts Meta only
+      # and synthesis always takes the Meta-primary path (byte-identical to
+      # today, including operator copy, which stays Meta-specific while this is
+      # off). ON => the gate counts every platform in publishablePlatforms(), and
+      # a tenant with NO Meta connection but a connected x/linkedin/reddit
+      # channel synthesizes its weekly feed posts directly onto those platforms
+      # (same captions/keys/assets the crosspost fan-out produces) instead of
+      # dying at publish with needs_connection. A tenant with zero connected
+      # channels stays blocked either way. Default OFF: a merge auto-deploys
+      # dark; enabling is a host .env change + `docker compose up -d aries-app`.
+      ARIES_ANY_PLATFORM_PUBLISH_ENABLED: ${ARIES_ANY_PLATFORM_PUBLISH_ENABLED:-0}
       # AI-derived per-platform posting times: every content-generation start
       # re-derives WHEN posts publish per platform — from the tenant's own
       # insights engagement once >= MIN_ANALYTICS_POSTS posts have metrics, else

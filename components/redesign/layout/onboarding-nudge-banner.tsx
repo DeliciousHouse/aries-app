@@ -18,10 +18,15 @@ function sessionKeyFor(advisory: OnboardingAdvisory, tenantId: string | null | u
   return `aries:onboarding-advisory-dismissed:${tenantId ?? 'anon'}:${advisory.kind}`;
 }
 
+// The advisory carries its own `title` / `ctaLabel` whenever the copy depends on
+// server state — for `channel_not_connected` the wording differs by whether
+// ARIES_ANY_PLATFORM_PUBLISH_ENABLED is on, and this is a client component that
+// cannot read that flag. These remain the fallbacks for an advisory that ships
+// without explicit copy.
 function defaultTitleFor(kind: OnboardingAdvisory['kind']): string {
   switch (kind) {
-    case 'meta_not_connected':
-      return 'Connect Meta to publish automatically';
+    case 'channel_not_connected':
+      return 'Connect a social account to publish automatically';
     default:
       return 'Heads up';
   }
@@ -29,8 +34,8 @@ function defaultTitleFor(kind: OnboardingAdvisory['kind']): string {
 
 function defaultCtaLabelFor(kind: OnboardingAdvisory['kind']): string {
   switch (kind) {
-    case 'meta_not_connected':
-      return 'Connect Meta';
+    case 'channel_not_connected':
+      return 'Connect a channel';
     default:
       return 'Open settings';
   }
@@ -85,7 +90,7 @@ export default function OnboardingNudgeBanner({
             className={`flex flex-col gap-2 rounded-lg border px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between ${severityClasses}`}
           >
             <div className="flex flex-col">
-              <span className="font-semibold">{defaultTitleFor(advisory.kind)}</span>
+              <span className="font-semibold">{advisory.title ?? defaultTitleFor(advisory.kind)}</span>
               <span className="text-sm">{advisory.message}</span>
             </div>
             <div className="flex items-center gap-3">
@@ -93,7 +98,7 @@ export default function OnboardingNudgeBanner({
                 href={advisory.ctaHref}
                 className="rounded-md border border-current bg-white/60 px-3 py-1.5 text-sm font-medium hover:bg-white"
               >
-                {defaultCtaLabelFor(advisory.kind)}
+                {advisory.ctaLabel ?? defaultCtaLabelFor(advisory.kind)}
               </Link>
               <button
                 type="button"

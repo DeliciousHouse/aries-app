@@ -6,11 +6,12 @@ import {
   GUARDED_OPERATOR_PATH_PREFIXES,
   META_CONNECT_REDIRECT_DESTINATION,
   countConnectedMetaPlatforms,
+  countConnectedPublishablePlatforms,
   evaluateOnboardingGate,
   shouldGuardPathname,
   type OnboardingGateQueryable,
 } from '../lib/onboarding-gate';
-import { tenantNeedsMetaConnection } from '../lib/tenant-needs-meta-connection';
+import { tenantNeedsChannelConnection } from '../lib/tenant-needs-channel-connection';
 
 type FakeRow = Record<string, unknown>;
 
@@ -116,6 +117,116 @@ test('countConnectedMetaPlatforms returns 0 when query returns empty rows', asyn
   assert.equal(await countConnectedMetaPlatforms(queryable, '42'), 0);
 });
 
+// ---------------------------------------------------------------------------
+// countConnectedPublishablePlatforms (AA-217) — the widened counter. Meta is
+// always in the platform list, the crosspost platforms join it only when their
+// rollout flag is ON and their config is complete, and status='connected' is
+// still required in every branch.
+// ---------------------------------------------------------------------------
+
+const PLATFORM_FLAG_ENVS = [
+  'ARIES_X_ENABLED',
+  'ARIES_LINKEDIN_ENABLED',
+  'ARIES_REDDIT_ENABLED',
+  'COMPOSIO_REDDIT_TARGET_SUBREDDIT',
+] as const;
+
+function withPlatformEnv(env: Record<string, string | undefined>, fn: () => Promise<void>) {
+  return async () => {
+    const prev = PLATFORM_FLAG_ENVS.map((k) => [k, process.env[k]] as const);
+    for (const k of PLATFORM_FLAG_ENVS) delete process.env[k];
+    for (const [k, v] of Object.entries(env)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    try {
+      await fn();
+    } finally {
+      for (const [k, v] of prev) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  };
+}
+
+function capturingQueryable(count: number) {
+  const captured: { sql: string; params: unknown[] } = { sql: '', params: [] };
+  const queryable = makeQueryable((sql, params) => {
+    captured.sql = sql;
+    captured.params = params;
+    return { rows: [{ connected_count: count }], rowCount: 1 };
+  });
+  return { queryable, captured };
+}
+
+test(
+  'countConnectedPublishablePlatforms: with no platform flags the list is Meta-only (verdict identical to the legacy counter)',
+  withPlatformEnv({}, async () => {
+    const { queryable, captured } = capturingQueryable(0);
+    assert.equal(await countConnectedPublishablePlatforms(queryable, '42'), 0);
+    assert.deepEqual(captured.params, [42, ['facebook', 'instagram']]);
+  }),
+);
+
+test(
+  'countConnectedPublishablePlatforms: flag-ON platforms join the parameterized list',
+  withPlatformEnv(
+    { ARIES_LINKEDIN_ENABLED: '1', ARIES_X_ENABLED: '1' },
+    async () => {
+      const { queryable, captured } = capturingQueryable(1);
+      assert.equal(await countConnectedPublishablePlatforms(queryable, '70'), 1);
+      assert.deepEqual(captured.params, [70, ['facebook', 'instagram', 'x', 'linkedin']]);
+    },
+  ),
+);
+
+test(
+  'countConnectedPublishablePlatforms: reddit is excluded while COMPOSIO_REDDIT_TARGET_SUBREDDIT is unset',
+  withPlatformEnv({ ARIES_REDDIT_ENABLED: '1' }, async () => {
+    const { queryable, captured } = capturingQueryable(0);
+    await countConnectedPublishablePlatforms(queryable, '42');
+    // A reddit-only tenant must NOT be unblocked into synthesizing rows the
+    // publisher would terminally refuse for want of a target subreddit.
+    assert.deepEqual(captured.params, [42, ['facebook', 'instagram']]);
+  }),
+);
+
+test(
+  'countConnectedPublishablePlatforms: reddit joins the list once a target subreddit is configured',
+  withPlatformEnv(
+    { ARIES_REDDIT_ENABLED: '1', COMPOSIO_REDDIT_TARGET_SUBREDDIT: 'r/test' },
+    async () => {
+      const { queryable, captured } = capturingQueryable(1);
+      await countConnectedPublishablePlatforms(queryable, '42');
+      assert.deepEqual(captured.params, [42, ['facebook', 'instagram', 'reddit']]);
+    },
+  ),
+);
+
+test(
+  "countConnectedPublishablePlatforms: both stores still require status='connected' (pending never unblocks)",
+  withPlatformEnv({ ARIES_LINKEDIN_ENABLED: '1' }, async () => {
+    const { queryable, captured } = capturingQueryable(0);
+    await countConnectedPublishablePlatforms(queryable, '42');
+    assert.ok(captured.sql.includes('FROM oauth_connections'), 'legacy direct-Meta store still counted');
+    assert.ok(captured.sql.includes('FROM connected_accounts'), 'authoritative store counted');
+    assert.ok(captured.sql.includes('platform = ANY($2)'), 'connected_accounts is parameterized');
+    assert.ok(
+      (captured.sql.match(/status = 'connected'/g) ?? []).length >= 2,
+      "both stores require status='connected'",
+    );
+  }),
+);
+
+test('countConnectedPublishablePlatforms returns 0 for an invalid tenant id', async () => {
+  const queryable = makeQueryable(() => {
+    throw new Error('should not query for invalid tenant');
+  });
+  assert.equal(await countConnectedPublishablePlatforms(queryable, ''), 0);
+  assert.equal(await countConnectedPublishablePlatforms(queryable, '-1'), 0);
+});
+
 test('evaluateOnboardingGate redirects when business profile is incomplete', async () => {
   let connectionCounterCalled = false;
   const decision = await evaluateOnboardingGate({
@@ -139,7 +250,7 @@ test('evaluateOnboardingGate redirects when business profile is incomplete', asy
   );
 });
 
-test('evaluateOnboardingGate allows access but emits meta_not_connected advisory when profile is complete and no Meta/IG connections exist', async () => {
+test('evaluateOnboardingGate allows access but emits channel_not_connected advisory when profile is complete and no connections exist', async () => {
   // Soft gate: profile-complete users get the dashboard with a soft advisory
   // banner. The previous hard redirect to META_CONNECT_REDIRECT_DESTINATION
   // would loop users who disconnected Meta back through the OAuth screen.
@@ -150,11 +261,11 @@ test('evaluateOnboardingGate allows access but emits meta_not_connected advisory
     connectionCounter: async () => 0,
   });
   assert.equal(decision.allowed, true);
-  assert.equal(decision.reason, 'meta_not_connected');
+  assert.equal(decision.reason, 'channel_not_connected');
   assert.equal(decision.redirectTo, null);
   assert.equal(decision.advisories.length, 1);
   const advisory = decision.advisories[0];
-  assert.equal(advisory.kind, 'meta_not_connected');
+  assert.equal(advisory.kind, 'channel_not_connected');
   assert.equal(advisory.severity, 'warning');
   assert.equal(advisory.ctaHref, '/dashboard/settings/channel-integrations');
   assert.ok(typeof advisory.message === 'string' && advisory.message.length > 0);
@@ -230,24 +341,24 @@ test('evaluateOnboardingGate uses real connection-count SQL when no counter over
   assert.deepEqual(observedParams, [42]);
 });
 
-test('tenantNeedsMetaConnection returns true when zero connections exist', async () => {
+test('tenantNeedsChannelConnection returns true when zero connections exist', async () => {
   const queryable = makeQueryable(() => ({ rows: [], rowCount: 0 }));
-  const result = await tenantNeedsMetaConnection(queryable, '42', async () => 0);
+  const result = await tenantNeedsChannelConnection(queryable, '42', async () => 0);
   assert.equal(result, true);
 });
 
-test('tenantNeedsMetaConnection returns false when at least one connection exists', async () => {
+test('tenantNeedsChannelConnection returns false when at least one connection exists', async () => {
   const queryable = makeQueryable(() => ({ rows: [], rowCount: 0 }));
-  const result = await tenantNeedsMetaConnection(queryable, '42', async () => 1);
+  const result = await tenantNeedsChannelConnection(queryable, '42', async () => 1);
   assert.equal(result, false);
 });
 
-test('tenantNeedsMetaConnection returns true for invalid tenant id (fail-safe)', async () => {
+test('tenantNeedsChannelConnection returns true for invalid tenant id (fail-safe)', async () => {
   const queryable = makeQueryable(() => {
     throw new Error('should not query for invalid tenant');
   });
   // Uses real countConnectedMetaPlatforms, which short-circuits to 0 for
-  // invalid ids, so tenantNeedsMetaConnection returns true (needs to connect).
-  assert.equal(await tenantNeedsMetaConnection(queryable, ''), true);
-  assert.equal(await tenantNeedsMetaConnection(queryable, '-1'), true);
+  // invalid ids, so tenantNeedsChannelConnection returns true (needs to connect).
+  assert.equal(await tenantNeedsChannelConnection(queryable, ''), true);
+  assert.equal(await tenantNeedsChannelConnection(queryable, '-1'), true);
 });

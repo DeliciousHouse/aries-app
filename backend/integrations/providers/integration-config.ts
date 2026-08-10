@@ -86,6 +86,117 @@ export function isLinkedInEnabled(env: NodeJS.ProcessEnv = process.env): boolean
   return parseFlag(env.ARIES_LINKEDIN_ENABLED);
 }
 
+// ---------------------------------------------------------------------------
+// "Which platforms can a weekly run actually deliver posts to right now?"
+//
+// SINGLE SOURCE OF TRUTH (AA-217). These four exports are the ONLY place that
+// answers that question. They were hoisted here out of
+// `backend/marketing/weekly-crosspost.ts` (which now consumes them) precisely so
+// the publish gate, the crosspost fan-out and the alternate-primary resolver can
+// never drift into three parallel copies — drift is what produces the
+// "gate passes but the run synthesizes zero rows" silent-empty-week failure.
+//
+// Adding a platform to the weekly pipeline means touching ONLY this block.
+// ---------------------------------------------------------------------------
+
+/**
+ * The Composio-only publish platforms a weekly feed image can be delivered to
+ * beyond Meta. Order is meaningful: it is the order rows are synthesized in.
+ */
+export const CROSSPOST_PLATFORMS = ['x', 'linkedin', 'reddit'] as const;
+export type CrosspostPlatform = (typeof CROSSPOST_PLATFORMS)[number];
+
+/**
+ * The Meta-family organic publish targets. These are the legacy primary
+ * surfaces (feed/story/reel) and are always publishable — they are gated by a
+ * tenant connection, never by a rollout flag.
+ */
+export const META_PUBLISH_PLATFORMS = ['facebook', 'instagram'] as const;
+
+/**
+ * AA-217 rollout flag: let ANY connected publishable platform unblock weekly
+ * generation + publishing, not just Meta. Default OFF, so a merge deploys dark
+ * and live behavior is byte-identical until the flag is set in the host .env.
+ *
+ * When OFF: the publish gate counts Meta only and synthesis always takes the
+ * legacy Meta-primary path. When ON: the gate counts every publishable platform
+ * and a tenant with no Meta connection synthesizes primary rows for the
+ * platforms it actually has.
+ */
+export function isAnyPlatformPublishEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return parseFlag(env.ARIES_ANY_PLATFORM_PUBLISH_ENABLED);
+}
+
+/** The per-platform rollout flag that gates each crosspost target. */
+export function isCrosspostPlatformFlagEnabled(
+  platform: CrosspostPlatform,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  switch (platform) {
+    case 'x':
+      return isXEnabled(env);
+    case 'linkedin':
+      return isLinkedInEnabled(env);
+    case 'reddit':
+      return isRedditEnabled(env);
+  }
+}
+
+/**
+ * Config completeness per crosspost platform — the second gate alongside the
+ * rollout flag.
+ *
+ * Reddit publish REQUIRES an explicit target subreddit: the publisher refuses
+ * up-front with a `ComposioCapabilityMissingError` when
+ * COMPOSIO_REDDIT_TARGET_SUBREDDIT is unset (composio-publisher-provider.ts,
+ * the reddit branch). There is deliberately NO `u_<username>` profile fallback
+ * — Reddit's `sr` field addresses COMMUNITY names only, so a profile target
+ * fails with SUBREDDIT_NOEXIST.
+ *
+ * Synthesizing reddit rows with no subreddit configured therefore manufactures
+ * posts that are GUARANTEED to fail at dispatch: a terminal failure per post,
+ * per week, forever. Skipping reddit at the producer instead means no row, no
+ * scheduled_posts entry, and no failed-dispatch noise. The same reasoning is
+ * why the AA-217 publish gate must not count reddit for an unconfigured
+ * deployment: a reddit-only tenant would otherwise pass the gate and every
+ * synthesized row would fail terminally. x and linkedin need no extra config
+ * beyond their publish slugs, which the publisher validates.
+ */
+export function isCrosspostPlatformConfigured(
+  platform: CrosspostPlatform,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (platform !== 'reddit') return true;
+  return redditTargetSubreddit(env) !== null;
+}
+
+/**
+ * The crosspost platforms this deployment can deliver to at all: rollout flag ON
+ * AND required config present. Tenant connection state is NOT considered here —
+ * that is the caller's per-tenant query (`resolveCrosspostPlatforms`).
+ */
+export function eligibleCrosspostPlatforms(
+  env: NodeJS.ProcessEnv = process.env,
+): CrosspostPlatform[] {
+  return CROSSPOST_PLATFORMS.filter(
+    (p) => isCrosspostPlatformFlagEnabled(p, env) && isCrosspostPlatformConfigured(p, env),
+  );
+}
+
+/**
+ * Every platform a weekly run can actually deliver posts to right now: Meta
+ * always, plus each eligible crosspost platform.
+ *
+ * This is the list the AA-217 publish gate counts connections against, and it
+ * is derived from the very same predicates the synthesis fan-out uses — so
+ * "the gate passed but nothing could be produced" is structurally impossible.
+ * `meta_ads` is deliberately absent (not an organic publish target) and so is
+ * `youtube` (no caption adapter and no still→video weekly path; see AA-217).
+ */
+export function publishablePlatforms(env: NodeJS.ProcessEnv = process.env): readonly string[] {
+  return [...META_PUBLISH_PLATFORMS, ...eligibleCrosspostPlatforms(env)];
+}
+
 /**
  * Platforms an operator can actually connect right now. The single dormancy
  * chokepoint for flag-gated platforms: when `ARIES_X_ENABLED` is OFF, `'x'` is

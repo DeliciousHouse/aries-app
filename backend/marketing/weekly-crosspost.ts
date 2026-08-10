@@ -27,15 +27,24 @@
 
 import pool from '@/lib/db';
 import {
-  isXEnabled,
-  isRedditEnabled,
-  isLinkedInEnabled,
-  redditTargetSubreddit,
+  CROSSPOST_PLATFORMS,
+  eligibleCrosspostPlatforms,
+  isCrosspostPlatformConfigured,
+  isCrosspostPlatformFlagEnabled,
+  type CrosspostPlatform,
 } from '../integrations/providers/integration-config';
 
-/** The Composio-only publish platforms a weekly feed image is fanned out to. */
-export const CROSSPOST_PLATFORMS = ['x', 'linkedin', 'reddit'] as const;
-export type CrosspostPlatform = (typeof CROSSPOST_PLATFORMS)[number];
+// The platform list and its flag/config predicates live in integration-config —
+// the ONE place that answers "which platforms can we publish to right now"
+// (AA-217). Re-exported here so this module's long-standing import surface is
+// unchanged for its consumers and tests.
+export {
+  CROSSPOST_PLATFORMS,
+  eligibleCrosspostPlatforms,
+  isCrosspostPlatformConfigured,
+  isCrosspostPlatformFlagEnabled,
+  type CrosspostPlatform,
+};
 
 /** Minimal query surface — injectable so tests run with no live database. */
 export interface CrosspostQueryable {
@@ -59,40 +68,6 @@ type Env = Partial<Record<string, string | undefined>>;
 export function isWeeklyCrosspostEnabled(env: Env = process.env): boolean {
   const v = env.ARIES_WEEKLY_CROSSPOST_ENABLED?.trim().toLowerCase();
   return v === '1' || v === 'true' || v === 'yes' || v === 'on';
-}
-
-/** The per-platform rollout flag that gates each crosspost target. */
-function isCrosspostPlatformFlagEnabled(platform: CrosspostPlatform, env: Env = process.env): boolean {
-  switch (platform) {
-    case 'x':
-      return isXEnabled(env as NodeJS.ProcessEnv);
-    case 'linkedin':
-      return isLinkedInEnabled(env as NodeJS.ProcessEnv);
-    case 'reddit':
-      return isRedditEnabled(env as NodeJS.ProcessEnv);
-  }
-}
-
-/**
- * Config completeness per crosspost platform — the second gate alongside the
- * rollout flag.
- *
- * Reddit publish REQUIRES an explicit target subreddit: the publisher refuses
- * up-front with a `ComposioCapabilityMissingError` when
- * COMPOSIO_REDDIT_TARGET_SUBREDDIT is unset (composio-publisher-provider.ts,
- * the reddit branch). There is deliberately NO `u_<username>` profile fallback
- * — Reddit's `sr` field addresses COMMUNITY names only, so a profile target
- * fails with SUBREDDIT_NOEXIST.
- *
- * Synthesizing reddit rows with no subreddit configured therefore manufactures
- * posts that are GUARANTEED to fail at dispatch: a terminal failure per post,
- * per week, forever. Skipping reddit at the producer instead means no row, no
- * scheduled_posts entry, and no failed-dispatch noise. x and linkedin need no
- * extra config beyond their publish slugs, which the publisher validates.
- */
-function isCrosspostPlatformConfigured(platform: CrosspostPlatform, env: Env = process.env): boolean {
-  if (platform !== 'reddit') return true;
-  return redditTargetSubreddit(env as NodeJS.ProcessEnv) !== null;
 }
 
 // Single query: the crosspost platforms whose per-platform flag is ON AND that
@@ -123,10 +98,11 @@ export async function resolveCrosspostPlatforms(
   db: CrosspostQueryable = pool,
   env: Env = process.env,
 ): Promise<CrosspostPlatform[]> {
-  const flagEnabled = CROSSPOST_PLATFORMS.filter(
-    (p) => isCrosspostPlatformFlagEnabled(p, env) && isCrosspostPlatformConfigured(p, env),
-  );
-  if (isCrosspostPlatformFlagEnabled('reddit', env) && !isCrosspostPlatformConfigured('reddit', env)) {
+  const flagEnabled = eligibleCrosspostPlatforms(env as NodeJS.ProcessEnv);
+  if (
+    isCrosspostPlatformFlagEnabled('reddit', env as NodeJS.ProcessEnv) &&
+    !isCrosspostPlatformConfigured('reddit', env as NodeJS.ProcessEnv)
+  ) {
     console.info('[weekly-crosspost] reddit skipped — COMPOSIO_REDDIT_TARGET_SUBREDDIT unset', { tenantId });
   }
   if (flagEnabled.length === 0) return [];

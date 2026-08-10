@@ -48,12 +48,15 @@
  * so a replay finds the existing record instead of creating a duplicate.
  */
 
+import { isAnyPlatformPublishEnabled } from '@/backend/integrations/providers/integration-config';
+
 import {
   createMarketingApprovalRecord,
   findLatestMarketingApprovalRecord,
   saveMarketingApprovalRecord,
 } from './approval-store';
 import { isPostEditTasteLearningEnabled } from './post-edit-taste-learning-env';
+import { resolvePrimaryPublishPlatforms } from './primary-publish-platforms';
 import type { SocialContentJobRuntimeDocument } from './runtime-state';
 import { visualStyleLens } from './taste-profile-store';
 import {
@@ -103,7 +106,11 @@ export interface SynthesizePublishPostsResult {
    */
   droppedVideoNoAsset: number;
   /** Reason the synthesis did not run, when inserted+skipped+total are all 0. */
-  reason?: 'no_content_package' | 'publish_package_present' | 'no_tenant';
+  reason?:
+    | 'no_content_package'
+    | 'publish_package_present'
+    | 'no_tenant'
+    | 'no_connected_platform';
 }
 
 type ContentPackageEntry = {
@@ -578,14 +585,64 @@ export async function synthesizePublishPostsFromContentPackage(
   const styleDimension = styleLens?.dimension ?? null;
   const styleValue = styleLens?.value ?? null;
 
+  // ---------------------------------------------------------------------
+  // Primary-platform selection (AA-217).
+  //
+  // `alternateMode` means the tenant has NO Meta connection but does have a
+  // connected x/linkedin/reddit channel: the week's content is re-targeted onto
+  // those platforms instead of being synthesized as FB/IG rows that could never
+  // publish. Every existing tenant resolves to `meta` and takes the byte-
+  // identical legacy path below; with the flag OFF the resolver is not even
+  // consulted, so there is not so much as an extra query.
+  //
+  // Alternate rows are produced by the SAME fan-out block the crosspost path
+  // uses (see the `crosspostPlatforms` loop further down) — same eligibility
+  // predicate (`entryHasFeedImage`), same captions, same idempotency keys, same
+  // asset linkage. A LinkedIn-only tenant therefore gets exactly the rows a
+  // Meta+LinkedIn tenant's fan-out would have produced from the same
+  // content_package, minus the Meta originals.
+  // ---------------------------------------------------------------------
+  let crosspostPlatforms: CrosspostPlatform[] = [];
+  let alternateMode = false;
+  if (isAnyPlatformPublishEnabled()) {
+    const resolution = await resolvePrimaryPublishPlatforms(tenantId, pool);
+    if (resolution.mode === 'none') {
+      // Defensive backstop: the publish-stage gate blocks zero-connection
+      // tenants, but it fails OPEN on DB errors, so refuse here rather than
+      // synthesize a week of posts with nowhere to send them.
+      console.warn('[synthesize-publish-posts] no connected publishable platform — nothing synthesized', {
+        jobId,
+        tenantId,
+      });
+      return {
+        inserted: 0,
+        skipped: 0,
+        total: 0,
+        approvalRecordReady: false,
+        droppedVideoNoAsset: 0,
+        reason: 'no_connected_platform',
+      };
+    }
+    if (resolution.mode === 'alternate') {
+      alternateMode = true;
+      crosspostPlatforms = resolution.platforms;
+      console.info('[synthesize-publish-posts] alternate primary platforms — no Meta connection', {
+        jobId,
+        tenantId,
+        platforms: resolution.platforms,
+      });
+    }
+  }
+
   // Weekly cross-post fan-out (producer side). Resolve the eligible extra
   // platforms (x/linkedin/reddit) ONCE per synthesis call, not per entry. The
   // whole lookup is best-effort: a failure here must never break FB/IG
   // synthesis, so resolveCrosspostPlatforms fails open to [] and this is
   // additionally wrapped. Flag OFF (default) => empty list => byte-identical
   // synthesis output (no extra rows). Feed image posts only — never story/reel.
-  let crosspostPlatforms: CrosspostPlatform[] = [];
-  if (isWeeklyCrosspostEnabled()) {
+  // Skipped in alternate mode: those platforms are already the PRIMARY targets,
+  // so re-resolving them would only risk double-counting.
+  if (!alternateMode && isWeeklyCrosspostEnabled()) {
     try {
       crosspostPlatforms = await resolveCrosspostPlatforms(tenantId, pool);
     } catch (err) {
@@ -628,6 +685,21 @@ export async function synthesizePublishPostsFromContentPackage(
       // never a duplicate week of feed posts (see clamp doc-comment above).
       if (isReelCompanionJob && shape.surface !== 'reel' && shape.mediaType !== 'video') {
         reelClampDropped++;
+        skipped++;
+        continue;
+      }
+
+      // AA-217 alternate mode: this tenant has NO Meta connection, so an fb/ig
+      // row could never be delivered — do not create one. But DO record whether
+      // this target WOULD have been a feed image, because `entryHasFeedImage` is
+      // exactly the predicate the fan-out below uses to decide whether this
+      // entry produces alternate rows. We are past the same video/reel/clamp
+      // gates the Meta path applies and ahead of the video-asset lookup (which
+      // only concerns video shapes, and alternate mode has no video surface), so
+      // per-entry eligibility is identical to the crosspost path by
+      // construction: same N posts/week as a Meta+LinkedIn tenant's fan-out.
+      if (alternateMode) {
+        if (shape.surface === 'feed' && shape.mediaType === 'image') entryHasFeedImage = true;
         skipped++;
         continue;
       }
@@ -698,7 +770,14 @@ export async function synthesizePublishPostsFromContentPackage(
       }
     }
 
-    // Weekly cross-post fan-out. When enabled AND this entry produced a real
+    // Weekly cross-post fan-out — and, in AA-217 alternate mode, the PRIMARY
+    // row producer. The block is deliberately shared between the two: an
+    // alternate-mode tenant's rows are produced by the very same code, with the
+    // very same eligibility predicate, captions, keys and asset linkage, so
+    // "LinkedIn-only" output is provably identical to the linkedin rows a
+    // Meta+LinkedIn tenant would get from the same content_package.
+    //
+    // When enabled AND this entry produced a real
     // FB/IG feed image, mirror it to each eligible extra platform
     // (x/linkedin/reddit) with a platform-adapted caption and the SAME image
     // linkage. Feed/image surface ONLY (entryHasFeedImage gates this). The whole
@@ -787,7 +866,13 @@ export async function synthesizePublishPostsFromContentPackage(
 
   // Story promotion is also feed-derived content — a reel-companion job never
   // owns the week's stories either (same clamp rationale as above).
-  const storyBudget = isReelCompanionJob ? 0 : readRequestedStoryCount(doc);
+  //
+  // Alternate mode skips stories entirely: a story is a Meta surface (this
+  // block iterates `entry.platforms`, which parseContentPackage restricts to
+  // fb/ig) and x/linkedin/reddit have no story equivalent here. Promoting them
+  // for a tenant with no Meta connection would recreate the exact bug this
+  // ticket fixes — undeliverable rows. Such a tenant's week is feed posts only.
+  const storyBudget = isReelCompanionJob || alternateMode ? 0 : readRequestedStoryCount(doc);
   if (storyBudget > 0) {
     for (const entry of entries.slice(0, storyBudget)) {
       const assetInfo = assetInfoByPostNumber.get(entry.postNumber);
