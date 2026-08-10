@@ -127,6 +127,23 @@ test('append FAILURE is not ledgered, so the next tick retries', async () => {
   assert.equal(ledgerInserts.length, 0);
 });
 
+test('skipped_invalid is counted, not silent', async () => {
+  // A permanently malformed payload is never ledgered, so it comes back due on
+  // every 30-min tick until the 30-day window closes. That is correct — but
+  // without a counter the only trace is a console.warn inside write-events,
+  // and the churn is invisible in the tick summary.
+  const { client, ledgerInserts } = makeClient([DUE_ROW]);
+  const report = await runTick(client, {
+    loadDoc: async () => makeDoc('job-1'),
+    record: async () => 'skipped_invalid',
+    gateEnabled: () => true,
+  });
+  assert.equal(report.written, 0);
+  assert.equal(report.writeFailed, 0, 'not a write failure — the input never got that far');
+  assert.equal(report.skippedInvalid, 1);
+  assert.equal(ledgerInserts.length, 0);
+});
+
 test('already-claimed idempotency key still ledgers (the write landed on an earlier tick)', async () => {
   const { client, ledgerInserts } = makeClient([DUE_ROW]);
   const report = await runTick(client, {

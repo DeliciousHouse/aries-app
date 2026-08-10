@@ -67,6 +67,15 @@ export interface TickReport {
   written: number;
   skippedNoDoc: number;
   skippedNoPayload: number;
+  /**
+   * recordPerformanceEvent rejected the input itself (no job id, unparseable
+   * day, no https source_url). Counted because it is otherwise INVISIBLE churn:
+   * nothing is ledgered, so the same rows re-drive every 30-min tick until the
+   * 30-day window closes, and the only trace is a console.warn deep inside
+   * write-events. A number that climbs tick after tick is the signal that a
+   * post's payload is permanently malformed rather than briefly unlucky.
+   */
+  skippedInvalid: number;
   /** Honcho append failed (claim released) — stays due, retried next tick. */
   writeFailed: number;
   failed: number;
@@ -103,6 +112,7 @@ export async function runTick(
     written: 0,
     skippedNoDoc: 0,
     skippedNoPayload: 0,
+    skippedInvalid: 0,
     writeFailed: 0,
     failed: 0,
   };
@@ -188,6 +198,11 @@ export async function runTick(
           //    releases its idempotency claim on failure, so leaving the ledger
           //    untouched means the next tick genuinely retries instead of
           //    marking a lost observation as written.
+          //
+          // `skipped_idempotent` is safe to ledger because it now means the
+          // claim was stamped COMPLETED — an un-completed claim (in flight, or
+          // orphaned by a crash between claim and append) comes back as
+          // `failed` and stays due. See resolveExistingClaim in write-events.
           if (gateOn && (outcome === 'appended' || outcome === 'skipped_idempotent')) {
             // metric_day column carries the OBSERVATION ANCHOR day (publish +
             // horizon), matching the due query's ledger join.
@@ -195,6 +210,8 @@ export async function runTick(
             report.written += 1;
           } else if (outcome === 'failed') {
             report.writeFailed += 1;
+          } else if (outcome === 'skipped_invalid') {
+            report.skippedInvalid += 1;
           }
         } catch (postErr) {
           report.failed += 1;

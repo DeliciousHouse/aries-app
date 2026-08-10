@@ -17,7 +17,7 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 . "$here/config.env"
-: "${VM_SSH_TARGET:?}" "${VM_PROBER_STATE:?}"
+: "${VM_SSH_TARGET:?}" "${VM_PROBER_STATE:?}" "${PLATFORMS:?}"
 
 mode="${1:-run}"
 log() { printf '%s pull: %s\n' "$(date -u +%FT%TZ)" "$*"; }
@@ -37,8 +37,8 @@ if ! state="$(ssh -o BatchMode=yes -o ConnectTimeout=15 "$VM_SSH_TARGET" \
   exit 0
 fi
 
-stale="$(printf '%s' "$state" | python3 - <<'PY'
-import json, sys
+stale="$(printf '%s' "$state" | ARIES_ALLOWED_PLATFORMS="$PLATFORMS" python3 - <<'PY'
+import json, os, sys
 try:
     data = json.load(sys.stdin)
 except ValueError:
@@ -46,14 +46,41 @@ except ValueError:
 platforms = data.get("platforms")
 if not isinstance(platforms, dict):
     sys.exit(0)
+# THE ALLOWLIST IS A TRUST BOUNDARY, not tidiness.
+#
+# This JSON comes from the VM. Every name in it flows into
+# `exec refresh-cookies.sh $stale`, which builds an executable path from it
+# ("$here/exporters/$platform.sh") and runs it. Without this intersection a
+# compromised VM could emit "../../.local/share/evil" and make THIS machine run
+# an arbitrary *.sh, or emit an option-like "--force" that changes what the
+# downstream script does. That turns the accepted risk (VM compromise = the
+# cookies it holds are burned) into code execution on the owner's desktop —
+# the exact boundary the pull-not-push and gpg-to-VM-only design exists to
+# hold. Anything the operator did not list in PLATFORMS is simply not a name
+# this side will act on.
+allowed = set(os.environ.get("ARIES_ALLOWED_PLATFORMS", "").split())
 # ONLY "stale" acts. "unknown" (timeout, missing binary, platform not reported)
 # must never trigger a re-mint: re-minting on unknown means every VM hiccup
 # burns a fresh login on a throwaway account, which is exactly the behaviour
 # that gets throwaway accounts suspended.
-print(" ".join(sorted(
+selected = sorted(
     name for name, entry in platforms.items()
-    if isinstance(entry, dict) and str(entry.get("status", "")).lower() == "stale"
-)))
+    if isinstance(entry, dict)
+    and str(entry.get("status", "")).lower() == "stale"
+    and name in allowed
+)
+ignored = sorted(
+    name for name, entry in platforms.items()
+    if isinstance(entry, dict)
+    and str(entry.get("status", "")).lower() == "stale"
+    and name not in allowed
+)
+if ignored:
+    # Loud on stderr, never acted on: an unexpected name here is either a
+    # config drift (PLATFORMS out of sync with the VM) or an attack.
+    print(f"IGNORED un-allowlisted platform name(s) from the VM: {', '.join(ignored)}",
+          file=sys.stderr)
+print(" ".join(selected))
 PY
 )"
 

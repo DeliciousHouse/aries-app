@@ -94,8 +94,9 @@ upgrade **if** the desktop ever becomes always-on.
 ```bash
 REPO=/home/node/openclaw-n8n-stack        # or the worktree path until this lands
 
-# 1. Agent-Reach itself
-pipx install "https://github.com/Panniantong/Agent-Reach/archive/main.zip"
+# 1. Agent-Reach itself — PINNED. Read the supply-chain note below first.
+AGENT_REACH_SHA=1221ecd0c3e0502ee37406f03543bedf7503f2c7   # default-branch head, 2026-08-06
+pipx install "https://github.com/Panniantong/Agent-Reach/archive/$AGENT_REACH_SHA.zip"
 agent-reach install --env=auto --channels=twitter,reddit,instagram,facebook
 agent-reach doctor                         # confirm channels register
 
@@ -103,6 +104,10 @@ agent-reach doctor                         # confirm channels register
 mkdir -p ~/.agent-reach-inbox && chmod 700 ~/.agent-reach-inbox
 mkdir -p ~/.agent-reach       && chmod 700 ~/.agent-reach
 mkdir -p ~/.local/state/agent-reach-prober && chmod 700 ~/.local/state/agent-reach-prober
+
+# Stable path the SKILL's freshness pre-check calls (it must not hardcode $REPO —
+# it gets copied into the gateway profile). Repoint this when the repo moves.
+ln -sfn $REPO/ops/agent-reach/cookie-prober.py ~/.agent-reach/cookie-prober.py
 
 # 3. The VM ingest key. READ THE PASSPHRASE WARNING BELOW FIRST.
 gpg --batch --passphrase '' \
@@ -116,6 +121,24 @@ python3 $REPO/ops/agent-reach/cookie-prober.py --self-test
 python3 $REPO/ops/agent-reach/cookie-ingest.py  --self-test
 python3 $REPO/ops/aries-pipeline-monitor.py     --self-test
 ```
+
+### ⚠️ Supply chain — why the install is pinned
+
+`pipx install …/archive/main.zip` installs whatever is on that third-party
+`main` branch *at the moment you run it*, onto the host that holds the cookie
+store — and `agent-reach` reads that store on every invocation. One malicious
+or compromised upstream push would therefore exfiltrate all four live sessions,
+with no review step anywhere in the loop. Pinning the SHA does not make the code
+trustworthy, but it makes it *reviewable and repeatable*: the same bytes every
+install, and an upgrade becomes a deliberate act instead of a silent one.
+
+* Before installing, skim the pinned tree — especially anything that reads
+  `~/.agent-reach/config.yaml` or makes outbound requests:
+  `https://github.com/Panniantong/Agent-Reach/tree/<sha>`.
+* To upgrade: diff `<old-sha>…<new-sha>` on GitHub, re-read those same paths,
+  then bump `AGENT_REACH_SHA` above in the same commit as the review note.
+* Never replace the pin with `main.zip` "just to test something" — that is the
+  whole hole, reopened.
 
 ### ⚠️ The passphrase footgun
 

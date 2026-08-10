@@ -38,19 +38,27 @@ if [ -z "${BW_SESSION:-}" ]; then
   export BW_SESSION
 fi
 
-bw sync --session "$BW_SESSION" >/dev/null 2>&1 || true
+# BW_SESSION is exported above, and `bw` reads it from the environment. Passing
+# it as `--session "$BW_SESSION"` would publish the vault-unlock token in
+# /proc/<pid>/cmdline for every local user to read — the same argv rule the
+# header states, applied to the token that unlocks everything.
+bw sync >/dev/null 2>&1 || true
 
-json="$(bw get item "$item" --session "$BW_SESSION" 2>/dev/null)" || {
+json="$(bw get item "$item" 2>/dev/null)" || {
   echo "no Bitwarden item named '$item'" >&2
   exit 4
 }
 
-python3 - "$json" <<'PY'
+# STDIN, never argv. `python3 - "$json"` would put the decrypted item — username,
+# password and TOTP seed — into /proc/<pid>/cmdline, which is world-readable on
+# Linux for the life of the process. That is exactly what the header of this
+# file forbids, so the item is piped in instead and never becomes an argument.
+printf '%s' "$json" | python3 -c '
 import json, sys
-item = json.loads(sys.argv[1])
+item = json.load(sys.stdin)
 login = item.get("login") or {}
 for key in ("username", "password", "totp"):
     value = login.get(key)
     if value:
         print(f"{key}={value}")
-PY
+'

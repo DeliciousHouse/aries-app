@@ -39,7 +39,7 @@ HERMES_RESEARCH_WEBHOOK_URL=http://host.docker.internal:8642/v1/runs
 | `backend/memory/honcho-client.ts` | `dialecticQuery()` (v3 `/chat`) + `appendObservation()` (prose) |
 | `backend/memory/orchestrator.ts` | `loadBrandProfileContext()` — the two-peer composed profile |
 | `backend/memory/perf-insights-read.ts` | due-posts query rewritten against the REAL insights columns + horizon cadence |
-| `backend/memory/write-events.ts` | `recordPerformanceEvent()` appends prose to `peer-brand`; returns an outcome; releases the idempotency claim on failure |
+| `backend/memory/write-events.ts` | `recordPerformanceEvent()` appends prose to `peer-brand`; returns an outcome; releases the idempotency claim on failure and stamps it completed on success |
 | `backend/marketing/hermes-callbacks.ts` | autonomous auto-approve now propagates `tenantSlug` / `memoryActorUserId` |
 | `.env` | Added 5 new variables (see above) |
 | `tests/memory-honcho-env.test.ts` | New — tests for gate + validation + isolation contracts |
@@ -118,6 +118,24 @@ single snapshot. The `honcho_perf_writes` ledger stores the horizon anchor day
 carries the same anchor, so each horizon writes exactly once and a post is not re-offered
 on every one of the ~29 remaining days in its window. Observations are written as **plain
 prose** (not JSON) because the deriver builds representations from message content.
+
+#### The claim is two-phase, and why
+
+`honcho_write_idempotency_keys` rows are inserted **before** the Honcho append and stamped
+`completed_at` only after it succeeds. The worker ledgers `skipped_idempotent` permanently,
+so "a claim exists" is not a good enough reason to ledger: a process killed between the
+claim and the append (OOM, deploy, SIGKILL) leaves a claim with no write behind it and no
+one to release it, and the next tick would record that lost observation as done.
+
+So `recordPerformanceEvent` reads the existing claim and distinguishes *completed* (report
+`skipped_idempotent` — safe to ledger), *in flight* (report `failed`, stay due, retry next
+tick) and *orphaned* — a claim older than the one-hour lease with no completion, which this
+caller takes over atomically and finishes. The takeover `UPDATE` is guarded by
+`completed_at IS NULL AND written_at < …` so two ticks can never both take it over.
+
+Failure leans toward a duplicate observation, never a dropped one: if the completion stamp
+itself fails after a good append, the outcome is still `appended` and the ledger still
+records it.
 
 ## Peer and Session Model
 

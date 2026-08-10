@@ -101,6 +101,31 @@ Only two places, both `0700`/`0600`:
 writes an unencrypted store anywhere else. Nothing is ever pasted into a chat,
 a log, a commit, or a Telegram message.
 
+## How the hand-off avoids a half-read blob
+
+The VM's ingest runs every 10 minutes and picks up `*.gpg`. `scp` writes under
+the final name while bytes are still arriving, so a tick landing mid-transfer
+would read a truncated file, fail to decrypt it, and quarantine it into
+`rejected/` — losing the payload while this side logged "shipped".
+
+So the upload is two steps: `scp` to `<name>.gpg.partial` (which the ingest's
+glob does not match), then `ssh mv` into place, which is a rename on the same
+filesystem and therefore atomic. An interrupted transfer leaves a `.partial`
+behind; the ingest sweeps those once they are over 24 h old, so a live transfer
+is never deleted out from under itself.
+
+## What the VM is trusted for
+
+Nothing that can run code here. `pull-and-refresh.sh` reads a JSON file the VM
+writes, and platform names from it end up in an executable path
+(`exporters/<platform>.sh`) — so those names are intersected with `$PLATFORMS`
+from `config.env` before anything acts on them, and `refresh-cookies.sh`
+independently rejects any name outside `[a-z0-9][a-z0-9_-]*`. A compromised VM
+can therefore cost you the cookies it already holds; it cannot make this
+machine run something of its choosing. Un-allowlisted names are reported on
+stderr and ignored — if you see one, either `PLATFORMS` drifted out of sync
+with the VM, or something is wrong.
+
 ## End-to-end verification
 
 1. On the VM, force staleness: log the throwaway out in a browser, or hand-edit

@@ -87,9 +87,15 @@ is sent. If it **never** clears, the account is probably suspended rather than
 logged out: the fix is to re-mint the throwaway, not to refresh it (see
 `ops/agent-reach/README.md`).
 
-Nothing from this path may carry cookie material into a message. The prober
-redacts on write, and `no_secret_material_in_messages` pins that the alert body
-contains no `auth_token=…`, `ct0=`, `sessionid=`, `session=`, `c_user=` or `xs=`.
+Nothing from this path may carry cookie material into a message, and that is
+enforced **twice on purpose**. The prober redacts on write; the monitor redacts
+again in `detect_cookie_stale` before the string can become a Telegram message,
+because the state file is plain JSON it does not own — a prober regression, an
+older build, or the hand-edit the verification runbook asks for can all put a
+live value there. Two scenarios pin it: `no_secret_material_in_messages` (an
+already-redacted detail is not un-redacted downstream) and
+`cookie_detail_is_redacted_by_the_monitor_itself` (a **raw** `auth_token=…`
+planted in the state file never reaches the alert or the digest).
 
 ## Arming (read before the first real run)
 

@@ -35,6 +35,17 @@ log() { printf '%s refresh: %s\n' "$(date -u +%FT%TZ)" "$*"; }
 # script stops and tells you exactly what to do by hand — which is the honest
 # behaviour for a step that must not be guessed at.
 for platform in "$@"; do
+  # Second layer under pull-and-refresh.sh's allowlist. $platform becomes part
+  # of an executable path two lines down, so a name containing a slash, a dot
+  # segment, or a leading dash would select a script outside exporters/ or be
+  # read as an option. pull-and-refresh.sh already intersects VM-supplied names
+  # with $PLATFORMS; this makes a hand-run or a future caller safe too.
+  case "$platform" in
+    [a-z0-9]*[!a-z0-9_-]* | [!a-z0-9]* | "")
+      log "refusing platform name '$platform' — expected [a-z0-9][a-z0-9_-]*"
+      exit 8
+      ;;
+  esac
   exporter="$here/exporters/$platform.sh"
   if [ -x "$exporter" ]; then
     log "re-minting $platform via exporters/$platform.sh"
@@ -95,9 +106,20 @@ gpg --batch --yes --trust-model always \
     --recipient "$GPG_RECIPIENT" --output "$blob" --encrypt "$tmp"
 
 remote_name="cookies-$(date -u +%Y%m%dT%H%M%SZ).yaml.gpg"
+# TWO-STEP UPLOAD — the ".partial" suffix is the whole point.
+#
+# The VM's ingest cron runs every 10 minutes and globs "*.gpg". scp writes the
+# file under its FINAL name while the bytes are still arriving, so a tick that
+# lands mid-transfer would read a truncated blob, fail to decrypt it, and
+# quarantine it into rejected/ — silently losing the payload while this side
+# logged "shipped". Uploading under a name the glob does not match and renaming
+# it into place makes the blob appear atomically (same filesystem => rename(2)).
+#
 # scp over Tailscale SSH: WireGuard in transit, tailnet ACL + SSH key for auth.
 # -p preserves the 0600 mode; the ingest rejects anything group/world-readable.
-scp -p "$blob" "$VM_SSH_TARGET:$VM_INBOX/$remote_name"
+scp -p "$blob" "$VM_SSH_TARGET:$VM_INBOX/$remote_name.partial"
+ssh -o BatchMode=yes "$VM_SSH_TARGET" \
+    "mv -- '$VM_INBOX/$remote_name.partial' '$VM_INBOX/$remote_name'"
 log "shipped $remote_name ($staged/$(echo "$PLATFORMS" | wc -w) platforms) to $VM_SSH_TARGET:$VM_INBOX"
 
 # ── 4. Taildrop fallback, if scp is unavailable ────────────────────────────

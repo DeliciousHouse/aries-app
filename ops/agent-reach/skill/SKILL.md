@@ -34,8 +34,16 @@ budget and fails the whole weekly run over a cookie.
 ### 1. Check freshness FIRST (cheap, always)
 
 ```bash
-python3 ~/openclaw-n8n-stack/ops/agent-reach/cookie-prober.py --status
+python3 "${ARIES_COOKIE_PROBER:-$HOME/.agent-reach/cookie-prober.py}" --status
 ```
+
+`~/.agent-reach/cookie-prober.py` is a **symlink into the repo**, created by the
+install step below. It is deliberately not a repo path spelled out here: this
+file gets copied into the live gateway profile, the repo currently lives in a
+worktree, and a hardcoded path that stops resolving would fail as
+file-not-found on every single call — silently downgrading this cheap check
+into the expensive `agent-reach doctor` probe it exists to avoid. Override with
+`ARIES_COOKIE_PROBER` if the symlink cannot be used.
 
 Read the line for the requested platform.
 
@@ -46,6 +54,10 @@ Read the line for the requested platform.
   expired" as stale, anything else unreadable as stale too. When in doubt,
   answer `session_stale`. A false "stale" costs one enrichment; a false "fresh"
   costs a ten-minute stall.
+* **the command itself fails** (`No such file or directory` — the symlink is
+  missing or dangling) → treat exactly as `unknown` and continue, but say so in
+  the `detail` of whatever you return: the pre-check is mis-installed, and that
+  is an operator fix, not something to work around silently on every call.
 
 ### 2. Read the platform
 
@@ -97,9 +109,20 @@ installed by anything automatic. Copying it into the live profile is a change to
 the running research pipeline:
 
 ```bash
+REPO=<repo>            # the worktree path until the branch merges, then repoint
+
 mkdir -p ~/.hermes/profiles/aries-research/skills/social-media/agent-reach
-cp <repo>/ops/agent-reach/skill/SKILL.md \
+cp $REPO/ops/agent-reach/skill/SKILL.md \
    ~/.hermes/profiles/aries-research/skills/social-media/agent-reach/SKILL.md
+
+# The stable path step 1 calls. This symlink is what lets the copied skill find
+# the prober no matter where the repo lives — REPOINT IT when the repo moves,
+# or step 1 degrades to the expensive probe on every call without ever saying so.
+ln -sfn $REPO/ops/agent-reach/cookie-prober.py ~/.agent-reach/cookie-prober.py
+
+# Verify BEFORE restarting anything — this must print platform lines, not an error:
+python3 ~/.agent-reach/cookie-prober.py --status
+
 # then restart the aries-research gateway (port 8651) in a maintenance window
 ```
 
