@@ -33,6 +33,7 @@ import {
   buildSocialContentWeeklyRequest,
   ensureFreshBrandKitForWeeklyRun,
 } from '../../social-content/workflow-request';
+import { buildBrandKitPayload } from '../../social-content/brand-kit-payload';
 import { isTasteBriefInjectionEnabled } from '../taste-brief-injection-env';
 import { loadTasteForBriefByTenant, type TasteDimensions } from '../taste-profile-store';
 import { isPerfContextEnabled } from '../performance-context-env';
@@ -264,6 +265,58 @@ export const VIDEO_EXECUTION_CONTRACT =
   'VIDEO EXECUTION CONTRACT: When the input contains "Video context (N videos requested)", you MUST call the `video_generate` tool exactly once per video listed — do not return JSON until every video_generate call has completed (or definitively failed). This is exactly as mandatory as the image_generate contract above: generate the video(s) IN ADDITION to the requested images, never instead of them, and a requested video that produces neither a creative_asset nor an artifacts.errors[] entry is a stage failure. The video clip is always the FINAL post in the package (the highest post_number), appended after the image posts. The video post\'s content_package[] entry MUST carry placement:"reel", media_type:"video", and format:"reel" so it publishes as a Reel (the publisher derives the reel surface from these). Return each generated clip in artifacts.creative_assets[] alongside the image assets — do NOT skip failed clips, record them in artifacts.errors[] instead (resumability rule). Each video entry in creative_assets MUST include: {assetId:"vid_1", type:"generated_video", media_type:"video", surface:"reel"|"story", path:"<basename of the localized mp4 written to the Hermes VIDEO cache — NOT a remote CDN URL>", width:<integer px — MANDATORY>, height:<integer px — MANDATORY>, duration_seconds:<number — MANDATORY>, mime:"video/mp4", aspect_ratio:"9:16"}. The path, width, height, and duration_seconds MUST be copied from the video_generate tool RETURN VALUE (the real localized file), never the values you requested — a mismatch fails closed at dispatch and the clip will not publish. RETURN-GATE (do this before returning your JSON): re-read the input; for "Video context (N videos requested)", artifacts.creative_assets MUST contain exactly N generated_video entries OR a matching artifacts.errors[] entry per missing clip. If the count is short you are NOT finished — call video_generate for the missing clip(s) now and do not return until the count matches. Record render failures in artifacts.errors[] and continue.';
 
 /**
+ * The growth objective + KPI contract (audit F1), shared by the STRATEGY and
+ * PUBLISH stage builders so the two stages can never drift on what "success"
+ * means. Deliberately NOT applied to research (tool-budget constrained),
+ * production (asset contract only), or publish-finalize (terminal echo).
+ *
+ * TWO WORDINGS ARE LOAD-BEARING, both pinned by tests/marketing/growth-objective.test.ts:
+ *
+ * 1. The subordination clause. One-off campaigns share
+ *    SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY and therefore these same stage
+ *    builders, and the Objective (JSON) echoed into the run input can carry an
+ *    explicitly operator-stated non-growth goal ("Book more consulting calls").
+ *    An unconditional "optimize for followers" would override a paying
+ *    tenant's stated goal, so the stated goal stays PRIMARY and growth becomes
+ *    the secondary scoreboard. The same qualifier is mirrored in
+ *    deploy/soul-patches/aries-strategist-SOUL.growth-objective.patch, because
+ *    that SOUL serves every tenant routed through the strategist gateway.
+ *
+ * 2. The engagement definition matches what the performance block ACTUALLY
+ *    reports (backend/marketing/performance-context.ts): an absolute
+ *    likes + comments_count + shares count per post — `saves` is NULL on every
+ *    row the Meta sync writes today, and `reach` is rendered only when it is
+ *    present and positive. Promising the model an "engagement rate against
+ *    reach" would score it on a number the block does not contain, so the
+ *    denominator is stated as conditional, not as the metric.
+ */
+export const GROWTH_OBJECTIVE_KPI =
+  'GROWTH OBJECTIVE — unless the Objective (JSON) in the input states a different primary_goal, this is how the run is scored:'
+  + " optimize every decision for FOLLOWER GROWTH and ENGAGEMENT on the tenant's own connected social accounts."
+  + " The two success metrics are (1) followers_delta — net new followers per week, from the account's own analytics — and"
+  + ' (2) per-post engagement, counted as likes + comments + shares on the post (saves are not collected today), read against'
+  + " that post's reach where the performance block reports a reach figure."
+  + ' Impressions alone are NOT success, and neither is "seven posts were shipped".'
+  + ' If the Objective (JSON) names a different primary goal — lead generation, product sales, a specific campaign outcome —'
+  + ' then THAT goal stays primary and these growth metrics become the secondary scoreboard: never trade the stated goal away to chase followers.'
+  + ' When the input carries a "Last 28 days performance" block for this account, treat it as the scoreboard:'
+  + ' repeat the hooks, formats and topics that earned engagement and drop the ones that did not.';
+
+const STRATEGY_GROWTH_DIRECTIVE =
+  'Apply that objective to the plan: every post must carry an explicit reason to follow, save, or comment — a follow-worthy promise,'
+  + ' a save-worthy piece of value, or a question that invites a reply — not a passive brand statement.'
+  + ' Balance the week between follower-acquisition posts (reach a new audience) and engagement posts (activate the existing one)'
+  + ' instead of seven variations of the same broadcast.'
+  + ' You MAY add an optional "growth_kpi" field per post with the value "followers" or "engagement" naming which metric that post targets;'
+  + ' it is additive and downstream ignores fields it does not know.';
+
+const PUBLISH_GROWTH_DIRECTIVE =
+  'Apply that objective to the pre-flight: for each post confirm it has a hook that earns a stop in the first line,'
+  + ' an explicit follow/save/comment prompt, a CTA, and hashtags.'
+  + ' Name any post that is a pure broadcast with no growth mechanism in your publish notes rather than silently passing it,'
+  + " and favour scheduling slots and formats the account's own analytics show earned engagement.";
+
+/**
  * Per-stage instruction builders for the weekly social-content pipeline.
  *
  * Phase B3: each marketing stage runs on its own dedicated Hermes profile, so
@@ -289,6 +342,8 @@ function buildWeeklyStrategyInstructions(workflowKey: string): string {
     'You are the Aries marketing strategist agent. You run ONLY the strategy stage of the weekly social content pipeline.',
     'You have no tools — you reason purely over the research output supplied in the input. Do not attempt to call any tools; this stage is pure reasoning.',
     'The input contains the prior research stage output as JSON. Produce a weekly content strategy from it: positioning, creative direction, channel adaptation, and a post-by-post plan.',
+    GROWTH_OBJECTIVE_KPI,
+    STRATEGY_GROWTH_DIRECTIVE,
     'Reply with a single strict JSON object only — no prose, no markdown fences.',
     'After completing the strategy stage, return status "requires_approval" with approval.stage="production", approval.approval_step="approve_post_copy", approval.workflowStepId="approve_stage_3", approval.prompt="Review strategy before production starts", approval.resumeToken set, and output:[{stage:"strategy", ...artifacts}].',
     `Required schema: {"ok":true,"status":"requires_approval","workflowKey":"${workflowKey}","approval":{"stage":"production","approval_step":"approve_post_copy","workflowStepId":"approve_stage_3","prompt":"...","resumeToken":"..."},"output":[{"stage":"strategy", ...}]}.`,
@@ -311,6 +366,8 @@ function buildWeeklyPublishInstructions(workflowKey: string): string {
   return [
     'You are the Aries publish-review agent. You run ONLY the publish stage of the weekly social content pipeline.',
     'You have no tools — you reason purely over the production output supplied in the input. Produce a publish-ready plan: per-post platform targeting, scheduling notes, and a final pre-flight check.',
+    GROWTH_OBJECTIVE_KPI,
+    PUBLISH_GROWTH_DIRECTIVE,
     'Reply with a single strict JSON object only — no prose, no markdown fences.',
     'After completing the publish stage, return status "requires_approval" with approval.stage="publish", approval.approval_step="approve_publish", approval.workflowStepId="approve_stage_4_publish", approval.prompt="Approve to publish the weekly social content", approval.resumeToken set, and output:[{stage:"publish", ...artifacts}].',
     `Required schema: {"ok":true,"status":"requires_approval","workflowKey":"${workflowKey}","approval":{"stage":"publish","approval_step":"approve_publish","workflowStepId":"approve_stage_4_publish","prompt":"...","resumeToken":"..."},"output":[{"stage":"publish", ...}]}.`,
@@ -1288,6 +1345,33 @@ export class HermesMarketingPort implements MarketingExecutionPort {
           : null;
       })();
 
+      // GROWTH OBJECTIVE: the objective must actually REACH the stages that
+      // carry the KPI contract. `objective` is built by
+      // buildSocialContentWeeklyRequest for the research run only; this
+      // resume→run conversion carries just ids + the prior stage's output, so
+      // strategy and publish never saw the tenant's goal. Echo it here so
+      // GROWTH_OBJECTIVE_KPI's "unless the Objective (JSON) states a different
+      // primary_goal" clause has something to subordinate to — without this
+      // line the KPI would be unconditional for every tenant.
+      //
+      // Scoped to strategy + publish (the two stages whose instructions carry
+      // the KPI). Production is excluded: its Production context block already
+      // embeds the same objective via buildProductionResumeContext, so a second
+      // copy would be redundant and would move a prompt this item does not own.
+      // Publish-finalize is excluded — it is a terminal echo with no planning.
+      //
+      // Fails open to null: a missing/malformed doc must never block a resume.
+      const objectiveLine = ((): string | null => {
+        if (!productionDoc) return null;
+        if (!(stage === 'strategy' || (stage === 'publish' && !isPublishFinalize))) return null;
+        try {
+          const { objective } = buildBrandKitPayload(productionDoc, productionDoc.brand_kit ?? null, null);
+          return `Objective (JSON): ${JSON.stringify(objective)}`;
+        } catch {
+          return null;
+        }
+      })();
+
       // Hermes /v1/runs requires `input` to be a non-empty string (OpenAI-style
       // chat-completions API). Serialize the stage context into a prompt.
       const baseRunLines = [
@@ -1302,6 +1386,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         priorStageOutput
           ? `Prior stage output (JSON): ${JSON.stringify(priorStageOutput)}`
           : 'Prior stage output (JSON): {}',
+        ...(objectiveLine ? [objectiveLine] : []),
       ];
 
       // Inject rich per-image prompt context on the production run

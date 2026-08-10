@@ -374,6 +374,20 @@ const steps = [
     ],
   },
   {
+    // Growth objective (audit F1): the DEFAULT_GROWTH_PRIMARY_GOAL string is
+    // coupled to normalizeGoal() by KEYWORDS, not by a shared enum — rewording
+    // it can silently reclassify the goal and split the Insights goal card from
+    // what the content pipeline optimises for. Also pins the KPI contract to
+    // the strategy + publish stages only, its subordination clause (a stated
+    // non-growth goal stays primary), and that its engagement definition
+    // matches what the performance block actually reports. Fully in-memory.
+    name: 'growth objective + KPI contract',
+    args: [
+      '--test',
+      'tests/marketing/growth-objective.test.ts',
+    ],
+  },
+  {
     name: 'partner attribution (VMS) unit tests',
     args: [
       '--test',
