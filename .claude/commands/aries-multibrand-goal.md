@@ -113,12 +113,14 @@ off master, never commit on master). Then read the plan doc, and skim
 6. **Review + ship + hand off.** `aries-reviewer` reviews the diff (correctness + security),
    re-fetches and rebases on `origin/master`, runs `npm run verify` plus
    `npm run guardrails:agent`, pushes the final rebased branch with
-   `git push --force-with-lease`, confirms the remote head, and opens the PR as a draft. It then
-   hands the PR to the sanctioned deterministic review intake: even PR number → `dev-reviewer`; odd
-   PR number → `dev-reviewer-2`. That assigned lane is the PR's sole merge authority.
+   `git push --force-with-lease`, and confirms the remote head. Open a **draft PR** and hand it
+   to the deterministic sanctioned reviewer lane: even PR numbers → `dev-reviewer`; odd PR
+   numbers → `dev-reviewer-2`. Only that assigned lane marks the PR ready and deliberately
+   squash-merges after exact-head CI is green and its review passes.
    `aries-reviewer` never merges or enables auto-merge, and the orchestrator must not open a
-   duplicate PR, mark it ready, merge it, or enable auto-merge. Watch the assigned lane land it; a
-   master merge auto-deploys. If CI fails, re-diagnose and push on the same branch.
+   duplicate PR, mark it ready, merge it, or enable auto-merge. Watch the assigned lane land it;
+   a master merge
+   auto-deploys. If CI fails, re-diagnose and push on the same branch.
 
 7. **Phase 2 checklist.** Only after Phase 1 is fully merged and deployed. Walk the plan's
    Phase 2 steps in order, pausing at every human-gated step. After the human flips the flag:
