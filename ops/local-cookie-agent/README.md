@@ -1,4 +1,4 @@
-# local-cookie-agent — runs on brendan-desktop, NOT on the VM
+# local-cookie-agent — runs on operator-desktop, NOT on the VM
 
 A portable bundle. Nothing here is installed, scheduled, or executed by this
 repo or by the VM. Copy the directory to the owner's own machine and follow this

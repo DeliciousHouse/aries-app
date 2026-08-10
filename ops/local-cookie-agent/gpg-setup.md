@@ -13,7 +13,7 @@ here. The private key is generated on the VM and never leaves it.
 ```bash
 # NOTE the --batch --passphrase '' — this is not optional. See below.
 gpg --batch --passphrase '' \
-    --quick-generate-key "aries-cookie-vm <brendan3394@gmail.com>" default default never
+    --quick-generate-key "aries-cookie-vm" default default never
 
 gpg --armor --export aries-cookie-vm > /tmp/aries-cookie-vm.pub
 # copy /tmp/aries-cookie-vm.pub to this machine (scp over the tailnet), then:

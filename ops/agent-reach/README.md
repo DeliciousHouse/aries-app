@@ -15,7 +15,7 @@ which ships in the normal image build.
 ## The shape of the thing
 
 ```
-brendan-desktop (residential IP, his browser, Bitwarden)
+operator-desktop (residential IP, operator browser, Bitwarden)
    │  1. bw unlock → throwaway creds → log in / refresh in a dedicated browser profile
    │  2. export cookies → assemble store → gpg --encrypt --recipient <VM key>
    │  3. scp over Tailscale SSH  ─────────────────────────┐   (WireGuard, ciphertext)
@@ -34,7 +34,7 @@ brendan-desktop (residential IP, his browser, Bitwarden)
                                                           ▼
                               ~/.local/state/agent-reach-prober/state.json (0600)
                                         │                             │
-                    aries-pipeline-monitor.py                  brendan-desktop
+                    aries-pipeline-monitor.py                  operator-desktop
                     COOKIE_STALE → Telegram (operator)         pulls this file over
                                                                the tailnet and
                                                                re-mints (see below)
@@ -70,7 +70,7 @@ not transit Telegram at all in the normal path.
 The obvious design is "VM detects stale → signals the desktop → desktop
 re-mints". It was rejected:
 
-* `tailscale status` shows **brendan-desktop offline, last seen 3 days ago**. A
+* `tailscale status` shows **operator-desktop offline, last seen 3 days ago**. A
   push to a machine that is off is a signal that is simply lost — and staleness
   is a *level*, not an edge, so a lost edge is never recovered.
 * A Telegram message from the VM lands in a **chat**. It does not POST to
@@ -111,9 +111,9 @@ ln -sfn $REPO/ops/agent-reach/cookie-prober.py ~/.agent-reach/cookie-prober.py
 
 # 3. The VM ingest key. READ THE PASSPHRASE WARNING BELOW FIRST.
 gpg --batch --passphrase '' \
-    --quick-generate-key "aries-cookie-vm <brendan3394@gmail.com>" default default never
+    --quick-generate-key "aries-cookie-vm" default default never
 gpg --armor --export aries-cookie-vm > /tmp/aries-cookie-vm.pub
-#    copy that .pub to brendan-desktop, then: rm /tmp/aries-cookie-vm.pub
+#    copy that .pub to operator-desktop, then: rm /tmp/aries-cookie-vm.pub
 #    the PRIVATE key never leaves this VM.
 
 # 4. Smoke-test everything (no network, no live state touched)
