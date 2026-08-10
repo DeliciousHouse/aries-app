@@ -383,7 +383,7 @@ function dayIndexFromName(name: string | null | undefined): number | null {
 }
 
 /**
- * Largest day shift the analytics blend is allowed to apply, in calendar days.
+ * Largest calendar-day shift the scheduler may apply after resolving dates.
  *
  * A <=2-day move keeps a post inside the same half of the week (Mon->Wed,
  * Thu->Sat), so the strategist's relative sequencing survives while the post
@@ -424,8 +424,13 @@ export interface DayBlendDecision {
   reason: DayBlendReason;
   /** 0-based position of the chosen day within `rankedDays` (when applicable). */
   rank?: number;
-  /** Signed calendar-day delta applied, -2..2 (only when moved). */
+  /** Signed cyclic weekday delta proposed, -2..2 (only when moved). */
   shift?: number;
+}
+
+function signedCyclicWeekdayShift(fromDay: number, toDay: number): number {
+  const raw = (toDay - fromDay + 7) % 7;
+  return raw > 3 ? raw - 7 : raw;
 }
 
 /**
@@ -439,9 +444,9 @@ export interface DayBlendDecision {
  *     data cannot express "this day is bad", only "these days were good".
  *   - Strategist's day IS ranked           -> keep it. The two signals agree;
  *     there is nothing to merge.
- *   - Strategist's day is NOT ranked       -> move to the NEAREST ranked day,
- *     but only if it is within MAX_DAY_BLEND_SHIFT days. Otherwise keep the
- *     strategist's day (see MAX_DAY_BLEND_SHIFT).
+ *   - Strategist's day is NOT ranked       -> move to the NEAREST eligible
+ *     ranked day within MAX_DAY_BLEND_SHIFT cyclic weekdays. The caller can
+ *     narrow eligibility after resolving real dates.
  *
  * Tie-break when two ranked days are equidistant: the higher-ranked one wins
  * (lower index in `rankedDays`). Rank position is unique per candidate, so this
@@ -453,6 +458,7 @@ export interface DayBlendDecision {
 export function blendStrategistDayWithRankings(
   strategistDayIdx: number,
   rankedDays: ReadonlyArray<number>,
+  eligibleDays?: ReadonlySet<number>,
 ): DayBlendDecision {
   const ranked = rankedDays.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
   if (ranked.length === 0) return { day: strategistDayIdx, moved: false, reason: 'no_signal' };
@@ -466,10 +472,10 @@ export function blendStrategistDayWithRankings(
   let best: { day: number; rank: number; shift: number } | null = null;
   for (let r = 0; r < ranked.length; r += 1) {
     const day = ranked[r];
-    const raw = (day - strategistDayIdx + 7) % 7;
-    // Map 0..6 onto the signed cyclic distance -3..3 so "2 days earlier" and
-    // "2 days later" are equally near.
-    const shift = raw > 3 ? raw - 7 : raw;
+    if (eligibleDays && !eligibleDays.has(day)) continue;
+    // Map 0..6 onto the signed cyclic weekday distance -3..3. The caller still
+    // validates the resolved dates so a cyclic -2 can never become +5 days.
+    const shift = signedCyclicWeekdayShift(strategistDayIdx, day);
     if (Math.abs(shift) > MAX_DAY_BLEND_SHIFT) continue;
     // Nearest wins; ties go to the better-ranked day. `r` strictly increases,
     // so a later candidate can never tie on rank — distance + rank is total.
@@ -599,24 +605,54 @@ export function computeAutoScheduleSlots(input: ComputeAutoScheduleSlotsInput): 
         input.dayBlendEnabled === false
           ? []
           : overrideDaysFor(platformKey, surface, input.slotOverrides, true);
-      const blend = blendStrategistDayWithRankings(wantedDayIdx, rankedDays);
+      const strategistTarget = findNextWeekdayInWindow(
+        wantedDayIdx,
+        windowStart,
+        windowEnd,
+        tz,
+        defaults,
+      );
+      const rankedTargets = new Map<number, { target: string; calendarShift: number }>();
+      if (strategistTarget) {
+        for (const rankedDay of rankedDays) {
+          const calendarShift = signedCyclicWeekdayShift(wantedDayIdx, rankedDay);
+          if (Math.abs(calendarShift) > MAX_DAY_BLEND_SHIFT) continue;
+          const targetDate = new Date(`${strategistTarget.slice(0, 10)}T00:00:00Z`);
+          targetDate.setUTCDate(targetDate.getUTCDate() + calendarShift);
+          const target = `${targetDate.toISOString().slice(0, 10)}${strategistTarget.slice(10)}`;
+          const targetUtc = wallTimeToUtc(target, tz);
+          if (!targetUtc || targetUtc < windowStart || targetUtc > windowEnd) continue;
+          rankedTargets.set(rankedDay, { target, calendarShift });
+        }
+      }
+      const blend = blendStrategistDayWithRankings(
+        wantedDayIdx,
+        rankedDays,
+        new Set(rankedTargets.keys()),
+      );
 
       let target: string | null = null;
       let blendApplied = false;
+      let appliedShift = 0;
       if (blend.moved) {
-        const candidate = findNextWeekdayInWindow(blend.day, windowStart, windowEnd, tz, defaults);
+        const candidate = rankedTargets.get(blend.day);
         // Abandon the nudge rather than funnel two posts onto the analytics
         // best day: `strategistClaims` blocks a sibling's explicit editorial
         // day (order-independent), `used` blocks a slot already booked this
         // pass. A blend that cannot land cleanly is simply not worth a
         // de-collision cascade.
-        if (candidate && !strategistClaims.has(candidate) && !used.has(candidate)) {
-          target = candidate;
+        if (
+          candidate &&
+          !strategistClaims.has(candidate.target) &&
+          !used.has(candidate.target)
+        ) {
+          target = candidate.target;
           blendApplied = true;
+          appliedShift = candidate.calendarShift;
         }
       }
       if (!target) {
-        target = findNextWeekdayInWindow(wantedDayIdx, windowStart, windowEnd, tz, defaults);
+        target = strategistTarget;
       }
 
       if (!target) {
@@ -628,8 +664,8 @@ export function computeAutoScheduleSlots(input: ComputeAutoScheduleSlotsInput): 
       } else {
         wallTimeIso = target;
         if (blendApplied) {
-          const sign = (blend.shift ?? 0) > 0 ? '+' : '';
-          appliedDay = `${row.recommendedDay} → ${DAY_INDEX_TO_NAME[blend.day]} (analytics-blend rank ${(blend.rank ?? 0) + 1}, ${sign}${blend.shift}d)`;
+          const sign = appliedShift > 0 ? '+' : '';
+          appliedDay = `${row.recommendedDay} → ${DAY_INDEX_TO_NAME[blend.day]} (analytics-blend rank ${(blend.rank ?? 0) + 1}, ${sign}${appliedShift}d)`;
           console.info('[auto-schedule] analytics day blend applied', {
             postId: row.postId,
             platform: row.platform,
@@ -637,7 +673,7 @@ export function computeAutoScheduleSlots(input: ComputeAutoScheduleSlotsInput): 
             from: row.recommendedDay,
             to: DAY_INDEX_TO_NAME[blend.day],
             rank: (blend.rank ?? 0) + 1,
-            shift: blend.shift,
+            shift: appliedShift,
           });
         } else {
           appliedDay = row.recommendedDay!;

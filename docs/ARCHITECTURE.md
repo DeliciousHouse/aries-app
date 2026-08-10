@@ -98,7 +98,7 @@ For the weekly social content marketing pipeline, Aries routes execution across 
 
 | Stage | Hermes profile | Gateway env var |
 |---|---|---|
-| Research | `aries-research` | `HERMES_RESEARCH_GATEWAY_URL` (compose default: port `8651`) |
+| Research | `aries-research` | `HERMES_RESEARCH_GATEWAY_URL` (blank by default; opt-in port `8651`) |
 | Strategy + publish | `aries-strategist` | `HERMES_STRATEGIST_GATEWAY_URL` (port `8654`) |
 | Content generation | `aries-content-generator` | `HERMES_CONTENT_GATEWAY_URL` (port `8655`) |
 

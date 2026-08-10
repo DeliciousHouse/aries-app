@@ -174,6 +174,12 @@ function readEnvInt(env: HermesMarketingEnv, key: string, fallback: number): num
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
+function hasDedicatedProfileGateway(profile: HermesTargetProfile, env: HermesMarketingEnv): boolean {
+  const specific = readEnvValue(env, PROFILE_GATEWAY_ENV[profile].url).replace(/\/+$/, '');
+  const shared = readEnvValue(env, 'HERMES_GATEWAY_URL').replace(/\/+$/, '');
+  return Boolean(specific && specific !== shared);
+}
+
 /**
  * Detect the "URL repointed, key forgotten" gateway misconfiguration.
  *
@@ -186,12 +192,9 @@ function readEnvInt(env: HermesMarketingEnv, key: string, fallback: number): num
  * that stage, for every tenant, with no other signal than a generic
  * `hermes_gateway_error`.
  *
- * The concrete trigger this guard was written for: docker-compose.yml now
- * defaults HERMES_RESEARCH_GATEWAY_URL to the aries-research gateway, so a
- * routine `docker compose up` applies the repoint even when nobody edited
- * .env — and if HERMES_RESEARCH_API_SERVER_KEY has not landed yet, the weekly
- * pipeline dies at stage 1. Deploy-notes ordering is not a safeguard; a
- * greppable log line is.
+ * The concrete trigger this guard was written for is an operator repointing a
+ * profile URL before its dedicated key has landed. Deploy-notes ordering is
+ * not a safeguard; a greppable log line is.
  *
  * Returns null (silence) when the pair is coherent: no per-profile URL, a
  * per-profile key present, or a per-profile URL that resolves to the SAME
@@ -480,12 +483,12 @@ const PUBLISH_GROWTH_DIRECTIVE =
  * `action: run` POSTs carrying the prior stage's output as `input`, because a
  * resume_token issued by one profile's gateway cannot resume on another.
  */
-function buildWeeklyResearchInstructions(workflowKey: string): string {
+function buildWeeklyResearchInstructions(workflowKey: string, last30daysRequired = true): string {
   return [
     'You are the Aries marketing research agent. You run ONLY the research stage of the weekly social content pipeline.',
     RESEARCH_TOOL_POLICY,
     ...LAST30DAYS_GUIDANCE,
-    WEEKLY_RESEARCH_LAST30DAYS_MANDATE,
+    ...(last30daysRequired ? [WEEKLY_RESEARCH_LAST30DAYS_MANDATE] : []),
     WEEKLY_RESEARCH_PERFORMANCE_DIRECTIVE,
     'Reply with a single strict JSON object only — no prose, no markdown fences.',
     'After completing the research stage, return status "requires_approval" with approval.stage="strategy", approval.approval_step="approve_weekly_plan", approval.workflowStepId="approve_stage_2", approval.prompt="Review research findings before strategy starts", approval.resumeToken set, and output:[{stage:"research", ...artifacts}].',
@@ -845,7 +848,9 @@ export class HermesMarketingPort implements MarketingExecutionPort {
 
   private authHeaderForProfile(profile: HermesTargetProfile): string {
     const specific = readEnvValue(this.env, PROFILE_GATEWAY_ENV[profile].key);
-    const key = specific || readEnvValue(this.env, 'HERMES_API_SERVER_KEY');
+    const key = hasDedicatedProfileGateway(profile, this.env) && specific
+      ? specific
+      : readEnvValue(this.env, 'HERMES_API_SERVER_KEY');
     return `Bearer ${key}`;
   }
 
@@ -2175,7 +2180,11 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     workflowStepId?: string | null,
   ): string {
     if (workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY) {
-      return buildHermesStageInstructions(workflowKey, stage ?? 'research', workflowStepId);
+      const resolvedStage = stage ?? 'research';
+      if (resolvedStage === 'research' && !hasDedicatedProfileGateway('aries-research', this.env)) {
+        return buildWeeklyResearchInstructions(workflowKey, false);
+      }
+      return buildHermesStageInstructions(workflowKey, resolvedStage, workflowStepId);
     }
     return buildHermesInstructions(workflowKey);
   }

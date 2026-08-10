@@ -192,6 +192,50 @@ test('integration: analytics-sourced ranking nudges Wednesday onto Friday', () =
   assert.match(slot.appliedDay, /rank 1, \+2d/);
 });
 
+test('integration: a cyclic -2 weekday is skipped for the safe +2 calendar-day candidate', () => {
+  const tuesday = new Date('2026-07-07T04:00:00Z');
+  const result = computeAutoScheduleSlots({
+    rows: IG_WED,
+    tenantTimezone: TZ,
+    campaignStart: tuesday,
+    campaignEnd: WINDOW_END,
+    now: tuesday,
+    slotOverrides: {
+      instagram: { hour: 11, minute: 0, days: [MON, FRI], source: 'analytics' },
+    },
+  });
+
+  assert.equal(result.slots.length, 1);
+  assert.equal(
+    result.slots[0].scheduledFor.toISOString(),
+    '2026-07-10T15:00:00.000Z',
+    'the next Monday is five calendar days after the strategist Wednesday, so choose Friday',
+  );
+  assert.match(result.slots[0].appliedDay, /^Wednesday → Friday .*\+2d\)$/);
+});
+
+test('integration: ranked days resolve around the strategist date, not the window start', () => {
+  const thursday = new Date('2026-07-09T04:00:00Z');
+  const result = computeAutoScheduleSlots({
+    rows: IG_WED,
+    tenantTimezone: TZ,
+    campaignStart: thursday,
+    campaignEnd: WINDOW_END,
+    now: thursday,
+    slotOverrides: {
+      instagram: { hour: 11, minute: 0, days: [FRI, MON], source: 'analytics' },
+    },
+  });
+
+  assert.equal(result.slots.length, 1);
+  assert.equal(
+    result.slots[0].scheduledFor.toISOString(),
+    '2026-07-17T15:00:00.000Z',
+    'rank-1 Friday is two days after the strategist Wednesday even though an earlier Friday is near window start',
+  );
+  assert.match(result.slots[0].appliedDay, /^Wednesday → Friday \(analytics-blend rank 1, \+2d\)$/);
+});
+
 test('integration: competitor-sourced ranking never moves the day', () => {
   const result = compute(IG_WED, COMPETITOR_FRI_MON);
   assert.equal(localDayAndTime(result.slots[0].scheduledFor).day, WED);
@@ -225,7 +269,9 @@ test('integration: a nudged day outside the campaign window falls back to the st
     campaignStart: WINDOW_START,
     campaignEnd: new Date('2026-07-09T23:59:00Z'),
     now: NOW,
-    slotOverrides: ANALYTICS_FRI_MON,
+    slotOverrides: {
+      instagram: { hour: 11, minute: 0, days: [FRI, SAT], source: 'analytics' },
+    },
   });
   assert.equal(result.slots.length, 1, 'the post is scheduled, not skipped');
   assert.equal(localDayAndTime(result.slots[0].scheduledFor).day, WED);

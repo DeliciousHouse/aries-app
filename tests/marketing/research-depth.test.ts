@@ -15,17 +15,16 @@
  *     and never receives a performance block. Making the mandate shared would
  *     point that agent at a skill it may not have and a block that never
  *     exists for it.
- *  3. The gateway URL/key pairing guard. docker-compose.yml now defaults
- *     HERMES_RESEARCH_GATEWAY_URL, so a routine `docker compose up` repoints
- *     research even with an untouched .env — and a missing
- *     HERMES_RESEARCH_API_SERVER_KEY then 401s every research submission.
+ *  3. The gateway URL/key pairing guard. A blank URL stays on the shared
+ *     gateway even if a stale dedicated key remains; a dedicated URL with no
+ *     matching key is rejected loudly instead of failing silently.
  *
  * Fully in-memory: recording fetchImpl, noop brand-kit refresher, noop callback
  * token client, and a fake perf queryable injected as the 6th constructor arg
  * (item 1 made the loader constructor-injectable — no Postgres in this suite).
  */
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -400,6 +399,42 @@ test('the shared policy references the performance block conditionally, never as
 
 // ── 3. The compose-default gateway footgun ────────────────────────────────
 
+test('a blank or unset research gateway URL reaches the shared-gateway rollback', async () => {
+  const compose = await readFile(path.join(process.cwd(), 'docker-compose.yml'), 'utf8');
+  assert.match(
+    compose,
+    /HERMES_RESEARCH_GATEWAY_URL:\s*\$\{HERMES_RESEARCH_GATEWAY_URL:-\}/,
+    'Compose must leave the profile URL empty until an operator explicitly configures it',
+  );
+  assert.doesNotMatch(
+    compose,
+    /HERMES_RESEARCH_GATEWAY_URL:\s*\$\{HERMES_RESEARCH_GATEWAY_URL:-http:\/\/host\.docker\.internal:8651\}/,
+    'defaulting blank or unset to 8651 makes the documented rollback unsafe',
+  );
+});
+
+test('the shared-gateway rollback ignores a stale dedicated research key', async () => {
+  await withDataRoot(async () => {
+    const doc = weeklyDoc('job_research_shared_gateway');
+    const { calls, fetchImpl } = recordingFetch();
+    const { queryable } = makePerfDb();
+    const port = makePort(fetchImpl, queryable, {
+      HERMES_RESEARCH_GATEWAY_URL: '',
+      HERMES_RESEARCH_API_SERVER_KEY: 'stale-research-key',
+    });
+
+    await port.runPipeline({ jobId: doc.job_id, doc, argsJson: '{}', timeoutMs: 5000, maxStdoutBytes: 1000 });
+
+    assert.equal(calls[0]?.url, `${ENV.HERMES_GATEWAY_URL}/v1/runs`);
+    assert.equal(new Headers(calls[0]?.init.headers).get('authorization'), 'Bearer default-key');
+    assert.equal(
+      instructionsOf(calls[0]).includes('mandatory here, not optional'),
+      false,
+      'the shared profile may not have last30days, so rollback instructions must keep it optional',
+    );
+  });
+});
+
 test('describeProfileGatewayKeyFallback flags a repointed URL with no per-profile key', () => {
   const warning = describeProfileGatewayKeyFallback('aries-research', {
     HERMES_GATEWAY_URL: 'http://host.docker.internal:8642',
@@ -459,21 +494,26 @@ test('the misconfiguration warning actually fires on a real research submission'
 });
 
 test('a coherent gateway pair submits without any auth warning', async () => {
-  const { warnings } = await captureWarnings(async () => withDataRoot(async () => {
+  const { result: calls, warnings } = await captureWarnings(async () => withDataRoot(async () => {
     const doc = weeklyDoc('job_research_ok');
-    const { fetchImpl } = recordingFetch();
+    const { calls, fetchImpl } = recordingFetch();
     const { queryable } = makePerfDb();
     const port = makePort(fetchImpl, queryable, {
       HERMES_RESEARCH_GATEWAY_URL: 'http://host.docker.internal:8651',
       HERMES_RESEARCH_API_SERVER_KEY: 'research-key',
     });
-    return port.runPipeline({ jobId: doc.job_id, doc, argsJson: '{}', timeoutMs: 5000, maxStdoutBytes: 1000 });
+    await port.runPipeline({ jobId: doc.job_id, doc, argsJson: '{}', timeoutMs: 5000, maxStdoutBytes: 1000 });
+    return calls;
   }));
 
   assert.equal(
     warnings.filter((w) => w.includes('GATEWAY AUTH MISCONFIGURED')).length,
     0,
     'no false positive when the pair is set together',
+  );
+  assert.ok(
+    instructionsOf(calls[0]).includes('mandatory here, not optional'),
+    'the dedicated research profile keeps the last30days mandate',
   );
 });
 
