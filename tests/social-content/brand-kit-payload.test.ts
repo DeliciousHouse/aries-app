@@ -3,7 +3,10 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import { buildBrandKitPayload } from '../../backend/social-content/brand-kit-payload';
+import {
+  buildBrandKitPayload,
+  DEFAULT_GROWTH_PRIMARY_GOAL,
+} from '../../backend/social-content/brand-kit-payload';
 import {
   buildProductionResumeContext,
   buildSocialContentWeeklyRequest,
@@ -128,6 +131,78 @@ test('buildBrandKitPayload falls back to request data from the runtime doc when 
   assert.equal(payload.objective.primary_goal, 'Book more consulting calls');
   assert.equal(payload.objective.offer, 'Operator coaching intensives');
   assert.equal(payload.objective.audience, 'Operators building the next layer of systems');
+});
+
+/**
+ * ITEM 2(a) — the growth objective default (audit F1).
+ *
+ * `business_profiles.primary_goal` is unvalidated free text and empty for most
+ * tenants, so the weekly Hermes payload shipped `objective.primary_goal: ""` —
+ * the strategist was asked for a 7-post plan with no definition of success.
+ * The default fires strictly where the field is empty; an operator-stated goal
+ * always wins (locked by the byte-shape test below, whose fixture states
+ * "Book more consulting calls").
+ */
+function makeGoallessDoc(request: Record<string, unknown>): SocialContentJobRuntimeDocument {
+  const base = makeDoc() as unknown as { inputs: { request: Record<string, unknown> } };
+  return makeDoc({
+    inputs: {
+      ...(base.inputs as unknown as Record<string, unknown>),
+      request: { ...base.inputs.request, ...request },
+    },
+  });
+}
+
+test('buildBrandKitPayload defaults the objective to the growth goal when the tenant stated none', () => {
+  // Absent, empty-string, and whitespace-only all mean "the operator never
+  // answered" — the live column is free text with no validation.
+  const cases: Array<Record<string, unknown>> = [
+    { primaryGoal: undefined, goal: undefined },
+    { primaryGoal: '', goal: '' },
+    { primaryGoal: '   ', goal: '' },
+  ];
+  for (const request of cases) {
+    const payload = buildBrandKitPayload(makeGoallessDoc(request), makeBrandKit(), null);
+    assert.equal(
+      payload.objective.primary_goal,
+      DEFAULT_GROWTH_PRIMARY_GOAL,
+      `empty goal ${JSON.stringify(request)} must default instead of shipping ""`,
+    );
+  }
+});
+
+test('buildBrandKitPayload prefers goal over primaryGoal before defaulting, and never overrides a stated goal', () => {
+  const stated = buildBrandKitPayload(
+    makeGoallessDoc({ primaryGoal: '', goal: 'Sell out the spring drop' }),
+    makeBrandKit(),
+    null,
+  );
+  assert.equal(
+    stated.objective.primary_goal,
+    'Sell out the spring drop',
+    'the existing primaryGoal||goal precedence must survive — the default is a last resort',
+  );
+
+  const operator = buildBrandKitPayload(makeDoc(), makeBrandKit(), { primaryGoal: 'Book more consulting calls' });
+  assert.equal(operator.objective.primary_goal, 'Book more consulting calls');
+});
+
+test('the growth default does not leak into the offer repair or the brand block', () => {
+  // resolveBrandOffer passes the RAW goal to repairStaleMarketingOffer; feeding
+  // it "Grow the audience: …" would change the offer copy for exactly the
+  // empty-goal tenants this item is meant to leave otherwise untouched.
+  const goalless = makeGoallessDoc({ primaryGoal: '', goal: '' });
+  const before = buildBrandKitPayload(goalless, makeBrandKit(), null);
+  assert.equal(
+    before.brand.offer,
+    buildBrandKitPayload(makeDoc(), makeBrandKit(), null).brand.offer,
+    'the offer must be identical with and without a stated goal',
+  );
+  assert.ok(
+    !JSON.stringify(before.brand).includes('Grow the audience'),
+    'the default belongs to objective.primary_goal only — the brand block must not carry it',
+  );
+  assert.equal(before.objective.offer, before.brand.offer, 'objective.offer stays the resolved brand offer');
 });
 
 test('buildBrandKitPayload normalizes persisted runtime brand kit voice fragments before reuse', () => {

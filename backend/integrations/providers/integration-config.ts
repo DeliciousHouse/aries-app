@@ -61,8 +61,14 @@ export function isRedditEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
 
 /**
  * Explicit target subreddit for Reddit publish (COMPOSIO_REDDIT_TARGET_SUBREDDIT).
- * Returns null when unset/empty so the publisher falls back to the connected
- * user's own profile (`u_<username>`) and never guesses a community.
+ *
+ * Returns null when unset/empty. There is NO `u_<username>` profile fallback:
+ * Reddit's `sr` field resolves COMMUNITY names only, so a user-profile target
+ * deterministically fails with SUBREDDIT_NOEXIST. On null the reddit publish
+ * path refuses up-front with a capability error
+ * (composio-publisher-provider.ts) and the weekly crosspost producer skips
+ * reddit entirely (weekly-crosspost.ts `isCrosspostPlatformConfigured`), so no
+ * reddit row is ever synthesized that cannot be delivered.
  */
 export function redditTargetSubreddit(env: NodeJS.ProcessEnv = process.env): string | null {
   const v = env.COMPOSIO_REDDIT_TARGET_SUBREDDIT?.trim();

@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.59.0 — feat(growth): close the weekly performance loop
+
+Weekly social-content planning now feeds measured tenant performance back into
+research, strategy, growth targets, distribution timing, and operational health.
+
+### Added
+
+- Last-28-day top/bottom post and follower-trend context now informs research
+  and strategy without blocking tenants that have no usable insights data.
+- Strategy and publish stages receive a default content-growth objective and
+  measurable follower/engagement KPI when the tenant has not set another goal.
+- Analytics-ranked posting days can refine strategist recommendations, with
+  cross-post defaults and explicit handling for unsupported Reddit targets.
+- Insights object-health quarantine, classifier repair, and an Aries pipeline
+  monitor expose stuck syncs and failed marketing stages for operator action.
+
+### Changed
+
+- Research receives a larger tool budget and tenant performance summary while
+  shared-gateway routing remains the safe default.
+- Schedule blending filters ranked weekdays against their resolved campaign
+  dates, so an applied move never exceeds two actual calendar days.
+
+### Fixed
+
+- Blank or unset research routing now falls back atomically to the shared
+  gateway URL, key, and optional-tool policy instead of risking an unreachable
+  profile, missing skill, or HTTP 401.
+- Insights sync legs remain isolated through quarantine/re-arm failures,
+  disabled accounts stay excluded, and monitor alerts survive send failures.
+
 ## v0.1.58.1 — fix(api): bound response-body loading
 
 Posts and other bounded list requests now leave their loading state when a

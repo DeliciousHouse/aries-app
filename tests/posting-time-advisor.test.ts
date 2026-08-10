@@ -254,17 +254,52 @@ test('override read: maps valid rows and drops invalid ones', async () => {
   const queryable: PostingTimeQueryable = {
     query: async () => ({
       rows: [
-        { platform: 'Instagram', hour: 19, minute: 30, days: [2, 4] },
-        { platform: 'facebook', hour: 99, minute: 0, days: [] }, // invalid hour → dropped
-        { platform: '', hour: 9, minute: 0, days: [] }, // missing platform → dropped
+        { platform: 'Instagram', hour: 19, minute: 30, days: [2, 4], source: 'analytics' },
+        { platform: 'facebook', hour: 99, minute: 0, days: [], source: 'analytics' }, // invalid hour → dropped
+        { platform: '', hour: 9, minute: 0, days: [], source: 'analytics' }, // missing platform → dropped
       ],
       rowCount: 3,
     }),
   };
   const overrides = await loadPostingTimeOverrides(15, queryable, FLAG_ON);
   assert.ok(overrides);
-  assert.deepEqual(overrides.instagram, { hour: 19, minute: 30, days: [2, 4] });
+  assert.deepEqual(overrides.instagram, { hour: 19, minute: 30, days: [2, 4], source: 'analytics' });
   assert.equal(overrides.facebook, undefined);
+});
+
+test('override read: source is surfaced, and anything not exactly "analytics" degrades to competitor', async () => {
+  // The auto-schedule day blend keys off this field — only a row derived from
+  // the tenant's OWN engagement may move a strategist-chosen day, so an absent
+  // or unrecognized value must land on the weaker side.
+  const queryable: PostingTimeQueryable = {
+    query: async () => ({
+      rows: [
+        { platform: 'instagram', hour: 11, minute: 0, days: [5, 1], source: 'competitor' },
+        { platform: 'facebook', hour: 13, minute: 0, days: [5, 1] }, // no source column value
+        { platform: 'x', hour: 12, minute: 0, days: [5, 1], source: 'ANALYTICS' }, // wrong case
+      ],
+      rowCount: 3,
+    }),
+  };
+  const overrides = await loadPostingTimeOverrides(15, queryable, FLAG_ON);
+  assert.ok(overrides);
+  assert.equal(overrides.instagram?.source, 'competitor');
+  assert.equal(overrides.facebook?.source, 'competitor', 'a missing source must never unlock the blend');
+  assert.equal(overrides.x?.source, 'competitor', 'the match is exact — no case folding');
+});
+
+test('override read: the SELECT asks for the source column', async () => {
+  // Forgetting `source` in the projection would silently make every row look
+  // competitor-sourced and disable the day blend fleet-wide.
+  let sql = '';
+  const queryable: PostingTimeQueryable = {
+    query: async (text: string) => {
+      sql = text;
+      return { rows: [], rowCount: 0 };
+    },
+  };
+  await loadPostingTimeOverrides(15, queryable, FLAG_ON);
+  assert.match(sql, /SELECT[^]*\bsource\b[^]*FROM marketing_posting_times/i);
 });
 
 test('override read: database error → null (fail-open to platform defaults)', async () => {

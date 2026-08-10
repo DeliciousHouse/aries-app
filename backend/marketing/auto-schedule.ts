@@ -17,9 +17,20 @@
  *   1. **Per-brand timing** — Hermes's strategist agent emits
  *      `weekly_schedule[].recommended_day` (e.g. "Monday", "Tuesday") per post,
  *      derived from the brand voice + target audience analysis it ran
- *      upstream. We use that day verbatim — it's the only brand-aware signal
- *      we have today, and trusting it keeps the strategist's editorial intent
- *      intact instead of overwriting it with generic best-practice noise.
+ *      upstream. That day is the DEFAULT and is used verbatim, because it is
+ *      the only brand-aware editorial signal we have and generic
+ *      best-practice noise must not overwrite it.
+ *
+ *      The one exception is the **analytics day blend**: when the tenant's own
+ *      measured engagement (`marketing_posting_times` rows with
+ *      `source='analytics'`) ranks >= 2 days for that platform and the
+ *      strategist's day is not among them, the post is nudged to the nearest
+ *      ranked day — but only by <= 2 calendar days, only on the feed surface,
+ *      and only when the nudged slot is not already claimed by a sibling's
+ *      explicit strategist day. Competitor-sourced rankings never move a day
+ *      (they are an LLM guess about someone else's habits, not evidence).
+ *      `ARIES_SCHEDULE_DAY_BLEND_ENABLED=0` turns the blend off without
+ *      losing the hour override. See `blendStrategistDayWithRankings`.
  *
  *   2. **Per-platform timing** — within the recommended day, we pick the
  *      hour-of-day from `PLATFORM_POSTING_DEFAULTS` (see citation block
@@ -148,13 +159,21 @@ export function pickSlotDefault(
 /**
  * AI-derived per-platform posting-time override (ARIES_AI_POSTING_TIMES_ENABLED;
  * rows from marketing_posting_times via posting-time-advisor.ts). `days` are
- * ranked days-of-week (0=Sunday, best first) — consumed only by the
- * default-cadence path, and only when honoring them never drops post volume.
+ * ranked days-of-week (0=Sunday, best first) — consumed by the default-cadence
+ * path (only when honoring them never drops post volume) and, when
+ * `source === 'analytics'`, by the strategist-path day blend below.
  */
 export interface PostingTimeSlotOverride {
   hour: number;
   minute: number;
   days?: number[];
+  /**
+   * Provenance of the row. 'analytics' = derived from the tenant's OWN measured
+   * engagement; 'competitor' = an LLM research guess about a competitor's
+   * posting habits. Absent or 'competitor' makes the strategist-path DAY blend
+   * inert — the hour/minute override is unaffected either way.
+   */
+  source?: 'analytics' | 'competitor';
 }
 
 /** Keyed by lowercase platform name (e.g. 'instagram'). */
@@ -187,14 +206,27 @@ export function resolveSlotDefault(
   return { hour, minute, staggerMinutes: base.staggerMinutes };
 }
 
-/** Ranked override days for a (platform, surface) pair; [] when not applicable. */
+/**
+ * Ranked override days for a (platform, surface) pair; [] when not applicable.
+ *
+ * `requireAnalytics` is load-bearing and defaults to FALSE. The default-cadence
+ * path (`computeDefaultCadenceSlots`) has honored competitor-sourced preferred
+ * days since day one and re-anchors the whole ladder onto them only when every
+ * piece fits, so gating it on provenance would be a silent behavior change
+ * nobody asked for. The strategist-path day blend passes TRUE because it
+ * OVERRIDES a human-authored editorial day, which only the tenant's own
+ * measured engagement earns the right to do.
+ */
 function overrideDaysFor(
   platform: AutoSchedulePlatform,
   surface: AutoScheduleSurface,
   overrides?: PostingTimeSlotOverrides,
+  requireAnalytics = false,
 ): number[] {
   if (surface !== 'feed') return [];
-  const days = overrides?.[platform]?.days;
+  const override = overrides?.[platform];
+  if (requireAnalytics && override?.source !== 'analytics') return [];
+  const days = override?.days;
   if (!Array.isArray(days)) return [];
   return days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
 }
@@ -235,10 +267,19 @@ export interface ComputeAutoScheduleSlotsInput {
   now?: Date;
   /**
    * AI-derived posting-time overrides (feed hour/minute per platform). The
-   * strategist's recommended DAY still wins on this path — only the
-   * time-of-day is overridden. Absent → PLATFORM_POSTING_DEFAULTS.
+   * hour/minute always applies to the feed surface. The ranked `days` move the
+   * strategist's recommended DAY only under the analytics day blend — see
+   * `blendStrategistDayWithRankings` and `dayBlendEnabled`.
+   * Absent → PLATFORM_POSTING_DEFAULTS.
    */
   slotOverrides?: PostingTimeSlotOverrides;
+  /**
+   * Analytics day blend on/off. Defaults to ON when omitted, keeping this
+   * function pure (the env read lives in `autoSchedulePosts`, the impure
+   * wrapper). `false` makes the output byte-identical to the pre-blend
+   * behavior: the strategist's day is always used verbatim.
+   */
+  dayBlendEnabled?: boolean;
 }
 
 export interface AutoScheduleSlot {
@@ -325,6 +366,16 @@ const DAY_NAME_TO_INDEX: Record<string, number> = {
   saturday: 6,
 };
 
+const DAY_INDEX_TO_NAME = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+] as const;
+
 function dayIndexFromName(name: string | null | undefined): number | null {
   if (!name) return null;
   const key = name.trim().toLowerCase();
@@ -332,9 +383,145 @@ function dayIndexFromName(name: string | null | undefined): number | null {
 }
 
 /**
+ * Largest calendar-day shift the scheduler may apply after resolving dates.
+ *
+ * A <=2-day move keeps a post inside the same half of the week (Mon->Wed,
+ * Thu->Sat), so the strategist's relative sequencing survives while the post
+ * still captures a measured engagement peak. A 3-day move inverts post order
+ * relative to its siblings — at that point the editorial plan is being
+ * REPLACED, not tuned, so we keep the strategist's day instead.
+ */
+export const MAX_DAY_BLEND_SHIFT = 2;
+
+/**
+ * Minimum ranked days required before the list counts as a "ranking".
+ *
+ * `marketing_posting_times.days` is a top-3 best-first list (posting-time-
+ * advisor slices to 3 and applies a per-day-bucket post floor), NOT a full
+ * 7-day ranking — so a day's ABSENCE means "not in the measured top 3", which
+ * conflates "bad day" with "too few measured posts that day". A 1-element list
+ * is a posting-habit artifact, not a ranking: you cannot rank with one item.
+ */
+export const MIN_RANKED_DAYS_FOR_BLEND = 2;
+
+export type DayBlendReason =
+  /** No usable ranked days for this pair (no override, wrong surface, or non-analytics source). */
+  | 'no_signal'
+  /** Fewer than MIN_RANKED_DAYS_FOR_BLEND ranked days — not enough to rank anything. */
+  | 'weak_signal'
+  /** The strategist's day is itself in the ranked list — both signals agree. */
+  | 'strategist_ranked'
+  /** Moved to the nearest ranked day. */
+  | 'nudged'
+  /** Every ranked day is more than MAX_DAY_BLEND_SHIFT days away. */
+  | 'too_far';
+
+export interface DayBlendDecision {
+  /** The day index (0=Sun…6=Sat) to schedule on. */
+  day: number;
+  /** True only when `day` differs from the strategist's day. */
+  moved: boolean;
+  reason: DayBlendReason;
+  /** 0-based position of the chosen day within `rankedDays` (when applicable). */
+  rank?: number;
+  /** Signed cyclic weekday delta proposed, -2..2 (only when moved). */
+  shift?: number;
+}
+
+function signedCyclicWeekdayShift(fromDay: number, toDay: number): number {
+  const raw = (toDay - fromDay + 7) % 7;
+  return raw > 3 ? raw - 7 : raw;
+}
+
+/**
+ * Blend the strategist's editorial day with the tenant's own analytics day
+ * ranking. Pure and total — never throws, always returns a valid day index.
+ *
+ * The rule, and why it is this rule rather than the obvious "use the top-ranked
+ * day":
+ *
+ *   - Ranked list empty or single-element  -> keep the strategist's day. The
+ *     data cannot express "this day is bad", only "these days were good".
+ *   - Strategist's day IS ranked           -> keep it. The two signals agree;
+ *     there is nothing to merge.
+ *   - Strategist's day is NOT ranked       -> move to the NEAREST eligible
+ *     ranked day within MAX_DAY_BLEND_SHIFT cyclic weekdays. The caller can
+ *     narrow eligibility after resolving real dates.
+ *
+ * Tie-break when two ranked days are equidistant: the higher-ranked one wins
+ * (lower index in `rankedDays`). Rank position is unique per candidate, so this
+ * single rule fully determines every tie — there is no secondary tie-break.
+ *
+ * NOTE: this decides only the DAY. The caller is responsible for refusing a
+ * nudge that would collide with a sibling post (see computeAutoScheduleSlots).
+ */
+export function blendStrategistDayWithRankings(
+  strategistDayIdx: number,
+  rankedDays: ReadonlyArray<number>,
+  eligibleDays?: ReadonlySet<number>,
+): DayBlendDecision {
+  const ranked = rankedDays.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
+  if (ranked.length === 0) return { day: strategistDayIdx, moved: false, reason: 'no_signal' };
+  if (ranked.length < MIN_RANKED_DAYS_FOR_BLEND) {
+    return { day: strategistDayIdx, moved: false, reason: 'weak_signal' };
+  }
+
+  const rank = ranked.indexOf(strategistDayIdx);
+  if (rank >= 0) return { day: strategistDayIdx, moved: false, reason: 'strategist_ranked', rank };
+
+  let best: { day: number; rank: number; shift: number } | null = null;
+  for (let r = 0; r < ranked.length; r += 1) {
+    const day = ranked[r];
+    if (eligibleDays && !eligibleDays.has(day)) continue;
+    // Map 0..6 onto the signed cyclic weekday distance -3..3. The caller still
+    // validates the resolved dates so a cyclic -2 can never become +5 days.
+    const shift = signedCyclicWeekdayShift(strategistDayIdx, day);
+    if (Math.abs(shift) > MAX_DAY_BLEND_SHIFT) continue;
+    // Nearest wins; ties go to the better-ranked day. `r` strictly increases,
+    // so a later candidate can never tie on rank — distance + rank is total.
+    if (!best || Math.abs(shift) < Math.abs(best.shift)) {
+      best = { day, rank: r, shift };
+    }
+  }
+
+  return best
+    ? { day: best.day, moved: true, reason: 'nudged', rank: best.rank, shift: best.shift }
+    : { day: strategistDayIdx, moved: false, reason: 'too_far' };
+}
+
+/**
+ * Kill switch for the analytics day blend (default ON).
+ *
+ * Without it, backing out a bad blend in production would mean turning off
+ * ARIES_AI_POSTING_TIMES_ENABLED entirely — which also drops the proven
+ * hour/minute override. Canonical 4-token truthiness, inverted: only an
+ * explicit off-token disables, so an unset/garbage value keeps the blend on.
+ */
+export function isScheduleDayBlendEnabled(
+  env: Partial<Record<string, string | undefined>> = process.env,
+): boolean {
+  const v = env.ARIES_SCHEDULE_DAY_BLEND_ENABLED?.trim().toLowerCase();
+  if (v === undefined || v === '') return true;
+  return !(v === '0' || v === 'false' || v === 'no' || v === 'off');
+}
+
+/**
  * Compute scheduling slots for every (post, platform) row, deterministic
  * given inputs. Pure: no DB, no clock, no env reads. The DB writer wraps
  * this so all timestamp math is unit-testable in isolation.
+ *
+ * Day resolution, in order: the strategist's `recommendedDay` is the default
+ * and is used verbatim unless the analytics day blend moves it (see
+ * `blendStrategistDayWithRankings`; requires `dayBlendEnabled !== false`, an
+ * `analytics`-sourced override for the platform, the feed surface, and >= 2
+ * ranked days). Rows with no parseable day fall back to the first day in the
+ * window.
+ *
+ * ACCEPTED BEHAVIOR CHANGE: because the ranked days are PER PLATFORM, the
+ * Instagram and Facebook rows of the same post can now land on DIFFERENT days
+ * once the blend engages. This mirrors the already-per-platform hour override
+ * and is deliberate: each platform's own measured engagement wins for that
+ * platform.
  */
 export function computeAutoScheduleSlots(input: ComputeAutoScheduleSlotsInput): ComputeAutoScheduleSlotsResult {
   const tz = input.tenantTimezone || DEFAULT_TENANT_TIMEZONE;
@@ -359,6 +546,33 @@ export function computeAutoScheduleSlots(input: ComputeAutoScheduleSlotsInput): 
   // resolveCollisionSlot instead of silently double-booking the platform.
   const usedWallByPair = new Map<string, Set<string>>();
 
+  // PRE-PASS — strategist claims, per (platform, surface).
+  //
+  // Every row's OWN strategist-wanted wall time is reserved here, BEFORE any
+  // row is nudged. Without this the blend is order-dependent and steals slots:
+  // rows [Wed-strategist, Fri-strategist] with analytics days [Fri, Mon] would
+  // nudge the Wed row onto Friday (free at that moment, since `usedWallByPair`
+  // only sees rows already processed), and the Fri row — whose day the
+  // analytics AGREE with — would then collide with its nudged sibling and get
+  // pushed off by the de-collision probe. The explicit editorial day must
+  // outrank a speculative nudge regardless of row order, so a nudge onto a
+  // reserved slot is abandoned (the strategist's day is kept) instead.
+  const strategistClaimsByPair = new Map<string, Set<string>>();
+  for (const row of input.rows) {
+    const platformKey = row.platform.trim().toLowerCase() as AutoSchedulePlatform;
+    const surface: AutoScheduleSurface = row.surface ?? 'feed';
+    const defaults = resolveSlotDefault(platformKey, surface, input.slotOverrides);
+    if (!defaults) continue;
+    const wantedDayIdx = dayIndexFromName(row.recommendedDay);
+    if (wantedDayIdx === null) continue;
+    const claim = findNextWeekdayInWindow(wantedDayIdx, windowStart, windowEnd, tz, defaults);
+    if (!claim) continue;
+    const pairKey = `${platformKey}:${surface}`;
+    const claims = strategistClaimsByPair.get(pairKey) ?? new Set<string>();
+    claims.add(claim);
+    strategistClaimsByPair.set(pairKey, claims);
+  }
+
   for (const row of input.rows) {
     const platformKey = row.platform.trim().toLowerCase() as AutoSchedulePlatform;
     const surface: AutoScheduleSurface = row.surface ?? 'feed';
@@ -368,6 +582,11 @@ export function computeAutoScheduleSlots(input: ComputeAutoScheduleSlotsInput): 
       skipped.push({ row, reason: `unsupported_platform:${row.platform}` });
       continue;
     }
+
+    const pairKey = `${platformKey}:${surface}`;
+    const used = usedWallByPair.get(pairKey) ?? new Set<string>();
+    usedWallByPair.set(pairKey, used);
+    const strategistClaims = strategistClaimsByPair.get(pairKey) ?? new Set<string>();
 
     const wantedDayIdx = dayIndexFromName(row.recommendedDay);
     let wallTimeIso: string;
@@ -380,7 +599,62 @@ export function computeAutoScheduleSlots(input: ComputeAutoScheduleSlotsInput): 
       wallTimeIso = fallback;
       appliedDay = 'fallback: first day in window';
     } else {
-      const target = findNextWeekdayInWindow(wantedDayIdx, windowStart, windowEnd, tz, defaults);
+      // Analytics day blend. Inert unless the kill switch is on (default),
+      // the platform's override is analytics-sourced, and it ranks >= 2 days.
+      const rankedDays =
+        input.dayBlendEnabled === false
+          ? []
+          : overrideDaysFor(platformKey, surface, input.slotOverrides, true);
+      const strategistTarget = findNextWeekdayInWindow(
+        wantedDayIdx,
+        windowStart,
+        windowEnd,
+        tz,
+        defaults,
+      );
+      const rankedTargets = new Map<number, { target: string; calendarShift: number }>();
+      if (strategistTarget) {
+        for (const rankedDay of rankedDays) {
+          const calendarShift = signedCyclicWeekdayShift(wantedDayIdx, rankedDay);
+          if (Math.abs(calendarShift) > MAX_DAY_BLEND_SHIFT) continue;
+          const targetDate = new Date(`${strategistTarget.slice(0, 10)}T00:00:00Z`);
+          targetDate.setUTCDate(targetDate.getUTCDate() + calendarShift);
+          const target = `${targetDate.toISOString().slice(0, 10)}${strategistTarget.slice(10)}`;
+          const targetUtc = wallTimeToUtc(target, tz);
+          if (!targetUtc || targetUtc < windowStart || targetUtc > windowEnd) continue;
+          rankedTargets.set(rankedDay, { target, calendarShift });
+        }
+      }
+      const blend = blendStrategistDayWithRankings(
+        wantedDayIdx,
+        rankedDays,
+        new Set(rankedTargets.keys()),
+      );
+
+      let target: string | null = null;
+      let blendApplied = false;
+      let appliedShift = 0;
+      if (blend.moved) {
+        const candidate = rankedTargets.get(blend.day);
+        // Abandon the nudge rather than funnel two posts onto the analytics
+        // best day: `strategistClaims` blocks a sibling's explicit editorial
+        // day (order-independent), `used` blocks a slot already booked this
+        // pass. A blend that cannot land cleanly is simply not worth a
+        // de-collision cascade.
+        if (
+          candidate &&
+          !strategistClaims.has(candidate.target) &&
+          !used.has(candidate.target)
+        ) {
+          target = candidate.target;
+          blendApplied = true;
+          appliedShift = candidate.calendarShift;
+        }
+      }
+      if (!target) {
+        target = strategistTarget;
+      }
+
       if (!target) {
         // The recommended weekday never occurs inside the post window
         // (very short campaign). Fall back to the first day in the window.
@@ -389,13 +663,24 @@ export function computeAutoScheduleSlots(input: ComputeAutoScheduleSlotsInput): 
         appliedDay = `fallback: ${row.recommendedDay} not in post window; using first available day`;
       } else {
         wallTimeIso = target;
-        appliedDay = row.recommendedDay!;
+        if (blendApplied) {
+          const sign = appliedShift > 0 ? '+' : '';
+          appliedDay = `${row.recommendedDay} → ${DAY_INDEX_TO_NAME[blend.day]} (analytics-blend rank ${(blend.rank ?? 0) + 1}, ${sign}${appliedShift}d)`;
+          console.info('[auto-schedule] analytics day blend applied', {
+            postId: row.postId,
+            platform: row.platform,
+            surface,
+            from: row.recommendedDay,
+            to: DAY_INDEX_TO_NAME[blend.day],
+            rank: (blend.rank ?? 0) + 1,
+            shift: appliedShift,
+          });
+        } else {
+          appliedDay = row.recommendedDay!;
+        }
       }
     }
 
-    const pairKey = `${platformKey}:${surface}`;
-    const used = usedWallByPair.get(pairKey) ?? new Set<string>();
-    usedWallByPair.set(pairKey, used);
     if (used.has(wallTimeIso)) {
       const resolved = resolveCollisionSlot(wallTimeIso, used, windowStart, windowEnd, tz);
       if (resolved) {
@@ -786,6 +1071,11 @@ export interface AutoSchedulePostsInput {
   now?: Date;
   /** AI-derived posting-time overrides; absent → platform defaults. */
   slotOverrides?: PostingTimeSlotOverrides;
+  /**
+   * Analytics day blend on/off. Omitted → read from
+   * ARIES_SCHEDULE_DAY_BLEND_ENABLED (default ON). Injectable for tests.
+   */
+  dayBlendEnabled?: boolean;
 }
 
 export interface AutoSchedulePostsResult {
@@ -811,6 +1101,9 @@ export async function autoSchedulePosts(
     campaignEnd: input.campaignEnd,
     now: input.now,
     slotOverrides: input.slotOverrides,
+    // The env read lives here, in the impure wrapper — computeAutoScheduleSlots
+    // stays pure.
+    dayBlendEnabled: input.dayBlendEnabled ?? isScheduleDayBlendEnabled(),
   });
 
   const errors: AutoSchedulePostsResult['errors'] = [];

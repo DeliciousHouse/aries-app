@@ -98,11 +98,11 @@ For the weekly social content marketing pipeline, Aries routes execution across 
 
 | Stage | Hermes profile | Gateway env var |
 |---|---|---|
-| Research | `aries-research` | `HERMES_RESEARCH_GATEWAY_URL` (defaults to main gateway) |
-| Strategy + publish | `aries-strategist` | `HERMES_STRATEGIST_GATEWAY_URL` |
-| Content generation | `aries-content-generator` | `HERMES_CONTENT_GATEWAY_URL` |
+| Research | `aries-research` | `HERMES_RESEARCH_GATEWAY_URL` (blank by default; opt-in port `8651`) |
+| Strategy + publish | `aries-strategist` | `HERMES_STRATEGIST_GATEWAY_URL` (port `8654`) |
+| Content generation | `aries-content-generator` | `HERMES_CONTENT_GATEWAY_URL` (port `8655`) |
 
-A single-gateway deployment can leave all three profile vars blank; each falls back to `HERMES_GATEWAY_URL`.
+A single-gateway deployment can leave all three profile vars blank; each falls back to `HERMES_GATEWAY_URL`. Each URL var must be set together with its `*_API_SERVER_KEY` var — a URL pointing at a different gateway with a blank per-profile key is signed with `HERMES_API_SERVER_KEY` and rejected 401; the port logs `[hermes] GATEWAY AUTH MISCONFIGURED` when it sees that combination.
 
 ## PostgreSQL runtime state
 

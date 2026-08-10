@@ -303,6 +303,11 @@ test('/api/integrations loads one tenant-scoped, account-keyed sync telemetry ba
     assert.match(insightsQueries[0]?.sql ?? '', /a\.tenant_id\s*=\s*\$1/i);
     assert.match(insightsQueries[0]?.sql ?? '', /external_account_id/i);
     assert.doesNotMatch(insightsQueries[0]?.sql ?? '', /MAX\(last_sync_at\)|GROUP BY platform/i);
+    // AA-item5b: an orphaned insights_accounts row (a reconnect that produced a
+    // different page id, or a disconnect that deleted the connected_accounts
+    // row) is swept into disabled_at. It never syncs again, so its stale
+    // telemetry must not be attributed to the CURRENT connection's card.
+    assert.match(insightsQueries[0]?.sql ?? '', /a\.disabled_at IS NULL/i);
   });
 });
 

@@ -1,6 +1,6 @@
 {
   "name": "aries-platform-bootstrap-runtime",
-  "version": "0.1.58.1",
+  "version": "0.1.59.0",
   "description": "Next.js application for weekly social content automation: connect platforms, generate and review a week of content, and publish on a schedule.",
   "license": "Apache-2.0",
   "repository": {
@@ -51,6 +51,7 @@
     "test:requires-infra-report": "node scripts/list-requires-infra.mjs",
     "test:requires-infra": "node scripts/list-requires-infra.mjs --run",
     "test:insights": "APP_BASE_URL=https://aries.example.com tsx --test tests/insights-endpoints.test.ts",
+    "report:insights-health": "tsx scripts/insights-object-health.ts",
     "test:reply": "APP_BASE_URL=https://aries.example.com tsx --test tests/meta-reply.test.ts tests/insights-comment-reply-route.test.ts",
     "eval:creative-memory-learning": "tsx scripts/eval-creative-memory-learning.ts"
   },

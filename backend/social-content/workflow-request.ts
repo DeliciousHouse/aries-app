@@ -135,6 +135,12 @@ export type SocialContentWeeklyRequest = {
         }
     >;
     regenerate_creative?: SocialContentRegenerateCreativeContext;
+    /**
+     * Two-line condensed 28-day performance summary
+     * (backend/marketing/performance-context.ts, ARIES_PERF_CONTEXT_ENABLED).
+     * Absent when the flag is off or the tenant has no measured insights rows.
+     */
+    recent_performance?: string;
   };
 };
 
@@ -171,6 +177,8 @@ export function buildSocialContentWeeklyRequest(input: {
   ariesRunId: string;
   callbackUrl: string;
   regenerateCreative?: SocialContentRegenerateCreativeContext;
+  /** Condensed performance block; null/blank omits the field entirely. */
+  performanceSummary?: string | null;
 }): SocialContentWeeklyRequest {
   const req = requestRecord(input.doc);
   const brandKit = input.doc.brand_kit ?? null;
@@ -248,6 +256,11 @@ export function buildSocialContentWeeklyRequest(input: {
           ? [...req.forbiddenVisualPatterns]
           : [...SOCIAL_CONTENT_FORBIDDEN_VISUAL_PATTERNS],
       },
+      // Conditional spread: with no summary the request JSON is byte-identical
+      // to pre-change, which is what the flag-off rollback promises.
+      ...(input.performanceSummary && input.performanceSummary.trim()
+        ? { recent_performance: input.performanceSummary.trim() }
+        : {}),
       ...(mediaRequests.length > 0 ? { media_requests: mediaRequests } : {}),
       ...(input.regenerateCreative
         ? {

@@ -101,3 +101,26 @@ test('handler sets Cache-Control: no-store and never queries insights_narratives
     (pool as any).query = original;
   }
 });
+
+// AA-item5b: an orphaned insights_accounts row (a reconnect that produced a
+// different page id, or a disconnect that deleted the connected_accounts row)
+// is swept into disabled_at by the bridge. It never syncs again, so including
+// it here would show the tenant a permanently red freshness panel for a
+// connection they no longer have — and the sweep itself would be pointless.
+test('the freshness reader excludes disabled insights accounts', async () => {
+  const seenSql: string[] = [];
+  const original = (pool as any).query;
+  (pool as any).query = async (sql: string) => {
+    seenSql.push(sql);
+    return { rows: [{ platform: 'facebook', display_name: 'FB', latest_status: 'ok', last_success_at: new Date() }] };
+  };
+  try {
+    const loader = async () => ({ tenantId: '1', tenantSlug: 't', role: 'tenant_admin', userId: '1' }) as any;
+    await handleGetInsightsFreshness(new Request('https://x.test/api/insights/freshness'), loader as any);
+    const accountsQuery = seenSql.find((s) => /FROM insights_accounts/i.test(s));
+    assert.ok(accountsQuery, 'expected a query over insights_accounts');
+    assert.match(accountsQuery!, /a\.disabled_at IS NULL/);
+  } finally {
+    (pool as any).query = original;
+  }
+});

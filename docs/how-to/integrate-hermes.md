@@ -67,9 +67,11 @@ Stage-to-var mapping (from `backend/marketing/ports/hermes.ts`):
 | Strategy + publish | `HERMES_STRATEGIST_GATEWAY_URL` | `HERMES_STRATEGIST_API_SERVER_KEY` |
 | Production | `HERMES_CONTENT_GATEWAY_URL` | `HERMES_CONTENT_API_SERVER_KEY` |
 
-Documented ports for a multi-gateway setup: research/default `8642`, strategist `8654`, content `8655`.
+Documented ports for a multi-gateway setup: research `8651`, strategist `8654`, content `8655`, default `8642`.
 
 Expected result: each stage submits to its own gateway with its own key, or falls back to the main pair when blank.
+
+Set each gateway var and its key var **together**. A per-profile URL with a blank per-profile key falls back to `HERMES_API_SERVER_KEY` — the default gateway's key — and the target gateway rejects every submission for that stage with HTTP 401. The port logs `[hermes] GATEWAY AUTH MISCONFIGURED` at submission time when it detects that pairing.
 
 ### 4. (Optional) Tune session, timeout, and poll behaviour
 
