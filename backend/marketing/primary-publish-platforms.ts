@@ -61,6 +61,13 @@ type Env = Partial<Record<string, string | undefined>>;
  * `meta`, or its week would be re-targeted away from the channel it publishes
  * on today.
  *
+ * The alternate branch, by contrast, reads `connected_accounts` ONLY (via
+ * `resolveCrosspostPlatforms`). That is not an oversight about where non-Meta
+ * rows live — `oauth_connections` really does hold stale non-Meta rows from
+ * earlier connect flows (tenant 17: `linkedin|connected`) — it is because the
+ * Composio publisher resolves a connection from `connected_accounts` alone, so
+ * those rows cannot dispatch a post and must not re-target a week onto them.
+ *
  * FAIL-OPEN, DELIBERATELY: if the Meta lookup throws we return `{mode:'meta'}`.
  * That is the choice that cannot regress the ~100% of tenants who are Meta —
  * a transient DB blip must never re-target their week. The cost is real and

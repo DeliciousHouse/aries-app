@@ -334,12 +334,24 @@ const CROSSPOST_FLAGS = ['ARIES_WEEKLY_CROSSPOST_ENABLED', 'ARIES_X_ENABLED', 'A
 // (the publisher has no profile fallback and refuses without one), so "flags on"
 // must set it too or reddit silently drops out of every fan-out assertion below.
 const REDDIT_SUBREDDIT_ENV = 'COMPOSIO_REDDIT_TARGET_SUBREDDIT';
+// Same story for the per-platform publish action slugs: without
+// COMPOSIO_<P>_PUBLISH_POST_ACTION the producer treats the platform as
+// unconfigured (requireSlug would throw at every dispatch), so a "flags on"
+// harness has to supply them or the whole fan-out silently disappears.
+const PUBLISH_SLUG_ENVS = {
+  COMPOSIO_X_PUBLISH_POST_ACTION: 'TWITTER_CREATION_OF_A_POST',
+  COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: 'LINKEDIN_CREATE_LINKED_IN_POST',
+  COMPOSIO_REDDIT_PUBLISH_POST_ACTION: 'REDDIT_CREATE_REDDIT_POST',
+} as const;
 
 function withCrosspostFlagsOn(fn: () => Promise<void>): () => Promise<void> {
   return async () => {
-    const prev = [...CROSSPOST_FLAGS, REDDIT_SUBREDDIT_ENV].map((k) => [k, process.env[k]] as const);
+    const prev = [...CROSSPOST_FLAGS, REDDIT_SUBREDDIT_ENV, ...Object.keys(PUBLISH_SLUG_ENVS)].map(
+      (k) => [k, process.env[k]] as const,
+    );
     for (const k of CROSSPOST_FLAGS) process.env[k] = '1';
     process.env[REDDIT_SUBREDDIT_ENV] = 'r/test';
+    for (const [k, v] of Object.entries(PUBLISH_SLUG_ENVS)) process.env[k] = v;
     try {
       await fn();
     } finally {

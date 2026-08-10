@@ -16,6 +16,19 @@
  * `oauth_connections` remains as the legacy direct-Meta fall-through, which is
  * why the Meta branch reads BOTH stores. `status = 'connected'` is enforced in
  * every branch: a pending link must never unblock publishing.
+ *
+ * WHY THE `oauth_connections` BRANCH STAYS PINNED TO facebook/instagram — the
+ * reason is DISPATCHABILITY, not row shape. That table does in fact contain
+ * non-Meta rows left over from earlier connect flows (live today: tenant 17 has
+ * `linkedin|connected` and `x|pending`, tenant 15 has `linkedin|disconnected`).
+ * They are deliberately not counted: every non-Meta publish goes through the
+ * Composio publisher, whose `requireActiveConnection`
+ * (backend/integrations/composio/connection-store.ts) reads `connected_accounts`
+ * ONLY. An `oauth_connections` linkedin row therefore cannot dispatch a single
+ * post, and counting it would open the gate onto a week of guaranteed failures.
+ * Do NOT "fix" this by parameterizing the oauth branch on the belief that
+ * non-Meta rows are impossible there — they are not impossible, they are
+ * unpublishable.
  */
 
 /**
@@ -29,9 +42,10 @@ export interface PlatformCountQueryable {
 /**
  * Meta-only connection count across BOTH stores. This is the LEGACY verdict —
  * the one the publish gate uses whenever `ARIES_ANY_PLATFORM_PUBLISH_ENABLED`
- * is OFF — and its text is deliberately frozen: the `oauth_connections` branch
- * only ever holds direct-Meta OAuth rows, so it keeps the literal
- * `IN ('facebook','instagram')` rather than a parameterized list.
+ * is OFF — and its text is deliberately frozen (byte-identical to the inline
+ * SQL it replaced). The `oauth_connections` branch keeps the literal
+ * `IN ('facebook','instagram')` because only direct-Meta rows in that store are
+ * publishable — see the dispatchability note at the top of this file.
  */
 export const COUNT_CONNECTED_META_PLATFORMS_SQL = `SELECT (
        (SELECT COUNT(*) FROM oauth_connections
@@ -48,10 +62,14 @@ export const COUNT_CONNECTED_META_PLATFORMS_SQL = `SELECT (
 /**
  * Connection count over an arbitrary publishable-platform list (AA-217).
  *
- * The `oauth_connections` branch is byte-identical to the Meta query above —
- * that store is direct-Meta only, so parameterizing it would change nothing but
- * could only introduce drift. The `connected_accounts` branch (authoritative)
- * widens to `platform = ANY($2)`, where `$2` is `publishablePlatforms()`.
+ * The `oauth_connections` branch is byte-identical to the Meta query above and
+ * stays that way ON PURPOSE: a non-Meta row in that store is not dispatchable
+ * (the Composio publisher resolves connections from `connected_accounts` only),
+ * so widening it would open the gate for a tenant whose every post would fail.
+ * Live proof that such rows exist: tenant 17's `linkedin|connected`
+ * `oauth_connections` row — which correctly leaves tenant 17 blocked. The
+ * `connected_accounts` branch (authoritative) is the one that widens to
+ * `platform = ANY($2)`, where `$2` is `publishablePlatforms()`.
  */
 export const COUNT_CONNECTED_PUBLISHABLE_PLATFORMS_SQL = `SELECT (
        (SELECT COUNT(*) FROM oauth_connections

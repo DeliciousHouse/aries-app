@@ -208,10 +208,21 @@ test('adaptCaptionForPlatform: reddit with empty body still yields a title', () 
 // resolveCrosspostPlatforms — flag + connected-account gating, fail-open.
 // ---------------------------------------------------------------------------
 
+// Every crosspost platform needs its COMPOSIO_<P>_PUBLISH_POST_ACTION slug:
+// the publisher's requireSlug throws ComposioCapabilityMissingError without
+// one, so the producer skips the platform rather than manufacture rows that
+// fail terminally at every dispatch. A realistic env therefore sets all three.
+const PUBLISH_SLUGS = {
+  COMPOSIO_X_PUBLISH_POST_ACTION: 'TWITTER_CREATION_OF_A_POST',
+  COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: 'LINKEDIN_CREATE_LINKED_IN_POST',
+  COMPOSIO_REDDIT_PUBLISH_POST_ACTION: 'REDDIT_CREATE_REDDIT_POST',
+};
+
 // Reddit needs BOTH its rollout flag and an explicit target subreddit — the
 // publisher hard-refuses without one, so the producer skips it. "All flags on"
 // therefore has to include the subreddit to keep reddit in the eligible set.
 const ALL_FLAGS_ON = {
+  ...PUBLISH_SLUGS,
   ARIES_X_ENABLED: '1',
   ARIES_LINKEDIN_ENABLED: '1',
   ARIES_REDDIT_ENABLED: '1',
@@ -242,6 +253,7 @@ test('resolveCrosspostPlatforms: returns the intersection of flag-ON and connect
 test('resolveCrosspostPlatforms: a flag-OFF platform is excluded even if connected', async () => {
   const pool = fakePool([{ platform: 'x' }, { platform: 'linkedin' }, { platform: 'reddit' }]);
   const out = await resolveCrosspostPlatforms(15, pool, {
+    ...PUBLISH_SLUGS,
     ARIES_X_ENABLED: '1',
     ARIES_LINKEDIN_ENABLED: '0', // OFF
     ARIES_REDDIT_ENABLED: '1',
@@ -279,6 +291,7 @@ test('resolveCrosspostPlatforms: DB error fails open to []', async () => {
 test('resolveCrosspostPlatforms: reddit is skipped when COMPOSIO_REDDIT_TARGET_SUBREDDIT is unset', async () => {
   const pool = fakePool([{ platform: 'x' }, { platform: 'linkedin' }, { platform: 'reddit' }]);
   const out = await resolveCrosspostPlatforms(15, pool, {
+    ...PUBLISH_SLUGS,
     ARIES_X_ENABLED: '1',
     ARIES_LINKEDIN_ENABLED: '1',
     ARIES_REDDIT_ENABLED: '1', // flag ON, but no subreddit configured
@@ -290,6 +303,7 @@ test('resolveCrosspostPlatforms: reddit is skipped when COMPOSIO_REDDIT_TARGET_S
 test('resolveCrosspostPlatforms: a whitespace-only subreddit counts as unset', async () => {
   const pool = fakePool([{ platform: 'reddit' }, { platform: 'x' }]);
   const out = await resolveCrosspostPlatforms(15, pool, {
+    ...PUBLISH_SLUGS,
     ARIES_X_ENABLED: '1',
     ARIES_REDDIT_ENABLED: '1',
     COMPOSIO_REDDIT_TARGET_SUBREDDIT: '   ',
@@ -299,7 +313,7 @@ test('resolveCrosspostPlatforms: a whitespace-only subreddit counts as unset', a
 
 test('resolveCrosspostPlatforms: reddit-only with no subreddit => [] and no DB query', async () => {
   const pool = fakePool([{ platform: 'reddit' }]);
-  const out = await resolveCrosspostPlatforms(15, pool, { ARIES_REDDIT_ENABLED: '1' });
+  const out = await resolveCrosspostPlatforms(15, pool, { ...PUBLISH_SLUGS, ARIES_REDDIT_ENABLED: '1' });
   assert.deepEqual(out, []);
   assert.equal(pool.calls.length, 0, 'nothing eligible → the early return still short-circuits the query');
 });
@@ -307,10 +321,57 @@ test('resolveCrosspostPlatforms: reddit-only with no subreddit => [] and no DB q
 test('resolveCrosspostPlatforms: reddit IS included once the subreddit is set (happy-path guard)', async () => {
   const pool = fakePool([{ platform: 'reddit' }]);
   const out = await resolveCrosspostPlatforms(15, pool, {
+    ...PUBLISH_SLUGS,
     ARIES_REDDIT_ENABLED: '1',
     COMPOSIO_REDDIT_TARGET_SUBREDDIT: 'somecommunity',
   });
   assert.deepEqual(out, ['reddit']);
+});
+
+// ── publish action-slug config gate (COMPOSIO_<P>_PUBLISH_POST_ACTION) ──────
+// Same class of guarantee as the reddit subreddit gate. docker-compose declares
+// these with an EMPTY default and actionSlug() has no code fallback, so a
+// deployment can have ARIES_LINKEDIN_ENABLED=true with no slug — in which case
+// requireSlug throws ComposioCapabilityMissingError at EVERY dispatch. Under
+// AA-217 that would let a LinkedIn-only tenant pass the publish gate and
+// synthesize a full week of posts that all fail terminally.
+
+test('resolveCrosspostPlatforms: a platform with no publish action slug is skipped', async () => {
+  const pool = fakePool([{ platform: 'x' }, { platform: 'linkedin' }]);
+  const out = await resolveCrosspostPlatforms(15, pool, {
+    ARIES_X_ENABLED: '1',
+    ARIES_LINKEDIN_ENABLED: '1',
+    // x has a slug; linkedin does NOT.
+    COMPOSIO_X_PUBLISH_POST_ACTION: 'TWITTER_CREATION_OF_A_POST',
+  });
+  assert.deepEqual(out, ['x'], 'linkedin dropped despite flag ON and account connected');
+  assert.deepEqual(pool.calls[0].params?.[1], ['x'], 'the query is scoped to the surviving platforms');
+});
+
+test('resolveCrosspostPlatforms: a whitespace-only publish slug counts as unset', async () => {
+  const pool = fakePool([{ platform: 'linkedin' }]);
+  const out = await resolveCrosspostPlatforms(15, pool, {
+    ARIES_LINKEDIN_ENABLED: '1',
+    COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: '   ',
+  });
+  assert.deepEqual(out, []);
+  assert.equal(pool.calls.length, 0, 'nothing eligible → no query');
+});
+
+test('resolveCrosspostPlatforms: reddit needs BOTH its subreddit and its publish slug', async () => {
+  const pool = fakePool([{ platform: 'reddit' }]);
+  // Subreddit set, slug missing.
+  const noSlug = await resolveCrosspostPlatforms(15, pool, {
+    ARIES_REDDIT_ENABLED: '1',
+    COMPOSIO_REDDIT_TARGET_SUBREDDIT: 'somecommunity',
+  });
+  assert.deepEqual(noSlug, [], 'a configured subreddit does not compensate for a missing slug');
+  // Slug set, subreddit missing.
+  const noSubreddit = await resolveCrosspostPlatforms(15, pool, {
+    ARIES_REDDIT_ENABLED: '1',
+    COMPOSIO_REDDIT_PUBLISH_POST_ACTION: 'REDDIT_CREATE_REDDIT_POST',
+  });
+  assert.deepEqual(noSubreddit, [], 'a configured slug does not compensate for a missing subreddit');
 });
 
 test('resolveCrosspostPlatforms: single query, no fan-out (guardrail #1)', async () => {

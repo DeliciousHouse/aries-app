@@ -38,6 +38,9 @@ const MANAGED_ENVS = [
   'ARIES_REDDIT_ENABLED',
   'ARIES_VIDEO_PUBLISH_ENABLED',
   'COMPOSIO_REDDIT_TARGET_SUBREDDIT',
+  'COMPOSIO_X_PUBLISH_POST_ACTION',
+  'COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION',
+  'COMPOSIO_REDDIT_PUBLISH_POST_ACTION',
 ] as const;
 
 async function withEnv(env: Record<string, string>, fn: () => Promise<void>): Promise<void> {
@@ -60,12 +63,21 @@ async function withEnv(env: Record<string, string>, fn: () => Promise<void>): Pr
   }
 }
 
-/** Flags matching the live app container (reddit deliberately unconfigured). */
+/**
+ * Flags matching the live app container: crossposting on, all three platform
+ * rollout flags on, all three COMPOSIO_<P>_PUBLISH_POST_ACTION slugs set, and
+ * reddit deliberately unconfigured (no target subreddit). A platform missing
+ * its publish slug is not publishable at all, so the slugs are part of what
+ * "live" means here.
+ */
 const LIVE_FLAGS = {
   ARIES_WEEKLY_CROSSPOST_ENABLED: '1',
   ARIES_X_ENABLED: 'true',
   ARIES_LINKEDIN_ENABLED: 'true',
   ARIES_REDDIT_ENABLED: 'true',
+  COMPOSIO_X_PUBLISH_POST_ACTION: 'TWITTER_CREATION_OF_A_POST',
+  COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: 'LINKEDIN_CREATE_LINKED_IN_POST',
+  COMPOSIO_REDDIT_PUBLISH_POST_ACTION: 'REDDIT_CREATE_REDDIT_POST',
 } as const;
 
 const ASSET_ROWS = [

@@ -46,13 +46,25 @@ const MANAGED_ENVS = [
   'ARIES_REDDIT_ENABLED',
   'ARIES_YOUTUBE_ENABLED',
   'COMPOSIO_REDDIT_TARGET_SUBREDDIT',
+  'COMPOSIO_X_PUBLISH_POST_ACTION',
+  'COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION',
+  'COMPOSIO_REDDIT_PUBLISH_POST_ACTION',
 ] as const;
 
-/** Mirrors the live app container: every platform flag on, no subreddit set. */
+/**
+ * Mirrors the live app container (verified against its resolved env): every
+ * platform rollout flag on, every COMPOSIO_<P>_PUBLISH_POST_ACTION slug set,
+ * and COMPOSIO_REDDIT_TARGET_SUBREDDIT still EMPTY. The slugs belong in this
+ * baseline because a platform without one cannot publish at all — the gate
+ * excludes it, which is what the dedicated slug tests below assert.
+ */
 const LIVE_PLATFORM_FLAGS = {
   ARIES_X_ENABLED: 'true',
   ARIES_LINKEDIN_ENABLED: 'true',
   ARIES_REDDIT_ENABLED: 'true',
+  COMPOSIO_X_PUBLISH_POST_ACTION: 'TWITTER_CREATION_OF_A_POST',
+  COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: 'LINKEDIN_CREATE_LINKED_IN_POST',
+  COMPOSIO_REDDIT_PUBLISH_POST_ACTION: 'REDDIT_CREATE_REDDIT_POST',
 } as const;
 
 function withEnv(env: Record<string, string | undefined>, fn: () => Promise<void>) {
@@ -169,6 +181,26 @@ test(
     const client = connectionsQueryable([{ platform: 'linkedin', status: 'connected' }]);
     assert.equal(await tenantNeedsChannelConnection(client, 70), true);
   }),
+);
+
+test(
+  'flag ON: a connected platform with no publish action slug does not unblock',
+  withEnv(
+    {
+      ARIES_ANY_PLATFORM_PUBLISH_ENABLED: '1',
+      ARIES_LINKEDIN_ENABLED: 'true',
+      // COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION deliberately unset. This is a
+      // REACHABLE deployment shape: docker-compose declares the slug with an
+      // empty default and connect-time preflight only WARNS about a missing
+      // one, so a tenant can hold a `connected` LinkedIn row on a host that
+      // cannot dispatch a single LinkedIn post. Opening the gate here would
+      // synthesize a full week of posts that fail terminally, every week.
+    },
+    async () => {
+      const client = connectionsQueryable([{ platform: 'linkedin', status: 'connected' }]);
+      assert.equal(await tenantNeedsChannelConnection(client, 70), true);
+    },
+  ),
 );
 
 test(

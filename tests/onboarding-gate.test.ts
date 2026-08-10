@@ -129,7 +129,17 @@ const PLATFORM_FLAG_ENVS = [
   'ARIES_LINKEDIN_ENABLED',
   'ARIES_REDDIT_ENABLED',
   'COMPOSIO_REDDIT_TARGET_SUBREDDIT',
+  'COMPOSIO_X_PUBLISH_POST_ACTION',
+  'COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION',
+  'COMPOSIO_REDDIT_PUBLISH_POST_ACTION',
 ] as const;
+
+// A crosspost platform is only publishable with its Composio publish action
+// slug set — without it every dispatch throws ComposioCapabilityMissingError,
+// so the gate must not count the platform. Realistic "configured" envs set it.
+const X_SLUG = { COMPOSIO_X_PUBLISH_POST_ACTION: 'TWITTER_CREATION_OF_A_POST' };
+const LINKEDIN_SLUG = { COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: 'LINKEDIN_CREATE_LINKED_IN_POST' };
+const REDDIT_SLUG = { COMPOSIO_REDDIT_PUBLISH_POST_ACTION: 'REDDIT_CREATE_REDDIT_POST' };
 
 function withPlatformEnv(env: Record<string, string | undefined>, fn: () => Promise<void>) {
   return async () => {
@@ -172,7 +182,7 @@ test(
 test(
   'countConnectedPublishablePlatforms: flag-ON platforms join the parameterized list',
   withPlatformEnv(
-    { ARIES_LINKEDIN_ENABLED: '1', ARIES_X_ENABLED: '1' },
+    { ...X_SLUG, ...LINKEDIN_SLUG, ARIES_LINKEDIN_ENABLED: '1', ARIES_X_ENABLED: '1' },
     async () => {
       const { queryable, captured } = capturingQueryable(1);
       assert.equal(await countConnectedPublishablePlatforms(queryable, '70'), 1);
@@ -183,7 +193,7 @@ test(
 
 test(
   'countConnectedPublishablePlatforms: reddit is excluded while COMPOSIO_REDDIT_TARGET_SUBREDDIT is unset',
-  withPlatformEnv({ ARIES_REDDIT_ENABLED: '1' }, async () => {
+  withPlatformEnv({ ...REDDIT_SLUG, ARIES_REDDIT_ENABLED: '1' }, async () => {
     const { queryable, captured } = capturingQueryable(0);
     await countConnectedPublishablePlatforms(queryable, '42');
     // A reddit-only tenant must NOT be unblocked into synthesizing rows the
@@ -195,7 +205,7 @@ test(
 test(
   'countConnectedPublishablePlatforms: reddit joins the list once a target subreddit is configured',
   withPlatformEnv(
-    { ARIES_REDDIT_ENABLED: '1', COMPOSIO_REDDIT_TARGET_SUBREDDIT: 'r/test' },
+    { ...REDDIT_SLUG, ARIES_REDDIT_ENABLED: '1', COMPOSIO_REDDIT_TARGET_SUBREDDIT: 'r/test' },
     async () => {
       const { queryable, captured } = capturingQueryable(1);
       await countConnectedPublishablePlatforms(queryable, '42');
@@ -205,8 +215,26 @@ test(
 );
 
 test(
+  'countConnectedPublishablePlatforms: a flag-ON platform with no publish action slug is excluded',
+  withPlatformEnv(
+    // The live-deployment shape this guards: docker-compose declares
+    // COMPOSIO_<P>_PUBLISH_POST_ACTION with an EMPTY default and actionSlug()
+    // has no code fallback, so an operator can flip ARIES_LINKEDIN_ENABLED
+    // without ever setting a slug. Counting linkedin here would let a
+    // LinkedIn-only tenant pass the gate and synthesize a week of posts that
+    // requireSlug rejects at every dispatch — terminal, per post, forever.
+    { ...X_SLUG, ARIES_LINKEDIN_ENABLED: '1', ARIES_X_ENABLED: '1' },
+    async () => {
+      const { queryable, captured } = capturingQueryable(0);
+      await countConnectedPublishablePlatforms(queryable, '70');
+      assert.deepEqual(captured.params, [70, ['facebook', 'instagram', 'x']]);
+    },
+  ),
+);
+
+test(
   "countConnectedPublishablePlatforms: both stores still require status='connected' (pending never unblocks)",
-  withPlatformEnv({ ARIES_LINKEDIN_ENABLED: '1' }, async () => {
+  withPlatformEnv({ ...LINKEDIN_SLUG, ARIES_LINKEDIN_ENABLED: '1' }, async () => {
     const { queryable, captured } = capturingQueryable(0);
     await countConnectedPublishablePlatforms(queryable, '42');
     assert.ok(captured.sql.includes('FROM oauth_connections'), 'legacy direct-Meta store still counted');

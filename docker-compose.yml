@@ -138,6 +138,12 @@ services:
       # dying at publish with needs_connection. A tenant with zero connected
       # channels stays blocked either way. Default OFF: a merge auto-deploys
       # dark; enabling is a host .env change + `docker compose up -d aries-app`.
+      #
+      # A platform only counts toward this gate when it is fully publishable:
+      # rollout flag ON *and* COMPOSIO_<P>_PUBLISH_POST_ACTION set (plus
+      # COMPOSIO_REDDIT_TARGET_SUBREDDIT for reddit). Without the slug every
+      # dispatch throws ComposioCapabilityMissingError, so counting the platform
+      # would admit a tenant into a week of posts that all fail terminally.
       ARIES_ANY_PLATFORM_PUBLISH_ENABLED: ${ARIES_ANY_PLATFORM_PUBLISH_ENABLED:-0}
       # AI-derived per-platform posting times: every content-generation start
       # re-derives WHEN posts publish per platform — from the tenant's own

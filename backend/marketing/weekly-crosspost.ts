@@ -99,11 +99,23 @@ export async function resolveCrosspostPlatforms(
   env: Env = process.env,
 ): Promise<CrosspostPlatform[]> {
   const flagEnabled = eligibleCrosspostPlatforms(env as NodeJS.ProcessEnv);
-  if (
-    isCrosspostPlatformFlagEnabled('reddit', env as NodeJS.ProcessEnv) &&
-    !isCrosspostPlatformConfigured('reddit', env as NodeJS.ProcessEnv)
-  ) {
-    console.info('[weekly-crosspost] reddit skipped — COMPOSIO_REDDIT_TARGET_SUBREDDIT unset', { tenantId });
+  // Breadcrumb for the "I turned the flag on and nothing happened" case: a
+  // platform whose rollout flag is ON but whose required config is missing is
+  // dropped silently otherwise. Missing config is either the reddit target
+  // subreddit or the platform's COMPOSIO_<P>_PUBLISH_POST_ACTION slug — both
+  // would make every synthesized row fail terminally at dispatch (AA-217).
+  for (const platform of CROSSPOST_PLATFORMS) {
+    if (
+      isCrosspostPlatformFlagEnabled(platform, env as NodeJS.ProcessEnv) &&
+      !isCrosspostPlatformConfigured(platform, env as NodeJS.ProcessEnv)
+    ) {
+      console.info(
+        `[weekly-crosspost] ${platform} skipped — missing publish config ` +
+          `(COMPOSIO_${platform.toUpperCase()}_PUBLISH_POST_ACTION` +
+          `${platform === 'reddit' ? ' / COMPOSIO_REDDIT_TARGET_SUBREDDIT' : ''})`,
+        { tenantId },
+      );
+    }
   }
   if (flagEnabled.length === 0) return [];
   try {

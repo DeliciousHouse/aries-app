@@ -26,6 +26,7 @@ import {
   loadSocialContentJobRuntime,
   markStageAwaitingApproval,
   markStageCompleted,
+  markStageRequiresChannelConnection,
   recordStageFailure,
   saveSocialContentJobRuntime,
   appendHistory,
@@ -1400,6 +1401,46 @@ function markJobCompleted(doc: SocialContentJobRuntimeDocument, stage: Marketing
 }
 
 /**
+ * Turn a synthesis refusal into a visible, actionable job state (AA-217).
+ *
+ * `reason === 'no_connected_platform'` means synthesis DELIBERATELY produced
+ * nothing: the tenant has no connected publishable channel. By the time this
+ * runs the terminal callback has already set doc.state/status = 'completed', so
+ * without this the run reads "Social content outputs are ready" with zero posts
+ * and the only trace is a console line. Two ways to land here — the tenant
+ * disconnected between the Stage-4 gate and this callback, or the fail-open
+ * gate admitted them during a DB blip and their connections read empty now.
+ *
+ * Marks the publish stage `requires_channel_connection`, the same terminal
+ * marker the Stage-4 precheck uses, so the operator sees the cause and the fix.
+ * `markStageRequiresChannelConnection` clears the stage's completed_at and sets
+ * doc.state/status = 'needs_connection'; the caller's
+ * `saveSocialContentJobRuntime` persists it. Its fallback copy is already
+ * flag-aware (Meta-specific while ARIES_ANY_PLATFORM_PUBLISH_ENABLED is OFF),
+ * so nothing here duplicates the wording.
+ *
+ * Every OTHER reason is left alone: `publish_package_present` and
+ * `no_content_package` are normal no-ops, and `no_tenant` is not a connection
+ * problem. Returns true when the doc was marked.
+ */
+export function markPublishBlockedOnSynthesisRefusal(
+  doc: SocialContentJobRuntimeDocument,
+  result: { reason?: string } | null | undefined,
+): boolean {
+  if (result?.reason !== 'no_connected_platform') return false;
+  markStageRequiresChannelConnection(doc, 'publish', {
+    artifactId: 'publish-needs-channel',
+    outputs: doc.stages?.publish?.outputs,
+  });
+  appendHistory(doc, 'publish stage paused: no connected publishing channel at synthesis', {
+    stage: 'publish',
+    state: doc.state,
+    status: doc.status,
+  });
+  return true;
+}
+
+/**
  * On publish-stage completion, turn the Hermes pipeline output into real
  * `posts` rows. The Hermes-native pipeline never emits the legacy
  * `publish_package`, so without this a completed pipeline leaves the operator
@@ -1408,6 +1449,17 @@ function markJobCompleted(doc: SocialContentJobRuntimeDocument, stage: Marketing
  * no-ops when a real `publish_package` is present. Non-fatal: a synthesis
  * failure must not break the callback's completion bookkeeping — the run is
  * already done; the worst case is an empty launch view, recoverable on replay.
+ *
+ * ONE synthesis outcome is NOT "recoverable on replay" and must not be
+ * swallowed: `reason === 'no_connected_platform'` (AA-217). By the time this
+ * runs the terminal callback has already set doc.state/status = 'completed', so
+ * a run that deliberately refused to synthesize — the tenant disconnected
+ * between the Stage-4 gate and this callback, or the fail-open gate admitted a
+ * tenant during a DB blip whose connections then read empty here — would
+ * surface to the operator as "Social content outputs are ready" with zero
+ * posts, its only trace a console.warn. We flip the publish stage to
+ * `requires_channel_connection` instead, so the cause and the fix ("connect a
+ * channel") are both on screen. Same terminal marker the Stage-4 precheck uses.
  */
 async function synthesizePublishPostsOnCompletion(
   doc: SocialContentJobRuntimeDocument,
@@ -1418,7 +1470,7 @@ async function synthesizePublishPostsOnCompletion(
     const tenantNum = Number(doc.tenant_id);
     if (!Number.isFinite(tenantNum) || tenantNum <= 0) return;
     const brandPrimaryHex = doc.brand_kit?.colors?.primary ?? null;
-    await synthesizePublishPostsFromContentPackage({
+    const result = await synthesizePublishPostsFromContentPackage({
       jobId: doc.job_id,
       tenantId: tenantNum,
       doc,
@@ -1438,6 +1490,12 @@ async function synthesizePublishPostsOnCompletion(
           brandPrimaryHex,
         }),
     });
+    if (markPublishBlockedOnSynthesisRefusal(doc, result)) {
+      console.warn('[hermes-callbacks] synthesis refused — no connected publishing channel', {
+        jobId: doc.job_id,
+        tenantId: tenantNum,
+      });
+    }
   } catch (err) {
     console.warn('[hermes-callbacks] synthesizePublishPostsFromContentPackage failed — continuing', {
       jobId: doc.job_id,

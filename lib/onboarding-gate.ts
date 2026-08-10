@@ -113,9 +113,12 @@ export async function countConnectedMetaPlatforms(
  *
  * Strictly a SUPERSET of `countConnectedMetaPlatforms`: any tenant with a
  * connected Meta channel still counts >= 1, so no Meta tenant's gate verdict
- * can change. A LinkedIn-only / X-only tenant now counts >= 1 instead of 0.
- * `status='connected'` is still required, so pending never unblocks, and a
- * tenant with zero connected channels still counts 0 and stays blocked.
+ * can change. A LinkedIn-only / X-only tenant now counts >= 1 instead of 0 —
+ * but only on the strength of a `connected_accounts` row, since that is the
+ * only store the Composio publisher can dispatch from (see the dispatchability
+ * note in lib/connected-platform-counts.ts). `status='connected'` is still
+ * required, so pending never unblocks, and a tenant with zero connected
+ * channels still counts 0 and stays blocked.
  */
 export async function countConnectedPublishablePlatforms(
   client: OnboardingGateQueryable,

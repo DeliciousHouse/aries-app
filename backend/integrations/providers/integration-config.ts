@@ -10,6 +10,7 @@
  * (`1` | `true` | `yes` | `on`); see CLAUDE.md "Optional safety flags".
  */
 
+import { actionSlug } from '../composio/composio-config';
 import { INTEGRATION_PLATFORMS, type IntegrationPlatform } from './types';
 
 export type ProviderSelector = 'direct_meta' | 'composio' | 'auto';
@@ -159,13 +160,32 @@ export function isCrosspostPlatformFlagEnabled(
  * scheduled_posts entry, and no failed-dispatch noise. The same reasoning is
  * why the AA-217 publish gate must not count reddit for an unconfigured
  * deployment: a reddit-only tenant would otherwise pass the gate and every
- * synthesized row would fail terminally. x and linkedin need no extra config
- * beyond their publish slugs, which the publisher validates.
+ * synthesized row would fail terminally.
+ *
+ * THE PUBLISH ACTION SLUG IS THE SAME CLASS OF REQUIREMENT, for every crosspost
+ * platform. Composio action slugs are never guessed (see composio-config.ts):
+ * they come from `COMPOSIO_<PLATFORM>_PUBLISH_POST_ACTION`, which
+ * docker-compose.yml declares with an EMPTY default and `actionSlug()` gives no
+ * code fallback. With the slug unset the publisher's `requireSlug` throws
+ * `ComposioCapabilityMissingError` on EVERY dispatch — so a deployment that
+ * flips `ARIES_LINKEDIN_ENABLED=true` without setting the slug would, under
+ * AA-217, let a LinkedIn-only tenant pass the publish gate, synthesize a full
+ * week, and have every one of those posts fail terminally. That is precisely
+ * the outcome the reddit rationale above calls unacceptable, so the slug is
+ * required here rather than only at dispatch time. (Connect-time preflight —
+ * capability-preflight.ts `computeCapabilities` — only WARNS about a missing
+ * slug; it does not prevent the connection, so slug-less connected rows are
+ * reachable state, not a hypothetical.)
+ *
+ * Only `publish_post` is required. X's `upload_media` slug is needed solely for
+ * an image post; a text-only X post publishes without it, so requiring it would
+ * suppress deliverable rows.
  */
 export function isCrosspostPlatformConfigured(
   platform: CrosspostPlatform,
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
+  if (actionSlug(platform, 'publish_post', env) === null) return false;
   if (platform !== 'reddit') return true;
   return redditTargetSubreddit(env) !== null;
 }

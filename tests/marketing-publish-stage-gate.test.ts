@@ -220,7 +220,15 @@ const AA217_ENVS = [
   'ARIES_LINKEDIN_ENABLED',
   'ARIES_REDDIT_ENABLED',
   'COMPOSIO_REDDIT_TARGET_SUBREDDIT',
+  'COMPOSIO_X_PUBLISH_POST_ACTION',
+  'COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION',
+  'COMPOSIO_REDDIT_PUBLISH_POST_ACTION',
 ] as const;
+
+// A crosspost platform is publishable only with its Composio publish action
+// slug set; without it the gate must not count it (see integration-config
+// `isCrosspostPlatformConfigured`). LinkedIn scenarios therefore ship the slug.
+const LINKEDIN_SLUG = { COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: 'LINKEDIN_CREATE_LINKED_IN_POST' };
 
 async function withFlags<T>(env: Record<string, string>, run: () => Promise<T>): Promise<T> {
   const prev = AA217_ENVS.map((k) => [k, process.env[k]] as const);
@@ -260,7 +268,7 @@ async function realGateFor(connected: string[], tenantId: string): Promise<boole
 
 test('AA-217 flag ON: a LinkedIn-only tenant passes the publish gate', async () => {
   await withRuntimeEnv(async () => {
-    await withFlags({ ARIES_ANY_PLATFORM_PUBLISH_ENABLED: '1', ARIES_LINKEDIN_ENABLED: 'true' }, async () => {
+    await withFlags({ ...LINKEDIN_SLUG, ARIES_ANY_PLATFORM_PUBLISH_ENABLED: '1', ARIES_LINKEDIN_ENABLED: 'true' }, async () => {
       const orchestrator = await import('../backend/marketing/orchestrator');
       const doc = await seedJobAtPublishStage();
 
@@ -290,7 +298,7 @@ test('AA-217 flag ON: a LinkedIn-only tenant passes the publish gate', async () 
 
 test('AA-217 flag ON: a zero-connection tenant is still blocked, with channel-neutral copy', async () => {
   await withRuntimeEnv(async () => {
-    await withFlags({ ARIES_ANY_PLATFORM_PUBLISH_ENABLED: '1', ARIES_LINKEDIN_ENABLED: 'true' }, async () => {
+    await withFlags({ ...LINKEDIN_SLUG, ARIES_ANY_PLATFORM_PUBLISH_ENABLED: '1', ARIES_LINKEDIN_ENABLED: 'true' }, async () => {
       const orchestrator = await import('../backend/marketing/orchestrator');
       const doc = await seedJobAtPublishStage();
 
@@ -327,7 +335,7 @@ test('AA-217 flag ON: a zero-connection tenant is still blocked, with channel-ne
 
 test('AA-217 flag ON: a pending-only connection does not open the gate', async () => {
   await withRuntimeEnv(async () => {
-    await withFlags({ ARIES_ANY_PLATFORM_PUBLISH_ENABLED: '1', ARIES_LINKEDIN_ENABLED: 'true' }, async () => {
+    await withFlags({ ...LINKEDIN_SLUG, ARIES_ANY_PLATFORM_PUBLISH_ENABLED: '1', ARIES_LINKEDIN_ENABLED: 'true' }, async () => {
       // connectionsClient only ever counts connected rows, so "pending only" is
       // modelled as an empty connected list — the gate must stay shut.
       assert.equal(await realGateFor([], '101'), true);
