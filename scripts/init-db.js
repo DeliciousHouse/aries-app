@@ -396,6 +396,7 @@ async function initDb() {
         business_type TEXT,
         primary_goal TEXT,
         primary_goal_source TEXT NOT NULL DEFAULT 'inferred' CHECK (primary_goal_source IN ('explicit', 'inferred')),
+        goal_type TEXT CHECK (goal_type IS NULL OR goal_type IN ('lead_generation', 'content_growth', 'product_sales', 'brand_awareness')),
         launch_approver_user_id TEXT,
         launch_approver_name TEXT,
         offer TEXT,
@@ -435,6 +436,33 @@ async function initDb() {
           ALTER TABLE business_profiles
             ADD COLUMN IF NOT EXISTS primary_goal_source TEXT NOT NULL DEFAULT 'inferred'
             CHECK (primary_goal_source IN ('explicit', 'inferred'));
+        END IF;
+      END $$;
+
+      -- AA-115 / S6-2: canonical goal key beside the descriptive free text.
+      -- NULL means Aries has not confidently mapped the goal, which is what the
+      -- S1-5 confirm chip surfaces. Never populated here: the read path defaults
+      -- every unmatched goal to brand_awareness, and writing that default would
+      -- turn a visible guess into a settled-looking fact. The data pass is
+      -- scripts/backfill-business-profile-goal-type.ts (confident matches only).
+      ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS goal_type TEXT;
+
+      -- Matches the name PostgreSQL auto-generates for the inline column CHECK
+      -- above, so a fresh database skips this and a pre-existing one (which got
+      -- goal_type from the bare ADD COLUMN) gains the identical constraint.
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conrelid = 'business_profiles'::regclass
+            AND conname = 'business_profiles_goal_type_check'
+        ) THEN
+          ALTER TABLE business_profiles
+            ADD CONSTRAINT business_profiles_goal_type_check
+            CHECK (goal_type IS NULL OR goal_type IN (
+              'lead_generation', 'content_growth', 'product_sales', 'brand_awareness'
+            ));
         END IF;
       END $$;
     `);
@@ -594,7 +622,15 @@ async function initDb() {
         source TEXT NOT NULL DEFAULT 'operator',
         confidence_basis TEXT NOT NULL DEFAULT 'manual_label' CHECK (confidence_basis IN ('manual_label','review_decision','performance_result')),
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        CHECK (prompt_recipe_id IS NOT NULL OR generated_asset_id IS NOT NULL),
+        -- S4-6 (gap C4): the marketing review tray is the second writer of this
+        -- table. Its decisions reference a marketing job + a RUNTIME asset key
+        -- (e.g. 'img_1'), not a Creative Memory prompt_recipes/generated_assets
+        -- UUID, so they get their own untyped reference columns. Deliberately no
+        -- FK: the runtime asset key lives in a job document under DATA_ROOT, not
+        -- in a table, and job_id is TEXT with no rows of its own to point at.
+        marketing_job_id TEXT,
+        marketing_asset_id TEXT,
+        CHECK (prompt_recipe_id IS NOT NULL OR generated_asset_id IS NOT NULL OR marketing_job_id IS NOT NULL),
         UNIQUE (tenant_id, id),
         UNIQUE (tenant_id, idempotency_key),
         FOREIGN KEY (tenant_id, prompt_recipe_id) REFERENCES prompt_recipes(tenant_id, id) ON DELETE CASCADE,
@@ -652,6 +688,22 @@ async function initDb() {
         'rejected',
         $check$label IN ('useful','not_useful','winner','loser','used_in_campaign','needs_changes','approved','rejected')$check$
       );
+      -- S4-6 (gap C4): widen an already-created table for the marketing-review
+      -- writer. Columns first, then the target CHECK — the constraint references
+      -- marketing_job_id, so it cannot be added before the column exists.
+      -- 'campaign_learning_labels_check' is the name Postgres auto-assigns to
+      -- this table's single unnamed table-level CHECK.
+      ALTER TABLE campaign_learning_labels ADD COLUMN IF NOT EXISTS marketing_job_id TEXT;
+      ALTER TABLE campaign_learning_labels ADD COLUMN IF NOT EXISTS marketing_asset_id TEXT;
+      SELECT pg_temp.ensure_check_constraint(
+        'campaign_learning_labels'::regclass, 'campaign_learning_labels_check',
+        'marketing_job_id',
+        $check$prompt_recipe_id IS NOT NULL OR generated_asset_id IS NOT NULL OR marketing_job_id IS NOT NULL$check$
+      );
+      -- Serves the marketing writer's idempotent re-read and any per-job audit.
+      CREATE INDEX IF NOT EXISTS idx_campaign_learning_labels_tenant_marketing_job
+        ON campaign_learning_labels (tenant_id, marketing_job_id)
+        WHERE marketing_job_id IS NOT NULL;
       CREATE UNIQUE INDEX IF NOT EXISTS idx_creative_assets_tenant_checksum_unique ON creative_assets (tenant_id, checksum) WHERE checksum IS NOT NULL;
       CREATE INDEX IF NOT EXISTS idx_creative_assets_variant_batch ON creative_assets (tenant_id, variant_batch_id) WHERE variant_batch_id IS NOT NULL;
       CREATE UNIQUE INDEX IF NOT EXISTS idx_style_cards_tenant_name_unique ON style_cards (tenant_id, name);
@@ -1039,18 +1091,18 @@ async function initDb() {
       -- before the network publish so a crash mid-publish leaves a reclaimable
       -- row rather than a false 'dispatched'. The parent dispatch_status is a
       -- rollup derived from the per-platform scheduled_post_dispatches rows.
-      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dispatch_status TEXT NOT NULL DEFAULT 'pending' CHECK (dispatch_status IN ('pending','in_flight','dispatched','failed','manual_reconciliation'));
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dispatch_status TEXT NOT NULL DEFAULT 'pending' CHECK (dispatch_status IN ('pending','in_flight','dispatched','failed','dead_letter','manual_reconciliation'));
       DO $constraint$
       BEGIN
         IF NOT EXISTS (
           SELECT 1 FROM pg_constraint
            WHERE conrelid = 'scheduled_posts'::regclass
              AND conname = 'scheduled_posts_dispatch_status_check'
-             AND position('manual_reconciliation' in pg_get_constraintdef(oid)) > 0
+             AND position('dead_letter' in pg_get_constraintdef(oid)) > 0
         ) THEN
           ALTER TABLE scheduled_posts DROP CONSTRAINT IF EXISTS scheduled_posts_dispatch_status_check;
           ALTER TABLE scheduled_posts ADD CONSTRAINT scheduled_posts_dispatch_status_check
-            CHECK (dispatch_status IN ('pending','in_flight','dispatched','failed','manual_reconciliation'));
+            CHECK (dispatch_status IN ('pending','in_flight','dispatched','failed','dead_letter','manual_reconciliation'));
         END IF;
       END $constraint$;
       ALTER TABLE scheduled_posts
@@ -1076,6 +1128,8 @@ async function initDb() {
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dispatched_at TIMESTAMPTZ;
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS error_at TIMESTAMPTZ;
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS error_message TEXT;
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS failure_class TEXT;
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dead_lettered_at TIMESTAMPTZ;
       -- Retry backoff marker: a retryable dispatch failure sets this into the
       -- future and the worker's due-rows scan skips the row until it passes.
       -- NULL = no backoff (legacy behavior). Prevents the 60s-cadence retry
@@ -1098,11 +1152,14 @@ async function initDb() {
         id BIGSERIAL PRIMARY KEY,
         scheduled_post_id BIGINT NOT NULL REFERENCES scheduled_posts(id) ON DELETE CASCADE,
         platform TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','in_flight','dispatched','failed','manual_reconciliation')),
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','in_flight','dispatched','failed','dead_letter','manual_reconciliation')),
         platform_post_id TEXT,
         dispatched_at TIMESTAMPTZ,
         error_at TIMESTAMPTZ,
         error_message TEXT,
+        failure_class TEXT,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        dead_lettered_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         UNIQUE (scheduled_post_id, platform)
@@ -1112,17 +1169,20 @@ async function initDb() {
       -- was part of the CREATE TABLE definition.
       ALTER TABLE scheduled_post_dispatches
         ADD COLUMN IF NOT EXISTS platform_post_id TEXT;
+      ALTER TABLE scheduled_post_dispatches ADD COLUMN IF NOT EXISTS failure_class TEXT;
+      ALTER TABLE scheduled_post_dispatches ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE scheduled_post_dispatches ADD COLUMN IF NOT EXISTS dead_lettered_at TIMESTAMPTZ;
       DO $constraint$
       BEGIN
         IF NOT EXISTS (
           SELECT 1 FROM pg_constraint
            WHERE conrelid = 'scheduled_post_dispatches'::regclass
              AND conname = 'scheduled_post_dispatches_status_check'
-             AND position('manual_reconciliation' in pg_get_constraintdef(oid)) > 0
+             AND position('dead_letter' in pg_get_constraintdef(oid)) > 0
         ) THEN
           ALTER TABLE scheduled_post_dispatches DROP CONSTRAINT IF EXISTS scheduled_post_dispatches_status_check;
           ALTER TABLE scheduled_post_dispatches ADD CONSTRAINT scheduled_post_dispatches_status_check
-            CHECK (status IN ('pending','in_flight','dispatched','failed','manual_reconciliation'));
+            CHECK (status IN ('pending','in_flight','dispatched','failed','dead_letter','manual_reconciliation'));
         END IF;
       END $constraint$;
       CREATE INDEX IF NOT EXISTS idx_scheduled_post_dispatches_parent
@@ -1130,6 +1190,9 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_scheduled_post_dispatches_platform_post_id
         ON scheduled_post_dispatches (platform_post_id, platform)
         WHERE platform_post_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_scheduled_post_dispatches_dead_letter
+        ON scheduled_post_dispatches (dead_lettered_at DESC)
+        WHERE status = 'dead_letter';
 
       -- Phase 4 PR1: Slack Events API inbound dedupe. Every delivery has a
       -- stable event_id; the webhook inserts ON CONFLICT DO NOTHING to drop
@@ -1396,6 +1459,16 @@ async function initDb() {
         cost_cents         NUMERIC(10,4) NOT NULL,
         classified_at      TIMESTAMPTZ NOT NULL DEFAULT now()
       );
+      -- S4-3 (gap C5): serves the re-classify sweep's predicate
+      -- (classifier_version IS DISTINCT FROM <current>), which the dispatcher
+      -- runs once per account per tick. Without it that predicate seq-scans the
+      -- whole table on every tick of every account. comment_id stays the PRIMARY
+      -- KEY -- one row per comment, holding its CURRENT label -- because nine
+      -- reader joins across five builders join plainly on comment_id with no
+      -- version predicate; a per-version row would silently double-count them.
+      -- Mirrors migrations/20260804000000_comment_classifier_version_index.sql.
+      CREATE INDEX IF NOT EXISTS idx_insights_comment_classifications_version
+        ON insights_comment_classifications (classifier_version);
 
       -- Demographics snapshots. demographics is NULL when unavailable;
       -- unavailable_reason explains why (e.g. 'below_threshold', 'permission_missing').

@@ -2,9 +2,8 @@ name: Deploy
 
 # Operational contract (documented in DOCKER.md and docs/SYSTEM-REFERENCE.md):
 # - Pushes to master build/publish and deploy the exact merge commit SHA.
-# - Agent automerge uses GITHUB_TOKEN, so its merge push does not trigger push workflows;
-#   pr-agent-autofix-automerge dispatches this workflow manually with image_tag/git_ref
-#   pinned to the merge SHA.
+# - Pushes from deliberately merged PRs trigger this workflow through the normal
+#   protected-branch path.
 # - Manual workflow_dispatch deploys accept an explicit image_tag (SHA or other tag).
 # - If package linkage/permissions are not ready for GITHUB_TOKEN, set GHCR_WORKFLOW_TOKEN.
 
@@ -103,14 +102,14 @@ jobs:
           echo "image_ref=${image_ref}" >> "${GITHUB_OUTPUT}"
 
       - name: Log in to GHCR
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_WORKFLOW_TOKEN || github.token }}
 
       - name: Checkout deploy source
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.resolve.outputs.checkout_ref }}
           fetch-depth: 0

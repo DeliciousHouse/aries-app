@@ -21,6 +21,8 @@ import { buildNarrativeSnapshot, type NarrativePeriod } from './snapshot-builder
 import { buildNarrativeText } from './template-builder';
 import { computeAriesScore } from './score-builder';
 import crypto from 'crypto';
+import { insightsCacheTtlMs, buildInsightsSectionOnce } from '../cache-policy';
+import { checkInsightsForceThrottle } from '../force-throttle';
 
 // v2: S2-1 — hero top-post reach now uses the latest lifetime snapshot per post
 // (not SUM across dated cumulative rows), so the displayed reach number (and
@@ -34,7 +36,7 @@ import crypto from 'crypto';
 // floats at the ~50 base for a dead/near-dead account (zero-signal → 0; near-dead
 // now hits the empty state). Bump invalidates stale v3 bodies.
 const TEMPLATE_VERSION = 'template-v4';
-const CACHE_TTL_MS     = 60 * 60 * 1000; // 1 hour
+const CACHE_TTL_BASE_MS     = 60 * 60 * 1000; // 1 hour
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);
 
@@ -89,6 +91,7 @@ async function getCachedNarrative(
   tenantId: number,
   period: string,
   platform: string,
+  ttlMs: number,
 ): Promise<{ body: Record<string, unknown>; generatedAt: Date } | null> {
   const res = await client.query<{
     body:         Record<string, unknown>;
@@ -109,7 +112,7 @@ async function getCachedNarrative(
 
   const row       = res.rows[0];
   const ageMs     = Date.now() - new Date(row.generated_at).getTime();
-  const isFresh   = ageMs < CACHE_TTL_MS;
+  const isFresh   = ageMs < ttlMs;
   const isCurrent = row.model === TEMPLATE_VERSION;
 
   if (!isFresh || !isCurrent) return null;
@@ -164,6 +167,19 @@ export async function handleGetInsightsNarrative(
   const period     = periodParam;
   const platform   = platformParam;
 
+  // AA-120: bound the forced cache bypass before ANY database work. This sits
+  // above the connection check, not just above the pooled-client acquisition
+  // below, because that check issues its own query — leaving the gate lower
+  // would let a throttled forced request still reach the pool on this one
+  // section. The cost is that a forced request for an unconnected platform can
+  // spend a token and answer 429 rather than `not_connected`; that only happens
+  // on the sixth forced refresh inside five minutes, and a uniform "a throttled
+  // request issues no query from this handler" invariant is worth more than
+  // that edge. (The tenant lookup above still takes its own brief checkout —
+  // see the note in force-throttle.ts; that one is unavoidable here.)
+  const throttled = checkInsightsForceThrottle(force, tenantId, 'narrative');
+  if (throttled) return throttled;
+
   // ── Connection check (skip for 'all') ────────────────────────────────────
   if (platform !== 'all' && isSupportedPlatform(platform)) {
     const connection = await checkPlatformConnection(platform, tenantIdStr);
@@ -184,11 +200,16 @@ export async function handleGetInsightsNarrative(
     }
   }
 
+  // AA-122: one key for both the jittered expiry and the singleflight,
+  // so a section's staleness and its in-flight build always agree.
+  const cacheKey = snapshotHash(tenantId, period, platform);
+  const ttlMs    = insightsCacheTtlMs(cacheKey, CACHE_TTL_BASE_MS);
+
   const client = await pool.connect();
   try {
     // ── Cache hit ────────────────────────────────────────────────────────────
     if (!force) {
-      const cached = await getCachedNarrative(client, tenantId, period, platform);
+      const cached = await getCachedNarrative(client, tenantId, period, platform, ttlMs);
       if (cached) {
         return NextResponse.json({
           status:       'ok',
@@ -202,7 +223,7 @@ export async function handleGetInsightsNarrative(
     }
 
     // ── Cache miss: build snapshot + narrative ───────────────────────────────
-    const snapshot  = await buildNarrativeSnapshot(tenantId, period, platform);
+    const snapshot  = await buildInsightsSectionOnce(cacheKey, () => buildNarrativeSnapshot(tenantId, period, platform, client));
     const text      = buildNarrativeText(snapshot);
     const ariesScore = computeAriesScore(
       period,
@@ -211,7 +232,7 @@ export async function handleGetInsightsNarrative(
       snapshot.engagementRatePrev,
       snapshot.reach,
     );
-    const inputHash = snapshotHash(tenantId, period, platform);
+    const inputHash = cacheKey;
 
     const body: Record<string, unknown> = {
       narrative: text,

@@ -132,6 +132,16 @@ export const COUNT_SQL = `SELECT count(*)::bigint AS n
      FROM posts p
     WHERE ${STRANDED_PREDICATE}`;
 
+/** $1 = current expiry cutoff, $2 = cutoff 24 hours from now. */
+export const EXPIRING_SOON_SQL = `SELECT count(*)::bigint AS n
+     FROM posts p
+    WHERE NOT EXISTS (SELECT 1 FROM scheduled_posts sp WHERE sp.post_id = p.id)
+      AND p.published_at IS NULL
+      AND p.platform_post_id IS NULL
+      AND p.published_status IN ('draft','in_review','approved')
+      AND p.updated_at >= $1
+      AND p.updated_at < $2`;
+
 export const COUNT_BY_TENANT_SQL = `SELECT p.tenant_id, count(*)::bigint AS n
      FROM posts p
     WHERE ${STRANDED_PREDICATE}
@@ -183,6 +193,8 @@ export type DraftExpirySweepReport = {
   dryRun: boolean;
   /** Total posts matching the predicate at scan time (before any mutation). */
   candidates: number;
+  /** Posts that will cross the expiry cutoff during the next 24 hours. */
+  expiringWithin24Hours: number;
   /** Rows actually expired this run (0 in dry-run). */
   expired: number;
   /** Number of commit batches executed. */
@@ -237,12 +249,14 @@ async function runDraftExpirySweepPass(
   const maxBatches =
     opts.maxBatches && opts.maxBatches > 0 ? opts.maxBatches : DEFAULT_DRAFT_EXPIRY_MAX_BATCHES;
   const cutoff = new Date(now().getTime() - ageDays * 24 * 60 * 60 * 1000).toISOString();
+  const warningCutoff = new Date(Date.parse(cutoff) + 24 * 60 * 60 * 1000).toISOString();
 
   const report: DraftExpirySweepReport = {
     cutoff,
     ageDays,
     dryRun: opts.dryRun,
     candidates: 0,
+    expiringWithin24Hours: 0,
     expired: 0,
     batches: 0,
     byTenant: [],
@@ -253,6 +267,9 @@ async function runDraftExpirySweepPass(
   // Count + per-tenant breakdown for the report (cheap with the partial index).
   const countRes = await db.query(COUNT_SQL, [cutoff]);
   report.candidates = asNumber((countRes.rows[0] as { n?: unknown } | undefined)?.n);
+
+  const warningRes = await db.query(EXPIRING_SOON_SQL, [cutoff, warningCutoff]);
+  report.expiringWithin24Hours = asNumber((warningRes.rows[0] as { n?: unknown } | undefined)?.n);
 
   const byTenantRes = await db.query(COUNT_BY_TENANT_SQL, [cutoff]);
   report.byTenant = (byTenantRes.rows as Array<{ tenant_id: unknown; n: unknown }>).map((r) => ({

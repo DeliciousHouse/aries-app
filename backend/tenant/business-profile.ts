@@ -34,6 +34,7 @@ import {
   validateCanonicalCompetitorUrl,
 } from '@/lib/marketing-competitor';
 import { invalidateGoalNarrativeCache } from '@/backend/insights/goal/cache-invalidation';
+import { deriveStoredGoalType, type GoalType } from '@/backend/insights/goal/goal-type-classification';
 import { resolveDataPath } from '@/lib/runtime-paths';
 import { DEFAULT_TENANT_TIMEZONE, isValidTimeZone, resolveTenantTimeZone } from '@/lib/format-timestamp';
 import {
@@ -52,6 +53,13 @@ export type BusinessProfileRecord = {
   business_type: string | null;
   primary_goal: string | null;
   primary_goal_source: PrimaryGoalSource;
+  /**
+   * AA-115 / S6-2: canonical goal key derived from `primary_goal`, or null when
+   * the free text does not map confidently. Always derived (never read back from
+   * the stored JSON) so it cannot drift from the text sitting beside it — a goal
+   * edit re-derives, and a legacy record with no stored value self-heals.
+   */
+  goal_type: GoalType | null;
   launch_approver_user_id: string | null;
   launch_approver_name: string | null;
   offer: string | null;
@@ -332,6 +340,7 @@ function normalizeBusinessProfileRecord(
     business_type: stringOrNull(value.business_type),
     primary_goal: normalizedPrimaryGoal,
     primary_goal_source: primaryGoalSource(value.primary_goal_source),
+    goal_type: deriveStoredGoalType(normalizedPrimaryGoal),
     launch_approver_user_id: stringOrNull(value.launch_approver_user_id),
     launch_approver_name: stringOrNull(value.launch_approver_name),
     offer: stringOrNull(value.offer),
@@ -440,10 +449,10 @@ async function upsertBusinessProfileRecord(
   await executor.query(
     `INSERT INTO business_profiles (
       tenant_id, business_name, tenant_slug, website_url, business_type,
-      primary_goal, primary_goal_source, launch_approver_user_id, launch_approver_name, offer,
+      primary_goal, primary_goal_source, goal_type, launch_approver_user_id, launch_approver_name, offer,
       brand_voice, style_vibe, notes, competitor_url, channels, timezone,
       reel_audio_mode, updated_at
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,now())
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,now())
     ON CONFLICT (tenant_id) DO UPDATE SET
       business_name = EXCLUDED.business_name,
       tenant_slug = EXCLUDED.tenant_slug,
@@ -451,6 +460,9 @@ async function upsertBusinessProfileRecord(
       business_type = EXCLUDED.business_type,
       primary_goal = EXCLUDED.primary_goal,
       primary_goal_source = EXCLUDED.primary_goal_source,
+      -- Derived from the primary_goal being written in this same statement, so
+      -- the canonical key and the free text can never disagree (AA-115).
+      goal_type = EXCLUDED.goal_type,
       launch_approver_user_id = EXCLUDED.launch_approver_user_id,
       launch_approver_name = EXCLUDED.launch_approver_name,
       offer = EXCLUDED.offer,
@@ -465,6 +477,7 @@ async function upsertBusinessProfileRecord(
     [
       numericId, record.business_name, record.tenant_slug,
       record.website_url, record.business_type, record.primary_goal, record.primary_goal_source,
+      record.goal_type,
       record.launch_approver_user_id, record.launch_approver_name, record.offer,
       record.brand_voice, record.style_vibe, record.notes,
       record.competitor_url, record.channels, record.timezone,
@@ -987,6 +1000,7 @@ export async function updateBusinessProfileWithDiagnostics(
     business_type: nextBusinessType,
     primary_goal: nextPrimaryGoal,
     primary_goal_source: nextPrimaryGoalSource,
+    goal_type: deriveStoredGoalType(nextPrimaryGoal),
     launch_approver_user_id: nextApproverUserId,
     launch_approver_name: nextApproverName,
     offer: nextOffer,
@@ -1088,13 +1102,16 @@ export async function updatePublicBusinessProfile(input: Omit<BusinessProfileUpd
     throw new Error('missing_required_fields:businessName');
   }
 
+  const nextPublicPrimaryGoal = mergePersistedStringField(current.profile.primaryGoal, input.primaryGoal).value;
+
   await saveBusinessProfileRecord({
     tenant_id: tenantId,
     business_name: nextBusinessName,
     tenant_slug: current.profile.tenantSlug || publicTenantSlug(tenantId),
     website_url: normalizedWebsiteUrl,
     business_type: mergePersistedStringField(current.profile.businessType, input.businessType).value,
-    primary_goal: mergePersistedStringField(current.profile.primaryGoal, input.primaryGoal).value,
+    primary_goal: nextPublicPrimaryGoal,
+    goal_type: deriveStoredGoalType(nextPublicPrimaryGoal),
     primary_goal_source:
       typeof input.primaryGoal === 'string' && input.primaryGoal.trim()
         ? 'explicit'
@@ -1152,6 +1169,7 @@ export async function persistBusinessProfileFieldsFromMarketingPayload(
     business_type: current?.business_type ?? null,
     primary_goal: current?.primary_goal ?? null,
     primary_goal_source: current?.primary_goal_source ?? 'inferred',
+    goal_type: deriveStoredGoalType(current?.primary_goal ?? null),
     launch_approver_user_id: current?.launch_approver_user_id ?? null,
     launch_approver_name: current?.launch_approver_name ?? null,
     offer: current?.offer ?? null,
@@ -1195,6 +1213,9 @@ export async function persistBusinessProfileFieldsFromMarketingPayload(
     if (primaryGoalMerge.changed || operatorConfirmedGoal) {
       nextRecord.primary_goal = primaryGoalMerge.value;
       nextRecord.primary_goal_source = operatorConfirmedGoal ? 'explicit' : 'inferred';
+      // Re-derive alongside the goal text so a changed goal never leaves the
+      // previous canonical key behind (AA-115).
+      nextRecord.goal_type = deriveStoredGoalType(primaryGoalMerge.value);
       shouldAwaitExplicitGoalPersistence = operatorConfirmedGoal;
       shouldPersist = true;
     }

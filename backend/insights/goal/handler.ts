@@ -19,6 +19,8 @@ import { buildGoalSnapshot } from './goal-snapshot-builder';
 import { buildGoalText } from './goal-template-builder';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 import crypto from 'crypto';
+import { insightsCacheTtlMs, buildInsightsSectionOnce } from '../cache-policy';
+import { checkInsightsForceThrottle } from '../force-throttle';
 
 // v3: normalize free-form primary_goal → canonical GoalType, so the goal label
 // and Aries narrative are no longer blank when onboarding stored natural-language
@@ -39,8 +41,19 @@ import crypto from 'crypto';
 // v8: AA-151 — goal confirmation now follows persisted explicit/inferred
 // provenance instead of treating an unmatched explicit onboarding label as a
 // guess. Bump invalidates v7 bodies that cached the old inferred flag.
-const TEMPLATE_VERSION = 'goal-template-v8';
-const CACHE_TTL_MS     = 60 * 60 * 1000;
+// v9: AA-115 / S6-2 — a confidently backfilled business_profiles.goal_type is
+// now authoritative, so a tenant whose free-text goal maps unambiguously stops
+// rendering the "Goal inferred — confirm" chip. The goal itself is unchanged by
+// construction (the backfill shares its keyword families with this read path),
+// but `goalInferred` in the cached body flips for those tenants. Bump
+// invalidates v8 bodies that cached the pre-backfill flag.
+// v10: S4-2 — product_sales saves now come from the POST table (the account
+// column had no writer and read 0 for every tenant), brand_awareness reach is a
+// real column rather than a views proxy, and the profile-visits secondary is
+// NULL instead of a fabricated 0 so the UI omits that line. Bump invalidates v9
+// bodies that cached the zeros.
+const TEMPLATE_VERSION = 'goal-template-v10';
+const CACHE_TTL_BASE_MS     = 60 * 60 * 1000;
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);
 
@@ -61,6 +74,7 @@ async function getCached(
   tenantId: number,
   period: string,
   platform: string,
+  ttlMs:    number,
 ): Promise<{ body: Record<string, unknown>; generatedAt: Date } | null> {
   const res = await client.query<{
     body: Record<string, unknown>;
@@ -79,7 +93,7 @@ async function getCached(
   if (res.rows.length === 0) return null;
   const row   = res.rows[0];
   const ageMs = Date.now() - new Date(row.generated_at).getTime();
-  if (ageMs >= CACHE_TTL_MS || row.model !== TEMPLATE_VERSION) return null;
+  if (ageMs >= ttlMs || row.model !== TEMPLATE_VERSION) return null;
   return { body: row.body, generatedAt: row.generated_at };
 }
 
@@ -130,10 +144,22 @@ export async function handleGetInsightsGoal(
   const period   = periodParam;
   const platform = platformParam;
 
+  // AA-122: one key for both the jittered expiry and the singleflight,
+  // so a section's staleness and its in-flight build always agree.
+  const cacheKey = inputHash(tenantId, period, platform);
+  const ttlMs    = insightsCacheTtlMs(cacheKey, CACHE_TTL_BASE_MS);
+
+  // AA-120: bound the forced cache bypass BEFORE the pooled client is acquired
+  // below. Past that point a throttled request already holds the very resource
+  // the throttle exists to protect. (Deliberately does not name the connect
+  // call: tests/insights-cache-policy.test.ts counts that literal in source.)
+  const throttled = checkInsightsForceThrottle(force, tenantId, 'goal');
+  if (throttled) return throttled;
+
   const client = await pool.connect();
   try {
     if (!force) {
-      const cached = await getCached(client, tenantId, period, platform);
+      const cached = await getCached(client, tenantId, period, platform, ttlMs);
       if (cached) {
         return NextResponse.json({
           status:       'ok',
@@ -146,14 +172,14 @@ export async function handleGetInsightsGoal(
       }
     }
 
-    const snapshot = await buildGoalSnapshot(tenantId, period, platform, client);
+    const snapshot = await buildInsightsSectionOnce(cacheKey, () => buildGoalSnapshot(tenantId, period, platform, client));
 
     if (!snapshot) {
       return NextResponse.json({ status: 'no_goal' });
     }
 
     const ariesLine = buildGoalText(snapshot);
-    const hash      = inputHash(tenantId, period, platform);
+    const hash      = cacheKey;
 
     const body: Record<string, unknown> = {
       goal:            snapshot.goal,

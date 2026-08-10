@@ -57,7 +57,8 @@ Operator pages:
 | `/dashboard/social-content` | Social content jobs list and workspace |
 | `/dashboard/posts` | Publish controls |
 | `/dashboard/calendar` | Scheduling calendar |
-| `/dashboard/analytics` | Insights dashboard |
+| `/insights` | Primary analytics dashboard — cross-channel (ratified S1-10) |
+| `/dashboard/analytics` | Per-platform analytics drill-down |
 | `/dashboard/comments` | Comments and conversations tray |
 | `/dashboard/results` | Weekly results |
 | `/dashboard/publish-status` | Publish queue status |

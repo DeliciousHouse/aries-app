@@ -19,6 +19,8 @@ import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/ten
 import { buildActivitySnapshot } from './activity-snapshot-builder';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 import crypto from 'crypto';
+import { insightsCacheTtlMs, buildInsightsSectionOnce } from '../cache-policy';
+import { checkInsightsForceThrottle } from '../force-throttle';
 
 // v4: S2-1 — the high-performers count (posts ≥2× average reach) now compares
 // latest lifetime snapshots per post, not SUM across dated cumulative rows.
@@ -38,8 +40,13 @@ import crypto from 'crypto';
 // property of the data, not of the request, so it is deliberately NOT part of
 // the cache key — a tenant that crosses the threshold mid-cache keeps serving
 // the all-channel body until the 1h TTL expires.
-const TEMPLATE_VERSION = 'activity-v7';
-const CACHE_TTL_MS     = 60 * 60 * 1000; // 1 hour
+// v8: S4-2 — the sync now writes a real `reach` column. Every reach read here
+// is COALESCE(m.reach, m.views, 0), so until now this section was silently
+// ranking on VIEWS as a reach proxy. Real reach is a smaller, different number,
+// which moves the period average and therefore which posts clear the ≥2x
+// high-performer bar. Bump invalidates v7 bodies computed on the proxy.
+const TEMPLATE_VERSION = 'activity-v8';
+const CACHE_TTL_BASE_MS     = 60 * 60 * 1000; // 1 hour
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);
 
@@ -60,6 +67,7 @@ async function getCached(
   tenantId: number,
   period:   string,
   platform: string,
+  ttlMs:    number,
 ): Promise<{ body: Record<string, unknown>; generatedAt: Date } | null> {
   const res = await client.query<{
     body:         Record<string, unknown>;
@@ -78,7 +86,7 @@ async function getCached(
   if (res.rows.length === 0) return null;
   const row   = res.rows[0];
   const ageMs = Date.now() - new Date(row.generated_at).getTime();
-  if (ageMs >= CACHE_TTL_MS || row.model !== TEMPLATE_VERSION) return null;
+  if (ageMs >= ttlMs || row.model !== TEMPLATE_VERSION) return null;
   return { body: row.body, generatedAt: row.generated_at };
 }
 
@@ -152,10 +160,22 @@ export async function handleGetInsightsActivity(
   const period   = periodParam;
   const platform = platformParam;
 
+  // AA-122: one key for both the jittered expiry and the singleflight,
+  // so a section's staleness and its in-flight build always agree.
+  const cacheKey = inputHash(tenantId, period, platform);
+  const ttlMs    = insightsCacheTtlMs(cacheKey, CACHE_TTL_BASE_MS);
+
+  // AA-120: bound the forced cache bypass BEFORE the pooled client is acquired
+  // below. Past that point a throttled request already holds the very resource
+  // the throttle exists to protect. (Deliberately does not name the connect
+  // call: tests/insights-cache-policy.test.ts counts that literal in source.)
+  const throttled = checkInsightsForceThrottle(force, tenantId, 'activity');
+  if (throttled) return throttled;
+
   const client = await pool.connect();
   try {
     if (!force) {
-      const cached = await getCached(client, tenantId, period, platform);
+      const cached = await getCached(client, tenantId, period, platform, ttlMs);
       if (cached) {
         return NextResponse.json({
           status:       'ok',
@@ -168,8 +188,8 @@ export async function handleGetInsightsActivity(
       }
     }
 
-    const snap = await buildActivitySnapshot(tenantId, period, platform);
-    const hash = inputHash(tenantId, period, platform);
+    const snap = await buildInsightsSectionOnce(cacheKey, () => buildActivitySnapshot(tenantId, period, platform, client));
+    const hash = cacheKey;
 
     const body: Record<string, unknown> = {
       strip: {

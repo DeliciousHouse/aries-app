@@ -7,7 +7,12 @@
  * Goal → primary metric mapping:
  *   lead_generation  → comments classified as is_lead (insights_comment_classifications)
  *   content_growth   → net new followers (SUM of followers_delta)
- *   product_sales    → saves (best native purchase-intent proxy)
+ *   product_sales    → saves (best native purchase-intent proxy). S4-2: read
+ *                      per-POST via LATEST_POST_METRICS_LATERAL — the account
+ *                      table's saves column has no writer and never will.
+ *                      Its secondary metric (profile visits) has no source
+ *                      either and is returned as NULL, not 0, so the UI omits
+ *                      the line instead of asserting a measured zero.
  *   brand_awareness  → reach (COALESCE(reach, views))
  *
  * contributors: top 2 posts that drove the goal metric this period.
@@ -18,8 +23,14 @@ import type { NarrativePeriod } from '../narrative/snapshot-builder';
 import { LATEST_POST_METRICS_LATERAL } from '../latest-post-metrics-sql';
 import { resolveTenantInsightsTimeZone } from '../tenant-timezone';
 import { tenantZonePeriodStart, tenantZonePeriodStartDateKey } from '@/lib/format-timestamp';
+import {
+  GOAL_FALLBACK,
+  GOAL_KEYWORD_FAMILIES,
+  isGoalType,
+  type GoalType,
+} from './goal-type-classification';
 
-export type GoalType = 'lead_generation' | 'content_growth' | 'product_sales' | 'brand_awareness';
+export type { GoalType };
 export type GoalProvenance = 'explicit' | 'inferred';
 
 export interface GoalContributor {
@@ -90,33 +101,53 @@ function normalizeGoalValue(
   options: { warnOnFallback: boolean },
 ): { goal: GoalType; inferred: boolean } {
   const s = raw.trim().toLowerCase();
-  if (!s) return { goal: 'brand_awareness', inferred: true };
+  if (!s) return { goal: GOAL_FALLBACK, inferred: true };
   // Exact canonical match wins.
-  if (s === 'lead_generation') return { goal: 'lead_generation', inferred: false };
-  if (s === 'content_growth')  return { goal: 'content_growth',  inferred: false };
-  if (s === 'product_sales')   return { goal: 'product_sales',   inferred: false };
-  if (s === 'brand_awareness') return { goal: 'brand_awareness', inferred: false };
-  // Keyword match on free-form text (most specific intent first).
-  if (/\blead|inquir|enquir|contact|sign[- ]?up|booking|appointment\b/.test(s)) return { goal: 'lead_generation', inferred: false };
-  if (/\bsale|sell|revenue|purchase|buy|checkout|conversion|order|product|shop|ecommerce\b/.test(s)) return { goal: 'product_sales', inferred: false };
-  if (/\bfollow|grow|audience|subscriber|community|reach more|build.*following\b/.test(s)) return { goal: 'content_growth', inferred: false };
-  if (/\baware|reach|visib|impression|discover|exposure|brand\b/.test(s)) return { goal: 'brand_awareness', inferred: false };
+  if (isGoalType(s)) return { goal: s, inferred: false };
+  // Keyword match on free-form text (most specific intent first). The families
+  // and their order live in goal-type-classification.ts so the S6-2 backfill
+  // classifies with the SAME vocabulary this read path resolves with — a
+  // confidently backfilled goal_type can then never disagree with the goal a
+  // tenant already sees.
+  for (const { goal, pattern } of GOAL_KEYWORD_FAMILIES) {
+    if (pattern.test(s)) return { goal, inferred: false };
+  }
   // No keyword matched — we are GUESSING. Log the original text for our
   // visibility and mark the result inferred so the UI asks the user to confirm.
   if (options.warnOnFallback) {
     console.warn(`[insights.goal] unmatched primary_goal ${JSON.stringify(raw)} → defaulting to brand_awareness (inferred)`);
   }
-  return { goal: 'brand_awareness', inferred: true };
+  return { goal: GOAL_FALLBACK, inferred: true };
 }
 
 export function normalizeGoal(raw: string): { goal: GoalType; inferred: boolean } {
   return normalizeGoalValue(raw, { warnOnFallback: true });
 }
 
+/**
+ * Resolve the goal to render, and whether Aries is still guessing at it.
+ *
+ * `storedGoalType` (S6-2 / AA-115) is the canonical `business_profiles.goal_type`
+ * column. It is only ever written from a CONFIDENT classification — an exact
+ * canonical key or a single matching keyword family — so when it is present the
+ * bucket is settled and the S1-5 confirm chip has nothing to ask about. It also
+ * short-circuits the regex re-derivation, which is the point of having a
+ * canonical column at all.
+ *
+ * When it is NULL (ambiguous free text, an unmatched onboarding preset, or a row
+ * the backfill has not reached), resolution is byte-identical to the pre-AA-115
+ * behavior: normalize by keyword, then let persisted provenance decide the chip.
+ * That fallback is what keeps this change non-regressive for every row the
+ * backfill deliberately refused to touch.
+ */
 export function resolveGoalWithProvenance(
   raw: string,
   provenance: GoalProvenance | null | undefined,
+  storedGoalType?: GoalType | string | null,
 ): { goal: GoalType; inferred: boolean } {
+  if (isGoalType(storedGoalType)) {
+    return { goal: storedGoalType, inferred: false };
+  }
   const normalized = normalizeGoalValue(raw, { warnOnFallback: provenance !== 'explicit' });
   if (provenance === 'explicit') {
     return { goal: normalized.goal, inferred: false };
@@ -246,28 +277,48 @@ async function queryProductSales(
   fromKey: string,
   prevKey: string,
   platformFilter: string | null,
-): Promise<{ current: number; prev: number; secondary: number }> {
-  // S2-3: bare DATE column bounded by a tenant-tz calendar date ($n::date).
+): Promise<{ current: number; prev: number; secondary: number | null }> {
+  // S4-2 (gap C3): saves are read from the POST table, not the account table.
+  // `insights_account_metrics_daily.saves` has no writer and never will — saves
+  // are a per-post metric on Instagram, its account insights do not expose them,
+  // and Facebook Pages have no saves concept at all. So this headline read 0 for
+  // every tenant forever, while `queryContributors` below already ranked posts
+  // by `m.saves` from the post table: the section could name the posts that drove
+  // saves underneath a headline that said there were none.
+  //
+  // S2-1: per-post rows are lifetime-CUMULATIVE snapshots, so metrics are read
+  // through LATEST_POST_METRICS_LATERAL (each post's newest row) and summed
+  // ACROSS posts. Never SUM a single post's dated rows — that inflates ~Nx.
+  // Windowing is by p.published_at, matching every other post-level builder.
   const [curr, prev, visits] = await Promise.all([
     client.query<{ saves: string }>(
-      `SELECT COALESCE(SUM(saves), 0) AS saves
-       FROM insights_account_metrics_daily
-       WHERE tenant_id = $1
-         AND date >= $2::date
-         AND ($3::text IS NULL OR platform = $3)`,
+      `SELECT COALESCE(SUM(m.saves), 0) AS saves
+       FROM insights_posts p
+       ${LATEST_POST_METRICS_LATERAL}
+       WHERE p.tenant_id = $1
+         AND p.published_at >= $2::date
+         AND ($3::text IS NULL OR p.platform = $3)`,
       [tenantId, fromKey, platformFilter],
     ),
     client.query<{ saves: string }>(
-      `SELECT COALESCE(SUM(saves), 0) AS saves
-       FROM insights_account_metrics_daily
-       WHERE tenant_id = $1
-         AND date >= $2::date
-         AND date < $3::date
-         AND ($4::text IS NULL OR platform = $4)`,
+      `SELECT COALESCE(SUM(m.saves), 0) AS saves
+       FROM insights_posts p
+       ${LATEST_POST_METRICS_LATERAL}
+       WHERE p.tenant_id = $1
+         AND p.published_at >= $2::date
+         AND p.published_at < $3::date
+         AND ($4::text IS NULL OR p.platform = $4)`,
       [tenantId, prevKey, fromKey, platformFilter],
     ),
-    client.query<{ visits: string }>(
-      `SELECT COALESCE(SUM(profile_visits), 0) AS visits
+    // profile_visits has NO source and is expected to stay NULL indefinitely:
+    // Instagram's `profile_views` metric is DEPRECATED by Meta and Facebook's
+    // nearest equivalent (page_views_total) counts something else. So this
+    // deliberately does NOT COALESCE to 0 — SUM over all-NULL returns NULL, and
+    // a null `secondary` makes the UI OMIT the line entirely
+    // (GoalSection renders it only when `secondaryValue != null`). Coalescing
+    // here is what rendered a confident "0 profile visits" to every operator.
+    client.query<{ visits: string | null }>(
+      `SELECT SUM(profile_visits) AS visits
        FROM insights_account_metrics_daily
        WHERE tenant_id = $1
          AND date >= $2::date
@@ -275,10 +326,11 @@ async function queryProductSales(
       [tenantId, fromKey, platformFilter],
     ),
   ]);
+  const rawVisits = visits.rows[0]?.visits ?? null;
   return {
     current:   Number(curr.rows[0].saves),
     prev:      Number(prev.rows[0].saves),
-    secondary: Number(visits.rows[0].visits),
+    secondary: rawVisits === null ? null : Number(rawVisits),
   };
 }
 
@@ -461,12 +513,15 @@ export async function buildGoalSnapshot(
   const fromKey  = tenantZonePeriodStartDateKey(days, tz);   // DATE-column windows
   const prevKey  = tenantZonePeriodStartDateKey(days * 2, tz);
 
-  // Fetch primary_goal from business profile
+  // Fetch primary_goal from business profile. goal_type (S6-2 / AA-115) is the
+  // canonical key when the free text mapped confidently; NULL means we are still
+  // guessing and the provenance fallback below applies.
   const profileRes = await client.query<{
     primary_goal: string | null;
     primary_goal_source: GoalProvenance | null;
+    goal_type: string | null;
   }>(
-    `SELECT primary_goal, primary_goal_source FROM business_profiles WHERE tenant_id = $1 LIMIT 1`,
+    `SELECT primary_goal, primary_goal_source, goal_type FROM business_profiles WHERE tenant_id = $1 LIMIT 1`,
     [tenantId],
   );
   const rawGoal = profileRes.rows[0]?.primary_goal ?? null;
@@ -475,6 +530,7 @@ export async function buildGoalSnapshot(
   const { goal, inferred: goalInferred } = resolveGoalWithProvenance(
     rawGoal,
     profileRes.rows[0]?.primary_goal_source,
+    profileRes.rows[0]?.goal_type,
   );
 
   // Fetch metric for current + previous period

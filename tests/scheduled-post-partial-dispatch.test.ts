@@ -11,10 +11,11 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 // a child of node:test (the worker only auto-starts when run directly).
 type PlatformOutcome = {
   platform: string;
-  status: 'pending' | 'in_flight' | 'dispatched' | 'failed' | 'manual_reconciliation';
+  status: 'pending' | 'in_flight' | 'dispatched' | 'failed' | 'dead_letter' | 'manual_reconciliation';
   error: string | null;
   retryable: boolean;
   platformPostId: string | null;
+  failureClass?: string;
 };
 type WorkerModule = {
   rollupParentStatus: (statuses: string[]) => string;
@@ -50,7 +51,7 @@ test('rollupParentStatus: FB dispatched + IG failed rolls up to failed', async (
   assert.equal(rollupParentStatus([]), 'pending');
 });
 
-test('planPlatformOutcomes: FB ok / IG terminal-fail => FB dispatched, IG failed, FB not retried', async () => {
+test('planPlatformOutcomes: FB ok / IG invalid media => FB dispatched, IG dead-lettered', async () => {
   const { planPlatformOutcomes, rollupParentStatus } = await loadWorker();
   const outcomes = planPlatformOutcomes(
     ['facebook', 'instagram'],
@@ -66,11 +67,12 @@ test('planPlatformOutcomes: FB ok / IG terminal-fail => FB dispatched, IG failed
 
   assert.equal(fb.status, 'dispatched', 'FB child row must be dispatched');
   assert.equal(fb.retryable, false, 'a dispatched FB platform must never be retried');
-  assert.equal(ig.status, 'failed', 'IG child row must be failed (terminal)');
+  assert.equal(ig.status, 'dead_letter', 'IG child row must be dead-lettered (terminal)');
   assert.equal(ig.error, 'media_invalid');
+  assert.equal(ig.failureClass, 'media_invalid');
 
   const parent = rollupParentStatus(outcomes.map((o) => o.status));
-  assert.equal(parent, 'failed', 'parent rollup must be failed when any platform failed');
+  assert.equal(parent, 'dead_letter', 'parent rollup must preserve dead-letter visibility');
 });
 
 test('planPlatformOutcomes retains each successful provider post id on its matching child outcome', async () => {
@@ -185,8 +187,8 @@ test('worker schema: scheduled_post_dispatches child table exists in init-db.js'
   );
   assert.match(
     initDbSource,
-    /status IN \('pending','in_flight','dispatched','failed','manual_reconciliation'\)/,
-    'child status must include the fail-closed manual-reconciliation state',
+    /status IN \('pending','in_flight','dispatched','failed','dead_letter','manual_reconciliation'\)/,
+    'child status must include dead-letter and fail-closed manual-reconciliation states',
   );
   assert.match(
     initDbSource,
@@ -262,9 +264,9 @@ test('planPlatformOutcomes: an auth kind prefixes the error_message with a recon
     null,
   );
   const fb = outcomes.find((o) => o.platform === 'facebook')!;
-  // Retry policy unchanged: auth is terminal (retryable:false -> failed).
-  assert.equal(fb.status, 'failed');
+  assert.equal(fb.status, 'dead_letter');
   assert.equal(fb.retryable, false);
+  assert.equal(fb.failureClass, 'auth_token');
   // Surface-only: the operator can now see WHY a terminal row failed.
   assert.match(fb.error ?? '', /reconnect required/i, 'auth reason surfaced in error_message');
   assert.match(fb.error ?? '', /oauth_token_missing/, 'original code preserved');
@@ -283,7 +285,9 @@ test('planPlatformOutcomes: a non-auth kind leaves the error_message untouched',
   const fb = outcomes.find((o) => o.platform === 'facebook')!;
   const ig = outcomes.find((o) => o.platform === 'instagram')!;
   assert.equal(fb.error, 'graph_api_error: 400', 'permanent kind: error_message verbatim');
-  assert.equal(fb.status, 'failed');
+  assert.equal(fb.status, 'dead_letter');
+  assert.equal(fb.failureClass, 'platform_permanent');
   assert.equal(ig.error, 'rate_limited', 'transient kind: error_message verbatim');
   assert.equal(ig.status, 'pending', 'transient still retries — policy unchanged');
+  assert.equal(ig.failureClass, 'platform_transient');
 });

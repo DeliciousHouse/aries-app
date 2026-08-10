@@ -170,6 +170,15 @@ const steps = [
     args: ['--test', 'tests/insights-sync-worker-stranded-runs.test.ts'],
   },
   {
+    // S3-5/AA-101: the sync worker must be able to override the Composio action
+    // slug of every adapter it runs. Instagram had none wired while FB, X,
+    // YouTube, Reddit and LinkedIn all did — pinning IG to its hardcoded slugs
+    // with no .env escape hatch, despite riding the same always-on gate as FB.
+    // Pins the general rule so the next adapter cannot repeat it.
+    name: 'insights-sync worker adapter slug passthrough (S3-5)',
+    args: ['--test', 'tests/insights-sync-worker-adapter-slugs.test.ts'],
+  },
+  {
     // S2-4/AA-95: day-boundary timezone AGREEMENT guardrail. Pure + no DB, so it
     // runs here on every PR (unlike the S2-3/S2-1 requires-infra tz tests that
     // self-skip in CI). Fails if audience or attention reverts to UTC bucketing.
@@ -253,6 +262,107 @@ const steps = [
     // rollout flag. Fake queryable, no DB or I/O.
     name: 'insights attribution scope decision',
     args: ['--test', 'tests/insights-attribution-scope.test.ts'],
+  },
+  {
+    // S4-5/AA-108 (gap E1): auth + tenant-isolation coverage for EVERY insights
+    // GET route — the highest-risk untested read paths with multi-workspace in
+    // flight, so this is a never-cut gate. Behavioural: each of the 14 handlers
+    // refuses an unauthenticated caller and a membership-less session, and does
+    // so before reading any tenant id (a spoofed ?tenantId= changes nothing).
+    // Structural: tenantId comes only from the resolved context, every route's
+    // read surface scopes with a parameterized tenant_id predicate, and each
+    // cached section keys its cache on tenantId (a cache hit serves a body
+    // without ever running the scoped query). Route registry is coverage-guarded
+    // against app/api/insights, so a new route without tests fails here. No DB.
+    name: 'insights route auth + tenant isolation (E1)',
+    args: ['--test', 'tests/insights-route-auth-tenant-isolation.test.ts'],
+  },
+  {
+    // S4-6/AA-109 (gap C4): the marketing review tray as the SECOND writer of
+    // campaign_learning_labels, so "Working with Aries" stops reading zeros for
+    // every tenant who never hand-labeled. Pins the action->label mapping
+    // (changes_requested stays distinct from reject — they are the bar's EDITED
+    // and REBUILT buckets), the creative+assetId discrimination that stops the
+    // publish gate double-counting, the deterministic idempotency key, the
+    // non-fatal write contract, the two-place schema rule, and the drift guard
+    // tying the emitted vocabulary to what aries-builder actually filters on.
+    // Fake query fn, no DB.
+    name: 'marketing review -> learning labels writer (C4)',
+    args: ['--test', 'tests/marketing/review-learning-labels.test.ts'],
+  },
+  {
+    // S5-1/AA-110 (gap F1b): the weekly results report + its flag-gated route.
+    // Pins the week boundary (most-recent COMPLETED ISO week in UTC, incl. the
+    // year-boundary and non-existent-W53 cases), the publish-state counts, the
+    // reconnect signal coming from oauth_connections rather than a per-post code
+    // (there is none), manual_reconciliation staying OUT of `blocked`, the
+    // honesty contract (an unavailable ranking carries no post payload), the A1
+    // regression (latest snapshot, never a SUM), the bounded ranking window, and
+    // the gate short-circuiting before any tenant/DB work. Fake queryable, no DB.
+    name: 'weekly results report + route (F1b)',
+    args: [
+      '--test',
+      'tests/weekly-results-report.test.ts',
+      'tests/weekly-results-route.test.ts',
+    ],
+  },
+  {
+    // S5-3/AA-112 (gap F2a): insights CSV export. Pins RFC-4180 quoting (a
+    // caption with a comma must not shift columns), the spreadsheet
+    // formula-injection guard (captions are public, untrusted input heading for
+    // an operator's Excel), comments refused BY NAME with the PII reason, no
+    // exported column carrying commenter details, the S2-1 latest-snapshot read
+    // so exported numbers are true, the row clamp, and the pooled client being
+    // released BEFORE the response streams. No DB.
+    name: 'insights CSV export (F2a)',
+    args: ['--test', 'tests/insights-export-csv.test.ts'],
+  },
+  {
+    // S5-4/AA-113 (gap B5): the /insights channel chips are derived from
+    // `isPlatformInsightsEnabled` — the same predicate the sync adapter factory
+    // uses — so a chip exists exactly when an adapter can produce data for it.
+    // The drift this guards is silent in both directions: a chip with no adapter
+    // is a filter that can only return nothing, and a missing chip hides a
+    // channel that does have data. The shipped fix (#912/#914) was covered only
+    // by the CI full suite; gating it here catches a regression pre-push.
+    // Renders the real component via react-test-renderer. No DB.
+    name: 'insights platform filter truthing (B5)',
+    args: ['--test', 'tests/insights-platform-filter-truthing.test.ts'],
+  },
+  {
+    // AA-153: the workspace header eyebrow follows the job's actual kind
+    // instead of a hardcoded "Post" (a week-long weekly job read as a single
+    // post). Pure resolver + label, no DB or I/O.
+    name: 'marketing job kind eyebrow',
+    args: ['--test', 'tests/marketing-job-kind.test.ts'],
+  },
+  {
+    // S6-2/AA-115: goal_type backfill with low-confidence flagging. Pins the
+    // safety invariant (a confident key always equals the goal the read path
+    // already renders, so backfilling never moves a tenant's metric), the
+    // refusal to persist the brand_awareness fallthrough, and the NULL ->
+    // pre-AA-115 resolution fallback. Fake db, no DB or I/O.
+    name: 'insights goal_type backfill + low-confidence flagging',
+    args: ['--test', 'tests/insights-goal-type-backfill.test.ts'],
+  },
+  {
+    // S7-4/AA-122: insights cache expiry jitter + per-key singleflight, and the
+    // source guarantee that a cache-miss request holds ONE pooled connection
+    // instead of two (guardrail #1). Pure policy + source assertions, no DB.
+    name: 'insights cache jitter + singleflight + connection budget',
+    args: ['--test', 'tests/insights-cache-policy.test.ts'],
+  },
+  {
+    // S7-2/AA-120: the per-tenant/section bound on the authenticated
+    // ?force=true cache bypass. Pins both halves of the acceptance bar —
+    // scripted hammering yields exactly the burst allowance, and the browser's
+    // only force affordance (the Retry button) still recovers, including that
+    // hammering while throttled cannot push recovery further out. The
+    // load-bearing assertion is source-level: the gate must sit BEFORE
+    // pool.connect() in all six handlers, or a denied request still holds the
+    // connection the throttle exists to protect. Pure policy, no DB.
+    name: 'insights force-bypass throttle (AA-120)',
+    args: ['--test', 'tests/insights-force-throttle.test.ts'],
   },
   {
     // 2026-07-13 duplicate-posting incident (AA-134 / PR #841) regression wall:

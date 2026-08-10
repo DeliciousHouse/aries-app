@@ -43,43 +43,6 @@ async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise
   }
 }
 
-function setExecutionTestInvoker(
-  impl: (payload: Record<string, unknown>) => unknown | Promise<unknown>
-): void {
-  (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__ = impl;
-}
-
-function clearExecutionTestInvoker(): void {
-  delete (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__;
-}
-
-function installMarketingPipelineInvoker(): void {
-  setExecutionTestInvoker((payload) => {
-    const args = (payload.args as Record<string, unknown> | undefined) ?? {};
-    const action = String(args.action || '');
-
-    if (action === 'run') {
-      return {
-        ok: true,
-        status: 'needs_approval',
-        output: [{
-          run_id: 'run-research',
-          executive_summary: {
-            market_positioning: 'Proof-led competitive research is complete.',
-            campaign_takeaway: 'Outcome-first hooks are strongest.',
-          },
-        }],
-        requiresApproval: {
-          resumeToken: 'resume_strategy',
-          prompt: 'Research complete. Approve strategy to continue.',
-        },
-      };
-    }
-
-    throw new Error(`Unexpected test invoker call: action=${action}`);
-  });
-}
-
 function createFetchResponse(body: string, contentType: string): Response {
   return new Response(body, {
     status: 200,
@@ -533,10 +496,18 @@ test('startSocialContentJob persists a reusable tenant brand kit and stores a ru
     const { restore: restoreFetch } = installBrandSiteFetchMock();
 
     try {
-      installMarketingPipelineInvoker();
-      const { startSocialContentJob } = await import('../backend/marketing/orchestrator');
+      const orchestrator = await import('../backend/marketing/orchestrator');
+      orchestrator.__setMarketingExecutionPortForTests(() => ({
+        name: 'hermes',
+        runPipeline: async () => ({ kind: 'submitted', provider: 'hermes', ariesRunId: 'run-research' }),
+        resumePipeline: async () => { throw new Error('not used'); },
+        submitNextStage: async () => { throw new Error('not used'); },
+        getCallbackUrl: () => 'https://aries.example.com/callback',
+        getSessionKey: () => 'test-session',
+        submitRawRun: async () => { throw new Error('not used'); },
+      }));
 
-      const result = await startSocialContentJob({
+      const result = await orchestrator.startSocialContentJob({
         tenantId: 'sugarandleather',
         jobType: 'weekly_social_content',
         payload: {
@@ -565,7 +536,8 @@ test('startSocialContentJob persists a reusable tenant brand kit and stores a ru
       assert.equal(persistedBrandKit.colors.accent, '#3d2410');
       assert.match(persistedBrandKit.extracted_at, /^\d{4}-\d{2}-\d{2}T/);
     } finally {
-      clearExecutionTestInvoker();
+      const orchestrator = await import('../backend/marketing/orchestrator');
+      orchestrator.__setMarketingExecutionPortForTests(null);
       restoreFetch();
     }
   });

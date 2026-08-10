@@ -1,0 +1,44 @@
+-- S4-3 / AA-106 (gap C5): comment re-classification path.
+--
+-- Until now `insights_comment_classifications` was written with
+-- `ON CONFLICT (comment_id) DO NOTHING` and a hardcoded classifier_version, so
+-- whatever the first classifier produced for a comment was frozen forever. A
+-- prompt or model improvement could not reach any already-labelled comment,
+-- which is why the S1-11 flag flip shipped with an explicit "labels are frozen
+-- until S4-3" caveat. Turning the flag off does not roll back bad labels
+-- either, so the bad-label window was effectively permanent.
+--
+-- The fix is a VERSIONED UPSERT in the dispatcher plus this index. Bumping
+-- `CURRENT_CLASSIFIER_VERSION` (backend/insights/sync/classify-comments.ts) is
+-- the whole trigger: every row at a superseded version re-enters the sweep's
+-- selection predicate and is re-labelled at one bounded batch per account per
+-- tick — the same bound first-time classification already uses.
+--
+-- WHY THIS IS AN INDEX AND NOT A PRIMARY-KEY CHANGE
+--
+-- The obvious reading of "change the conflict target" is a composite key of
+-- (comment_id, classifier_version), keeping one row per version as an audit
+-- trail. That would be a silent correctness regression. NINE join sites across
+-- FIVE builders -- conversations, goal (x4), attention, top and trends -- join
+-- plainly:
+--
+--     JOIN insights_comment_classifications cc ON cc.comment_id = c.id
+--
+-- with no version predicate, because comment_id is the PRIMARY KEY and one row
+-- per comment is guaranteed. A second row per comment would double-count every
+-- lead count, sentiment percentage, per-post sentiment and attention lead
+-- figure the moment a re-sweep ran, and nothing would fail loudly. So
+-- comment_id REMAINS the primary key, the row is updated in place, and old
+-- labels are replaced rather than archived -- which is the point of the ticket:
+-- a bad label stops being served.
+--
+-- This index serves the sweep's `classifier_version IS DISTINCT FROM $n`
+-- predicate. Without it, that predicate seq-scans the whole table on every tick
+-- of every account, forever, whether or not a bump is in flight.
+--
+-- Mirrors scripts/init-db.js (applied on container start); both places per the
+-- repo's two-place schema rule. Additive and idempotent -- no data is written,
+-- no column changes, and re-running is a no-op.
+
+CREATE INDEX IF NOT EXISTS idx_insights_comment_classifications_version
+  ON insights_comment_classifications (classifier_version);

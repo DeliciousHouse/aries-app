@@ -2,8 +2,8 @@
  * P2 — honcho-performance-worker
  *
  * Delayed, metric-bearing Honcho write leg for published Meta posts. 24h..30d
- * after publish, reads #513-E's stored `insights_post_metrics_daily` snapshot
- * (NEVER fetches Meta — see the #513 boundary in
+ * after publish, reads the stored `insights_post_metrics_daily` snapshot
+ * (NEVER fetches Meta — see the boundary section in
  * docs/plans/2026-05-30-honcho-performance-insights.md), scrubs platform IDs,
  * and calls the already-shipped `recordPerformanceEvent` to write a
  * `research_conclusion` to `peer-market-signal-<topicPseudonym>`.
@@ -17,8 +17,9 @@
  * no-ops when off; the worker also reads the gate to decide whether to ledger,
  * so flipping the gate ON later re-drives the writes.
  *
- * #513-GATED: until #513-A/E land, `selectDuePerformancePosts` returns [] (see
- * insights-513-contract.ts) so the worker boots and ticks as a harmless no-op.
+ * ROLLOUT-GATED: while ARIES_INSIGHTS_513_TABLES_PRESENT is off,
+ * `selectDuePerformancePosts` returns [] (see insights-513-contract.ts) so the
+ * worker boots and ticks as a harmless no-op.
  */
 
 import 'dotenv/config';
@@ -176,9 +177,12 @@ export async function runTick(
           );
 
           // Ledger only when the gate is ON (so a gate-OFF run leaves nothing to
-          // re-drive once it flips ON). metric_day = the post's publish day.
+          // re-drive once it flips ON). metric_day = the post's UTC PUBLISH day,
+          // the same day recordPerformanceEvent keys its idempotency claim on.
+          // Using the metrics snapshot's sync date instead would mint a fresh
+          // ledger row every sync day and re-drive this post on every tick.
           if (gateOn) {
-            await markWritten(tenantId, post.jobId, post.platform, post.metrics.day, client);
+            await markWritten(tenantId, post.jobId, post.platform, post.publishDay, client);
             report.written += 1;
           }
         } catch (postErr) {

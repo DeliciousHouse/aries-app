@@ -29,6 +29,9 @@ services:
       HERMES_GATEWAY_URL: ${HERMES_GATEWAY_URL:-}
       HERMES_API_SERVER_KEY: ${HERMES_API_SERVER_KEY:-}
       HERMES_SESSION_KEY: ${HERMES_SESSION_KEY:-main}
+      # Fail container health when the configured network Hermes endpoint is
+      # unavailable. Self-host installs without Hermes explicitly set this off.
+      ARIES_HERMES_NETWORK_HEALTHCHECK_ENABLED: ${ARIES_HERMES_NETWORK_HEALTHCHECK_ENABLED:-1}
       # Phase B three-profile routing — each marketing stage runs on its own
       # Hermes profile gateway, bound to its own port. The gateway URLs carry
       # the production cutover defaults; the per-profile API keys come from the
@@ -87,6 +90,9 @@ services:
       ARIES_RECONCILER_ENABLED: ${ARIES_RECONCILER_ENABLED:-1}
       ARIES_RECONCILER_INTERVAL_MS: ${ARIES_RECONCILER_INTERVAL_MS:-60000}
       ARIES_KANBAN_GC_ENABLED: ${ARIES_KANBAN_GC_ENABLED:-1}
+      # Temporary compatibility path for the in-container `hermes kanban gc`
+      # worker. Disable after the sidecar cutover moves maintenance out of Aries.
+      ARIES_HERMES_CLI_COMPAT_ENABLED: ${ARIES_HERMES_CLI_COMPAT_ENABLED:-1}
       ARIES_KANBAN_GC_INTERVAL_MS: ${ARIES_KANBAN_GC_INTERVAL_MS:-86400000}
       ARIES_KANBAN_GC_RETENTION_DAYS: ${ARIES_KANBAN_GC_RETENTION_DAYS:-7}
       ARIES_AUTO_APPROVE_MARKETING_PIPELINE: ${ARIES_AUTO_APPROVE_MARKETING_PIPELINE:-1}
@@ -186,6 +192,11 @@ services:
       # slot). Default OFF; the clip only renders/publishes when ARIES_VIDEO_PUBLISH_
       # ENABLED is also on. Idempotent per weekly job.
       ARIES_WEEKLY_REEL_ENABLED: ${ARIES_WEEKLY_REEL_ENABLED:-0}
+      # Weekly results report panel on /dashboard/results (S5-1). Read-only: it
+      # reads publish state Aries already owns plus the shipped insights read
+      # model, writes nothing, and never fabricates an engagement ranking.
+      # Default OFF; OFF ⇒ the results screen is byte-identical to today.
+      ARIES_WEEKLY_RESULTS_ENABLED: ${ARIES_WEEKLY_RESULTS_ENABLED:-0}
       # ElevenLabs voiceover CAPABILITY GATE for reels: when ON (+ ELEVENLABS_API_KEY
       # set), voiceover becomes a selectable reel-audio option. It no longer forces
       # voiceover — the per-tenant Settings default / per-job override (reel audio
@@ -278,6 +289,17 @@ services:
       # read all channel posts (the #785 behavior), so a tenant with unstamped
       # history never sees an empty section. Out-of-range/unparseable → 0.8.
       ARIES_INSIGHTS_ATTRIBUTION_THRESHOLD: ${ARIES_INSIGHTS_ATTRIBUTION_THRESHOLD:-0.8}
+      # AA-120: bound the authenticated ?force=true cache bypass on the six
+      # cached insights sections. Defaults ON — a rate limit that ships off
+      # protects nothing — so this is the kill switch, not the on switch. The
+      # gate runs before pool.connect(), so a throttled request never holds a
+      # connection. 5 per (tenant, section) per 5 min is invisible to the only
+      # human force path (the Retry button on a failed section) and cuts a
+      # scripted hammer by ~1000x. Per-process state: real ceiling is
+      # ARIES_WEB_CONCURRENCY x the burst.
+      ARIES_INSIGHTS_FORCE_THROTTLE_ENABLED: ${ARIES_INSIGHTS_FORCE_THROTTLE_ENABLED:-1}
+      ARIES_INSIGHTS_FORCE_THROTTLE_BURST: ${ARIES_INSIGHTS_FORCE_THROTTLE_BURST:-5}
+      ARIES_INSIGHTS_FORCE_THROTTLE_WINDOW_MS: ${ARIES_INSIGHTS_FORCE_THROTTLE_WINDOW_MS:-300000}
       # 2026-05-23: flipped ON per TODOS rollout. Narrow first-name-denylist
       # heuristic replaces the legacy /[A-Z][a-z]+\s+[A-Z][a-z]+/ regex in
       # backend/memory/write-events.ts::scrubPreferenceLabelForHoncho. Effect:
@@ -528,13 +550,40 @@ services:
       - ${HERMES_VIDEO_CACHE_DIR:-/home/node/.hermes/profiles/aries-content-generator/cache/videos}:/hermes-video-media:ro
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:${PORT:-3000}/ >/dev/null"]
+      test: ["CMD", "node", "scripts/container-healthcheck.mjs"]
       interval: 30s
       timeout: 5s
       retries: 5
       start_period: 30s
     labels:
       com.delicioushouse.aries.autoheal: "true"
+    networks:
+      - docker_stack
+
+  # Optional production Hermes sidecar. It is dormant unless the
+  # `hermes-sidecar` profile is activated, so existing external gateways and
+  # the temporary in-image CLI compatibility path keep working during cutover.
+  # The release tag is paired with its immutable multi-arch manifest digest.
+  aries-hermes:
+    image: ${ARIES_HERMES_IMAGE:-nousresearch/hermes-agent:v2026.8.3@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e}
+    profiles: ["hermes-sidecar"]
+    command: ["gateway", "run"]
+    environment:
+      HERMES_UID: ${HERMES_UID:-1000}
+      HERMES_GID: ${HERMES_GID:-1000}
+      API_SERVER_ENABLED: "true"
+      API_SERVER_HOST: 0.0.0.0
+      API_SERVER_PORT: 8642
+      API_SERVER_KEY: ${HERMES_API_SERVER_KEY:-}
+    volumes:
+      - ${ARIES_HERMES_DATA_ROOT:-/home/node/.hermes}:/opt/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS --max-time 5 http://127.0.0.1:8642/health >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
     networks:
       - docker_stack
 
@@ -600,6 +649,7 @@ services:
       # cadence keeps the limit tripped indefinitely.
       ARIES_DISPATCH_RETRY_BACKOFF_MINUTES: ${ARIES_DISPATCH_RETRY_BACKOFF_MINUTES:-10}
       ARIES_DISPATCH_RATE_LIMIT_BACKOFF_MINUTES: ${ARIES_DISPATCH_RATE_LIMIT_BACKOFF_MINUTES:-180}
+      ARIES_DISPATCH_TRANSIENT_MAX_ATTEMPTS: ${ARIES_DISPATCH_TRANSIENT_MAX_ATTEMPTS:-5}
       # The longest publish request is 330s. SIGTERM drains its active tick for
       # 350s, while Compose grants 360s before SIGKILL.
       ARIES_SCHEDULED_POSTS_SHUTDOWN_TIMEOUT_MS: ${ARIES_SCHEDULED_POSTS_SHUTDOWN_TIMEOUT_MS:-350000}
@@ -608,9 +658,10 @@ services:
     networks:
       - docker_stack
 
-  # Weekly-job trigger worker — starts a weekly_social_content job for each
-  # opted-in tenant (a marketing_schedule row with enabled=true) on its
-  # configured day/hour/tz. Single replica: the atomic claim UPDATE makes
+  # Weekly-job trigger worker — evaluates each opted-in tenant daily at its
+  # configured hour/tz and starts weekly_social_content only when the current
+  # marketing_schedule cadence window has no worker-created job. Single replica:
+  # the atomic claim UPDATE makes
   # concurrency safe, but one replica keeps logs simple and load minimal. Gated
   # by ARIES_WEEKLY_TRIGGER_ENABLED (default OFF) so this ships dormant; flip it
   # on only after a marketing_schedule row exists for the test tenant. It POSTs
@@ -818,6 +869,21 @@ services:
       COMPOSIO_FACEBOOK_POST_INSIGHTS_ACTION: ${COMPOSIO_FACEBOOK_POST_INSIGHTS_ACTION:-}
       COMPOSIO_FACEBOOK_ACCOUNT_INSIGHTS_ACTION: ${COMPOSIO_FACEBOOK_ACCOUNT_INSIGHTS_ACTION:-}
       COMPOSIO_FACEBOOK_LIST_COMMENTS_ACTION: ${COMPOSIO_FACEBOOK_LIST_COMMENTS_ACTION:-}
+      # Instagram analytics (#692/#693), read by this worker's IG adapter
+      # (backend/insights/adapters/instagram). IG runs on the SAME gate as
+      # Facebook — ANALYTICS_PROVIDER=composio + COMPOSIO_ENABLED, no separate
+      # rollout flag — so whenever the FB adapter is live the IG adapter is too.
+      # Until S3-5 these five were the ONLY insights adapter's slug overrides not
+      # wired here (FB, X, YouTube, Reddit and LinkedIn all had theirs), which
+      # pinned IG to its hardcoded defaults with no escape hatch: a renamed
+      # toolkit slug could only be corrected by editing this file and
+      # redeploying, mid-incident. Optional like every other row here — blank
+      # means "use the verified code default" (the adapter's DEFAULT_SLUGS).
+      COMPOSIO_INSTAGRAM_LIST_POSTS_ACTION: ${COMPOSIO_INSTAGRAM_LIST_POSTS_ACTION:-}
+      COMPOSIO_INSTAGRAM_POST_INSIGHTS_ACTION: ${COMPOSIO_INSTAGRAM_POST_INSIGHTS_ACTION:-}
+      COMPOSIO_INSTAGRAM_ACCOUNT_INSIGHTS_ACTION: ${COMPOSIO_INSTAGRAM_ACCOUNT_INSIGHTS_ACTION:-}
+      COMPOSIO_INSTAGRAM_ACCOUNT_INFO_ACTION: ${COMPOSIO_INSTAGRAM_ACCOUNT_INFO_ACTION:-}
+      COMPOSIO_INSTAGRAM_LIST_COMMENTS_ACTION: ${COMPOSIO_INSTAGRAM_LIST_COMMENTS_ACTION:-}
       # X (Twitter) analytics + comment replies (#632/#633), read by the
       # insights-sync worker's X adapter (backend/insights/adapters/x). The X
       # insights path (account bridge + adapter) turns on ONLY when

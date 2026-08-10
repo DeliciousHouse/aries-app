@@ -64,9 +64,15 @@ export function isFacebookInsightsEnabled(env: NodeJS.ProcessEnv = process.env):
  * ANALYTICS_PROVIDER resolves to composio. Instagram is Meta-family — it uses
  * the SAME gate as Facebook (no separate ARIES_INSTAGRAM_ENABLED flag). When
  * COMPOSIO_ENABLED is false or ANALYTICS_PROVIDER=direct_meta, the IG adapter
- * never activates. Dormant-safe: even though isInstagramInsightsEnabled is true
- * in prod (ANALYTICS_PROVIDER=composio), no active IG connected_accounts row
- * exists until IG connect ships, so the sync worker fan-out is idle.
+ * never activates.
+ *
+ * NOTE (S3-5): this used to say the fan-out stays idle because "no active IG
+ * connected_accounts row exists until IG connect ships". That is no longer
+ * true — IG connect shipped with #692/#693 and `ensure-account.ts` bridges it
+ * (`BRIDGED_PLATFORMS = ['facebook', 'instagram']`). So on a prod deploy with
+ * COMPOSIO_ENABLED=true, a tenant with a connected IG account syncs for real.
+ * Whether the legs actually land rows is the live-verification this ticket
+ * covers; it is no longer gated on unshipped connect work.
  */
 export function isInstagramInsightsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return isComposioEnabled(env) && analyticsProviderSelector(env) === 'composio';
