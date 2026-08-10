@@ -274,6 +274,32 @@ test('PERF_POSTS_SQL: uses comments_count, guarding against the perf-insights-re
   );
 });
 
+test('both queries filter disabled accounts — the reader contract init-db.js declares', () => {
+  // A tenant that reconnects Meta to a DIFFERENT Page leaves the old
+  // insights_accounts row disabled but its rows in place. Unfiltered, the
+  // follower query SUMs the dead account's followers_end alongside the live
+  // one (the audience appears to double in the reconnect week) and the post
+  // query can hand the dead Page's content back as a "top post".
+  assert.match(
+    PERF_POSTS_SQL,
+    /JOIN insights_accounts a\s+ON a\.id = p\.account_id\s+AND a\.disabled_at IS NULL/,
+    'PERF_POSTS_SQL must join insights_accounts and exclude disabled ones',
+  );
+  assert.match(
+    PERF_FOLLOWERS_SQL,
+    /JOIN insights_accounts a\s+ON a\.id = d\.account_id\s+AND a\.disabled_at IS NULL/,
+    'PERF_FOLLOWERS_SQL must exclude disabled accounts inside the windowed CTE',
+  );
+  // The filter has to sit INSIDE `windowed`; applying it after per_account_week
+  // would already have folded the dead account into the per-week totals.
+  const windowedEnd = PERF_FOLLOWERS_SQL.indexOf('), per_account_week');
+  assert.ok(windowedEnd > 0, 'the windowed CTE is still the first CTE');
+  assert.ok(
+    PERF_FOLLOWERS_SQL.slice(0, windowedEnd).includes('a.disabled_at IS NULL'),
+    'the disabled filter must be inside the windowed CTE, not bolted on later',
+  );
+});
+
 // ── Loader ──────────────────────────────────────────────────────────────────
 
 type FakeCall = { sql: string; params: unknown[] };

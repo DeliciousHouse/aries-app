@@ -145,6 +145,21 @@ function notQuarantined(col: 'metrics_unavailable_at' | 'comments_unavailable_at
  * The `prev` join carries the PRE-update watermark out of the statement (a
  * plain RETURNING can only report post-update values), so the caller can log
  * the 0→quarantined transition exactly once instead of on every later strike.
+ *
+ * A FAILED re-probe RE-STAMPS the watermark to now() (the first CASE arm).
+ * Without it the timestamp keeps the ORIGINAL quarantine date forever, so once
+ * that date ages past REPROBE_AFTER_DAYS the `notQuarantined` predicate is
+ * permanently true and the dead object is re-selected on EVERY tick again —
+ * ~96 wasted API calls a day per object instead of the ~2 a month
+ * object-health.ts promises, crowding the selection LIMITs, and silently
+ * (`was_quarantined` suppresses its legError).
+ *
+ * The re-stamp is deliberately NOT gated on $3: the threshold binding depends
+ * on whether a sibling happened to succeed EARLIER IN THE SAME LOOP, so gating
+ * would leave the bug alive on an ordering accident. The cost of not gating is
+ * that a re-probe landing inside a platform-wide outage defers the next probe
+ * by another REPROBE_AFTER_DAYS — a fortnight of latency on healing, against
+ * an unbounded call leak. The counter still climbs either way.
  */
 function objectFailureSql(leg: 'metrics' | 'comments'): string {
   const count = `${leg}_error_count`;
@@ -155,7 +170,8 @@ function objectFailureSql(leg: 'metrics' | 'comments'): string {
        SET ${count} = p.${count} + 1,
            ${lastError} = $2,
            ${unavailable} = CASE
-             WHEN p.${unavailable} IS NULL AND p.${count} + 1 >= $3 THEN now()
+             WHEN p.${unavailable} IS NOT NULL THEN now()
+             WHEN p.${count} + 1 >= $3 THEN now()
              ELSE p.${unavailable}
            END
       FROM (SELECT id, ${unavailable} AS prev_unavailable FROM insights_posts WHERE id = $1) prev
@@ -250,7 +266,16 @@ async function recordObjectFailure(
       threshold,
     ]);
     row = res.rows[0];
-  } catch {
+  } catch (err) {
+    // Degrading to "not quarantined" is deliberate (see above), but doing it
+    // silently is not: a strike write that keeps failing — lock timeouts,
+    // encoding, a future schema drift — means quarantine never engages at all,
+    // and that is exactly the invisible-failure class this seam exists to end.
+    console.warn('[insights-sync] strike write failed', {
+      postId: input.postId,
+      leg: input.leg,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return { wasQuarantined: false, transitioned: false };
   }
   if (!row) return { wasQuarantined: false, transitioned: false };

@@ -46,6 +46,14 @@ Those run docs are **demoted to digest-only**: counted in `--digest` and
 never immediately alerted. Without this the two monitors alert on the same
 incident from opposite ends and the operator learns to ignore both.
 
+**What the suppression does NOT cover:** per-profile Hermes *gateway* keys. The
+sentinel owns provider OAuth grants; a gateway that 401s because
+`HERMES_<PROFILE>_API_SERVER_KEY` never landed is a deploy misconfiguration
+nobody else is watching. The app therefore fails that submission as
+`hermes_gateway_key_misconfigured`, with wording that deliberately avoids the
+suppressed strings, so it alerts like any other stage failure. If you ever
+widen `AUTH_SIGNATURE`, keep that message outside it.
+
 ## Arming (read before the first real run)
 
 There are ~100 historical failed run docs on the host. The **first real run**
@@ -57,6 +65,13 @@ After arming: a new fingerprint alerts once; an unresolved condition re-alerts
 every `RE_ALERT_HOURS` (6); a cleared condition that had actually been alerted
 sends one `✅ Resolved …` note. A condition that was only armed (never alerted)
 disappears quietly.
+
+Armed-at-bootstrap entries carry `"bootstrap": true` in `state.json`. That flag
+is what separates "known, deliberately quiet" from "first send failed and is
+still pending": a finding whose first `hermes send` fails (Telegram outage,
+timeout) is **retried on the next tick** instead of being silenced until it
+resolves. Entries written before the flag existed are read as bootstrap-armed,
+so upgrading in place never fans out.
 
 When Postgres is unreachable, the run-doc detector still runs and the digest
 says `db unavailable` — and DB-backed conditions are **not** resolved that tick,

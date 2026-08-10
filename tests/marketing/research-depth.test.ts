@@ -476,3 +476,78 @@ test('a coherent gateway pair submits without any auth warning', async () => {
     'no false positive when the pair is set together',
   );
 });
+
+/**
+ * ops/aries-pipeline-monitor.py demotes any last_error matching these to
+ * digest-only ("covered by hermes-auth-sentinel"). The sentinel owns provider
+ * OAuth grants and knows nothing about per-profile gateway keys, so a
+ * misconfigured-key 401 MUST NOT match — otherwise the failure that kills the
+ * whole weekly pipeline at stage 1 is the one failure nobody is paged for.
+ * Kept in sync by hand with AUTH_SIGNATURE in that file.
+ */
+const MONITOR_AUTH_SIGNATURE =
+  /provider authentication failed|token refresh failed|could not validate your refresh token|re-?authenticate|\bHTTP 401\b|\b401 unauthorized\b/i;
+
+function rejectingFetch(status: number) {
+  return async (): Promise<Response> => new Response('{"error":"unauthorized"}', {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+function errorOf(result: Awaited<ReturnType<HermesMarketingPort['runPipeline']>>) {
+  const output = (result as { output?: { error?: { code?: string; message?: string } } }).output;
+  return output?.error ?? {};
+}
+
+test('a 401 from a repointed gateway with no per-profile key fails with its own code, invisible to the monitor suppression', async () => {
+  const result = await withDataRoot(async () => {
+    const doc = weeklyDoc('job_research_401_misconfig');
+    const { queryable } = makePerfDb();
+    const port = makePort(rejectingFetch(401), queryable, {
+      HERMES_RESEARCH_GATEWAY_URL: 'http://host.docker.internal:8651',
+    });
+    return port.runPipeline({ jobId: doc.job_id, doc, argsJson: '{}', timeoutMs: 5000, maxStdoutBytes: 1000 });
+  });
+
+  const error = errorOf(result);
+  assert.equal(error.code, 'hermes_gateway_key_misconfigured');
+  const message = String(error.message ?? '');
+  assert.ok(
+    message.includes('HERMES_RESEARCH_API_SERVER_KEY'),
+    `names the var the operator must set, got: ${message}`,
+  );
+  assert.ok(
+    !MONITOR_AUTH_SIGNATURE.test(message) && !MONITOR_AUTH_SIGNATURE.test(String(error.code)),
+    `must not match the monitor's provider-auth suppression, got: ${message}`,
+  );
+});
+
+test('a 401 on a coherent gateway pair keeps the generic (sentinel-owned) failure', async () => {
+  const result = await withDataRoot(async () => {
+    const doc = weeklyDoc('job_research_401_coherent');
+    const { queryable } = makePerfDb();
+    const port = makePort(rejectingFetch(401), queryable, {
+      HERMES_RESEARCH_GATEWAY_URL: 'http://host.docker.internal:8651',
+      HERMES_RESEARCH_API_SERVER_KEY: 'research-key',
+    });
+    return port.runPipeline({ jobId: doc.job_id, doc, argsJson: '{}', timeoutMs: 5000, maxStdoutBytes: 1000 });
+  });
+
+  const error = errorOf(result);
+  assert.equal(error.code, 'hermes_gateway_request_failed');
+  assert.match(String(error.message ?? ''), /HTTP 401/);
+});
+
+test('a non-401 rejection on a misconfigured pair keeps the generic failure', async () => {
+  const result = await withDataRoot(async () => {
+    const doc = weeklyDoc('job_research_500_misconfig');
+    const { queryable } = makePerfDb();
+    const port = makePort(rejectingFetch(500), queryable, {
+      HERMES_RESEARCH_GATEWAY_URL: 'http://host.docker.internal:8651',
+    });
+    return port.runPipeline({ jobId: doc.job_id, doc, argsJson: '{}', timeoutMs: 5000, maxStdoutBytes: 1000 });
+  });
+
+  assert.equal(errorOf(result).code, 'hermes_gateway_request_failed');
+});

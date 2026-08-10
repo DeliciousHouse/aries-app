@@ -136,9 +136,13 @@ export function quarantineThresholdFor(input: { permanent: boolean; postSpecific
 
 /**
  * Would this failure (the `errorCount + 1`-th) cross the threshold?
- * Mirrors the CASE in the dispatcher's atomic UPDATE; the dispatcher does not
- * call this on the write path (the database decides, atomically) — it exists so
- * the rule is testable and so callers can reason about convergence.
+ * Mirrors the ENTRY arm of the CASE in the dispatcher's atomic UPDATE (the
+ * NOT-yet-quarantined case). The CASE carries one further arm this function
+ * has no opinion on: an object that is ALREADY quarantined re-stamps its
+ * watermark on a failed re-probe, so the 14-day window restarts instead of
+ * staying permanently expired. The dispatcher does not call this on the write
+ * path (the database decides, atomically) — it exists so the rule is testable
+ * and so callers can reason about convergence.
  */
 export function shouldQuarantine(input: QuarantineDecision): boolean {
   if (!input.postSpecific) return false;

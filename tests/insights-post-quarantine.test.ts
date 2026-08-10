@@ -144,12 +144,60 @@ test('a failure is ONE atomic UPDATE: increment, stamp, and threshold test in th
 
   assert.match(update!.text, /metrics_last_error\s*=\s*\$2/);
   assert.match(update!.text, /metrics_unavailable_at = CASE/);
-  assert.match(update!.text, /p\.metrics_unavailable_at IS NULL AND p\.metrics_error_count\s*\+\s*1\s*>=\s*\$3/);
+  assert.match(update!.text, /p\.metrics_error_count\s*\+\s*1\s*>=\s*\$3/);
   assert.match(update!.text, /RETURNING/);
   // Threshold is computed in JS from isPermanentObjectError and bound as $3.
   assert.equal(update!.params[0], 10);
   assert.match(String(update!.params[1]), /#100/);
   assert.equal(update!.params[2], QUARANTINE_STRIKES_PERMANENT);
+});
+
+test('a FAILED re-probe re-stamps the quarantine clock (otherwise the object is re-selected forever)', async () => {
+  // The bug this pins: the watermark used to be written only `WHEN ... IS NULL`,
+  // so a failed re-probe left the ORIGINAL quarantine date in place. Once that
+  // date aged past REPROBE_AFTER_DAYS the notQuarantined predicate was
+  // permanently true and the dead object came back on EVERY 30-minute tick —
+  // silently, because was_quarantined suppresses its legError.
+  const recorded: Recorded[] = [];
+  const adapter: InsightsAdapter = {
+    ...baseAdapter,
+    fetchPostMetrics: async () => { throw new Error(PERMANENT_ERROR); },
+    fetchComments: async () => { throw new Error(PERMANENT_ERROR); },
+  };
+  // An object quarantined long enough ago that the re-probe window re-admitted
+  // it: this run IS the re-probe, and it failed.
+  const longAgo = new Date(Date.now() - (REPROBE_AFTER_DAYS + 3) * 86_400_000).toISOString();
+  const result = await syncAccountForTenant(42, 7, 'interval', {
+    pool: fakePool(recorded, {
+      metricsFailure:  { error_count: 12, unavailable_at: longAgo, was_quarantined: true },
+      commentsFailure: { error_count: 12, unavailable_at: longAgo, was_quarantined: true },
+    }),
+    resolveAdapter: () => adapter,
+  });
+
+  for (const leg of ['metrics', 'comments'] as const) {
+    const update = recorded.find((r) => new RegExp(`${leg}_error_count\\s*=\\s*p\\.${leg}_error_count\\s*\\+\\s*1`, 'i').test(r.text));
+    assert.ok(update, `the ${leg} failure UPDATE ran`);
+    const sql = update!.text;
+    const restamp = sql.search(new RegExp(`WHEN p\\.${leg}_unavailable_at IS NOT NULL THEN now\\(\\)`, 'i'));
+    const cross = sql.search(new RegExp(`WHEN p\\.${leg}_error_count\\s*\\+\\s*1\\s*>=\\s*\\$3 THEN now\\(\\)`, 'i'));
+    assert.ok(restamp > 0, `the ${leg} CASE re-stamps an already-quarantined object`);
+    assert.ok(cross > 0, `the ${leg} CASE still stamps on crossing the threshold`);
+    assert.ok(
+      restamp < cross,
+      `the re-stamp arm must come FIRST — a later arm never runs for a quarantined row (${leg})`,
+    );
+    // The old shape. If this ever comes back the object leaks ~96 calls/day.
+    assert.doesNotMatch(
+      sql,
+      new RegExp(`p\\.${leg}_unavailable_at IS NULL AND`, 'i'),
+      `the ${leg} stamp must not be gated on the watermark being NULL`,
+    );
+  }
+
+  // The re-probe stays silent and uncounted: it is not a new quarantine.
+  assert.equal(result.quarantined, 0, 'a re-probe failure is not a new 0→quarantined transition');
+  assert.equal(result.status, 'ok', 'an already-quarantined object must not re-poison the run status');
 });
 
 test('an unrecognised error with no sibling success binds the never-quarantine threshold', async () => {
@@ -308,10 +356,24 @@ test('a failure-write outage degrades to today behaviour rather than swallowing 
     ...baseAdapter,
     fetchPostMetrics: async () => { throw new Error(PERMANENT_ERROR); },
   };
-  const result = await syncAccountForTenant(42, 7, 'interval', { pool: brokenPool, resolveAdapter: () => adapter });
+  const warnings: string[] = [];
+  const previousWarn = console.warn;
+  console.warn = (...args: unknown[]) => { warnings.push(args.map((a) => JSON.stringify(a) ?? String(a)).join(' ')); };
+  let result;
+  try {
+    result = await syncAccountForTenant(42, 7, 'interval', { pool: brokenPool, resolveAdapter: () => adapter });
+  } finally {
+    console.warn = previousWarn;
+  }
   assert.equal(result.status, 'partial');
   assert.match(String(result.errorMessage), /fetchPostMetrics/);
   assert.equal(result.quarantined, 0);
+  // …and it says so. A silently failing strike write means quarantine never
+  // engages, which is invisible from every other signal this module emits.
+  const strikeWarning = warnings.find((w) => w.includes('strike write failed'));
+  assert.ok(strikeWarning, `the failed strike write must be logged, got: ${JSON.stringify(warnings)}`);
+  assert.match(strikeWarning!, /deadlock detected/, 'the underlying error is carried through');
+  assert.match(strikeWarning!, /metrics/, 'the leg is named');
 });
 
 // ── Account-level gating ────────────────────────────────────────────────────

@@ -73,6 +73,12 @@ export const PERF_MAX_CHARS = 4800;
  *
  * Index support: idx_insights_posts_tenant_published serves the outer scan;
  * the (tenant_id, post_id, date) PK serves the LATERAL.
+ *
+ * The insights_accounts join is the contract every production reader keeps
+ * (init-db.js: "every production reader filters disabled_at IS NULL"). Without
+ * it a tenant that reconnected Meta to a different Page mid-window keeps the
+ * orphaned account's posts in the pool, and the dead Page's content can be
+ * handed to the strategist as this week's "top post".
  */
 export const PERF_POSTS_SQL = `
   WITH per_post AS (
@@ -93,6 +99,9 @@ export const PERF_POSTS_SQL = `
       COALESCE(m.shares, 0)         AS shares,
       m.reach                       AS reach
     FROM insights_posts p
+    JOIN insights_accounts a
+      ON a.id = p.account_id
+     AND a.disabled_at IS NULL
     JOIN LATERAL (
       SELECT likes, comments_count, shares, saves, reach
       FROM insights_post_metrics_daily d
@@ -132,19 +141,28 @@ export const PERF_POSTS_SQL = `
  * The 28-day window is not week-aligned, so this can return up to 5 buckets
  * per platform (a partial leading week). The formatter renders only the
  * PERF_FOLLOWER_WEEKS most recent ones.
+ *
+ * Disabled accounts are excluded for the same reason as PERF_POSTS_SQL, and it
+ * bites harder here: a reconnect to a different Page leaves BOTH the orphaned
+ * and the new account reporting inside the window, and the outer SUM adds
+ * their `followers_end` together — the strategist would be told the audience
+ * roughly doubled in the week the tenant merely reconnected.
  */
 export const PERF_FOLLOWERS_SQL = `
   WITH windowed AS (
     SELECT
-      account_id,
-      platform,
-      date,
-      followers,
-      followers_delta,
-      (date_trunc('week', date::timestamp))::date AS week_start
-    FROM insights_account_metrics_daily
-    WHERE tenant_id = $1
-      AND date >= (now() AT TIME ZONE 'UTC')::date - $2::int
+      d.account_id,
+      d.platform,
+      d.date,
+      d.followers,
+      d.followers_delta,
+      (date_trunc('week', d.date::timestamp))::date AS week_start
+    FROM insights_account_metrics_daily d
+    JOIN insights_accounts a
+      ON a.id = d.account_id
+     AND a.disabled_at IS NULL
+    WHERE d.tenant_id = $1
+      AND d.date >= (now() AT TIME ZONE 'UTC')::date - $2::int
   ), per_account_week AS (
     SELECT
       account_id,

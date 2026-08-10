@@ -1063,10 +1063,30 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         payload_keys: Object.keys(payload),
         idempotency_key_present: idempotencyKey.length > 0,
       });
-      const message = `Hermes gateway returned HTTP ${response.status} on /v1/runs.`;
-      markSubmissionFailed(run.aries_run_id, 'hermes_gateway_request_failed', message);
+      // A 401 from a repointed per-profile gateway whose per-profile key is
+      // missing is OUR misconfiguration, not a provider-auth outage — and the
+      // two are indistinguishable to ops/aries-pipeline-monitor.py, which
+      // suppresses any last_error matching "HTTP 401" as "covered by
+      // hermes-auth-sentinel". The sentinel owns provider OAuth grants; it
+      // knows nothing about per-profile gateway keys, so the generic wording
+      // would send this failure — which kills the weekly pipeline at stage 1
+      // for every tenant on a routine `docker compose up` — straight into a
+      // digest count with nobody paged. Give it its own code and wording that
+      // deliberately avoids the suppressed strings.
+      const keyMisconfigured = response.status === 401 && gatewayAuthWarning !== null;
+      const failureCode = keyMisconfigured
+        ? 'hermes_gateway_key_misconfigured'
+        : 'hermes_gateway_request_failed';
+      const message = keyMisconfigured
+        ? `Hermes ${targetProfile} gateway rejected the submission: `
+          + `${PROFILE_GATEWAY_ENV[targetProfile].url} points at a gateway that is not the default, `
+          + `but ${PROFILE_GATEWAY_ENV[targetProfile].key} is empty, so the submission was signed with `
+          + `the default gateway's key. Set ${PROFILE_GATEWAY_ENV[targetProfile].key} in the deployment `
+          + `environment, or blank ${PROFILE_GATEWAY_ENV[targetProfile].url}.`
+        : `Hermes gateway returned HTTP ${response.status} on /v1/runs.`;
+      markSubmissionFailed(run.aries_run_id, failureCode, message);
       return gatewayErrorResult(
-        'hermes_gateway_request_failed',
+        failureCode,
         message,
         { status: response.status, aries_run_id: run.aries_run_id, body: responseBody.slice(0, 200) },
         workflowKey,

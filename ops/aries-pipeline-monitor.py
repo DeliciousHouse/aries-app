@@ -119,6 +119,14 @@ FAILED_STATUSES = {"failed", "failed_stale"}
 #   "Hermes gateway returned HTTP 401 on /v1/runs."
 # These are demoted to DIGEST-ONLY: counted in --digest and --status, never
 # immediately alerted.
+#
+# WHAT THIS MUST NOT SWALLOW: a per-profile Hermes GATEWAY key that never
+# landed also 401s (every research submission, every tenant, from a routine
+# `docker compose up`), and the sentinel does not own that — it owns provider
+# OAuth grants. The app gives that failure its own code and wording
+# (`hermes_gateway_key_misconfigured`, no "HTTP 401" in the message) precisely
+# so it lands outside this regex. Keep it that way if you ever widen these
+# alternatives.
 # ---------------------------------------------------------------------------
 AUTH_SIGNATURE = re.compile(
     r"provider authentication failed"
@@ -140,9 +148,10 @@ class Config:
     pg_container: str = PG_CONTAINER
     db_name: str = DB_NAME
     dry_run: bool = False
-    # Self-test hooks. Production never sets either.
+    # Self-test hooks. Production never sets any of these.
     psql_stub = None          # callable(sql) -> list[list[str]] | None
     capture_sends: bool = False
+    send_outcome = None       # callable(text) -> bool; only read when capture_sends
 
 
 CFG = Config()
@@ -542,7 +551,12 @@ def format_group(kind: str, findings: list) -> str:
 def send_telegram(text: str) -> bool:
     """`hermes send --to <target>` over stdin. Never raises."""
     if CFG.capture_sends:
+        # The self-test captures and STOPS here. Falling through would spawn the
+        # real `hermes send` and deliver every fixture alert to the operator's
+        # Telegram — a self-test must not page anyone. `send_outcome` lets a
+        # scenario simulate a delivery failure.
         SENT.append(text)
+        return CFG.send_outcome(text) if CFG.send_outcome else True
     if CFG.dry_run:
         print(f"DRY-RUN would send:\n{text}\n")
         return True
@@ -607,7 +621,10 @@ def tick(reference=None) -> int:
     # state.json re-arms rather than re-alerts, by design.
     if not state.get("armed_at"):
         for fp, f in present.items():
-            seen[fp] = {"kind": f.kind, "first_at": iso(ref), "last_alert_at": None, "label": f.label}
+            seen[fp] = {
+                "kind": f.kind, "first_at": iso(ref), "last_alert_at": None,
+                "label": f.label, "bootstrap": True,
+            }
         state["armed_at"] = iso(ref)
         state["last_tick_at"] = iso(ref)
         save_state(state)
@@ -625,12 +642,27 @@ def tick(reference=None) -> int:
         prev = seen.get(fp)
         if prev is None:
             to_alert.setdefault(f.kind, []).append(f)
-            seen[fp] = {"kind": f.kind, "first_at": iso(ref), "last_alert_at": None, "label": f.label}
+            seen[fp] = {
+                "kind": f.kind, "first_at": iso(ref), "last_alert_at": None,
+                "label": f.label, "bootstrap": False,
+            }
             continue
         prev["label"] = f.label
         last_alert = parse_iso(prev.get("last_alert_at"))
         if last_alert is None:
-            # Armed at bootstrap and still true: known, deliberately quiet.
+            # last_alert_at is None for two very different reasons, and telling
+            # them apart is the difference between "deliberately quiet" and
+            # "permanently silenced":
+            #   • bootstrap → armed as pre-existing, known, never to alert;
+            #   • not bootstrap → the fingerprint was recorded on detection but
+            #     its FIRST send failed (Telegram outage, `hermes` timeout).
+            # Without the distinction a transient outage at the moment of first
+            # detection silences that condition until it resolves — in the
+            # alerting tool. Entries written by an older version carry no flag;
+            # they are all bootstrap-armed, so absent defaults to True.
+            if prev.get("bootstrap", True):
+                continue
+            to_alert.setdefault(f.kind, []).append(f)   # send still pending — retry
             continue
         if ref - last_alert >= dt.timedelta(hours=RE_ALERT_HOURS):
             to_alert.setdefault(f.kind, []).append(f)
@@ -764,10 +796,12 @@ def scenario(fn):
 
 
 @contextlib.contextmanager
-def fixture(docs=None, psql=None, armed=True):
+def fixture(docs=None, psql=None, armed=True, send_outcome=None):
     """Throwaway state dir + fixture run docs + a stubbed psql, with sends
-    captured instead of delivered."""
-    prev = (CFG.data_root, CFG.state_dir, CFG.psql_stub, CFG.capture_sends, CFG.dry_run)
+    captured instead of delivered. `send_outcome` (callable(text) -> bool)
+    simulates delivery failures."""
+    prev = (CFG.data_root, CFG.state_dir, CFG.psql_stub, CFG.capture_sends, CFG.dry_run,
+            CFG.send_outcome)
     tmp = Path(tempfile.mkdtemp(prefix="pipemon-selftest-"))
     CFG.data_root = tmp / "data"
     CFG.state_dir = tmp / "state"
@@ -778,6 +812,7 @@ def fixture(docs=None, psql=None, armed=True):
     CFG.psql_stub = psql if psql is not None else (lambda sql: [])
     CFG.capture_sends = True
     CFG.dry_run = False
+    CFG.send_outcome = send_outcome
     SENT.clear()
     if armed:
         st = _fresh_state()
@@ -787,7 +822,8 @@ def fixture(docs=None, psql=None, armed=True):
     try:
         yield tmp
     finally:
-        CFG.data_root, CFG.state_dir, CFG.psql_stub, CFG.capture_sends, CFG.dry_run = prev
+        (CFG.data_root, CFG.state_dir, CFG.psql_stub, CFG.capture_sends, CFG.dry_run,
+         CFG.send_outcome) = prev
         SENT.clear()
 
 
@@ -831,6 +867,53 @@ def new_failure_alerts_once_then_dedupes():
 
 
 @scenario
+def failed_first_send_retries_instead_of_silencing_forever():
+    """A finding whose FIRST send fails must be retried on the next tick.
+
+    The fingerprint is recorded with last_alert_at=None BEFORE the send, and
+    None is also how a bootstrap-armed condition is marked "known, stay quiet".
+    Conflating the two meant one Telegram timeout at the moment of detection
+    silenced that condition until it resolved — in the alerting tool."""
+    docs = [failed_doc("mkt_flaky", 71, "hermes_run_failed", "Hermes run failed without an error message.")]
+    outages = {"n": 1}
+
+    def flaky(_text):
+        if outages["n"] > 0:
+            outages["n"] -= 1
+            return False
+        return True
+
+    with fixture(docs=docs, send_outcome=flaky):
+        tick()
+        assert len(SENT) == 1, f"the first send was attempted, got {SENT}"
+        SENT.clear()
+        tick()
+        assert len(SENT) == 1, f"the failed first send must be retried, got {SENT}"
+        assert "tenant 71" in SENT[0], SENT[0]
+        SENT.clear()
+        tick()
+        assert SENT == [], f"once delivered it dedupes normally, got {SENT}"
+
+
+@scenario
+def legacy_state_without_bootstrap_flag_stays_quiet():
+    """Migration guard: entries written before the bootstrap flag existed carry
+    last_alert_at=None and no flag. They are all bootstrap-armed — treating them
+    as pending sends would alert on ~100 historical failures at upgrade."""
+    docs = [failed_doc("mkt_old", 15, "hermes_run_failed", "boom")]
+    with fixture(docs=docs, armed=False):
+        tick()          # arms, one line
+        SENT.clear()
+        path = CFG.state_dir / "state.json"
+        state = json.loads(path.read_text(encoding="utf-8"))
+        for entry in state["seen"].values():
+            entry.pop("bootstrap", None)          # roll back to the old shape
+        atomic_write_json(path, state)
+        tick()
+        assert SENT == [], f"a legacy armed entry must stay quiet, got {SENT}"
+
+
+@scenario
 def resolved_note_after_alert():
     docs = [failed_doc("mkt_gone", 15, "hermes_run_failed", "boom")]
     with fixture(docs=docs) as tmp:
@@ -867,6 +950,30 @@ def provider_auth_failures_are_digest_only():
         assert "tenant 69" not in body, "gateway 401 doc leaked into an alert: " + body
         report = build_report()
         assert "provider-auth failures: 2 (covered by hermes-auth-sentinel)" in report, report
+
+
+@scenario
+def gateway_key_misconfiguration_is_not_suppressed():
+    """Cross-file pin. `docker compose up` now repoints research to :8651, so a
+    missing HERMES_RESEARCH_API_SERVER_KEY 401s stage 1 for every tenant. That
+    is a deploy misconfiguration the sentinel does not own, so it must ALERT —
+    which only holds while the app's wording (backend/marketing/ports/hermes.ts,
+    the !response.ok branch) stays outside AUTH_SIGNATURE."""
+    doc = failed_doc(
+        "mkt_keycfg", 15, "hermes_gateway_key_misconfigured",
+        "Hermes aries-research gateway rejected the submission: "
+        "HERMES_RESEARCH_GATEWAY_URL points at a gateway that is not the default, but "
+        "HERMES_RESEARCH_API_SERVER_KEY is empty, so the submission was signed with the "
+        "default gateway's key. Set HERMES_RESEARCH_API_SERVER_KEY in the deployment "
+        "environment, or blank HERMES_RESEARCH_GATEWAY_URL.",
+        stage="research",
+    )
+    assert not AUTH_SIGNATURE.search(doc["last_error"]["message"]), \
+        "the app's misconfiguration wording drifted back into the suppression regex"
+    with fixture(docs=[doc]):
+        tick()
+        assert len(SENT) == 1, f"a gateway-key misconfiguration must alert, got {SENT}"
+        assert "tenant 15" in SENT[0], SENT[0]
 
 
 @scenario
