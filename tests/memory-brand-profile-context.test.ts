@@ -52,17 +52,14 @@ test('the two queries run concurrently, not one after the other', async () => {
   const { client } = fakeClient(async () => {
     inFlight += 1;
     maxInFlight = Math.max(maxInFlight, inFlight);
-    await new Promise((r) => setTimeout(r, 20));
+    await Promise.resolve();
     inFlight -= 1;
     return 'something';
   });
   const orchestrator = createMemoryOrchestrator(client);
-  const started = Date.now();
   await orchestrator.loadBrandProfileContext(CTX, { tokenBudget: 1024 });
-  const elapsed = Date.now() - started;
 
   assert.equal(maxInFlight, 2, 'both dialectic calls must be in flight together');
-  assert.ok(elapsed < 40, `sequential execution detected (${elapsed}ms)`);
 });
 
 test('one peer failing never costs the other (per-call fail-open)', async () => {
