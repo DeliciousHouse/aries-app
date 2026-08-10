@@ -227,6 +227,21 @@ test('all four read-api endpoints check the cache before taking a pooled client'
   }
 });
 
+test('EVERY cached endpoint documents its freshness semantics', () => {
+  // The card requires this per endpoint, not per module: a cached endpoint
+  // whose staleness nobody wrote down is an argument waiting to happen.
+  for (const [section, file] of SECTION_HANDLERS) {
+    assert.match(read(...file.split('/')), /FRESHNESS/, `${section} undocumented`);
+  }
+  // read-api serves FOUR endpoints from one file, so one note is not enough.
+  const readApi = read('backend', 'insights', 'read-api.ts');
+  assert.equal(
+    (readApi.match(/FRESHNESS/g) ?? []).length,
+    4,
+    'each of summary/posts/account-metrics/comments needs its own note',
+  );
+});
+
 test('a confirmed reply invalidates the conversations cache', () => {
   // Without this the operator watches their OWN reply not appear for up to 60s
   // and reasonably concludes it failed. Invalidating on the write is what makes

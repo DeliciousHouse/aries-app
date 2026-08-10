@@ -63,7 +63,11 @@ export const CURRENT_FOLLOWERS_SUM_SQL =
 // ── Summary ───────────────────────────────────────────────────────────────────
 
 /**
- * GET /api/insights/summary
+ * GET /api/insights/summary *
+ * FRESHNESS (S7-3/AA-121): 60s micro-cache. These are whole-period aggregates
+ * over daily account rows that the sync worker refreshes on a 30-minute cadence,
+ * so the underlying data cannot change faster than the cache expires. A minute
+ * of lag here is strictly finer-grained than the data itself.
  *
  * Query params:
  *   platform  — optional platform filter (youtube | instagram | facebook | …)
@@ -156,7 +160,11 @@ export async function handleGetInsightsSummary(
 // ── Posts ─────────────────────────────────────────────────────────────────────
 
 /**
- * GET /api/insights/posts
+ * GET /api/insights/posts *
+ * FRESHNESS (S7-3/AA-121): 60s micro-cache, keyed on platform+limit+offset so
+ * paging never serves another page's body. Per-post metrics are lifetime
+ * snapshots written once per sync; a newly published post appears at most 60s
+ * late, which is well inside the sync interval that would surface it anyway.
  *
  * Returns posts with their aggregated lifetime metrics.
  *
@@ -267,7 +275,10 @@ export async function handleGetInsightsPosts(
 // ── Account metrics (time series) ─────────────────────────────────────────────
 
 /**
- * GET /api/insights/account-metrics
+ * GET /api/insights/account-metrics *
+ * FRESHNESS (S7-3/AA-121): 60s micro-cache. A daily time series, keyed on
+ * platform+days; the newest point is a whole day's bucket, so sub-minute
+ * freshness is meaningless at this grain.
  *
  * Returns daily time-series data — one row per (date, platform).
  * Used to render charts on the analytics dashboard.
@@ -364,7 +375,12 @@ export async function handleGetInsightsAccountMetrics(
 // ── Comments ──────────────────────────────────────────────────────────────────
 
 /**
- * GET /api/insights/comments
+ * GET /api/insights/comments *
+ * FRESHNESS (S7-3/AA-121): 60s micro-cache — the shortest window allowed,
+ * because this list carries reply state. It is INVALIDATED for the tenant when a
+ * reply succeeds (see the native-reply handler), so an operator never watches
+ * their own reply fail to appear; only newly ARRIVED comments can lag, by up to
+ * 60s.
  *
  * Returns recent comments with the title of the post they belong to.
  *
