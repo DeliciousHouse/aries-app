@@ -21,6 +21,7 @@ Connect your social platforms, generate a full week of content, review and appro
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/DeliciousHouse/aries-app/badge)](https://scorecard.dev/viewer/?uri=github.com/DeliciousHouse/aries-app)
 [![GitHub Stars](https://img.shields.io/github/stars/DeliciousHouse/aries-app?style=social)](https://github.com/DeliciousHouse/aries-app/stargazers)
 
 </div>
@@ -134,7 +135,7 @@ docker network create docker-stack || true
 docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml up --build -d aries-app
 ```
 
-The base compose file does **not** provision PostgreSQL or Hermes — point the `DB_*` values in `.env` at a database the container can reach, or add the self-host overlay (`-f docker-compose.selfhost.yml`, with `--profile hermes` for the bundled gateway) to run them in the same stack. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for production deployment.
+The base compose file does **not** provision PostgreSQL — point the `DB_*` values in `.env` at a database the container can reach. Its digest-pinned Hermes sidecar is opt-in through `--profile hermes-sidecar`; existing deployments can keep using an external `HERMES_GATEWAY_URL`. The one-line self-host path still uses `docker-compose.selfhost.yml` and its `--profile hermes` gateway. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for production deployment.
 
 ## 📚 Documentation
 

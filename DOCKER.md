@@ -86,6 +86,11 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml build
 - `HERMES_API_SERVER_KEY` (outbound credential Aries sends to Hermes `/v1/runs`)
 - `INTERNAL_API_SECRET` (required for Hermes callbacks)
 - `HERMES_SESSION_KEY`
+- `ARIES_HERMES_NETWORK_HEALTHCHECK_ENABLED` (optional; default `1` — make the
+  app container unhealthy when the configured Hermes `/health` is unreachable;
+  the installer sets `0` for an explicit `--no-hermes` deployment)
+- `ARIES_HERMES_CLI_COMPAT_ENABLED` (temporary; default `1` — retains only the
+  in-image `hermes kanban gc` maintenance path during sidecar cutover)
 - `HERMES_RUN_TIMEOUT_MS` (optional general workflow polling timeout)
 - `HERMES_POLL_INTERVAL_MS` (optional general workflow polling interval)
 - `DB_HOST`
@@ -126,6 +131,31 @@ Aries submits Hermes runs to `${HERMES_GATEWAY_URL}/v1/runs` with
 The general Hermes workflow adapter
 currently supports the explicitly wired Hermes workflow set; marketing jobs use
 the separate marketing execution port and advance through async callbacks.
+
+### Optional production Hermes sidecar
+
+`docker-compose.yml` includes `aries-hermes` behind the `hermes-sidecar` profile.
+It uses the official Hermes Agent v0.20.0 (`v2026.8.3`) image pinned by manifest
+digest, mounts `${ARIES_HERMES_DATA_ROOT:-/home/node/.hermes}` at `/opt/data`, and
+shares the `docker_stack` network with Aries. Existing external gateways remain
+the default until an operator activates the profile.
+
+For a controlled cutover, first stop the host Hermes gateway that owns the same
+data directory, then persist all four stage URLs in the Compose `.env` and start
+the sidecar. The exports below are the equivalent one-invocation smoke command:
+
+```bash
+export HERMES_GATEWAY_URL=http://aries-hermes:8642
+export HERMES_RESEARCH_GATEWAY_URL=http://aries-hermes:8642
+export HERMES_STRATEGIST_GATEWAY_URL=http://aries-hermes:8642
+export HERMES_CONTENT_GATEWAY_URL=http://aries-hermes:8642
+docker compose --profile hermes-sidecar up -d aries-hermes aries-app
+```
+
+Do not run host and container gateways concurrently against the same Hermes data
+directory. Verify `aries-hermes` and `aries-app` are healthy before setting
+`ARIES_HERMES_CLI_COMPAT_ENABLED=0`; the follow-up activation task owns that
+production switch and rollback.
 
 ### Weekly social content operational flow
 
@@ -337,13 +367,52 @@ COMPOSIO_INSTAGRAM_AUTH_CONFIG_ID=<id>
 | `COMPOSIO_API_KEY` | yes | yes | same key both places |
 | `COMPOSIO_*_AUTH_CONFIG_ID` | yes (all 9 providers) | 6: `DEFAULT`, `FACEBOOK`, `X`, `YOUTUBE`, `REDDIT`, `LINKEDIN` | the app owns the connect flow; the worker gets the providers it can pull insights for. Note the worker has **no** `INSTAGRAM` or `METAADS` entry — IG insights resolve through the Facebook/default config |
 | `ANALYTICS_PROVIDER` | — | yes | defaults to `composio` |
-| `HERMES_GATEWAY_URL` / `HERMES_API_SERVER_KEY` | yes | yes | the worker needs them for comment classification |
+| `HERMES_GATEWAY_URL` / `HERMES_API_SERVER_KEY` | yes | yes | the worker needs them for comment classification — **and, when the URL is host-scoped, the `extra_hosts` mapping below** |
 | `ARIES_COMMENT_CLASSIFICATION_ENABLED` | — | yes (**ships `1`**) | see the trap below |
 | `ARIES_INSIGHTS_SWEEP_GRACE_MINUTES` | — | yes (default `60`) | stranded `running` sync-run sweep |
 | `COMPOSIO_FACEBOOK_POST_INSIGHTS_ACTION` | — | optional | verified code default; set only to override |
 
 `DB_POOL_MAX` is pinned to `3` on the sidecar — see the connection-budget
 section above before changing it.
+
+### The host-gateway trap
+
+The Hermes gateway is a **host process** listening on `0.0.0.0:8642` — not a
+compose service. `HERMES_GATEWAY_URL` is therefore
+`http://host.docker.internal:8642`, and that name only resolves inside a
+container that carries
+
+```yaml
+extra_hosts:
+  - "host.docker.internal:host-gateway"
+```
+
+That mapping was declared on `aries-app` only. `aries-insights-sync-worker` got
+the gateway URL and key but not the mapping, so every comment-classification
+call from the sidecar failed with `getaddrinfo ENOTFOUND host.docker.internal`
+— logged as `classifyComments: unreachable (fetch failed)` on every tick that
+had unclassified comments, and **zero** rows in
+`insights_comment_classifications`, ever. Fixed 2026-08-10; the env pair and the
+mapping must be kept together on any service that talks to a host-scoped
+gateway.
+
+**Verification signal.** The worker emits one NDJSON line per container start:
+
+```bash
+docker logs --since 3m aries-insights-sync-worker | grep insights_classifier_preflight
+```
+
+| field | meaning |
+| --- | --- |
+| `"ok":true` | reachable (any HTTP response counts, including 404) |
+| `"reason":"unreachable"` | DNS/network — check `extra_hosts` and that the gateway is listening |
+| `"reason":"unauthorized"` | reached it; the worker's `HERMES_API_SERVER_KEY` does not match the gateway's |
+| `"reason":"not_configured"` | URL or key missing from this service's env |
+| `"reason":"disabled"` | `ARIES_COMMENT_CLASSIFICATION_ENABLED` is off |
+
+The probe is a single bounded GET, non-fatal, and never blocks the first tick.
+Every `unreachable` failure detail — preflight or live — now also names the
+gateway `host:port` it could not reach.
 
 ### The empty-default trap
 

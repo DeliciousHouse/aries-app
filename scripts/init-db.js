@@ -1091,18 +1091,18 @@ async function initDb() {
       -- before the network publish so a crash mid-publish leaves a reclaimable
       -- row rather than a false 'dispatched'. The parent dispatch_status is a
       -- rollup derived from the per-platform scheduled_post_dispatches rows.
-      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dispatch_status TEXT NOT NULL DEFAULT 'pending' CHECK (dispatch_status IN ('pending','in_flight','dispatched','failed','manual_reconciliation'));
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dispatch_status TEXT NOT NULL DEFAULT 'pending' CHECK (dispatch_status IN ('pending','in_flight','dispatched','failed','dead_letter','manual_reconciliation'));
       DO $constraint$
       BEGIN
         IF NOT EXISTS (
           SELECT 1 FROM pg_constraint
            WHERE conrelid = 'scheduled_posts'::regclass
              AND conname = 'scheduled_posts_dispatch_status_check'
-             AND position('manual_reconciliation' in pg_get_constraintdef(oid)) > 0
+             AND position('dead_letter' in pg_get_constraintdef(oid)) > 0
         ) THEN
           ALTER TABLE scheduled_posts DROP CONSTRAINT IF EXISTS scheduled_posts_dispatch_status_check;
           ALTER TABLE scheduled_posts ADD CONSTRAINT scheduled_posts_dispatch_status_check
-            CHECK (dispatch_status IN ('pending','in_flight','dispatched','failed','manual_reconciliation'));
+            CHECK (dispatch_status IN ('pending','in_flight','dispatched','failed','dead_letter','manual_reconciliation'));
         END IF;
       END $constraint$;
       ALTER TABLE scheduled_posts
@@ -1128,6 +1128,8 @@ async function initDb() {
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dispatched_at TIMESTAMPTZ;
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS error_at TIMESTAMPTZ;
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS error_message TEXT;
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS failure_class TEXT;
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dead_lettered_at TIMESTAMPTZ;
       -- Retry backoff marker: a retryable dispatch failure sets this into the
       -- future and the worker's due-rows scan skips the row until it passes.
       -- NULL = no backoff (legacy behavior). Prevents the 60s-cadence retry
@@ -1150,11 +1152,14 @@ async function initDb() {
         id BIGSERIAL PRIMARY KEY,
         scheduled_post_id BIGINT NOT NULL REFERENCES scheduled_posts(id) ON DELETE CASCADE,
         platform TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','in_flight','dispatched','failed','manual_reconciliation')),
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','in_flight','dispatched','failed','dead_letter','manual_reconciliation')),
         platform_post_id TEXT,
         dispatched_at TIMESTAMPTZ,
         error_at TIMESTAMPTZ,
         error_message TEXT,
+        failure_class TEXT,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        dead_lettered_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         UNIQUE (scheduled_post_id, platform)
@@ -1164,17 +1169,20 @@ async function initDb() {
       -- was part of the CREATE TABLE definition.
       ALTER TABLE scheduled_post_dispatches
         ADD COLUMN IF NOT EXISTS platform_post_id TEXT;
+      ALTER TABLE scheduled_post_dispatches ADD COLUMN IF NOT EXISTS failure_class TEXT;
+      ALTER TABLE scheduled_post_dispatches ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE scheduled_post_dispatches ADD COLUMN IF NOT EXISTS dead_lettered_at TIMESTAMPTZ;
       DO $constraint$
       BEGIN
         IF NOT EXISTS (
           SELECT 1 FROM pg_constraint
            WHERE conrelid = 'scheduled_post_dispatches'::regclass
              AND conname = 'scheduled_post_dispatches_status_check'
-             AND position('manual_reconciliation' in pg_get_constraintdef(oid)) > 0
+             AND position('dead_letter' in pg_get_constraintdef(oid)) > 0
         ) THEN
           ALTER TABLE scheduled_post_dispatches DROP CONSTRAINT IF EXISTS scheduled_post_dispatches_status_check;
           ALTER TABLE scheduled_post_dispatches ADD CONSTRAINT scheduled_post_dispatches_status_check
-            CHECK (status IN ('pending','in_flight','dispatched','failed','manual_reconciliation'));
+            CHECK (status IN ('pending','in_flight','dispatched','failed','dead_letter','manual_reconciliation'));
         END IF;
       END $constraint$;
       CREATE INDEX IF NOT EXISTS idx_scheduled_post_dispatches_parent
@@ -1182,6 +1190,9 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_scheduled_post_dispatches_platform_post_id
         ON scheduled_post_dispatches (platform_post_id, platform)
         WHERE platform_post_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_scheduled_post_dispatches_dead_letter
+        ON scheduled_post_dispatches (dead_lettered_at DESC)
+        WHERE status = 'dead_letter';
 
       -- Phase 4 PR1: Slack Events API inbound dedupe. Every delivery has a
       -- stable event_id; the webhook inserts ON CONFLICT DO NOTHING to drop
@@ -1318,6 +1329,21 @@ async function initDb() {
       );
       CREATE INDEX IF NOT EXISTS idx_insights_accounts_tenant_platform
         ON insights_accounts (tenant_id, platform);
+
+      -- Account-level self-heal (audit item 5b). Mirrored verbatim in
+      -- migrations/20260810000000_insights_object_health.sql.
+      --
+      -- connected_accounts is UNIQUE (tenant_id, platform), so reconnecting to
+      -- a DIFFERENT Page/IG id rewrites that row while the bridge inserts a NEW
+      -- insights_accounts row (UNIQUE on tenant_id, platform,
+      -- external_account_id) — and nothing has ever deleted from
+      -- insights_accounts, so the old row keeps syncing a dead page id forever.
+      -- A full disconnect DELETES the connected_accounts row and orphans the
+      -- insights row the same way. ensure-account.ts sweeps both cases into
+      -- disabled_at; every production reader filters disabled_at IS NULL.
+      -- Fully reversible — the next tick after a reconnect clears both columns.
+      ALTER TABLE insights_accounts ADD COLUMN IF NOT EXISTS disabled_at TIMESTAMPTZ;
+      ALTER TABLE insights_accounts ADD COLUMN IF NOT EXISTS disabled_reason TEXT;
 
       -- One row per piece of content fetched from a platform
       -- (YouTube video, Instagram reel, etc.).
@@ -1535,6 +1561,36 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_insights_posts_aries_post_id
         ON insights_posts (aries_post_id)
         WHERE aries_post_id IS NOT NULL;
+
+      -- Per-object health state (audit item 5b). Mirrored verbatim in
+      -- migrations/20260810000000_insights_object_health.sql.
+      --
+      -- A post deleted on-platform answered Graph (#100) on every 30-minute
+      -- tick forever: last_metrics_fetched_at was stamped only on success and
+      -- the comments leg had no watermark at all, so the dead object was
+      -- re-selected indefinitely, pushed a fresh legError each tick, and pinned
+      -- its account's sync run at 'partial' permanently with no alert.
+      -- backend/insights/sync/object-health.ts owns the strike thresholds; the
+      -- dispatcher increments these columns in ONE atomic UPDATE per failure
+      -- (no read-modify-write, so a concurrent handler-triggered sync cannot
+      -- lose a strike) and resets them on success.
+      --
+      -- The two legs get INDEPENDENT state deliberately. They address the same
+      -- platform object but fail independently: with shared columns, a post
+      -- whose metrics succeed and whose comments permanently fail has its
+      -- counter reset to 0 by the metrics success every tick before the
+      -- comments failure can increment it — it never converges, which is the
+      -- exact poison signature these columns exist to end.
+      ALTER TABLE insights_posts ADD COLUMN IF NOT EXISTS metrics_error_count INT NOT NULL DEFAULT 0;
+      ALTER TABLE insights_posts ADD COLUMN IF NOT EXISTS metrics_last_error TEXT;
+      ALTER TABLE insights_posts ADD COLUMN IF NOT EXISTS metrics_unavailable_at TIMESTAMPTZ;
+      ALTER TABLE insights_posts ADD COLUMN IF NOT EXISTS comments_error_count INT NOT NULL DEFAULT 0;
+      ALTER TABLE insights_posts ADD COLUMN IF NOT EXISTS comments_last_error TEXT;
+      ALTER TABLE insights_posts ADD COLUMN IF NOT EXISTS comments_unavailable_at TIMESTAMPTZ;
+
+      CREATE INDEX IF NOT EXISTS idx_insights_posts_unavailable
+        ON insights_posts (tenant_id, account_id)
+        WHERE metrics_unavailable_at IS NOT NULL OR comments_unavailable_at IS NOT NULL;
 
       -- is_replied is also declared inline in the CREATE TABLE insights_comments
       -- above, but that table predates the column on existing databases and

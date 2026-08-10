@@ -104,6 +104,7 @@ test('a tenant sync failure is isolated: later tenants still sync and the guard 
         postsSeen: 3,
         commentsSeen: 1,
         apiUnitsUsed: 4,
+        quarantined: 0,
       },
     ];
   };

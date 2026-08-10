@@ -113,14 +113,14 @@ export const PUBLISHED_BY_CHANNEL_SQL = `
  * override pointing at a future week; without it those rows would be reported
  * as skipped before they were ever due.
  *
- * There is NO per-row failure code on scheduled_posts (no `last_error_code`
- * column), so failures are a single count and the auth signal comes from
- * oauth_connections separately.
+ * `failure_class` records the dispatch taxonomy, but it is historical evidence,
+ * not the connection's current health. The live auth signal therefore comes
+ * from oauth_connections separately.
  */
 export const DISPATCH_OUTCOMES_SQL = `
   SELECT
     count(*) FILTER (WHERE dispatch_status = 'pending' AND scheduled_for < now())::int AS skipped,
-    count(*) FILTER (WHERE dispatch_status = 'failed')::int                            AS failed,
+    count(*) FILTER (WHERE dispatch_status IN ('failed', 'dead_letter'))::int           AS failed,
     count(*) FILTER (WHERE dispatch_status = 'manual_reconciliation')::int             AS needs_reconciliation
   FROM scheduled_posts
   WHERE tenant_id = $1

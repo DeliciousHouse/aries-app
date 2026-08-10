@@ -204,7 +204,10 @@ async function loadSyncTelemetryByAccount(
             lr.status AS latest_status
      FROM insights_accounts a
      LEFT JOIN latest_run lr ON lr.account_id = a.id
-     WHERE a.tenant_id = $1`,
+     -- disabled_at IS NULL: an orphaned account row (a reconnect that produced
+     -- a different page id, or a disconnect) is never synced again, so its
+     -- stale telemetry must not be attributed to the CURRENT connection.
+     WHERE a.tenant_id = $1 AND a.disabled_at IS NULL`,
     [tenantId],
   );
   const nowMs = Date.now();

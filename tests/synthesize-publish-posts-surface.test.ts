@@ -330,11 +330,16 @@ function makeFakePoolWithCrosspost(connectedPlatforms: string[]) {
 }
 
 const CROSSPOST_FLAGS = ['ARIES_WEEKLY_CROSSPOST_ENABLED', 'ARIES_X_ENABLED', 'ARIES_LINKEDIN_ENABLED', 'ARIES_REDDIT_ENABLED'] as const;
+// Reddit is skipped by the producer unless a target subreddit is configured
+// (the publisher has no profile fallback and refuses without one), so "flags on"
+// must set it too or reddit silently drops out of every fan-out assertion below.
+const REDDIT_SUBREDDIT_ENV = 'COMPOSIO_REDDIT_TARGET_SUBREDDIT';
 
 function withCrosspostFlagsOn(fn: () => Promise<void>): () => Promise<void> {
   return async () => {
-    const prev = CROSSPOST_FLAGS.map((k) => [k, process.env[k]] as const);
+    const prev = [...CROSSPOST_FLAGS, REDDIT_SUBREDDIT_ENV].map((k) => [k, process.env[k]] as const);
     for (const k of CROSSPOST_FLAGS) process.env[k] = '1';
+    process.env[REDDIT_SUBREDDIT_ENV] = 'r/test';
     try {
       await fn();
     } finally {
@@ -398,6 +403,20 @@ test('crosspost ON: a feed image fans out x/linkedin/reddit rows with adapted ca
     assert.ok((byPlatform.get('x')![4] as string).includes('#one'), 'x caption keeps a hashtag');
     // Reddit caption serializes a clean first-line title.
     assert.equal((byPlatform.get('reddit')![4] as string).split('\n')[0], 'Big news today.');
+  });
+}));
+
+test('crosspost ON, reddit connected + flag ON, but NO target subreddit: no reddit row is synthesized', withCrosspostFlagsOn(async () => {
+  await withDataRoot(async () => {
+    delete process.env.ARIES_VIDEO_PUBLISH_ENABLED;
+    delete process.env.COMPOSIO_REDDIT_TARGET_SUBREDDIT; // restored by withCrosspostFlagsOn
+    const { pool, inserts } = makeFakePoolWithCrosspost(['x', 'linkedin', 'reddit']);
+    await synthesizePublishPostsFromContentPackage({
+      jobId: 'job_xp_nosub', tenantId: 15, doc: makeDocFeed('job_xp_nosub'), publishRunId: null, pool,
+    });
+    // IG feed + x + linkedin. Reddit is skipped at the producer rather than
+    // synthesized into a row the publisher would terminally refuse.
+    assert.deepEqual(inserts.map((p) => p[3]).sort(), ['instagram', 'linkedin', 'x']);
   });
 }));
 

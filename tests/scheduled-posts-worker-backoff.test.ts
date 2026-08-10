@@ -23,7 +23,7 @@ function extractChildStatusUpdate(): string {
   assert.notEqual(functionStart, -1, 'setPlatformDispatchStatus must exist in the worker');
   const start = workerSource.indexOf('UPDATE scheduled_post_dispatches', functionStart);
   const end = workerSource.indexOf(
-    '[rowId, platform, status, truncated, platformPostId, attemptToken]',
+    '[rowId, platform, status, truncated, platformPostId, attemptToken, failureClass]',
     start,
   );
   assert.ok(start >= 0 && end > start, 'setPlatformDispatchStatus SQL must be present in the worker');

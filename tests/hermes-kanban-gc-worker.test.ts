@@ -11,7 +11,9 @@ const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 const WORKER_PATH = path.join(PROJECT_ROOT, 'scripts', 'hermes-kanban-gc-worker.ts');
 const TSX_PATH = path.join(PROJECT_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 
-test('hermes kanban gc worker archives only done tasks older than retention, then runs gc once', () => {
+test('hermes kanban gc worker archives only done tasks older than retention, then runs gc once', {
+  skip: process.platform === 'win32' ? 'POSIX executable fixture; covered by Linux CI' : false,
+}, () => {
   const tempDir = mkdtempSync(path.join(tmpdir(), 'aries-kanban-gc-'));
   const logPath = path.join(tempDir, 'calls.log');
   const hermesPath = path.join(tempDir, 'hermes');
@@ -51,7 +53,9 @@ process.exit(3);
     env: {
       ...process.env,
       PATH: `${tempDir}${path.delimiter}${process.env.PATH ?? ''}`,
+      ARIES_KANBAN_GC_HERMES_BIN: hermesPath,
       ARIES_KANBAN_GC_ENABLED: '1',
+      ARIES_HERMES_CLI_COMPAT_ENABLED: '1',
       ARIES_KANBAN_GC_RETENTION_DAYS: '7',
       ARIES_KANBAN_GC_INTERVAL_MS: '1000000',
       ARIES_KANBAN_GC_RUN_ONCE: '1',
@@ -75,6 +79,24 @@ process.exit(3);
   );
 });
 
+test('hermes kanban gc worker exits before spawning the CLI when compatibility is disabled', () => {
+  const result = spawnSync(process.execPath, [TSX_PATH, WORKER_PATH], {
+    cwd: PROJECT_ROOT,
+    env: {
+      ...process.env,
+      ARIES_KANBAN_GC_ENABLED: '1',
+      ARIES_HERMES_CLI_COMPAT_ENABLED: '0',
+      ARIES_KANBAN_GC_HERMES_BIN: path.join(tmpdir(), 'missing-hermes-binary'),
+      ARIES_KANBAN_GC_RUN_ONCE: '1',
+    },
+    encoding: 'utf8',
+  });
+
+  assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+  assert.match(result.stdout, /ARIES_HERMES_CLI_COMPAT_ENABLED is off; exiting/);
+  assert.doesNotMatch(result.stdout, /"errors":2/);
+});
+
 test('runtime supervisor wires the hermes kanban gc worker side-process', () => {
   const startRuntime = readFileSync(path.join(PROJECT_ROOT, 'scripts/start-runtime.mjs'), 'utf8');
   const compose = readFileSync(path.join(PROJECT_ROOT, 'docker-compose.yml'), 'utf8');
@@ -83,6 +105,8 @@ test('runtime supervisor wires the hermes kanban gc worker side-process', () => 
   assert.match(startRuntime, /spawnHermesKanbanGcWorker\(\)/);
   assert.match(startRuntime, /stopHermesKanbanGcWorker\(\)/);
   assert.match(startRuntime, /ARIES_KANBAN_GC_ENABLED/);
+  assert.match(startRuntime, /ARIES_HERMES_CLI_COMPAT_ENABLED/);
+  assert.match(compose, /ARIES_HERMES_CLI_COMPAT_ENABLED: \$\{ARIES_HERMES_CLI_COMPAT_ENABLED:-1\}/);
   assert.match(compose, /ARIES_KANBAN_GC_INTERVAL_MS: \$\{ARIES_KANBAN_GC_INTERVAL_MS:-86400000\}/);
   assert.match(compose, /ARIES_KANBAN_GC_RETENTION_DAYS: \$\{ARIES_KANBAN_GC_RETENTION_DAYS:-7\}/);
 });

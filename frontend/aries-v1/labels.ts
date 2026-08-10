@@ -27,6 +27,8 @@ export function formatDispatchStatusLabel(status: string): string {
       return 'Dispatched';
     case 'failed':
       return 'Failed';
+    case 'dead_letter':
+      return 'Dead letter';
     case 'manual_reconciliation':
       return 'Needs manual check';
     case 'skipped':
@@ -47,6 +49,8 @@ export function formatDispatchStatusChip(status: string): string {
       return 'Sent';
     case 'failed':
       return 'Fail';
+    case 'dead_letter':
+      return 'DLQ';
     case 'manual_reconciliation':
       return 'Check';
     case 'in_flight':

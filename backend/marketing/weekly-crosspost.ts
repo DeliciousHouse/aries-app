@@ -26,7 +26,12 @@
  */
 
 import pool from '@/lib/db';
-import { isXEnabled, isRedditEnabled, isLinkedInEnabled } from '../integrations/providers/integration-config';
+import {
+  isXEnabled,
+  isRedditEnabled,
+  isLinkedInEnabled,
+  redditTargetSubreddit,
+} from '../integrations/providers/integration-config';
 
 /** The Composio-only publish platforms a weekly feed image is fanned out to. */
 export const CROSSPOST_PLATFORMS = ['x', 'linkedin', 'reddit'] as const;
@@ -40,10 +45,16 @@ export interface CrosspostQueryable {
 type Env = Partial<Record<string, string | undefined>>;
 
 /**
- * Master rollout gate for the weekly cross-post fan-out. Default OFF — when off
- * the synthesis output is byte-identical to today (FB/IG only). Treat
- * 1/true/yes/on as enabled, matching the ARIES_SYNTHESIZE_ON_PUBLISH_SKIP_ENABLED
- * convention.
+ * Master rollout gate for the weekly cross-post fan-out. Treat 1/true/yes/on as
+ * enabled, matching the ARIES_SYNTHESIZE_ON_PUBLISH_SKIP_ENABLED convention.
+ *
+ * An UNSET env still reads as OFF here (fail-safe for any process that does not
+ * go through compose), and when off the synthesis output is byte-identical to
+ * today (FB/IG only). Note the deployed default differs: docker-compose.yml now
+ * supplies `ARIES_WEEKLY_CROSSPOST_ENABLED=1`, because the fan-out is inert
+ * unless a per-platform ARIES_<P>_ENABLED flag is ALSO on and the tenant has
+ * connected that account — so the real distribution decision lives in the
+ * per-platform flags (all default false), not in this master switch.
  */
 export function isWeeklyCrosspostEnabled(env: Env = process.env): boolean {
   const v = env.ARIES_WEEKLY_CROSSPOST_ENABLED?.trim().toLowerCase();
@@ -62,6 +73,28 @@ function isCrosspostPlatformFlagEnabled(platform: CrosspostPlatform, env: Env = 
   }
 }
 
+/**
+ * Config completeness per crosspost platform — the second gate alongside the
+ * rollout flag.
+ *
+ * Reddit publish REQUIRES an explicit target subreddit: the publisher refuses
+ * up-front with a `ComposioCapabilityMissingError` when
+ * COMPOSIO_REDDIT_TARGET_SUBREDDIT is unset (composio-publisher-provider.ts,
+ * the reddit branch). There is deliberately NO `u_<username>` profile fallback
+ * — Reddit's `sr` field addresses COMMUNITY names only, so a profile target
+ * fails with SUBREDDIT_NOEXIST.
+ *
+ * Synthesizing reddit rows with no subreddit configured therefore manufactures
+ * posts that are GUARANTEED to fail at dispatch: a terminal failure per post,
+ * per week, forever. Skipping reddit at the producer instead means no row, no
+ * scheduled_posts entry, and no failed-dispatch noise. x and linkedin need no
+ * extra config beyond their publish slugs, which the publisher validates.
+ */
+function isCrosspostPlatformConfigured(platform: CrosspostPlatform, env: Env = process.env): boolean {
+  if (platform !== 'reddit') return true;
+  return redditTargetSubreddit(env as NodeJS.ProcessEnv) !== null;
+}
+
 // Single query: the crosspost platforms whose per-platform flag is ON AND that
 // have an active connected account for this tenant. `status='connected'` mirrors
 // the filter the publisher's requireActiveConnection uses. No Promise.all
@@ -76,19 +109,26 @@ const SELECT_CONNECTED_CROSSPOST_PLATFORMS_SQL = `
 
 /**
  * Resolve the subset of CROSSPOST_PLATFORMS a weekly feed image should be fanned
- * out to for this tenant: the platform's rollout flag is ON AND the tenant has
- * an active (`status='connected'`) `connected_accounts` row for it.
+ * out to for this tenant: the platform's rollout flag is ON, the platform's
+ * required config is present (`isCrosspostPlatformConfigured` — reddit needs a
+ * target subreddit), AND the tenant has an active (`status='connected'`)
+ * `connected_accounts` row for it.
  *
  * Fail-open to `[]` on ANY DB error — a crosspost-eligibility failure must never
- * break FB/IG synthesis. The query is scoped to the flag-enabled platforms so a
- * connected-but-flag-OFF platform is never returned.
+ * break FB/IG synthesis. The query is scoped to the surviving platforms so a
+ * connected-but-flag-OFF (or unconfigured) platform is never returned.
  */
 export async function resolveCrosspostPlatforms(
   tenantId: number,
   db: CrosspostQueryable = pool,
   env: Env = process.env,
 ): Promise<CrosspostPlatform[]> {
-  const flagEnabled = CROSSPOST_PLATFORMS.filter((p) => isCrosspostPlatformFlagEnabled(p, env));
+  const flagEnabled = CROSSPOST_PLATFORMS.filter(
+    (p) => isCrosspostPlatformFlagEnabled(p, env) && isCrosspostPlatformConfigured(p, env),
+  );
+  if (isCrosspostPlatformFlagEnabled('reddit', env) && !isCrosspostPlatformConfigured('reddit', env)) {
+    console.info('[weekly-crosspost] reddit skipped — COMPOSIO_REDDIT_TARGET_SUBREDDIT unset', { tenantId });
+  }
   if (flagEnabled.length === 0) return [];
   try {
     const result = await db.query(SELECT_CONNECTED_CROSSPOST_PLATFORMS_SQL, [tenantId, flagEnabled]);

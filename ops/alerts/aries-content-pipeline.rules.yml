@@ -1,0 +1,23 @@
+# Staged for the A2 Prometheus endpoint. These rules are intentionally not
+# wired into a production Prometheus deployment by this change.
+groups:
+  - name: aries-content-pipeline
+    rules:
+      - alert: AriesDispatchDeadLetters
+        expr: increase(aries_dispatch_dead_letters_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: page
+          service: aries-app
+        annotations:
+          summary: "A scheduled social post entered the dead-letter queue"
+          runbook_url: "docs/runbooks/content-pipeline-recovery.md#dispatch-dead-letters"
+      - alert: AriesDraftsExpiringSoon
+        expr: aries_drafts_expiring_24h > 0
+        for: 15m
+        labels:
+          severity: warning
+          service: aries-app
+        annotations:
+          summary: "Unscheduled drafts will expire within 24 hours"
+          runbook_url: "docs/runbooks/content-pipeline-recovery.md#drafts-expiring-within-24-hours"

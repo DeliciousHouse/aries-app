@@ -91,9 +91,78 @@ export interface EnsureAccountsResult {
   resolved: number;
   /** Rows skipped because their Page id could not be resolved. */
   skippedNoPage: number;
+  /** insights_accounts rows disabled by the orphan sweep this tick. */
+  disabled: number;
+  /** insights_accounts rows re-enabled because their connection came back. */
+  reenabled: number;
   /** Set when the bridge no-opped because the off-switch is off. */
   skippedReason?: string;
 }
+
+/**
+ * The one predicate that decides whether an insights_accounts row still has a
+ * live connection behind it. Written once and referenced by BOTH sweep halves
+ * so they can never disagree and leave a row flapping between disabled and
+ * enabled on alternating ticks.
+ *
+ * `ca.external_account_id = ia.external_account_id` is the load-bearing part:
+ * connected_accounts is UNIQUE (tenant_id, platform), so reconnecting to a
+ * different Page/IG id REWRITES that row while the bridge inserts a NEW
+ * insights_accounts row — the old one still matches on (tenant, platform) and
+ * only the external id exposes it as dead.
+ */
+const HAS_LIVE_CONNECTION = `
+  EXISTS (
+    SELECT 1 FROM connected_accounts ca
+     WHERE ca.tenant_id = ia.tenant_id
+       AND ca.platform  = ia.platform
+       AND ca.status    = 'connected'
+       AND ca.provider  = 'composio'
+       AND ca.external_account_id = ia.external_account_id
+  )`;
+
+/**
+ * Disable insights_accounts rows that no longer have a matching connection.
+ *
+ * TWO rot mechanisms, both covered, distinguished by `disabled_reason`:
+ *   - 'no_matching_connected_account' — a connected_accounts row for this
+ *     (tenant, platform) still exists but points at a DIFFERENT external id
+ *     (the reconnect case).
+ *   - 'connected_account_deleted' — no connected_accounts row exists at all.
+ *     Disconnect DELETEs the row (connection-store.ts deleteConnectionRow), so
+ *     an "a row must exist" guard would exclude exactly this case and leave the
+ *     orphan failing every tick forever.
+ *
+ * Highest-blast-radius statement in the module — nothing has ever deleted from
+ * insights_accounts. Four guards: it only runs when the sources read returned
+ * rows (never act on an empty/failed read), it is scoped to bridged platforms
+ * (a platform whose flag is off is untouched, not disabled), it only ever sets
+ * a timestamp (no DELETE), and it is fully reversed by REENABLE_ORPHANS_SQL on
+ * the next tick after a reconnect.
+ */
+const DISABLE_ORPHANS_SQL = `
+  UPDATE insights_accounts ia
+     SET disabled_at = now(),
+         disabled_reason = CASE
+           WHEN EXISTS (
+             SELECT 1 FROM connected_accounts ca
+              WHERE ca.tenant_id = ia.tenant_id AND ca.platform = ia.platform
+           ) THEN 'no_matching_connected_account'
+           ELSE 'connected_account_deleted'
+         END
+   WHERE ia.platform = ANY($1::text[])
+     AND ia.disabled_at IS NULL
+     AND NOT ${HAS_LIVE_CONNECTION}
+`;
+
+/** Reverse of the sweep: a reconnect to the original id heals the row. */
+const REENABLE_ORPHANS_SQL = `
+  UPDATE insights_accounts ia
+     SET disabled_at = NULL, disabled_reason = NULL
+   WHERE ia.platform = ANY($1::text[])
+     AND ia.disabled_at IS NOT NULL
+     AND ${HAS_LIVE_CONNECTION}
+`;
 
 /** Injectable Composio surface so tests drive resolution with a fake gateway. */
 export interface EnsureAccountsDeps {
@@ -127,7 +196,11 @@ export async function ensureInsightsAccountsForConnectedPlatforms(
 ): Promise<EnsureAccountsResult> {
   const platforms = bridgedPlatforms(env);
   if (platforms.length === 0) {
-    return { considered: 0, upserted: 0, resolved: 0, skippedNoPage: 0, skippedReason: 'no_enabled_analytics_platforms' };
+    return {
+      considered: 0, upserted: 0, resolved: 0, skippedNoPage: 0,
+      disabled: 0, reenabled: 0,
+      skippedReason: 'no_enabled_analytics_platforms',
+    };
   }
   const placeholders = platforms.map((_, i) => `$${i + 1}`).join(', ');
   // NOTE: external_account_id is intentionally NOT filtered here — a null Page id
@@ -272,5 +345,30 @@ export async function ensureInsightsAccountsForConnectedPlatforms(
     upserted += res.rowCount ?? 0;
   }
 
-  return { considered: sources.rows.length, upserted, resolved, skippedNoPage };
+  // ── Orphan sweep ────────────────────────────────────────────────────────
+  // Runs ONLY when the sources read returned rows. An empty read is
+  // indistinguishable from a transient failure or a mis-scoped filter, and
+  // acting on it would disable every analytics account in the deployment.
+  let disabled = 0;
+  let reenabled = 0;
+  if (sources.rows.length > 0) {
+    try {
+      const off = await db.query(DISABLE_ORPHANS_SQL, [platforms]);
+      disabled = off.rowCount ?? 0;
+      if (disabled > 0) log({ event: 'insights_account_disabled', count: disabled, platforms });
+    } catch (err) {
+      // A sweep failure must never cost the tenants their sync window — the
+      // bridge's upserts above have already committed.
+      log({ event: 'insights_account_sweep_failed', phase: 'disable', error: err instanceof Error ? err.message : String(err) });
+    }
+    try {
+      const on = await db.query(REENABLE_ORPHANS_SQL, [platforms]);
+      reenabled = on.rowCount ?? 0;
+      if (reenabled > 0) log({ event: 'insights_account_reenabled', count: reenabled, platforms });
+    } catch (err) {
+      log({ event: 'insights_account_sweep_failed', phase: 'reenable', error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  return { considered: sources.rows.length, upserted, resolved, skippedNoPage, disabled, reenabled };
 }

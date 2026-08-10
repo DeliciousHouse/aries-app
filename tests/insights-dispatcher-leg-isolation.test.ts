@@ -420,3 +420,21 @@ test('S4-3: the conflict target stays (comment_id) so the nine reader joins cann
   );
   assert.match(migration, /CREATE INDEX IF NOT EXISTS idx_insights_comment_classifications_version/);
 });
+
+// AA-item5b: SyncResult carries a `quarantined` count so the worker (and the
+// host monitor's digest) can see objects going permanently dark. Leg isolation
+// itself is unchanged by quarantine — a poisoned object must still not skip the
+// other leg.
+test('SyncResult carries a quarantined count, and leg isolation still holds around it', async () => {
+  const recorded: Recorded[] = [];
+  const result = await syncAccountForTenant(42, 7, 'interval', {
+    pool: fakePool(recorded),
+    resolveAdapter: () => throwingPostMetricsAdapter,
+  });
+  assert.equal(typeof result.quarantined, 'number');
+  // The fake pool returns no row for the failure UPDATE, so no strike can be
+  // confirmed — the error must therefore still reach legErrors (fail-open).
+  assert.equal(result.quarantined, 0);
+  assert.equal(result.status, 'partial');
+  assert.equal(result.commentsSeen, 1, 'the comments leg still ran');
+});

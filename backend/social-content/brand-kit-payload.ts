@@ -42,6 +42,29 @@ export type SocialContentObjectivePayload = {
 
 const NOTES_FALLBACK_BUDGET = 300;
 
+/**
+ * The growth objective default (audit F1).
+ *
+ * `business_profiles.primary_goal` is unvalidated free text and is empty/NULL
+ * for most tenants, so the weekly Hermes payload has been shipping
+ * `objective.primary_goal: ""` — the strategist is asked for a 7-post plan with
+ * no definition of success. When the tenant has stated no goal, default to the
+ * growth objective the KPI contract in the stage instructions is graded on.
+ *
+ * WORDING IS LOAD-BEARING. It is deliberately keyword-compatible with
+ * `normalizeGoalValue()` (backend/insights/goal/goal-snapshot-builder.ts):
+ * "Grow"/"audience"/"follower" land it on the canonical `content_growth`
+ * GoalType with `inferred: false`, so the Insights goal card and the content
+ * pipeline optimise for the same metric. It must NOT contain lead_generation
+ * keywords (lead/inquir/contact/sign-up/booking/appointment) or product_sales
+ * keywords (sale/sell/revenue/purchase/buy/checkout/conversion/order/product/
+ * shop/ecommerce) — those buckets are tested FIRST and would win.
+ * tests/marketing/growth-objective.test.ts pins the mapping; re-run it after
+ * any edit to this string.
+ */
+export const DEFAULT_GROWTH_PRIMARY_GOAL =
+  'Grow the audience: increase follower count and per-post engagement on the connected social accounts.';
+
 function stringValue(value: unknown): string {
   return typeof value === 'string' ? redactTokenLikeString(value).trim() : '';
 }
@@ -190,6 +213,20 @@ function resolveBrandAudience(req: UnknownRecord, brandKit: MarketingBrandKitRef
   return stringValue(req.audience) || brandKitStringValue(brandKit?.audience) || '';
 }
 
+/**
+ * An operator-stated goal always wins; the growth default fires only where the
+ * payload would otherwise carry an empty string.
+ *
+ * Deliberately NOT reused by `resolveBrandOffer` above (which passes the RAW
+ * goal to `repairStaleMarketingOffer`) nor by `resolveCreativeBriefs` in
+ * workflow-request.ts (which builds IMAGE briefs — "Grow the audience…" is a
+ * terrible image brief, and today's empty-goal tenants correctly drop that
+ * entry). Both keep reading `req.primaryGoal`/`req.goal` unchanged.
+ */
+function resolvePrimaryGoal(req: UnknownRecord): string {
+  return stringValue(req.primaryGoal) || stringValue(req.goal) || DEFAULT_GROWTH_PRIMARY_GOAL;
+}
+
 function resolveMustAvoidAesthetics(req: UnknownRecord): string[] {
   const operatorRaw = typeof req.mustAvoidAesthetics === 'string' ? req.mustAvoidAesthetics : '';
   const operatorEntries = operatorRaw
@@ -228,7 +265,7 @@ export function buildBrandKitPayload(
       must_avoid_aesthetics: resolveMustAvoidAesthetics(req),
     },
     objective: {
-      primary_goal: stringValue(req.primaryGoal) || stringValue(req.goal),
+      primary_goal: resolvePrimaryGoal(req),
       offer: resolvedOffer,
       audience: resolveBrandAudience(req, brandKit),
     },

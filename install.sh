@@ -291,6 +291,11 @@ EOF
   chmod 600 .env
 fi
 
+# The Docker healthcheck treats Hermes as a required dependency by default.
+# Keep the documented --no-hermes degraded install healthy, and flip the probe
+# on automatically when a later installer run activates the Hermes profile.
+set_env_var ARIES_HERMES_NETWORK_HEALTHCHECK_ENABLED "$WITH_HERMES"
+
 APP_PORT="$(grep -E '^PORT=' .env | head -1 | cut -d= -f2 || true)"
 APP_PORT="${APP_PORT:-3000}"
 

@@ -137,6 +137,7 @@ test('missing app secret POST reaches no DB/provider work and stays retryable pr
       error: 'internal_api_secret_not_configured',
       retryable: true,
       platformPostId: null,
+      failureClass: 'platform_transient',
     }]);
     assert.equal(
       outcomes.some((outcome) => outcome.status === 'manual_reconciliation'),

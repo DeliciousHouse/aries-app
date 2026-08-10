@@ -29,16 +29,28 @@ services:
       HERMES_GATEWAY_URL: ${HERMES_GATEWAY_URL:-}
       HERMES_API_SERVER_KEY: ${HERMES_API_SERVER_KEY:-}
       HERMES_SESSION_KEY: ${HERMES_SESSION_KEY:-main}
-      # Phase B three-profile routing — each marketing stage runs on its own
-      # Hermes profile gateway, bound to its own port. The gateway URLs carry
-      # the production cutover defaults; the per-profile API keys come from the
-      # deployment environment (blank default), matching HERMES_API_SERVER_KEY.
-      #   research   -> aries-research          (default gateway, port 8642 —
-      #                 the aries-research gateway is 127.0.0.1-bound and not
-      #                 container-reachable, so research stays on the default)
+      # Fail container health when the configured network Hermes endpoint is
+      # unavailable. Self-host installs without Hermes explicitly set this off.
+      ARIES_HERMES_NETWORK_HEALTHCHECK_ENABLED: ${ARIES_HERMES_NETWORK_HEALTHCHECK_ENABLED:-1}
+      # Phase B three-profile routing. Strategy/content retain their production
+      # cutover defaults; research stays on the shared gateway until its URL and
+      # key are explicitly configured together.
+      #   research   -> aries-research          (port 8651)
       #   strategy   -> aries-strategist        (port 8654)
       #   publish    -> aries-strategist        (port 8654)
       #   production -> aries-content-generator (port 8655)
+      #
+      # RESEARCH CUTOVER — two deploy-time preconditions, both blocking:
+      #  1. HERMES_RESEARCH_API_SERVER_KEY MUST be set alongside this URL. It
+      #     falls back to HERMES_API_SERVER_KEY, which is the *default* (8642)
+      #     gateway's key, so the aries-research gateway 401s every research
+      #     submission if the per-profile key is missing. The app logs
+      #     "[hermes] GATEWAY AUTH MISCONFIGURED" at submission time when this
+      #     pair is incoherent (see describeProfileGatewayKeyFallback).
+      #  2. The aries-research gateway ships bound to 127.0.0.1, which
+      #     host.docker.internal cannot reach. Rebind it (docker bridge IP
+      #     preferred over 0.0.0.0) before opting in to port 8651.
+      # Blank or unset falls back to HERMES_GATEWAY_URL.
       HERMES_RESEARCH_GATEWAY_URL: ${HERMES_RESEARCH_GATEWAY_URL:-}
       HERMES_RESEARCH_API_SERVER_KEY: ${HERMES_RESEARCH_API_SERVER_KEY:-}
       HERMES_STRATEGIST_GATEWAY_URL: ${HERMES_STRATEGIST_GATEWAY_URL:-http://host.docker.internal:8654}
@@ -77,6 +89,9 @@ services:
       ARIES_RECONCILER_ENABLED: ${ARIES_RECONCILER_ENABLED:-1}
       ARIES_RECONCILER_INTERVAL_MS: ${ARIES_RECONCILER_INTERVAL_MS:-60000}
       ARIES_KANBAN_GC_ENABLED: ${ARIES_KANBAN_GC_ENABLED:-1}
+      # Temporary compatibility path for the in-container `hermes kanban gc`
+      # worker. Disable after the sidecar cutover moves maintenance out of Aries.
+      ARIES_HERMES_CLI_COMPAT_ENABLED: ${ARIES_HERMES_CLI_COMPAT_ENABLED:-1}
       ARIES_KANBAN_GC_INTERVAL_MS: ${ARIES_KANBAN_GC_INTERVAL_MS:-86400000}
       ARIES_KANBAN_GC_RETENTION_DAYS: ${ARIES_KANBAN_GC_RETENTION_DAYS:-7}
       ARIES_AUTO_APPROVE_MARKETING_PIPELINE: ${ARIES_AUTO_APPROVE_MARKETING_PIPELINE:-1}
@@ -104,10 +119,14 @@ services:
       ARIES_SAME_PLATFORM_MIN_SPACING_MINUTES: ${ARIES_SAME_PLATFORM_MIN_SPACING_MINUTES:-30}
       # Weekly cross-post fan-out: additionally synthesize x/linkedin/reddit posts
       # (platform-adapted captions, same feed image) for each FB/IG feed image,
-      # per platform whose flag is ON and that the tenant has connected. Default
-      # OFF => synthesis is byte-identical (FB/IG only). Go-live also needs the
-      # per-platform ARIES_<P>_ENABLED + COMPOSIO_<P>_PUBLISH_POST_ACTION slugs.
-      ARIES_WEEKLY_CROSSPOST_ENABLED: ${ARIES_WEEKLY_CROSSPOST_ENABLED:-0}
+      # per platform whose ARIES_<P>_ENABLED flag is ON and that the tenant has
+      # connected. Default ON: the fan-out is inert unless a per-platform flag is
+      # ON *and* an account is connected, so the effective distribution decision
+      # lives in ARIES_X_ENABLED / ARIES_LINKEDIN_ENABLED / ARIES_REDDIT_ENABLED
+      # (all default false) rather than in this master switch. Go-live per
+      # platform also needs COMPOSIO_<P>_PUBLISH_POST_ACTION. Reddit is skipped
+      # automatically when COMPOSIO_REDDIT_TARGET_SUBREDDIT is unset.
+      ARIES_WEEKLY_CROSSPOST_ENABLED: ${ARIES_WEEKLY_CROSSPOST_ENABLED:-1}
       # AI-derived per-platform posting times: every content-generation start
       # re-derives WHEN posts publish per platform — from the tenant's own
       # insights engagement once >= MIN_ANALYTICS_POSTS posts have metrics, else
@@ -116,6 +135,24 @@ services:
       # PLATFORM_POSTING_DEFAULTS, fail-open. Default OFF => scheduling is
       # byte-identical to today (no derivation runs, no reads).
       ARIES_AI_POSTING_TIMES_ENABLED: ${ARIES_AI_POSTING_TIMES_ENABLED:-0}
+      # Analytics day blend (kill switch, default ON). On the strategist path,
+      # when a platform's derived row is source='analytics' and ranks >= 2 days
+      # and the strategist's recommended_day is NOT among them, the post is
+      # nudged to the nearest ranked day — max 2 calendar days, feed surface
+      # only, abandoned if the target slot is already claimed by a sibling's
+      # explicit strategist day. Competitor-sourced rows never move a day. Set
+      # to 0 to revert to "strategist day always wins" WITHOUT losing the
+      # hour/minute override (which is what turning off AI posting times would
+      # cost). Inert while ARIES_AI_POSTING_TIMES_ENABLED=0.
+      ARIES_SCHEDULE_DAY_BLEND_ENABLED: ${ARIES_SCHEDULE_DAY_BLEND_ENABLED:-1}
+      # Weekly performance context: injects the tenant's own last-28-day content
+      # performance (top 3 + bottom 3 posts by engagement, 4-week follower
+      # trend) into the STRATEGY prompt, plus a 2-line condensed version into
+      # the weekly research request. Default ON because it is additive and
+      # fail-open — a tenant with no insights_* rows gets no block at all, and a
+      # query failure degrades to no block. Set to 0 to restore byte-identical
+      # prompts. Only aries-app submits Hermes runs, so no sidecar needs it.
+      ARIES_PERF_CONTEXT_ENABLED: ${ARIES_PERF_CONTEXT_ENABLED:-1}
       # Minimum measured own-posts per platform before the analytics source
       # replaces the competitor source (default 8).
       ARIES_POSTING_TIMES_MIN_ANALYTICS_POSTS: ${ARIES_POSTING_TIMES_MIN_ANALYTICS_POSTS:-8}
@@ -409,8 +446,11 @@ services:
       # Reddit publish (#641) — only consulted when ARIES_REDDIT_ENABLED=true and
       # PUBLISH_PROVIDER=composio/auto. Publish runs in the app process (the
       # scheduled-posts-worker only POSTs to the route), so these live here only.
-      # No media-upload action (image is the kind=link url). TARGET_SUBREDDIT
-      # unset → the connected user's own profile (u_<username>); FLAIR_ID optional.
+      # No media-upload action (image is the kind=link url). TARGET_SUBREDDIT is
+      # REQUIRED for reddit publish (Reddit's `sr` addresses communities only —
+      # there is no u_<username> profile fallback); unset → reddit is skipped by
+      # the weekly crosspost producer and refused up-front by the publisher.
+      # FLAIR_ID optional.
       #   COMPOSIO_REDDIT_PUBLISH_POST_ACTION=REDDIT_CREATE_REDDIT_POST
       COMPOSIO_REDDIT_PUBLISH_POST_ACTION: ${COMPOSIO_REDDIT_PUBLISH_POST_ACTION:-}
       COMPOSIO_REDDIT_TARGET_SUBREDDIT: ${COMPOSIO_REDDIT_TARGET_SUBREDDIT:-}
@@ -509,13 +549,40 @@ services:
       - ${HERMES_VIDEO_CACHE_DIR:-/home/node/.hermes/profiles/aries-content-generator/cache/videos}:/hermes-video-media:ro
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:${PORT:-3000}/ >/dev/null"]
+      test: ["CMD", "node", "scripts/container-healthcheck.mjs"]
       interval: 30s
       timeout: 5s
       retries: 5
       start_period: 30s
     labels:
       com.delicioushouse.aries.autoheal: "true"
+    networks:
+      - docker_stack
+
+  # Optional production Hermes sidecar. It is dormant unless the
+  # `hermes-sidecar` profile is activated, so existing external gateways and
+  # the temporary in-image CLI compatibility path keep working during cutover.
+  # The release tag is paired with its immutable multi-arch manifest digest.
+  aries-hermes:
+    image: ${ARIES_HERMES_IMAGE:-nousresearch/hermes-agent:v2026.8.3@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e}
+    profiles: ["hermes-sidecar"]
+    command: ["gateway", "run"]
+    environment:
+      HERMES_UID: ${HERMES_UID:-1000}
+      HERMES_GID: ${HERMES_GID:-1000}
+      API_SERVER_ENABLED: "true"
+      API_SERVER_HOST: 0.0.0.0
+      API_SERVER_PORT: 8642
+      API_SERVER_KEY: ${HERMES_API_SERVER_KEY:-}
+    volumes:
+      - ${ARIES_HERMES_DATA_ROOT:-/home/node/.hermes}:/opt/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS --max-time 5 http://127.0.0.1:8642/health >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
     networks:
       - docker_stack
 
@@ -581,6 +648,7 @@ services:
       # cadence keeps the limit tripped indefinitely.
       ARIES_DISPATCH_RETRY_BACKOFF_MINUTES: ${ARIES_DISPATCH_RETRY_BACKOFF_MINUTES:-10}
       ARIES_DISPATCH_RATE_LIMIT_BACKOFF_MINUTES: ${ARIES_DISPATCH_RATE_LIMIT_BACKOFF_MINUTES:-180}
+      ARIES_DISPATCH_TRANSIENT_MAX_ATTEMPTS: ${ARIES_DISPATCH_TRANSIENT_MAX_ATTEMPTS:-5}
       # The longest publish request is 330s. SIGTERM drains its active tick for
       # 350s, while Compose grants 360s before SIGKILL.
       ARIES_SCHEDULED_POSTS_SHUTDOWN_TIMEOUT_MS: ${ARIES_SCHEDULED_POSTS_SHUTDOWN_TIMEOUT_MS:-350000}
@@ -589,9 +657,10 @@ services:
     networks:
       - docker_stack
 
-  # Weekly-job trigger worker — starts a weekly_social_content job for each
-  # opted-in tenant (a marketing_schedule row with enabled=true) on its
-  # configured day/hour/tz. Single replica: the atomic claim UPDATE makes
+  # Weekly-job trigger worker — evaluates each opted-in tenant daily at its
+  # configured hour/tz and starts weekly_social_content only when the current
+  # marketing_schedule cadence window has no worker-created job. Single replica:
+  # the atomic claim UPDATE makes
   # concurrency safe, but one replica keeps logs simple and load minimal. Gated
   # by ARIES_WEEKLY_TRIGGER_ENABLED (default OFF) so this ships dormant; flip it
   # on only after a marketing_schedule row exists for the test tenant. It POSTs
@@ -863,6 +932,18 @@ services:
       ARIES_LINKEDIN_ENABLED: ${ARIES_LINKEDIN_ENABLED:-false}
       COMPOSIO_LINKEDIN_AUTH_CONFIG_ID: ${COMPOSIO_LINKEDIN_AUTH_CONFIG_ID:-}
       COMPOSIO_LINKEDIN_POST_INSIGHTS_ACTION: ${COMPOSIO_LINKEDIN_POST_INSIGHTS_ACTION:-}
+    # The Hermes gateway is a HOST process (listening on 0.0.0.0:8642), not a
+    # compose service, so HERMES_GATEWAY_URL is host.docker.internal-scoped.
+    # Only aries-app carried the host-gateway mapping, so every comment
+    # classification call from this sidecar died with
+    # `getaddrinfo ENOTFOUND host.docker.internal` — surfacing as
+    # `classifyComments: unreachable (fetch failed)` on every sync tick that had
+    # unclassified comments, and zero rows in insights_comment_classifications
+    # ever. The env pair above is useless without this mapping; keep them
+    # together. Verify at container start with the
+    # `insights_classifier_preflight` NDJSON line.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     networks:
       - docker_stack

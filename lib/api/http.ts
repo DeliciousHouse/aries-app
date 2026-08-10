@@ -173,12 +173,14 @@ export async function requestJson<TResponse>(
   }
 
   let response: Response;
+  let body: unknown;
   try {
     response = await fetchImpl(url, {
       ...init,
       headers: normalizedHeaders,
       signal,
     });
+    body = await readJsonBody(response);
   } catch (error) {
     if (controller?.signal.aborted) {
       throw new ApiRequestError(
@@ -193,8 +195,6 @@ export async function requestJson<TResponse>(
       clearTimeout(timeoutHandle);
     }
   }
-
-  const body = await readJsonBody(response);
 
   // Stale-workspace interlock trigger (plan Decision 2a): ANY `409
   // workspace_mismatch` response — from the ~43 wrapper routes or the ~9 raw
