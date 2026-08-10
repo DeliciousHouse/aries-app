@@ -107,11 +107,12 @@ agent definitions, but you enforce them at the gate.
 
 7. **Ship + hand off.** On APPROVE, `aries-reviewer` re-fetches and rebases on `origin/master`,
    runs `npm run verify` plus `npm run guardrails:agent`, pushes the final rebased branch with
-   `git push --force-with-lease`, confirms the remote head, and opens the PR as a draft with
-   `Closes #<issue>`. It then hands the PR to the sanctioned deterministic review intake:
-   even PR number → `dev-reviewer`; odd PR number → `dev-reviewer-2`. That assigned lane is the
-   PR's sole merge authority. `aries-reviewer` never merges or enables auto-merge, and the
-   orchestrator must not open a duplicate PR, mark it ready, merge it, or enable auto-merge.
+   `git push --force-with-lease`, and confirms the remote head. Open a **draft PR** and hand it
+   to the deterministic sanctioned reviewer lane: even PR numbers → `dev-reviewer`; odd PR
+   numbers → `dev-reviewer-2`. Only that assigned lane marks the PR ready and deliberately
+   squash-merges after exact-head CI is green and its review passes. Include `Closes #<issue>`.
+   `aries-reviewer` never merges or enables auto-merge, and the orchestrator must not open a
+   duplicate PR, mark it ready, merge it, or enable auto-merge.
 
 8. **Watch it land.** A merge to master triggers the Deploy workflow → prod redeploys → the
    QA session re-verifies and either closes the loop or files the next defect. If CI fails,
