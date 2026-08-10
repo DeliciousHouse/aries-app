@@ -81,7 +81,17 @@ test('deploy cleanup is age-bounded, target-repository-only, rollback-safe, and 
     /docker image rm "\$\{image_ref\}"/,
     'cleanup must remove only exact target-repository tags, never an image id shared by another repository',
   );
-  assert.doesNotMatch(cleanup, /docker image prune|docker builder prune/);
+  assert.equal(
+    workflow.match(/^\s*(?:(?:el)?if ! )?docker buildx prune\b/gm)?.length,
+    1,
+    'the workflow must have exactly one scoped Buildx cleanup command',
+  );
+  assert.equal(
+    workflow.match(/^\s*(?:(?:el)?if ! )?docker image rm\b/gm)?.length,
+    1,
+    'the workflow must have exactly one exact-tag image removal command',
+  );
+  assert.doesNotMatch(workflow, /^\s*(?:(?:el)?if ! )?docker (?:image|builder) prune\b/m);
   assert.doesNotMatch(
     cleanup,
     /docker\s+(?:container|volume|network|system)\s+(?:prune|rm)\b|docker\s+compose\s+(?:down|rm)\b|\brm\s+-rf\b/,

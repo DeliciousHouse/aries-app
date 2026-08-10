@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.3.0 — fix(deploy): bound stale Docker cleanup
+
+Self-hosted deploys can reclaim stale Docker storage before the 10 GB disk
+preflight without deleting unrelated images or rollback artifacts.
+
+### Fixed
+
+- Cleanup targets only the selected Buildx builder and exact tags from the
+  deploy image repository that are older than seven days.
+- The newest three rollback images and every container-referenced image remain
+  protected, while cleanup failures stay non-blocking.
+- The fast regression gate now rejects duplicate or host-global Docker cleanup
+  commands anywhere in the deploy workflow.
+
 ## v0.2.0.0 — feat(growth): compound brand memory and social research
 
 Tier 2 closes the learning loop by compounding tenant-scoped approval and
@@ -212,18 +226,6 @@ without prematurely blocking unrelated pull requests.
 - Security scans begin in warn-only mode through 2026-09-05, with a documented
   review path for making new secret findings and fixable high or critical
   dependency advisories blocking after the observation period.
-
-## v0.1.49.0 — fix(deploy): scope stale Docker cleanup
-
-### Fixed
-
-- Self-hosted deploys reclaim cache only from the selected Buildx builder and
-  remove only target-repository image tags older than seven days before the
-  existing 10 GB disk preflight.
-- Cleanup keeps the newest three rollback images plus every image referenced by
-  any container, while sole-local and unrelated images remain untouched.
-- Cleanup metadata, cache-prune, and image-removal failures remain non-blocking,
-  with the complete safety contract enforced in the fast regression gate.
 
 ## v0.1.48.0 — feat(video): ship provider-neutral Hermes rendering
 
