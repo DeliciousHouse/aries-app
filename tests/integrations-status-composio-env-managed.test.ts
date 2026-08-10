@@ -149,7 +149,9 @@ test('#808: Composio ON + zero connected_accounts rows -> oauthStatusAsync repor
     const status = await oauthStatusAsync('instagram', '999');
     assert.ok(!('broker_status' in status), 'expected a status shape, not a broker error');
     assert.equal(status.connection_status, 'disconnected');
-    assert.equal(status.status_reason, 'connection_not_found');
+    // Consolidated disconnected shape carries the distinct marker (not the
+    // legacy 'connection_not_found'); see accountProviderStatus.
+    assert.equal(status.status_reason, 'account_provider_not_connected');
   });
 });
 
@@ -232,7 +234,7 @@ test('#808: Composio ON + a connected_accounts row with status=pending -> oauthS
     const status = await oauthStatusAsync('instagram', '21');
     assert.ok(!('broker_status' in status), 'expected a status shape, not a broker error');
     assert.equal(status.connection_status, 'disconnected');
-    assert.equal(status.status_reason, 'connection_not_found');
+    assert.equal(status.status_reason, 'account_provider_not_connected');
   });
 });
 
@@ -260,7 +262,7 @@ test('#808: Composio ON + a connected_accounts row with status=error -> oauthSta
     const status = await oauthStatusAsync('instagram', '22');
     assert.ok(!('broker_status' in status), 'expected a status shape, not a broker error');
     assert.equal(status.connection_status, 'disconnected');
-    assert.equal(status.status_reason, 'connection_not_found');
+    assert.equal(status.status_reason, 'account_provider_not_connected');
   });
 });
 

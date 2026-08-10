@@ -269,9 +269,17 @@ export async function buildIntegrationsPageDataAsync(tenantId: string) {
             }
           : undefined;
 
+      // A Composio-brokered connected facebook carries status_reason
+      // 'env_managed' and has no granted_scopes (Composio holds the token, not
+      // Aries), so the scope check below would always fail and falsely flag a
+      // reconnect-nag that routes at the legacy OAuth broker. Exclude the
+      // consolidated env_managed path. Before reader consolidation facebook
+      // (connectionMode 'oauth') could never report 'env_managed', so the
+      // legacy direct-Meta behavior is untouched.
       const scopesOutdated =
         platform === 'facebook' &&
         status.connection_status === 'connected' &&
+        status.status_reason !== 'env_managed' &&
         !META_REQUIRED_SCOPES.every((s) => status.granted_scopes?.includes(s));
 
       return {
@@ -291,7 +299,17 @@ export async function buildIntegrationsPageDataAsync(tenantId: string) {
                 status.connection_status === 'revoked' ||
                 status.connection_status === 'permission_denied'
               ? ['reconnect', 'view_permissions']
-              : ['connect', 'view_permissions'],
+              // A Composio-brokered disconnected card carries status_reason
+              // 'account_provider_not_connected'. Suppress the legacy 'connect'
+              // action: it routes to oauthConnect (the legacy broker), and a
+              // successful fallback connect would write a connected
+              // oauth_connections row that no consolidated status surface reads
+              // (re-diverging exactly like the rows the reconciliation cleans
+              // up); for x/reddit it dead-ends in a 503. The authoritative
+              // connect surface is the Composio channel-integrations screen.
+              : status.status_reason === 'account_provider_not_connected'
+                ? ['view_permissions']
+                : ['connect', 'view_permissions'],
         last_synced_at: null,
         expires_at: status.token_expires_at || null,
         permissions: [],
