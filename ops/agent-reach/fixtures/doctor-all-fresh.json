@@ -1,0 +1,9 @@
+{
+  "_fixture_note": "SYNTHETIC. agent-reach doctor is documented as reporting 'each platform's current backend status and health' but its exact --json shape is not published. This fixture is a plausible shape, not a capture. Replace it with a real `agent-reach doctor --json` capture on first install (see ops/agent-reach/README.md, 'Recalibrating the fixtures'). The prober's parser is deliberately shape-tolerant and classifies anything it cannot read as UNKNOWN, which never alerts.",
+  "channels": [
+    { "name": "twitter", "status": "ok", "detail": "cookie auth present" },
+    { "name": "reddit", "status": "ready", "detail": "session ok" },
+    { "name": "instagram", "status": "ok", "detail": "logged in" },
+    { "name": "facebook", "status": "healthy", "detail": "logged in" }
+  ]
+}
