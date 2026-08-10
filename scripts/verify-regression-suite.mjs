@@ -207,6 +207,39 @@ const steps = [
     ],
   },
   {
+    // Audit item 5b: object quarantine + account self-heal. A post deleted
+    // on-platform used to answer Graph (#100) on every 30-minute tick forever
+    // and pin its account's sync run at 'partial' permanently (tenant 15, 72h+).
+    // Pins the two things that make quarantine safe rather than a silencer:
+    // the two legs have INDEPENDENT strike state (shared state never converges
+    // when metrics succeed and comments fail), and the failure write is ONE
+    // atomic UPDATE (no read-modify-write race with a concurrent
+    // handler-triggered sync). Also pins the orphan sweep's exact predicate —
+    // the highest-blast-radius statement in the insights module — including the
+    // disconnect case, where the connected_accounts row is DELETED. Fully
+    // in-memory (fake pool), no DB.
+    name: 'insights object quarantine + account orphan sweep',
+    args: [
+      '--test',
+      'tests/insights-object-health.test.ts',
+      'tests/insights-post-quarantine.test.ts',
+      'tests/insights-ensure-account.test.ts',
+    ],
+  },
+  {
+    // Audit item 5a: the comment classifier was unreachable on EVERY sync
+    // because the sync sidecar carried HERMES_GATEWAY_URL but not the
+    // host.docker.internal extra_hosts mapping. Pins the boot-time preflight
+    // probe's verdicts and the fact that every unreachable detail names the
+    // gateway host:port — and never the API key. No network.
+    name: 'insights classifier gateway preflight',
+    args: [
+      '--test',
+      'tests/insights-classifier-preflight.test.ts',
+      'tests/insights-comment-classification.test.ts',
+    ],
+  },
+  {
     // S3-7/AA-103: attribution coverage gate for the S4-1 all-channel fallback.
     // Pure count math, including empty-window and invalid-input fail-closed
     // behavior; no DB or I/O.

@@ -337,13 +337,52 @@ COMPOSIO_INSTAGRAM_AUTH_CONFIG_ID=<id>
 | `COMPOSIO_API_KEY` | yes | yes | same key both places |
 | `COMPOSIO_*_AUTH_CONFIG_ID` | yes (all 9 providers) | 6: `DEFAULT`, `FACEBOOK`, `X`, `YOUTUBE`, `REDDIT`, `LINKEDIN` | the app owns the connect flow; the worker gets the providers it can pull insights for. Note the worker has **no** `INSTAGRAM` or `METAADS` entry — IG insights resolve through the Facebook/default config |
 | `ANALYTICS_PROVIDER` | — | yes | defaults to `composio` |
-| `HERMES_GATEWAY_URL` / `HERMES_API_SERVER_KEY` | yes | yes | the worker needs them for comment classification |
+| `HERMES_GATEWAY_URL` / `HERMES_API_SERVER_KEY` | yes | yes | the worker needs them for comment classification — **and, when the URL is host-scoped, the `extra_hosts` mapping below** |
 | `ARIES_COMMENT_CLASSIFICATION_ENABLED` | — | yes (**ships `1`**) | see the trap below |
 | `ARIES_INSIGHTS_SWEEP_GRACE_MINUTES` | — | yes (default `60`) | stranded `running` sync-run sweep |
 | `COMPOSIO_FACEBOOK_POST_INSIGHTS_ACTION` | — | optional | verified code default; set only to override |
 
 `DB_POOL_MAX` is pinned to `3` on the sidecar — see the connection-budget
 section above before changing it.
+
+### The host-gateway trap
+
+The Hermes gateway is a **host process** listening on `0.0.0.0:8642` — not a
+compose service. `HERMES_GATEWAY_URL` is therefore
+`http://host.docker.internal:8642`, and that name only resolves inside a
+container that carries
+
+```yaml
+extra_hosts:
+  - "host.docker.internal:host-gateway"
+```
+
+That mapping was declared on `aries-app` only. `aries-insights-sync-worker` got
+the gateway URL and key but not the mapping, so every comment-classification
+call from the sidecar failed with `getaddrinfo ENOTFOUND host.docker.internal`
+— logged as `classifyComments: unreachable (fetch failed)` on every tick that
+had unclassified comments, and **zero** rows in
+`insights_comment_classifications`, ever. Fixed 2026-08-10; the env pair and the
+mapping must be kept together on any service that talks to a host-scoped
+gateway.
+
+**Verification signal.** The worker emits one NDJSON line per container start:
+
+```bash
+docker logs --since 3m aries-insights-sync-worker | grep insights_classifier_preflight
+```
+
+| field | meaning |
+| --- | --- |
+| `"ok":true` | reachable (any HTTP response counts, including 404) |
+| `"reason":"unreachable"` | DNS/network — check `extra_hosts` and that the gateway is listening |
+| `"reason":"unauthorized"` | reached it; the worker's `HERMES_API_SERVER_KEY` does not match the gateway's |
+| `"reason":"not_configured"` | URL or key missing from this service's env |
+| `"reason":"disabled"` | `ARIES_COMMENT_CLASSIFICATION_ENABLED` is off |
+
+The probe is a single bounded GET, non-fatal, and never blocks the first tick.
+Every `unreachable` failure detail — preflight or live — now also names the
+gateway `host:port` it could not reach.
 
 ### The empty-default trap
 

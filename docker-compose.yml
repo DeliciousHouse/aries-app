@@ -867,6 +867,18 @@ services:
       ARIES_LINKEDIN_ENABLED: ${ARIES_LINKEDIN_ENABLED:-false}
       COMPOSIO_LINKEDIN_AUTH_CONFIG_ID: ${COMPOSIO_LINKEDIN_AUTH_CONFIG_ID:-}
       COMPOSIO_LINKEDIN_POST_INSIGHTS_ACTION: ${COMPOSIO_LINKEDIN_POST_INSIGHTS_ACTION:-}
+    # The Hermes gateway is a HOST process (listening on 0.0.0.0:8642), not a
+    # compose service, so HERMES_GATEWAY_URL is host.docker.internal-scoped.
+    # Only aries-app carried the host-gateway mapping, so every comment
+    # classification call from this sidecar died with
+    # `getaddrinfo ENOTFOUND host.docker.internal` — surfacing as
+    # `classifyComments: unreachable (fetch failed)` on every sync tick that had
+    # unclassified comments, and zero rows in insights_comment_classifications
+    # ever. The env pair above is useless without this mapping; keep them
+    # together. Verify at container start with the
+    # `insights_classifier_preflight` NDJSON line.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     networks:
       - docker_stack

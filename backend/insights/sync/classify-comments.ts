@@ -26,6 +26,14 @@ const MIN_POLL_INTERVAL_MS = 250;
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'stopped']);
 const DEFAULT_MODEL_HINT = 'gemini/gemini-3-flash-preview';
 
+/**
+ * Preflight probe (probeClassifierGateway): a run id that cannot exist, so the
+ * gateway answers 404 without doing any work. A 404 is a SUCCESSFUL probe —
+ * the question is reachability, not whether the run exists.
+ */
+const PROBE_RUN_ID = '__aries_preflight__';
+const PROBE_TIMEOUT_MS = 5_000;
+
 /** Max comments classified per Hermes run — bounds prompt size + tick latency. */
 export const MAX_CLASSIFY_BATCH = 40;
 
@@ -56,6 +64,13 @@ export type ClassifyFailureReason =
 export type ClassifyResult =
   | { ok: true; labels: Map<number, CommentLabel> }
   | { ok: false; reason: ClassifyFailureReason; detail?: string };
+
+/** Why a preflight probe could not confirm the gateway is reachable. */
+export type ProbeFailureReason = 'disabled' | 'not_configured' | 'unauthorized' | 'unreachable';
+
+export type ProbeResult =
+  | { ok: true }
+  | { ok: false; reason: ProbeFailureReason; detail?: string };
 
 type ClassifyEnv = Partial<Record<string, string | undefined>>;
 type ClassifyFetch = (input: string | URL, init?: RequestInit) => Promise<Response>;
@@ -93,6 +108,91 @@ export function isCommentClassificationEnabled(env: ClassifyEnv = process.env): 
  */
 export function resolveClassifyModelHint(env: ClassifyEnv = process.env): string {
   return readEnv(env, 'HERMES_COMMENT_CLASSIFY_MODEL') || DEFAULT_MODEL_HINT;
+}
+
+/**
+ * `host:port` of HERMES_GATEWAY_URL, or '' when unset/unparseable.
+ *
+ * Diagnostic ONLY — it is appended to every `unreachable` detail so the log
+ * line names WHICH host failed to resolve/connect. This is the difference
+ * between "classifyComments: unreachable (fetch failed)" (the 30-min-forever
+ * line that told nobody anything) and one that says the sidecar was trying to
+ * reach `host.docker.internal:8642` — the symptom of a container that has the
+ * gateway URL but not the `host.docker.internal:host-gateway` extra_hosts
+ * mapping that makes that name resolvable.
+ *
+ * NEVER touches HERMES_API_SERVER_KEY, and deliberately drops any userinfo the
+ * URL might carry, so no credential can reach a log line through this path.
+ */
+export function classifyGatewayOrigin(env: ClassifyEnv = process.env): string {
+  const raw = readEnv(env, 'HERMES_GATEWAY_URL');
+  if (!raw) return '';
+  try {
+    const url = new URL(raw);
+    return url.host; // host:port — never username/password
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * One cheap GET against the gateway to answer "can this process reach Hermes
+ * at all?" — without submitting a run.
+ *
+ * Any HTTP response at all (including 404 for the sentinel run id we ask for)
+ * proves reachability + a listening gateway, which is the whole question. Only
+ * 401/403 is special-cased, because that means "reached it, key is wrong" — a
+ * different fix from "cannot reach it".
+ *
+ * Best-effort and total: never throws, so a caller can `void` it at boot.
+ */
+export async function probeClassifierGateway(input: {
+  env?: ClassifyEnv;
+  fetchImpl?: ClassifyFetch;
+  timeoutMs?: number;
+} = {}): Promise<ProbeResult> {
+  const env = input.env ?? process.env;
+  const fetchImpl = input.fetchImpl ?? globalThis.fetch;
+
+  if (!isCommentClassificationEnabled(env)) return { ok: false, reason: 'disabled' };
+
+  const gatewayUrl = readEnv(env, 'HERMES_GATEWAY_URL').replace(/\/+$/, '');
+  const apiKey = readEnv(env, 'HERMES_API_SERVER_KEY');
+  if (!gatewayUrl || !apiKey) return { ok: false, reason: 'not_configured' };
+
+  const timeoutMs = input.timeoutMs ?? PROBE_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetchImpl(`${gatewayUrl}/v1/runs/${PROBE_RUN_ID}`, {
+      method: 'GET',
+      headers: { authorization: `Bearer ${apiKey}` },
+      signal: controller.signal,
+    });
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, reason: 'unauthorized', detail: `HTTP ${res.status}` };
+    }
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: 'unreachable',
+      detail: describeUnreachable(error, env),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * `<error message> (gateway <host:port>)` — the shape every `unreachable`
+ * detail takes. Kept in one place so the two classify call sites and the probe
+ * can never drift.
+ */
+function describeUnreachable(error: unknown, env: ClassifyEnv): string {
+  const msg = error instanceof Error ? error.message : String(error);
+  const origin = classifyGatewayOrigin(env);
+  return origin ? `${msg} (gateway ${origin})` : msg;
 }
 
 function instructionsBlock(): string {
@@ -210,7 +310,7 @@ export async function classifyCommentsWithHermes(input: ClassifyCommentsInput): 
     if (!candidate) return { ok: false, reason: 'submit_invalid' };
     runId = candidate;
   } catch (error) {
-    return { ok: false, reason: 'unreachable', detail: error instanceof Error ? error.message : String(error) };
+    return { ok: false, reason: 'unreachable', detail: describeUnreachable(error, env) };
   }
 
   const deadline = Date.now() + timeoutMs;
@@ -234,7 +334,7 @@ export async function classifyCommentsWithHermes(input: ClassifyCommentsInput): 
       if (!poll.ok) return { ok: false, reason: 'poll_rejected', detail: `HTTP ${poll.status}` };
       pollJson = (await poll.json().catch(() => null)) as Record<string, unknown> | null;
     } catch (error) {
-      return { ok: false, reason: 'unreachable', detail: error instanceof Error ? error.message : String(error) };
+      return { ok: false, reason: 'unreachable', detail: describeUnreachable(error, env) };
     }
     const status = pollJson && typeof pollJson.status === 'string' ? pollJson.status : '';
     if (!status) return { ok: false, reason: 'poll_invalid' };

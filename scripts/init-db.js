@@ -1267,6 +1267,21 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_insights_accounts_tenant_platform
         ON insights_accounts (tenant_id, platform);
 
+      -- Account-level self-heal (audit item 5b). Mirrored verbatim in
+      -- migrations/20260810000000_insights_object_health.sql.
+      --
+      -- connected_accounts is UNIQUE (tenant_id, platform), so reconnecting to
+      -- a DIFFERENT Page/IG id rewrites that row while the bridge inserts a NEW
+      -- insights_accounts row (UNIQUE on tenant_id, platform,
+      -- external_account_id) — and nothing has ever deleted from
+      -- insights_accounts, so the old row keeps syncing a dead page id forever.
+      -- A full disconnect DELETES the connected_accounts row and orphans the
+      -- insights row the same way. ensure-account.ts sweeps both cases into
+      -- disabled_at; every production reader filters disabled_at IS NULL.
+      -- Fully reversible — the next tick after a reconnect clears both columns.
+      ALTER TABLE insights_accounts ADD COLUMN IF NOT EXISTS disabled_at TIMESTAMPTZ;
+      ALTER TABLE insights_accounts ADD COLUMN IF NOT EXISTS disabled_reason TEXT;
+
       -- One row per piece of content fetched from a platform
       -- (YouTube video, Instagram reel, etc.).
       -- Named insights_posts to avoid collision with the existing posts table
@@ -1473,6 +1488,36 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_insights_posts_aries_post_id
         ON insights_posts (aries_post_id)
         WHERE aries_post_id IS NOT NULL;
+
+      -- Per-object health state (audit item 5b). Mirrored verbatim in
+      -- migrations/20260810000000_insights_object_health.sql.
+      --
+      -- A post deleted on-platform answered Graph (#100) on every 30-minute
+      -- tick forever: last_metrics_fetched_at was stamped only on success and
+      -- the comments leg had no watermark at all, so the dead object was
+      -- re-selected indefinitely, pushed a fresh legError each tick, and pinned
+      -- its account's sync run at 'partial' permanently with no alert.
+      -- backend/insights/sync/object-health.ts owns the strike thresholds; the
+      -- dispatcher increments these columns in ONE atomic UPDATE per failure
+      -- (no read-modify-write, so a concurrent handler-triggered sync cannot
+      -- lose a strike) and resets them on success.
+      --
+      -- The two legs get INDEPENDENT state deliberately. They address the same
+      -- platform object but fail independently: with shared columns, a post
+      -- whose metrics succeed and whose comments permanently fail has its
+      -- counter reset to 0 by the metrics success every tick before the
+      -- comments failure can increment it — it never converges, which is the
+      -- exact poison signature these columns exist to end.
+      ALTER TABLE insights_posts ADD COLUMN IF NOT EXISTS metrics_error_count INT NOT NULL DEFAULT 0;
+      ALTER TABLE insights_posts ADD COLUMN IF NOT EXISTS metrics_last_error TEXT;
+      ALTER TABLE insights_posts ADD COLUMN IF NOT EXISTS metrics_unavailable_at TIMESTAMPTZ;
+      ALTER TABLE insights_posts ADD COLUMN IF NOT EXISTS comments_error_count INT NOT NULL DEFAULT 0;
+      ALTER TABLE insights_posts ADD COLUMN IF NOT EXISTS comments_last_error TEXT;
+      ALTER TABLE insights_posts ADD COLUMN IF NOT EXISTS comments_unavailable_at TIMESTAMPTZ;
+
+      CREATE INDEX IF NOT EXISTS idx_insights_posts_unavailable
+        ON insights_posts (tenant_id, account_id)
+        WHERE metrics_unavailable_at IS NOT NULL OR comments_unavailable_at IS NOT NULL;
 
       -- is_replied is also declared inline in the CREATE TABLE insights_comments
       -- above, but that table predates the column on existing databases and
