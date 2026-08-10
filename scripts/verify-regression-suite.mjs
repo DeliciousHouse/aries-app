@@ -124,6 +124,20 @@ const steps = [
     args: ['--test', 'tests/smoke-scale-harness.test.ts'],
   },
   {
+    // S7-3/AA-121 (gap D3): the 60s micro-cache for the seven previously
+    // uncached insights endpoints. The load-bearing assertions are the isolation
+    // ones — two tenants never share an entry, and a missing/junk tenant yields
+    // NO key rather than a shared bucket (on a hit the scoped SQL never runs, so
+    // nothing downstream would catch a leak). Plus: the 60s ceiling is enforced
+    // in the module rather than trusted to callers, Cache-Control is `private`
+    // so a CDN cannot hold a per-tenant body, every cache read precedes
+    // pool.connect() (a hit must cost no client), and a confirmed reply
+    // invalidates conversations so an operator never watches their own reply
+    // fail to appear. In-memory; no DB.
+    name: 'insights micro-cache + freshness (D3)',
+    args: ['--test', 'tests/insights-micro-cache.test.ts'],
+  },
+  {
     // AA-159: task-execution engine classification. Pins the contracts the cost
     // analysis depends on — the engine vocabulary, hard-zero tokens on the
     // zero-cost engines vs NULL ("not reported") on AI rows, no model columns on

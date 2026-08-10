@@ -14,6 +14,13 @@
 import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
+import {
+  INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS,
+  insightsMicroCacheKey,
+  microCacheControlHeader,
+  readInsightsMicroCache,
+  writeInsightsMicroCache,
+} from './micro-cache';
 import { resolveTenantInsightsTimeZone } from './tenant-timezone';
 import { tenantZonePeriodStartDateKey } from '@/lib/format-timestamp';
 import { LATEST_POST_METRICS_LATERAL } from './latest-post-metrics-sql';
@@ -74,6 +81,16 @@ export async function handleGetInsightsSummary(
   const days     = clamp(parseIntParam(searchParams.get('days'), 30), 1, 90);
 
   const tenantId = Number(tenantResult.tenantContext.tenantId);
+
+  // S7-3/AA-121: cache check precedes pool.connect() — a hit costs no client.
+  const cacheKey = insightsMicroCacheKey('summary', tenantId, { platform, days });
+  const cached = readInsightsMicroCache<Record<string, unknown>>(cacheKey);
+  if (cached) {
+    return NextResponse.json(cached, {
+      headers: { 'Cache-Control': microCacheControlHeader(INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS) },
+    });
+  }
+
   const client = await pool.connect();
 
   try {
@@ -115,7 +132,7 @@ export async function handleGetInsightsSummary(
     );
 
     const row = res.rows[0];
-    return NextResponse.json({
+    const body = {
       period: { days, from: fromKey },
       platform,
       totalViews:            Number(row.total_views),
@@ -126,6 +143,10 @@ export async function handleGetInsightsSummary(
       totalShares:           Number(row.total_shares),
       totalWatchTimeMinutes: Number(row.total_watch_time_minutes),
       totalEngagement:       Number(row.total_engagement),
+    };
+    writeInsightsMicroCache(cacheKey, body, INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS);
+    return NextResponse.json(body, {
+      headers: { 'Cache-Control': microCacheControlHeader(INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS) },
     });
   } finally {
     client.release();
@@ -157,6 +178,16 @@ export async function handleGetInsightsPosts(
   const offset   = Math.max(parseIntParam(searchParams.get('offset'), 0), 0);
 
   const tenantId = Number(tenantResult.tenantContext.tenantId);
+
+  // S7-3/AA-121: cache check precedes pool.connect() — a hit costs no client.
+  const cacheKey = insightsMicroCacheKey('posts', tenantId, { platform, limit, offset });
+  const cached = readInsightsMicroCache<Record<string, unknown>>(cacheKey);
+  if (cached) {
+    return NextResponse.json(cached, {
+      headers: { 'Cache-Control': microCacheControlHeader(INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS) },
+    });
+  }
+
   const client = await pool.connect();
 
   try {
@@ -223,7 +254,11 @@ export async function handleGetInsightsPosts(
       },
     }));
 
-    return NextResponse.json({ posts, limit, offset, count: posts.length });
+    const body = { posts, limit, offset, count: posts.length };
+    writeInsightsMicroCache(cacheKey, body, INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS);
+    return NextResponse.json(body, {
+      headers: { 'Cache-Control': microCacheControlHeader(INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS) },
+    });
   } finally {
     client.release();
   }
@@ -253,6 +288,16 @@ export async function handleGetInsightsAccountMetrics(
   const days     = clamp(parseIntParam(searchParams.get('days'), 30), 1, 90);
 
   const tenantId = Number(tenantResult.tenantContext.tenantId);
+
+  // S7-3/AA-121: cache check precedes pool.connect() — a hit costs no client.
+  const cacheKey = insightsMicroCacheKey('account-metrics', tenantId, { platform, days });
+  const cached = readInsightsMicroCache<Record<string, unknown>>(cacheKey);
+  if (cached) {
+    return NextResponse.json(cached, {
+      headers: { 'Cache-Control': microCacheControlHeader(INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS) },
+    });
+  }
+
   const client = await pool.connect();
 
   try {
@@ -302,10 +347,14 @@ export async function handleGetInsightsAccountMetrics(
       shares:             Number(row.shares),
     }));
 
-    return NextResponse.json({
+    const body = {
       period: { days, from: fromKey },
       platform,
       series,
+    };
+    writeInsightsMicroCache(cacheKey, body, INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS);
+    return NextResponse.json(body, {
+      headers: { 'Cache-Control': microCacheControlHeader(INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS) },
     });
   } finally {
     client.release();
@@ -337,6 +386,16 @@ export async function handleGetInsightsComments(
   const limit    = clamp(parseIntParam(searchParams.get('limit'), 50), 1, 200);
 
   const tenantId = Number(tenantResult.tenantContext.tenantId);
+
+  // S7-3/AA-121: cache check precedes pool.connect() — a hit costs no client.
+  const cacheKey = insightsMicroCacheKey('comments', tenantId, { platform, postId, limit });
+  const cached = readInsightsMicroCache<Record<string, unknown>>(cacheKey);
+  if (cached) {
+    return NextResponse.json(cached, {
+      headers: { 'Cache-Control': microCacheControlHeader(INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS) },
+    });
+  }
+
   const client = await pool.connect();
 
   try {
@@ -386,7 +445,11 @@ export async function handleGetInsightsComments(
       postPermalink: row.post_permalink,
     }));
 
-    return NextResponse.json({ comments, limit, count: comments.length });
+    const body = { comments, limit, count: comments.length };
+    writeInsightsMicroCache(cacheKey, body, INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS);
+    return NextResponse.json(body, {
+      headers: { 'Cache-Control': microCacheControlHeader(INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS) },
+    });
   } finally {
     client.release();
   }
