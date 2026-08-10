@@ -5,7 +5,7 @@
  *
  * No caching — comment data is real-time; staleness is immediately visible
  * to the user (unread counts, reply status).
- * ?force=true accepted but has no effect (kept for API consistency).
+ * ?force=true bypasses the micro-cache and rebuilds.
  *
  * FRESHNESS: 60s micro-cache, the shortest window the card allows, because
  * this payload carries reply/unread state. The cache is INVALIDATED for the
@@ -41,6 +41,10 @@ export async function handleGetInsightsConversations(
   if ('response' in tenantResult) return tenantResult.response;
 
   const { searchParams } = new URL(req.url);
+  // S7-3/AA-121: the UI's Retry button sends ?force=true. Before this section
+  // was cached that was a no-op; now it MUST bypass the cache, or Retry
+  // returns the same body for up to 60s and looks broken.
+  const force = searchParams.get('force') === 'true';
   const periodParam   = searchParams.get('period');
   const platformParam = (searchParams.get('platform') || 'all').toLowerCase();
 
@@ -58,7 +62,7 @@ export async function handleGetInsightsConversations(
   // S7-3/AA-121: consult the cache BEFORE any pooled work — a hit must cost
   // no database client at all, which is the point of caching these.
   const cacheKey = insightsMicroCacheKey('conversations', tenantId, { period, platform });
-  const cached = readInsightsMicroCache<Record<string, unknown>>(cacheKey);
+  const cached = force ? null : readInsightsMicroCache<Record<string, unknown>>(cacheKey);
   if (cached) {
     return NextResponse.json(cached, {
       headers: { 'Cache-Control': microCacheControlHeader(INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS) },

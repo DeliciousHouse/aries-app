@@ -180,6 +180,22 @@ for (const [section, file] of SECTION_HANDLERS) {
     assert.ok(cacheAt < buildAt, `${section}: cache read must precede the builder`);
   });
 
+  test(`${section} honours ?force=true by bypassing the cache`, () => {
+    // The UI's Retry button (useInsight -> run(true)) sends force=true. Before
+    // these sections were cached that was a documented no-op; once cached, a
+    // force that did NOT bypass would return the same body for up to 60s and
+    // make Retry look broken — a regression introduced BY caching.
+    const source = read(...file.split('/'));
+    assert.match(source, /const force = searchParams\.get\('force'\) === 'true';/);
+    assert.match(
+      source,
+      /const cached = force \? null : readInsightsMicroCache/,
+      `${section}: force must skip the cache read`,
+    );
+    // The stale "has no effect" note must not survive.
+    assert.doesNotMatch(source, /force=true accepted but has no effect/);
+  });
+
   test(`${section} documents its freshness semantics`, () => {
     // The card requires per-endpoint freshness semantics to be written down —
     // a cached endpoint whose staleness nobody stated is a bug waiting to be
