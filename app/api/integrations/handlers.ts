@@ -266,9 +266,17 @@ export async function buildIntegrationsPageDataAsync(tenantId: string) {
             }
           : undefined;
 
+      // A Composio-brokered connected facebook carries status_reason
+      // 'env_managed' and has no granted_scopes (Composio holds the token, not
+      // Aries), so the scope check below would always fail and falsely flag a
+      // reconnect-nag that routes at the legacy OAuth broker. Exclude the
+      // consolidated env_managed path. Before reader consolidation facebook
+      // (connectionMode 'oauth') could never report 'env_managed', so the
+      // legacy direct-Meta behavior is untouched.
       const scopesOutdated =
         platform === 'facebook' &&
         status.connection_status === 'connected' &&
+        status.status_reason !== 'env_managed' &&
         !META_REQUIRED_SCOPES.every((s) => status.granted_scopes?.includes(s));
 
       return {

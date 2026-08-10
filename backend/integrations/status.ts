@@ -3,8 +3,8 @@ import { resolveTokenHealth } from './connection-schema';
 import { getConnectionRow } from './composio/connection-store';
 import { dbGetConnection } from './oauth-db';
 import { getProviderOAuthAvailability } from './oauth-provider-runtime';
-import { getAccountConnectionProvider } from './providers/provider-factory';
-import type { IntegrationPlatform } from './providers/types';
+import { isComposioEnabled } from './providers/integration-config';
+import { isIntegrationPlatform } from './providers/types';
 
 type PlatformConnectionStatus =
   | 'disconnected'
@@ -119,6 +119,75 @@ function healthFromInternal(connection: {
   }
 }
 
+/**
+ * connected_accounts-derived status for Composio-brokered platforms.
+ *
+ * When an account-connection provider is active, connected_accounts is the
+ * single source of truth for every IntegrationPlatform — it holds the live
+ * connected_account_id used to publish and read insights (#808 + reader
+ * consolidation). This flips the API status surfaces (app/api/integrations,
+ * app/api/platform-connections) to agree with the publisher/insights/settings
+ * code, which already read connected_accounts. The legacy oauth_connections
+ * read in oauthStatusAsync remains the fall-through ONLY when no
+ * account-connection provider is configured (byte-identical legacy behavior).
+ *
+ * Returns null when this path does not apply, so the caller continues to the
+ * legacy logic:
+ *  - provider is not an IntegrationPlatform (slack/openai keep the legacy
+ *    broker), or
+ *  - Composio is disabled (COMPOSIO_ENABLED falsy).
+ *
+ * The active-provider check is `isComposioEnabled(process.env)` rather than
+ * `getAccountConnectionProvider(process.env) !== null` on purpose: the two are
+ * the same boolean (provider-factory returns null iff !isComposioEnabled), but
+ * getAccountConnectionProvider constructs the Composio gateway, which THROWS
+ * ComposioConfigError when COMPOSIO_ENABLED is truthy while COMPOSIO_API_KEY is
+ * unset. Extending that throw across all six integration platforms would 500
+ * the whole /api/integrations page (buildIntegrationsPageDataAsync has no
+ * per-card catch). connected_accounts is a plain DB table needing no API key,
+ * so in that misconfig state consulting it is strictly better than throwing.
+ */
+async function accountProviderStatus(
+  provider: string,
+  tenantId: string,
+): Promise<PlatformConnectionStatusShape | null> {
+  if (!isIntegrationPlatform(provider)) return null;
+  if (!isComposioEnabled(process.env)) return null;
+
+  const now = new Date().toISOString();
+  const row = await getConnectionRow(tenantId, provider);
+  if (row?.status === 'connected') {
+    return {
+      schema_name: 'platform_connection_status_schema',
+      schema_version: '1.0.0',
+      tenant_id: tenantId,
+      integration_id: undefined,
+      platform: provider,
+      connection_status: 'connected',
+      status_reason: 'env_managed',
+      health: 'unknown',
+      updated_at: now,
+      capabilities: [],
+      metadata: {},
+      external_account_id: row.externalAccountId ?? undefined,
+      external_account_name: row.externalAccountName ?? undefined,
+    };
+  }
+  return {
+    schema_name: 'platform_connection_status_schema',
+    schema_version: '1.0.0',
+    tenant_id: tenantId,
+    integration_id: undefined,
+    platform: provider,
+    connection_status: 'disconnected',
+    status_reason: 'connection_not_found',
+    health: 'unknown',
+    updated_at: now,
+    capabilities: [],
+    metadata: {},
+  };
+}
+
 export function oauthStatus(provider: string, tenantId?: string): PlatformConnectionStatusShape | StatusError {
   // Deprecated sync wrapper (kept for older callers).
   // Prefer `oauthStatusAsync` for real data.
@@ -172,59 +241,37 @@ export async function oauthStatusAsync(provider: string, tenantId?: string): Pro
   }
 
   const normalizedTenantId = tenantId.trim();
+
+  // Reader consolidation: connected_accounts is authoritative for every
+  // Composio-brokered platform whenever an account-connection provider is
+  // active. This must run BEFORE the availability checks below, because
+  // platforms whose legacy OAuth env is absent (x, reddit) would otherwise
+  // return 'misconfigured' at the `!availability.available` gate and mask
+  // their live Composio connections. Returns null (falls through to the legacy
+  // path) when Composio is disabled or provider is not an IntegrationPlatform.
+  const consolidated = await accountProviderStatus(provider, normalizedTenantId);
+  if (consolidated !== null) return consolidated;
+
   const availability = getProviderOAuthAvailability(provider);
   if (!availability.available) {
     return buildMisconfiguredStatus(provider, normalizedTenantId, new Date().toISOString(), availability.message, availability.missingEnv);
   }
   if (!availability.connectable) {
-    // Env-managed providers (Instagram, via META_PAGE_ID/META_ACCESS_TOKEN) have
-    // no per-tenant OAuth record in oauth_connections by design. When Composio is
-    // the active account-connection provider, per-tenant state DOES exist
-    // (connected_accounts) and must be consulted — otherwise every tenant on a
-    // process with Meta env vars set reads as "connected" regardless of whether
-    // that specific tenant ever connected anything (#808). When Composio is
-    // disabled there is no per-tenant record to check at all, so the legacy
-    // unconditional "connected" behavior is preserved byte-identically.
+    // Env-managed providers (Instagram, via META_PAGE_ID/META_ACCESS_TOKEN)
+    // have no per-tenant OAuth record in oauth_connections by design. The
+    // Composio-active consult that used to live here has moved to
+    // `accountProviderStatus`, invoked at the top of this function BEFORE the
+    // availability checks (Instagram is an IntegrationPlatform, so when Composio
+    // is active that guard already returned this tenant's connected_accounts
+    // status). Reaching here therefore means Composio is disabled — there is no
+    // per-tenant record to check at all, so the legacy unconditional "connected"
+    // behavior is preserved byte-identically (#808).
     //
     // NOTE: the deprecated sync `oauthStatus` twin below intentionally keeps its
     // legacy unconditional env-managed behavior even when Composio is enabled —
     // a known limitation, not fixed here (out of scope; no remaining callers rely
     // on it for env-managed correctness).
     const now = new Date().toISOString();
-    const accountConnectionProvider = getAccountConnectionProvider(process.env);
-    if (accountConnectionProvider !== null) {
-      const row = await getConnectionRow(normalizedTenantId, provider as IntegrationPlatform);
-      if (row?.status === 'connected') {
-        return {
-          schema_name: 'platform_connection_status_schema',
-          schema_version: '1.0.0',
-          tenant_id: normalizedTenantId,
-          integration_id: undefined,
-          platform: provider,
-          connection_status: 'connected',
-          status_reason: 'env_managed',
-          health: 'unknown',
-          updated_at: now,
-          capabilities: [],
-          metadata: {},
-          external_account_id: row.externalAccountId ?? undefined,
-          external_account_name: row.externalAccountName ?? undefined,
-        };
-      }
-      return {
-        schema_name: 'platform_connection_status_schema',
-        schema_version: '1.0.0',
-        tenant_id: normalizedTenantId,
-        integration_id: undefined,
-        platform: provider,
-        connection_status: 'disconnected',
-        status_reason: 'connection_not_found',
-        health: 'unknown',
-        updated_at: now,
-        capabilities: [],
-        metadata: {},
-      };
-    }
 
     return {
       schema_name: 'platform_connection_status_schema',
