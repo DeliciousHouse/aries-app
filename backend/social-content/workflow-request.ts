@@ -1,6 +1,7 @@
 import {
   extractEnrichAndSaveTenantBrandKit,
   tenantBrandKitPath,
+  type LogoMaterializer,
 } from '@/backend/marketing/brand-kit';
 import {
   marketingBrandKitReferenceFromTenantBrandKit,
@@ -720,6 +721,8 @@ export function buildProductionResumeContext(input: {
 export async function ensureFreshBrandKitForWeeklyRun(input: {
   doc: SocialContentJobRuntimeDocument;
   fetchImpl?: typeof fetch;
+  /** Test seam: injected logo materializer (see brand-kit.ensureLogoMaterialized). */
+  logoMaterializer?: LogoMaterializer;
 }): Promise<{ refreshed: boolean; enriched: boolean }> {
   const brandUrl = typeof input.doc.inputs.brand_url === 'string' ? input.doc.inputs.brand_url.trim() : '';
   if (!brandUrl) {
@@ -745,6 +748,7 @@ export async function ensureFreshBrandKitForWeeklyRun(input: {
       tenantId: input.doc.tenant_id,
       brandUrl,
       fetchImpl: input.fetchImpl,
+      logoMaterializer: input.logoMaterializer,
       operatorOverrides: (opStyleVibe || opBrandVoice)
         ? { styleVibe: opStyleVibe, brandVoice: opBrandVoice }
         : undefined,

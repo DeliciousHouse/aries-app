@@ -587,3 +587,154 @@ test('ingest: no raw-twin DELETE is issued when not framing (flag off)', async (
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// AA-221: the composite skip must be LOUD.
+//
+// Live shape of the bug: ARIES_FEED_LOGO_COMPOSITE_ENABLED=1, brand kit present
+// with logo_urls=['https://.../aries-logo.webp'] but logo_file_path=null. The
+// compositor only accepts a LOCAL file, so it declined, returned the original
+// buffer, and the `framed !== rawBytes` identity check treated that as "nothing
+// to do". A whole week of feed images shipped logo-less with zero log output.
+// ---------------------------------------------------------------------------
+
+/** Capture console.warn for the duration of `run`. */
+async function withCapturedWarn<T>(run: () => Promise<T>): Promise<{ value: T; warns: unknown[][] }> {
+  const original = console.warn;
+  const warns: unknown[][] = [];
+  console.warn = (...args: unknown[]) => {
+    warns.push(args);
+  };
+  try {
+    const value = await run();
+    return { value, warns };
+  } finally {
+    console.warn = original;
+  }
+}
+
+function skipWarns(warns: unknown[][]): Record<string, unknown>[] {
+  return warns
+    .filter((args) => String(args[0]) === '[ingest-production-assets] logo composite skipped')
+    .map((args) => (args[1] ?? {}) as Record<string, unknown>);
+}
+
+test('ingest: flag ON + brand kit with no logo_file_path WARNs with reason logo_file_path_missing', async () => {
+  const dataRoot = path.join(tmpdir(), `aries-ingest-nologo-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  await withCompositeEnv(dataRoot, async () => {
+    await withHermesMediaMount(async (mount, hostImagePath) => {
+      const basename = 'feed-nologo.png';
+      await writeFile(path.join(mount, basename), await realPng(800, 800, { r: 255, g: 255, b: 255 }));
+      const doc = makeDoc({ creativeAssets: [{ assetId: 'img_1', type: 'generated_image', path: hostImagePath(basename) }] });
+      const { pool, calls } = makeMockPool(1);
+
+      const { warns } = await withCapturedWarn(async () =>
+        ingestProductionCreativeAssetsToDb({
+          jobId: 'mkt_nologo',
+          tenantId: 15,
+          doc,
+          pool,
+          // The exact live tenant-15 shape: a remote logo URL, no local file.
+          brandKit: { logo_urls: ['https://aries.example/aries-logo.webp'], colors: { primary: '#ff00aa' }, logo_file_path: null },
+        }),
+      );
+
+      const skips = skipWarns(warns);
+      assert.equal(skips.length, 1, 'exactly one skip warn per ingest — not one per asset');
+      assert.equal(skips[0].reason, 'logo_file_path_missing');
+      assert.equal(skips[0].jobId, 'mkt_nologo');
+      assert.equal(skips[0].tenantId, 15);
+
+      // Behavior is unchanged: raw passthrough, no twin delete.
+      const { params } = calls[0];
+      assert.equal(params[7], 'runtime_asset', 'no local logo means no framing — raw bytes stand');
+      assert.equal(params[3], path.join(mount, basename));
+      assert.ok(!calls.some((c) => /DELETE FROM creative_assets/i.test(c.sql)), 'must not delete a raw twin it never replaced');
+    });
+  });
+});
+
+test('ingest: flag ON with no brand kit at all WARNs with reason brand_kit_missing', async () => {
+  const dataRoot = path.join(tmpdir(), `aries-ingest-nokit-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  await withCompositeEnv(dataRoot, async () => {
+    await withHermesMediaMount(async (mount, hostImagePath) => {
+      const basename = 'feed-nokit.png';
+      await writeFile(path.join(mount, basename), await realPng(800, 800, { r: 255, g: 255, b: 255 }));
+      const doc = makeDoc({ creativeAssets: [{ assetId: 'img_1', type: 'generated_image', path: hostImagePath(basename) }] });
+      const { pool } = makeMockPool(1);
+
+      const { warns } = await withCapturedWarn(async () =>
+        ingestProductionCreativeAssetsToDb({ jobId: 'mkt_nokit', tenantId: 15, doc, pool }),
+      );
+
+      const skips = skipWarns(warns);
+      assert.equal(skips.length, 1);
+      assert.equal(skips[0].reason, 'brand_kit_missing');
+    });
+  });
+});
+
+// Noise control: a reel-companion ingest is video-only and can NEVER composite
+// by design. Warning on it every week would train operators to scroll past the
+// line that actually matters.
+test('ingest: a video-only batch emits NO skip warn even with the flag on and no logo', async () => {
+  const dataRoot = path.join(tmpdir(), `aries-ingest-videoonly-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  await withCompositeEnv(dataRoot, async () => {
+    await withHermesMediaMount(async (mount, hostImagePath) => {
+      const basename = 'reel.mp4';
+      await writeFile(path.join(mount, basename), Buffer.from('fake-video-bytes'));
+      const doc = makeDoc({
+        creativeAssets: [{ assetId: 'vid_1', type: 'generated_video', media_type: 'video', path: hostImagePath(basename) }],
+      });
+      const { pool } = makeMockPool(1);
+
+      const { warns } = await withCapturedWarn(async () =>
+        ingestProductionCreativeAssetsToDb({
+          jobId: 'mkt_reel',
+          tenantId: 15,
+          doc,
+          pool,
+          brandKit: { logo_urls: ['https://aries.example/aries-logo.webp'], colors: { primary: '#ff00aa' }, logo_file_path: null },
+        }),
+      );
+
+      assert.deepEqual(skipWarns(warns), [], 'video-only ingests must stay quiet');
+    });
+  });
+});
+
+test('ingest: a logo that fails to load WARNs that the composite produced no change', async () => {
+  const dataRoot = path.join(tmpdir(), `aries-ingest-deadlogo-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  await withCompositeEnv(dataRoot, async () => {
+    await withHermesMediaMount(async (mount, hostImagePath) => {
+      const basename = 'feed-deadlogo.png';
+      await writeFile(path.join(mount, basename), await realPng(800, 800, { r: 255, g: 255, b: 255 }));
+      const doc = makeDoc({ creativeAssets: [{ assetId: 'img_1', type: 'generated_image', path: hostImagePath(basename) }] });
+      const { pool, calls } = makeMockPool(1);
+
+      const { warns } = await withCapturedWarn(async () =>
+        ingestProductionCreativeAssetsToDb({
+          jobId: 'mkt_deadlogo',
+          tenantId: 15,
+          doc,
+          pool,
+          // logo_file_path IS set (so the pre-loop check is happy) but the bytes
+          // are unreadable at composite time — the file-swept case.
+          brandKit: FRAME_BRAND_KIT,
+          logoLoader: async () => null as unknown as Buffer,
+        }),
+      );
+
+      assert.deepEqual(skipWarns(warns), [], 'the pre-loop check has nothing to complain about here');
+      const noChange = warns.filter(
+        (args) => String(args[0]) === '[ingest-production-assets] logo composite produced no change',
+      );
+      assert.equal(noChange.length, 1, 'the per-asset no-op must be reported');
+      assert.equal((noChange[0][1] as Record<string, unknown>).reason, 'framed_without_logo');
+
+      const { params } = calls[0];
+      assert.equal(params[7], 'runtime_asset', 'an unapplied frame must leave the raw bytes exactly as before');
+      assert.equal(params[3], path.join(mount, basename));
+    });
+  });
+});
