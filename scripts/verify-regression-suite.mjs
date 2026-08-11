@@ -179,6 +179,20 @@ const steps = [
     args: ['--test', 'tests/insights-classification-review.test.ts'],
   },
   {
+    // AA-114/S6-1 (gaps A6a/F3): the canonical goal WRITE path — the operator
+    // picks the goal instead of it being keyword-guessed from free text. Pins
+    // the A6a fix ("Increase social media presence" means content_growth, not
+    // the brand_awareness fallback) and its now-load-bearing consequence: since
+    // #964 that goal is the one whose metric, SUM(followers_delta), the
+    // strategy/publish prompts optimise for, so a mismatch would have the
+    // prompts and the dashboard chasing different numbers. Also pins the
+    // resolver's precedence — an explicit pick wins, an unrelated field edit
+    // never re-derives over it, a changed goal text still re-resolves — and
+    // that both keyword heuristics are retired. No DB.
+    name: 'canonical goal write path (A6a/F3)',
+    args: ['--test', 'tests/goal-canonical-write-path.test.ts'],
+  },
+  {
     // Regression for the 2026-06-09 prod wedge: a failed tick must release the
     // insights-sync worker's overlap guard. Fast and fully in-memory.
     name: 'insights-sync worker tick guard',

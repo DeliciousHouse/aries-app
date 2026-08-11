@@ -12,6 +12,7 @@ function baseProfile(over: Partial<BusinessProfileView> = {}): BusinessProfileVi
     websiteUrl: 'https://acme.example',
     businessType: null,
     primaryGoal: null,
+    goalType: null,
     launchApproverUserId: null,
     launchApproverName: null,
     offer: null,
