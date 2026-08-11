@@ -48,6 +48,11 @@ test('release metadata stays synchronized across package manifests and VERSION',
 test('Claude guidance promotes lessons into active rules for future agents', () => {
   const claude = readRepoFile('CLAUDE.md');
 
+  assert.match(
+    claude,
+    /npm run typecheck[\s\S]{0,120}npm run lint[\s\S]{0,120}Windows-safe/,
+    'guidance should keep cross-env-backed validation commands Windows-safe',
+  );
   assert.match(claude, /Promise\.all[\s\S]*DB_POOL_MAX/, 'guidance should block unbenchmarked DB fan-out');
   assert.match(claude, /git fetch origin[\s\S]*duplicate/i, 'guidance should require a fresh base comparison before shipping');
   assert.match(claude, /Codex[\s\S]*tmux[\s\S]*Use existing model/, 'guidance should document the Codex upgrade-prompt recovery path');
