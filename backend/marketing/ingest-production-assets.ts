@@ -58,6 +58,66 @@ function contentTypeForBasename(name: string): string {
   return DURABLE_CONTENT_TYPES[path.extname(name).toLowerCase()] ?? 'application/octet-stream';
 }
 
+/**
+ * Mirror runtime-asset bytes into DATA_ROOT/ingested-assets so the public proxy
+ * can still serve them after Hermes evicts its cache.
+ *
+ * WHY THIS IS THE LOAD-BEARING FIX.
+ *
+ * Hermes's gateway housekeeping unlinks everything in its image cache older than
+ * 24 HOURS — a hardcoded literal in gateway/run.py's cleanup_image_cache, with
+ * no env knob and nothing this repo can configure. Aries schedules posts up to
+ * twelve days ahead against that cache. So every post dispatching more than ~24h
+ * after generation was guaranteed to fail; on 2026-08-11 the 14:39:26 sweep
+ * removed the 08-10 batch and post 163 dispatched 20 minutes later into a 404.
+ *
+ * Video and logo-framed images already dodge this by persisting under
+ * DATA_ROOT — only the plain feed image kept a bare pointer into the ephemeral
+ * mount. This closes that one gap.
+ *
+ * The mirror path is deliberately `<tenant>/<basename[0:2]>/<basename>` rather
+ * than the sha-keyed scheme the framed branch uses, because the public proxy's
+ * second read root resolves EXACTLY that shape from the signed token's basename
+ * (app/api/public/media/[token]/[basename]/route.ts). Writing it here means the
+ * proxy finds the bytes with no route change, no storage_kind change, and no
+ * change for the ~8 consumers that switch on storage_kind.
+ *
+ * Best-effort by contract: ingestion has already succeeded, so a failure to
+ * mirror must not fail the job.
+ */
+export async function mirrorRuntimeAssetForDurability(
+  tenantId: number,
+  storageKey: string,
+  bytes: Buffer,
+): Promise<boolean> {
+  const basename = path.basename(storageKey);
+  if (!basename || basename.includes('..') || basename.includes('/')) return false;
+  // Require a real file extension. basename() alone is enough for containment
+  // (a traversing key reduces to a plain name), but a key like '/hermes-media/'
+  // reduces to the DIRECTORY name and would store a junk extensionless file.
+  // Such an object is unservable anyway: the proxy maps extension -> Content-Type
+  // and would hand Meta application/octet-stream, which it rejects.
+  if (!path.extname(basename)) return false;
+  try {
+    const target = resolveDataPath(
+      'ingested-assets',
+      String(tenantId),
+      basename.slice(0, 2),
+      basename,
+    );
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, bytes);
+    return true;
+  } catch (error) {
+    console.warn('[ingest-production-assets] durable mirror failed', {
+      tenantId,
+      basename,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+}
+
 export interface IngestProductionAssetsArgs {
   jobId: string;
   tenantId: number;
@@ -588,13 +648,28 @@ export async function ingestProductionCreativeAssetsToDb(
       // repaired. Best-effort by contract: ingestion has already succeeded
       // locally, so a failure here must not fail the job.
       const durableBasename = path.basename(storageKey);
-      const durableOk = await putDurableMedia(
+
+      // Local mirror first: it needs no provisioning, no IAM and no flag, and
+      // DATA_ROOT/ingested-assets is already durable (assets there survive for
+      // months while the Hermes cache turns over every 24h). Only runtime_asset
+      // rows need it — the video and framed branches already persist under
+      // DATA_ROOT, so mirroring those would just duplicate bytes.
+      let durableOk = false;
+      if (storageKind === 'runtime_asset') {
+        durableOk = await mirrorRuntimeAssetForDurability(tenantId, storageKey, bytes);
+      }
+
+      // Then the off-host copy, when provisioned. Independent of the mirror:
+      // either alone is enough to serve the bytes, and the mirror still lives on
+      // the same disk as everything else.
+      const offHostOk = await putDurableMedia(
         tenantId,
         durableBasename,
         bytes,
         contentTypeForBasename(durableBasename),
       );
-      if (durableOk) {
+
+      if (durableOk || offHostOk) {
         durableStored++;
       }
 
