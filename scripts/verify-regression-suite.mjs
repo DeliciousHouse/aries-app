@@ -156,6 +156,29 @@ const steps = [
     ],
   },
   {
+    // AA-90/S1-11 (gap B1): the compose guard for the outage that ticket was
+    // misfiled as. The Hermes gateway is a HOST process, so HERMES_GATEWAY_URL
+    // is host.docker.internal-scoped; the sync worker had the credentials but
+    // NOT the host-gateway mapping, so every classification call died with
+    // ENOTFOUND and insights_comment_classifications sat at zero rows for weeks
+    // with nothing failing or alerting. No code test can catch that — the
+    // requirement lives only in the compose file. Derived from the file, so a
+    // NEW Hermes-calling sidecar is covered the day it is added. No DB.
+    name: 'compose: Hermes callers can resolve the host gateway (B1)',
+    args: ['--test', 'tests/compose-hermes-host-gateway.test.ts'],
+  },
+  {
+    // AA-90/S1-11: the label-quality gate itself. Labels are frozen once
+    // written (ON CONFLICT DO NOTHING on a pinned version) and flag-off does
+    // NOT roll them back, so a bad first batch is expensive. Pins the
+    // mechanical smells (uniform labels, out-of-vocabulary NULLs, everything
+    // flagged a lead), that a single row is never mis-flagged as uniform, that
+    // "needs_review" is the BEST verdict a script may return, and that the
+    // review is read-only. Injected queryable; no DB.
+    name: 'insights comment-label quality gate (B1)',
+    args: ['--test', 'tests/insights-classification-review.test.ts'],
+  },
+  {
     // Regression for the 2026-06-09 prod wedge: a failed tick must release the
     // insights-sync worker's overlap guard. Fast and fully in-memory.
     name: 'insights-sync worker tick guard',
