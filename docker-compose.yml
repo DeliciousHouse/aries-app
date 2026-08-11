@@ -145,6 +145,34 @@ services:
       # dispatch throws ComposioCapabilityMissingError, so counting the platform
       # would admit a tenant into a week of posts that all fail terminally.
       ARIES_ANY_PLATFORM_PUBLISH_ENABLED: ${ARIES_ANY_PLATFORM_PUBLISH_ENABLED:-0}
+      # AA-217 v2: GENUINE PLATFORM AWARENESS in generation. OFF => the tenant's
+      # real platforms never reach Hermes (today's behavior): the weekly scope
+      # defaults to channels:['meta','instagram'], the stage prompts name
+      # instagram/facebook, and LinkedIn/X/Reddit copy is Meta-flavoured prose
+      # truncated by adaptCaptionForPlatform at the caption layer. ON => the
+      # code-resolved publish targets are carried into scope.publish_platforms
+      # and into the strategy/production/publish prompts, per-network conventions
+      # (hook budget, length, hashtag policy, CTA convention) are stated for
+      # exactly those networks, and content_package[].platform_variants carries
+      # NATIVE copy per platform which synthesis writes into posts.caption.
+      #
+      # TENANT-SCOPABLE, and that is the point: these are per-run PROMPTS built
+      # from one global process env, so a plain `1` would rewrite EVERY tenant's
+      # prompts — including tenant 15, which is publishing today. Set it to a CSV
+      # of tenant ids to make the canary genuinely dark for everyone else:
+      #   unset / 0 / false / no / off  -> OFF everywhere (default)
+      #   1 / true / yes / on           -> ON fleet-wide
+      #   70    (or 70,71)              -> ON for exactly those tenant ids
+      # Rollout: land dark, apply the deploy/soul-patches by hand, set this to
+      # `70`, watch one weekly cycle (tenant-70 native rows AND tenant-15
+      # captions unchanged), then widen. Rollback = unset it; prompts and
+      # synthesis return to the byte-identical legacy paths on the next run.
+      #
+      # Requires ARIES_ANY_PLATFORM_PUBLISH_ENABLED for a no-Meta tenant to be
+      # resolved as alternate-primary at all — resolveWeeklyPromptPlatforms
+      # mirrors that coupling so prompts can never name platforms synthesis is
+      # not writing.
+      ARIES_PLATFORM_NATIVE_CONTENT_ENABLED: ${ARIES_PLATFORM_NATIVE_CONTENT_ENABLED:-}
       # AI-derived per-platform posting times: every content-generation start
       # re-derives WHEN posts publish per platform — from the tenant's own
       # insights engagement once >= MIN_ANALYTICS_POSTS posts have metrics, else

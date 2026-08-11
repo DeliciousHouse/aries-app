@@ -34,12 +34,18 @@
  */
 
 import {
+  isAnyPlatformPublishEnabled,
+  META_PUBLISH_PLATFORMS,
+} from '@/backend/integrations/providers/integration-config';
+import { filterKnownPlatforms } from '@/backend/social-content/platform-copy-directives';
+import {
   queryConnectedMetaPlatformCount,
   type PlatformCountQueryable,
 } from '@/lib/connected-platform-counts';
 import pool from '@/lib/db';
 
 import {
+  isWeeklyCrosspostEnabled,
   resolveCrosspostPlatforms,
   type CrosspostPlatform,
   type CrosspostQueryable,
@@ -115,4 +121,88 @@ export async function resolvePrimaryPublishPlatforms(
     return { mode: 'none' };
   }
   return { mode: 'alternate', platforms };
+}
+
+// ---------------------------------------------------------------------------
+// AA-217 v2 — the platform list the WEEKLY PROMPTS are allowed to name.
+// ---------------------------------------------------------------------------
+
+/**
+ * The composition a weekly run will actually deliver, in the form the prompt
+ * builders consume. `null` means "say nothing" — every prompt falls back to its
+ * byte-identical legacy literal.
+ */
+export type WeeklyPromptPlatforms = {
+  mode: 'meta' | 'alternate';
+  /** Enum members only (META_PUBLISH_PLATFORMS ∪ CROSSPOST_PLATFORMS), in delivery order. */
+  platforms: string[];
+} | null;
+
+/**
+ * Resolve the platforms the weekly STRATEGY / PRODUCTION / PUBLISH prompts may
+ * name for this tenant.
+ *
+ * WHY THIS DELEGATES INSTEAD OF QUERYING: `resolvePrimaryPublishPlatforms` is
+ * how synthesis decides which rows to write. If the prompts derived the list
+ * some other way, a tenant could be told to write LinkedIn-native copy for a
+ * week that synthesis then materialises as Meta rows (or vice versa). Same
+ * function, same predicates, one answer.
+ *
+ * FLAG COUPLING (reviewer-required): the AA-217 flag
+ * `ARIES_ANY_PLATFORM_PUBLISH_ENABLED` is what lets synthesis take the alternate
+ * path at all. With it OFF, synthesis ALWAYS takes the legacy Meta-primary path
+ * — so this resolver must never return `alternate` in that state, or the new
+ * platform-native flag alone could name linkedin/x/reddit in the prompts of a
+ * no-Meta tenant whose week is still being synthesized as Meta rows. That
+ * divergence is precisely what a single resolution helper exists to prevent, so
+ * the coupling is enforced here rather than at each of the three call sites.
+ *
+ * COMPOSITION for `meta` mode: the Meta pair plus, when the crosspost fan-out is
+ * enabled, the tenant's connected crosspost platforms — because those rows ARE
+ * produced for that tenant's week (the fan-out), so a prompt that omitted them
+ * would be lying by omission in the other direction.
+ *
+ * FAILS OPEN TO NULL, always. A prompt is not worth failing a run over: any
+ * throw, and any `none` resolution, yields legacy prompts. Synthesis re-resolves
+ * independently and remains the authority on which rows exist — the same
+ * accepted failure mode documented on `resolvePrimaryPublishPlatforms` above.
+ */
+export async function resolveWeeklyPromptPlatforms(
+  tenantId: number,
+  db: CrosspostQueryable = pool,
+  env: Env = process.env,
+): Promise<WeeklyPromptPlatforms> {
+  try {
+    const metaComposition = async (): Promise<WeeklyPromptPlatforms> => {
+      const crosspost = isWeeklyCrosspostEnabled(env)
+        ? await resolveCrosspostPlatforms(tenantId, db, env)
+        : [];
+      return { mode: 'meta', platforms: filterKnownPlatforms([...META_PUBLISH_PLATFORMS, ...crosspost]) };
+    };
+
+    if (!isAnyPlatformPublishEnabled(env as NodeJS.ProcessEnv)) {
+      return metaComposition();
+    }
+
+    const resolution = await resolvePrimaryPublishPlatforms(tenantId, db, env);
+    if (resolution.mode === 'none') {
+      // Nothing connected: the publish gate blocks this tenant upstream. Say
+      // nothing rather than name platforms that will produce no rows.
+      return null;
+    }
+    if (resolution.mode === 'alternate') {
+      // Defense in depth: the list already comes from CROSSPOST_PLATFORMS-derived
+      // code, but a poisoned `connected_accounts.platform` value must never be
+      // able to reach a prompt string. Enum filter, second time.
+      const platforms = filterKnownPlatforms(resolution.platforms);
+      return platforms.length > 0 ? { mode: 'alternate', platforms } : null;
+    }
+    return metaComposition();
+  } catch (err) {
+    console.warn(
+      '[primary-publish-platforms] weekly prompt platform resolution failed — prompts fall back to the legacy wording',
+      { tenantId, error: (err as Error)?.message ?? String(err) },
+    );
+    return null;
+  }
 }

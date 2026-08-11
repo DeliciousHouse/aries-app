@@ -305,3 +305,95 @@ export function adaptCaptionForPlatform(
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Native per-platform variants (AA-217 v2).
+//
+// `adaptCaptionForPlatform` above is a TRUNCATOR: it takes copy that was written
+// for Instagram and makes it fit somewhere else. That is the whole reason
+// LinkedIn/X/Reddit content reads Meta-flavoured — the adaptation happens after
+// the writing. `buildVariantCaption` is the other half: when Hermes emitted
+// genuinely native copy for a platform (`content_package[].platform_variants`,
+// see backend/social-content/platform-copy-directives.ts), this serializes THAT
+// copy into `posts.caption` instead.
+//
+// It is still the place the platform's HARD limits are enforced in code. The
+// model is not trusted to have honoured the character caps or the hashtag policy
+// it was given: X is re-capped with the same weighted counter the adapter uses,
+// LinkedIn is clamped, and reddit's hashtags are dropped unconditionally
+// (which also retires the bug-shaped behaviour where a reddit body shipped an
+// Instagram hashtag block).
+// ---------------------------------------------------------------------------
+
+/** One entry of `content_package[].platform_variants`, already shape-validated. */
+export interface PlatformVariantCopy {
+  hook: string;
+  body: string;
+  cta: string;
+  hashtags: string[];
+}
+
+const LINKEDIN_MAX_HASHTAGS = 5;
+const X_MAX_HASHTAGS = 1;
+
+function cleanTags(hashtags: readonly unknown[] | undefined): string[] {
+  if (!Array.isArray(hashtags)) return [];
+  return hashtags
+    .filter((t): t is string => typeof t === 'string')
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0);
+}
+
+/**
+ * Serialize a NATIVE per-platform variant into the single `posts.caption` text
+ * field, enforcing that platform's hard limits regardless of what the model
+ * emitted.
+ *
+ * Returns `null` when the variant carries no usable copy at all — the caller
+ * MUST then fall back to `adaptCaptionForPlatform`. Hermes is non-deterministic:
+ * a missing, partial or blank variant is an expected outcome on any run and must
+ * degrade, never drop the post and never throw.
+ */
+export function buildVariantCaption(
+  platform: CrosspostPlatform,
+  variant: Partial<PlatformVariantCopy> | null | undefined,
+): string | null {
+  if (!variant || typeof variant !== 'object') return null;
+  const hook = typeof variant.hook === 'string' ? variant.hook.trim() : '';
+  const body = typeof variant.body === 'string' ? variant.body.trim() : '';
+  const cta = typeof variant.cta === 'string' ? variant.cta.trim() : '';
+  const tags = cleanTags(variant.hashtags);
+  if (!hook && !body && !cta) return null;
+
+  switch (platform) {
+    case 'x': {
+      // One idea, one line-run. At most one hashtag, then the same weighted cap
+      // the adapter enforces (URLs count 23, high code points count 2).
+      const parts = [hook, body, cta].filter(Boolean);
+      const composed = [parts.join(' '), ...tags.slice(0, X_MAX_HASHTAGS)].filter(Boolean).join(' ').trim();
+      const capped = truncateWeighted(composed, X_MAX_WEIGHTED);
+      return capped && capped !== '…' ? capped : null;
+    }
+    case 'linkedin': {
+      // Line-broken paragraphs (the native shape), hashtags end-loaded only.
+      const blocks = [hook, body, cta].filter(Boolean);
+      const tail = tags.slice(0, LINKEDIN_MAX_HASHTAGS);
+      if (tail.length > 0) blocks.push(tail.join(' '));
+      const text = blocks.join('\n\n');
+      if (!text) return null;
+      return text.length <= LINKEDIN_MAX ? text : `${text.slice(0, LINKEDIN_MAX - 1)}…`;
+    }
+    case 'reddit': {
+      // Title is line 1 — that is the publisher's contract
+      // (composio-publisher-provider redditTitleFromContent). Hashtags are
+      // dropped outright: they are noise on reddit and read as spam.
+      const rawTitle = stripHashtags(hook || firstSentence(body) || cta);
+      const clamped =
+        rawTitle.length <= REDDIT_TITLE_MAX ? rawTitle : `${rawTitle.slice(0, REDDIT_TITLE_MAX - 1)}…`;
+      const title = clamped || 'New post';
+      const bodyBlocks = [stripHashtags(body), stripHashtags(cta)].filter(Boolean);
+      const redditBody = bodyBlocks.join('\n\n');
+      return redditBody ? `${title}\n\n${redditBody}` : title;
+    }
+  }
+}

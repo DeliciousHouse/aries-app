@@ -23,6 +23,12 @@ import {
   type SocialContentAspectRatio,
 } from './aspect-matrix';
 import { isFeedLogoCompositeEnabled } from './feed-logo-composite-env';
+import {
+  filterKnownPlatforms,
+  renderPlatformCopyDirectives,
+  renderPlatformVariantsContract,
+  targetPlatformsLine,
+} from './platform-copy-directives';
 import { isTasteBriefInjectionEnabled } from '@/backend/marketing/taste-brief-injection-env';
 import type { TasteDimensions } from '@/backend/marketing/taste-profile-store';
 import {
@@ -112,6 +118,18 @@ export type SocialContentWeeklyRequest = {
       video_script_count: number;
       video_render_count: number;
       channels: string[];
+      /**
+       * AA-217 v2: the platforms this tenant's week will ACTUALLY be published
+       * to, resolved by Aries from `connected_accounts` /`oauth_connections`
+       * (backend/marketing/primary-publish-platforms.ts) and enum-filtered.
+       *
+       * Deliberately a SEPARATE field from `channels`: `channels` is the
+       * operator's image-targeting selection (and drives the aspect matrix,
+       * which stays Meta-derived in v1), whereas this is the delivery truth.
+       * Absent unless ARIES_PLATFORM_NATIVE_CONTENT_ENABLED is on for the
+       * tenant, so the request JSON stays byte-identical by default.
+       */
+      publish_platforms?: string[];
     };
     constraints: {
       must_use_copy: string;
@@ -179,6 +197,12 @@ export function buildSocialContentWeeklyRequest(input: {
   regenerateCreative?: SocialContentRegenerateCreativeContext;
   /** Condensed performance block; null/blank omits the field entirely. */
   performanceSummary?: string | null;
+  /**
+   * AA-217 v2 resolved publish targets. Null/empty omits `scope.publish_platforms`
+   * entirely, so the serialized request is byte-identical to pre-change — which
+   * is exactly what the flag-OFF rollback promises.
+   */
+  publishPlatforms?: readonly string[] | null;
 }): SocialContentWeeklyRequest {
   const req = requestRecord(input.doc);
   const brandKit = input.doc.brand_kit ?? null;
@@ -199,6 +223,7 @@ export function buildSocialContentWeeklyRequest(input: {
     MAX_VIDEO_RENDER_COUNT,
   );
   const resolvedOffer = brandKitPayload.objective.offer;
+  const resolvedPublishPlatforms = filterKnownPlatforms(input.publishPlatforms ?? []);
 
   const mediaRequests: NonNullable<SocialContentWeeklyRequest['input']['media_requests']> = [];
   if (imageCreativeCount > 0) {
@@ -248,6 +273,10 @@ export function buildSocialContentWeeklyRequest(input: {
         video_script_count: integerValue(req.videoScriptCount, SOCIAL_CONTENT_DEFAULT_SCOPE.video_script_count),
         video_render_count: videoRenderCount,
         channels: configuredChannels.length > 0 ? configuredChannels : [...SOCIAL_CONTENT_DEFAULT_SCOPE.channels],
+        // Conditional spread — same byte-identity discipline as
+        // `recent_performance` below. Enum-filtered again at the boundary: a
+        // poisoned platform value must never reach a serialized prompt.
+        ...(resolvedPublishPlatforms.length > 0 ? { publish_platforms: resolvedPublishPlatforms } : {}),
       },
       constraints: {
         must_use_copy: stringValue(req.mustUseCopy),
@@ -372,6 +401,11 @@ export function buildProductionResumeContext(input: {
    * the produced prompts are byte-identical to today.
    */
   tasteProjection?: TasteDimensions | null;
+  /**
+   * AA-217 v2 resolved publish targets. Null/empty ⇒ every platform-aware branch
+   * below is inert and the produced `contextBlock` is byte-identical to today.
+   */
+  publishPlatforms?: readonly string[] | null;
 }): ProductionResumeContext {
   const req = requestRecord(input.doc);
   const brandKit = input.doc.brand_kit ?? null;
@@ -409,6 +443,14 @@ export function buildProductionResumeContext(input: {
     : '';
   const configuredChannels = stringArray(req.channels);
   const imageTargetChannels = weeklySocialChannels(configuredChannels);
+  // AA-217 v2. `imageTargetChannels` is the IMAGE-targeting selection and stays
+  // the sole input to the aspect matrix (deliberate: non-Meta aspect entries are
+  // a separate, Meta-visible risk — an alternate tenant keeps the IG-dominant
+  // 4:5 image in v1). `publishPlatforms` is the DELIVERY truth and drives only
+  // the copy-facing surfaces: the Target-platforms line, the per-network
+  // directives, and which channel_notes / channelAdaptation keys get surfaced.
+  const publishPlatforms = filterKnownPlatforms(input.publishPlatforms ?? []);
+  const copyTargetChannels = publishPlatforms.length > 0 ? publishPlatforms : imageTargetChannels;
   const primaryChannel = resolveDominantImageChannel(imageTargetChannels);
   const aspectRatio = resolveSocialContentAspectRatio({ channel: primaryChannel, postType: 'single_image' });
   const windowDays = clampWeeklyWindowDays(
@@ -461,7 +503,11 @@ export function buildProductionResumeContext(input: {
     const channelNotes = ro.channel_notes;
     if (channelNotes && typeof channelNotes === 'object' && !Array.isArray(channelNotes)) {
       const cn = channelNotes as Record<string, unknown>;
-      for (const ch of imageTargetChannels) {
+      // Surfaced for the DELIVERY platforms (falls back to imageTargetChannels
+      // when none were resolved, keeping the flag-OFF block byte-identical).
+      // These strings come from Hermes stage output — same trust level and the
+      // same 200-char clamp as before, just for more keys.
+      for (const ch of copyTargetChannels) {
         if (typeof cn[ch] === 'string') {
           researchLines.push(`${ch} creative direction: ${(cn[ch] as string).slice(0, 200)}`);
         }
@@ -492,7 +538,7 @@ export function buildProductionResumeContext(input: {
     const channelAdapt = so.channelAdaptation;
     if (channelAdapt && typeof channelAdapt === 'object' && !Array.isArray(channelAdapt)) {
       const ca = channelAdapt as Record<string, unknown>;
-      for (const ch of imageTargetChannels) {
+      for (const ch of copyTargetChannels) {
         if (typeof ca[ch] === 'string') {
           strategyLines.push(`${ch} channel adaptation: ${(ca[ch] as string).slice(0, 200)}`);
         }
@@ -552,7 +598,11 @@ export function buildProductionResumeContext(input: {
     }
 
     lines.push('');
-    lines.push(`Target platforms: ${imageTargetChannels.join(', ')}`);
+    lines.push(
+      publishPlatforms.length > 0
+        ? targetPlatformsLine(publishPlatforms)
+        : `Target platforms: ${imageTargetChannels.join(', ')}`,
+    );
     lines.push(`Aspect ratio: ${aspectRatio} (${channelAspectHints})`);
     lines.push(`Use ${aspectRatio} framing to maximise visual impact on these platforms.`);
 
@@ -662,7 +712,11 @@ export function buildProductionResumeContext(input: {
   contextLines.push('  "body": "<2-4 sentence post body>",');
   contextLines.push('  "cta": "<call to action>",');
   contextLines.push('  "hashtags": ["#tag1", "#tag2", "#tag3"],');
-  contextLines.push('  "platforms": ["instagram", "facebook"],');
+  contextLines.push(
+    publishPlatforms.length > 0
+      ? `  "platforms": [${publishPlatforms.map((p) => `"${p}"`).join(', ')}],`
+      : '  "platforms": ["instagram", "facebook"],',
+  );
   contextLines.push('  "format": "single_image",');
   contextLines.push(
     brandMode === 'dark'
@@ -671,6 +725,23 @@ export function buildProductionResumeContext(input: {
   );
   contextLines.push('}');
   contextLines.push('');
+  // AA-217 v2 — PER-PLATFORM COPY DIRECTIVE. Emitted only when Aries resolved
+  // real publish targets for this tenant (flag ON), so the flag-OFF contextBlock
+  // is byte-identical. Every string is a code constant; the only tenant-derived
+  // input is the platform NAME, which is an enum member filtered at both the
+  // resolution boundary and inside the renderers.
+  if (publishPlatforms.length > 0) {
+    const directives = renderPlatformCopyDirectives(publishPlatforms);
+    if (directives) {
+      contextLines.push(directives);
+      contextLines.push('');
+    }
+    const variants = renderPlatformVariantsContract(publishPlatforms);
+    if (variants) {
+      contextLines.push(variants);
+      contextLines.push('');
+    }
+  }
   if (brandMode === 'dark') {
     contextLines.push(
       `NON-NEGOTIABLE: this brand is DARK. Every image you generate MUST have a dark, near-black background (${brandBackground || '#050505'}). Do NOT produce bright, white, light, or "soft white studio" backgrounds — a light background is a brand violation and will be rejected.`,

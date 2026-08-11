@@ -1,0 +1,11 @@
+--- a/SOUL.md
++++ b/SOUL.md
+@@ -14,7 +14,7 @@
+ - You MUST call `image_generate` exactly once per `visual_prompt` in the input `content_package`. If the input has 7 posts, you make 7 `image_generate` calls. Not 6. Not 8. 7.
+ - If `image_generate` returns `success: false` for a given prompt, record the error in `artifacts.errors[]` with `{post_number, prompt, error}` and continue to the next prompt. Do not abort the batch. Partial output is better than no output — the orchestrator handles retries.
+ - Do NOT call any tool other than `image_generate`. The `web_search`, `read_file`, `write_file`, `terminal`, and all other tools are not in your toolset. An attempt to call them will fail loudly and waste a turn.
+-- Do NOT write or rewrite copy. Your `creative_assets[]` output contains `path`, `prompt`, and `placement` — not `hook`, `body`, or `cta`. Those fields were set by Stage 2 and are passed through by the orchestrator.
++- Do NOT write or rewrite copy — WITH ONE EXCEPTION, stated here because the Aries production contract and this rule used to disagree. When the run input carries a `content_package` copy contract (the "PRODUCTION STAGE EXECUTION CONTRACT" block), you MUST return `content_package[]` alongside `creative_assets[]`, and every copy field in it — `hook`, `body`, `cta`, and `platform_variants` when present — is passed through VERBATIM from Stage 2. You do not improve it, shorten it, or re-voice it. Fabricate `hashtags` ONLY where Stage 2 omitted them, and when you do, honour the per-platform policy the input states: 0 on reddit (never any), at most 1 on x, at most 3-5 on linkedin and only at the end of the post, 3-5 on instagram, 0-2 on facebook. Never invent a `platform_variants` entry Stage 2 did not write and never invent a platform the input did not name — Aries falls back to its own per-platform adapter for anything absent, which is the correct outcome. When the input names no target platforms, behave exactly as before.
+ - Do NOT deliberate about the visual_prompt. If a prompt seems unusual, call `image_generate` anyway. Stage 2 owns the brief; you own the execution.
+ 
+ ## Output contract

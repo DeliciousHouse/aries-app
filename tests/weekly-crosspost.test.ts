@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   adaptCaptionForPlatform,
   buildLinkedInCaption,
+  buildVariantCaption,
   buildRedditContent,
   buildXCaption,
   CROSSPOST_PLATFORMS,
@@ -380,4 +381,84 @@ test('resolveCrosspostPlatforms: single query, no fan-out (guardrail #1)', async
   assert.equal(pool.calls.length, 1, 'exactly one connected_accounts query');
   assert.match(pool.calls[0].sql, /FROM connected_accounts/i);
   assert.match(pool.calls[0].sql, /status = 'connected'/i);
+});
+
+// ---------------------------------------------------------------------------
+// buildVariantCaption (AA-217 v2) — native per-platform copy.
+//
+// The adapters above TRUNCATE Instagram copy to fit elsewhere. These serialize
+// copy that was written natively for the platform — and still enforce that
+// platform's hard limits in code, because the model is not trusted to have
+// honoured the caps and hashtag policy it was given.
+// ---------------------------------------------------------------------------
+
+const V = (over: Record<string, unknown> = {}) => ({
+  hook: 'A specific, concrete hook.',
+  body: 'Two short paragraphs.\nThe second one.',
+  cta: 'What broke first for you?',
+  hashtags: ['#one', '#two', '#three', '#four', '#five', '#six'],
+  ...over,
+});
+
+test('buildVariantCaption(x): one line-run, at most ONE hashtag, under the weighted cap', () => {
+  const out = buildVariantCaption('x', V())!;
+  assert.ok(out.includes('A specific, concrete hook.'));
+  assert.equal((out.match(/#/g) ?? []).length, 1, 'x allows at most one hashtag');
+  assert.ok(out.includes('#one'), 'and it is the first one');
+  assert.ok(weightedXLength(out) <= 270, `weighted length ${weightedXLength(out)} must stay under the cap`);
+});
+
+test('buildVariantCaption(x): a long emoji/URL-heavy variant is still capped by the weighted counter', () => {
+  const long = V({
+    hook: '🚀'.repeat(60),
+    body: `${'word '.repeat(120)}https://example.com/a/very/long/path/that/x/still/counts/as/23`,
+    cta: 'Reply.',
+  });
+  const out = buildVariantCaption('x', long)!;
+  assert.ok(weightedXLength(out) <= 270, `weighted length ${weightedXLength(out)} exceeded the cap`);
+  assert.ok(out.endsWith('…'), 'truncation is marked');
+});
+
+test('buildVariantCaption(linkedin): line-broken blocks, hashtags END-loaded and capped at 5, clamped to 2900', () => {
+  const out = buildVariantCaption('linkedin', V())!;
+  assert.ok(out.startsWith('A specific, concrete hook.\n\n'), 'hook is its own block');
+  const tagLine = out.split('\n\n').at(-1)!;
+  assert.equal(tagLine, '#one #two #three #four #five', 'exactly five, at the end, in order');
+  assert.ok(!out.slice(0, out.indexOf(tagLine)).includes('#'), 'no hashtags mid-body');
+
+  const huge = buildVariantCaption('linkedin', V({ body: 'x'.repeat(5000) }))!;
+  assert.ok(huge.length <= 2900, `length ${huge.length} exceeded the LinkedIn clamp`);
+  assert.ok(huge.endsWith('…'));
+});
+
+test('buildVariantCaption(reddit): title on line 1, blank line, body — and NEVER a hashtag', () => {
+  const out = buildVariantCaption('reddit', V())!;
+  const [title, blank, ...rest] = out.split('\n');
+  assert.equal(title, 'A specific, concrete hook.', 'the publisher reads line 1 as the title');
+  assert.equal(blank, '', 'title and body are separated by a blank line');
+  assert.ok(rest.join('\n').length > 0, 'there is a body');
+  assert.equal(out.includes('#'), false, 'hashtags are dropped outright on reddit');
+});
+
+test('buildVariantCaption(reddit): a hashtag-laden hook still yields a clean title, clamped to 280', () => {
+  const out = buildVariantCaption('reddit', V({ hook: `#promo ${'t'.repeat(400)} #sale` }))!;
+  const title = out.split('\n')[0];
+  assert.ok(!title.includes('#'), 'hashtags stripped from the title');
+  assert.ok(title.length <= 280, `title length ${title.length} exceeded the reddit clamp`);
+});
+
+test('buildVariantCaption: a blank or missing variant returns null so the caller falls back to the adapter', () => {
+  for (const platform of CROSSPOST_PLATFORMS) {
+    assert.equal(buildVariantCaption(platform, null), null);
+    assert.equal(buildVariantCaption(platform, undefined), null);
+    assert.equal(buildVariantCaption(platform, { hook: '', body: '   ', cta: '' }), null);
+    assert.equal(buildVariantCaption(platform, {} as never), null);
+  }
+});
+
+test('buildVariantCaption: a partial variant (hook only) is still usable on every platform', () => {
+  for (const platform of CROSSPOST_PLATFORMS) {
+    const out = buildVariantCaption(platform, { hook: 'Just the hook.', body: '', cta: '', hashtags: [] });
+    assert.ok(out && out.includes('Just the hook.'), `${platform} must not require every field`);
+  }
 });

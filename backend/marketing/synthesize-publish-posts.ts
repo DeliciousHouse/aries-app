@@ -48,7 +48,12 @@
  * so a replay finds the existing record instead of creating a duplicate.
  */
 
-import { isAnyPlatformPublishEnabled } from '@/backend/integrations/providers/integration-config';
+import {
+  CROSSPOST_PLATFORMS,
+  isAnyPlatformPublishEnabled,
+  isPlatformNativeContentEnabled,
+  META_PUBLISH_PLATFORMS,
+} from '@/backend/integrations/providers/integration-config';
 
 import {
   createMarketingApprovalRecord,
@@ -61,9 +66,11 @@ import type { SocialContentJobRuntimeDocument } from './runtime-state';
 import { visualStyleLens } from './taste-profile-store';
 import {
   adaptCaptionForPlatform,
+  buildVariantCaption,
   isWeeklyCrosspostEnabled,
   resolveCrosspostPlatforms,
   type CrosspostPlatform,
+  type PlatformVariantCopy,
 } from './weekly-crosspost';
 
 export interface SynthesizePublishPostsArgs {
@@ -121,9 +128,32 @@ type ContentPackageEntry = {
   /** Cleaned hashtag tokens — used to compose the X crosspost caption. */
   hashtags: string[];
   platforms: string[];
+  /**
+   * AA-217 v2: NATIVE per-platform copy the strategist wrote for this post
+   * (`content_package[].platform_variants`). Only populated when the
+   * platform-native flag is on for the tenant. Always OPTIONAL at the point of
+   * use — Hermes is non-deterministic, so a missing or partial variant must
+   * degrade to `adaptCaptionForPlatform`, never drop the post.
+   */
+  platformVariants?: Partial<Record<CrosspostPlatform, PlatformVariantCopy>>;
 };
 
-const VALID_PLATFORMS = new Set(['instagram', 'facebook']);
+const VALID_PLATFORMS = new Set<string>(META_PUBLISH_PLATFORMS);
+
+/**
+ * The Meta-family platforms the MAIN insert loop is allowed to write. Identical
+ * to VALID_PLATFORMS today; named separately because the two express different
+ * rules and only one of them widens under the platform-native flag.
+ */
+const META_PLATFORM_SET = new Set<string>(META_PUBLISH_PLATFORMS);
+
+/**
+ * The platform set `parseContentPackage` accepts when platform-native content is
+ * enabled for the tenant. THIS MUST LAND WITH THE PROMPT CHANGES, never after:
+ * teaching the strategist to emit `platforms:["linkedin"]` while the parser
+ * still drops non-Meta entries produces an EMPTY WEEK, silently.
+ */
+const NATIVE_VALID_PLATFORMS = new Set<string>([...META_PUBLISH_PLATFORMS, ...CROSSPOST_PLATFORMS]);
 
 type PostSurface = 'feed' | 'story' | 'reel';
 type PostMediaType = 'image' | 'video';
@@ -326,11 +356,54 @@ function buildCaption(entry: Record<string, unknown>): string {
 }
 
 /**
+ * Parse `content_package[].platform_variants` into validated native copy.
+ *
+ * Every field is shape-checked here so the downstream caption builder can be
+ * total: an unknown platform key, a non-string hook/body/cta, or a hashtags
+ * value that is not a string array is DROPPED rather than coerced. A dropped
+ * variant is not an error — the fan-out falls back to `adaptCaptionForPlatform`,
+ * which is exactly today's behavior.
+ */
+function parsePlatformVariants(raw: unknown): Partial<Record<CrosspostPlatform, PlatformVariantCopy>> | undefined {
+  const record = recordValue(raw);
+  if (!record) return undefined;
+  const out: Partial<Record<CrosspostPlatform, PlatformVariantCopy>> = {};
+  let found = false;
+  for (const [keyRaw, value] of Object.entries(record)) {
+    const key = keyRaw.trim().toLowerCase();
+    if (!(CROSSPOST_PLATFORMS as readonly string[]).includes(key)) continue;
+    const variant = recordValue(value);
+    if (!variant) continue;
+    const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+    const hook = str(variant.hook);
+    const body = str(variant.body);
+    const cta = str(variant.cta);
+    if (!hook && !body && !cta) continue;
+    const hashtags = Array.isArray(variant.hashtags)
+      ? variant.hashtags
+          .filter((t): t is string => typeof t === 'string')
+          .map((t) => t.trim())
+          .filter((t) => t.length > 0)
+      : [];
+    out[key as CrosspostPlatform] = { hook, body, cta, hashtags };
+    found = true;
+  }
+  return found ? out : undefined;
+}
+
+/**
  * Normalize the raw `content_package` array into typed entries. Drops entries
  * with no usable post number or no recognized platform.
+ *
+ * `nativeEnabled` (AA-217 v2) widens the accepted platform set to include the
+ * crosspost platforms and parses `platform_variants`. With it FALSE — the
+ * default and the flag-OFF path — the accepted set and the produced entries are
+ * exactly what they were before: an entry whose platforms name only `linkedin`
+ * is still dropped in its entirety.
  */
-function parseContentPackage(raw: unknown): ContentPackageEntry[] {
+function parseContentPackage(raw: unknown, nativeEnabled = false): ContentPackageEntry[] {
   if (!Array.isArray(raw)) return [];
+  const accepted = nativeEnabled ? NATIVE_VALID_PLATFORMS : VALID_PLATFORMS;
   const entries: ContentPackageEntry[] = [];
   raw.forEach((item, index) => {
     const record = recordValue(item);
@@ -344,7 +417,7 @@ function parseContentPackage(raw: unknown): ContentPackageEntry[] {
       ? record.platforms
           .filter((p): p is string => typeof p === 'string')
           .map((p) => p.trim().toLowerCase())
-          .filter((p) => VALID_PLATFORMS.has(p))
+          .filter((p) => accepted.has(p))
       : [];
     if (platforms.length === 0) return;
     const caption = buildCaption(record);
@@ -361,7 +434,18 @@ function parseContentPackage(raw: unknown): ContentPackageEntry[] {
           .map((tag) => tag.trim())
           .filter((tag) => tag.length > 0)
       : [];
-    entries.push({ postNumber, caption, headline, hashtags, platforms: Array.from(new Set(platforms)) });
+    const platformVariants = nativeEnabled ? parsePlatformVariants(record.platform_variants) : undefined;
+    entries.push({
+      postNumber,
+      caption,
+      headline,
+      hashtags,
+      platforms: Array.from(new Set(platforms)),
+      // Conditional spread so a flag-OFF entry object is key-for-key identical
+      // to pre-change (the byte-identical pin compares insert params, but this
+      // keeps the in-memory shape honest too).
+      ...(platformVariants ? { platformVariants } : {}),
+    });
   });
   return entries;
 }
@@ -501,7 +585,12 @@ export async function synthesizePublishPostsFromContentPackage(
     };
   }
 
-  const entries = parseContentPackage(extractContentPackage(doc));
+  // AA-217 v2 — platform-native content, per-tenant. This single boolean gates
+  // EVERY behavior change in this module; false (the default) means every path
+  // below is the pre-change path.
+  const nativeEnabled = isPlatformNativeContentEnabled(process.env, tenantId);
+
+  const entries = parseContentPackage(extractContentPackage(doc), nativeEnabled);
   if (entries.length === 0) {
     return {
       inserted: 0,
@@ -704,6 +793,27 @@ export async function synthesizePublishPostsFromContentPackage(
         continue;
       }
 
+      // AA-217 v2: with platform-native content on, `entry.platforms` may now
+      // name x/linkedin/reddit (parseContentPackage widened its accepted set),
+      // and this loop is the MAIN insert loop — the one that writes Meta rows.
+      // It must NEVER write a crosspost row.
+      //
+      // WHY THIS GUARD IS LOAD-BEARING: the fan-out below writes key
+      // `${jobId}:${postNumber}:${platform}:feed`. If this loop could write the
+      // same key with a different (non-native) caption, first-writer-wins on the
+      // (tenant_id, platform, idempotency_key) unique index would silently
+      // decide which copy ships. The fan-out is the SOLE producer of non-Meta
+      // rows, so there is exactly one writer per key by construction.
+      //
+      // We still record feed-image eligibility, exactly as the alternateMode
+      // branch above does — that is the predicate the fan-out uses, so an entry
+      // targeted at linkedin only still produces its linkedin row.
+      if (nativeEnabled && !META_PLATFORM_SET.has(platform)) {
+        if (shape.surface === 'feed' && shape.mediaType === 'image') entryHasFeedImage = true;
+        skipped++;
+        continue;
+      }
+
       // A video shape must link a real ingested VIDEO creative. The Hermes
       // content-generator only calls video_generate ~50% of the time on reel
       // jobs; when it doesn't, no video creative_asset exists and a synthesized
@@ -790,7 +900,16 @@ export async function synthesizePublishPostsFromContentPackage(
         total++;
         const idempotencyKey = `${jobId}:${entry.postNumber}:${platform}:feed`;
         try {
-          const adaptedCaption = adaptCaptionForPlatform(platform, entry.caption, entry.hashtags);
+          // AA-217 v2: prefer the strategist's NATIVE copy for this platform.
+          // `buildVariantCaption` returns null for a missing/blank variant and
+          // the adapter takes over — Hermes is non-deterministic, so a variant
+          // is never allowed to be load-bearing. Flag OFF ⇒ platformVariants is
+          // always undefined ⇒ this is the adapter, byte-identical.
+          const nativeCaption = nativeEnabled
+            ? buildVariantCaption(platform, entry.platformVariants?.[platform])
+            : null;
+          const adaptedCaption =
+            nativeCaption ?? adaptCaptionForPlatform(platform, entry.caption, entry.hashtags);
           const result = await pool.query(INSERT_SYNTHESIZED_POST_SQL, [
             tenantId,           // $1
             jobId,              // $2
@@ -898,7 +1017,12 @@ export async function synthesizePublishPostsFromContentPackage(
         }).catch(() => null);
         if (composedId) storyAssetIds = [composedId];
       }
-      for (const platform of entry.platforms) {
+      // A story is a META surface. This filter is provably a no-op with the
+      // platform-native flag OFF (parseContentPackage restricted platforms to
+      // exactly META_PUBLISH_PLATFORMS), and with it ON it is what stops an
+      // entry that also names linkedin/x/reddit from manufacturing a "linkedin
+      // story" row that could never be delivered.
+      for (const platform of entry.platforms.filter((p) => META_PLATFORM_SET.has(p))) {
         total++;
         const idempotencyKey = `${jobId}:${entry.postNumber}:${platform}:story`;
         try {

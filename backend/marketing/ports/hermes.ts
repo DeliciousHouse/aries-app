@@ -21,8 +21,18 @@ import { TenantMemoryClient } from '../../memory/honcho-client';
 import { HonchoHttpTransport } from '../../memory/honcho-http-transport';
 import { createMemoryOrchestrator } from '../../memory/orchestrator';
 import type { ResearchMemoryContextEntry } from '../../memory/orchestrator';
+import { isPlatformNativeContentEnabled } from '../../integrations/providers/integration-config';
 import { SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY } from '../../social-content/defaults';
+import {
+  renderPlatformCopyDirectives,
+  renderPlatformVariantsContract,
+  targetPlatformsLine,
+} from '../../social-content/platform-copy-directives';
 import { approvalStepFromWorkflowStepId } from '../../social-content/runtime-state';
+import {
+  resolveWeeklyPromptPlatforms,
+  type WeeklyPromptPlatforms,
+} from '../primary-publish-platforms';
 import {
   isVideoRenderHermesSubmission,
   validateVideoRenderHermesSubmission,
@@ -473,6 +483,61 @@ const PUBLISH_GROWTH_DIRECTIVE =
   + ' Name any post that is a pure broadcast with no growth mechanism in your publish notes rather than silently passing it,'
   + " and favour scheduling slots and formats the account's own analytics show earned engagement.";
 
+// ---------------------------------------------------------------------------
+// AA-217 v2 — platform-aware stage contracts.
+//
+// EVERY builder below takes an OPTIONAL resolved platform list and MUST return
+// the byte-identical legacy literal when it is null/empty. That is not a style
+// preference: merging to master auto-deploys, tenant 15 is publishing today, and
+// its prompts are these strings. The null fast-path is what makes
+// `ARIES_PLATFORM_NATIVE_CONTENT_ENABLED` off ⇒ provably unchanged, and it is
+// pinned byte-for-byte by tests/platform-native-prompts.test.ts.
+//
+// The non-null forms are derived from the SAME consts by literal substitution
+// (never a re-typed copy), so the two wordings cannot drift apart.
+// ---------------------------------------------------------------------------
+
+/** Render `["a","b"]` from a resolved (already enum-filtered) platform list. */
+function platformJsonArray(platforms: readonly string[]): string {
+  return `[${platforms.map((p) => JSON.stringify(p)).join(',')}]`;
+}
+
+function productionExecutionContract(platforms?: readonly string[] | null): string {
+  if (!platforms || platforms.length === 0) return PRODUCTION_EXECUTION_CONTRACT;
+  const list = platformJsonArray(platforms);
+  const base = PRODUCTION_EXECUTION_CONTRACT
+    .replace('platforms:["instagram","facebook"]', `platforms:${list}`)
+    .replace(
+      'hashtags (array of 3-6 relevant hashtags)',
+      'hashtags (per-platform policy — the base hashtags apply to instagram/facebook only; see platform_variants below for every other network)',
+    );
+  return [
+    base,
+    targetPlatformsLine(platforms),
+    renderPlatformCopyDirectives(platforms),
+    renderPlatformVariantsContract(platforms),
+  ]
+    .filter((s) => s.length > 0)
+    .join(' ');
+}
+
+function publishScheduleContract(platforms?: readonly string[] | null): string {
+  if (!platforms || platforms.length === 0) return PUBLISH_SCHEDULE_CONTRACT;
+  return PUBLISH_SCHEDULE_CONTRACT.replace(
+    '"platforms":["instagram","facebook",...]',
+    `"platforms":${platformJsonArray(platforms)}`,
+  );
+}
+
+function publishGrowthDirective(platforms?: readonly string[] | null): string {
+  if (!platforms || platforms.length === 0) return PUBLISH_GROWTH_DIRECTIVE;
+  return PUBLISH_GROWTH_DIRECTIVE.replace(
+    'an explicit follow/save/comment prompt, a CTA, and hashtags.',
+    'an explicit follow/save/comment prompt, a CTA, and hashtags where that platform\'s policy allows them'
+      + ' — zero on reddit, at most one on x, end-loaded only on linkedin.',
+  );
+}
+
 /**
  * Per-stage instruction builders for the weekly social-content pipeline.
  *
@@ -496,13 +561,25 @@ function buildWeeklyResearchInstructions(workflowKey: string, last30daysRequired
   ].join(' ');
 }
 
-function buildWeeklyStrategyInstructions(workflowKey: string): string {
+function buildWeeklyStrategyInstructions(workflowKey: string, platforms?: readonly string[] | null): string {
+  // AA-217 v2: the strategist is the stage that WRITES hook/body/cta, so it is
+  // the stage that must know the networks. Null platforms ⇒ these three entries
+  // are absent and the joined string is byte-identical to the legacy literal.
+  const platformLines = platforms && platforms.length > 0
+    ? [
+        targetPlatformsLine(platforms),
+        renderPlatformCopyDirectives(platforms),
+        renderPlatformVariantsContract(platforms),
+        'The per-network conventions above are also carried in the production stage contract and in your persona — they agree; follow them.',
+      ].filter((s) => s.length > 0)
+    : [];
   return [
     'You are the Aries marketing strategist agent. You run ONLY the strategy stage of the weekly social content pipeline.',
     'You have no tools — you reason purely over the research output supplied in the input. Do not attempt to call any tools; this stage is pure reasoning.',
     'The input contains the prior research stage output as JSON. Produce a weekly content strategy from it: positioning, creative direction, channel adaptation, and a post-by-post plan.',
     GROWTH_OBJECTIVE_KPI,
     STRATEGY_GROWTH_DIRECTIVE,
+    ...platformLines,
     // Feeds the publish stage's schedule[] (PUBLISH_SCHEDULE_CONTRACT). Nothing
     // parses `proposed_day` — it exists so the publish agent has a day to
     // confirm or adjust rather than inventing the whole week from scratch.
@@ -513,28 +590,32 @@ function buildWeeklyStrategyInstructions(workflowKey: string): string {
   ].join(' ');
 }
 
-function buildWeeklyProductionInstructions(workflowKey: string): string {
+function buildWeeklyProductionInstructions(workflowKey: string, platforms?: readonly string[] | null): string {
   return [
     'You are the Aries content-generation agent. You run ONLY the production stage of the weekly social content pipeline.',
     'Your job is to generate post copy plus EVERY requested image AND every requested video — produce the FULL set every time (one image per image listed, plus each requested video), never a subset or a single asset. The input carries per-image prompt context and the strategy output.',
     'Per-platform scale: still images render at FEED scale (Instagram 4:5 ~1080x1350, Facebook 1:1 ~1080x1080); video renders at 9:16 REEL scale (1080x1920). These are DIFFERENT scales — never reuse the feed-image scale for video or vice-versa.',
-    PRODUCTION_EXECUTION_CONTRACT,
+    productionExecutionContract(platforms),
     VIDEO_EXECUTION_CONTRACT,
     'After completing the production stage, return status "requires_approval" with approval.stage="publish", approval.approval_step="approve_publish", approval.workflowStepId="approve_stage_4", approval.prompt="Review creative assets before publish review", approval.resumeToken set, and output:[{stage:"production", ...artifacts}].',
     `Required schema: {"ok":true,"status":"requires_approval","workflowKey":"${workflowKey}","approval":{"stage":"publish","approval_step":"approve_publish","workflowStepId":"approve_stage_4","prompt":"...","resumeToken":"..."},"output":[{"stage":"production", ...}]}.`,
   ].join(' ');
 }
 
-function buildWeeklyPublishInstructions(workflowKey: string): string {
+function buildWeeklyPublishInstructions(workflowKey: string, platforms?: readonly string[] | null): string {
+  const schemaPlatforms = platforms && platforms.length > 0
+    ? platformJsonArray(platforms)
+    : '["instagram","facebook"]';
   return [
     'You are the Aries publish-review agent. You run ONLY the publish stage of the weekly social content pipeline.',
     'You have no tools — you reason purely over the production output supplied in the input. Produce a publish-ready plan: per-post platform targeting, scheduling notes, and a final pre-flight check.',
     GROWTH_OBJECTIVE_KPI,
-    PUBLISH_GROWTH_DIRECTIVE,
-    PUBLISH_SCHEDULE_CONTRACT,
+    publishGrowthDirective(platforms),
+    publishScheduleContract(platforms),
+    ...(platforms && platforms.length > 0 ? [targetPlatformsLine(platforms)] : []),
     'Reply with a single strict JSON object only — no prose, no markdown fences.',
     'After completing the publish stage, return status "requires_approval" with approval.stage="publish", approval.approval_step="approve_publish", approval.workflowStepId="approve_stage_4_publish", approval.prompt="Approve to publish the weekly social content", approval.resumeToken set, and output:[{stage:"publish", ...artifacts}].',
-    `Required schema: {"ok":true,"status":"requires_approval","workflowKey":"${workflowKey}","approval":{"stage":"publish","approval_step":"approve_publish","workflowStepId":"approve_stage_4_publish","prompt":"...","resumeToken":"..."},"output":[{"stage":"publish","schedule":[{"post_number":1,"recommended_day":"Tuesday","platforms":["instagram","facebook"],"placement":"feed","media_type":"image"}], ...}]}.`,
+    `Required schema: {"ok":true,"status":"requires_approval","workflowKey":"${workflowKey}","approval":{"stage":"publish","approval_step":"approve_publish","workflowStepId":"approve_stage_4_publish","prompt":"...","resumeToken":"..."},"output":[{"stage":"publish","schedule":[{"post_number":1,"recommended_day":"Tuesday","platforms":${schemaPlatforms},"placement":"feed","media_type":"image"}], ...}]}.`,
   ].join(' ');
 }
 
@@ -558,8 +639,16 @@ function buildWeeklyPublishFinalizeInstructions(workflowKey: string): string {
   ].join(' ');
 }
 
-const WEEKLY_STAGE_INSTRUCTION_BUILDERS: Record<MarketingStage, (workflowKey: string) => string> = {
-  research: buildWeeklyResearchInstructions,
+const WEEKLY_STAGE_INSTRUCTION_BUILDERS: Record<
+  MarketingStage,
+  (workflowKey: string, platforms?: readonly string[] | null) => string
+> = {
+  // research takes `last30daysRequired: boolean` as its second parameter, not a
+  // platform list — so it is wrapped rather than passed through. The research
+  // stage sees the tenant's platforms via `scope.publish_platforms` inside
+  // Request (JSON); its INSTRUCTIONS are deliberately untouched (tool-budget
+  // constrained, and it does not write copy).
+  research: (workflowKey: string) => buildWeeklyResearchInstructions(workflowKey),
   strategy: buildWeeklyStrategyInstructions,
   production: buildWeeklyProductionInstructions,
   publish: buildWeeklyPublishInstructions,
@@ -581,17 +670,25 @@ const FINAL_PUBLISH_WORKFLOW_STEP_ID = 'approve_stage_4_publish';
  * `workflowStepId` distinguishes the two publish checkpoints: the final
  * publish resume (`approve_stage_4_publish`) gets the terminal finalize
  * instructions; the first publish run gets the normal publish instructions.
+ *
+ * `platforms` (AA-217 v2) is the tenant's real, code-resolved publish targets.
+ * Null/omitted — which is what `ARIES_PLATFORM_NATIVE_CONTENT_ENABLED` off
+ * produces — returns the byte-identical legacy instructions for every stage.
+ * The publish-FINALIZE run is deliberately excluded: it is a terminal echo whose
+ * only job is to carry the approved schedule through verbatim, so widening its
+ * prompt could only invite it to re-derive what it must copy.
  */
 export function buildHermesStageInstructions(
   workflowKey: string,
   stage: MarketingStage,
   workflowStepId?: string | null,
+  platforms?: readonly string[] | null,
 ): string {
   if (workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY) {
     if (stage === 'publish' && workflowStepId === FINAL_PUBLISH_WORKFLOW_STEP_ID) {
       return buildWeeklyPublishFinalizeInstructions(workflowKey);
     }
-    return WEEKLY_STAGE_INSTRUCTION_BUILDERS[stage](workflowKey);
+    return WEEKLY_STAGE_INSTRUCTION_BUILDERS[stage](workflowKey, platforms ?? null);
   }
   return buildHermesInstructions(workflowKey);
 }
@@ -1010,8 +1107,31 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       }).catch(() => null)
       : null;
 
+    // AA-217 v2 — PLATFORM-AWARE GENERATION (ARIES_PLATFORM_NATIVE_CONTENT_ENABLED,
+    // default OFF, tenant-scopable). Preload the tenant's REAL publish targets
+    // here, where tenantId is in scope and we are already async, so the
+    // synchronous submissionPayload / instruction builders do no DB read.
+    //
+    // Scoped to weekly submissions that actually render a platform-aware prompt,
+    // and excluding `regenerateCreative` for the same reason perfContext does: a
+    // single-creative regenerate/image-edit carries its own per-image scope, so
+    // its request must stay byte-identical.
+    //
+    // Fails open to null ⇒ legacy prompts. Synthesis re-resolves independently
+    // and stays the authority on which rows exist.
+    const platformTenantId = Number.parseInt(String(perfTenantId ?? ''), 10);
+    const wantsPublishPlatforms =
+      ((action === 'run' && !!input.doc && usesPerStageProfilePipeline(input.doc) && !input.regenerateCreative)
+        || isWeeklyResume)
+      && Number.isFinite(platformTenantId)
+      && platformTenantId > 0
+      && isPlatformNativeContentEnabled(this.env as NodeJS.ProcessEnv, platformTenantId);
+    const publishPlatforms: WeeklyPromptPlatforms = wantsPublishPlatforms
+      ? await resolveWeeklyPromptPlatforms(platformTenantId).catch(() => null)
+      : null;
+
     const payload = this.submissionPayload(
-      action, run.aries_run_id, resolvedInput, workflowKey, callbackToken, memoryContextSnapshot, productionDoc, tasteProjection, perfContext,
+      action, run.aries_run_id, resolvedInput, workflowKey, callbackToken, memoryContextSnapshot, productionDoc, tasteProjection, perfContext, publishPlatforms,
     );
     try {
       if (effectiveStage === 'production' && isVideoRenderHermesSubmission(payload)) {
@@ -1491,7 +1611,14 @@ export class HermesMarketingPort implements MarketingExecutionPort {
      * stage does not render it, or the tenant has no measured insights rows.
      */
     perfContext?: PerformanceContext | null,
+    /**
+     * AA-217 v2: the tenant's REAL publish targets, code-resolved and
+     * enum-filtered. Null (the default, and what the flag-OFF path always
+     * supplies) makes every branch below inert and every prompt byte-identical.
+     */
+    publishPlatforms?: WeeklyPromptPlatforms,
   ): Record<string, unknown> {
+    const platformList = publishPlatforms?.platforms ?? null;
     const callbackAuth = {
       type: 'internal_api_secret_bearer',
       secret_ref: 'INTERNAL_API_SECRET',
@@ -1586,6 +1713,14 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         ...(objectiveLine ? [objectiveLine] : []),
       ];
 
+      // AA-217 v2: name the tenant's real targets in the run input itself, for
+      // the two stages that plan against them. Production gets its platforms
+      // through buildProductionResumeContext below instead (one block, one
+      // wording). Null platformList ⇒ nothing pushed ⇒ byte-identical prompt.
+      if (platformList && (stage === 'strategy' || (stage === 'publish' && !isPublishFinalize))) {
+        baseRunLines.push(targetPlatformsLine(platformList));
+      }
+
       // Inject rich per-image prompt context on the production run
       // (approve_post_copy) so the content-generation profile has brand,
       // research, and strategy context when it calls image_generate.
@@ -1595,6 +1730,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
           researchOutput: (productionDoc.stages.research?.primary_output ?? null) as Record<string, unknown> | null,
           strategyOutput: (productionDoc.stages.strategy?.primary_output ?? null) as Record<string, unknown> | null,
           tasteProjection,
+          publishPlatforms: platformList,
         });
         baseRunLines.push('', ctx.contextBlock);
       }
@@ -1610,7 +1746,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       const runPrompt = baseRunLines.join('\n');
       return {
         input: runPrompt,
-        instructions: this.instructions(SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY, stage, input.workflowStepId),
+        instructions: this.instructions(SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY, stage, input.workflowStepId, platformList),
         session_id: this.sessionKey(),
         workflow_key: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
         action: 'run',
@@ -1648,6 +1784,10 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         // request. Conditional-spread downstream, so a null keeps the request
         // JSON byte-identical to pre-change.
         performanceSummary: perfContext?.condensed ?? null,
+        // AA-217 v2: the tenant's real targets, conditional-spread into
+        // `scope.publish_platforms`. This is how the RESEARCH stage learns them
+        // (it reads Request (JSON)) without touching its instructions.
+        publishPlatforms: platformList,
       });
       const idempotencyKey = generateIdempotencyKey(ariesRunId, request.workflow_version, input.tenantId ?? '');
       // Hermes /v1/runs is an OpenAI-style chat-completions endpoint: `input`
@@ -1682,6 +1822,13 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       if (input.stage === 'strategy' && perfContext) {
         promptLines.push('', perfContext.full);
       }
+      // AA-217 v2: the auto-advance strategy/publish runs reach the stages
+      // through THIS branch (submitNextStage → action:'run'), so they need the
+      // same Target-platforms line the approval-resume path pushes — otherwise
+      // gated and autonomous runs would plan for different platforms.
+      if (platformList && (input.stage === 'strategy' || input.stage === 'publish')) {
+        promptLines.push(targetPlatformsLine(platformList));
+      }
       // MAKE RESEARCH REAL (audit item 3): the research stage gets the SAME
       // full block, not just the two-line `recent_performance` already inside
       // Request (JSON). The condensed line tells the agent what won; the full
@@ -1715,6 +1862,10 @@ export class HermesMarketingPort implements MarketingExecutionPort {
           researchOutput: (input.doc.stages.research?.primary_output ?? null) as Record<string, unknown> | null,
           strategyOutput: (input.doc.stages.strategy?.primary_output ?? null) as Record<string, unknown> | null,
           tasteProjection,
+          // BOTH production call sites must pass this, exactly as the #553
+          // dark-constraint fix had to patch both — an auto-advanced production
+          // run that lost the platform list would silently write Meta copy.
+          publishPlatforms: platformList,
         });
         promptLines.push('', ctx.contextBlock);
       }
@@ -1750,7 +1901,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         : prompt;
       return {
         input: promptWithMemory,
-        instructions: this.instructions(request.workflow_key, input.stage ?? 'research'),
+        instructions: this.instructions(request.workflow_key, input.stage ?? 'research', undefined, platformList),
         session_id: this.sessionKey(),
         workflow_key: request.workflow_key,
         action: 'run',
@@ -2178,13 +2329,14 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     workflowKey: string,
     stage?: MarketingStage,
     workflowStepId?: string | null,
+    platforms?: readonly string[] | null,
   ): string {
     if (workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY) {
       const resolvedStage = stage ?? 'research';
       if (resolvedStage === 'research' && !hasDedicatedProfileGateway('aries-research', this.env)) {
         return buildWeeklyResearchInstructions(workflowKey, false);
       }
-      return buildHermesStageInstructions(workflowKey, resolvedStage, workflowStepId);
+      return buildHermesStageInstructions(workflowKey, resolvedStage, workflowStepId, platforms ?? null);
     }
     return buildHermesInstructions(workflowKey);
   }
