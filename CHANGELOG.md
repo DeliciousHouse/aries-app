@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.6.1 — fix(media): restore persisted social-content previews
+
+Existing generated images can render again in the posts inventory and every
+social-content review view instead of returning broken-preview 404 responses.
+
+### Fixed
+
+- ID-addressed runtime media now resolves persisted host or previous-mount paths
+  by basename inside the active Hermes mount while preserving tenant-scoped
+  lookup, containment checks, and durable ingested-asset paths.
+
 ## v0.2.6.0 — fix(marketing): generate platform-native social posts
 
 Weekly social-content runs now plan, write, and display content for the tenant's

@@ -16,6 +16,7 @@
  *      ownership decision entirely to that single SQL predicate).
  */
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { resolveSignableBasename } from '../backend/marketing/signable-basename';
@@ -37,6 +38,19 @@ function makeDb(
 }
 
 const UUID = 'a1b2c3d4-e5f6-4789-abcd-0123456789ab';
+
+test('id media route remaps persisted runtime storage keys to the active mount by basename', () => {
+  const routeSource = readFileSync(
+    new URL('../app/api/internal/hermes/media/[...path]/route.ts', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(
+    routeSource,
+    /row\.storage_kind === 'runtime_asset'\s*\?\s*path\.basename\(row\.storage_key\)\s*:\s*row\.storage_key/,
+    'runtime_asset rows may persist an old/host mount path; the route must remap the basename into the active mount',
+  );
+});
 
 test('resolveSignableBasename — legacy basename URL passes through with no DB hit', async () => {
   const { db, calls } = makeDb(() => {

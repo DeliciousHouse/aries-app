@@ -168,7 +168,12 @@ async function serveById(assetId: string, tenantId: string): Promise<Response> {
     return notFound();
   }
 
-  return resolveBytesWithinRoot(root, row.storage_key);
+  // runtime_asset keys may persist a host/previous-mount path; the flat Hermes
+  // mount is authoritative by basename. Ingested keys keep their tenant path.
+  return resolveBytesWithinRoot(
+    root,
+    row.storage_kind === 'runtime_asset' ? path.basename(row.storage_key) : row.storage_key,
+  );
 }
 
 /**
