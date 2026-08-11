@@ -130,14 +130,18 @@ const PLATFORM_FLAG_ENVS = [
   'ARIES_REDDIT_ENABLED',
   'COMPOSIO_REDDIT_TARGET_SUBREDDIT',
   'COMPOSIO_X_PUBLISH_POST_ACTION',
+  'COMPOSIO_X_UPLOAD_MEDIA_ACTION',
   'COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION',
   'COMPOSIO_REDDIT_PUBLISH_POST_ACTION',
 ] as const;
 
-// A crosspost platform is only publishable with its Composio publish action
-// slug set — without it every dispatch throws ComposioCapabilityMissingError,
-// so the gate must not count the platform. Realistic "configured" envs set it.
-const X_SLUG = { COMPOSIO_X_PUBLISH_POST_ACTION: 'TWITTER_CREATION_OF_A_POST' };
+// A crosspost platform is only publishable with its required Composio action
+// slugs set — without them dispatch throws ComposioCapabilityMissingError, so
+// the gate must not count the platform. Weekly X rows also require upload_media.
+const X_SLUG = {
+  COMPOSIO_X_PUBLISH_POST_ACTION: 'TWITTER_CREATION_OF_A_POST',
+  COMPOSIO_X_UPLOAD_MEDIA_ACTION: 'TWITTER_UPLOAD_MEDIA',
+};
 const LINKEDIN_SLUG = { COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: 'LINKEDIN_CREATE_LINKED_IN_POST' };
 const REDDIT_SLUG = { COMPOSIO_REDDIT_PUBLISH_POST_ACTION: 'REDDIT_CREATE_REDDIT_POST' };
 
