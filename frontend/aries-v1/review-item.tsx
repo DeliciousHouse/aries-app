@@ -54,11 +54,13 @@ function captionValidationMessage(code: string, channel: ReviewCaptionChannel | 
  *
  * Mirrors `captionChannelForReviewItem` (backend/marketing/runtime-views.ts),
  * which decides the same thing server-side for the save path. Keep the two in
- * step — they are pinned against each other in tests/caption-validator.test.ts.
+ * step — they are pinned against each other in
+ * tests/delivery-truthfulness-surfaces.test.ts, which is why this function is
+ * exported rather than module-private.
  */
 export type ReviewCaptionChannel = 'instagram' | 'facebook' | 'linkedin' | 'x' | 'reddit';
 
-function inferCaptionChannel(
+export function inferCaptionChannel(
   channel: string | null | undefined,
   placement: string | null | undefined,
 ): ReviewCaptionChannel | null {
@@ -67,8 +69,11 @@ function inferCaptionChannel(
   if (haystack.includes('facebook') || haystack.includes('fb ') || haystack.includes('meta')) return 'facebook';
   if (haystack.includes('linkedin')) return 'linkedin';
   if (haystack.includes('reddit')) return 'reddit';
-  // 'x' only as a whole token: 'next', 'export' and 'xl' must not match.
-  if (/(^|[^a-z])x([^a-z]|$)/.test(haystack) || haystack.includes('twitter')) return 'x';
+  // 'x' only as a whole token: 'next', 'export' and 'xl' must not match — and
+  // DIGITS are not boundaries either, so a dimension string carried through from
+  // model output ('1080x1920', '4x5') does not turn a Meta item into an X item
+  // and clamp its counter to 270. Must stay identical to the server mirror.
+  if (/(^|[^a-z0-9])x([^a-z0-9]|$)/.test(haystack) || haystack.includes('twitter')) return 'x';
   return null;
 }
 

@@ -25,7 +25,8 @@ export type Channel =
  * backend/marketing/weekly-crosspost.ts — replicated rather than imported so
  * this validator stays dependency-free (it runs in the API response path and is
  * imported by the review tray). The two are pinned against each other in
- * tests/caption-validator.test.ts.
+ * tests/delivery-truthfulness-surfaces.test.ts ("the tray weight counter agrees
+ * with the dispatch adapter it predicts").
  */
 const X_URL_WEIGHT = 23;
 const X_URL_PATTERN = /https?:\/\/[^\s]+/gi;

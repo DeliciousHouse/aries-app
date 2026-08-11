@@ -24,6 +24,7 @@ import type { ResearchMemoryContextEntry } from '../../memory/orchestrator';
 import { isPlatformNativeContentEnabled } from '../../integrations/providers/integration-config';
 import { SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY } from '../../social-content/defaults';
 import {
+  filterKnownPlatforms,
   renderPlatformCopyDirectives,
   renderPlatformVariantsContract,
   targetPlatformsLine,
@@ -677,6 +678,16 @@ const FINAL_PUBLISH_WORKFLOW_STEP_ID = 'approve_stage_4_publish';
  * The publish-FINALIZE run is deliberately excluded: it is a terminal echo whose
  * only job is to carry the approved schedule through verbatim, so widening its
  * prompt could only invite it to re-derive what it must copy.
+ *
+ * INJECTION BOUNDARY: the list is enum-filtered ONCE, here, before any builder
+ * sees it. `targetPlatformsLine` / `renderPlatformCopyDirectives` /
+ * `renderPlatformVariantsContract` also filter internally, but
+ * `platformJsonArray` (production contract, publish schedule contract, publish
+ * schema example) interpolates the raw values — so without this, the
+ * platform-copy-directives contract ("a value that is not a member never reaches
+ * a prompt string") would be false for the production and publish stages. Today's
+ * only caller feeds `resolveWeeklyPromptPlatforms` output, which is already
+ * enum-filtered twice, but this function is exported.
  */
 export function buildHermesStageInstructions(
   workflowKey: string,
@@ -684,11 +695,15 @@ export function buildHermesStageInstructions(
   workflowStepId?: string | null,
   platforms?: readonly string[] | null,
 ): string {
+  // Filtering to [] and then to null keeps the flag-OFF fast path exact: an
+  // all-hostile list is indistinguishable from no list at all.
+  const knownPlatforms = platforms ? filterKnownPlatforms(platforms) : null;
+  const safePlatforms = knownPlatforms && knownPlatforms.length > 0 ? knownPlatforms : null;
   if (workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY) {
     if (stage === 'publish' && workflowStepId === FINAL_PUBLISH_WORKFLOW_STEP_ID) {
       return buildWeeklyPublishFinalizeInstructions(workflowKey);
     }
-    return WEEKLY_STAGE_INSTRUCTION_BUILDERS[stage](workflowKey, platforms ?? null);
+    return WEEKLY_STAGE_INSTRUCTION_BUILDERS[stage](workflowKey, safePlatforms);
   }
   return buildHermesInstructions(workflowKey);
 }

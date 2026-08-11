@@ -1559,7 +1559,13 @@ export function captionChannelForReviewItem(item: RuntimeReviewItem): CaptionCha
   }
   // 'x' must be matched as a whole token, never as a substring — 'next',
   // 'export' and 'xl' are all words that appear in placements and stage names.
-  if (/(^|[^a-z])x([^a-z]|$)/.test(haystack) || haystack.includes('twitter')) {
+  // DIGITS ARE NOT TOKEN BOUNDARIES: `item.channel` carries Hermes-derived text
+  // (publish-review.ts merges `platform_name` straight from model output), and a
+  // dimension string like 'Stories 1080x1920' / '4x5' / '1x1' would otherwise
+  // classify a Meta item as x_feed — which server-side REJECTS an operator's
+  // caption save over 270 weighted chars with `caption_too_long`, a behavior
+  // inversion (this used to return null and validate nothing).
+  if (/(^|[^a-z0-9])x([^a-z0-9]|$)/.test(haystack) || haystack.includes('twitter')) {
     return 'x_feed';
   }
   return null;

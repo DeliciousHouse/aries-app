@@ -8,6 +8,7 @@ import { isValidWebsiteUrl } from "@/lib/api/marketing";
 import { humanizeMarketingCreateMessage } from "@/lib/marketing-create-errors";
 import { normalizeWebsiteUrlInput } from "@/frontend/marketing/new-job";
 import {
+  connectedPlatformsFromIntegrationsPayload,
   deliveryPlatformLabel,
   resolveWeeklyDeliverySurfaces,
   type WeeklyDeliverySurfaces,
@@ -686,15 +687,15 @@ export default function SocialContentNewJobScreen(props: SocialContentNewJobScre
   // fabricated restriction. Same hook and same endpoint the dashboard's
   // Generate-this-week gate already reads, so the two cannot disagree about what
   // is connected.
+  //
+  // The mapping — including the `publish_policy.any_platform_publish_enabled`
+  // gate that keeps this screen silent while the run is still Meta-gated — lives
+  // in `connectedPlatformsFromIntegrationsPayload` so it is unit-testable
+  // without mounting this page's data hooks.
   const integrations = useIntegrations({ autoLoad: true });
   const integrationsData = integrations.data;
   const connectedPlatforms = useMemo(
-    () =>
-      integrationsData?.status === "ok"
-        ? integrationsData.cards
-            .filter((card) => card.connection_state === "connected")
-            .map((card) => card.platform)
-        : null,
+    () => connectedPlatformsFromIntegrationsPayload(integrationsData),
     [integrationsData],
   );
   return (

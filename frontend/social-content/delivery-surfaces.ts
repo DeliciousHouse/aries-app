@@ -24,6 +24,15 @@
  * today's form. Disabling controls on a failed fetch would invent a restriction
  * the tenant does not have, which is the same class of untruth in the other
  * direction.
+ *
+ * FLAG COUPLING (caller's responsibility, stated here so it cannot be lost): a
+ * caller must only supply a platform list once the server says
+ * `publish_policy.any_platform_publish_enabled` is true. While
+ * `ARIES_ANY_PLATFORM_PUBLISH_ENABLED` is OFF the weekly run is still Meta-gated
+ * and a LinkedIn-only tenant is refused at `requires_channel_connection`, so
+ * promising them a LinkedIn week here would be the same untruth pointing the
+ * other way. Pass `null` in that state and the form renders unchanged. See
+ * `SocialContentNewJobScreen` in `frontend/social-content/new-job.tsx`.
  */
 
 import {
@@ -101,4 +110,35 @@ export function resolveWeeklyDeliverySurfaces(
       `Stories and reels publish to Facebook and Instagram only.`
       + ` ${phrase} ${platforms.length === 1 ? 'receives' : 'receive'} feed posts, so this week will be feed-only.`,
   };
+}
+
+/** The subset of the integrations payload this module reads. Structural so the real type satisfies it. */
+export type IntegrationsPayloadForDelivery = {
+  status?: string;
+  cards?: readonly { platform: string; connection_state: string }[];
+  publish_policy?: { any_platform_publish_enabled?: boolean } | null;
+} | null | undefined;
+
+/**
+ * Map the integrations payload to the platform list `resolveWeeklyDeliverySurfaces`
+ * may be given — or `null`, meaning "render the unchanged form".
+ *
+ * THE FLAG CHECK IS THE POINT. `publish_policy.any_platform_publish_enabled` is
+ * `ARIES_ANY_PLATFORM_PUBLISH_ENABLED`, which defaults to `0` in docker-compose.
+ * While it is off the weekly run is still Meta-gated: a LinkedIn-only tenant is
+ * refused at `requires_channel_connection` and told to connect Meta. Showing
+ * that tenant "these are the accounts you have connected, and where this week
+ * publishes" would be the truthfulness inversion this deliverable exists to
+ * remove, pointing the other way — so the answer is `null` until the server says
+ * the flag is on. Extracted from the screen wrapper so this rule is testable
+ * without mounting the page's data hooks.
+ */
+export function connectedPlatformsFromIntegrationsPayload(
+  data: IntegrationsPayloadForDelivery,
+): string[] | null {
+  if (!data || data.status !== 'ok') return null;
+  if (data.publish_policy?.any_platform_publish_enabled !== true) return null;
+  return (data.cards ?? [])
+    .filter((card) => card.connection_state === 'connected')
+    .map((card) => card.platform);
 }

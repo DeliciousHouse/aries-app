@@ -18,7 +18,10 @@ import { weightedXLength } from '@/backend/marketing/weekly-crosspost';
 import { evaluateGenerateThisWeekGate } from '@/frontend/aries-v1/generate-this-week';
 import { formatPlatformLabel } from '@/frontend/aries-v1/labels';
 import { createCalendarViewModel } from '@/frontend/aries-v1/view-models/calendar';
-import { resolveWeeklyDeliverySurfaces } from '@/frontend/social-content/delivery-surfaces';
+import {
+  connectedPlatformsFromIntegrationsPayload,
+  resolveWeeklyDeliverySurfaces,
+} from '@/frontend/social-content/delivery-surfaces';
 import type { IntegrationCard } from '@/lib/api/integrations';
 
 // ---------------------------------------------------------------------------
@@ -122,6 +125,69 @@ test('intake screen: a Meta tenant and an unknown tenant both get the unchanged 
     assert.equal(root.root.findAllByProps({ 'data-testid': 'connected-platform-chips' }).length, 0);
     // The Meta/Instagram checkboxes are still the platform control.
     assert.match(json, /Instagram/);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// The intake screen's flag gate — the copy must not promise a week the server
+// will refuse.
+// ---------------------------------------------------------------------------
+
+test('intake screen: while the AA-217 flag is OFF the form is unchanged, whatever is connected', () => {
+  // ARIES_ANY_PLATFORM_PUBLISH_ENABLED defaults to `0` in docker-compose, and in
+  // that state a LinkedIn-only run still dies at requires_channel_connection
+  // asking for Meta. Read-only chips saying "where this week publishes" would be
+  // the truthfulness inversion in the other direction.
+  const payload = {
+    status: 'ok',
+    cards: [
+      { platform: 'linkedin', connection_state: 'connected' },
+      { platform: 'facebook', connection_state: 'not_connected' },
+    ],
+  };
+  assert.equal(connectedPlatformsFromIntegrationsPayload(payload), null, 'no publish_policy at all => unchanged form');
+  assert.equal(
+    connectedPlatformsFromIntegrationsPayload({
+      ...payload,
+      publish_policy: { any_platform_publish_enabled: false },
+    }),
+    null,
+    'flag explicitly off => unchanged form',
+  );
+  assert.equal(
+    resolveWeeklyDeliverySurfaces(
+      connectedPlatformsFromIntegrationsPayload({
+        ...payload,
+        publish_policy: { any_platform_publish_enabled: false },
+      }),
+    ).known,
+    false,
+  );
+});
+
+test('intake screen: with the flag ON the connected platforms drive the copy', () => {
+  const platforms = connectedPlatformsFromIntegrationsPayload({
+    status: 'ok',
+    publish_policy: { any_platform_publish_enabled: true },
+    cards: [
+      { platform: 'linkedin', connection_state: 'connected' },
+      { platform: 'facebook', connection_state: 'not_connected' },
+      { platform: 'openai', connection_state: 'connected' },
+    ],
+  });
+  assert.deepEqual(platforms, ['linkedin', 'openai'], 'connected cards only; enum filtering happens downstream');
+  const surfaces = resolveWeeklyDeliverySurfaces(platforms);
+  assert.equal(surfaces.feedOnly, true);
+  assert.deepEqual(surfaces.platforms, ['linkedin']);
+});
+
+test('intake screen: an errored or pending integrations payload is unknown, never a restriction', () => {
+  for (const data of [null, undefined, { status: 'error' }, { status: 'ok' }]) {
+    assert.equal(
+      connectedPlatformsFromIntegrationsPayload(data as never),
+      null,
+      `payload ${JSON.stringify(data)} must read as unknown`,
+    );
   }
 });
 
@@ -357,4 +423,52 @@ test('"x" is matched as a token, never as a substring', () => {
   assert.equal(captionChannelForReviewItem(item('export')), null);
   assert.equal(captionChannelForReviewItem(item('next_stage')), null);
   assert.equal(captionChannelForReviewItem(item('xl_banner')), null);
+});
+
+test('a dimension string is not the X network — digits are not token boundaries', () => {
+  const item = (channel: string, placement = '') =>
+    ({ channel, placement, workflowStage: '' }) as never;
+  // `item.channel` carries Hermes-derived text (publish-review merges the
+  // model's `platform_name` into it), so 'Stories 1080x1920' is reachable. Read
+  // as x_feed it would REJECT an operator's caption save over 270 weighted chars
+  // with caption_too_long — a behavior inversion, since this used to return null
+  // and validate nothing at all.
+  for (const value of ['stories 1080x1920', '4x5', '1x1 square', 'feed 1080x1080']) {
+    assert.equal(captionChannelForReviewItem(item(value)), null, `${value} must not read as X`);
+  }
+  // A Meta keyword still wins outright, whatever dimensions follow it.
+  assert.equal(captionChannelForReviewItem(item('instagram', 'story 1080x1920')), 'instagram_feed');
+  // And a genuine X item still resolves.
+  assert.equal(captionChannelForReviewItem(item('x', 'feed 1200x675')), 'x_feed');
+  assert.equal(captionChannelForReviewItem(item('x_feed')), 'x_feed');
+});
+
+test('the review tray and the save path infer the SAME channel (frontend/backend mirror)', async () => {
+  // `inferCaptionChannel` (tray, decides which limit the counter shows) and
+  // `captionChannelForReviewItem` (server, decides which limits REJECT a save)
+  // are hand-copied mirrors. Drift means the tray shows a budget the save path
+  // does not enforce, or vice versa.
+  const { inferCaptionChannel } = await import('@/frontend/aries-v1/review-item');
+  const BACKEND_TO_FRONTEND = {
+    instagram_feed: 'instagram',
+    facebook_feed: 'facebook',
+    linkedin_feed: 'linkedin',
+    x_feed: 'x',
+    reddit_post: 'reddit',
+  } as const;
+  const cases: Array<[string, string]> = [
+    ['instagram', ''], ['facebook', ''], ['meta', ''], ['linkedin', ''], ['reddit', ''],
+    ['x', ''], ['x_feed', ''], ['twitter', ''], ['export', ''], ['next_stage', ''],
+    ['xl_banner', ''], ['stories 1080x1920', ''], ['4x5', ''], ['', 'feed 1200x675'],
+    ['instagram', 'story 1080x1920'], ['', ''], ['ig ', ''], ['fb ', ''],
+  ];
+  for (const [channel, placement] of cases) {
+    const backend = captionChannelForReviewItem({ channel, placement, workflowStage: '' } as never);
+    const expected = backend ? BACKEND_TO_FRONTEND[backend] : null;
+    assert.equal(
+      inferCaptionChannel(channel, placement),
+      expected,
+      `mirror drift for channel=${JSON.stringify(channel)} placement=${JSON.stringify(placement)}`,
+    );
+  }
 });

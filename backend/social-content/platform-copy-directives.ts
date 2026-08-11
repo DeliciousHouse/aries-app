@@ -176,19 +176,30 @@ export function renderPlatformCopyDirectives(platforms: readonly string[]): stri
  * `synthesize-publish-posts.ts` consumes it via `buildVariantCaption`, and a
  * MISSING or malformed variant degrades to `adaptCaptionForPlatform` — Hermes is
  * non-deterministic, so a variant is never allowed to be load-bearing.
+ *
+ * NON-META PLATFORMS ONLY. `parsePlatformVariants` accepts CROSSPOST_PLATFORMS
+ * keys and nothing else — a `facebook` or `instagram` variant is discarded on
+ * arrival, because the Meta rows are written from the base copy by the primary
+ * path, not by the crosspost fan-out that consumes variants. Naming the Meta
+ * pair here asked the model to spend tokens on entries that could only ever be
+ * dropped, and put the prompt contract out of step with its own parser. The
+ * exclusion also matches the SOUL patch, which already says "one entry per named
+ * non-Meta platform". Returns '' for a Meta-only tenant, so the contract simply
+ * does not render where nothing would consume it.
  */
 export function renderPlatformVariantsContract(platforms: readonly string[]): string {
-  const known = filterKnownPlatforms(platforms);
+  const metaPlatforms = new Set<string>(META_PUBLISH_PLATFORMS);
+  const known = filterKnownPlatforms(platforms).filter((p) => !metaPlatforms.has(p));
   if (known.length === 0) return '';
   const list = known.join(', ');
   return (
     'PLATFORM VARIANTS (additive): alongside the base hook/body/cta/hashtags, emit'
     + ' "platform_variants": {"<platform>": {"hook":"...","body":"...","cta":"...","hashtags":["#tag"]}}'
-    + ` with one entry per target platform in: ${list}.`
-    + ' The BASE fields remain the copy for the first platform in that list; each variant is NATIVE copy for its own'
-    + ' network per the per-platform directive above — rewritten, never a truncation of the base.'
+    + ` with one entry per NON-META target platform in: ${list}.`
+    + ' The BASE fields remain the copy for the first platform in the target-platforms list above; each variant is'
+    + ' NATIVE copy for its own network per the per-platform directive above — rewritten, never a truncation of the base.'
     + ' Honour the per-platform hashtag policy inside each variant (reddit: none, ever; x: at most 1; linkedin: at most 3-5'
-    + ' and only at the end; instagram: 3-5; facebook: 0-2). Omit a variant you cannot write natively rather than'
+    + ' and only at the end). Omit a variant you cannot write natively rather than'
     + ' shortening the base copy — Aries falls back to its own adapter for anything you omit.'
   );
 }

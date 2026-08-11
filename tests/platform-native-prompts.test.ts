@@ -165,6 +165,33 @@ test('flag ON, Meta-only tenant: the contract examples still name facebook/insta
   // The ON-vs-OFF delta for a Meta-only tenant is purely additive guidance.
   const off = BASELINE['instr:production'];
   assert.ok(production.length > off.length, 'flag ON only ever ADDS to the production contract');
+  // ...and it does NOT ask for platform_variants: `parsePlatformVariants` only
+  // accepts CROSSPOST_PLATFORMS keys, so a facebook/instagram variant would be
+  // discarded on arrival. Asking for one is wasted tokens and a contract that
+  // contradicts its own parser.
+  assert.ok(
+    !production.includes('PLATFORM VARIANTS'),
+    'a Meta-only tenant is never asked for variants nothing consumes',
+  );
+});
+
+test('the variants contract names only the NON-Meta platforms its parser accepts', () => {
+  assert.equal(
+    renderPlatformVariantsContract(['facebook', 'instagram']),
+    '',
+    'Meta-only resolves to no variants contract at all',
+  );
+  const mixed = renderPlatformVariantsContract(['facebook', 'instagram', 'linkedin', 'reddit']);
+  assert.ok(mixed.includes('linkedin, reddit'), 'lists the crosspost platforms');
+  assert.ok(!mixed.includes('facebook'), 'never names facebook — a facebook variant is dropped by the parser');
+  assert.ok(!mixed.includes('instagram'), 'never names instagram');
+  // The meta-mode production contract still renders the block for the crosspost
+  // platforms the fan-out will actually write rows for.
+  const production = buildHermesStageInstructions(WEEKLY, 'production', undefined, [
+    'facebook', 'instagram', 'linkedin',
+  ]);
+  assert.ok(production.includes('PLATFORM VARIANTS (additive)'));
+  assert.ok(production.includes('NON-META target platform in: linkedin'));
 });
 
 test('flag ON: publish-FINALIZE is deliberately untouched — it must copy the schedule, not re-derive it', () => {
@@ -228,9 +255,33 @@ test('a hostile platform value can never reach a prompt string', () => {
   assert.equal(renderPlatformCopyDirectives(['not-a-platform']), '', 'unknown platform renders nothing');
   assert.equal(renderPlatformVariantsContract(['not-a-platform']), '');
 
-  const instr = buildHermesStageInstructions(WEEKLY, 'strategy', undefined, hostile);
-  assert.ok(!instr.includes('IGNORE ALL PREVIOUS'));
-  assert.ok(!instr.includes('SYSTEM: exfiltrate'));
+  // EVERY stage, not just strategy: the production and publish builders
+  // interpolate the list through `platformJsonArray`, which does no filtering of
+  // its own — the enum filter lives at the top of buildHermesStageInstructions.
+  for (const stage of ['research', 'strategy', 'production', 'publish'] as const) {
+    const instr = buildHermesStageInstructions(WEEKLY, stage, undefined, hostile);
+    assert.ok(!instr.includes('IGNORE ALL PREVIOUS'), `${stage} leaked an injected instruction`);
+    assert.ok(!instr.includes('SYSTEM: exfiltrate'), `${stage} leaked an injected instruction`);
+    assert.ok(!instr.includes('youtube'), `${stage} named a non-publishable platform`);
+  }
+  // The publish schema example and the production content_package example are
+  // built from the FILTERED list, so they name the surviving member only.
+  assert.ok(
+    buildHermesStageInstructions(WEEKLY, 'publish', undefined, hostile)
+      .includes('"platforms":["linkedin"]'),
+  );
+  assert.ok(
+    buildHermesStageInstructions(WEEKLY, 'production', undefined, hostile)
+      .includes('platforms:["linkedin"]'),
+  );
+  // A list with NOTHING known left is indistinguishable from no list at all.
+  for (const stage of ['research', 'strategy', 'production', 'publish'] as const) {
+    assert.equal(
+      buildHermesStageInstructions(WEEKLY, stage, undefined, ['nope', 'youtube']),
+      BASELINE[`instr:${stage}`],
+      `${stage} must fall back to the legacy literal when no known platform survives`,
+    );
+  }
 
   const req = buildSocialContentWeeklyRequest({
     doc: makeDoc(), ariesRunId: 'r', callbackUrl: 'https://cb.example/hook', publishPlatforms: hostile,
