@@ -193,6 +193,22 @@ const steps = [
     args: ['--test', 'tests/goal-canonical-write-path.test.ts'],
   },
   {
+    // AA-117/S6-4: structural guards for ops/aries-pipeline-monitor.py — the
+    // watchdog that would have caught the 2026-08-06→10 outage (4 days of
+    // failed weekly runs, nobody told). It is a HOST script by design, because
+    // one condition it alerts on is "the app is dead or wedged" and an in-app
+    // outbox cannot report its own absence — which also put it outside every
+    // existing test surface, leaving a 62KB alerting script whose own fixture
+    // suite nothing ran. Behaviour is covered by its --self-test, now wired
+    // into CI (ubuntu; fcntl is POSIX-only so it cannot run on Windows). These
+    // pin that the safety net still EXISTS to be run: the self-test, the
+    // provider-auth suppression whose over-suppression already hid real 401s
+    // once, the redaction promise, read-only DB access, and the stale-cron-path
+    // warning. No DB, no Python.
+    name: 'ops pipeline monitor guards (S6-4)',
+    args: ['--test', 'tests/ops-pipeline-monitor.test.ts'],
+  },
+  {
     // Regression for the 2026-06-09 prod wedge: a failed tick must release the
     // insights-sync worker's overlap guard. Fast and fully in-memory.
     name: 'insights-sync worker tick guard',
