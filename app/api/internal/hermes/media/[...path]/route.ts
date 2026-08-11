@@ -4,7 +4,10 @@ import path from 'node:path';
 import { pool } from '@/lib/db';
 import { tenantOwnsHermesMediaBasename } from '@/backend/marketing/runtime-state';
 import { resolveDataRoot } from '@/lib/runtime-paths';
-import { loadTenantContextOrResponse } from '@/lib/tenant-context-http';
+import {
+  loadTenantContextOrResponse,
+  type TenantContextLoader,
+} from '@/lib/tenant-context-http';
 
 // Matches a canonical lowercase/uppercase UUID (creative_assets.id). A single
 // path segment shaped like this is treated as an id-addressed read; anything
@@ -207,13 +210,14 @@ async function serveByBasename(basename: string, tenantId: string): Promise<Resp
   return resolveBytesWithinRoot(mountRoot, basename);
 }
 
-export async function GET(
+export async function handleGetHermesMedia(
   _req: Request,
   { params }: { params: Promise<{ path: string[] }> },
+  tenantContextLoader?: TenantContextLoader,
 ) {
   // Authenticate via session — this route is loaded by <img> tags in the
   // browser and must use operator session auth, not INTERNAL_API_SECRET.
-  const tenantResult = await loadTenantContextOrResponse();
+  const tenantResult = await loadTenantContextOrResponse(tenantContextLoader);
   if ('response' in tenantResult) {
     return tenantResult.response;
   }
@@ -232,4 +236,11 @@ export async function GET(
     return serveById(segment, tenantId);
   }
   return serveByBasename(segment, tenantId);
+}
+
+export async function GET(
+  req: Request,
+  context: { params: Promise<{ path: string[] }> },
+) {
+  return handleGetHermesMedia(req, context);
 }
