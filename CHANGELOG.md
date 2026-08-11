@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.7.0 — feat(marketing): make platform-native content tenant-scopable
+
+Platform-native generation can be canaried on one tenant again. It shipped in
+v0.2.6.0 sharing `ARIES_ANY_PLATFORM_PUBLISH_ENABLED`, which made the prompt
+change all-or-nothing across the fleet: prompts are built per run from one
+global process env, so enabling a canary tenant also rewrote every live tenant's
+strategy, production, and publish prompts in the same weekly cycle.
+
+The two flags now answer their own questions. `ARIES_ANY_PLATFORM_PUBLISH_ENABLED`
+decides eligibility (does a non-Meta connection count as a publishable channel).
+`ARIES_PLATFORM_NATIVE_CONTENT_ENABLED` decides voice (are the prompts told the
+tenant's real platforms). Both off is legacy behaviour; eligibility alone gives
+right-platform rows with Meta-flavoured copy, which is what AA-217 shipped.
+
+### Added
+
+- `ARIES_PLATFORM_NATIVE_CONTENT_ENABLED`, default off. Accepts the canonical
+  truthy tokens for fleet-wide, or a CSV of tenant IDs (`70`, `70,71`) to scope
+  the prompt change to named tenants. The allowlist form requires a tenant id at
+  the call site, so a caller that cannot name one gets off rather than on.
+
+### Changed
+
+- The weekly doc re-targeting and the fenced platform scope block in the Hermes
+  strategy/production/publish prompts now read the new flag. Primary-row
+  synthesis is untouched and still reads `ARIES_ANY_PLATFORM_PUBLISH_ENABLED`,
+  because it re-resolves the tenant's platforms independently of the doc.
+- `HermesMarketingPort.instructions()` takes an optional tenant id so the
+  native-content contract can be resolved per tenant.
+
 ## v0.2.6.1 — fix(media): restore persisted social-content previews
 
 Existing generated images can render again in the posts inventory and every

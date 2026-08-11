@@ -128,6 +128,76 @@ export function isAnyPlatformPublishEnabled(env: NodeJS.ProcessEnv = process.env
   return parseFlag(env.ARIES_ANY_PLATFORM_PUBLISH_ENABLED);
 }
 
+/** The canonical falsy tokens, so an explicit `0`/`false` can never be read as a tenant list. */
+const FALSY = new Set(['0', 'false', 'no', 'off']);
+
+/**
+ * AA-218 rollout flag: carry the tenant's REAL platforms into the Hermes scope +
+ * stage prompts and produce per-platform NATIVE content, instead of one
+ * Meta-flavoured caption clamped at the adapter layer. Default OFF.
+ *
+ * SEPARATE FROM `ARIES_ANY_PLATFORM_PUBLISH_ENABLED` on purpose, even though
+ * both were folded into that one flag when AA-218 was rebuilt onto master.
+ * They answer different questions:
+ *   - ANY_PLATFORM decides ELIGIBILITY — does a non-Meta connection count as a
+ *     publishable channel at all, so the tenant gets a week of content and
+ *     primary rows on the platforms it actually has.
+ *   - This flag decides VOICE — whether the strategy/production/publish PROMPTS
+ *     are told the tenant's real platforms, so a LinkedIn post is written as a
+ *     LinkedIn post rather than a re-targeted Instagram caption.
+ * With this OFF and ANY_PLATFORM ON you get exactly AA-217 behaviour: the rows
+ * land on the right platforms, the copy is still Meta-flavoured.
+ *
+ * TENANT-SCOPABLE — and that is the whole point. This flag changes the STRATEGY,
+ * PRODUCTION and PUBLISH prompts, and those prompts are built per run from the
+ * one global process env. A plain global `true` would therefore rewrite tenant
+ * 15's prompts (live weekly queue) in the same cycle as a tenant-70 canary, so
+ * "canary tenant 70, watch tenant 15 is unchanged" would not be guaranteed by
+ * construction, only by hope. Accepting a tenant-ID allowlist makes the canary
+ * genuinely dark for everyone else.
+ *
+ * Accepted values:
+ *   - unset / `0` / `false` / `no` / `off`  → OFF everywhere (the default).
+ *   - `1` / `true` / `yes` / `on`           → ON for EVERY tenant (fleet-wide).
+ *   - a CSV of tenant IDs, e.g. `70` or `70,71` → ON for exactly those tenants.
+ *
+ * `tenantId` is REQUIRED for the allowlist form to match: a caller that cannot
+ * name a tenant gets OFF, never "on because the var is non-empty". Note the one
+ * ambiguity, deliberately resolved in favour of the repo's flag idiom: the value
+ * `1` means fleet-wide, so tenant id 1 cannot be allowlisted on its own (list it
+ * alongside another id, or enable fleet-wide).
+ */
+export function isPlatformNativeContentEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+  tenantId?: number | string | null,
+): boolean {
+  const raw = env.ARIES_PLATFORM_NATIVE_CONTENT_ENABLED?.trim().toLowerCase() ?? '';
+  if (!raw) return false;
+  if (TRUTHY.has(raw)) return true;
+  if (FALSY.has(raw)) return false;
+
+  // Tenant-ID allowlist. Compared as normalized decimal strings so '70', ' 70 '
+  // and the numeric 70 all match the same entry.
+  const wanted = normalizeTenantIdToken(tenantId);
+  if (wanted === null) return false;
+  return raw
+    .split(',')
+    .map((token) => normalizeTenantIdToken(token))
+    .some((token) => token !== null && token === wanted);
+}
+
+/** Normalize a tenant id (number | numeric string) to its decimal string, or null. */
+function normalizeTenantIdToken(value: number | string | null | undefined): string | null {
+  if (typeof value === 'number') {
+    return Number.isInteger(value) && value > 0 ? String(value) : null;
+  }
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const n = Number.parseInt(trimmed, 10);
+  return Number.isFinite(n) && n > 0 ? String(n) : null;
+}
+
 /** The per-platform rollout flag that gates each crosspost target. */
 export function isCrosspostPlatformFlagEnabled(
   platform: CrosspostPlatform,

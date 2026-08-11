@@ -145,6 +145,14 @@ services:
       # dispatch throws ComposioCapabilityMissingError, so counting the platform
       # would admit a tenant into a week of posts that all fail terminally.
       ARIES_ANY_PLATFORM_PUBLISH_ENABLED: ${ARIES_ANY_PLATFORM_PUBLISH_ENABLED:-0}
+      # AA-218 native content. SEPARATE from the flag above on purpose:
+      # ANY_PLATFORM decides eligibility (does a non-Meta connection count as a
+      # publishable channel), this one decides voice (are the strategy /
+      # production / publish PROMPTS told the tenant's real platforms). Both off
+      # is legacy; ANY_PLATFORM alone gives right-platform, Meta-flavoured copy.
+      # TENANT-SCOPABLE: 0/unset = off, 1 = every tenant, or a CSV of tenant IDs
+      # (e.g. `70`) so a canary is genuinely dark for everyone else.
+      ARIES_PLATFORM_NATIVE_CONTENT_ENABLED: ${ARIES_PLATFORM_NATIVE_CONTENT_ENABLED:-0}
       # AI-derived per-platform posting times: every content-generation start
       # re-derives WHEN posts publish per platform — from the tenant's own
       # insights engagement once >= MIN_ANALYTICS_POSTS posts have metrics, else
