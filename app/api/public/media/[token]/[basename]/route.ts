@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { verifyMediaToken } from '@/lib/signed-media-token';
 import { resolveDataRoot } from '@/lib/runtime-paths';
+import { getDurableMedia } from '@/backend/marketing/durable-media-store';
 
 // This route is intentionally public — no session auth, no loadTenantContextOrResponse.
 // Access is gate-kept by the HMAC-signed, short-lived token embedded in the URL.
@@ -125,6 +126,23 @@ export async function GET(
     if (/^[0-9]+$/.test(tenantSegment)) {
       const candidate = path.resolve(ingestedRoot, tenantSegment, basename.slice(0, 2), basename);
       found = await readWithinRoot(ingestedRoot, candidate);
+    }
+  }
+
+  // Third root: the durable copy in object storage. The Hermes mount is a
+  // working cache owned by another process, and on 2026-08-11 every asset
+  // generated the previous day vanished from it while nine posts were still
+  // queued against them — Meta then rejected the publish with "The media could
+  // not be fetched from this URI". Reaching object storage here is what makes a
+  // post that was generated twelve days before its slot still publishable.
+  //
+  // Deliberately LAST: when the local bytes are present this route behaves
+  // exactly as before, no network call and no added latency on the hot path.
+  // The tenant comes from the verified token, never from the request.
+  if (!found) {
+    const durable = await getDurableMedia(payload.tenantId, basename);
+    if (durable) {
+      found = { buffer: durable, resolved: basename };
     }
   }
 

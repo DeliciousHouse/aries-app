@@ -565,6 +565,16 @@ services:
       # are unreadable from the container — publish ingestion silently produces
       # zero creative_assets and the operator dashboard shows "No launch items".
       HERMES_IMAGE_CACHE_MOUNT: ${HERMES_IMAGE_CACHE_MOUNT:-/hermes-media}
+      # Durable media (object storage) — the third read root behind the public
+      # media proxy, after the Hermes mount and ingested-assets. The Hermes cache
+      # is a working cache owned by another process; on 2026-08-11 every asset
+      # generated the day before vanished from it while nine posts were still
+      # queued, and Meta refused the publish because the URL 404'd. Default OFF,
+      # and treated as OFF unless a bucket is also set.
+      ARIES_DURABLE_MEDIA_ENABLED: ${ARIES_DURABLE_MEDIA_ENABLED:-0}
+      ARIES_DURABLE_MEDIA_BUCKET: ${ARIES_DURABLE_MEDIA_BUCKET:-}
+      ARIES_DURABLE_MEDIA_PREFIX: ${ARIES_DURABLE_MEDIA_PREFIX:-creative}
+      ARIES_DURABLE_MEDIA_TIMEOUT_MS: ${ARIES_DURABLE_MEDIA_TIMEOUT_MS:-10000}
       # Hermes localizes generated VIDEO into a sibling profile dir
       # (<hermes>/profiles/aries-content-generator/cache/videos), NOT cache/images.
       # Bind it read-only on its own mount so ingest can read generated reels/
@@ -790,6 +800,16 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: ${DB_NAME}
       HERMES_IMAGE_CACHE_MOUNT: ${HERMES_IMAGE_CACHE_MOUNT:-/hermes-media}
+      # Durable media (object storage) — the third read root behind the public
+      # media proxy, after the Hermes mount and ingested-assets. The Hermes cache
+      # is a working cache owned by another process; on 2026-08-11 every asset
+      # generated the day before vanished from it while nine posts were still
+      # queued, and Meta refused the publish because the URL 404'd. Default OFF,
+      # and treated as OFF unless a bucket is also set.
+      ARIES_DURABLE_MEDIA_ENABLED: ${ARIES_DURABLE_MEDIA_ENABLED:-0}
+      ARIES_DURABLE_MEDIA_BUCKET: ${ARIES_DURABLE_MEDIA_BUCKET:-}
+      ARIES_DURABLE_MEDIA_PREFIX: ${ARIES_DURABLE_MEDIA_PREFIX:-creative}
+      ARIES_DURABLE_MEDIA_TIMEOUT_MS: ${ARIES_DURABLE_MEDIA_TIMEOUT_MS:-10000}
       ARIES_HERMES_GC_ENABLED: ${ARIES_HERMES_GC_ENABLED:-0}
       ARIES_HERMES_GC_DRY_RUN: ${ARIES_HERMES_GC_DRY_RUN:-0}
       ARIES_HERMES_GC_INTERVAL_MS: ${ARIES_HERMES_GC_INTERVAL_MS:-21600000}

@@ -36,8 +36,87 @@ import {
 } from '@/backend/creative-memory/frame-overlay';
 import { isFeedLogoCompositeEnabled } from '@/backend/social-content/feed-logo-composite-env';
 import { resolveDataPath } from '@/lib/runtime-paths';
+import { putDurableMedia } from './durable-media-store';
 
 import type { SocialContentJobRuntimeDocument } from './runtime-state';
+
+/**
+ * Content type for the durable copy, mirroring the public proxy's own map so a
+ * byte served from object storage carries the same header as the local one.
+ * SVG is absent on purpose: the proxy refuses it and Meta rejects it.
+ */
+const DURABLE_CONTENT_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.mp4': 'video/mp4',
+};
+
+function contentTypeForBasename(name: string): string {
+  return DURABLE_CONTENT_TYPES[path.extname(name).toLowerCase()] ?? 'application/octet-stream';
+}
+
+/**
+ * Mirror runtime-asset bytes into DATA_ROOT/ingested-assets so the public proxy
+ * can still serve them after Hermes evicts its cache.
+ *
+ * WHY THIS IS THE LOAD-BEARING FIX.
+ *
+ * Hermes's gateway housekeeping unlinks everything in its image cache older than
+ * 24 HOURS — a hardcoded literal in gateway/run.py's cleanup_image_cache, with
+ * no env knob and nothing this repo can configure. Aries schedules posts up to
+ * twelve days ahead against that cache. So every post dispatching more than ~24h
+ * after generation was guaranteed to fail; on 2026-08-11 the 14:39:26 sweep
+ * removed the 08-10 batch and post 163 dispatched 20 minutes later into a 404.
+ *
+ * Video and logo-framed images already dodge this by persisting under
+ * DATA_ROOT — only the plain feed image kept a bare pointer into the ephemeral
+ * mount. This closes that one gap.
+ *
+ * The mirror path is deliberately `<tenant>/<basename[0:2]>/<basename>` rather
+ * than the sha-keyed scheme the framed branch uses, because the public proxy's
+ * second read root resolves EXACTLY that shape from the signed token's basename
+ * (app/api/public/media/[token]/[basename]/route.ts). Writing it here means the
+ * proxy finds the bytes with no route change, no storage_kind change, and no
+ * change for the ~8 consumers that switch on storage_kind.
+ *
+ * Best-effort by contract: ingestion has already succeeded, so a failure to
+ * mirror must not fail the job.
+ */
+export async function mirrorRuntimeAssetForDurability(
+  tenantId: number,
+  storageKey: string,
+  bytes: Buffer,
+): Promise<boolean> {
+  const basename = path.basename(storageKey);
+  if (!basename || basename.includes('..') || basename.includes('/')) return false;
+  // Require a real file extension. basename() alone is enough for containment
+  // (a traversing key reduces to a plain name), but a key like '/hermes-media/'
+  // reduces to the DIRECTORY name and would store a junk extensionless file.
+  // Such an object is unservable anyway: the proxy maps extension -> Content-Type
+  // and would hand Meta application/octet-stream, which it rejects.
+  if (!path.extname(basename)) return false;
+  try {
+    const target = resolveDataPath(
+      'ingested-assets',
+      String(tenantId),
+      basename.slice(0, 2),
+      basename,
+    );
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, bytes);
+    return true;
+  } catch (error) {
+    console.warn('[ingest-production-assets] durable mirror failed', {
+      tenantId,
+      basename,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+}
 
 export interface IngestProductionAssetsArgs {
   jobId: string;
@@ -59,6 +138,13 @@ export interface IngestProductionAssetsResult {
   inserted: number;
   skipped: number;
   total: number;
+  /**
+   * Assets whose bytes also reached durable object storage this run. Always 0
+   * when ARIES_DURABLE_MEDIA_ENABLED is off. Reported so an operator can tell
+   * "durable storage is off" apart from "durable storage is on and failing"
+   * without reading logs.
+   */
+  durableStored: number;
 }
 
 /**
@@ -247,17 +333,17 @@ export async function ingestProductionCreativeAssetsToDb(
 
   const primaryOutput = doc.stages.production.primary_output;
   if (!primaryOutput || typeof primaryOutput !== 'object') {
-    return { inserted: 0, skipped: 0, total: 0 };
+    return { inserted: 0, skipped: 0, total: 0, durableStored: 0 };
   }
 
   const artifacts = (primaryOutput as Record<string, unknown>).artifacts;
   if (!artifacts || typeof artifacts !== 'object') {
-    return { inserted: 0, skipped: 0, total: 0 };
+    return { inserted: 0, skipped: 0, total: 0, durableStored: 0 };
   }
 
   const creativeAssets = (artifacts as Record<string, unknown>).creative_assets;
   if (!Array.isArray(creativeAssets) || creativeAssets.length === 0) {
-    return { inserted: 0, skipped: 0, total: 0 };
+    return { inserted: 0, skipped: 0, total: 0, durableStored: 0 };
   }
 
   // Variant grouping tags are batch-level (same for every asset this job
@@ -303,6 +389,9 @@ export async function ingestProductionCreativeAssetsToDb(
 
   let inserted = 0;
   let skipped = 0;
+  // Durable copies written this run. Counted separately from `inserted` because
+  // a replay can store a durable copy for a row that already existed.
+  let durableStored = 0;
 
   for (const entry of creativeAssets) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
@@ -544,6 +633,46 @@ export async function ingestProductionCreativeAssetsToDb(
         skipped++;
       }
 
+      // Durable copy. The Hermes mount is a working cache owned by another
+      // process: on 2026-08-11 every asset generated the day before was gone
+      // from it while nine posts were still queued against them, and Meta
+      // refused the publish because the media URL 404'd. Writing the final
+      // bytes to object storage here is what lets a post generated twelve days
+      // before its slot still resolve.
+      //
+      // Keyed on basename(storageKey), NOT basename(readPath): the public proxy
+      // signs and looks up basename(creative_assets.storage_key), so anything
+      // else would store a copy the read path can never find.
+      //
+      // Runs on skipped rows too — a replay is how a missing durable copy gets
+      // repaired. Best-effort by contract: ingestion has already succeeded
+      // locally, so a failure here must not fail the job.
+      const durableBasename = path.basename(storageKey);
+
+      // Local mirror first: it needs no provisioning, no IAM and no flag, and
+      // DATA_ROOT/ingested-assets is already durable (assets there survive for
+      // months while the Hermes cache turns over every 24h). Only runtime_asset
+      // rows need it — the video and framed branches already persist under
+      // DATA_ROOT, so mirroring those would just duplicate bytes.
+      let durableOk = false;
+      if (storageKind === 'runtime_asset') {
+        durableOk = await mirrorRuntimeAssetForDurability(tenantId, storageKey, bytes);
+      }
+
+      // Then the off-host copy, when provisioned. Independent of the mirror:
+      // either alone is enough to serve the bytes, and the mirror still lives on
+      // the same disk as everything else.
+      const offHostOk = await putDurableMedia(
+        tenantId,
+        durableBasename,
+        bytes,
+        contentTypeForBasename(durableBasename),
+      );
+
+      if (durableOk || offHostOk) {
+        durableStored++;
+      }
+
       // The framed row now exists (just inserted or already present via ON
       // CONFLICT); remove any stale raw twin so post->image mapping stays
       // one-row-per-asset across an OFF->ON flag flip. Video has no raw twin
@@ -562,5 +691,5 @@ export async function ingestProductionCreativeAssetsToDb(
     }
   }
 
-  return { inserted, skipped, total: creativeAssets.length };
+  return { inserted, skipped, total: creativeAssets.length, durableStored };
 }
