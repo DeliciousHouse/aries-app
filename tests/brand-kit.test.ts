@@ -160,17 +160,25 @@ test('normalizePersistedBrandKit runs cleanSentenceCandidate on 4 new fields (HT
   });
 });
 
-test('extractEnrichAndSaveTenantBrandKit fast path: fresh kit with enrichment fields skips LLM call', async () => {
+// AA-221 amended this test's contract. The fast path used to be strictly
+// network-free, which is exactly how tenant 15 went a whole week with no local
+// logo and therefore no logo composited onto any feed image. It now pays ONE
+// logo download the first time (and only the first time — see the follow-up
+// test), while still skipping the LLM round-trip that this test guards.
+test('extractEnrichAndSaveTenantBrandKit fast path: fresh kit with enrichment fields skips the LLM call', async () => {
   const { saveTenantBrandKit, extractEnrichAndSaveTenantBrandKit } = await import('../backend/marketing/brand-kit');
 
   await withDataRoot(async () => {
     const kit = freshKit({ positioning: 'strong pos', audience: 'busy founders', tone_of_voice: 'warm', style_vibe: 'minimal' });
     saveTenantBrandKit('tenant1', kit);
 
-    let fetchCalled = false;
-    const spyFetch: typeof fetch = (async (..._args: unknown[]) => {
-      fetchCalled = true;
-      return new Response('', { status: 200 });
+    const requested: string[] = [];
+    const spyFetch: typeof fetch = (async (input: unknown) => {
+      requested.push(String((input as { url?: string })?.url ?? input));
+      return new Response(new Uint8Array([1, 2, 3]), {
+        status: 200,
+        headers: { 'content-type': 'image/png', 'content-length': '3' },
+      });
     }) as typeof fetch;
 
     const result = await extractEnrichAndSaveTenantBrandKit({
@@ -180,7 +188,37 @@ test('extractEnrichAndSaveTenantBrandKit fast path: fresh kit with enrichment fi
       env: { ARIES_BRAND_ENRICHMENT_ENABLED: '1', HERMES_GATEWAY_URL: 'https://hermes.test', HERMES_API_SERVER_KEY: 'key' },
     });
     assert.equal(result.enriched, true, 'should return enriched:true for fast path');
-    assert.equal(fetchCalled, false, 'should not call fetch on fast path');
+    assert.deepEqual(
+      requested,
+      ['https://example.com/logo.png'],
+      'the only fetch on the fast path is the one-time logo materialization — never the LLM gateway',
+    );
+    assert.ok(result.brandKit.logo_file_path, 'and it leaves a local logo behind for the compositor');
+  });
+});
+
+test('extractEnrichAndSaveTenantBrandKit fast path: a second run is network-free again', async () => {
+  const { saveTenantBrandKit, extractEnrichAndSaveTenantBrandKit } = await import('../backend/marketing/brand-kit');
+
+  await withDataRoot(async () => {
+    const kit = freshKit({ positioning: 'strong pos', audience: 'busy founders', tone_of_voice: 'warm', style_vibe: 'minimal' });
+    saveTenantBrandKit('tenant1', kit);
+
+    let fetchCalls = 0;
+    const spyFetch: typeof fetch = (async () => {
+      fetchCalls += 1;
+      return new Response(new Uint8Array([1, 2, 3]), {
+        status: 200,
+        headers: { 'content-type': 'image/png', 'content-length': '3' },
+      });
+    }) as typeof fetch;
+
+    const env = { ARIES_BRAND_ENRICHMENT_ENABLED: '1', HERMES_GATEWAY_URL: 'https://hermes.test', HERMES_API_SERVER_KEY: 'key' };
+    await extractEnrichAndSaveTenantBrandKit({ tenantId: 'tenant1', brandUrl: 'https://example.com', fetchImpl: spyFetch, env });
+    assert.equal(fetchCalls, 1, 'first refresh materializes the logo');
+
+    await extractEnrichAndSaveTenantBrandKit({ tenantId: 'tenant1', brandUrl: 'https://example.com', fetchImpl: spyFetch, env });
+    assert.equal(fetchCalls, 1, 'every subsequent weekly refresh costs nothing — the file is already on disk');
   });
 });
 

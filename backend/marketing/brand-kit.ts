@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -1535,6 +1535,71 @@ export async function downloadAndMaterializeLogo(input: {
   return null;
 }
 
+/**
+ * The materialization seam used by {@link ensureLogoMaterialized}. Defaults to
+ * {@link downloadAndMaterializeLogo}; tests inject a stub (including a throwing
+ * one) to prove the fail-open contract without a network.
+ */
+export type LogoMaterializer = (input: {
+  tenantId: string;
+  logoUrls: readonly string[];
+  fetchImpl?: typeof fetch;
+}) => Promise<string | null>;
+
+/**
+ * AA-221: ensure the brand kit carries a LOCAL logo file, because that is the
+ * only logo source the ingest compositor can use — a remote `logo_urls` entry
+ * silently produces an un-composited feed image (`applied:false`), which is
+ * exactly how tenant 15 shipped a whole week of logo-less posts.
+ *
+ * Idempotent and cheap in the steady state: once `logo_file_path` points at a
+ * file that exists, this is a single `existsSync` and no network at all. The
+ * download therefore happens once per tenant, not once per weekly run.
+ *
+ * NEVER THROWS. `ensureFreshBrandKitForWeeklyRun` converts any throw out of
+ * `extractEnrichAndSaveTenantBrandKit` into `needs_brand_kit:*`, which FAILS the
+ * whole weekly submission — a logo hiccup must never cost a tenant their week.
+ * So this owns its own try/catch rather than trusting the (currently correct)
+ * never-throws contract of `downloadAndMaterializeLogo`: fail-open to today's
+ * no-logo behavior, with a WARN so the miss is visible instead of silent.
+ */
+export async function ensureLogoMaterialized(input: {
+  tenantId: string;
+  kit: TenantBrandKit;
+  fetchImpl?: typeof fetch;
+  materialize?: LogoMaterializer;
+}): Promise<void> {
+  const { tenantId, kit } = input;
+  try {
+    if (!Array.isArray(kit.logo_urls) || kit.logo_urls.length === 0) return;
+    // Already materialized AND still on disk — nothing to do. The existsSync
+    // check matters: a persisted path whose bytes were swept would otherwise
+    // pin the kit to a file the compositor cannot read, forever.
+    if (typeof kit.logo_file_path === 'string' && kit.logo_file_path.trim().length > 0) {
+      if (existsSync(kit.logo_file_path)) return;
+    }
+    const materialize = input.materialize ?? downloadAndMaterializeLogo;
+    const logoPath = await materialize({
+      tenantId,
+      logoUrls: kit.logo_urls,
+      fetchImpl: input.fetchImpl,
+    });
+    if (logoPath) {
+      kit.logo_file_path = logoPath;
+      return;
+    }
+    console.warn('[brand-kit] logo materialization failed — continuing without a local logo', {
+      tenantId,
+      logoUrls: kit.logo_urls.length,
+    });
+  } catch (error) {
+    console.warn('[brand-kit] logo materialization threw — continuing without a local logo', {
+      tenantId,
+      error: (error as Error)?.message ?? String(error),
+    });
+  }
+}
+
 function normalizeLogoUrls(urls: string[]): string[] {
   const candidates: LogoCandidate[] = urls.map((url) => {
     const source = inferLogoSourceFromUrl(url);
@@ -1832,6 +1897,8 @@ export async function extractEnrichAndSaveTenantBrandKit(input: {
    * take precedence over LLM enrichment output. Enrichment fills gaps only.
    */
   operatorOverrides?: OperatorBrandKitOverrides;
+  /** Test seam for logo materialization (see {@link ensureLogoMaterialized}). */
+  logoMaterializer?: LogoMaterializer;
 }): Promise<{ brandKit: TenantBrandKit; filePath: string; enriched: boolean }> {
   const existing = await loadTenantBrandKit(input.tenantId);
   if (existing && isFreshBrandKit(existing, input.brandUrl) && hasEnrichmentFields(existing)) {
@@ -1844,19 +1911,23 @@ export async function extractEnrichAndSaveTenantBrandKit(input: {
           input.operatorOverrides,
         )
       : existing;
-    // NOTE: the cached fast-path stays network-free (it must not pay an LLM or
-    // logo-download round-trip). Logo materialization happens on the enrichment
-    // path below; kits cached before this shipped are backfilled by the
-    // materialize-tenant-logo CLI (or on their next re-enrichment).
+    // AA-221: the cached fast-path used to skip logo materialization entirely
+    // to stay network-free, and deferred it to a backfill CLI that was never
+    // run — so a tenant whose kit was already fresh never got a local logo and
+    // every weekly feed image shipped un-composited. Materialize here too. This
+    // is at most ONE download per tenant ever: once logo_file_path points at a
+    // file on disk, ensureLogoMaterialized short-circuits and the fast-path is
+    // network-free again.
+    await ensureLogoMaterialized({
+      tenantId: input.tenantId,
+      kit: withOverrides,
+      fetchImpl: input.fetchImpl,
+      materialize: input.logoMaterializer,
+    });
     saveTenantBrandKit(input.tenantId, withOverrides);
     return { brandKit: withOverrides, filePath: tenantBrandKitPath(input.tenantId), enriched: true };
   }
 
-  // True only when we actually scraped the website this run. Reusing an
-  // existing fresh kit must stay network-free (weekly runs reuse it), so the
-  // logo download below is gated on a genuine extraction; kits built before
-  // this feature are backfilled by scripts/marketing/materialize-tenant-logo.ts.
-  const freshlyExtracted = !(existing && isFreshBrandKit(existing, input.brandUrl));
   const scraped =
     existing && isFreshBrandKit(existing, input.brandUrl)
       ? existing
@@ -1891,17 +1962,16 @@ export async function extractEnrichAndSaveTenantBrandKit(input: {
     });
   }
 
-  // Materialize the real logo bytes once so downstream image compositing can
-  // use a local file instead of a remote URL Hermes cannot fetch. Only on a
-  // genuine extraction — reusing a fresh kit (weekly runs) stays network-free.
-  if (freshlyExtracted && !merged.logo_file_path && merged.logo_urls.length > 0) {
-    const logoPath = await downloadAndMaterializeLogo({
-      tenantId: input.tenantId,
-      logoUrls: merged.logo_urls,
-      fetchImpl: input.fetchImpl,
-    });
-    if (logoPath) merged.logo_file_path = logoPath;
-  }
+  // Materialize the real logo bytes so downstream image compositing can use a
+  // local file instead of a remote URL the compositor's loader refuses. No
+  // longer gated on a genuine extraction (AA-221): the reuse-a-fresh-kit branch
+  // needs it too, and the helper is a no-op once the file is on disk.
+  await ensureLogoMaterialized({
+    tenantId: input.tenantId,
+    kit: merged,
+    fetchImpl: input.fetchImpl,
+    materialize: input.logoMaterializer,
+  });
 
   const filePath = saveTenantBrandKit(input.tenantId, merged);
   return { brandKit: merged, filePath, enriched: enrichmentResult.ok };

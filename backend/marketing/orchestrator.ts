@@ -1,7 +1,10 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
 import { enforcePlanLimitOrThrow } from '@/backend/billing/usage-entitlement';
-import { sanitizeWeeklySocialContentPayload } from '@/backend/social-content/payload';
+import {
+  normalizeWeeklySocialContentPayload,
+  sanitizeWeeklySocialContentPayload,
+} from '@/backend/social-content/payload';
 import {
   SOCIAL_CONTENT_DEFAULT_SCOPE,
   SOCIAL_COPY_FINALIZE_WORKFLOW_KEY,
@@ -294,6 +297,44 @@ function weeklyMediaDemand(payload: Record<string, unknown>): {
     imageCreativeCount,
     videoRenderCount,
   };
+}
+
+/**
+ * Build the payload that gets persisted as `doc.inputs.request` for a new job.
+ *
+ * AA-222: the weekly path MUST go through `normalizeWeeklySocialContentPayload`,
+ * not bare sanitization. The manual intake route (app/api/marketing/jobs) always
+ * normalized; the worker weekly trigger did not, and its payload carries only
+ * brandUrl/websiteUrl/businessType/publishRequested. With no `storyCount` key on
+ * the persisted request, `readRequestedStoryCount` (synthesize-publish-posts)
+ * fell through to its defensive 0 and the week's story was dropped without a
+ * single log line — contradicting SOCIAL_CONTENT_DEFAULT_SCOPE.story_count = 1.
+ * Normalizing here converges the worker path onto the manual path so every
+ * story-count reader agrees.
+ *
+ * Normalization is idempotent (the manual route double-normalizing is a no-op)
+ * and preserves explicit zeros — the onboarding variant batch sends
+ * `storyCount: 0` and keeps it. One-off jobs (reel companion, one-off campaign)
+ * keep bare sanitization: they are not weekly packages and must not inherit
+ * weekly defaults like a 7-post static count.
+ *
+ * Exported for direct unit testing — driving `startSocialContentJob` end to end
+ * would require the plan gate, brand-kit extraction, and doc persistence.
+ */
+export function prepareStartJobPayload(
+  jobType: StartSocialContentJobRequest['jobType'],
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  const requestPayload =
+    jobType === 'weekly_social_content'
+      ? normalizeWeeklySocialContentPayload(payload)
+      : sanitizeWeeklySocialContentPayload(payload);
+  const mediaDemand = weeklyMediaDemand(requestPayload);
+  requestPayload.imageCreativeCount = mediaDemand.imageCreativeCount;
+  requestPayload.imageCreativesCount = mediaDemand.imageCreativeCount;
+  requestPayload.videoRenderCount = mediaDemand.videoRenderCount;
+  requestPayload.renderVideoAfterApproval = mediaDemand.videoRenderCount > 0;
+  return requestPayload;
 }
 
 /**
@@ -1721,12 +1762,7 @@ export async function startSocialContentJob(input: StartSocialContentJobRequest)
 
   const jobId = makeSocialContentJobId();
   const tenantId = input.tenantId.trim();
-  const requestPayload = sanitizeWeeklySocialContentPayload(input.payload ?? {});
-  const mediaDemand = weeklyMediaDemand(requestPayload);
-  requestPayload.imageCreativeCount = mediaDemand.imageCreativeCount;
-  requestPayload.imageCreativesCount = mediaDemand.imageCreativeCount;
-  requestPayload.videoRenderCount = mediaDemand.videoRenderCount;
-  requestPayload.renderVideoAfterApproval = mediaDemand.videoRenderCount > 0;
+  const requestPayload = prepareStartJobPayload(input.jobType, input.payload ?? {});
   if (typeof input.createdBy === 'string' && input.createdBy.trim().length > 0) {
     requestPayload.userId = input.createdBy.trim();
   }

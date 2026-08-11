@@ -1524,6 +1524,23 @@ async function synthesizePublishPostsOnCompletion(
         tenantId: tenantNum,
       });
     }
+    // AA-222: a surface the scope PROMISED produced nothing. Record it on the
+    // run doc as well as the log — a shortfall the operator can only find by
+    // grepping container logs is, in practice, invisible. Every caller of this
+    // helper saves the doc afterwards, so the history note persists on all
+    // three terminal paths (publish-SKIP, multi-stage, single-stage publish).
+    if (result.droppedStoryPromised > 0) {
+      console.error('[hermes-callbacks] story shortfall — scope promised a story, synthesis produced none', {
+        jobId: doc.job_id,
+        tenantId: tenantNum,
+        requested: result.droppedStoryPromised,
+      });
+      appendHistory(
+        doc,
+        `story shortfall: scope promised ${result.droppedStoryPromised} story post(s) but synthesis produced zero story rows`,
+        { stage: 'publish' },
+      );
+    }
   } catch (err) {
     console.warn('[hermes-callbacks] synthesizePublishPostsFromContentPackage failed — continuing', {
       jobId: doc.job_id,

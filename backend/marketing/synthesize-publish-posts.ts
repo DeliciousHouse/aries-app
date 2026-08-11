@@ -105,6 +105,15 @@ export interface SynthesizePublishPostsResult {
    * dispatch terminally. These drops also count into `skipped`.
    */
   droppedVideoNoAsset: number;
+  /**
+   * AA-222: image-story posts the run's scope PROMISED (`story_count` > 0) that
+   * synthesis could not produce a single row for. A promised surface yielding
+   * zero rows is a delivery failure, not a no-op, and it used to be completely
+   * silent — tenant 15's restored weekly run shipped with no story and no
+   * signal anywhere. 0 in every healthy case, including the deliberate
+   * zero-story modes (reel companion / alternate), which never promise a story.
+   */
+  droppedStoryPromised: number;
   /** Reason the synthesis did not run, when inserted+skipped+total are all 0. */
   reason?:
     | 'no_content_package'
@@ -272,6 +281,16 @@ const SELECT_CREATIVE_ASSETS_SQL = `
      AND source_type = 'generated_by_aries'
      AND orphaned_at IS NULL
    ORDER BY source_asset_id ASC
+`;
+
+// Replay guard for the story-shortfall signal (AA-222): were story rows for
+// this job already written by an earlier delivery of the same callback?
+const COUNT_STORY_POSTS_SQL = `
+  SELECT count(*)::int AS n
+    FROM posts
+   WHERE tenant_id = $1
+     AND job_id = $2
+     AND surface = 'story'
 `;
 
 // Synthesized posts are inserted `approved` so they immediately satisfy the
@@ -505,7 +524,7 @@ export async function synthesizePublishPostsFromContentPackage(
   const { jobId, tenantId, doc, publishRunId, pool, composeStoryAsset } = args;
 
   if (!Number.isFinite(tenantId) || tenantId <= 0) {
-    return { inserted: 0, skipped: 0, total: 0, approvalRecordReady: false, droppedVideoNoAsset: 0, reason: 'no_tenant' };
+    return { inserted: 0, skipped: 0, total: 0, approvalRecordReady: false, droppedVideoNoAsset: 0, droppedStoryPromised: 0, reason: 'no_tenant' };
   }
 
   // Scope guard: defer to the legacy path ONLY when the publish_package is one
@@ -519,6 +538,7 @@ export async function synthesizePublishPostsFromContentPackage(
       total: 0,
       approvalRecordReady: false,
       droppedVideoNoAsset: 0,
+      droppedStoryPromised: 0,
       reason: 'publish_package_present',
     };
   }
@@ -531,6 +551,7 @@ export async function synthesizePublishPostsFromContentPackage(
       total: 0,
       approvalRecordReady: false,
       droppedVideoNoAsset: 0,
+      droppedStoryPromised: 0,
       reason: 'no_content_package',
     };
   }
@@ -642,6 +663,7 @@ export async function synthesizePublishPostsFromContentPackage(
         total: 0,
         approvalRecordReady: false,
         droppedVideoNoAsset: 0,
+        droppedStoryPromised: 0,
         reason: 'no_connected_platform',
       };
     }
@@ -907,6 +929,7 @@ export async function synthesizePublishPostsFromContentPackage(
   // for a tenant with no Meta connection would recreate the exact bug this
   // ticket fixes — undeliverable rows. Such a tenant's week is feed posts only.
   const storyBudget = isReelCompanionJob || alternateMode ? 0 : readRequestedStoryCount(doc);
+  let storyRowsInserted = 0;
   if (storyBudget > 0) {
     for (const entry of entries.slice(0, storyBudget)) {
       const assetInfo = assetInfoByPostNumber.get(entry.postNumber);
@@ -954,6 +977,7 @@ export async function synthesizePublishPostsFromContentPackage(
           ]);
           if ((result.rowCount ?? 0) > 0) {
             inserted++;
+            storyRowsInserted++;
           } else {
             skipped++;
           }
@@ -971,6 +995,40 @@ export async function synthesizePublishPostsFromContentPackage(
     }
   }
 
+  // LOUD (AA-222): the scope promised a story surface and synthesis produced
+  // zero story rows. Silent before — the run reported "completed", the operator
+  // saw feed posts only, and nothing in the logs or the run doc said a story had
+  // been requested at all.
+  let droppedStoryPromised = 0;
+  if (storyBudget > 0 && storyRowsInserted === 0) {
+    // Replay safety: a re-delivered callback re-runs synthesis, and every story
+    // INSERT then hits ON CONFLICT DO NOTHING (rowCount 0). Those rows exist —
+    // that is not a shortfall. Check the table before crying wolf.
+    //
+    // FAIL-OPEN: this is monitoring bolted onto completion bookkeeping, so a
+    // query error must be read as "rows exist" and stay silent. A read failure
+    // must never manufacture a false shortfall, and must never propagate out of
+    // a run that is otherwise done.
+    let existingStoryRows = 1;
+    try {
+      const check = await pool.query(COUNT_STORY_POSTS_SQL, [tenantId, jobId]);
+      const row = (check.rows?.[0] ?? null) as { n?: unknown } | null;
+      const parsed = Number(row?.n);
+      existingStoryRows = Number.isFinite(parsed) ? parsed : 1;
+    } catch {
+      existingStoryRows = 1;
+    }
+    if (existingStoryRows === 0) {
+      droppedStoryPromised = storyBudget;
+      console.error('[synthesize-publish-posts] story promised but zero story rows synthesized', {
+        jobId,
+        tenantId,
+        createdBy: doc.created_by ?? null,
+        requested: storyBudget,
+      });
+    }
+  }
+
   // A synthesized post must be schedulable: the schedule route requires an
   // approved publish-stage approval record. Ensure one exists (idempotent).
   let approvalRecordReady = false;
@@ -984,5 +1042,5 @@ export async function synthesizePublishPostsFromContentPackage(
     });
   }
 
-  return { inserted, skipped, total, approvalRecordReady, droppedVideoNoAsset };
+  return { inserted, skipped, total, approvalRecordReady, droppedVideoNoAsset, droppedStoryPromised };
 }

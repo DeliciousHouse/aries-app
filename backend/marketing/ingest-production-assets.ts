@@ -30,7 +30,7 @@ import { loadTenantReelAudioModeOrNull } from '@/backend/tenant/business-profile
 import path from 'node:path';
 
 import {
-  applyBrandFrame,
+  applyBrandFrameDetailed,
   type BrandKitFrameInput,
   type LogoLoader,
 } from '@/backend/creative-memory/frame-overlay';
@@ -266,7 +266,40 @@ export async function ingestProductionCreativeAssetsToDb(
 
   // Read the composite flag once; framing only runs when ON and a brand kit
   // with a materialized logo is available.
-  const compositeEnabled = isFeedLogoCompositeEnabled() && Boolean(args.brandKit);
+  const flagOn = isFeedLogoCompositeEnabled();
+  const compositeEnabled = flagOn && Boolean(args.brandKit);
+
+  // AA-221 defense: compositing used to no-op SILENTLY when the flag was ON but
+  // the brand kit carried no LOCAL logo file — a remote logo_urls entry is not a
+  // logo source the compositor accepts, so a whole week of feed images shipped
+  // bare with nothing in the logs to say so. Say so, once per ingest.
+  //
+  // Gated on the batch actually containing a frame-eligible image: a
+  // reel-companion (video-only) ingest can never composite by design, and
+  // warning on those every week would train operators to ignore this line.
+  if (flagOn) {
+    const hasFrameEligibleEntry = creativeAssets.some(
+      (entry) =>
+        !!entry &&
+        typeof entry === 'object' &&
+        !Array.isArray(entry) &&
+        isFrameEligibleEntry(entry as CreativeAssetEntry),
+    );
+    if (hasFrameEligibleEntry) {
+      const skipReason = !args.brandKit
+        ? 'brand_kit_missing'
+        : !args.brandKit.logo_file_path
+          ? 'logo_file_path_missing'
+          : null;
+      if (skipReason) {
+        console.warn('[ingest-production-assets] logo composite skipped', {
+          jobId,
+          tenantId,
+          reason: skipReason,
+        });
+      }
+    }
+  }
 
   let inserted = 0;
   let skipped = 0;
@@ -398,7 +431,12 @@ export async function ingestProductionCreativeAssetsToDb(
         storageKind = 'ingested_asset';
       } else if (compositeEnabled && args.brandKit && isFrameEligibleEntry(asset)) {
         try {
-          const framed = await applyBrandFrame({
+          // Detailed variant so a no-op composite is DIAGNOSABLE. `applied`
+          // is the authoritative signal: frame-overlay returns the original
+          // buffer untouched whenever it declines, so the old
+          // `framed !== rawBytes` identity check silently swallowed the
+          // "logo never loaded" case that produced the AA-221 bare week.
+          const frameResult = await applyBrandFrameDetailed({
             assetBuffer: rawBytes,
             brandKit: args.brandKit,
             channel: 'instagram',
@@ -407,7 +445,16 @@ export async function ingestProductionCreativeAssetsToDb(
             logoSource: args.brandKit.logo_file_path ?? null,
             logoLoader: args.logoLoader,
           });
-          if (framed !== rawBytes && framed.length > 0) {
+          const framed = frameResult.buffer;
+          if (!frameResult.applied) {
+            console.warn('[ingest-production-assets] logo composite produced no change', {
+              jobId,
+              tenantId,
+              sourceAssetId: typeof asset.assetId === 'string' ? asset.assetId : null,
+              reason: frameResult.reason ?? 'unknown',
+            });
+          }
+          if (frameResult.applied && framed.length > 0) {
             bytes = framed;
             // Framed bytes no longer live at the read-only Hermes mount; persist
             // under DATA_ROOT and repoint storage so the id media route serves

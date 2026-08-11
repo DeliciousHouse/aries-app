@@ -255,16 +255,24 @@ test('ensureFreshBrandKitForWeeklyRun reuses persisted fresh kit and updates doc
       brand_kit: null,
     } as unknown as SocialContentJobRuntimeDocument;
 
-    let fetchCalls = 0;
+    const requested: string[] = [];
     const result = await ensureFreshBrandKitForWeeklyRun({
       doc,
-      fetchImpl: (async () => {
-        fetchCalls += 1;
+      fetchImpl: (async (input: unknown) => {
+        requested.push(String((input as { url?: string })?.url ?? input));
         return new Response('unexpected', { status: 500 });
       }) as unknown as typeof fetch,
     });
 
-    assert.equal(fetchCalls, 0);
+    // AA-221: reusing a persisted fresh kit must still not RE-SCRAPE the site —
+    // but it does now materialize the logo once, because a kit with no local
+    // logo file composites nothing downstream. Assert on the URL, not the count,
+    // so a re-scrape regression is still caught.
+    assert.deepEqual(
+      requested,
+      ['https://brand.example/assets/persisted-logo.svg'],
+      'the only request is the one-time logo materialization — the website is not re-scraped',
+    );
     assert.equal(result.refreshed, true);
     assert.ok(doc.brand_kit, 'doc.brand_kit must be populated after refresh');
     assert.equal(doc.brand_kit?.brand_name, 'Persisted Brand');
