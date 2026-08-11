@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.2.0 — fix(deploy): reclaim stale Docker storage safely
+
+Self-hosted deploys can reclaim stale Docker storage before the disk preflight
+without deleting rollback images, active image references, or unrelated images.
+
+### Changed
+
+- Deploys reuse a repository-specific Buildx builder and prune only its cache
+  older than seven days before checking the existing 10 GB free-space floor.
+
+### Fixed
+
+- Image cleanup is limited to old tags in the target deployment repository and
+  keeps the newest three images plus every image referenced by any container.
+- Cleanup failures remain non-blocking, and the fast verification gate now
+  enforces the repository, age, rollback-retention, and safety boundaries.
+
 ## v0.2.0.0 — feat(growth): compound brand memory and social research
 
 Tier 2 closes the learning loop by compounding tenant-scoped approval and
