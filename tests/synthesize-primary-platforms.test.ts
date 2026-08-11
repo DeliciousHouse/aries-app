@@ -39,6 +39,7 @@ const MANAGED_ENVS = [
   'ARIES_VIDEO_PUBLISH_ENABLED',
   'COMPOSIO_REDDIT_TARGET_SUBREDDIT',
   'COMPOSIO_X_PUBLISH_POST_ACTION',
+  'COMPOSIO_X_UPLOAD_MEDIA_ACTION',
   'COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION',
   'COMPOSIO_REDDIT_PUBLISH_POST_ACTION',
 ] as const;
@@ -65,8 +66,9 @@ async function withEnv(env: Record<string, string>, fn: () => Promise<void>): Pr
 
 /**
  * Flags matching the live app container: crossposting on, all three platform
- * rollout flags on, all three COMPOSIO_<P>_PUBLISH_POST_ACTION slugs set, and
- * reddit deliberately unconfigured (no target subreddit). A platform missing
+ * rollout flags on, all three COMPOSIO_<P>_PUBLISH_POST_ACTION slugs plus X's
+ * image-upload slug set, and reddit deliberately unconfigured (no target). A
+ * platform missing
  * its publish slug is not publishable at all, so the slugs are part of what
  * "live" means here.
  */
@@ -76,6 +78,7 @@ const LIVE_FLAGS = {
   ARIES_LINKEDIN_ENABLED: 'true',
   ARIES_REDDIT_ENABLED: 'true',
   COMPOSIO_X_PUBLISH_POST_ACTION: 'TWITTER_CREATION_OF_A_POST',
+  COMPOSIO_X_UPLOAD_MEDIA_ACTION: 'TWITTER_UPLOAD_MEDIA',
   COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: 'LINKEDIN_CREATE_LINKED_IN_POST',
   COMPOSIO_REDDIT_PUBLISH_POST_ACTION: 'REDDIT_CREATE_REDDIT_POST',
 } as const;
@@ -94,6 +97,7 @@ const ASSET_ROWS = [
  */
 function makeFakePool(options: {
   connected?: string[];
+  externalAccountIds?: Partial<Record<string, string | null>>;
   metaOauth?: number;
   failMetaCount?: boolean;
   insertConflicts?: boolean;
@@ -128,7 +132,12 @@ function makeFakePool(options: {
         // The crosspost eligibility query: $2 is the flag-enabled allowlist.
         if (/FROM connected_accounts/i.test(sql)) {
           const allowlist = (params[1] as string[]) ?? [];
-          const rows = connected.filter((p) => allowlist.includes(p)).map((platform) => ({ platform }));
+          const rows = connected
+            .filter((p) => allowlist.includes(p))
+            .map((platform) => ({
+              platform,
+              external_account_id: options.externalAccountIds?.[platform] ?? null,
+            }));
           return { rows, rowCount: rows.length };
         }
         return { rows: [], rowCount: 0 };
@@ -200,7 +209,10 @@ const rowsFor = (inserts: unknown[][], platform: string) => inserts.filter((p) =
 test('Meta tenant: flag ON produces insert params deep-equal to flag OFF (byte-identical pin)', async () => {
   let offInserts: unknown[][] = [];
   await withEnv({ ...LIVE_FLAGS }, async () => {
-    const { pool, inserts } = makeFakePool({ connected: ['facebook', 'instagram', 'linkedin'] });
+    const { pool, inserts } = makeFakePool({
+      connected: ['facebook', 'instagram', 'linkedin'],
+      externalAccountIds: { linkedin: 'urn:li:person:test' },
+    });
     await synthesizePublishPostsFromContentPackage({
       jobId: 'job_pin', tenantId: 15, doc: makeDoc('job_pin'), publishRunId: 'run-1', pool,
     });
@@ -209,7 +221,10 @@ test('Meta tenant: flag ON produces insert params deep-equal to flag OFF (byte-i
 
   let onInserts: unknown[][] = [];
   await withEnv({ ...LIVE_FLAGS, ARIES_ANY_PLATFORM_PUBLISH_ENABLED: '1' }, async () => {
-    const { pool, inserts } = makeFakePool({ connected: ['facebook', 'instagram', 'linkedin'] });
+    const { pool, inserts } = makeFakePool({
+      connected: ['facebook', 'instagram', 'linkedin'],
+      externalAccountIds: { linkedin: 'urn:li:person:test' },
+    });
     await synthesizePublishPostsFromContentPackage({
       jobId: 'job_pin', tenantId: 15, doc: makeDoc('job_pin'), publishRunId: 'run-1', pool,
     });
@@ -239,7 +254,10 @@ test('Meta tenant via the LEGACY oauth_connections store only: flag ON still res
 
 test('LinkedIn-only tenant: the week synthesizes linkedin feed rows and no fb/ig or story rows', async () => {
   await withEnv({ ...LIVE_FLAGS, ARIES_ANY_PLATFORM_PUBLISH_ENABLED: '1' }, async () => {
-    const { pool, inserts } = makeFakePool({ connected: ['linkedin'] });
+    const { pool, inserts } = makeFakePool({
+      connected: ['linkedin'],
+      externalAccountIds: { linkedin: 'urn:li:person:test' },
+    });
     const result = await synthesizePublishPostsFromContentPackage({
       jobId: 'job_li', tenantId: 70, doc: makeDoc('job_li'), publishRunId: 'run-1', pool,
     });
@@ -267,13 +285,30 @@ test('LinkedIn-only tenant: the week synthesizes linkedin feed rows and no fb/ig
   });
 });
 
+test('LinkedIn-only tenant without an author URN: mode none, zero rows synthesized', async () => {
+  await withEnv({ ...LIVE_FLAGS, ARIES_ANY_PLATFORM_PUBLISH_ENABLED: '1' }, async () => {
+    const { pool, inserts } = makeFakePool({
+      connected: ['linkedin'],
+      externalAccountIds: { linkedin: null },
+    });
+    const result = await synthesizePublishPostsFromContentPackage({
+      jobId: 'job_li_no_urn', tenantId: 70, doc: makeDoc('job_li_no_urn'), publishRunId: null, pool,
+    });
+    assert.equal(result.reason, 'no_connected_platform');
+    assert.equal(inserts.length, 0);
+  });
+});
+
 test('LinkedIn-only rows are IDENTICAL to the crosspost linkedin rows for the same content_package (parity)', async () => {
   // A Meta+LinkedIn tenant's fan-out is the reference implementation. A
   // LinkedIn-only tenant must get exactly those rows, minus the Meta originals
   // — same captions, same keys, same asset linkage, same count.
   let crosspostLinkedIn: unknown[][] = [];
   await withEnv({ ...LIVE_FLAGS }, async () => {
-    const { pool, inserts } = makeFakePool({ connected: ['facebook', 'instagram', 'linkedin'] });
+    const { pool, inserts } = makeFakePool({
+      connected: ['facebook', 'instagram', 'linkedin'],
+      externalAccountIds: { linkedin: 'urn:li:person:test' },
+    });
     await synthesizePublishPostsFromContentPackage({
       jobId: 'job_par', tenantId: 15, doc: makeDoc('job_par'), publishRunId: 'run-1', pool,
     });
@@ -282,7 +317,10 @@ test('LinkedIn-only rows are IDENTICAL to the crosspost linkedin rows for the sa
 
   let alternateLinkedIn: unknown[][] = [];
   await withEnv({ ...LIVE_FLAGS, ARIES_ANY_PLATFORM_PUBLISH_ENABLED: '1' }, async () => {
-    const { pool, inserts } = makeFakePool({ connected: ['linkedin'] });
+    const { pool, inserts } = makeFakePool({
+      connected: ['linkedin'],
+      externalAccountIds: { linkedin: 'urn:li:person:test' },
+    });
     await synthesizePublishPostsFromContentPackage({
       jobId: 'job_par', tenantId: 15, doc: makeDoc('job_par'), publishRunId: 'run-1', pool,
     });
@@ -295,7 +333,11 @@ test('LinkedIn-only rows are IDENTICAL to the crosspost linkedin rows for the sa
 
 test('LinkedIn-only: a replayed synthesis is a no-op (ON CONFLICT), never a duplicate row', async () => {
   await withEnv({ ...LIVE_FLAGS, ARIES_ANY_PLATFORM_PUBLISH_ENABLED: '1' }, async () => {
-    const { pool, inserts } = makeFakePool({ connected: ['linkedin'], insertConflicts: true });
+    const { pool, inserts } = makeFakePool({
+      connected: ['linkedin'],
+      externalAccountIds: { linkedin: 'urn:li:person:test' },
+      insertConflicts: true,
+    });
     const result = await synthesizePublishPostsFromContentPackage({
       jobId: 'job_li_replay', tenantId: 70, doc: makeDoc('job_li_replay'), publishRunId: 'run-1', pool,
     });
@@ -323,6 +365,18 @@ test('X-only tenant: rows carry the weighted-capped X caption', async () => {
     assert.equal(inserts.length, 2, 'only x rows');
     // buildXCaption: hook + up to two hashtags.
     assert.equal(rows[0][4], 'Big news today. #one #two');
+  });
+});
+
+test('X-only tenant with no upload_media slug: mode none, zero image rows synthesized', async () => {
+  const { COMPOSIO_X_UPLOAD_MEDIA_ACTION: _, ...withoutUpload } = LIVE_FLAGS;
+  await withEnv({ ...withoutUpload, ARIES_ANY_PLATFORM_PUBLISH_ENABLED: '1' }, async () => {
+    const { pool, inserts } = makeFakePool({ connected: ['x'] });
+    const result = await synthesizePublishPostsFromContentPackage({
+      jobId: 'job_x_no_upload', tenantId: 71, doc: makeDoc('job_x_no_upload'), publishRunId: null, pool,
+    });
+    assert.equal(result.reason, 'no_connected_platform');
+    assert.equal(inserts.length, 0);
   });
 });
 
@@ -372,7 +426,10 @@ test('alternate mode: a reel/video entry produces no alternate row (feed-image e
   await withEnv(
     { ...LIVE_FLAGS, ARIES_ANY_PLATFORM_PUBLISH_ENABLED: '1', ARIES_VIDEO_PUBLISH_ENABLED: '1' },
     async () => {
-      const { pool, inserts } = makeFakePool({ connected: ['linkedin'] });
+      const { pool, inserts } = makeFakePool({
+        connected: ['linkedin'],
+        externalAccountIds: { linkedin: 'urn:li:person:test' },
+      });
       await synthesizePublishPostsFromContentPackage({
         jobId: 'job_reel', tenantId: 70, doc: makeMixedDoc('job_reel'), publishRunId: null, pool,
       });

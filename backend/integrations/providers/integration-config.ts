@@ -162,8 +162,8 @@ export function isCrosspostPlatformFlagEnabled(
  * deployment: a reddit-only tenant would otherwise pass the gate and every
  * synthesized row would fail terminally.
  *
- * THE PUBLISH ACTION SLUG IS THE SAME CLASS OF REQUIREMENT, for every crosspost
- * platform. Composio action slugs are never guessed (see composio-config.ts):
+ * THE REQUIRED ACTION SLUGS ARE THE SAME CLASS OF REQUIREMENT. Composio action
+ * slugs are never guessed (see composio-config.ts):
  * they come from `COMPOSIO_<PLATFORM>_PUBLISH_POST_ACTION`, which
  * docker-compose.yml declares with an EMPTY default and `actionSlug()` gives no
  * code fallback. With the slug unset the publisher's `requireSlug` throws
@@ -177,15 +177,17 @@ export function isCrosspostPlatformFlagEnabled(
  * slug; it does not prevent the connection, so slug-less connected rows are
  * reachable state, not a hypothetical.)
  *
- * Only `publish_post` is required. X's `upload_media` slug is needed solely for
- * an image post; a text-only X post publishes without it, so requiring it would
- * suppress deliverable rows.
+ * X additionally needs `COMPOSIO_X_UPLOAD_MEDIA_ACTION`: this eligibility
+ * predicate serves the weekly producer, whose X rows always carry a feed image.
+ * Counting an X connection
+ * without that slug would open the gate onto rows the publisher must reject.
  */
 export function isCrosspostPlatformConfigured(
   platform: CrosspostPlatform,
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
   if (actionSlug(platform, 'publish_post', env) === null) return false;
+  if (platform === 'x') return actionSlug(platform, 'upload_media', env) !== null;
   if (platform !== 'reddit') return true;
   return redditTargetSubreddit(env) !== null;
 }

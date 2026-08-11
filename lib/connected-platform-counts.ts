@@ -69,7 +69,9 @@ export const COUNT_CONNECTED_META_PLATFORMS_SQL = `SELECT (
  * Live proof that such rows exist: tenant 17's `linkedin|connected`
  * `oauth_connections` row — which correctly leaves tenant 17 blocked. The
  * `connected_accounts` branch (authoritative) is the one that widens to
- * `platform = ANY($2)`, where `$2` is `publishablePlatforms()`.
+ * `platform = ANY($2)`, where `$2` is `publishablePlatforms()`. LinkedIn also
+ * needs a non-empty `external_account_id`: the publisher uses it as the author
+ * URN and refuses before dispatch when it is missing.
  */
 export const COUNT_CONNECTED_PUBLISHABLE_PLATFORMS_SQL = `SELECT (
        (SELECT COUNT(*) FROM oauth_connections
@@ -80,7 +82,8 @@ export const COUNT_CONNECTED_PUBLISHABLE_PLATFORMS_SQL = `SELECT (
        (SELECT COUNT(*) FROM connected_accounts
           WHERE tenant_id = $1
             AND status = 'connected'
-            AND platform = ANY($2))
+            AND platform = ANY($2)
+            AND (platform <> 'linkedin' OR NULLIF(BTRIM(external_account_id), '') IS NOT NULL))
      )::int AS connected_count`;
 
 /**

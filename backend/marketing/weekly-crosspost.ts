@@ -71,11 +71,11 @@ export function isWeeklyCrosspostEnabled(env: Env = process.env): boolean {
 }
 
 // Single query: the crosspost platforms whose per-platform flag is ON AND that
-// have an active connected account for this tenant. `status='connected'` mirrors
-// the filter the publisher's requireActiveConnection uses. No Promise.all
+// have an active connected account for this tenant. LinkedIn also returns its
+// author URN because the publisher refuses a row without it. No Promise.all
 // fan-out (guardrail #1) — one round-trip returns every eligible platform.
 const SELECT_CONNECTED_CROSSPOST_PLATFORMS_SQL = `
-  SELECT platform
+  SELECT platform, external_account_id
     FROM connected_accounts
    WHERE tenant_id = $1
      AND status = 'connected'
@@ -101,8 +101,8 @@ export async function resolveCrosspostPlatforms(
   const flagEnabled = eligibleCrosspostPlatforms(env as NodeJS.ProcessEnv);
   // Breadcrumb for the "I turned the flag on and nothing happened" case: a
   // platform whose rollout flag is ON but whose required config is missing is
-  // dropped silently otherwise. Missing config is either the reddit target
-  // subreddit or the platform's COMPOSIO_<P>_PUBLISH_POST_ACTION slug — both
+  // dropped silently otherwise. Missing config is the reddit target subreddit,
+  // X's media-upload slug, or a COMPOSIO_<P>_PUBLISH_POST_ACTION slug — all
   // would make every synthesized row fail terminally at dispatch (AA-217).
   for (const platform of CROSSPOST_PLATFORMS) {
     if (
@@ -112,6 +112,7 @@ export async function resolveCrosspostPlatforms(
       console.info(
         `[weekly-crosspost] ${platform} skipped — missing publish config ` +
           `(COMPOSIO_${platform.toUpperCase()}_PUBLISH_POST_ACTION` +
+          `${platform === 'x' ? ' / COMPOSIO_X_UPLOAD_MEDIA_ACTION' : ''}` +
           `${platform === 'reddit' ? ' / COMPOSIO_REDDIT_TARGET_SUBREDDIT' : ''})`,
         { tenantId },
       );
@@ -123,8 +124,17 @@ export async function resolveCrosspostPlatforms(
     const rows = (result.rows ?? []) as Array<Record<string, unknown>>;
     const connected = new Set(
       rows
-        .map((row) => (typeof row.platform === 'string' ? row.platform.trim().toLowerCase() : ''))
-        .filter((p) => p.length > 0),
+        .filter((row) => {
+          const platform =
+            typeof row.platform === 'string' ? row.platform.trim().toLowerCase() : '';
+          return (
+            platform.length > 0 &&
+            (platform !== 'linkedin' ||
+              (typeof row.external_account_id === 'string' &&
+                row.external_account_id.trim().length > 0))
+          );
+        })
+        .map((row) => (row.platform as string).trim().toLowerCase()),
     );
     // Preserve CROSSPOST_PLATFORMS order and dedupe implicitly via the flag list.
     return flagEnabled.filter((p) => connected.has(p));

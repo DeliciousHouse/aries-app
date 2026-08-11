@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.5.0 — fix(marketing): gate generation on dispatchable platforms
+
+Weekly social-content generation can use an enabled X, LinkedIn, or Reddit
+connection when Meta is unavailable, without manufacturing posts that cannot be
+published.
+
+### Changed
+
+- The onboarding gate, primary-platform resolver, and weekly cross-post fan-out
+  now share equivalent publishability criteria while preserving legacy Meta
+  behavior behind the default-off rollout flag.
+
+### Fixed
+
+- X image rows require both publish and media-upload actions, LinkedIn requires a
+  nonblank author URN, and Reddit still requires its configured target subreddit.
+- Eligibility lookup failures continue to fail safely instead of creating
+  guaranteed-undeliverable alternate-platform rows.
+
 ## v0.2.2.0 — fix(deploy): reclaim stale Docker storage safely
 
 Self-hosted deploys can reclaim stale Docker storage before the disk preflight

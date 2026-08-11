@@ -320,7 +320,10 @@ function makeFakePoolWithCrosspost(connectedPlatforms: string[]) {
           const allowlist = (params[1] as string[]) ?? [];
           const rows = connectedPlatforms
             .filter((p) => allowlist.includes(p))
-            .map((platform) => ({ platform }));
+            .map((platform) => ({
+              platform,
+              external_account_id: platform === 'linkedin' ? 'urn:li:person:test' : null,
+            }));
           return { rows, rowCount: rows.length };
         }
         return { rows: [], rowCount: 0 };
@@ -334,12 +337,12 @@ const CROSSPOST_FLAGS = ['ARIES_WEEKLY_CROSSPOST_ENABLED', 'ARIES_X_ENABLED', 'A
 // (the publisher has no profile fallback and refuses without one), so "flags on"
 // must set it too or reddit silently drops out of every fan-out assertion below.
 const REDDIT_SUBREDDIT_ENV = 'COMPOSIO_REDDIT_TARGET_SUBREDDIT';
-// Same story for the per-platform publish action slugs: without
-// COMPOSIO_<P>_PUBLISH_POST_ACTION the producer treats the platform as
-// unconfigured (requireSlug would throw at every dispatch), so a "flags on"
-// harness has to supply them or the whole fan-out silently disappears.
+// Same story for the required action slugs: without publish_post (or X's
+// upload_media) the producer treats the platform as unconfigured, so a "flags
+// on" harness has to supply them or the whole fan-out silently disappears.
 const PUBLISH_SLUG_ENVS = {
   COMPOSIO_X_PUBLISH_POST_ACTION: 'TWITTER_CREATION_OF_A_POST',
+  COMPOSIO_X_UPLOAD_MEDIA_ACTION: 'TWITTER_UPLOAD_MEDIA',
   COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: 'LINKEDIN_CREATE_LINKED_IN_POST',
   COMPOSIO_REDDIT_PUBLISH_POST_ACTION: 'REDDIT_CREATE_REDDIT_POST',
 } as const;

@@ -16,7 +16,7 @@ import test from 'node:test';
 import type { OnboardingGateQueryable } from '../lib/onboarding-gate';
 import { tenantNeedsChannelConnection } from '../lib/tenant-needs-channel-connection';
 
-type ConnectedRow = { platform: string; status: string };
+type ConnectedRow = { platform: string; status: string; externalAccountId?: string | null };
 
 /**
  * A queryable that answers BOTH connection-count queries the way Postgres
@@ -31,8 +31,14 @@ function connectionsQueryable(rows: ConnectedRow[]): OnboardingGateQueryable {
       const scoped = sql.includes('platform = ANY($2)')
         ? ((params[1] as string[]) ?? [])
         : ['facebook', 'instagram'];
+      const requiresLinkedInAuthor = sql.includes('BTRIM(external_account_id)');
       const count = rows.filter(
-        (r) => r.status === 'connected' && scoped.includes(r.platform),
+        (r) =>
+          r.status === 'connected' &&
+          scoped.includes(r.platform) &&
+          (!requiresLinkedInAuthor ||
+            r.platform !== 'linkedin' ||
+            Boolean(r.externalAccountId?.trim())),
       ).length;
       return { rows: [{ connected_count: count }], rowCount: 1 };
     },
@@ -47,14 +53,15 @@ const MANAGED_ENVS = [
   'ARIES_YOUTUBE_ENABLED',
   'COMPOSIO_REDDIT_TARGET_SUBREDDIT',
   'COMPOSIO_X_PUBLISH_POST_ACTION',
+  'COMPOSIO_X_UPLOAD_MEDIA_ACTION',
   'COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION',
   'COMPOSIO_REDDIT_PUBLISH_POST_ACTION',
 ] as const;
 
 /**
  * Mirrors the live app container (verified against its resolved env): every
- * platform rollout flag on, every COMPOSIO_<P>_PUBLISH_POST_ACTION slug set,
- * and COMPOSIO_REDDIT_TARGET_SUBREDDIT still EMPTY. The slugs belong in this
+ * platform rollout flag on, every COMPOSIO_<P>_PUBLISH_POST_ACTION slug plus
+ * X's image-upload slug set, and COMPOSIO_REDDIT_TARGET_SUBREDDIT still EMPTY.
  * baseline because a platform without one cannot publish at all — the gate
  * excludes it, which is what the dedicated slug tests below assert.
  */
@@ -63,6 +70,7 @@ const LIVE_PLATFORM_FLAGS = {
   ARIES_LINKEDIN_ENABLED: 'true',
   ARIES_REDDIT_ENABLED: 'true',
   COMPOSIO_X_PUBLISH_POST_ACTION: 'TWITTER_CREATION_OF_A_POST',
+  COMPOSIO_X_UPLOAD_MEDIA_ACTION: 'TWITTER_UPLOAD_MEDIA',
   COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: 'LINKEDIN_CREATE_LINKED_IN_POST',
   COMPOSIO_REDDIT_PUBLISH_POST_ACTION: 'REDDIT_CREATE_REDDIT_POST',
 } as const;
@@ -114,8 +122,30 @@ const ON = { ...LIVE_PLATFORM_FLAGS, ARIES_ANY_PLATFORM_PUBLISH_ENABLED: '1' };
 test(
   'flag ON: a LinkedIn-only tenant is UNBLOCKED (tenant 70, the AA-168 report)',
   withEnv(ON, async () => {
-    const client = connectionsQueryable([{ platform: 'linkedin', status: 'connected' }]);
+    const client = connectionsQueryable([
+      { platform: 'linkedin', status: 'connected', externalAccountId: 'urn:li:person:test' },
+    ]);
     assert.equal(await tenantNeedsChannelConnection(client, 70), false);
+  }),
+);
+
+test(
+  'flag ON: a LinkedIn-only tenant without an author URN stays blocked',
+  withEnv(ON, async () => {
+    const client = connectionsQueryable([
+      { platform: 'linkedin', status: 'connected', externalAccountId: null },
+    ]);
+    assert.equal(await tenantNeedsChannelConnection(client, 70), true);
+  }),
+);
+
+test(
+  'flag ON: a whitespace-only LinkedIn author URN stays blocked',
+  withEnv(ON, async () => {
+    const client = connectionsQueryable([
+      { platform: 'linkedin', status: 'connected', externalAccountId: '   ' },
+    ]);
+    assert.equal(await tenantNeedsChannelConnection(client, 70), true);
   }),
 );
 
@@ -199,6 +229,21 @@ test(
     async () => {
       const client = connectionsQueryable([{ platform: 'linkedin', status: 'connected' }]);
       assert.equal(await tenantNeedsChannelConnection(client, 70), true);
+    },
+  ),
+);
+
+test(
+  'flag ON: an X-only tenant stays blocked when the image upload action slug is missing',
+  withEnv(
+    {
+      ARIES_ANY_PLATFORM_PUBLISH_ENABLED: '1',
+      ARIES_X_ENABLED: 'true',
+      COMPOSIO_X_PUBLISH_POST_ACTION: 'TWITTER_CREATION_OF_A_POST',
+    },
+    async () => {
+      const client = connectionsQueryable([{ platform: 'x', status: 'connected' }]);
+      assert.equal(await tenantNeedsChannelConnection(client, 71), true);
     },
   ),
 );
