@@ -12,7 +12,9 @@ import {
   type MarketingStageError,
 } from './runtime-state';
 import { buildMarketingAssetLinks, marketingAssetUrl, type MarketingAssetLink } from './asset-library';
+import { deliveryCompositionSentence, readDeliveryComposition } from './delivery-composition';
 import { createSocialContentJobFacts, type MarketingJobFacts } from './job-facts';
+import { resolveWeeklyPromptPlatforms } from './primary-publish-platforms';
 import { resolvePublishReviewBundle } from './publish-review';
 import {
   canonicalizePublishReviewPlatformSlug,
@@ -561,9 +563,24 @@ function buildSummary(
   state: ReturnType<typeof deriveState>
 ): MarketingSummary {
   if (state.status === 'completed') {
+    // TRUTHFULNESS (deliverable A). "Delivery summaries are available" was the
+    // only thing this said about delivery — while the run had quietly dropped
+    // every story the operator asked for and the weekly reel, because the
+    // tenant's connected platforms have no such surface. Say what was actually
+    // delivered, naming THIS tenant's platforms (never a hardcoded
+    // "LinkedIn, X and Reddit" — a LinkedIn-only tenant must not be told about
+    // networks it does not use).
+    //
+    // The marker only exists on an alternate-primary week, which is only
+    // reachable with ARIES_ANY_PLATFORM_PUBLISH_ENABLED ON, so a Meta tenant's
+    // subheadline is byte-identical.
+    const composition = readDeliveryComposition(runtimeDoc);
+    const compositionSentence = composition ? deliveryCompositionSentence(composition) : null;
     return {
       headline: 'Social content outputs are ready',
-      subheadline: 'Launch packages, review artifacts, and delivery summaries are available for the current social content job.',
+      subheadline: compositionSentence
+        ? `Launch packages, review artifacts, and delivery summaries are available for the current social content job. ${compositionSentence}`
+        : 'Launch packages, review artifacts, and delivery summaries are available for the current social content job.',
     };
   }
 
@@ -932,6 +949,27 @@ function buildTimeline(
     });
   }
 
+  // TRUTHFULNESS (deliverable A). The timeline is where an operator goes to ask
+  // "what happened to my week". A silently feed-only week left no trace here at
+  // all; now it leaves the same sentence the report headline carries. Tone is
+  // `info`, not `warning`: nothing went wrong — the platforms simply have no
+  // story or reel surface, and the run did the right thing.
+  //
+  // Absent for every Meta tenant (the marker cannot exist without alternate
+  // mode, which needs ARIES_ANY_PLATFORM_PUBLISH_ENABLED), so the existing
+  // timeline is byte-identical for them.
+  const composition = readDeliveryComposition(runtimeDoc);
+  const compositionSentence = composition ? deliveryCompositionSentence(composition) : null;
+  if (composition && compositionSentence) {
+    timeline.push({
+      id: 'delivery-composition',
+      at: composition.at || runtimeDoc.updated_at,
+      tone: 'info',
+      label: 'Feed-only week',
+      description: compositionSentence,
+    });
+  }
+
   if (state.needsAttention && state.status !== 'awaiting_approval' && runtimeDoc.updated_at) {
     timeline.push({
       id: 'attention',
@@ -1241,6 +1279,11 @@ function socialWeeklyScopeConfig(runtimeDoc: SocialContentJobRuntimeDocument): W
 function socialPlatformLabel(platform: string): string {
   const normalized = platform.trim().toLowerCase();
   if (normalized === 'meta') return 'Meta';
+  // 'social' is the channel-neutral placeholder the calendar view-model falls
+  // back to when a row names no platform at all. Without this entry the generic
+  // title-caser below would still produce 'Social', but pinning it here keeps
+  // the mapping explicit and in step with the frontend's formatPlatformLabel.
+  if (normalized === 'social') return 'Social';
   if (normalized === 'instagram') return 'Instagram';
   if (normalized === 'linkedin') return 'LinkedIn';
   if (normalized === 'youtube') return 'YouTube';
@@ -1341,8 +1384,53 @@ type WeeklyCalendarSnapshot = {
   createdPostCount: number;
 };
 
-function buildWeeklyCalendarSnapshot(runtimeDoc: SocialContentJobRuntimeDocument): WeeklyCalendarSnapshot {
+/**
+ * The platforms the weekly calendar's PLACEHOLDER events should be labelled
+ * with, when they are not the deployment default.
+ *
+ * The placeholders have always cycled `scope.channels` and fallen back to the
+ * literal `'meta'` (four sites below). `scope.channels` defaults to
+ * `['meta','instagram']` — so an alternate-primary tenant's calendar promised a
+ * week of Meta posts it was never going to get. When the caller resolves a real
+ * alternate composition, the placeholders name those platforms instead.
+ *
+ * `null` (Meta mode, or the AA-217 flag OFF) keeps every legacy fallback exactly
+ * as it was: no Meta tenant's calendar can change.
+ */
+type WeeklyCalendarPlatformOverride = readonly string[] | null;
+
+/**
+ * Ask the generation path which platforms this tenant's week is really for.
+ * Only an `alternate` resolution overrides anything: `meta` mode must keep the
+ * legacy `scope.channels` / `'meta'` placeholders byte-for-byte, since that is
+ * every tenant publishing today. Never throws — a status page must not 500
+ * because a connection lookup blipped.
+ */
+async function resolveWeeklyPlatformOverride(
+  tenantId: string | number,
+): Promise<WeeklyCalendarPlatformOverride> {
+  const numericTenantId = Number(tenantId);
+  if (!Number.isFinite(numericTenantId) || numericTenantId <= 0) return null;
+  try {
+    const resolved = await resolveWeeklyPromptPlatforms(numericTenantId);
+    if (!resolved || resolved.mode !== 'alternate' || resolved.platforms.length === 0) return null;
+    return resolved.platforms;
+  } catch {
+    return null;
+  }
+}
+
+function buildWeeklyCalendarSnapshot(
+  runtimeDoc: SocialContentJobRuntimeDocument,
+  platformOverride: WeeklyCalendarPlatformOverride = null,
+): WeeklyCalendarSnapshot {
   const scope = socialWeeklyScopeConfig(runtimeDoc);
+  const override = platformOverride && platformOverride.length > 0 ? platformOverride : null;
+  /** Placeholder platform for the Nth event: the tenant's real platforms when known, else today's behaviour. */
+  const placeholderPlatform = (index: number): string =>
+    override
+      ? override[index % override.length]
+      : (scope.channels[index % scope.channels.length] ?? 'meta');
   const projection = latestSocialProjection(runtimeDoc);
   const windowStart = weeklyWindowStart(runtimeDoc);
   const windowEnd = new Date(windowStart.getTime() + scope.windowDays * 24 * 60 * 60 * 1000 - 1);
@@ -1401,7 +1489,13 @@ function buildWeeklyCalendarSnapshot(runtimeDoc: SocialContentJobRuntimeDocument
     const dayIndex =
       parseDayIndex(post.day, windowStart, scope.windowDays) ??
       (postType === 'video_script' ? midpointDay : staticDaySlots[index] ?? Math.min(scope.windowDays, index + 1));
-    const platform = (post.platforms.find((entry) => entry.trim().length > 0) ?? scope.channels[index] ?? 'meta').toLowerCase();
+    // A platform the PLAN itself names always wins — that is real data, not a
+    // guess. Only the fallback (an entry with no platform at all) is re-pointed.
+    const platform = (
+      post.platforms.find((entry) => entry.trim().length > 0)
+      ?? (override ? placeholderPlatform(index) : scope.channels[index])
+      ?? 'meta'
+    ).toLowerCase();
     const platformLabel = socialPlatformLabel(platform);
     const status = normalizeSocialStatus(post.status, postType === 'static' ? 'needs_review' : 'draft');
     const title =
@@ -1430,7 +1524,7 @@ function buildWeeklyCalendarSnapshot(runtimeDoc: SocialContentJobRuntimeDocument
   const existingStatic = events.filter((event) => event.postType === 'static').length;
   for (let index = existingStatic; index < scope.staticPostCount; index += 1) {
     const dayIndex = staticDaySlots[index] ?? Math.min(scope.windowDays, index + 1);
-    const platform = (scope.channels[index % scope.channels.length] ?? 'meta').toLowerCase();
+    const platform = placeholderPlatform(index).toLowerCase();
     pushEvent({
       idPrefix: 'social-static',
       dayIndex,
@@ -1447,7 +1541,7 @@ function buildWeeklyCalendarSnapshot(runtimeDoc: SocialContentJobRuntimeDocument
 
   const existingScripts = events.filter((event) => event.postType === 'video_script').length;
   for (let index = existingScripts; index < scope.videoScriptCount; index += 1) {
-    const platform = (scope.channels[index % scope.channels.length] ?? 'meta').toLowerCase();
+    const platform = placeholderPlatform(index).toLowerCase();
     pushEvent({
       idPrefix: 'social-video-script',
       dayIndex: midpointDay,
@@ -1465,7 +1559,7 @@ function buildWeeklyCalendarSnapshot(runtimeDoc: SocialContentJobRuntimeDocument
   const existingRenders = events.filter((event) => event.postType === 'video_render').length;
   for (let index = existingRenders; index < scope.videoRenderCount; index += 1) {
     const dayIndex = Math.min(scope.windowDays, midpointDay + index);
-    const platform = (scope.channels[index % scope.channels.length] ?? 'meta').toLowerCase();
+    const platform = placeholderPlatform(index).toLowerCase();
     pushEvent({
       idPrefix: 'social-video-render',
       dayIndex,
@@ -1506,6 +1600,16 @@ function buildWeeklyCalendarSnapshot(runtimeDoc: SocialContentJobRuntimeDocument
     createdPostCount,
   };
 }
+
+/**
+ * Test seam: the calendar snapshot is the surface that used to promise a Meta
+ * week to a tenant with no Meta. Exposed so the flag-OFF parity assertion and
+ * the alternate-mode assertion can both be made without a live connection store.
+ */
+export const __buildWeeklyCalendarSnapshotForTests = (
+  runtimeDoc: SocialContentJobRuntimeDocument,
+  platformOverride: WeeklyCalendarPlatformOverride = null,
+): WeeklyCalendarSnapshot => buildWeeklyCalendarSnapshot(runtimeDoc, platformOverride);
 
 async function buildCampaignWindow(
   runtimeDoc: SocialContentJobRuntimeDocument,
@@ -1694,7 +1798,18 @@ async function buildMarketingJobStatus(
   const isWeeklySocialContent = requestedJobTypeFromDoc(runtimeDoc) === 'weekly_social_content'
     && runtimeDoc.job_type !== 'one_off_post'
     && runtimeDoc.job_type !== 'one_off_campaign';
-  const weeklySnapshot = isWeeklySocialContent ? buildWeeklyCalendarSnapshot(runtimeDoc) : null;
+  // Resolve the tenant's real publish composition ONCE per status request (never
+  // per event), and only when the AA-217 flag is on — with it off there is no
+  // alternate mode to describe and this costs not so much as a query.
+  // `resolveWeeklyPromptPlatforms` is the same helper the generation path uses,
+  // so the calendar cannot describe a different week than the one synthesis
+  // will build; it fails open to null, and null means "render exactly as before".
+  const weeklyPlatformOverride = isWeeklySocialContent && isAnyPlatformPublishEnabled()
+    ? await resolveWeeklyPlatformOverride(runtimeDoc.tenant_id)
+    : null;
+  const weeklySnapshot = isWeeklySocialContent
+    ? buildWeeklyCalendarSnapshot(runtimeDoc, weeklyPlatformOverride)
+    : null;
   const postWindow = weeklySnapshot?.postWindow ?? (await buildCampaignWindow(runtimeDoc, facts));
   const durationDays = weeklySnapshot?.durationDays ?? buildDurationDays(postWindow);
   const calendarEvents = weeklySnapshot?.calendarEvents ?? (await buildCalendarEvents(runtimeDoc, facts));

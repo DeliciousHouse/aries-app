@@ -22,14 +22,77 @@ const CAPTION_VALIDATION_MESSAGES: Record<string, string> = {
   caption_too_long: 'Caption is too long for this channel.',
   too_many_hashtags: 'Too many hashtags for Instagram (max 30).',
   caption_empty: 'Caption cannot be empty.',
+  title_too_long: 'The first line is the Reddit post title and is too long (max 280).',
+  hashtags_not_supported: 'Reddit posts do not use hashtags — they will be stripped before publishing.',
 };
 
-function inferCaptionChannel(channel: string | null | undefined, placement: string | null | undefined): 'instagram' | 'facebook' | null {
+/**
+ * The hashtag ceiling differs per network, so a single "max 30" sentence was
+ * only ever true on Instagram. Keeps the exact Instagram wording (and the
+ * unqualified fallback, for an unknown channel) so no Meta-tenant copy moves.
+ */
+const HASHTAG_LIMIT_MESSAGES: Partial<Record<ReviewCaptionChannel, string>> = {
+  linkedin: 'Too many hashtags for LinkedIn — only the first 5 survive publishing.',
+  x: 'Too many hashtags for X — only 1 survives publishing.',
+};
+
+function captionValidationMessage(code: string, channel: ReviewCaptionChannel | null): string {
+  if (code === 'too_many_hashtags' && channel && HASHTAG_LIMIT_MESSAGES[channel]) {
+    return HASHTAG_LIMIT_MESSAGES[channel] as string;
+  }
+  return CAPTION_VALIDATION_MESSAGES[code] ?? `Caption error: ${code}`;
+}
+
+/**
+ * Which network's rules apply to this review item's caption.
+ *
+ * AA-217 v2 (deliverable A): LinkedIn, X and Reddit used to fall through to
+ * `null`, which hid the character counter entirely — the tray showed no limit
+ * at all for three of the five networks Aries publishes to, and the caption was
+ * silently truncated later by the dispatch-time adapter. The Meta branches are
+ * checked FIRST and are unchanged, so no Meta review item can change channel.
+ *
+ * Mirrors `captionChannelForReviewItem` (backend/marketing/runtime-views.ts),
+ * which decides the same thing server-side for the save path. Keep the two in
+ * step — they are pinned against each other in tests/caption-validator.test.ts.
+ */
+export type ReviewCaptionChannel = 'instagram' | 'facebook' | 'linkedin' | 'x' | 'reddit';
+
+function inferCaptionChannel(
+  channel: string | null | undefined,
+  placement: string | null | undefined,
+): ReviewCaptionChannel | null {
   const haystack = `${channel || ''} ${placement || ''}`.toLowerCase();
   if (haystack.includes('instagram') || haystack.includes('ig ')) return 'instagram';
   if (haystack.includes('facebook') || haystack.includes('fb ') || haystack.includes('meta')) return 'facebook';
+  if (haystack.includes('linkedin')) return 'linkedin';
+  if (haystack.includes('reddit')) return 'reddit';
+  // 'x' only as a whole token: 'next', 'export' and 'xl' must not match.
+  if (/(^|[^a-z])x([^a-z]|$)/.test(haystack) || haystack.includes('twitter')) return 'x';
   return null;
 }
+
+/**
+ * The character budget shown in the tray. These are the numbers the DISPATCH
+ * adapter enforces (backend/marketing/weekly-crosspost.ts), not the platforms'
+ * raw API maxima, so the counter predicts what will actually ship.
+ * Reddit's number is its TITLE budget — the first line of the body is the title.
+ */
+const CAPTION_CHANNEL_LIMITS: Record<ReviewCaptionChannel, number> = {
+  instagram: 2200,
+  facebook: 63206,
+  linkedin: 2900,
+  x: 270,
+  reddit: 280,
+};
+
+const CAPTION_CHANNEL_LABELS: Record<ReviewCaptionChannel, string> = {
+  instagram: 'Instagram',
+  facebook: 'Facebook',
+  linkedin: 'LinkedIn',
+  x: 'X',
+  reddit: 'Reddit title',
+};
 
 type DecisionActionKind = 'approve' | 'changes_requested' | 'reject';
 
@@ -86,7 +149,7 @@ type InlineCopyEditorProps = {
   reviewId: string;
   initialHeadline: string;
   initialSupportingText: string;
-  channelHint: 'instagram' | 'facebook' | null;
+  channelHint: ReviewCaptionChannel | null;
   isReadonly: boolean;
   onSave: (
     jobId: string,
@@ -180,8 +243,11 @@ function InlineCopyEditor(props: InlineCopyEditorProps) {
     }
   }, []);
 
-  const charLimit = props.channelHint === 'instagram' ? 2200 : props.channelHint === 'facebook' ? 63206 : null;
-  const characterCount = supportingText.length;
+  const charLimit = props.channelHint ? CAPTION_CHANNEL_LIMITS[props.channelHint] : null;
+  // Reddit's limit governs the TITLE, which is the caption's first line — count
+  // that line, not the whole body, or the counter would be nonsense.
+  const characterCount =
+    props.channelHint === 'reddit' ? (supportingText.split('\n')[0] ?? '').length : supportingText.length;
   const overLimit = charLimit !== null && characterCount > charLimit;
 
   return (
@@ -260,7 +326,7 @@ function InlineCopyEditor(props: InlineCopyEditorProps) {
               className={`mt-1.5 text-right text-xs tabular-nums ${overLimit ? 'text-rose-300/85' : characterCount >= charLimit * 0.9 ? 'text-amber-300/80' : 'text-white/70'}`}
             >
               {characterCount.toLocaleString()} / {charLimit.toLocaleString()}
-              {props.channelHint === 'instagram' ? ' · Instagram' : props.channelHint === 'facebook' ? ' · Facebook' : ''}
+              {props.channelHint ? ` · ${CAPTION_CHANNEL_LABELS[props.channelHint]}` : ''}
             </p>
           ) : null}
         </div>
@@ -271,7 +337,7 @@ function InlineCopyEditor(props: InlineCopyEditorProps) {
             className="space-y-1 rounded-[1rem] border border-rose-300/30 bg-rose-300/8 px-4 py-3 text-sm text-rose-100"
           >
             {validationErrors.map((code) => (
-              <li key={code}>{CAPTION_VALIDATION_MESSAGES[code] ?? `Caption error: ${code}`}</li>
+              <li key={code}>{captionValidationMessage(code, props.channelHint)}</li>
             ))}
           </ul>
         ) : null}

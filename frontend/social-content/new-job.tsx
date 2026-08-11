@@ -1,11 +1,17 @@
 "use client";
 
-import React, { useEffect, useRef, useState, type FormEvent } from "react";
+import React, { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
+import { useIntegrations } from "@/hooks/use-integrations";
 import { isValidWebsiteUrl } from "@/lib/api/marketing";
 import { humanizeMarketingCreateMessage } from "@/lib/marketing-create-errors";
 import { normalizeWebsiteUrlInput } from "@/frontend/marketing/new-job";
+import {
+  deliveryPlatformLabel,
+  resolveWeeklyDeliverySurfaces,
+  type WeeklyDeliverySurfaces,
+} from "./delivery-surfaces";
 
 const DEFAULT_FORBIDDEN_VISUAL_PATTERNS = [
   "split-screen",
@@ -71,6 +77,17 @@ export interface SocialContentNewJobScreenContentProps extends SocialContentNewJ
   router: {
     push: (href: string) => void;
   };
+  /**
+   * The tenant's connected publishable platforms, resolved by the wrapper from
+   * the integrations API (AA-217 v2, deliverable A).
+   *
+   * OPTIONAL, and its absence means UNKNOWN — the form renders exactly as it did
+   * before. That is what keeps the fetch off the critical path: a slow or failed
+   * integrations call degrades to today's screen, never to a fabricated
+   * restriction. Passing it explicitly (rather than fetching in here) also keeps
+   * this component pure for the existing render tests.
+   */
+  connectedPlatforms?: readonly string[] | null;
 }
 
 export function SocialContentNewJobScreenContent(props: SocialContentNewJobScreenContentProps) {
@@ -110,6 +127,12 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
   const [reelAudioMode, setReelAudioMode] = useState("");
   const [postWindowDays, setCampaignWindowDays] = useState(7);
   const [platforms, setPlatforms] = useState<string[]>([...DEFAULT_PLATFORMS]);
+
+  // What this tenant's connected platforms can actually deliver. `known: false`
+  // (no data yet, fetch failed, nothing connected) => the form below is
+  // byte-for-byte the form it has always been.
+  const delivery: WeeklyDeliverySurfaces = resolveWeeklyDeliverySurfaces(props.connectedPlatforms);
+  const feedOnly = delivery.feedOnly;
 
   const [submitting, setSubmitting] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -154,6 +177,16 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
     ? "space-y-6"
     : "min-h-screen bg-background px-6 py-10 md:px-8 lg:px-10";
   const contentClassName = props.embedded ? "grid gap-6" : "max-w-5xl mx-auto grid gap-6";
+
+  // A feed-only tenant cannot receive a story or a reel, so the form must not
+  // SEND a request for them either — otherwise the screen would say "feed-only"
+  // while posting storyCount=1, and synthesis would drop it silently all over
+  // again. Runs only when the resolution is known and feed-only.
+  useEffect(() => {
+    if (!feedOnly) return;
+    setStoryCount(0);
+    setRenderVideoAfterApproval(false);
+  }, [feedOnly]);
 
   function togglePlatform(slug: string) {
     setPlatforms((current) => {
@@ -505,10 +538,16 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
                 <input
                   type="number"
                   min={0}
-                  value={storyCount}
+                  value={feedOnly ? 0 : storyCount}
+                  disabled={feedOnly}
                   onChange={(event) => setStoryCount(Number(event.target.value || 0))}
-                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50"
+                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50 disabled:opacity-50"
                 />
+                {feedOnly ? (
+                  <p className="text-xs leading-5 text-amber-200/80" data-testid="story-feed-only-notice">
+                    {delivery.notice}
+                  </p>
+                ) : null}
               </Field>
               <Field label="Image creatives">
                 <input
@@ -533,13 +572,19 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
                 <label className="flex items-center gap-3 text-sm text-white/80">
                   <input
                     type="checkbox"
-                    checked={renderVideoAfterApproval}
+                    checked={feedOnly ? false : renderVideoAfterApproval}
+                    disabled={feedOnly}
                     onChange={(event) => setRenderVideoAfterApproval(event.target.checked)}
-                    className="h-4 w-4 rounded border-white/20 bg-white/5"
+                    className="h-4 w-4 rounded border-white/20 bg-white/5 disabled:opacity-50"
                   />
                   Enable rendered video output
                 </label>
-                {renderVideoAfterApproval ? (
+                {feedOnly ? (
+                  <p className="text-xs leading-5 text-amber-200/80" data-testid="reel-feed-only-notice">
+                    {delivery.notice}
+                  </p>
+                ) : null}
+                {!feedOnly && renderVideoAfterApproval ? (
                   <div className="space-y-2 pt-1">
                     <p className="text-xs uppercase tracking-[0.22em] text-white/70">Reel audio</p>
                     <select
@@ -561,24 +606,51 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
               </div>
               <div className="space-y-2">
                 <p className="text-xs uppercase tracking-[0.22em] text-white/70">Platforms</p>
-                <label className="flex items-center gap-3 text-sm text-white/80">
-                  <input
-                    type="checkbox"
-                    checked={platforms.includes("meta")}
-                    onChange={() => togglePlatform("meta")}
-                    className="h-4 w-4 rounded border-white/20 bg-white/5"
-                  />
-                  Meta
-                </label>
-                <label className="flex items-center gap-3 text-sm text-white/80">
-                  <input
-                    type="checkbox"
-                    checked={platforms.includes("instagram")}
-                    onChange={() => togglePlatform("instagram")}
-                    className="h-4 w-4 rounded border-white/20 bg-white/5"
-                  />
-                  Instagram
-                </label>
+                {feedOnly ? (
+                  /* No Meta connection: the Meta/Instagram checkboxes were a
+                     control over nothing — this week publishes to the accounts
+                     the tenant actually connected, and Aries resolves those at
+                     synthesis time from the connection store, not from this
+                     form. Show them, read-only, instead of offering a choice
+                     that has no effect. */
+                  <div className="space-y-2" data-testid="connected-platform-chips">
+                    <div className="flex flex-wrap gap-2">
+                      {delivery.platforms.map((platform) => (
+                        <span
+                          key={platform}
+                          className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-sm text-white/80"
+                        >
+                          {deliveryPlatformLabel(platform)}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="text-xs leading-5 text-white/50">
+                      These are the accounts you have connected, and where this week publishes.
+                      Connect Facebook or Instagram in Settings to add stories and reels.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <label className="flex items-center gap-3 text-sm text-white/80">
+                      <input
+                        type="checkbox"
+                        checked={platforms.includes("meta")}
+                        onChange={() => togglePlatform("meta")}
+                        className="h-4 w-4 rounded border-white/20 bg-white/5"
+                      />
+                      Meta
+                    </label>
+                    <label className="flex items-center gap-3 text-sm text-white/80">
+                      <input
+                        type="checkbox"
+                        checked={platforms.includes("instagram")}
+                        onChange={() => togglePlatform("instagram")}
+                        className="h-4 w-4 rounded border-white/20 bg-white/5"
+                      />
+                      Instagram
+                    </label>
+                  </>
+                )}
               </div>
             </Section>
 
@@ -608,7 +680,30 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
 
 export default function SocialContentNewJobScreen(props: SocialContentNewJobScreenProps) {
   const router = useRouter();
-  return <SocialContentNewJobScreenContent {...props} router={router} />;
+  // The connected-account lookup lives HERE, not in the content component, so
+  // the form stays a pure render for tests and so a slow/failed integrations
+  // fetch simply yields `null` — i.e. today's form — rather than a spinner or a
+  // fabricated restriction. Same hook and same endpoint the dashboard's
+  // Generate-this-week gate already reads, so the two cannot disagree about what
+  // is connected.
+  const integrations = useIntegrations({ autoLoad: true });
+  const integrationsData = integrations.data;
+  const connectedPlatforms = useMemo(
+    () =>
+      integrationsData?.status === "ok"
+        ? integrationsData.cards
+            .filter((card) => card.connection_state === "connected")
+            .map((card) => card.platform)
+        : null,
+    [integrationsData],
+  );
+  return (
+    <SocialContentNewJobScreenContent
+      {...props}
+      router={router}
+      connectedPlatforms={connectedPlatforms}
+    />
+  );
 }
 
 function Section(props: { title: string; children: React.ReactNode }) {

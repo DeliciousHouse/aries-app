@@ -545,8 +545,11 @@ export default function AriesSettingsScreen() {
                   <option value="both">Voiceover + music</option>
                 </select>
                 <p className="mt-2 text-xs leading-6 text-white/50">
-                  Default audio for generated reels (weekly + one-off). Voiceover needs the
-                  account voiceover capability turned on; otherwise reels fall back to music.
+                  Default audio for generated reels (weekly + one-off). Applies to Facebook and
+                  Instagram reels — LinkedIn, X and Reddit have no reel surface, so a tenant
+                  publishing only to those receives feed posts and this setting has no effect.
+                  Voiceover needs the account voiceover capability turned on; otherwise reels
+                  fall back to music.
                 </p>
               </Field>
             </div>

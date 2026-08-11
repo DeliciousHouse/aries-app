@@ -135,7 +135,13 @@ export function createCalendarViewModel(input: CalendarViewModelInput): Calendar
         postId: post.postId,
         jobId: post.jobId,
         title: post.title,
-        platform: post.platform || post.targetPlatforms[0] || 'meta',
+        // Degenerate fallback ONLY (both the row's platform and its target list
+        // are empty). It used to be the literal 'meta', which labelled the row
+        // "Meta" for a tenant that may have no Meta connection at all — a
+        // truthfulness bug, not a cosmetic one. 'social' is channel-neutral and
+        // has explicit label + icon mappings: `formatPlatformLabel` renders it
+        // 'Social', and `platformLogo` (calendar-presenter.tsx) draws the Globe.
+        platform: post.platform || post.targetPlatforms[0] || 'social',
         targetPlatforms: post.targetPlatforms,
         scheduledFor: scheduledPostLabel(post.scheduledFor, timeZone),
         scheduledForIso: post.scheduledFor,

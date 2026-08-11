@@ -40,6 +40,12 @@ export default function AriesHomeDashboard() {
   const profileData = profile.profile.data?.profile ?? null;
   const integrationCards = integrations.data?.status === 'ok' ? integrations.data.cards : [];
   const integrationsPending = integrations.isLoading;
+  // Server-resolved publishing policy (AA-217 v2). The Generate gate's copy
+  // depends on a server flag this client cannot read; the integrations payload
+  // is the transport, so the button's reason and the onboarding banner's
+  // advisory can never contradict each other.
+  const publishPolicy =
+    integrations.data?.status === 'ok' ? integrations.data.publish_policy ?? null : null;
 
   const model = useMemo(
     () =>
@@ -49,8 +55,9 @@ export default function AriesHomeDashboard() {
         profile: profileData,
         integrationCards,
         integrationsPending,
+        publishPolicy,
       }),
-    [campaignList, integrationCards, integrationsPending, profileData, reviewList],
+    [campaignList, integrationCards, integrationsPending, profileData, publishPolicy, reviewList],
   );
 
   const onGenerateThisWeek = useCallback(async () => {

@@ -87,6 +87,23 @@ export interface GetIntegrationsPageSuccess {
     not_connected: number;
     attention_required: number;
   };
+  /**
+   * Server-resolved publishing policy (AA-217 v2).
+   *
+   * `any_platform_publish_enabled` is `ARIES_ANY_PLATFORM_PUBLISH_ENABLED`, and
+   * `publishable_platforms` is every platform this deployment can actually
+   * deliver a weekly post to. Client gates cannot read server flags, and the
+   * gate copy genuinely depends on one — while the flag is OFF the product does
+   * require Meta specifically, so channel-neutral copy would send a
+   * LinkedIn-connected tenant to do something that cannot unblock them.
+   *
+   * OPTIONAL: a client that does not receive it falls back to the legacy
+   * Meta-only behaviour, which is exactly what the flag being OFF means.
+   */
+  publish_policy?: {
+    any_platform_publish_enabled: boolean;
+    publishable_platforms: string[];
+  };
 }
 
 export interface GetIntegrationsPageError {

@@ -252,6 +252,11 @@ export function createDashboardHomeViewModel(args: {
   profile: BusinessProfileView | null;
   integrationCards: IntegrationCard[];
   integrationsPending?: boolean;
+  /**
+   * Server-resolved publishing policy from the integrations payload (AA-217 v2).
+   * Absent => the Generate gate keeps its legacy Meta-only verdict and copy.
+   */
+  publishPolicy?: { any_platform_publish_enabled: boolean; publishable_platforms: string[] } | null;
 }): DashboardHomeViewModel {
   const businessName = args.profile?.businessName || 'Your business';
   const activePost = args.posts[0] ?? null;
@@ -503,6 +508,8 @@ export function createDashboardHomeViewModel(args: {
         profile: args.profile,
         integrationCards: args.integrationCards,
         integrationsPending: args.integrationsPending,
+        anyPlatformEnabled: args.publishPolicy?.any_platform_publish_enabled === true,
+        publishablePlatforms: args.publishPolicy?.publishable_platforms,
         posts: args.posts.map((post) => ({
           status: post.status,
           dashboardStatus: post.dashboardStatus,

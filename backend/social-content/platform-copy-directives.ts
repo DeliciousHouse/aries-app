@@ -48,6 +48,42 @@ export const KNOWN_PROMPT_PLATFORMS: ReadonlySet<string> = new Set<string>([
   ...CROSSPOST_PLATFORMS,
 ]);
 
+/**
+ * Display labels for the platform keys, and the ONE place they are written.
+ *
+ * AA-217 v2 deliverable A renders platform names in four places — the weekly
+ * report subheadline, the job history/timeline, the intake form's chips, and the
+ * calendar — and a per-surface label map would guarantee that one of them
+ * eventually says "Linkedin" or "x". Surfaces that also carry the non-publish
+ * pseudo-platforms (`meta`, and the calendar's channel-neutral `social`) extend
+ * this map rather than replacing it; see `frontend/aries-v1/labels.ts`.
+ */
+export const PLATFORM_DISPLAY_LABELS: Readonly<Record<string, string>> = Object.freeze({
+  facebook: 'Facebook',
+  instagram: 'Instagram',
+  linkedin: 'LinkedIn',
+  x: 'X',
+  reddit: 'Reddit',
+  youtube: 'YouTube',
+});
+
+/** Label a platform key, title-casing anything this map has not caught up with yet. */
+export function platformDisplayLabel(platform: string): string {
+  const key = platform.trim().toLowerCase();
+  return (
+    PLATFORM_DISPLAY_LABELS[key]
+    ?? (key ? key.charAt(0).toUpperCase() + key.slice(1) : platform)
+  );
+}
+
+/** "LinkedIn", "LinkedIn and X", "LinkedIn, X and Reddit" — the operator-facing platform list. */
+export function platformsPhrase(platforms: readonly string[]): string {
+  const labels = platforms.map(platformDisplayLabel);
+  if (labels.length === 0) return '';
+  if (labels.length === 1) return labels[0];
+  return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
+}
+
 /** Filter an arbitrary string list down to known platform enum members, order-preserving and deduped. */
 export function filterKnownPlatforms(platforms: readonly unknown[]): string[] {
   const seen = new Set<string>();

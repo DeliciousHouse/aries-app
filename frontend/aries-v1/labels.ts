@@ -10,6 +10,7 @@
  * frontend type catches up — pin every new value with a test in
  * `tests/aries-v1-labels.test.ts`.
  */
+import { PLATFORM_DISPLAY_LABELS } from '@/backend/social-content/platform-copy-directives';
 import type { AriesPostStatus, AriesItemStatus } from '@/lib/api/aries-v1';
 
 /**
@@ -105,6 +106,43 @@ export function formatPostStatusLabel(status: string): string {
     return ITEM_STATUS_LABELS[status];
   }
   return titleCaseRawStatus(status);
+}
+
+/**
+ * Display label for a publish-platform key.
+ *
+ * The calendar view-model's last-resort platform fallback used to be the literal
+ * `'meta'` — it labelled a row "meta" for a tenant that has no Meta connection
+ * at all, which is the precise class of untruth AA-217 v2 exists to remove. That
+ * fallback is now the channel-neutral `'social'`, and this map is what keeps the
+ * neutral value from rendering as a raw lowercase word: every surface that shows
+ * a platform routes through here.
+ *
+ * `'meta'` and `'social'` are not `Platform` registry members (that union is the
+ * analytics platform list), which is why this lives beside the other label
+ * helpers rather than in `backend/insights/platforms/registry.ts`. `PlatformIcon`
+ * is unaffected — it takes a typed `Platform` and is only ever handed one
+ * (platform-selector.tsx); the calendar renders icons through
+ * `calendar-presenter.tsx`'s own `platformLogo`, which has a Globe fallback.
+ */
+const PLATFORM_LABELS: Record<string, string> = {
+  // The publish platforms come from the shared map (the same one the weekly
+  // report and the intake form render), extended here with the two values only
+  // the dashboard carries.
+  ...PLATFORM_DISPLAY_LABELS,
+  meta: 'Meta',
+  // Channel-neutral: a scheduled row that names no platform. Says "somewhere in
+  // your connected accounts" instead of naming a network the tenant may not have.
+  social: 'Social',
+};
+
+export function formatPlatformLabel(platform: string | null | undefined): string {
+  const key = (platform ?? '').trim().toLowerCase();
+  if (!key) return PLATFORM_LABELS.social;
+  if (Object.hasOwn(PLATFORM_LABELS, key)) {
+    return PLATFORM_LABELS[key];
+  }
+  return titleCaseRawStatus(key);
 }
 
 /**

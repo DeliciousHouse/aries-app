@@ -43,6 +43,7 @@ import {
   formatPostStatusLabel,
   formatDispatchStatusChip,
   formatDispatchStatusLabel,
+  formatPlatformLabel,
 } from '@/frontend/aries-v1/labels';
 
 type CalendarMode = 'week' | 'month';
@@ -415,12 +416,15 @@ export default function CalendarPresenter({
 
                 <div className="space-y-5 p-5 md:p-6">
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <InfoPanel label="Platform" value={selectedEvent.platform} />
+                    <InfoPanel label="Platform" value={formatPlatformLabel(selectedEvent.platform)} />
                     <InfoPanel label="Dispatch status" value={formatDispatchStatusLabel(selectedEvent.dispatchStatus)} />
                     <InfoPanel label="Scheduled for" value={selectedEvent.scheduledFor} />
                     <InfoPanel
                       label="Targets"
-                      value={selectedEvent.targetPlatforms.join(', ') || selectedEvent.platform}
+                      value={
+                        selectedEvent.targetPlatforms.map(formatPlatformLabel).join(', ')
+                        || formatPlatformLabel(selectedEvent.platform)
+                      }
                     />
                   </div>
 
@@ -801,10 +805,10 @@ function UnscheduledTrayItem({
         ) : null}
         <div className="mb-1.5 flex items-center gap-2">
           <span className="flex h-4 w-4 items-center justify-center text-white/70">
-            {platformLogo(post.platform || 'meta')}
+            {platformLogo(post.platform || 'social')}
           </span>
           <span className="text-[9px] font-mono uppercase tracking-[0.16em] text-white/70">
-            {post.platform || 'meta'}
+            {formatPlatformLabel(post.platform)}
           </span>
         </div>
         <p className="text-[11px] font-medium leading-snug text-white/85">{post.title}</p>
@@ -1020,6 +1024,11 @@ function platformLogo(platform: string) {
   if (key.includes('instagram')) return <InstagramIcon className={iconClassName} />;
   if (key.includes('youtube')) return <YoutubeIcon className={iconClassName} />;
   if (key.includes('reddit')) return <RedditIcon className={iconClassName} />;
+  // 'social' is the channel-neutral fallback from the calendar view-model. Match
+  // it BEFORE the substring checks below so a future neutral value can never be
+  // mistaken for a brand, and so the neutral row is an explicit mapping rather
+  // than an accident of the default branch.
+  if (key === 'social' || key === '') return <Globe className={iconClassName} />;
   if (key.includes('x')) return <XIcon className={iconClassName} />;
   return <Globe className={iconClassName} />;
 }

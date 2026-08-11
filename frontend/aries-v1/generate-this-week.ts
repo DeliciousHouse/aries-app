@@ -20,7 +20,15 @@ export type GenerateThisWeekGate =
   | 'profile_incomplete'
   | 'profile_unavailable'
   | 'integrations_loading'
+  /** Legacy verdict: only a Facebook/Instagram connection unblocks generation. */
   | 'no_meta_connection'
+  /**
+   * AA-217 verdict: ANY connected publishable platform unblocks generation, and
+   * this tenant has none. A separate id rather than reworded copy on
+   * `no_meta_connection`, because the two are different facts and any surface
+   * branching on the id must be forced to notice.
+   */
+  | 'channel_not_connected'
   | 'in_progress';
 
 export interface GenerateThisWeekPostSnapshot {
@@ -38,6 +46,24 @@ export interface GenerateThisWeekGateInputs {
   integrationCards: IntegrationCard[];
   integrationsPending?: boolean;
   posts: GenerateThisWeekPostSnapshot[];
+  /**
+   * `ARIES_ANY_PLATFORM_PUBLISH_ENABLED`, resolved SERVER-side and carried on the
+   * integrations payload (`publish_policy`). This is a client module and cannot
+   * read the flag itself.
+   *
+   * DEFAULTS TO FALSE, deliberately: an omitted value must reproduce the legacy
+   * Meta-only verdict byte-for-byte, so nothing changes until the server says it
+   * has. Same reasoning as AA-217's flag-aware onboarding advisory copy — while
+   * the flag is OFF the product really does require Meta, and telling a
+   * LinkedIn-connected tenant otherwise repeats the AA-168 confusion.
+   */
+  anyPlatformEnabled?: boolean;
+  /**
+   * Which platforms this deployment can publish to at all (`publish_policy
+   * .publishable_platforms`). Only consulted when `anyPlatformEnabled` is true;
+   * falls back to the Meta pair so an older payload behaves as before.
+   */
+  publishablePlatforms?: readonly string[];
 }
 
 export interface GenerateThisWeekGateState {
@@ -55,9 +81,29 @@ const GATE_REASONS: Record<Exclude<GenerateThisWeekGate, 'ready'>, string> = {
   integrations_loading: 'Checking publishing connections.',
   no_meta_connection:
     'Connect a Facebook or Instagram account before generating this week’s posts.',
+  channel_not_connected:
+    'Connect a social account before generating this week’s posts.',
   in_progress:
     'A weekly social content run is already in progress. Wait for it to finish or finalize approvals before starting another.',
 };
+
+/** The legacy eligible set: Meta only. Used whenever the AA-217 flag is off. */
+const META_PLATFORMS: readonly string[] = ['facebook', 'instagram'];
+
+/**
+ * Fallback eligible set when the flag is on but the payload carried no explicit
+ * platform list (an older server). Mirrors `publishablePlatforms()` with every
+ * crosspost rollout flag on; a platform the deployment cannot really publish to
+ * is still gated server-side, so the worst case is an enabled button that then
+ * fails the real precheck — never a blocked tenant who should not be.
+ */
+const DEFAULT_PUBLISHABLE_PLATFORMS: readonly string[] = [
+  'facebook',
+  'instagram',
+  'x',
+  'linkedin',
+  'reddit',
+];
 
 /**
  * Terminal execution states must never count as "in progress". A failed (or
@@ -138,17 +184,26 @@ export function evaluateGenerateThisWeekGate(
     };
   }
 
-  const hasMetaConnection = args.integrationCards.some(
-    (card) =>
-      (card.platform === 'facebook' || card.platform === 'instagram') &&
-      card.connection_state === 'connected',
+  // Which connections count depends on the server-resolved flag. With it OFF the
+  // set is exactly the legacy Meta pair, so this branch is byte-identical to the
+  // code it replaces. With it ON the set is a strict SUPERSET — every tenant who
+  // passed before still passes — and a LinkedIn-only tenant is finally told the
+  // truth about what would unblock them.
+  const eligiblePlatforms = new Set<string>(
+    args.anyPlatformEnabled
+      ? (args.publishablePlatforms ?? DEFAULT_PUBLISHABLE_PLATFORMS)
+      : META_PLATFORMS,
   );
-  if (!hasMetaConnection) {
+  const hasEligibleConnection = args.integrationCards.some(
+    (card) => eligiblePlatforms.has(card.platform) && card.connection_state === 'connected',
+  );
+  if (!hasEligibleConnection) {
+    const gate = args.anyPlatformEnabled ? 'channel_not_connected' : 'no_meta_connection';
     return {
-      gate: 'no_meta_connection',
+      gate,
       enabled: false,
       inProgress: false,
-      disabledReason: GATE_REASONS.no_meta_connection,
+      disabledReason: GATE_REASONS[gate],
     };
   }
 

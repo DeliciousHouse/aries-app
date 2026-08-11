@@ -152,6 +152,33 @@
                 "maximum": 7
               }
             }
+          },
+          "publish_policy": {
+            "type": "object",
+            "description": "AA-217 v2: server-resolved publishing policy. OPTIONAL — a client that does not receive it falls back to the legacy Meta-only gate, which is what ARIES_ANY_PLATFORM_PUBLISH_ENABLED being off means. Present so the dashboard Generate gate and the weekly intake form can render copy that depends on a server flag they cannot read.",
+            "additionalProperties": false,
+            "required": [
+              "any_platform_publish_enabled",
+              "publishable_platforms"
+            ],
+            "properties": {
+              "any_platform_publish_enabled": {
+                "type": "boolean"
+              },
+              "publishable_platforms": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "facebook",
+                    "instagram",
+                    "linkedin",
+                    "x",
+                    "reddit"
+                  ]
+                }
+              }
+            }
           }
         }
       },

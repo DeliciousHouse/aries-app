@@ -12,6 +12,10 @@ import { syncAllAccountsForTenant } from '@/backend/insights/sync/dispatcher';
 import { isSupportedPlatform } from '@/backend/insights/platforms/registry';
 import { hasAdapter } from '@/backend/insights/sync/adapter-factory';
 import { resolveInsightsStaleMs } from '@/backend/insights/freshness/config';
+import {
+  isAnyPlatformPublishEnabled,
+  publishablePlatforms,
+} from '@/backend/integrations/providers/integration-config';
 import pool from '@/lib/db';
 
 // openai is a model provider, not a publishing channel; slack is a notification
@@ -144,7 +148,25 @@ function buildIntegrationsPagePayload(cards: IntegrationPageCard[]) {
     ).length
   };
 
-  return { status: 'ok', page_state: 'ready', supported_platforms: platforms, cards, summary };
+  // AA-217 v2 (deliverable A): the publishing POLICY, resolved server-side.
+  //
+  // Two client surfaces need it and neither can read a server flag: the
+  // dashboard's Generate-this-week gate (whose disabled copy must not tell a
+  // LinkedIn-connected tenant to "connect a Facebook or Instagram account" once
+  // any connected platform genuinely unblocks them) and the weekly intake form.
+  // Carrying it on the payload the clients ALREADY fetch keeps the flag on the
+  // server and keeps both gates reading one answer, exactly as AA-217 did for
+  // the onboarding advisory's server-resolved copy.
+  //
+  // Additive and optional in the client type, so every existing consumer is
+  // unaffected; when it is absent the clients fall back to the legacy Meta-only
+  // behaviour, which is what the flag being OFF means anyway.
+  const publish_policy = {
+    any_platform_publish_enabled: isAnyPlatformPublishEnabled(),
+    publishable_platforms: [...publishablePlatforms()],
+  };
+
+  return { status: 'ok', page_state: 'ready', supported_platforms: platforms, cards, summary, publish_policy };
 }
 
 type IntegrationSyncTerminalStatus = 'ok' | 'partial' | 'failed' | null;

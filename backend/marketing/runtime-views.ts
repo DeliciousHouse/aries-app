@@ -1546,6 +1546,22 @@ export function captionChannelForReviewItem(item: RuntimeReviewItem): CaptionCha
   if (haystack.includes('facebook') || haystack.includes('fb ') || haystack.includes('meta')) {
     return 'facebook_feed';
   }
+  // AA-217 v2: the non-Meta networks. Previously every one of these returned
+  // null, so the review tray accepted a 4000-character "LinkedIn" caption
+  // without a word — and the adapter truncated it at dispatch, long after the
+  // operator had stopped looking. The Meta branches above are untouched and are
+  // still checked FIRST, so no Meta review item can change channel.
+  if (haystack.includes('linkedin')) {
+    return 'linkedin_feed';
+  }
+  if (haystack.includes('reddit')) {
+    return 'reddit_post';
+  }
+  // 'x' must be matched as a whole token, never as a substring — 'next',
+  // 'export' and 'xl' are all words that appear in placements and stage names.
+  if (/(^|[^a-z])x([^a-z]|$)/.test(haystack) || haystack.includes('twitter')) {
+    return 'x_feed';
+  }
   return null;
 }
 

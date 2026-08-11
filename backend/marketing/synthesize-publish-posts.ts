@@ -60,10 +60,12 @@ import {
   findLatestMarketingApprovalRecord,
   saveMarketingApprovalRecord,
 } from './approval-store';
+import { recordDeliveryComposition } from './delivery-composition';
 import { isPostEditTasteLearningEnabled } from './post-edit-taste-learning-env';
 import { resolvePrimaryPublishPlatforms } from './primary-publish-platforms';
 import type { SocialContentJobRuntimeDocument } from './runtime-state';
 import { visualStyleLens } from './taste-profile-store';
+import { isWeeklyReelEnabled } from './weekly-reel-env';
 import {
   adaptCaptionForPlatform,
   buildVariantCaption,
@@ -992,6 +994,33 @@ export async function synthesizePublishPostsFromContentPackage(
   // for a tenant with no Meta connection would recreate the exact bug this
   // ticket fixes — undeliverable rows. Such a tenant's week is feed posts only.
   const storyBudget = isReelCompanionJob || alternateMode ? 0 : readRequestedStoryCount(doc);
+
+  // TRUTHFULNESS MARKER (deliverable A). The clamp above is silent: the operator
+  // asked for `scope.story_count` stories and, on an alternate-primary tenant,
+  // gets zero — and until now nothing on the doc, in the report, or in the UI
+  // said so. Record the gap so every surface can state it (see
+  // ./delivery-composition.ts for why it lives in `stages.publish.outputs`).
+  //
+  // The reel companion is skipped by the SAME predicate, in
+  // orchestrator.ts (`resolvePrimaryPublishPlatforms(...).mode !== 'meta'`), at
+  // job-start time. It is re-derived here rather than written there on purpose:
+  // that skip runs in a detached best-effort IIFE moments after the job doc was
+  // saved, so a load-modify-save from it would race the pipeline's own writes.
+  // The condition is identical, so deriving it at synthesis time is exact — and
+  // it is qualified by the reel flags, because "we skipped your reel" is untrue
+  // in a deployment where no reel would have been produced anyway.
+  //
+  // Reel-companion jobs are excluded: such a job is not the week, it IS the reel
+  // attempt, and it never owns the week's stories.
+  if (alternateMode && !isReelCompanionJob) {
+    recordDeliveryComposition(doc, {
+      platforms: crosspostPlatforms,
+      storiesRequested: readRequestedStoryCount(doc),
+      reelCompanionSkipped:
+        doc.job_type === 'weekly_social_content' && isWeeklyReelEnabled() && videoPublishEnabled,
+    });
+  }
+
   if (storyBudget > 0) {
     for (const entry of entries.slice(0, storyBudget)) {
       const assetInfo = assetInfoByPostNumber.get(entry.postNumber);
