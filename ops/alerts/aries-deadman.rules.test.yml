@@ -1,0 +1,56 @@
+rule_files:
+  - aries-deadman.rules.yml
+
+evaluation_interval: 5m
+
+tests:
+  - interval: 5m
+    input_series:
+      - series: aries_marketing_trigger_last_attempt_timestamp_seconds{tenant_id="61"}
+        values: 90000x20
+      - series: aries_marketing_trigger_last_success_timestamp_seconds{tenant_id="61"}
+        values: 0x20
+    alert_rule_test:
+      - eval_time: 26h
+        alertname: AriesMarketingTriggerStalled
+        exp_alerts:
+          - exp_labels: { severity: page, service: aries-app, tenant_id: "61" }
+            exp_annotations:
+              summary: Weekly marketing trigger attempts continue but success is stale
+              runbook_url: docs/runbooks/aries-deadman-alerts.md#ariesmarketingtriggerstalled
+  - interval: 1h
+    input_series:
+      - series: aries_last_successful_publish_timestamp_seconds{tenant_id="61",platform="instagram"}
+        values: 0x50
+    alert_rule_test:
+      - eval_time: 49h
+        alertname: AriesPublishFreshnessStale
+        exp_alerts:
+          - exp_labels: { severity: page, service: aries-app }
+            exp_annotations:
+              summary: No successful Aries publish fleet-wide for 48 hours
+              runbook_url: docs/runbooks/aries-deadman-alerts.md#ariespublishfreshnessstale
+  - interval: 5m
+    input_series:
+      - series: aries_connected_accounts{provider="composio",platform="instagram",status="reauthorization_required"}
+        values: 1x3
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: AriesAccountReauthorizationRequired
+        exp_alerts:
+          - exp_labels: { severity: page, service: aries-app }
+            exp_annotations:
+              summary: A connected account requires reauthorization
+              runbook_url: docs/runbooks/aries-deadman-alerts.md#ariesaccountreauthorizationrequired
+  - interval: 5m
+    input_series:
+      - series: aries_dispatch_failed_count{status="dead_letter"}
+        values: 0 1 1 1
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: AriesDispatchFailuresRising
+        exp_alerts:
+          - exp_labels: { severity: page, service: aries-app }
+            exp_annotations:
+              summary: Failed platform dispatch count increased
+              runbook_url: docs/runbooks/aries-deadman-alerts.md#ariesdispatchfailuresrising

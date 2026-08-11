@@ -1,0 +1,53 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Weekly trigger success age",
+      "type": "timeseries",
+      "targets": [{ "refId": "A", "expr": "time() - aries_marketing_trigger_last_success_timestamp_seconds", "legendFormat": "tenant {{tenant_id}}" }],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "title": "Publish freshness",
+      "type": "timeseries",
+      "targets": [{ "refId": "A", "expr": "time() - aries_last_successful_publish_timestamp_seconds", "legendFormat": "tenant {{tenant_id}} / {{platform}}" }],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }
+    },
+    {
+      "id": 3,
+      "title": "Dispatch queue and failures",
+      "type": "timeseries",
+      "targets": [
+        { "refId": "A", "expr": "aries_dispatch_queue_depth", "legendFormat": "queue {{status}}" },
+        { "refId": "B", "expr": "aries_dispatch_failed_count", "legendFormat": "failed {{status}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 }
+    },
+    {
+      "id": 4,
+      "title": "Dependencies needing attention",
+      "type": "timeseries",
+      "targets": [{ "refId": "A", "expr": "aries_external_dependency_degraded", "legendFormat": "{{dependency}} tenant {{tenant_id}} / {{platform}}" }],
+      "fieldConfig": { "defaults": { "min": 0, "max": 1 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 }
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["aries", "deadman", "observability"],
+  "templating": { "list": [] },
+  "time": { "from": "now-7d", "to": "now" },
+  "timezone": "browser",
+  "title": "Aries Dead-man and Freshness",
+  "uid": "aries-deadman-freshness",
+  "version": 1
+}

@@ -1,0 +1,27 @@
+groups:
+  - name: aries-deadman
+    rules:
+      - alert: AriesMarketingTriggerStalled
+        expr: (time() - aries_marketing_trigger_last_attempt_timestamp_seconds < 86400) and (aries_marketing_trigger_last_success_timestamp_seconds < aries_marketing_trigger_last_attempt_timestamp_seconds) and (time() - aries_marketing_trigger_last_success_timestamp_seconds > 86400)
+        labels: { severity: page, service: aries-app }
+        annotations:
+          summary: Weekly marketing trigger attempts continue but success is stale
+          runbook_url: docs/runbooks/aries-deadman-alerts.md#ariesmarketingtriggerstalled
+      - alert: AriesPublishFreshnessStale
+        expr: time() - max(aries_last_successful_publish_timestamp_seconds) > 172800
+        labels: { severity: page, service: aries-app }
+        annotations:
+          summary: No successful Aries publish fleet-wide for 48 hours
+          runbook_url: docs/runbooks/aries-deadman-alerts.md#ariespublishfreshnessstale
+      - alert: AriesAccountReauthorizationRequired
+        expr: sum(aries_connected_accounts{status="reauthorization_required"}) > 0
+        labels: { severity: page, service: aries-app }
+        annotations:
+          summary: A connected account requires reauthorization
+          runbook_url: docs/runbooks/aries-deadman-alerts.md#ariesaccountreauthorizationrequired
+      - alert: AriesDispatchFailuresRising
+        expr: sum(delta(aries_dispatch_failed_count[15m])) > 0
+        labels: { severity: page, service: aries-app }
+        annotations:
+          summary: Failed platform dispatch count increased
+          runbook_url: docs/runbooks/aries-deadman-alerts.md#ariesdispatchfailuresrising
