@@ -219,6 +219,7 @@ const AA217_ENVS = [
   'ARIES_X_ENABLED',
   'ARIES_LINKEDIN_ENABLED',
   'ARIES_REDDIT_ENABLED',
+  'COMPOSIO_ENABLED',
   'COMPOSIO_REDDIT_TARGET_SUBREDDIT',
   'COMPOSIO_X_PUBLISH_POST_ACTION',
   'COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION',
@@ -228,7 +229,10 @@ const AA217_ENVS = [
 // A crosspost platform is publishable only with its Composio publish action
 // slug set; without it the gate must not count it (see integration-config
 // `isCrosspostPlatformConfigured`). LinkedIn scenarios therefore ship the slug.
-const LINKEDIN_SLUG = { COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: 'LINKEDIN_CREATE_LINKED_IN_POST' };
+const LINKEDIN_SLUG = {
+  COMPOSIO_ENABLED: 'true',
+  COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: 'LINKEDIN_CREATE_LINKED_IN_POST',
+};
 
 async function withFlags<T>(env: Record<string, string>, run: () => Promise<T>): Promise<T> {
   const prev = AA217_ENVS.map((k) => [k, process.env[k]] as const);

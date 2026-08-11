@@ -37,6 +37,7 @@ const MANAGED_ENVS = [
   'ARIES_LINKEDIN_ENABLED',
   'ARIES_REDDIT_ENABLED',
   'ARIES_VIDEO_PUBLISH_ENABLED',
+  'COMPOSIO_ENABLED',
   'COMPOSIO_REDDIT_TARGET_SUBREDDIT',
   'COMPOSIO_X_PUBLISH_POST_ACTION',
   'COMPOSIO_X_UPLOAD_MEDIA_ACTION',
@@ -77,6 +78,7 @@ const LIVE_FLAGS = {
   ARIES_X_ENABLED: 'true',
   ARIES_LINKEDIN_ENABLED: 'true',
   ARIES_REDDIT_ENABLED: 'true',
+  COMPOSIO_ENABLED: 'true',
   COMPOSIO_X_PUBLISH_POST_ACTION: 'TWITTER_CREATION_OF_A_POST',
   COMPOSIO_X_UPLOAD_MEDIA_ACTION: 'TWITTER_UPLOAD_MEDIA',
   COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: 'LINKEDIN_CREATE_LINKED_IN_POST',
@@ -136,6 +138,7 @@ function makeFakePool(options: {
             .filter((p) => allowlist.includes(p))
             .map((platform) => ({
               platform,
+              connected_account_id: `ca_${platform}`,
               external_account_id: options.externalAccountIds?.[platform] ?? null,
             }));
           return { rows, rowCount: rows.length };

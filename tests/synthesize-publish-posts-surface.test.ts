@@ -322,6 +322,7 @@ function makeFakePoolWithCrosspost(connectedPlatforms: string[]) {
             .filter((p) => allowlist.includes(p))
             .map((platform) => ({
               platform,
+              connected_account_id: `ca_${platform}`,
               external_account_id: platform === 'linkedin' ? 'urn:li:person:test' : null,
             }));
           return { rows, rowCount: rows.length };
@@ -341,6 +342,7 @@ const REDDIT_SUBREDDIT_ENV = 'COMPOSIO_REDDIT_TARGET_SUBREDDIT';
 // upload_media) the producer treats the platform as unconfigured, so a "flags
 // on" harness has to supply them or the whole fan-out silently disappears.
 const PUBLISH_SLUG_ENVS = {
+  COMPOSIO_ENABLED: 'true',
   COMPOSIO_X_PUBLISH_POST_ACTION: 'TWITTER_CREATION_OF_A_POST',
   COMPOSIO_X_UPLOAD_MEDIA_ACTION: 'TWITTER_UPLOAD_MEDIA',
   COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: 'LINKEDIN_CREATE_LINKED_IN_POST',

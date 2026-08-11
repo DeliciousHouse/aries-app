@@ -128,6 +128,7 @@ const PLATFORM_FLAG_ENVS = [
   'ARIES_X_ENABLED',
   'ARIES_LINKEDIN_ENABLED',
   'ARIES_REDDIT_ENABLED',
+  'COMPOSIO_ENABLED',
   'COMPOSIO_REDDIT_TARGET_SUBREDDIT',
   'COMPOSIO_X_PUBLISH_POST_ACTION',
   'COMPOSIO_X_UPLOAD_MEDIA_ACTION',
@@ -139,11 +140,18 @@ const PLATFORM_FLAG_ENVS = [
 // slugs set — without them dispatch throws ComposioCapabilityMissingError, so
 // the gate must not count the platform. Weekly X rows also require upload_media.
 const X_SLUG = {
+  COMPOSIO_ENABLED: 'true',
   COMPOSIO_X_PUBLISH_POST_ACTION: 'TWITTER_CREATION_OF_A_POST',
   COMPOSIO_X_UPLOAD_MEDIA_ACTION: 'TWITTER_UPLOAD_MEDIA',
 };
-const LINKEDIN_SLUG = { COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: 'LINKEDIN_CREATE_LINKED_IN_POST' };
-const REDDIT_SLUG = { COMPOSIO_REDDIT_PUBLISH_POST_ACTION: 'REDDIT_CREATE_REDDIT_POST' };
+const LINKEDIN_SLUG = {
+  COMPOSIO_ENABLED: 'true',
+  COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: 'LINKEDIN_CREATE_LINKED_IN_POST',
+};
+const REDDIT_SLUG = {
+  COMPOSIO_ENABLED: 'true',
+  COMPOSIO_REDDIT_PUBLISH_POST_ACTION: 'REDDIT_CREATE_REDDIT_POST',
+};
 
 function withPlatformEnv(env: Record<string, string | undefined>, fn: () => Promise<void>) {
   return async () => {
@@ -244,6 +252,10 @@ test(
     assert.ok(captured.sql.includes('FROM oauth_connections'), 'legacy direct-Meta store still counted');
     assert.ok(captured.sql.includes('FROM connected_accounts'), 'authoritative store counted');
     assert.ok(captured.sql.includes('platform = ANY($2)'), 'connected_accounts is parameterized');
+    assert.ok(
+      captured.sql.includes('BTRIM(connected_account_id)'),
+      'connected_accounts requires the credential pointer used by dispatch',
+    );
     assert.ok(
       (captured.sql.match(/status = 'connected'/g) ?? []).length >= 2,
       "both stores require status='connected'",

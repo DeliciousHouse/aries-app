@@ -16,6 +16,8 @@ published.
 
 ### Fixed
 
+- X, LinkedIn, and Reddit connections no longer unblock generation when
+  Composio is disabled or their stored credential pointer is blank.
 - X image rows require both publish and media-upload actions, LinkedIn requires a
   nonblank author URN, and Reddit still requires its configured target subreddit.
 - Eligibility lookup failures continue to fail safely instead of creating

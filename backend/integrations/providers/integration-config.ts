@@ -194,12 +194,14 @@ export function isCrosspostPlatformConfigured(
 
 /**
  * The crosspost platforms this deployment can deliver to at all: rollout flag ON
- * AND required config present. Tenant connection state is NOT considered here —
- * that is the caller's per-tenant query (`resolveCrosspostPlatforms`).
+ * AND Composio enabled AND required config present. Tenant connection state is
+ * NOT considered here — that is the caller's per-tenant query
+ * (`resolveCrosspostPlatforms`).
  */
 export function eligibleCrosspostPlatforms(
   env: NodeJS.ProcessEnv = process.env,
 ): CrosspostPlatform[] {
+  if (!isComposioEnabled(env)) return [];
   return CROSSPOST_PLATFORMS.filter(
     (p) => isCrosspostPlatformFlagEnabled(p, env) && isCrosspostPlatformConfigured(p, env),
   );

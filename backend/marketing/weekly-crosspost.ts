@@ -71,11 +71,13 @@ export function isWeeklyCrosspostEnabled(env: Env = process.env): boolean {
 }
 
 // Single query: the crosspost platforms whose per-platform flag is ON AND that
-// have an active connected account for this tenant. LinkedIn also returns its
-// author URN because the publisher refuses a row without it. No Promise.all
-// fan-out (guardrail #1) — one round-trip returns every eligible platform.
+// have an active connected account for this tenant. Every row returns its
+// Composio credential pointer; LinkedIn also returns its author URN. The
+// publisher refuses before dispatch when either required id is absent. No
+// Promise.all fan-out (guardrail #1) — one round-trip returns every eligible
+// platform.
 const SELECT_CONNECTED_CROSSPOST_PLATFORMS_SQL = `
-  SELECT platform, external_account_id
+  SELECT platform, connected_account_id, external_account_id
     FROM connected_accounts
    WHERE tenant_id = $1
      AND status = 'connected'
@@ -127,8 +129,11 @@ export async function resolveCrosspostPlatforms(
         .filter((row) => {
           const platform =
             typeof row.platform === 'string' ? row.platform.trim().toLowerCase() : '';
+          const connectedAccountId =
+            typeof row.connected_account_id === 'string' ? row.connected_account_id.trim() : '';
           return (
             platform.length > 0 &&
+            connectedAccountId.length > 0 &&
             (platform !== 'linkedin' ||
               (typeof row.external_account_id === 'string' &&
                 row.external_account_id.trim().length > 0))

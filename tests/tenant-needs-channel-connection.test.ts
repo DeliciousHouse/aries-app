@@ -13,10 +13,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { dispatchPublish } from '../backend/integrations/publish-dispatch';
+import { MetaPublishError } from '../backend/integrations/meta-publishing';
 import type { OnboardingGateQueryable } from '../lib/onboarding-gate';
 import { tenantNeedsChannelConnection } from '../lib/tenant-needs-channel-connection';
 
-type ConnectedRow = { platform: string; status: string; externalAccountId?: string | null };
+type ConnectedRow = {
+  platform: string;
+  status: string;
+  connectedAccountId?: string | null;
+  externalAccountId?: string | null;
+};
 
 /**
  * A queryable that answers BOTH connection-count queries the way Postgres
@@ -32,10 +39,14 @@ function connectionsQueryable(rows: ConnectedRow[]): OnboardingGateQueryable {
         ? ((params[1] as string[]) ?? [])
         : ['facebook', 'instagram'];
       const requiresLinkedInAuthor = sql.includes('BTRIM(external_account_id)');
+      const requiresConnectedAccount = sql.includes('BTRIM(connected_account_id)');
       const count = rows.filter(
         (r) =>
           r.status === 'connected' &&
           scoped.includes(r.platform) &&
+          (!requiresConnectedAccount ||
+            r.connectedAccountId === undefined ||
+            Boolean(r.connectedAccountId?.trim())) &&
           (!requiresLinkedInAuthor ||
             r.platform !== 'linkedin' ||
             Boolean(r.externalAccountId?.trim())),
@@ -51,6 +62,7 @@ const MANAGED_ENVS = [
   'ARIES_LINKEDIN_ENABLED',
   'ARIES_REDDIT_ENABLED',
   'ARIES_YOUTUBE_ENABLED',
+  'COMPOSIO_ENABLED',
   'COMPOSIO_REDDIT_TARGET_SUBREDDIT',
   'COMPOSIO_X_PUBLISH_POST_ACTION',
   'COMPOSIO_X_UPLOAD_MEDIA_ACTION',
@@ -69,6 +81,7 @@ const LIVE_PLATFORM_FLAGS = {
   ARIES_X_ENABLED: 'true',
   ARIES_LINKEDIN_ENABLED: 'true',
   ARIES_REDDIT_ENABLED: 'true',
+  COMPOSIO_ENABLED: 'true',
   COMPOSIO_X_PUBLISH_POST_ACTION: 'TWITTER_CREATION_OF_A_POST',
   COMPOSIO_X_UPLOAD_MEDIA_ACTION: 'TWITTER_UPLOAD_MEDIA',
   COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: 'LINKEDIN_CREATE_LINKED_IN_POST',
@@ -154,6 +167,84 @@ test(
   withEnv(ON, async () => {
     const client = connectionsQueryable([{ platform: 'x', status: 'connected' }]);
     assert.equal(await tenantNeedsChannelConnection(client, 71), false);
+  }),
+);
+
+for (const { platform, env, externalAccountId } of [
+  {
+    platform: 'x',
+    env: {
+      ARIES_X_ENABLED: 'true',
+      COMPOSIO_X_PUBLISH_POST_ACTION: 'TWITTER_CREATION_OF_A_POST',
+      COMPOSIO_X_UPLOAD_MEDIA_ACTION: 'TWITTER_UPLOAD_MEDIA',
+    },
+  },
+  {
+    platform: 'linkedin',
+    env: {
+      ARIES_LINKEDIN_ENABLED: 'true',
+      COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: 'LINKEDIN_CREATE_LINKED_IN_POST',
+    },
+    externalAccountId: 'urn:li:person:test',
+  },
+  {
+    platform: 'reddit',
+    env: {
+      ARIES_REDDIT_ENABLED: 'true',
+      COMPOSIO_REDDIT_PUBLISH_POST_ACTION: 'REDDIT_CREATE_REDDIT_POST',
+      COMPOSIO_REDDIT_TARGET_SUBREDDIT: 'r/test',
+    },
+  },
+] as const) {
+  for (const composioEnabled of [undefined, 'false'] as const) {
+    test(
+      `flag ON: ${platform} stays blocked when COMPOSIO_ENABLED is ${composioEnabled ?? 'unset'}, matching dispatch`,
+      withEnv(
+        {
+          ARIES_ANY_PLATFORM_PUBLISH_ENABLED: '1',
+          COMPOSIO_ENABLED: composioEnabled,
+          ...env,
+        },
+        async () => {
+          const client = connectionsQueryable([
+            {
+              platform,
+              status: 'connected',
+              connectedAccountId: 'ca_test',
+              externalAccountId,
+            },
+          ]);
+          const needsConnection = await tenantNeedsChannelConnection(client, 71);
+
+          await assert.rejects(
+            () =>
+              dispatchPublish(
+                { tenantId: '71', provider: platform, content: 'hello', mediaUrls: [], scheduledFor: null },
+                { composioEnabled: () => false },
+              ),
+            (error: unknown) =>
+              error instanceof MetaPublishError && error.code === 'provider_not_configured',
+          );
+          assert.equal(
+            needsConnection,
+            true,
+            'the publish gate must not admit a row that dispatch rejects as provider_not_configured',
+          );
+        },
+      ),
+    );
+  }
+}
+
+test(
+  'flag ON: an X connection with a missing or blank connected_account_id stays blocked',
+  withEnv(ON, async () => {
+    for (const connectedAccountId of [null, '', '   ']) {
+      const client = connectionsQueryable([
+        { platform: 'x', status: 'connected', connectedAccountId },
+      ]);
+      assert.equal(await tenantNeedsChannelConnection(client, 71), true);
+    }
   }),
 );
 
