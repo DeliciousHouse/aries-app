@@ -36,8 +36,27 @@ import {
 } from '@/backend/creative-memory/frame-overlay';
 import { isFeedLogoCompositeEnabled } from '@/backend/social-content/feed-logo-composite-env';
 import { resolveDataPath } from '@/lib/runtime-paths';
+import { putDurableMedia } from './durable-media-store';
 
 import type { SocialContentJobRuntimeDocument } from './runtime-state';
+
+/**
+ * Content type for the durable copy, mirroring the public proxy's own map so a
+ * byte served from object storage carries the same header as the local one.
+ * SVG is absent on purpose: the proxy refuses it and Meta rejects it.
+ */
+const DURABLE_CONTENT_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.mp4': 'video/mp4',
+};
+
+function contentTypeForBasename(name: string): string {
+  return DURABLE_CONTENT_TYPES[path.extname(name).toLowerCase()] ?? 'application/octet-stream';
+}
 
 export interface IngestProductionAssetsArgs {
   jobId: string;
@@ -59,6 +78,13 @@ export interface IngestProductionAssetsResult {
   inserted: number;
   skipped: number;
   total: number;
+  /**
+   * Assets whose bytes also reached durable object storage this run. Always 0
+   * when ARIES_DURABLE_MEDIA_ENABLED is off. Reported so an operator can tell
+   * "durable storage is off" apart from "durable storage is on and failing"
+   * without reading logs.
+   */
+  durableStored: number;
 }
 
 /**
@@ -247,17 +273,17 @@ export async function ingestProductionCreativeAssetsToDb(
 
   const primaryOutput = doc.stages.production.primary_output;
   if (!primaryOutput || typeof primaryOutput !== 'object') {
-    return { inserted: 0, skipped: 0, total: 0 };
+    return { inserted: 0, skipped: 0, total: 0, durableStored: 0 };
   }
 
   const artifacts = (primaryOutput as Record<string, unknown>).artifacts;
   if (!artifacts || typeof artifacts !== 'object') {
-    return { inserted: 0, skipped: 0, total: 0 };
+    return { inserted: 0, skipped: 0, total: 0, durableStored: 0 };
   }
 
   const creativeAssets = (artifacts as Record<string, unknown>).creative_assets;
   if (!Array.isArray(creativeAssets) || creativeAssets.length === 0) {
-    return { inserted: 0, skipped: 0, total: 0 };
+    return { inserted: 0, skipped: 0, total: 0, durableStored: 0 };
   }
 
   // Variant grouping tags are batch-level (same for every asset this job
@@ -303,6 +329,9 @@ export async function ingestProductionCreativeAssetsToDb(
 
   let inserted = 0;
   let skipped = 0;
+  // Durable copies written this run. Counted separately from `inserted` because
+  // a replay can store a durable copy for a row that already existed.
+  let durableStored = 0;
 
   for (const entry of creativeAssets) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
@@ -544,6 +573,31 @@ export async function ingestProductionCreativeAssetsToDb(
         skipped++;
       }
 
+      // Durable copy. The Hermes mount is a working cache owned by another
+      // process: on 2026-08-11 every asset generated the day before was gone
+      // from it while nine posts were still queued against them, and Meta
+      // refused the publish because the media URL 404'd. Writing the final
+      // bytes to object storage here is what lets a post generated twelve days
+      // before its slot still resolve.
+      //
+      // Keyed on basename(storageKey), NOT basename(readPath): the public proxy
+      // signs and looks up basename(creative_assets.storage_key), so anything
+      // else would store a copy the read path can never find.
+      //
+      // Runs on skipped rows too — a replay is how a missing durable copy gets
+      // repaired. Best-effort by contract: ingestion has already succeeded
+      // locally, so a failure here must not fail the job.
+      const durableBasename = path.basename(storageKey);
+      const durableOk = await putDurableMedia(
+        tenantId,
+        durableBasename,
+        bytes,
+        contentTypeForBasename(durableBasename),
+      );
+      if (durableOk) {
+        durableStored++;
+      }
+
       // The framed row now exists (just inserted or already present via ON
       // CONFLICT); remove any stale raw twin so post->image mapping stays
       // one-row-per-asset across an OFF->ON flag flip. Video has no raw twin
@@ -562,5 +616,5 @@ export async function ingestProductionCreativeAssetsToDb(
     }
   }
 
-  return { inserted, skipped, total: creativeAssets.length };
+  return { inserted, skipped, total: creativeAssets.length, durableStored };
 }

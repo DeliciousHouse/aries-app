@@ -130,7 +130,7 @@ test('ingestProductionCreativeAssetsToDb — returns zero counts when production
     doc,
     pool,
   });
-  assert.deepEqual(result, { inserted: 0, skipped: 0, total: 0 });
+  assert.deepEqual(result, { inserted: 0, skipped: 0, total: 0, durableStored: 0 });
 });
 
 test('ingestProductionCreativeAssetsToDb — returns zero counts when creative_assets array is absent', async () => {
@@ -143,7 +143,7 @@ test('ingestProductionCreativeAssetsToDb — returns zero counts when creative_a
     doc,
     pool,
   });
-  assert.deepEqual(result, { inserted: 0, skipped: 0, total: 0 });
+  assert.deepEqual(result, { inserted: 0, skipped: 0, total: 0, durableStored: 0 });
 });
 
 // ---------------------------------------------------------------------------

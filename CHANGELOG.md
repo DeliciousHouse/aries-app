@@ -2,6 +2,54 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.8.0 — feat(media): durable object storage behind the public media proxy
+
+Media generated for a scheduled post now survives until the post publishes.
+
+On 2026-08-11 posts 163 and 166 dead-lettered with "The media could not be
+fetched from this URI" and "Facebook could not retrieve the image". The URL, the
+signed token and Meta were all fine: the PNG had been deleted from the Hermes
+image cache. Every asset generated on 08-10 was gone, and nine pending posts
+still referenced them. That cache is a working cache owned by another process,
+is not backed up, and guarantees nothing about a file surviving from generation
+to publish — a gap now up to twelve days wide because the growth pipeline
+schedules a fortnight ahead.
+
+The public proxy contract is deliberately unchanged. `/api/public/media/<token>/
+<basename>` still serves from the same origin with the same content-type logic,
+because that basename-keyed shape was frozen on purpose to keep the live
+Meta-fetch contract stable. Object storage sits BEHIND it as a third read root,
+after the Hermes mount and ingested-assets. Meta never sees a bucket URL, a
+query string or a second TTL.
+
+### Added
+
+- `backend/marketing/durable-media-store.ts`: tenant-scoped put/get against the
+  GCS JSON API using the instance's own service-account token, so no credential
+  file and no new SDK dependency (the deploy image is already 4.33GB and every
+  deploy adds another copy). Off by default, and treated as off unless
+  `ARIES_DURABLE_MEDIA_BUCKET` is also set, so a half-finished rollout cannot
+  wedge the publish path.
+- `ARIES_DURABLE_MEDIA_ENABLED`, `ARIES_DURABLE_MEDIA_BUCKET`,
+  `ARIES_DURABLE_MEDIA_PREFIX`, `ARIES_DURABLE_MEDIA_TIMEOUT_MS`.
+- `IngestProductionAssetsResult.durableStored`, so an operator can tell "durable
+  storage is off" from "durable storage is on and failing" without reading logs.
+
+### Changed
+
+- Production asset ingestion writes a durable copy of the final bytes, keyed on
+  `basename(storage_key)` — the exact key the proxy signs and resolves. It runs
+  on replayed rows too, which is how a missing durable copy gets repaired.
+- The public media route falls back to the durable copy only after both local
+  roots miss, so the hot path keeps its current behaviour with no added latency.
+
+### Notes
+
+Every entry point fails open by contract. A dead bucket, a missing IAM grant, an
+expired token or a hung metadata server all degrade to exactly today's
+behaviour, never to a thrown error — this module exists because media loss broke
+publishing, so it must not become a new way to break it.
+
 ## v0.2.7.0 — feat(marketing): make platform-native content tenant-scopable
 
 Platform-native generation can be canaried on one tenant again. It shipped in
