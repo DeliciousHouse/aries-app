@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { isAnyPlatformPublishEnabled } from '@/backend/integrations/providers/integration-config';
 import pool from '@/lib/db';
 import { normalizeMetaLocatorUrl, normalizeMetaPageId } from '@/lib/marketing-competitor';
 import { describeSpecResolution, resolveDataPath } from '@/lib/runtime-paths';
@@ -1230,6 +1231,10 @@ export function markStageRequiresChannelConnection(
     const id = input.artifactId ?? 'publish-needs-channel';
     const title = input.artifactTitle ?? 'Connect a publishing channel';
     const existing = record.artifacts.findIndex((a) => a.id === id);
+    // Fallback copy tracks ARIES_ANY_PLATFORM_PUBLISH_ENABLED (AA-217): with the
+    // flag OFF only Meta can unblock this tenant, so channel-neutral wording
+    // would point them at a connect flow that cannot help.
+    const anyPlatform = isAnyPlatformPublishEnabled();
     const artifact: MarketingStageArtifact = {
       id,
       stage,
@@ -1238,9 +1243,11 @@ export function markStageRequiresChannelConnection(
       status: 'requires_channel_connection',
       summary:
         input.summary?.summary ??
-        'Stage is ready. Connect Meta in Settings to enable auto-publish.',
+        (anyPlatform
+          ? 'Stage is ready. Connect a social account in Settings to enable auto-publish.'
+          : 'Stage is ready. Connect Meta in Settings to enable auto-publish.'),
       details: [],
-      action_label: 'Connect Meta',
+      action_label: anyPlatform ? 'Connect a channel' : 'Connect Meta',
       action_href: '/dashboard/settings/channel-integrations',
     };
     if (existing >= 0) {

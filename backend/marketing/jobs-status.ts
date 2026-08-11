@@ -27,6 +27,7 @@ import {
   normalizeArtifactText,
 } from './real-artifacts';
 import { loadValidatedMarketingProfileSnapshot } from './validated-profile-store';
+import { isAnyPlatformPublishEnabled } from '@/backend/integrations/providers/integration-config';
 import { SOCIAL_CONTENT_DEFAULT_SCOPE } from '@/backend/social-content/defaults';
 import { clampWeeklyWindowDays } from '@/backend/social-content/payload';
 import {
@@ -582,6 +583,26 @@ function buildSummary(
 
   if (state.needsAttention) {
     if (state.status === 'needs_connection') {
+      // `needs_connection` covers two unrelated causes and used to render the
+      // Hermes-media copy for both. The channel gate (Stage 4 short-circuit)
+      // sets no `last_error`, so a tenant whose only problem was an unconnected
+      // social account was told to go check Hermes media configuration. Split
+      // them: the publish stage's own status is the discriminator.
+      if (runtimeDoc.stages?.publish?.status === 'requires_channel_connection') {
+        // Copy tracks ARIES_ANY_PLATFORM_PUBLISH_ENABLED — with the flag OFF
+        // only Meta actually unblocks this job.
+        return isAnyPlatformPublishEnabled()
+          ? {
+              headline: 'Connect a social account to publish',
+              subheadline:
+                'Stages 1-3 are ready. Connect a channel in Settings, then approve to resume publishing.',
+            }
+          : {
+              headline: 'Connect Meta to publish',
+              subheadline:
+                'Stages 1-3 are ready. Connect Meta in Settings, then approve to resume publishing.',
+            };
+      }
       return {
         headline: 'Hermes media setup needs attention',
         subheadline:

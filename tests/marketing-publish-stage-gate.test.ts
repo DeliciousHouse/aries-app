@@ -102,7 +102,7 @@ async function seedJobAtPublishStage() {
   return doc;
 }
 
-test('advancePublishStage short-circuits when Meta is not connected and preserves stages 1-3 artifacts', async () => {
+test('advancePublishStage short-circuits when no channel is connected and preserves stages 1-3 artifacts', async () => {
   await withRuntimeEnv(async () => {
     const orchestrator = await import('../backend/marketing/orchestrator');
     const { loadSocialContentJobRuntime, getStageRecord } = await import('../backend/marketing/runtime-state');
@@ -150,9 +150,20 @@ test('advancePublishStage short-circuits when Meta is not connected and preserve
     assert.ok(publish.artifacts.some((a) => a.id === 'publish-needs-channel'));
     assert.equal(reloaded.approvals.current, null);
 
-    // History line written.
-    const historyNote = reloaded.history.find((h: { note?: string | null }) => (h.note ?? '').includes('no Meta connection'));
+    // History line written. The note is channel-neutral (internal wording, not
+    // operator copy) so it reads correctly whichever platforms are in play.
+    const historyNote = reloaded.history.find((h: { note?: string | null }) =>
+      (h.note ?? '').includes('no connected publishing channel'),
+    );
     assert.ok(historyNote, 'expected publish-paused history entry');
+
+    // Operator-facing copy stays Meta-specific while the AA-217 flag is OFF:
+    // with the flag off, connecting anything else genuinely will not unblock
+    // this job, so neutral wording would misdirect the reader.
+    const artifact = publish.artifacts.find((a) => a.id === 'publish-needs-channel');
+    assert.ok(artifact);
+    assert.equal(artifact?.title, 'Connect Meta to publish');
+    assert.match(publish.summary?.summary ?? '', /Connect Meta in Settings/);
   });
 });
 
@@ -190,5 +201,148 @@ test('advancePublishStage proceeds past the gate when Meta is connected', async 
     // some other downstream state — but never requires_channel_connection.
     assert.notEqual(publish.status, 'requires_channel_connection');
     assert.ok(threw || publish.status !== 'requires_channel_connection');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AA-217: with ARIES_ANY_PLATFORM_PUBLISH_ENABLED on, any connected publishable
+// platform gets a tenant past this gate — and the blocked-state copy turns
+// channel-neutral only once the flag makes that statement true.
+//
+// The gate under test is the REAL verdict function (tenantNeedsChannelConnection
+// over the real counters); only the pool is faked, since the default gate opens
+// its own connection.
+// ---------------------------------------------------------------------------
+
+const AA217_ENVS = [
+  'ARIES_ANY_PLATFORM_PUBLISH_ENABLED',
+  'ARIES_X_ENABLED',
+  'ARIES_LINKEDIN_ENABLED',
+  'ARIES_REDDIT_ENABLED',
+  'COMPOSIO_ENABLED',
+  'COMPOSIO_REDDIT_TARGET_SUBREDDIT',
+  'COMPOSIO_X_PUBLISH_POST_ACTION',
+  'COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION',
+  'COMPOSIO_REDDIT_PUBLISH_POST_ACTION',
+] as const;
+
+// A crosspost platform is publishable only with its Composio publish action
+// slug set; without it the gate must not count it (see integration-config
+// `isCrosspostPlatformConfigured`). LinkedIn scenarios therefore ship the slug.
+const LINKEDIN_SLUG = {
+  COMPOSIO_ENABLED: 'true',
+  COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: 'LINKEDIN_CREATE_LINKED_IN_POST',
+};
+
+async function withFlags<T>(env: Record<string, string>, run: () => Promise<T>): Promise<T> {
+  const prev = AA217_ENVS.map((k) => [k, process.env[k]] as const);
+  for (const k of AA217_ENVS) delete process.env[k];
+  for (const [k, v] of Object.entries(env)) process.env[k] = v;
+  try {
+    return await run();
+  } finally {
+    for (const [k, v] of prev) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
+/** Answers both connection-count queries from a list of connected platforms. */
+function connectionsClient(connected: string[]) {
+  return {
+    query: async (sql: string, params: unknown[] = []) => {
+      const scoped = sql.includes('platform = ANY($2)')
+        ? ((params[1] as string[]) ?? [])
+        : ['facebook', 'instagram'];
+      const count = connected.filter((p) => scoped.includes(p)).length;
+      return { rows: [{ connected_count: count }], rowCount: 1 };
+    },
+  };
+}
+
+/** The real gate verdict, wired to a fake client instead of the pool. */
+async function realGateFor(connected: string[], tenantId: string): Promise<boolean> {
+  const { tenantNeedsChannelConnection } = await import('../lib/tenant-needs-channel-connection');
+  return tenantNeedsChannelConnection(
+    connectionsClient(connected) as never,
+    tenantId,
+  );
+}
+
+test('AA-217 flag ON: a LinkedIn-only tenant passes the publish gate', async () => {
+  await withRuntimeEnv(async () => {
+    await withFlags({ ...LINKEDIN_SLUG, ARIES_ANY_PLATFORM_PUBLISH_ENABLED: '1', ARIES_LINKEDIN_ENABLED: 'true' }, async () => {
+      const orchestrator = await import('../backend/marketing/orchestrator');
+      const doc = await seedJobAtPublishStage();
+
+      orchestrator.__setPublishStageChannelGateForTests((tenantId) =>
+        realGateFor(['linkedin'], tenantId),
+      );
+      try {
+        await orchestrator.__advancePublishStageForTests(doc, 'resume-token-test');
+      } catch {
+        // Hermes submission is expected to fail in tests; the gate is the subject.
+      } finally {
+        orchestrator.__setPublishStageChannelGateForTests(null);
+      }
+
+      const { loadSocialContentJobRuntime, getStageRecord } = await import('../backend/marketing/runtime-state');
+      const reloaded = await loadSocialContentJobRuntime(doc.job_id);
+      assert.ok(reloaded);
+      if (!reloaded) return;
+      assert.notEqual(
+        getStageRecord(reloaded, 'publish').status,
+        'requires_channel_connection',
+        'a connected LinkedIn account must unblock Stage 4',
+      );
+    });
+  });
+});
+
+test('AA-217 flag ON: a zero-connection tenant is still blocked, with channel-neutral copy', async () => {
+  await withRuntimeEnv(async () => {
+    await withFlags({ ...LINKEDIN_SLUG, ARIES_ANY_PLATFORM_PUBLISH_ENABLED: '1', ARIES_LINKEDIN_ENABLED: 'true' }, async () => {
+      const orchestrator = await import('../backend/marketing/orchestrator');
+      const doc = await seedJobAtPublishStage();
+
+      orchestrator.__setPublishStageChannelGateForTests((tenantId) => realGateFor([], tenantId));
+      try {
+        await orchestrator.__advancePublishStageForTests(doc, 'resume-token-test');
+      } finally {
+        orchestrator.__setPublishStageChannelGateForTests(null);
+      }
+
+      const { loadSocialContentJobRuntime, getStageRecord } = await import('../backend/marketing/runtime-state');
+      const reloaded = await loadSocialContentJobRuntime(doc.job_id);
+      assert.ok(reloaded);
+      if (!reloaded) return;
+
+      const publish = getStageRecord(reloaded, 'publish');
+      assert.equal(publish.status, 'requires_channel_connection');
+      assert.equal(reloaded.status, 'needs_connection');
+
+      // Copy is neutral now that any channel would genuinely unblock the job.
+      const artifact = publish.artifacts.find((a) => a.id === 'publish-needs-channel');
+      assert.ok(artifact);
+      assert.equal(artifact?.title, 'Connect a social account to publish');
+      assert.match(publish.summary?.summary ?? '', /Connect a social account in Settings/);
+      assert.doesNotMatch(publish.summary?.summary ?? '', /Connect Meta/);
+
+      // Stages 1-3 are still preserved.
+      for (const stage of ['research', 'strategy', 'production'] as const) {
+        assert.equal(getStageRecord(reloaded, stage).status, 'completed');
+      }
+    });
+  });
+});
+
+test('AA-217 flag ON: a pending-only connection does not open the gate', async () => {
+  await withRuntimeEnv(async () => {
+    await withFlags({ ...LINKEDIN_SLUG, ARIES_ANY_PLATFORM_PUBLISH_ENABLED: '1', ARIES_LINKEDIN_ENABLED: 'true' }, async () => {
+      // connectionsClient only ever counts connected rows, so "pending only" is
+      // modelled as an empty connected list — the gate must stay shut.
+      assert.equal(await realGateFor([], '101'), true);
+    });
   });
 });

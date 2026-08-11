@@ -1,12 +1,21 @@
 import type { PoolClient } from 'pg';
 
+import {
+  isAnyPlatformPublishEnabled,
+  publishablePlatforms,
+} from '@/backend/integrations/providers/integration-config';
 import { getBusinessProfileWithDiagnostics } from '@/backend/tenant/business-profile';
+import {
+  queryConnectedMetaPlatformCount,
+  queryConnectedPublishablePlatformCount,
+  type PlatformCountQueryable,
+} from '@/lib/connected-platform-counts';
 
 export const GATE_REDIRECT_DESTINATION = '/onboarding/start' as const;
-// Deep-link target for the "Connect Meta" CTA on the dashboard nudge banner and
+// Deep-link target for the Meta connect CTA on the dashboard nudge banner and
 // the channel-integrations screen. This constant is informational-only:
 // `evaluateOnboardingGate` no longer redirects to it. The gate softening turned
-// `meta_not_connected` from a hard redirect reason into a soft UI advisory.
+// `channel_not_connected` from a hard redirect reason into a soft UI advisory.
 // The constant stays exported so CTAs and OAuth links keep one canonical URL.
 export const META_CONNECT_REDIRECT_DESTINATION = '/oauth/connect/facebook' as const;
 
@@ -20,7 +29,7 @@ export const GUARDED_OPERATOR_PATH_PREFIXES: ReadonlyArray<string> = Object.free
 export type OnboardingGateReason =
   | 'allowed'
   | 'profile_incomplete'
-  | 'meta_not_connected';
+  | 'channel_not_connected';
 
 /**
  * Onboarding advisories are soft UI signals attached to a gate decision when
@@ -34,7 +43,7 @@ export type OnboardingGateReason =
  * deep-link to the appropriate settings or connect screen.
  */
 export type OnboardingAdvisoryKind =
-  | 'meta_not_connected';
+  | 'channel_not_connected';
 
 export type OnboardingAdvisorySeverity = 'info' | 'warning';
 
@@ -43,6 +52,20 @@ export type OnboardingAdvisory = {
   severity: OnboardingAdvisorySeverity;
   message: string;
   ctaHref: string;
+  /**
+   * User-facing headline + CTA label, resolved SERVER-side.
+   *
+   * The banner is a client component and cannot read server flags, but the copy
+   * for `channel_not_connected` depends on one: while
+   * `ARIES_ANY_PLATFORM_PUBLISH_ENABLED` is OFF the system genuinely requires
+   * Meta specifically, so telling a LinkedIn-connected tenant to "connect a
+   * social account" would send them to do something that cannot unblock them
+   * (the AA-168 confusion this ticket exists to fix). Carrying the copy on the
+   * advisory keeps the flag on the server where it belongs. Optional so the
+   * banner's own defaults remain the fallback.
+   */
+  title?: string;
+  ctaLabel?: string;
 };
 
 export type OnboardingGateDecision = {
@@ -59,60 +82,65 @@ export type ProfileIncompleteResolver = (
   tenantId: string,
 ) => Promise<boolean>;
 
-export type ConnectedMetaPlatformCounter = (
+export type ConnectedPlatformCounter = (
   client: OnboardingGateQueryable,
   tenantId: string,
 ) => Promise<number>;
 
-function toPositiveTenantId(tenantId: string | number): number | null {
-  const parsed = typeof tenantId === 'number' ? tenantId : Number.parseInt(String(tenantId).trim(), 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return null;
-  }
-  return parsed;
-}
-
+/**
+ * Count Meta connections in EITHER store: oauth_connections (direct-Meta OAuth)
+ * OR connected_accounts (Composio). Composio brokers its own OAuth and persists
+ * to connected_accounts, so a Composio-connected tenant was invisible to the
+ * onboarding gate / publish precheck and short-circuited to
+ * "requires_channel_connection" (#600/#605). `status='connected'` is required in
+ * both branches — a pending link does not count.
+ *
+ * This is the LEGACY verdict, still used verbatim whenever
+ * `ARIES_ANY_PLATFORM_PUBLISH_ENABLED` is OFF, which is what keeps a Meta-only
+ * deployment byte-identical.
+ */
 export async function countConnectedMetaPlatforms(
   client: OnboardingGateQueryable,
   tenantId: string | number,
 ): Promise<number> {
-  const numericTenantId = toPositiveTenantId(tenantId);
-  if (numericTenantId === null) {
-    return 0;
-  }
+  return queryConnectedMetaPlatformCount(client as unknown as PlatformCountQueryable, tenantId);
+}
 
-  // Count a Meta connection in EITHER store: oauth_connections (direct-Meta
-  // OAuth) OR connected_accounts (Composio). Composio brokers its own OAuth and
-  // persists to connected_accounts, so a Composio-connected tenant was invisible
-  // to the onboarding gate / publish precheck and short-circuited to
-  // "requires_channel_connection" (#600/#605). The oauth_connections branch is
-  // unchanged, so direct-Meta recognition is fully preserved; connected_accounts
-  // requires status='connected' (a pending Composio link does not count).
-  const result = await client.query(
-    `SELECT (
-       (SELECT COUNT(*) FROM oauth_connections
-          WHERE tenant_id = $1
-            AND status = 'connected'
-            AND provider IN ('facebook', 'instagram'))
-       +
-       (SELECT COUNT(*) FROM connected_accounts
-          WHERE tenant_id = $1
-            AND status = 'connected'
-            AND platform IN ('facebook', 'instagram'))
-     )::int AS connected_count`,
-    [numericTenantId],
+/**
+ * AA-217: count connections across every platform this deployment can actually
+ * publish to (`publishablePlatforms()` — Meta always, plus each crosspost
+ * platform whose rollout flag is ON and whose config is complete).
+ *
+ * Strictly a SUPERSET of `countConnectedMetaPlatforms`: any tenant with a
+ * connected Meta channel still counts >= 1, so no Meta tenant's gate verdict
+ * can change. A LinkedIn-only / X-only tenant now counts >= 1 instead of 0 —
+ * but only on the strength of a `connected_accounts` row, since that is the
+ * only store the Composio publisher can dispatch from (see the dispatchability
+ * note in lib/connected-platform-counts.ts). `status='connected'` is still
+ * required, so pending never unblocks, and a tenant with zero connected
+ * channels still counts 0 and stays blocked.
+ */
+export async function countConnectedPublishablePlatforms(
+  client: OnboardingGateQueryable,
+  tenantId: string | number,
+): Promise<number> {
+  return queryConnectedPublishablePlatformCount(
+    client as unknown as PlatformCountQueryable,
+    tenantId,
+    publishablePlatforms(),
   );
+}
 
-  const row = result.rows?.[0] as { connected_count?: number | string } | undefined;
-  if (!row) {
-    return 0;
-  }
-  const value = row.connected_count;
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
+/**
+ * The counter the gate and the Stage 4 publish precheck should both use: the
+ * flag decides which verdict is in force, and every caller resolves it through
+ * this ONE function so the dashboard advisory and the orchestrator can never
+ * disagree about whether a tenant is blocked.
+ */
+export function activeConnectionCounter(): ConnectedPlatformCounter {
+  return isAnyPlatformPublishEnabled()
+    ? countConnectedPublishablePlatforms
+    : countConnectedMetaPlatforms;
 }
 
 async function defaultProfileIncompleteResolver(
@@ -126,13 +154,27 @@ async function defaultProfileIncompleteResolver(
   return Boolean(resolved.profile.incomplete);
 }
 
-function metaNotConnectedAdvisory(): OnboardingAdvisory {
+/**
+ * The "no publishing channel connected yet" advisory.
+ *
+ * Copy is FLAG-AWARE on purpose. With `ARIES_ANY_PLATFORM_PUBLISH_ENABLED` OFF
+ * the product really does require Meta specifically, so channel-neutral copy
+ * would be a lie that costs the reader a wasted connect attempt. With the flag
+ * ON any connected channel unblocks publishing and the copy says so.
+ */
+export function channelNotConnectedAdvisory(): OnboardingAdvisory {
+  const anyPlatform = isAnyPlatformPublishEnabled();
   return {
-    kind: 'meta_not_connected',
+    kind: 'channel_not_connected',
     severity: 'warning',
-    message:
-      'Connect Meta to publish automatically. Aries can plan, draft, and review without it.',
+    message: anyPlatform
+      ? 'Connect a social account to publish automatically. Aries can plan, draft, and review without it.'
+      : 'Connect Meta to publish automatically. Aries can plan, draft, and review without it.',
     ctaHref: '/dashboard/settings/channel-integrations',
+    title: anyPlatform
+      ? 'Connect a social account to publish automatically'
+      : 'Connect Meta to publish automatically',
+    ctaLabel: anyPlatform ? 'Connect a channel' : 'Connect Meta',
   };
 }
 
@@ -140,11 +182,11 @@ export async function evaluateOnboardingGate(args: {
   client: OnboardingGateQueryable;
   tenantId: string | number;
   profileIncompleteResolver?: ProfileIncompleteResolver;
-  connectionCounter?: ConnectedMetaPlatformCounter;
+  connectionCounter?: ConnectedPlatformCounter;
 }): Promise<OnboardingGateDecision> {
   const tenantIdString = String(args.tenantId);
   const profileIncompleteResolver = args.profileIncompleteResolver ?? defaultProfileIncompleteResolver;
-  const connectionCounter = args.connectionCounter ?? countConnectedMetaPlatforms;
+  const connectionCounter = args.connectionCounter ?? activeConnectionCounter();
 
   // Fail closed on any resolver error so transient DB failures never sneak a
   // partially-set-up tenant past the gate.
@@ -166,14 +208,14 @@ export async function evaluateOnboardingGate(args: {
 
   const connectedCount = await connectionCounter(args.client, tenantIdString);
   if (connectedCount < 1) {
-    // Soft gate: profile is complete, but no Meta/IG connection yet. Let the
-    // user into the dashboard and surface a banner advisory rather than
+    // Soft gate: profile is complete, but no publishing channel connected yet.
+    // Let the user into the dashboard and surface a banner advisory rather than
     // looping them back to the OAuth connect screen.
     return {
       allowed: true,
-      reason: 'meta_not_connected',
+      reason: 'channel_not_connected',
       redirectTo: null,
-      advisories: [metaNotConnectedAdvisory()],
+      advisories: [channelNotConnectedAdvisory()],
     };
   }
 

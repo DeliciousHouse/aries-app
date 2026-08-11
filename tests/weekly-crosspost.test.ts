@@ -208,24 +208,49 @@ test('adaptCaptionForPlatform: reddit with empty body still yields a title', () 
 // resolveCrosspostPlatforms — flag + connected-account gating, fail-open.
 // ---------------------------------------------------------------------------
 
+// Every crosspost platform needs its COMPOSIO_<P>_PUBLISH_POST_ACTION slug, and
+// weekly X image rows also need COMPOSIO_X_UPLOAD_MEDIA_ACTION. The publisher's
+// requireSlug throws without them, so the producer skips the platform rather
+// than manufacture rows that fail terminally at every dispatch.
+const PUBLISH_SLUGS = {
+  COMPOSIO_ENABLED: 'true',
+  COMPOSIO_X_PUBLISH_POST_ACTION: 'TWITTER_CREATION_OF_A_POST',
+  COMPOSIO_X_UPLOAD_MEDIA_ACTION: 'TWITTER_UPLOAD_MEDIA',
+  COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: 'LINKEDIN_CREATE_LINKED_IN_POST',
+  COMPOSIO_REDDIT_PUBLISH_POST_ACTION: 'REDDIT_CREATE_REDDIT_POST',
+};
+
 // Reddit needs BOTH its rollout flag and an explicit target subreddit — the
 // publisher hard-refuses without one, so the producer skips it. "All flags on"
 // therefore has to include the subreddit to keep reddit in the eligible set.
 const ALL_FLAGS_ON = {
+  ...PUBLISH_SLUGS,
   ARIES_X_ENABLED: '1',
   ARIES_LINKEDIN_ENABLED: '1',
   ARIES_REDDIT_ENABLED: '1',
   COMPOSIO_REDDIT_TARGET_SUBREDDIT: 'r/test',
 };
 
-function fakePool(rows: Array<{ platform: string }>, opts: { throwOnQuery?: boolean } = {}) {
+function fakePool(
+  rows: Array<{
+    platform: string;
+    connected_account_id?: string | null;
+    external_account_id?: string | null;
+  }>,
+  opts: { throwOnQuery?: boolean } = {},
+) {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
   return {
     calls,
     query(sql: string, params?: unknown[]) {
       calls.push({ sql, params });
       if (opts.throwOnQuery) return Promise.reject(new Error('db down'));
-      return Promise.resolve({ rows, rowCount: rows.length });
+      const normalizedRows = rows.map((row) => ({
+        ...row,
+        connected_account_id:
+          row.connected_account_id === undefined ? 'ca_test' : row.connected_account_id,
+      }));
+      return Promise.resolve({ rows: normalizedRows, rowCount: normalizedRows.length });
     },
   };
 }
@@ -239,9 +264,26 @@ test('resolveCrosspostPlatforms: returns the intersection of flag-ON and connect
   assert.equal(CROSSPOST_PLATFORMS.indexOf('x') < CROSSPOST_PLATFORMS.indexOf('reddit'), true);
 });
 
+test('resolveCrosspostPlatforms: COMPOSIO_ENABLED unset excludes every Composio-only platform', async () => {
+  const pool = fakePool([{ platform: 'x' }, { platform: 'linkedin' }, { platform: 'reddit' }]);
+  const { COMPOSIO_ENABLED: _, ...composioOff } = ALL_FLAGS_ON;
+  const out = await resolveCrosspostPlatforms(15, pool, composioOff);
+  assert.deepEqual(out, []);
+  assert.equal(pool.calls.length, 0, 'nothing dispatchable → no connection query');
+});
+
+test('resolveCrosspostPlatforms: a missing or blank connected_account_id is not dispatchable', async () => {
+  for (const connectedAccountId of [null, '', '   ']) {
+    const pool = fakePool([{ platform: 'x', connected_account_id: connectedAccountId }]);
+    const out = await resolveCrosspostPlatforms(15, pool, ALL_FLAGS_ON);
+    assert.deepEqual(out, []);
+  }
+});
+
 test('resolveCrosspostPlatforms: a flag-OFF platform is excluded even if connected', async () => {
   const pool = fakePool([{ platform: 'x' }, { platform: 'linkedin' }, { platform: 'reddit' }]);
   const out = await resolveCrosspostPlatforms(15, pool, {
+    ...PUBLISH_SLUGS,
     ARIES_X_ENABLED: '1',
     ARIES_LINKEDIN_ENABLED: '0', // OFF
     ARIES_REDDIT_ENABLED: '1',
@@ -277,8 +319,13 @@ test('resolveCrosspostPlatforms: DB error fails open to []', async () => {
 // manufacture posts guaranteed to fail terminally at dispatch, every week.
 
 test('resolveCrosspostPlatforms: reddit is skipped when COMPOSIO_REDDIT_TARGET_SUBREDDIT is unset', async () => {
-  const pool = fakePool([{ platform: 'x' }, { platform: 'linkedin' }, { platform: 'reddit' }]);
+  const pool = fakePool([
+    { platform: 'x' },
+    { platform: 'linkedin', external_account_id: 'urn:li:person:test' },
+    { platform: 'reddit' },
+  ]);
   const out = await resolveCrosspostPlatforms(15, pool, {
+    ...PUBLISH_SLUGS,
     ARIES_X_ENABLED: '1',
     ARIES_LINKEDIN_ENABLED: '1',
     ARIES_REDDIT_ENABLED: '1', // flag ON, but no subreddit configured
@@ -287,9 +334,30 @@ test('resolveCrosspostPlatforms: reddit is skipped when COMPOSIO_REDDIT_TARGET_S
   assert.deepEqual(pool.calls[0].params?.[1], ['x', 'linkedin'], 'the query is scoped to the surviving platforms');
 });
 
+test('resolveCrosspostPlatforms: LinkedIn without an author URN is not dispatchable', async () => {
+  const pool = fakePool([{ platform: 'linkedin', external_account_id: null }]);
+  const out = await resolveCrosspostPlatforms(15, pool, {
+    COMPOSIO_ENABLED: 'true',
+    ARIES_LINKEDIN_ENABLED: '1',
+    COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: 'LINKEDIN_CREATE_LINKED_IN_POST',
+  });
+  assert.deepEqual(out, [], 'publisher requires connected_accounts.external_account_id');
+});
+
+test('resolveCrosspostPlatforms: whitespace-only LinkedIn author URN is not dispatchable', async () => {
+  const pool = fakePool([{ platform: 'linkedin', external_account_id: '   ' }]);
+  const out = await resolveCrosspostPlatforms(15, pool, {
+    COMPOSIO_ENABLED: 'true',
+    ARIES_LINKEDIN_ENABLED: '1',
+    COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: 'LINKEDIN_CREATE_LINKED_IN_POST',
+  });
+  assert.deepEqual(out, []);
+});
+
 test('resolveCrosspostPlatforms: a whitespace-only subreddit counts as unset', async () => {
   const pool = fakePool([{ platform: 'reddit' }, { platform: 'x' }]);
   const out = await resolveCrosspostPlatforms(15, pool, {
+    ...PUBLISH_SLUGS,
     ARIES_X_ENABLED: '1',
     ARIES_REDDIT_ENABLED: '1',
     COMPOSIO_REDDIT_TARGET_SUBREDDIT: '   ',
@@ -299,7 +367,7 @@ test('resolveCrosspostPlatforms: a whitespace-only subreddit counts as unset', a
 
 test('resolveCrosspostPlatforms: reddit-only with no subreddit => [] and no DB query', async () => {
   const pool = fakePool([{ platform: 'reddit' }]);
-  const out = await resolveCrosspostPlatforms(15, pool, { ARIES_REDDIT_ENABLED: '1' });
+  const out = await resolveCrosspostPlatforms(15, pool, { ...PUBLISH_SLUGS, ARIES_REDDIT_ENABLED: '1' });
   assert.deepEqual(out, []);
   assert.equal(pool.calls.length, 0, 'nothing eligible → the early return still short-circuits the query');
 });
@@ -307,10 +375,73 @@ test('resolveCrosspostPlatforms: reddit-only with no subreddit => [] and no DB q
 test('resolveCrosspostPlatforms: reddit IS included once the subreddit is set (happy-path guard)', async () => {
   const pool = fakePool([{ platform: 'reddit' }]);
   const out = await resolveCrosspostPlatforms(15, pool, {
+    ...PUBLISH_SLUGS,
     ARIES_REDDIT_ENABLED: '1',
     COMPOSIO_REDDIT_TARGET_SUBREDDIT: 'somecommunity',
   });
   assert.deepEqual(out, ['reddit']);
+});
+
+// ── publish action-slug config gate (COMPOSIO_<P>_PUBLISH_POST_ACTION) ──────
+// Same class of guarantee as the reddit subreddit gate. docker-compose declares
+// these with an EMPTY default and actionSlug() has no code fallback, so a
+// deployment can have ARIES_LINKEDIN_ENABLED=true with no slug — in which case
+// requireSlug throws ComposioCapabilityMissingError at EVERY dispatch. Under
+// AA-217 that would let a LinkedIn-only tenant pass the publish gate and
+// synthesize a full week of posts that all fail terminally.
+
+test('resolveCrosspostPlatforms: a platform with no publish action slug is skipped', async () => {
+  const pool = fakePool([{ platform: 'x' }, { platform: 'linkedin' }]);
+  const out = await resolveCrosspostPlatforms(15, pool, {
+    COMPOSIO_ENABLED: 'true',
+    ARIES_X_ENABLED: '1',
+    ARIES_LINKEDIN_ENABLED: '1',
+    // x has a slug; linkedin does NOT.
+    COMPOSIO_X_PUBLISH_POST_ACTION: 'TWITTER_CREATION_OF_A_POST',
+    COMPOSIO_X_UPLOAD_MEDIA_ACTION: 'TWITTER_UPLOAD_MEDIA',
+  });
+  assert.deepEqual(out, ['x'], 'linkedin dropped despite flag ON and account connected');
+  assert.deepEqual(pool.calls[0].params?.[1], ['x'], 'the query is scoped to the surviving platforms');
+});
+
+test('resolveCrosspostPlatforms: X is skipped when its image upload action slug is missing', async () => {
+  const pool = fakePool([{ platform: 'x' }]);
+  const out = await resolveCrosspostPlatforms(15, pool, {
+    COMPOSIO_ENABLED: 'true',
+    ARIES_X_ENABLED: '1',
+    COMPOSIO_X_PUBLISH_POST_ACTION: 'TWITTER_CREATION_OF_A_POST',
+  });
+  assert.deepEqual(out, [], 'weekly X rows always carry an image and require upload_media');
+  assert.equal(pool.calls.length, 0, 'nothing dispatchable → no connection query');
+});
+
+test('resolveCrosspostPlatforms: a whitespace-only publish slug counts as unset', async () => {
+  const pool = fakePool([{ platform: 'linkedin' }]);
+  const out = await resolveCrosspostPlatforms(15, pool, {
+    COMPOSIO_ENABLED: 'true',
+    ARIES_LINKEDIN_ENABLED: '1',
+    COMPOSIO_LINKEDIN_PUBLISH_POST_ACTION: '   ',
+  });
+  assert.deepEqual(out, []);
+  assert.equal(pool.calls.length, 0, 'nothing eligible → no query');
+});
+
+test('resolveCrosspostPlatforms: reddit needs BOTH its subreddit and its publish slug', async () => {
+  const pool = fakePool([{ platform: 'reddit' }]);
+  // Subreddit set, slug missing.
+  const noSlug = await resolveCrosspostPlatforms(15, pool, {
+    COMPOSIO_ENABLED: 'true',
+    ARIES_REDDIT_ENABLED: '1',
+    COMPOSIO_REDDIT_TARGET_SUBREDDIT: 'somecommunity',
+  });
+  assert.deepEqual(noSlug, [], 'a configured subreddit does not compensate for a missing slug');
+  // Slug set, subreddit missing.
+  const noSubreddit = await resolveCrosspostPlatforms(15, pool, {
+    COMPOSIO_ENABLED: 'true',
+    ARIES_REDDIT_ENABLED: '1',
+    COMPOSIO_REDDIT_PUBLISH_POST_ACTION: 'REDDIT_CREATE_REDDIT_POST',
+  });
+  assert.deepEqual(noSubreddit, [], 'a configured slug does not compensate for a missing subreddit');
 });
 
 test('resolveCrosspostPlatforms: single query, no fan-out (guardrail #1)', async () => {

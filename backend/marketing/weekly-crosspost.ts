@@ -27,15 +27,24 @@
 
 import pool from '@/lib/db';
 import {
-  isXEnabled,
-  isRedditEnabled,
-  isLinkedInEnabled,
-  redditTargetSubreddit,
+  CROSSPOST_PLATFORMS,
+  eligibleCrosspostPlatforms,
+  isCrosspostPlatformConfigured,
+  isCrosspostPlatformFlagEnabled,
+  type CrosspostPlatform,
 } from '../integrations/providers/integration-config';
 
-/** The Composio-only publish platforms a weekly feed image is fanned out to. */
-export const CROSSPOST_PLATFORMS = ['x', 'linkedin', 'reddit'] as const;
-export type CrosspostPlatform = (typeof CROSSPOST_PLATFORMS)[number];
+// The platform list and its flag/config predicates live in integration-config —
+// the ONE place that answers "which platforms can we publish to right now"
+// (AA-217). Re-exported here so this module's long-standing import surface is
+// unchanged for its consumers and tests.
+export {
+  CROSSPOST_PLATFORMS,
+  eligibleCrosspostPlatforms,
+  isCrosspostPlatformConfigured,
+  isCrosspostPlatformFlagEnabled,
+  type CrosspostPlatform,
+};
 
 /** Minimal query surface — injectable so tests run with no live database. */
 export interface CrosspostQueryable {
@@ -61,46 +70,14 @@ export function isWeeklyCrosspostEnabled(env: Env = process.env): boolean {
   return v === '1' || v === 'true' || v === 'yes' || v === 'on';
 }
 
-/** The per-platform rollout flag that gates each crosspost target. */
-function isCrosspostPlatformFlagEnabled(platform: CrosspostPlatform, env: Env = process.env): boolean {
-  switch (platform) {
-    case 'x':
-      return isXEnabled(env as NodeJS.ProcessEnv);
-    case 'linkedin':
-      return isLinkedInEnabled(env as NodeJS.ProcessEnv);
-    case 'reddit':
-      return isRedditEnabled(env as NodeJS.ProcessEnv);
-  }
-}
-
-/**
- * Config completeness per crosspost platform — the second gate alongside the
- * rollout flag.
- *
- * Reddit publish REQUIRES an explicit target subreddit: the publisher refuses
- * up-front with a `ComposioCapabilityMissingError` when
- * COMPOSIO_REDDIT_TARGET_SUBREDDIT is unset (composio-publisher-provider.ts,
- * the reddit branch). There is deliberately NO `u_<username>` profile fallback
- * — Reddit's `sr` field addresses COMMUNITY names only, so a profile target
- * fails with SUBREDDIT_NOEXIST.
- *
- * Synthesizing reddit rows with no subreddit configured therefore manufactures
- * posts that are GUARANTEED to fail at dispatch: a terminal failure per post,
- * per week, forever. Skipping reddit at the producer instead means no row, no
- * scheduled_posts entry, and no failed-dispatch noise. x and linkedin need no
- * extra config beyond their publish slugs, which the publisher validates.
- */
-function isCrosspostPlatformConfigured(platform: CrosspostPlatform, env: Env = process.env): boolean {
-  if (platform !== 'reddit') return true;
-  return redditTargetSubreddit(env as NodeJS.ProcessEnv) !== null;
-}
-
 // Single query: the crosspost platforms whose per-platform flag is ON AND that
-// have an active connected account for this tenant. `status='connected'` mirrors
-// the filter the publisher's requireActiveConnection uses. No Promise.all
-// fan-out (guardrail #1) — one round-trip returns every eligible platform.
+// have an active connected account for this tenant. Every row returns its
+// Composio credential pointer; LinkedIn also returns its author URN. The
+// publisher refuses before dispatch when either required id is absent. No
+// Promise.all fan-out (guardrail #1) — one round-trip returns every eligible
+// platform.
 const SELECT_CONNECTED_CROSSPOST_PLATFORMS_SQL = `
-  SELECT platform
+  SELECT platform, connected_account_id, external_account_id
     FROM connected_accounts
    WHERE tenant_id = $1
      AND status = 'connected'
@@ -123,11 +100,25 @@ export async function resolveCrosspostPlatforms(
   db: CrosspostQueryable = pool,
   env: Env = process.env,
 ): Promise<CrosspostPlatform[]> {
-  const flagEnabled = CROSSPOST_PLATFORMS.filter(
-    (p) => isCrosspostPlatformFlagEnabled(p, env) && isCrosspostPlatformConfigured(p, env),
-  );
-  if (isCrosspostPlatformFlagEnabled('reddit', env) && !isCrosspostPlatformConfigured('reddit', env)) {
-    console.info('[weekly-crosspost] reddit skipped — COMPOSIO_REDDIT_TARGET_SUBREDDIT unset', { tenantId });
+  const flagEnabled = eligibleCrosspostPlatforms(env as NodeJS.ProcessEnv);
+  // Breadcrumb for the "I turned the flag on and nothing happened" case: a
+  // platform whose rollout flag is ON but whose required config is missing is
+  // dropped silently otherwise. Missing config is the reddit target subreddit,
+  // X's media-upload slug, or a COMPOSIO_<P>_PUBLISH_POST_ACTION slug — all
+  // would make every synthesized row fail terminally at dispatch (AA-217).
+  for (const platform of CROSSPOST_PLATFORMS) {
+    if (
+      isCrosspostPlatformFlagEnabled(platform, env as NodeJS.ProcessEnv) &&
+      !isCrosspostPlatformConfigured(platform, env as NodeJS.ProcessEnv)
+    ) {
+      console.info(
+        `[weekly-crosspost] ${platform} skipped — missing publish config ` +
+          `(COMPOSIO_${platform.toUpperCase()}_PUBLISH_POST_ACTION` +
+          `${platform === 'x' ? ' / COMPOSIO_X_UPLOAD_MEDIA_ACTION' : ''}` +
+          `${platform === 'reddit' ? ' / COMPOSIO_REDDIT_TARGET_SUBREDDIT' : ''})`,
+        { tenantId },
+      );
+    }
   }
   if (flagEnabled.length === 0) return [];
   try {
@@ -135,8 +126,20 @@ export async function resolveCrosspostPlatforms(
     const rows = (result.rows ?? []) as Array<Record<string, unknown>>;
     const connected = new Set(
       rows
-        .map((row) => (typeof row.platform === 'string' ? row.platform.trim().toLowerCase() : ''))
-        .filter((p) => p.length > 0),
+        .filter((row) => {
+          const platform =
+            typeof row.platform === 'string' ? row.platform.trim().toLowerCase() : '';
+          const connectedAccountId =
+            typeof row.connected_account_id === 'string' ? row.connected_account_id.trim() : '';
+          return (
+            platform.length > 0 &&
+            connectedAccountId.length > 0 &&
+            (platform !== 'linkedin' ||
+              (typeof row.external_account_id === 'string' &&
+                row.external_account_id.trim().length > 0))
+          );
+        })
+        .map((row) => (row.platform as string).trim().toLowerCase()),
     );
     // Preserve CROSSPOST_PLATFORMS order and dedupe implicitly via the flag list.
     return flagEnabled.filter((p) => connected.has(p));

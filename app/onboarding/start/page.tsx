@@ -23,7 +23,7 @@ export default async function OnboardingStartPage({
   const createNewWorkspace = isMultiWorkspaceEnabled() && newParam === '1';
 
   // Send already-onboarded operators onward instead of re-rendering the flow.
-  // After the meta-gate softening, `meta_not_connected` tenants are allowed
+  // After the connection-gate softening, `channel_not_connected` tenants are allowed
   // into the dashboard (the banner nudge handles the connect prompt), so the
   // gate decision's `allowed === true` is the single signal we forward on.
   if (session?.user?.id && !createNewWorkspace) {

@@ -77,7 +77,9 @@ import {
   type MarketingStage,
 } from './runtime-state';
 import pool from '@/lib/db';
-import { tenantNeedsMetaConnection } from '@/lib/tenant-needs-meta-connection';
+import { isAnyPlatformPublishEnabled } from '@/backend/integrations/providers/integration-config';
+import { tenantNeedsChannelConnection } from '@/lib/tenant-needs-channel-connection';
+import { resolvePrimaryPublishPlatforms } from './primary-publish-platforms';
 import {
   extractAndSaveTenantBrandKit,
   loadTenantBrandKit,
@@ -1384,18 +1386,23 @@ async function finalizeProductionAndRunPublishReview(
 }
 
 /**
- * Injectable gate for `advancePublishStage`. Returns `true` when the tenant
- * has no connected publish channel (Meta/IG) and Stage 4 should short-circuit
- * to `requires_channel_connection`. Shares semantics with the dashboard
- * `meta_not_connected` advisory via `tenantNeedsMetaConnection` — when the
- * gate emits the advisory, this returns `true`.
+ * Injectable gate for `advancePublishStage`. Returns `true` when the tenant has
+ * no connected publish channel at all and Stage 4 should short-circuit to
+ * `requires_channel_connection`.
+ *
+ * WHICH channels count is decided by `ARIES_ANY_PLATFORM_PUBLISH_ENABLED`
+ * (AA-217): OFF => Meta/IG only (historical behavior); ON => any platform in
+ * `publishablePlatforms()`, so a LinkedIn-first tenant is no longer blocked
+ * from a week of content. Either way this shares semantics with the dashboard
+ * `channel_not_connected` advisory via `tenantNeedsChannelConnection` — when
+ * the gate emits the advisory, this returns `true`.
  */
 export type PublishStageChannelGate = (tenantId: string) => Promise<boolean>;
 
 async function defaultPublishStageChannelGate(tenantId: string): Promise<boolean> {
   const client = await pool.connect();
   try {
-    return await tenantNeedsMetaConnection(client, tenantId);
+    return await tenantNeedsChannelConnection(client, tenantId);
   } finally {
     client.release();
   }
@@ -1448,26 +1455,34 @@ async function advancePublishStage(
     throw new Error('missing_publish_resume_token');
   }
 
-  // Channel-connection precheck. If the tenant has no Meta/IG connection, we
-  // do NOT submit Stage 4 to Hermes. Stages 1-3 artifacts are preserved on
-  // the doc, the publish stage is marked `requires_channel_connection`, and
-  // we clear any approval checkpoint so the UI surfaces "connect Meta to
-  // enable auto-publish" instead of an approval prompt.
+  // Channel-connection precheck. If the tenant has no connected publishing
+  // channel, we do NOT submit Stage 4 to Hermes. Stages 1-3 artifacts are
+  // preserved on the doc, the publish stage is marked
+  // `requires_channel_connection`, and we clear any approval checkpoint so the
+  // UI surfaces "connect a channel to enable auto-publish" instead of an
+  // approval prompt.
+  //
+  // The operator-facing copy tracks the flag: while
+  // ARIES_ANY_PLATFORM_PUBLISH_ENABLED is OFF, only Meta can actually unblock
+  // this tenant, so saying "a social account" would send them to connect a
+  // channel that changes nothing.
   try {
     const needsConnection = await publishStageChannelGate(String(doc.tenant_id));
     if (needsConnection) {
+      const anyPlatform = isAnyPlatformPublishEnabled();
       markStageRequiresChannelConnection(doc, 'publish', {
         summary: {
-          summary:
-            'Stage 4 is ready. Connect Meta in Settings to enable auto-publish.',
+          summary: anyPlatform
+            ? 'Stage 4 is ready. Connect a social account in Settings to enable auto-publish.'
+            : 'Stage 4 is ready. Connect Meta in Settings to enable auto-publish.',
           highlight: null,
         },
         artifactId: 'publish-needs-channel',
-        artifactTitle: 'Connect Meta to publish',
+        artifactTitle: anyPlatform ? 'Connect a social account to publish' : 'Connect Meta to publish',
         outputs: publishStage.outputs,
       });
       clearApprovalCheckpoint(doc, 'publish stage waiting on channel connection');
-      appendHistory(doc, 'publish stage paused: no Meta connection', {
+      appendHistory(doc, 'publish stage paused: no connected publishing channel', {
         stage: 'publish',
         state: doc.state,
         status: doc.status,
@@ -1783,11 +1798,32 @@ export async function startSocialContentJob(input: StartSocialContentJobRequest)
     // by a second Hermes submission. Aries runs as a standing Node cluster so
     // the voided promise completes normally. Errors are swallowed — the reel
     // companion is best-effort and must never affect the weekly job result.
-    void maybeFireWeeklyReelJob({
-      tenantId: Number(tenantId),
-      sourceWeeklyJobId: jobId,
-      brandUrl: brandCampaignInput.brandUrl,
-    }).catch(() => {});
+    //
+    // AA-217: skip it entirely for an alternate-primary tenant (no Meta, but a
+    // connected x/linkedin/reddit channel). A reel is a Meta surface here — its
+    // synthesized targets are video-shaped fb/ig entries, which alternate mode
+    // drops — so the companion would burn a full Hermes video-generation run,
+    // every week, to produce exactly zero rows. The skip cannot touch a Meta
+    // tenant: it requires the flag ON *and* zero Meta connections, and the
+    // resolver fails open to `meta` (i.e. fires the companion) on any error.
+    void (async () => {
+      if (isAnyPlatformPublishEnabled()) {
+        const resolution = await resolvePrimaryPublishPlatforms(Number(tenantId), pool);
+        if (resolution.mode !== 'meta') {
+          console.info('[marketing-orchestrator] weekly reel companion skipped — no Meta connection', {
+            jobId,
+            tenantId,
+            mode: resolution.mode,
+          });
+          return;
+        }
+      }
+      await maybeFireWeeklyReelJob({
+        tenantId: Number(tenantId),
+        sourceWeeklyJobId: jobId,
+        brandUrl: brandCampaignInput.brandUrl,
+      });
+    })().catch(() => {});
   }
 
   // Best-effort AI posting-time derivation (ARIES_AI_POSTING_TIMES_ENABLED):
