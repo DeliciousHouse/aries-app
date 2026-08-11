@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.8.1 — chore(deps): bump lucide-react to 1.29.0
+
+### Changed
+
+- Updated `lucide-react` from 1.28.0 to 1.29.0 while preserving React 19 peer compatibility.
+
 ## v0.2.8.0 — feat(media): durable object storage behind the public media proxy
 
 Media generated for a scheduled post now survives until the post publishes.
