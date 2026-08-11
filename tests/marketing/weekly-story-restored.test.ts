@@ -295,3 +295,140 @@ test('a deliberate zero-story request never reports a shortfall', async () => {
     assert.deepEqual(storyShortfallErrors(errors), []);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The shortfall must survive on the RUN DOC, not only in container logs.
+//
+// `synthesizePublishPostsOnCompletion` is module-private, so this drives the
+// real callback entry point (precedent: publish-stage-decoupling-b1.test.ts)
+// and then re-reads the doc FROM DISK — which proves both halves of the
+// contract: the history note is appended, and the caller's
+// saveSocialContentJobRuntime persists it. A note that only ever existed on the
+// in-memory doc would be exactly as invisible as the bug it reports.
+// ---------------------------------------------------------------------------
+
+const SHORTFALL_NOTE = 'story shortfall: scope promised 1 story post(s) but synthesis produced zero story rows';
+
+test('publish callback records the story shortfall on the persisted run doc', async () => {
+  const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-story-doc-'));
+  const prevEnv: Record<string, string | undefined> = {
+    DATA_ROOT: process.env.DATA_ROOT,
+    APP_BASE_URL: process.env.APP_BASE_URL,
+    ARIES_AUTO_APPROVE_MARKETING_PIPELINE: process.env.ARIES_AUTO_APPROVE_MARKETING_PIPELINE,
+    ARIES_AUTOSCHEDULE_ON_APPROVAL: process.env.ARIES_AUTOSCHEDULE_ON_APPROVAL,
+    ARIES_VIDEO_PUBLISH_ENABLED: process.env.ARIES_VIDEO_PUBLISH_ENABLED,
+  };
+  process.env.DATA_ROOT = dataRoot;
+  process.env.APP_BASE_URL = 'https://aries.example.com';
+  process.env.ARIES_AUTO_APPROVE_MARKETING_PIPELINE = '0';
+  process.env.ARIES_AUTOSCHEDULE_ON_APPROVAL = '0';
+  delete process.env.ARIES_VIDEO_PUBLISH_ENABLED;
+
+  let restorePool: (() => void) | null = null;
+  const originalError = console.error;
+
+  try {
+    const {
+      createSocialContentJobRuntimeDocument,
+      saveSocialContentJobRuntime,
+      loadSocialContentJobRuntime,
+    } = await import('../../backend/marketing/runtime-state');
+    const { createExecutionRunRecord } = await import('../../backend/execution/run-store');
+    const { handleHermesRunCallback } = await import('../../backend/execution/hermes-callbacks');
+    const pool = (await import('../../lib/db')).default;
+
+    const origQuery = pool.query.bind(pool);
+    restorePool = () => {
+      (pool as { query: typeof origQuery }).query = origQuery;
+    };
+    // No creative_assets => a single-media story can never be built => the
+    // promised surface yields zero rows. The replay guard confirms none exist.
+    (pool as { query: unknown }).query = async (sql: unknown) => {
+      const text = String(sql);
+      if (/count\(\*\)::int AS n/i.test(text)) return { rows: [{ n: 0 }], rowCount: 1 };
+      if (/FROM\s+creative_assets/i.test(text)) return { rows: [], rowCount: 0 };
+      if (/FROM\s+posts/i.test(text)) return { rows: [], rowCount: 0 };
+      if (/INSERT INTO posts/i.test(text)) return { rows: [{ id: 1 }], rowCount: 1 };
+      return { rows: [{ id: 1 }], rowCount: 1 };
+    };
+
+    const jobId = `mkt_story_doc_${dataRoot.slice(-6)}`;
+    const doc = createSocialContentJobRuntimeDocument({
+      jobId,
+      tenantId: '15',
+      // The real worker payload, normalized exactly as startSocialContentJob
+      // normalizes it — so the doc promises the week's story.
+      payload: prepareStartJobPayload('weekly_social_content', { ...WORKER_WEEKLY_PAYLOAD }),
+      brandKit: {
+        path: '/tmp/brand-kit.json',
+        source_url: 'https://brand.example/',
+        canonical_url: 'https://brand.example/',
+        brand_name: 'Brand',
+        logo_urls: [],
+        colors: { primary: null, secondary: null, accent: null, palette: [] },
+        font_families: [],
+        external_links: [],
+        extracted_at: new Date().toISOString(),
+        brand_voice_summary: 'clear',
+        offer_summary: null,
+        positioning: null,
+        audience: null,
+        tone_of_voice: null,
+        style_vibe: null,
+      },
+    });
+    assert.equal(
+      (doc.inputs.request as Record<string, unknown>).storyCount,
+      1,
+      'precondition: the persisted request promises a story',
+    );
+    doc.stages.production.status = 'completed';
+    doc.stages.production.primary_output = {
+      stage: 'production',
+      content_package: [
+        { post_number: 1, hook: 'H1', body: 'B1', cta: 'C1', hashtags: ['#a'], platforms: ['instagram'] },
+        { post_number: 2, hook: 'H2', body: 'B2', cta: 'C2', hashtags: ['#b'], platforms: ['instagram'] },
+      ],
+    } as Record<string, unknown>;
+    saveSocialContentJobRuntime(jobId, doc);
+
+    const run = createExecutionRunRecord({
+      provider: 'hermes',
+      domain: 'marketing',
+      workflowKey: 'social_content_weekly',
+      action: 'resume',
+      tenantId: doc.tenant_id,
+      marketingJobId: jobId,
+      stage: 'publish',
+    });
+
+    console.error = () => {};
+    await handleHermesRunCallback({
+      event_id: `evt-story-doc-${dataRoot.slice(-6)}`,
+      aries_run_id: run.aries_run_id,
+      hermes_run_id: `hermes-story-doc-${dataRoot.slice(-6)}`,
+      status: 'completed',
+      stage: 'publish',
+      output: [{ stage: 'publish', schedule: SCHEDULE }],
+    });
+    console.error = originalError;
+
+    const persisted = await loadSocialContentJobRuntime(jobId);
+    assert.ok(persisted, 'the run doc must still be readable after the callback');
+    const notes = persisted!.history.map((h) => h.note);
+    const shortfall = persisted!.history.find((h) => h.note === SHORTFALL_NOTE);
+    assert.ok(
+      shortfall,
+      `the shortfall must be on the persisted run doc. history notes: ${JSON.stringify(notes)}`,
+    );
+    assert.equal(shortfall!.stage, 'publish', 'the note belongs to the publish stage');
+  } finally {
+    console.error = originalError;
+    if (restorePool) restorePool();
+    for (const [k, v] of Object.entries(prevEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    await rm(dataRoot, { recursive: true, force: true });
+  }
+});
