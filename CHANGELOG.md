@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.13.0 — docs(agents): refresh repository guidance
+
+Aries agents now receive current, consistent instructions for repository boundaries,
+runtime architecture, validation, worktree handling, and deliberate draft-PR review.
+
+### Changed
+
+- Root contributor and agent guidance now reflects the Hermes polling reconciler,
+  current frontend and integration surfaces, Node 24 and Windows test commands, and
+  the required fresh-origin rebase workflow.
+- Specialist agent roles now route implementation, regression proof, and strictly
+  read-only pre-PR review through the sanctioned draft-PR merge-gate lanes.
+- Review ownership is explicit and deterministic: even PR numbers go to
+  `dev-reviewer`, odd PR numbers go to `dev-reviewer-2`, and neither lane enables
+  auto-merge.
+
+### Fixed
+
+- The reviewer shipping contract now pushes the verified rebased head with
+  `--force-with-lease` before opening its draft PR, with regression coverage that
+  prevents the stale-remote-head failure mode from returning.
+- Executable goal commands now preserve the exact-head CI handoff language required
+  by the workflow-security contract.
+
 ## v0.2.12.0 — fix(marketing): the strategist names the weekday two ways (AA-237)
 
 The strategist writes a weekday for every post it plans. `buildAutoScheduleRows`
