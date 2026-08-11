@@ -1195,7 +1195,7 @@ function parsePositiveInteger(value: unknown): number | null {
   return null;
 }
 
-type WeeklyScopeConfig = {
+export type WeeklyScopeConfig = {
   windowDays: number;
   staticPostCount: number;
   storyCount: number;
@@ -1205,7 +1205,7 @@ type WeeklyScopeConfig = {
   channels: string[];
 };
 
-function socialWeeklyScopeConfig(runtimeDoc: SocialContentJobRuntimeDocument): WeeklyScopeConfig {
+export function socialWeeklyScopeConfig(runtimeDoc: SocialContentJobRuntimeDocument): WeeklyScopeConfig {
   const request = recordValue(runtimeDoc.inputs.request) ?? {};
   const scope = recordValue(request.scope) ?? {};
   const windowDays = clampWeeklyWindowDays(
@@ -1214,11 +1214,10 @@ function socialWeeklyScopeConfig(runtimeDoc: SocialContentJobRuntimeDocument): W
   const staticPostCount =
     parsePositiveInteger(request.staticPostCount ?? scope.static_post_count) ??
     SOCIAL_CONTENT_DEFAULT_SCOPE.static_post_count;
-  // story_count defaults to 0 (OFF); parsePositiveInteger returns null for 0, so
-  // an explicit 0 and an absent value both resolve to the 0 default — correct.
-  const storyCount =
-    parsePositiveInteger(request.storyCount ?? request.storiesCount ?? scope.story_count) ??
-    SOCIAL_CONTENT_DEFAULT_SCOPE.story_count;
+  const rawStoryCount = request.storyCount ?? request.storiesCount ?? scope.story_count;
+  const storyCount = rawStoryCount === 0 || rawStoryCount === '0'
+    ? 0
+    : parsePositiveInteger(rawStoryCount) ?? SOCIAL_CONTENT_DEFAULT_SCOPE.story_count;
   const imageCreativeCount =
     parsePositiveInteger(request.imageCreativeCount ?? scope.image_creative_count) ??
     SOCIAL_CONTENT_DEFAULT_SCOPE.image_creative_count;

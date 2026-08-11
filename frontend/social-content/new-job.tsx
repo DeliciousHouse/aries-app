@@ -482,6 +482,10 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
             </Section>
 
             <Section title="Output scope">
+              <p className="text-sm leading-6 text-white/60">
+                Publishing targets come from your connected publishable accounts. LinkedIn, X, and Reddit receive
+                native feed posts. Image stories and rendered reels are created only for Facebook and Instagram.
+              </p>
               <Field label="Planning window days (1-14)">
                 <input
                   type="number"
@@ -501,7 +505,7 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
                   className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50"
                 />
               </Field>
-              <Field label="Image stories">
+              <Field label="Image stories (Facebook/Instagram only)">
                 <input
                   type="number"
                   min={0}
@@ -537,7 +541,7 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
                     onChange={(event) => setRenderVideoAfterApproval(event.target.checked)}
                     className="h-4 w-4 rounded border-white/20 bg-white/5"
                   />
-                  Enable rendered video output
+                  Enable rendered Reel output (Facebook/Instagram only)
                 </label>
                 {renderVideoAfterApproval ? (
                   <div className="space-y-2 pt-1">

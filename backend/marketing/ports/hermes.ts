@@ -41,6 +41,8 @@ import { buildBrandKitPayload } from '../../social-content/brand-kit-payload';
 import { isTasteBriefInjectionEnabled } from '../taste-brief-injection-env';
 import { loadTasteForBriefByTenant, type TasteDimensions } from '../taste-profile-store';
 import { isPerfContextEnabled } from '../performance-context-env';
+import { isAnyPlatformPublishEnabled } from '@/backend/integrations/providers/integration-config';
+import { renderPrimaryPlatformScopeBlock } from '../platform-native-content';
 import {
   loadPerformanceContext,
   type PerformanceContext,
@@ -509,6 +511,9 @@ const PUBLISH_FINALIZE_SCHEDULE_CARRY_THROUGH =
 const PRODUCTION_EXECUTION_CONTRACT =
   'PRODUCTION STAGE EXECUTION CONTRACT: When the input contains "Production context (N images requested)", you MUST return BOTH content_package[] AND artifacts.creative_assets[]. One without the other is incomplete and will fail downstream publish. (A) Call the `image_generate` tool exactly once per image listed — do not return JSON until every image_generate call has completed. (B) Build content_package[] with one entry per post: {post_number, theme, hook, body, cta, hashtags (array of 3-6 relevant hashtags), platforms, format, visual_prompt}. The Nth creative_asset corresponds to the Nth content_package post via post_number. content_package carries the post COPY (caption text, hooks, hashtags). creative_assets carries the rendered IMAGES. Return output:[{stage:"production", content_package:[{post_number:1, theme:"...", hook:"...", body:"...", cta:"...", hashtags:["#tag1","#tag2","#tag3"], platforms:["instagram","facebook"], format:"single_image", visual_prompt:"..."},...], artifacts:{creative_assets:[{assetId:"img_1", type:"generated_image", path:<absolute path returned by image_generate>, prompt:<the rendered visual prompt>, placement:<which post number>}, ...], errors:[]}}]. If image_generate returns success:false for an item, record it in artifacts.errors[] and continue.';
 
+const PLATFORM_NATIVE_CONTENT_CONTRACT =
+  'PLATFORM-NATIVE CONTENT CONTRACT: For every post, plan and write a separate platform_content object keyed only by each target in the Primary publish platform scope. Never write one Meta caption and adapt it downstream. Every platform_content value MUST include {hook,body,cta,hashtags,link_policy,placement,media_type}. Meta (Facebook/Instagram): conversational, visual-first feed copy of roughly 80-220 words with an immediate hook, a natural action CTA, and 3-6 relevant hashtags; links only when the objective needs one; stories and reels are valid Meta placements. LinkedIn: a 600-1300 character professional insight or useful narrative (never over 2900 characters) with readable line breaks, a discussion-oriented CTA, 3-5 focused hashtags, and restrained links; use feed placement. X: a sharp hook and complete post within 280 characters after links, 0-2 hashtags, one concise CTA, and no unnecessary link; use feed placement. Reddit: a descriptive title under 280 characters in hook plus substantive community-first body, no hashtags, no promotional link unless genuinely useful, and a discussion CTA that respects subreddit norms; use feed placement. Use media_type image for generated static creative and video only when the scoped platform and approved brief support it. Preserve the generic hook/body/cta/hashtags fields as a safe legacy fallback, but platform_content is authoritative for each scoped destination.';
+
 /** Instructs the production agent how to return video clips alongside images.
  * Kept as a named export so workflow-request.ts can append it to the resume
  * context block without re-stating the schema (single source of truth).
@@ -683,12 +688,16 @@ export function buildHermesStageInstructions(
   workflowKey: string,
   stage: MarketingStage,
   workflowStepId?: string | null,
+  platformNative = false,
 ): string {
   if (workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY) {
     if (stage === 'publish' && workflowStepId === FINAL_PUBLISH_WORKFLOW_STEP_ID) {
       return buildWeeklyPublishFinalizeInstructions(workflowKey);
     }
-    return WEEKLY_STAGE_INSTRUCTION_BUILDERS[stage](workflowKey);
+    const instructions = WEEKLY_STAGE_INSTRUCTION_BUILDERS[stage](workflowKey);
+    return platformNative && stage !== 'research'
+      ? `${instructions} ${PLATFORM_NATIVE_CONTENT_CONTRACT}`
+      : instructions;
   }
   return buildHermesInstructions(workflowKey);
 }
@@ -1746,6 +1755,12 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         ...(objectiveLine ? [objectiveLine] : []),
       ];
 
+      if (isAnyPlatformPublishEnabled(this.env as NodeJS.ProcessEnv) && productionDoc && !isPublishFinalize) {
+        const request = productionDoc.inputs.request as Record<string, unknown>;
+        const channels = Array.isArray(request.channels) ? request.channels : [];
+        baseRunLines.push('', renderPrimaryPlatformScopeBlock(channels));
+      }
+
       // Inject rich per-image prompt context on the production run
       // (approve_post_copy) so the content-generation profile has brand,
       // research, and strategy context when it calls image_generate.
@@ -1840,6 +1855,9 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         `Callback URL: ${request.callback_url}`,
         `Request (JSON): ${JSON.stringify(request)}`,
       ];
+      if (isAnyPlatformPublishEnabled(this.env as NodeJS.ProcessEnv)) {
+        promptLines.push('', renderPrimaryPlatformScopeBlock(request.input.scope.channels));
+      }
       if (startingStage) {
         promptLines.push(`Starting stage: ${startingStage}`);
       }
@@ -2356,7 +2374,12 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       if (resolvedStage === 'research' && !hasDedicatedProfileGateway('aries-research', this.env)) {
         return buildWeeklyResearchInstructions(workflowKey, false);
       }
-      return buildHermesStageInstructions(workflowKey, resolvedStage, workflowStepId);
+      return buildHermesStageInstructions(
+        workflowKey,
+        resolvedStage,
+        workflowStepId,
+        isAnyPlatformPublishEnabled(this.env as NodeJS.ProcessEnv),
+      );
     }
     return buildHermesInstructions(workflowKey);
   }

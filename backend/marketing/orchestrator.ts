@@ -80,6 +80,7 @@ import pool from '@/lib/db';
 import { isAnyPlatformPublishEnabled } from '@/backend/integrations/providers/integration-config';
 import { tenantNeedsChannelConnection } from '@/lib/tenant-needs-channel-connection';
 import { resolvePrimaryPublishPlatforms } from './primary-publish-platforms';
+import { applyPrimaryPlatformResolutionToWeeklyDoc } from './platform-native-content';
 import {
   extractAndSaveTenantBrandKit,
   loadTenantBrandKit,
@@ -1744,6 +1745,12 @@ export async function startSocialContentJob(input: StartSocialContentJobRequest)
     brandKit: runtimeBrandKitReference(brandKit, filePath),
     createdBy: input.createdBy ?? null,
   });
+  const primaryPlatformResolution = input.jobType === 'weekly_social_content' && isAnyPlatformPublishEnabled()
+    ? await resolvePrimaryPublishPlatforms(Number(tenantId), pool)
+    : null;
+  if (primaryPlatformResolution) {
+    applyPrimaryPlatformResolutionToWeeklyDoc(doc, primaryPlatformResolution);
+  }
   // One-off campaigns ride the same social-content Hermes pipeline per design
   // premise P3 (same 4 stages, same approval gates, same Hermes calls), so they
   // need the same runtime state block downstream code reads.
@@ -1807,16 +1814,13 @@ export async function startSocialContentJob(input: StartSocialContentJobRequest)
     // tenant: it requires the flag ON *and* zero Meta connections, and the
     // resolver fails open to `meta` (i.e. fires the companion) on any error.
     void (async () => {
-      if (isAnyPlatformPublishEnabled()) {
-        const resolution = await resolvePrimaryPublishPlatforms(Number(tenantId), pool);
-        if (resolution.mode !== 'meta') {
-          console.info('[marketing-orchestrator] weekly reel companion skipped — no Meta connection', {
-            jobId,
-            tenantId,
-            mode: resolution.mode,
-          });
-          return;
-        }
+      if (primaryPlatformResolution && primaryPlatformResolution.mode !== 'meta') {
+        console.info('[marketing-orchestrator] weekly reel companion skipped — no Meta connection', {
+          jobId,
+          tenantId,
+          mode: primaryPlatformResolution.mode,
+        });
+        return;
       }
       await maybeFireWeeklyReelJob({
         tenantId: Number(tenantId),

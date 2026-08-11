@@ -1,4 +1,4 @@
-export type SocialContentImageChannel = 'meta' | 'instagram';
+export type SocialContentImageChannel = 'meta' | 'instagram' | 'linkedin' | 'x' | 'reddit';
 
 export type SocialContentMediaPostType =
   | 'single_image'
@@ -29,6 +29,24 @@ const ASPECT_MATRIX: Record<
     link_card: '1.91:1',
     video: '9:16',
   },
+  linkedin: {
+    single_image: '1.91:1',
+    carousel: '1:1',
+    link_card: '1.91:1',
+    video: '9:16',
+  },
+  x: {
+    single_image: '1.91:1',
+    carousel: '1:1',
+    link_card: '1.91:1',
+    video: '9:16',
+  },
+  reddit: {
+    single_image: '1:1',
+    carousel: '1:1',
+    link_card: '1.91:1',
+    video: '9:16',
+  },
 };
 
 export function resolveSocialContentAspectRatio(
@@ -44,5 +62,8 @@ export function resolveDominantImageChannel(
 ): SocialContentImageChannel {
   if (channels.includes('instagram')) return 'instagram';
   if (channels.includes('meta')) return 'meta';
+  if (channels.includes('linkedin')) return 'linkedin';
+  if (channels.includes('x')) return 'x';
+  if (channels.includes('reddit')) return 'reddit';
   return 'instagram';
 }

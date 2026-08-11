@@ -166,8 +166,13 @@ function resolveCreativeBriefs(req: UnknownRecord, repairedOffer: string): strin
   return ['Create on-brand weekly social image creative.'];
 }
 
-function weeklySocialChannels(value: string[]): string[] {
+function weeklySocialChannels(value: string[], allowAlternate = false): string[] {
   const allowedChannels = new Set<string>(SOCIAL_CONTENT_DEFAULT_SCOPE.channels);
+  if (allowAlternate) {
+    allowedChannels.add('x');
+    allowedChannels.add('linkedin');
+    allowedChannels.add('reddit');
+  }
   const channels = value.filter((channel) => allowedChannels.has(channel));
   return channels.length > 0 ? channels : [...SOCIAL_CONTENT_DEFAULT_SCOPE.channels];
 }
@@ -182,8 +187,13 @@ export function buildSocialContentWeeklyRequest(input: {
 }): SocialContentWeeklyRequest {
   const req = requestRecord(input.doc);
   const brandKit = input.doc.brand_kit ?? null;
-  const configuredChannels = stringArray(req.channels);
-  const imageTargetChannels = weeklySocialChannels(configuredChannels);
+  const primaryPublishPlatforms = stringArray(
+    (input.doc.inputs as unknown as UnknownRecord).primary_publish_platforms,
+  );
+  const configuredChannels = primaryPublishPlatforms.length > 0
+    ? primaryPublishPlatforms
+    : stringArray(req.channels);
+  const imageTargetChannels = weeklySocialChannels(configuredChannels, primaryPublishPlatforms.length > 0);
   const brandKitPayload = buildBrandKitPayload(input.doc, brandKit, req);
   const requestedWindowDays = clampWeeklyWindowDays(
     req.windowDays ?? req.postWindowDays ?? SOCIAL_CONTENT_DEFAULT_SCOPE.window_days,
@@ -407,8 +417,13 @@ export function buildProductionResumeContext(input: {
   const tasteAudienceLine = tasteAudience.length > 0
     ? `Audience focus (learned): ${tasteAudience.join('; ')}`
     : '';
-  const configuredChannels = stringArray(req.channels);
-  const imageTargetChannels = weeklySocialChannels(configuredChannels);
+  const primaryPublishPlatforms = stringArray(
+    (input.doc.inputs as unknown as UnknownRecord).primary_publish_platforms,
+  );
+  const configuredChannels = primaryPublishPlatforms.length > 0
+    ? primaryPublishPlatforms
+    : stringArray(req.channels);
+  const imageTargetChannels = weeklySocialChannels(configuredChannels, primaryPublishPlatforms.length > 0);
   const primaryChannel = resolveDominantImageChannel(imageTargetChannels);
   const aspectRatio = resolveSocialContentAspectRatio({ channel: primaryChannel, postType: 'single_image' });
   const windowDays = clampWeeklyWindowDays(
@@ -436,6 +451,9 @@ export function buildProductionResumeContext(input: {
   const aspectHintByChannel: Record<string, string> = {
     instagram: 'portrait 4:5',
     meta: 'square 1:1 or landscape 1.91:1',
+    linkedin: 'landscape 1.91:1',
+    x: 'landscape 1.91:1',
+    reddit: 'square 1:1',
   };
   const channelAspectHints = imageTargetChannels
     .map((ch) => `${ch}: ${aspectHintByChannel[ch] ?? aspectRatio}`)
@@ -662,7 +680,27 @@ export function buildProductionResumeContext(input: {
   contextLines.push('  "body": "<2-4 sentence post body>",');
   contextLines.push('  "cta": "<call to action>",');
   contextLines.push('  "hashtags": ["#tag1", "#tag2", "#tag3"],');
-  contextLines.push('  "platforms": ["instagram", "facebook"],');
+  const alternateChannels = imageTargetChannels.filter((channel) => channel !== 'meta' && channel !== 'instagram');
+  contextLines.push(
+    alternateChannels.length > 0
+      ? `  "platforms": ${JSON.stringify(alternateChannels)},`
+      : '  "platforms": ["instagram", "facebook"],',
+  );
+  if (alternateChannels.length > 0) {
+    const nativeExample = Object.fromEntries(alternateChannels.map((channel) => [
+      channel,
+      {
+        hook: `<${channel}-native hook>`,
+        body: `<${channel}-native body>`,
+        cta: `<${channel}-native CTA>`,
+        hashtags: channel === 'reddit' ? [] : ['#relevant'],
+        link_policy: '<platform-appropriate link policy>',
+        placement: 'feed',
+        media_type: 'image',
+      },
+    ]));
+    contextLines.push(`  "platform_content": ${JSON.stringify(nativeExample)},`);
+  }
   contextLines.push('  "format": "single_image",');
   contextLines.push(
     brandMode === 'dark'
