@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.6.0 — fix(marketing): generate platform-native social posts
+
+Weekly social-content runs now plan, write, and display content for the tenant's
+real publishable platforms instead of adapting a Meta caption after generation.
+
+### Changed
+
+- Strategy and production now receive a sanitized, fenced platform scope and
+  write native Meta, LinkedIn, X, and Reddit variants with platform-appropriate
+  length, tone, links, hashtags, calls to action, placement, and media type.
+- LinkedIn, X, and Reddit primary runs persist their effective destinations,
+  use platform-native image ratios, and omit Meta-only stories and rendered Reels.
+
+### Fixed
+
+- Synthesis now consumes native per-platform copy while retaining the legacy
+  generic-caption fallback and byte-identical Meta behavior when the rollout is off.
+- Weekly-plan status and creation copy no longer promise stories or Reels to
+  tenants whose connected publish targets cannot receive them.
+
 ## v0.2.5.0 — fix(marketing): gate generation on dispatchable platforms
 
 Weekly social-content generation can use an enabled X, LinkedIn, or Reddit

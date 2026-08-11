@@ -50,6 +50,9 @@ test('social-content public routes and rendered surfaces avoid standalone campai
     }),
   );
   assertNoStandaloneCampaignCopy('/social-content/new rendered surface', newJobMarkup);
+  assert.match(newJobMarkup, /connected publishable accounts/i);
+  assert.match(newJobMarkup, /LinkedIn, X, and Reddit receive native feed posts/i);
+  assert.match(newJobMarkup, /stories and rendered reels are created only for Facebook and Instagram/i);
 
   const statusMarkup = renderToStaticMarkup(
     await SocialContentStatusPage({ searchParams: Promise.resolve({}) }),

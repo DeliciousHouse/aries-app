@@ -113,6 +113,8 @@ export interface SynthesizePublishPostsResult {
     | 'no_connected_platform';
 }
 
+type NativeContentPlatform = 'facebook' | 'instagram' | CrosspostPlatform;
+
 type ContentPackageEntry = {
   postNumber: number;
   caption: string;
@@ -121,9 +123,11 @@ type ContentPackageEntry = {
   /** Cleaned hashtag tokens — used to compose the X crosspost caption. */
   hashtags: string[];
   platforms: string[];
+  platformCaptions: Partial<Record<NativeContentPlatform, string>>;
 };
 
-const VALID_PLATFORMS = new Set(['instagram', 'facebook']);
+const VALID_PLATFORMS = new Set(['instagram', 'facebook', 'x', 'linkedin', 'reddit']);
+const META_PLATFORMS = new Set(['instagram', 'facebook']);
 
 type PostSurface = 'feed' | 'story' | 'reel';
 type PostMediaType = 'image' | 'video';
@@ -361,7 +365,25 @@ function parseContentPackage(raw: unknown): ContentPackageEntry[] {
           .map((tag) => tag.trim())
           .filter((tag) => tag.length > 0)
       : [];
-    entries.push({ postNumber, caption, headline, hashtags, platforms: Array.from(new Set(platforms)) });
+    const platformContent = recordValue(record.platform_content);
+    const platformCaptions: Partial<Record<NativeContentPlatform, string>> = {};
+    for (const platform of ['facebook', 'instagram', 'x', 'linkedin', 'reddit'] as const) {
+      const nativeRaw = platform === 'facebook'
+        ? platformContent?.facebook ?? platformContent?.meta ?? platformContent?.['meta-ads']
+        : platformContent?.[platform];
+      const nativeEntry = recordValue(nativeRaw);
+      if (!nativeEntry) continue;
+      const nativeCaption = buildCaption(nativeEntry);
+      if (nativeCaption) platformCaptions[platform] = nativeCaption;
+    }
+    entries.push({
+      postNumber,
+      caption,
+      headline,
+      hashtags,
+      platforms: Array.from(new Set(platforms)),
+      platformCaptions,
+    });
   });
   return entries;
 }
@@ -673,6 +695,17 @@ export async function synthesizePublishPostsFromContentPackage(
       const shape = scheduleShapeByKey.get(`${entry.postNumber}:${platform}`)
         ?? { surface: 'feed' as PostSurface, mediaType: 'image' as PostMediaType };
 
+      // Accept alternate targets in the Hermes content_package so the model can
+      // describe its real scope, but insert them only through the resolver-owned
+      // fan-out below. Model output must never bypass connection/config gates.
+      if (!META_PLATFORMS.has(platform)) {
+        if (alternateMode && shape.surface === 'feed' && shape.mediaType === 'image') {
+          entryHasFeedImage = true;
+        }
+        skipped++;
+        continue;
+      }
+
       // Rollout gate: when video publishing is OFF, strip reel/video entries so
       // the campaign still succeeds on the image/feed shapes. A reel has no
       // image fallback, so the whole (post, platform) target is skipped.
@@ -741,7 +774,7 @@ export async function synthesizePublishPostsFromContentPackage(
           jobId,              // $2
           publishRunId,       // $3
           platform,           // $4
-          entry.caption,      // $5
+          entry.platformCaptions[platform as NativeContentPlatform] ?? entry.caption, // $5
           idempotencyKey,     // $6
           rowCreativeAssetIds, // $7
           shape.mediaType,    // $8
@@ -790,7 +823,8 @@ export async function synthesizePublishPostsFromContentPackage(
         total++;
         const idempotencyKey = `${jobId}:${entry.postNumber}:${platform}:feed`;
         try {
-          const adaptedCaption = adaptCaptionForPlatform(platform, entry.caption, entry.hashtags);
+          const adaptedCaption = entry.platformCaptions[platform]
+            ?? adaptCaptionForPlatform(platform, entry.caption, entry.hashtags);
           const result = await pool.query(INSERT_SYNTHESIZED_POST_SQL, [
             tenantId,           // $1
             jobId,              // $2

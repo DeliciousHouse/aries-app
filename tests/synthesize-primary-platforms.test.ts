@@ -371,6 +371,64 @@ test('X-only tenant: rows carry the weighted-capped X caption', async () => {
   });
 });
 
+test('alternate primary rows use Hermes-native platform copy instead of adapting the Meta caption', async () => {
+  await withEnv({ ...LIVE_FLAGS, ARIES_ANY_PLATFORM_PUBLISH_ENABLED: '1' }, async () => {
+    const doc = makeDoc('job_native') as unknown as Record<string, any>;
+    doc.stages.production.primary_output.content_package[0].platforms = ['linkedin'];
+    doc.stages.production.primary_output.content_package[0].platform_content = {
+      linkedin: {
+        hook: 'A LinkedIn-native opening',
+        body: 'A considered professional post written for the LinkedIn feed.',
+        cta: 'Share your experience in the comments.',
+        hashtags: ['#Leadership'],
+        placement: 'feed',
+        media_type: 'image',
+      },
+    };
+    const { pool, inserts } = makeFakePool({
+      connected: ['linkedin'],
+      externalAccountIds: { linkedin: 'urn:li:person:test' },
+    });
+
+    await synthesizePublishPostsFromContentPackage({
+      jobId: 'job_native', tenantId: 70, doc: doc as unknown as SocialContentJobRuntimeDocument,
+      publishRunId: null, pool,
+    });
+
+    assert.equal(
+      rowsFor(inserts, 'linkedin')[0][4],
+      'A LinkedIn-native opening\n\nA considered professional post written for the LinkedIn feed.\n\nShare your experience in the comments.\n\n#Leadership',
+    );
+  });
+});
+
+test('Meta primary rows use Hermes-native platform copy when the platform_content contract is present', async () => {
+  await withEnv({ ...LIVE_FLAGS, ARIES_ANY_PLATFORM_PUBLISH_ENABLED: '1' }, async () => {
+    const doc = makeDoc('job_meta_native') as unknown as Record<string, any>;
+    doc.stages.production.primary_output.content_package[0].platform_content = {
+      facebook: {
+        hook: 'A Facebook-native opening',
+        body: 'Conversational Meta feed copy.',
+        cta: 'Tell us what you think.',
+        hashtags: ['#Community'],
+        placement: 'feed',
+        media_type: 'image',
+      },
+    };
+    const { pool, inserts } = makeFakePool({ connected: ['facebook'] });
+
+    await synthesizePublishPostsFromContentPackage({
+      jobId: 'job_meta_native', tenantId: 15,
+      doc: doc as unknown as SocialContentJobRuntimeDocument, publishRunId: null, pool,
+    });
+
+    assert.equal(
+      rowsFor(inserts, 'facebook')[0][4],
+      'A Facebook-native opening\n\nConversational Meta feed copy.\n\nTell us what you think.\n\n#Community',
+    );
+  });
+});
+
 test('X-only tenant with no upload_media slug: mode none, zero image rows synthesized', async () => {
   const { COMPOSIO_X_UPLOAD_MEDIA_ACTION: _, ...withoutUpload } = LIVE_FLAGS;
   await withEnv({ ...withoutUpload, ARIES_ANY_PLATFORM_PUBLISH_ENABLED: '1' }, async () => {
