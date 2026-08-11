@@ -13,7 +13,6 @@ import { buildHermesStageInstructions, HermesMarketingPort } from '../backend/ma
 import type { SocialContentJobRuntimeDocument } from '../backend/marketing/runtime-state';
 import { buildSocialContentWeeklyRequest, buildProductionResumeContext } from '../backend/social-content/workflow-request';
 import { SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY } from '../backend/social-content/defaults';
-import { resolveSocialContentAspectRatio } from '../backend/social-content/aspect-matrix';
 
 function makeDoc(): SocialContentJobRuntimeDocument {
   return {
@@ -98,12 +97,6 @@ test('Meta resolution preserves tenant 15 legacy request and publish config byte
     JSON.stringify({ request: doc.inputs.request, publishConfig: doc.publish_config }),
     before,
   );
-});
-
-test('alternate platforms use native static-image aspect ratios', () => {
-  assert.equal(resolveSocialContentAspectRatio({ channel: 'linkedin', postType: 'single_image' }), '1.91:1');
-  assert.equal(resolveSocialContentAspectRatio({ channel: 'x', postType: 'single_image' }), '1.91:1');
-  assert.equal(resolveSocialContentAspectRatio({ channel: 'reddit', postType: 'single_image' }), '1:1');
 });
 
 test('platform scope is allowlisted and fenced as data, not executable prompt text', () => {

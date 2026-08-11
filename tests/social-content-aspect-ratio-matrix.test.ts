@@ -79,7 +79,16 @@ test('dominant channel resolves to meta for meta-only target', () => {
 
 test('dominant channel falls back to instagram for empty/unknown channels', () => {
   assert.equal(resolveDominantImageChannel([]), 'instagram');
-  assert.equal(resolveDominantImageChannel(['linkedin', 'youtube']), 'instagram');
+  assert.equal(resolveDominantImageChannel(['youtube']), 'instagram');
+});
+
+test('alternate primary channels use their native static-image ratios', () => {
+  assert.equal(resolveDominantImageChannel(['linkedin', 'youtube']), 'linkedin');
+  assert.equal(resolveDominantImageChannel(['x']), 'x');
+  assert.equal(resolveDominantImageChannel(['reddit']), 'reddit');
+  assert.equal(resolveSocialContentAspectRatio({ channel: 'linkedin', postType: 'single_image' }), '1.91:1');
+  assert.equal(resolveSocialContentAspectRatio({ channel: 'x', postType: 'single_image' }), '1.91:1');
+  assert.equal(resolveSocialContentAspectRatio({ channel: 'reddit', postType: 'single_image' }), '1:1');
 });
 
 test('weekly workflow request emits 1:1 for meta-only image target channel', () => {
