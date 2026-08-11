@@ -41,7 +41,7 @@ import { buildBrandKitPayload } from '../../social-content/brand-kit-payload';
 import { isTasteBriefInjectionEnabled } from '../taste-brief-injection-env';
 import { loadTasteForBriefByTenant, type TasteDimensions } from '../taste-profile-store';
 import { isPerfContextEnabled } from '../performance-context-env';
-import { isAnyPlatformPublishEnabled } from '@/backend/integrations/providers/integration-config';
+import { isPlatformNativeContentEnabled } from '@/backend/integrations/providers/integration-config';
 import { renderPrimaryPlatformScopeBlock } from '../platform-native-content';
 import {
   loadPerformanceContext,
@@ -1755,7 +1755,11 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         ...(objectiveLine ? [objectiveLine] : []),
       ];
 
-      if (isAnyPlatformPublishEnabled(this.env as NodeJS.ProcessEnv) && productionDoc && !isPublishFinalize) {
+      if (
+        isPlatformNativeContentEnabled(this.env as NodeJS.ProcessEnv, input.tenantId) &&
+        productionDoc &&
+        !isPublishFinalize
+      ) {
         const request = productionDoc.inputs.request as Record<string, unknown>;
         const channels = Array.isArray(request.channels) ? request.channels : [];
         baseRunLines.push('', renderPrimaryPlatformScopeBlock(channels));
@@ -1793,7 +1797,12 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       const runPrompt = baseRunLines.join('\n');
       return {
         input: runPrompt,
-        instructions: this.instructions(SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY, stage, input.workflowStepId),
+        instructions: this.instructions(
+          SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
+          stage,
+          input.workflowStepId,
+          input.tenantId,
+        ),
         session_id: this.sessionKey(),
         workflow_key: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
         action: 'run',
@@ -1855,7 +1864,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         `Callback URL: ${request.callback_url}`,
         `Request (JSON): ${JSON.stringify(request)}`,
       ];
-      if (isAnyPlatformPublishEnabled(this.env as NodeJS.ProcessEnv)) {
+      if (isPlatformNativeContentEnabled(this.env as NodeJS.ProcessEnv, request.tenant_id)) {
         promptLines.push('', renderPrimaryPlatformScopeBlock(request.input.scope.channels));
       }
       if (startingStage) {
@@ -1940,7 +1949,12 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         : prompt;
       return {
         input: promptWithMemory,
-        instructions: this.instructions(request.workflow_key, input.stage ?? 'research'),
+        instructions: this.instructions(
+          request.workflow_key,
+          input.stage ?? 'research',
+          null,
+          request.tenant_id,
+        ),
         session_id: this.sessionKey(),
         workflow_key: request.workflow_key,
         action: 'run',
@@ -2364,10 +2378,16 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     ].join('\n');
   }
 
+  /**
+   * `tenantId` is only consulted for the AA-218 native-content contract, which
+   * is tenant-scopable — a caller that cannot name a tenant simply gets the
+   * legacy (non-native) instructions rather than the fleet-wide behaviour.
+   */
   private instructions(
     workflowKey: string,
     stage?: MarketingStage,
     workflowStepId?: string | null,
+    tenantId?: number | string | null,
   ): string {
     if (workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY) {
       const resolvedStage = stage ?? 'research';
@@ -2378,7 +2398,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         workflowKey,
         resolvedStage,
         workflowStepId,
-        isAnyPlatformPublishEnabled(this.env as NodeJS.ProcessEnv),
+        isPlatformNativeContentEnabled(this.env as NodeJS.ProcessEnv, tenantId),
       );
     }
     return buildHermesInstructions(workflowKey);

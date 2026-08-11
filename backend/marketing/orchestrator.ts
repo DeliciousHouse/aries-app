@@ -80,7 +80,10 @@ import {
   type MarketingStage,
 } from './runtime-state';
 import pool from '@/lib/db';
-import { isAnyPlatformPublishEnabled } from '@/backend/integrations/providers/integration-config';
+import {
+  isAnyPlatformPublishEnabled,
+  isPlatformNativeContentEnabled,
+} from '@/backend/integrations/providers/integration-config';
 import { tenantNeedsChannelConnection } from '@/lib/tenant-needs-channel-connection';
 import { resolvePrimaryPublishPlatforms } from './primary-publish-platforms';
 import { applyPrimaryPlatformResolutionToWeeklyDoc } from './platform-native-content';
@@ -1781,9 +1784,17 @@ export async function startSocialContentJob(input: StartSocialContentJobRequest)
     brandKit: runtimeBrandKitReference(brandKit, filePath),
     createdBy: input.createdBy ?? null,
   });
-  const primaryPlatformResolution = input.jobType === 'weekly_social_content' && isAnyPlatformPublishEnabled()
-    ? await resolvePrimaryPublishPlatforms(Number(tenantId), pool)
-    : null;
+  // AA-218 (tenant-scopable). Re-targeting the weekly doc rewrites
+  // request.channels, publish_config and the story/video counts, and those feed
+  // the stage PROMPTS — so it is gated by the native-content flag, NOT by
+  // AA-217 eligibility. With native OFF the doc stays Meta-shaped while
+  // synthesize-publish-posts still re-resolves the tenant's real platforms on
+  // its own (it never reads this resolution), which is exactly AA-217-only
+  // behaviour: right platforms, Meta-flavoured copy.
+  const primaryPlatformResolution =
+    input.jobType === 'weekly_social_content' && isPlatformNativeContentEnabled(process.env, tenantId)
+      ? await resolvePrimaryPublishPlatforms(Number(tenantId), pool)
+      : null;
   if (primaryPlatformResolution) {
     applyPrimaryPlatformResolutionToWeeklyDoc(doc, primaryPlatformResolution);
   }

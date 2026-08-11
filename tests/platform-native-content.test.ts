@@ -160,6 +160,11 @@ test('Hermes production submission carries the fenced resolved scope and native 
         APP_BASE_URL: 'https://aries.example.com',
         HERMES_POLL_BRIDGE_ENABLED: '0',
         ARIES_ANY_PLATFORM_PUBLISH_ENABLED: '1',
+        // AA-218 is its own flag, and it is exercised here in its TENANT-SCOPED
+        // form: the fixture doc is tenant 70, so this is the allowlist path, not
+        // a fleet-wide `1`. See the companion test below for the other side of
+        // the same lever.
+        ARIES_PLATFORM_NATIVE_CONTENT_ENABLED: '70',
         ARIES_PERF_CONTEXT_ENABLED: '0',
       },
       fetchImpl,
@@ -184,6 +189,71 @@ test('Hermes production submission carries the fenced resolved scope and native 
     assert.match(payload.input, /"publishable_platforms":\["linkedin"\]/);
     assert.match(payload.input, /Target platforms: linkedin/);
     assert.match(payload.instructions, /PLATFORM-NATIVE CONTENT CONTRACT/);
+  } finally {
+    if (previousDataRoot === undefined) delete process.env.DATA_ROOT;
+    else process.env.DATA_ROOT = previousDataRoot;
+    await rm(dataRoot, { recursive: true, force: true });
+  }
+});
+
+/**
+ * THE CANARY GUARANTEE.
+ *
+ * This is the test the tenant-scoped flag exists for. Same tenant-70 document,
+ * same AA-217 eligibility, but the native-content allowlist names a DIFFERENT
+ * tenant. The submission must be free of both the fenced scope block and the
+ * native contract — otherwise "canary tenant 70, leave tenant 15 alone" is a
+ * hope rather than a property, because every tenant's prompts are built from the
+ * one global process env.
+ */
+test('native content scoped to another tenant leaves this tenant\'s prompt untouched', async () => {
+  const previousDataRoot = process.env.DATA_ROOT;
+  const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-platform-native-off-'));
+  process.env.DATA_ROOT = dataRoot;
+  try {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const fetchImpl = async (url: string | URL, init: RequestInit = {}) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify({ run_id: 'hermes-platform-native-off', status: 'started' }), {
+        status: 202,
+        headers: { 'content-type': 'application/json' },
+      });
+    };
+    const port = new HermesMarketingPort(
+      {
+        HERMES_GATEWAY_URL: 'http://127.0.0.1:8642',
+        HERMES_CONTENT_GATEWAY_URL: 'http://127.0.0.1:8655',
+        HERMES_API_SERVER_KEY: 'fixture-value',
+        HERMES_CONTENT_API_SERVER_KEY: 'fixture-value',
+        INTERNAL_API_SECRET: 'fixture-value',
+        APP_BASE_URL: 'https://aries.example.com',
+        HERMES_POLL_BRIDGE_ENABLED: '0',
+        // Eligibility ON fleet-wide, native content allowlisted to tenant 71 only.
+        ARIES_ANY_PLATFORM_PUBLISH_ENABLED: '1',
+        ARIES_PLATFORM_NATIVE_CONTENT_ENABLED: '71',
+        ARIES_PERF_CONTEXT_ENABLED: '0',
+      },
+      fetchImpl,
+      async () => {},
+      async () => ({ refreshed: false, enriched: false }),
+      { async query() { return { rows: [], rowCount: 0 }; } },
+    );
+    const doc = makeDoc();
+    applyPrimaryPlatformResolutionToWeeklyDoc(doc, { mode: 'alternate', platforms: ['linkedin'] });
+
+    await port.submitNextStage({
+      jobId: doc.job_id,
+      tenantId: doc.tenant_id,
+      doc,
+      stage: 'production',
+      argsJson: '{}',
+    } as never);
+
+    assert.equal(calls.length, 1);
+    const payload = JSON.parse(String(calls[0].init.body)) as { input: string; instructions: string };
+    // The run still happens — this flag never gates whether a tenant gets content.
+    assert.doesNotMatch(payload.input, /<primary_publish_platforms>/);
+    assert.doesNotMatch(payload.instructions, /PLATFORM-NATIVE CONTENT CONTRACT/);
   } finally {
     if (previousDataRoot === undefined) delete process.env.DATA_ROOT;
     else process.env.DATA_ROOT = previousDataRoot;
