@@ -9,16 +9,21 @@
  *      proxy 404s at Meta-fetch time. Legacy basename URLs must pass through
  *      unchanged with no DB hit.
  *
- *   2. The id-route SQL contract — the ingest + upload-replace writers emit
- *      id-based served_asset_ref, and the route reads bytes keyed on
- *      `id=$1 AND tenant_id=$2`. The cross-tenant / missing-row / wrong-kind
- *      404 behavior is asserted at the resolver level (the route delegates the
- *      ownership decision entirely to that single SQL predicate).
+ *   2. The id route — the handler resolves an authenticated tenant, loads its
+ *      `id=$1 AND tenant_id=$2` row, and reads persisted runtime bytes from the
+ *      active mount. A row owned by another tenant remains a 404.
  */
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
+import { handleGetHermesMedia } from '../app/api/internal/hermes/media/[...path]/route';
 import { resolveSignableBasename } from '../backend/marketing/signable-basename';
+import { pool } from '../lib/db';
+import type { TenantContext } from '../lib/tenant-context';
+import type { TenantContextLoader } from '../lib/tenant-context-http';
 
 type QueryCall = { sql: string; params: unknown[] };
 
@@ -37,6 +42,52 @@ function makeDb(
 }
 
 const UUID = 'a1b2c3d4-e5f6-4789-abcd-0123456789ab';
+
+function tenantLoader(tenantId: string): TenantContextLoader {
+  return async () => ({
+    tenantId,
+    tenantSlug: `tenant-${tenantId}`,
+    userId: 'user-1',
+    role: 'tenant_admin',
+  }) satisfies TenantContext;
+}
+
+test('id media route remaps persisted runtime storage keys to the active mount by basename', async (t) => {
+  const mount = await mkdtemp(path.join(tmpdir(), 'hermes-media-id-'));
+  const filename = 'persisted-preview.png';
+  const priorMount = process.env.HERMES_IMAGE_CACHE_MOUNT;
+  const queryParams: unknown[][] = [];
+
+  await writeFile(path.join(mount, filename), 'persisted preview bytes');
+  process.env.HERMES_IMAGE_CACHE_MOUNT = mount;
+  t.mock.method(pool, 'query', (async (sql: string, params: unknown[] = []) => {
+    assert.match(sql, /WHERE id = \$1 AND tenant_id = \$2/);
+    queryParams.push(params);
+    return params[1] === 42
+      ? {
+          rows: [{ storage_kind: 'runtime_asset', storage_key: `/old/hermes/mount/${filename}` }],
+          rowCount: 1,
+        }
+      : { rows: [], rowCount: 0 };
+  }) as typeof pool.query);
+
+  try {
+    const request = new Request(`https://aries.example.com/api/internal/hermes/media/${UUID}`);
+    const context = { params: Promise.resolve({ path: [UUID] }) };
+    const response = await handleGetHermesMedia(request, context, tenantLoader('42'));
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'image/png');
+    assert.equal(Buffer.from(await response.arrayBuffer()).toString(), 'persisted preview bytes');
+
+    const wrongTenant = await handleGetHermesMedia(request, context, tenantLoader('43'));
+    assert.equal(wrongTenant.status, 404);
+    assert.deepEqual(queryParams, [[UUID, 42], [UUID, 43]]);
+  } finally {
+    if (priorMount === undefined) delete process.env.HERMES_IMAGE_CACHE_MOUNT;
+    else process.env.HERMES_IMAGE_CACHE_MOUNT = priorMount;
+    await rm(mount, { recursive: true, force: true });
+  }
+});
 
 test('resolveSignableBasename — legacy basename URL passes through with no DB hit', async () => {
   const { db, calls } = makeDb(() => {
