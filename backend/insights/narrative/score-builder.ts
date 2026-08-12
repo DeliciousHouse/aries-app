@@ -9,7 +9,7 @@
  *
  * Period bases shift because longer windows naturally produce higher cumulative
  * reach deltas, so the baseline needs to compress to keep scores comparable:
- *   week=56, 30day=52, 90day=48
+ *   week=56, 30day=55, 90day=48
  *
  * S3-1 (AA-97): the base is only granted to an account with MEASURED performance.
  * A dead / near-dead account (no reach AND no engagement AND no positive reach

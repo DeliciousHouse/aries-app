@@ -29,6 +29,9 @@ import {
 interface AriesSectionProps {
   period:   Period;
   platform: Platform;
+  /** AA-123: false while the section is below the fold — defers the
+   *  FETCH only; the section's markup always renders. */
+  enabled?: boolean;
 }
 
 function LegendItem({
@@ -73,9 +76,9 @@ function SubTitle({ children }: { children: string }) {
   );
 }
 
-export function AriesSection({ period, platform }: AriesSectionProps) {
+export function AriesSection({ period, platform, enabled }: AriesSectionProps) {
   const { data, loading, error, refetch } =
-    useInsight<AriesData>("aries", period, platform);
+    useInsight<AriesData>("aries", period, platform, {}, { enabled });
 
   const empty = !data?.approvalFlow || data.approvalFlow.drafts === 0;
 

@@ -15,6 +15,9 @@ import {
 interface ActivitySectionProps {
   period:   Period;
   platform: Platform;
+  /** AA-123: false while the section is below the fold — defers the
+   *  FETCH only; the section's markup always renders. */
+  enabled?: boolean;
 }
 
 const PERIOD_TITLE: Record<Period, string> = {
@@ -73,9 +76,9 @@ function MetricCard({
   );
 }
 
-export function ActivitySection({ period, platform }: ActivitySectionProps) {
+export function ActivitySection({ period, platform, enabled }: ActivitySectionProps) {
   const { data, loading, error, refetch } =
-    useInsight<ActivityData>("activity", period, platform);
+    useInsight<ActivityData>("activity", period, platform, {}, { enabled });
 
   const platforms = data?.meta?.platforms ?? [];
   const mixTotal  = (data?.contentMix ?? []).reduce((s, m) => s + m.count, 0);

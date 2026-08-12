@@ -28,6 +28,9 @@ import type { IconName } from "@/frontend/insights/ui";
 interface AudienceSectionProps {
   period:   Period;
   platform: Platform;
+  /** AA-123: false while the section is below the fold — defers the
+   *  FETCH only; the section's markup always renders. */
+  enabled?: boolean;
 }
 
 // Block header with icon badge + title + subtitle (matches the mock's
@@ -242,9 +245,9 @@ function HeatLegend() {
   );
 }
 
-export function AudienceSection({ period, platform }: AudienceSectionProps) {
+export function AudienceSection({ period, platform, enabled }: AudienceSectionProps) {
   const { data, loading, error, refetch } =
-    useInsight<AudienceData>("audience", period, platform);
+    useInsight<AudienceData>("audience", period, platform, {}, { enabled });
   const tenantTimeZone = useTenantTimezone();
   const activeTimesZone = data?.activeTimes.timezone || tenantTimeZone;
   const activeTimesSubtitle =

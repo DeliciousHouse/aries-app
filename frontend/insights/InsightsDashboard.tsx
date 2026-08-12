@@ -6,6 +6,7 @@ import { C } from "@/frontend/insights/tokens";
 import type { Period, Platform } from "@/frontend/insights/types";
 
 import { InsightsFilters }      from "@/frontend/insights/InsightsFilters";
+import { LazyInsightSection }   from "@/frontend/insights/LazyInsightSection";
 import { FreshnessStamp }        from "@/frontend/insights/FreshnessStamp";
 import { ExportMenu }            from "@/frontend/insights/ExportMenu";
 import { HeroSection }          from "@/frontend/insights/HeroSection";
@@ -76,19 +77,33 @@ export function InsightsDashboard({
           {/* 2 — Goal */}
           <GoalSection period={period} platform={platform} />
           {/* 3 — Worth your attention */}
-          <AttentionSection period={period} platform={platform} />
+          <LazyInsightSection>
+            {(visible) => <AttentionSection period={period} platform={platform} enabled={visible} />}
+          </LazyInsightSection>
           {/* 4 — What Aries did */}
-          <ActivitySection period={period} platform={platform} />
+          <LazyInsightSection>
+            {(visible) => <ActivitySection period={period} platform={platform} enabled={visible} />}
+          </LazyInsightSection>
           {/* 5 — Performance trends */}
-          <TrendsSection period={period} platform={platform} />
+          <LazyInsightSection>
+            {(visible) => <TrendsSection period={period} platform={platform} enabled={visible} />}
+          </LazyInsightSection>
           {/* 6 — Top performing content */}
-          <TopPostsSection period={period} platform={platform} />
+          <LazyInsightSection>
+            {(visible) => <TopPostsSection period={period} platform={platform} enabled={visible} />}
+          </LazyInsightSection>
           {/* 7 — Conversations */}
-          <ConversationsSection period={period} platform={platform} nativeReplyEnabled={nativeReplyEnabled} />
+          <LazyInsightSection>
+            {(visible) => <ConversationsSection period={period} platform={platform} nativeReplyEnabled={nativeReplyEnabled} enabled={visible} />}
+          </LazyInsightSection>
           {/* 8 — Working with Aries */}
-          <AriesSection period={period} platform={platform} />
+          <LazyInsightSection>
+            {(visible) => <AriesSection period={period} platform={platform} enabled={visible} />}
+          </LazyInsightSection>
           {/* 9 — Audience */}
-          <AudienceSection period={period} platform={platform} />
+          <LazyInsightSection>
+            {(visible) => <AudienceSection period={period} platform={platform} enabled={visible} />}
+          </LazyInsightSection>
         </div>
       </div>
     </div>

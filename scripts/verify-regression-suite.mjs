@@ -459,6 +459,42 @@ const steps = [
     args: ['--test', 'tests/insights-force-throttle.test.ts'],
   },
   {
+    // S7-5/AA-123 (gap D1): client-side coalescing on /insights. The behavioural
+    // half drives the real hook against a stub fetch, because the ticket's
+    // complaint is a RUNTIME property — a module can contain the word
+    // AbortController and still never abort anything (my first draft did exactly
+    // that: the cleanup bumped a counter and left the request running). It pins
+    // that a superseded run is aborted, that the LAST consumer leaving aborts
+    // while a survivor keeps its request, that a deferred section issues no
+    // request at all, and that an abort never surfaces as an error. The
+    // structural half pins the dashboard wiring and the AA-152 invariant that a
+    // lazy section gates its FETCH and never its MARKUP. jsdom, no DB or network.
+    // S8-1/AA-124 (gaps E2/E3): behavioural coverage for the read paths the
+    // shipped screens call. read-api backs analytics + comments; the narrative
+    // module backs the Hero band and had no tests at all. AA-108 pins the
+    // REJECTION path for these routes — nothing ran one to a 200, so the param
+    // binding, the clamps and pg's string→number coercion were unexercised (a
+    // missing Number() returns "12", and the next `+` concatenates). Also pins
+    // the two S3-1 honesty guards that make the Hero trustworthy: a no-signal
+    // account scores 0 rather than floating at its ~50 base, and a period with
+    // posts but zero reach is "not enough data" rather than a summarizable one.
+    // Mocked pool, no DB.
+    name: 'insights read-api + narrative behaviour (AA-124)',
+    args: [
+      '--test',
+      'tests/insights-read-api.test.ts',
+      'tests/insights-narrative.test.ts',
+    ],
+  },
+  {
+    name: 'insights client coalescing: abort + dedup + lazy (AA-123)',
+    args: [
+      '--test',
+      'tests/insights-client-coalescing.test.ts',
+      'tests/insights-client-coalescing.behaviour.test.ts',
+    ],
+  },
+  {
     // 2026-07-13 duplicate-posting incident (AA-134 / PR #841) regression wall:
     // scheduler day-mapping + same-instant de-collision, the reel-companion
     // synthesis clamp, the publish-boundary duplicate/spacing guards, and the

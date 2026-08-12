@@ -12,6 +12,9 @@ import { SectionHeader, Panel, Pill, ErrorState, EmptyState, LoadingRows } from 
 interface AttentionSectionProps {
   period:   Period;
   platform: Platform;
+  /** AA-123: false while the section is below the fold — defers the
+   *  FETCH only; the section's markup always renders. */
+  enabled?: boolean;
 }
 
 function toneColor(tone: AttentionCard["tone"]): string {
@@ -164,9 +167,9 @@ function AttentionCardView({ card }: { card: AttentionCard }) {
   );
 }
 
-export function AttentionSection({ period, platform }: AttentionSectionProps) {
+export function AttentionSection({ period, platform, enabled }: AttentionSectionProps) {
   const { data, loading, error, refetch } =
-    useInsight<AttentionData>("attention", period, platform);
+    useInsight<AttentionData>("attention", period, platform, {}, { enabled });
 
   const cardCount = data?.cards?.length ?? 0;
 

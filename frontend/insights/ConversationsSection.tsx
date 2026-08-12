@@ -28,6 +28,9 @@ interface ConversationsSectionProps {
    *  When off the reply endpoint returns a real 404, so the control stays disabled
    *  rather than offering an action that cannot succeed. */
   nativeReplyEnabled?: boolean;
+  /** AA-123: false while the section is below the fold — defers the
+   *  FETCH only; the section's markup always renders. */
+  enabled?: boolean;
 }
 
 /** Matches MAX_REPLY_LENGTH in the reply handler. Enforced here too so the
@@ -273,8 +276,8 @@ function LeadQualityRow({ item }: { item: LeadQualityItem }) {
   );
 }
 
-export function ConversationsSection({ period, platform, nativeReplyEnabled = false }: ConversationsSectionProps) {
-  const { data, loading, error, refetch } = useInsight<ConversationsData>("conversations", period, platform);
+export function ConversationsSection({ period, platform, enabled, nativeReplyEnabled = false }: ConversationsSectionProps) {
+  const { data, loading, error, refetch } = useInsight<ConversationsData>("conversations", period, platform, {}, { enabled });
   const empty = !data?.conversations?.length;
 
   return (
