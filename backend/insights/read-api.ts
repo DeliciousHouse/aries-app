@@ -14,6 +14,13 @@
 import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
+import {
+  INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS,
+  insightsMicroCacheKey,
+  microCacheControlHeader,
+  readInsightsMicroCache,
+  writeInsightsMicroCache,
+} from './micro-cache';
 import { resolveTenantInsightsTimeZone } from './tenant-timezone';
 import { tenantZonePeriodStartDateKey } from '@/lib/format-timestamp';
 import { LATEST_POST_METRICS_LATERAL } from './latest-post-metrics-sql';
@@ -56,7 +63,11 @@ export const CURRENT_FOLLOWERS_SUM_SQL =
 // ── Summary ───────────────────────────────────────────────────────────────────
 
 /**
- * GET /api/insights/summary
+ * GET /api/insights/summary *
+ * FRESHNESS (S7-3/AA-121): 60s micro-cache. These are whole-period aggregates
+ * over daily account rows that the sync worker refreshes on a 30-minute cadence,
+ * so the underlying data cannot change faster than the cache expires. A minute
+ * of lag here is strictly finer-grained than the data itself.
  *
  * Query params:
  *   platform  — optional platform filter (youtube | instagram | facebook | …)
@@ -74,6 +85,16 @@ export async function handleGetInsightsSummary(
   const days     = clamp(parseIntParam(searchParams.get('days'), 30), 1, 90);
 
   const tenantId = Number(tenantResult.tenantContext.tenantId);
+
+  // S7-3/AA-121: cache check precedes pool.connect() — a hit costs no client.
+  const cacheKey = insightsMicroCacheKey('summary', tenantId, { platform, days });
+  const cached = readInsightsMicroCache<Record<string, unknown>>(cacheKey);
+  if (cached) {
+    return NextResponse.json(cached, {
+      headers: { 'Cache-Control': microCacheControlHeader(INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS) },
+    });
+  }
+
   const client = await pool.connect();
 
   try {
@@ -115,7 +136,7 @@ export async function handleGetInsightsSummary(
     );
 
     const row = res.rows[0];
-    return NextResponse.json({
+    const body = {
       period: { days, from: fromKey },
       platform,
       totalViews:            Number(row.total_views),
@@ -126,6 +147,10 @@ export async function handleGetInsightsSummary(
       totalShares:           Number(row.total_shares),
       totalWatchTimeMinutes: Number(row.total_watch_time_minutes),
       totalEngagement:       Number(row.total_engagement),
+    };
+    writeInsightsMicroCache(cacheKey, body, INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS);
+    return NextResponse.json(body, {
+      headers: { 'Cache-Control': microCacheControlHeader(INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS) },
     });
   } finally {
     client.release();
@@ -135,7 +160,11 @@ export async function handleGetInsightsSummary(
 // ── Posts ─────────────────────────────────────────────────────────────────────
 
 /**
- * GET /api/insights/posts
+ * GET /api/insights/posts *
+ * FRESHNESS (S7-3/AA-121): 60s micro-cache, keyed on platform+limit+offset so
+ * paging never serves another page's body. Per-post metrics are lifetime
+ * snapshots written once per sync; a newly published post appears at most 60s
+ * late, which is well inside the sync interval that would surface it anyway.
  *
  * Returns posts with their aggregated lifetime metrics.
  *
@@ -157,6 +186,16 @@ export async function handleGetInsightsPosts(
   const offset   = Math.max(parseIntParam(searchParams.get('offset'), 0), 0);
 
   const tenantId = Number(tenantResult.tenantContext.tenantId);
+
+  // S7-3/AA-121: cache check precedes pool.connect() — a hit costs no client.
+  const cacheKey = insightsMicroCacheKey('posts', tenantId, { platform, limit, offset });
+  const cached = readInsightsMicroCache<Record<string, unknown>>(cacheKey);
+  if (cached) {
+    return NextResponse.json(cached, {
+      headers: { 'Cache-Control': microCacheControlHeader(INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS) },
+    });
+  }
+
   const client = await pool.connect();
 
   try {
@@ -223,7 +262,11 @@ export async function handleGetInsightsPosts(
       },
     }));
 
-    return NextResponse.json({ posts, limit, offset, count: posts.length });
+    const body = { posts, limit, offset, count: posts.length };
+    writeInsightsMicroCache(cacheKey, body, INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS);
+    return NextResponse.json(body, {
+      headers: { 'Cache-Control': microCacheControlHeader(INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS) },
+    });
   } finally {
     client.release();
   }
@@ -232,7 +275,10 @@ export async function handleGetInsightsPosts(
 // ── Account metrics (time series) ─────────────────────────────────────────────
 
 /**
- * GET /api/insights/account-metrics
+ * GET /api/insights/account-metrics *
+ * FRESHNESS (S7-3/AA-121): 60s micro-cache. A daily time series, keyed on
+ * platform+days; the newest point is a whole day's bucket, so sub-minute
+ * freshness is meaningless at this grain.
  *
  * Returns daily time-series data — one row per (date, platform).
  * Used to render charts on the analytics dashboard.
@@ -253,6 +299,16 @@ export async function handleGetInsightsAccountMetrics(
   const days     = clamp(parseIntParam(searchParams.get('days'), 30), 1, 90);
 
   const tenantId = Number(tenantResult.tenantContext.tenantId);
+
+  // S7-3/AA-121: cache check precedes pool.connect() — a hit costs no client.
+  const cacheKey = insightsMicroCacheKey('account-metrics', tenantId, { platform, days });
+  const cached = readInsightsMicroCache<Record<string, unknown>>(cacheKey);
+  if (cached) {
+    return NextResponse.json(cached, {
+      headers: { 'Cache-Control': microCacheControlHeader(INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS) },
+    });
+  }
+
   const client = await pool.connect();
 
   try {
@@ -302,10 +358,14 @@ export async function handleGetInsightsAccountMetrics(
       shares:             Number(row.shares),
     }));
 
-    return NextResponse.json({
+    const body = {
       period: { days, from: fromKey },
       platform,
       series,
+    };
+    writeInsightsMicroCache(cacheKey, body, INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS);
+    return NextResponse.json(body, {
+      headers: { 'Cache-Control': microCacheControlHeader(INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS) },
     });
   } finally {
     client.release();
@@ -315,7 +375,12 @@ export async function handleGetInsightsAccountMetrics(
 // ── Comments ──────────────────────────────────────────────────────────────────
 
 /**
- * GET /api/insights/comments
+ * GET /api/insights/comments *
+ * FRESHNESS (S7-3/AA-121): 60s micro-cache — the shortest window allowed,
+ * because this list carries reply state. It is INVALIDATED for the tenant when a
+ * reply succeeds (see the native-reply handler), so an operator never watches
+ * their own reply fail to appear; only newly ARRIVED comments can lag, by up to
+ * 60s.
  *
  * Returns recent comments with the title of the post they belong to.
  *
@@ -337,6 +402,16 @@ export async function handleGetInsightsComments(
   const limit    = clamp(parseIntParam(searchParams.get('limit'), 50), 1, 200);
 
   const tenantId = Number(tenantResult.tenantContext.tenantId);
+
+  // S7-3/AA-121: cache check precedes pool.connect() — a hit costs no client.
+  const cacheKey = insightsMicroCacheKey('comments', tenantId, { platform, postId, limit });
+  const cached = readInsightsMicroCache<Record<string, unknown>>(cacheKey);
+  if (cached) {
+    return NextResponse.json(cached, {
+      headers: { 'Cache-Control': microCacheControlHeader(INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS) },
+    });
+  }
+
   const client = await pool.connect();
 
   try {
@@ -386,7 +461,11 @@ export async function handleGetInsightsComments(
       postPermalink: row.post_permalink,
     }));
 
-    return NextResponse.json({ comments, limit, count: comments.length });
+    const body = { comments, limit, count: comments.length };
+    writeInsightsMicroCache(cacheKey, body, INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS);
+    return NextResponse.json(body, {
+      headers: { 'Cache-Control': microCacheControlHeader(INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS) },
+    });
   } finally {
     client.release();
   }

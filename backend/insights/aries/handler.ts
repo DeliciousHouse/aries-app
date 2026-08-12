@@ -9,10 +9,21 @@
  *   learningCurve — weekly avg-attempts-to-approval trend
  *
  * No caching — approval outcomes are operator-facing; staleness shows immediately.
+ *
+ * FRESHNESS: 60s micro-cache. This section counts approval-flow outcomes and
+ * a learning curve over weeks; a minute of lag is invisible at that grain.
  */
 
 import { NextResponse } from 'next/server';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
+import {
+  INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS,
+  insightsMicroCacheKey,
+  microCacheControlHeader,
+  readInsightsMicroCache,
+  writeInsightsMicroCache,
+} from '../micro-cache';
+import { checkInsightsForceThrottle } from '../force-throttle';
 import { buildWorkingWithAriesSnapshot } from './aries-builder';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 
@@ -30,6 +41,10 @@ export async function handleGetInsightsAries(
   if ('response' in tenantResult) return tenantResult.response;
 
   const { searchParams } = new URL(req.url);
+  // S7-3/AA-121: the UI's Retry button sends ?force=true. Before this section
+  // was cached that was a no-op; now it MUST bypass the cache, or Retry
+  // returns the same body for up to 60s and looks broken.
+  const force = searchParams.get('force') === 'true';
   const periodParam = searchParams.get('period');
 
   if (!isValidPeriod(periodParam)) {
@@ -42,11 +57,35 @@ export async function handleGetInsightsAries(
   const tenantId = Number(tenantResult.tenantContext.tenantId);
   const period   = periodParam;
 
+  // S7-3/AA-121: consult the cache BEFORE any pooled work — a hit must cost
+  // no database client at all, which is the point of caching these.
+  const cacheKey = insightsMicroCacheKey('aries', tenantId, { period });
+  const cached = force ? null : readInsightsMicroCache<Record<string, unknown>>(cacheKey);
+  if (cached) {
+    return NextResponse.json(cached, {
+      headers: { 'Cache-Control': microCacheControlHeader(INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS) },
+    });
+  }
+
+  // AA-120: a forced request skipped the cache above and is about to rebuild on a
+  // pooled client. Unthrottled, that is the authenticated DB-hammer path AA-120
+  // closed for the other six sections — and /insights fires this one, audience and
+  // conversations concurrently, from any role including tenant_viewer. Must run
+  // BEFORE the builder: the limiter's whole job is to keep a burst off the pool.
+  const throttled = checkInsightsForceThrottle(force, tenantId, 'aries');
+  if (throttled) return throttled;
+
   const snapshot = await buildWorkingWithAriesSnapshot(tenantId, period);
 
-  return NextResponse.json({
+  const body = {
     status: 'ok',
     period,
     ...snapshot,
+  };
+
+  writeInsightsMicroCache(cacheKey, body, INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS);
+
+  return NextResponse.json(body, {
+    headers: { 'Cache-Control': microCacheControlHeader(INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS) },
   });
 }

@@ -97,6 +97,47 @@ const steps = [
     args: ['--test', 'tests/verify-honcho-writes.test.ts'],
   },
   {
+    // S6-5/AA-118 (gap F8): Approve/Edit/Reject for queued memory candidates —
+    // the human gate `curator_decision='queue_for_review'` always implied but
+    // never had. Pins the properties that make a memory write safe: a
+    // cross-tenant finding is NOT FOUND (never confirmed to exist), an
+    // already-settled one performs no second Honcho append, reject writes
+    // nothing to memory at all, an edit promotes the operator's wording while
+    // the stored candidate keeps its provenance, an unsupported peer or an
+    // empty claim is refused rather than guessed, and Honcho being off still
+    // records the decision while reporting the memory as pending. Injected
+    // store + Honcho; no DB, no network.
+    name: 'memory-candidate promotion route (F8)',
+    args: ['--test', 'tests/memory-finding-resolve.test.ts'],
+  },
+  {
+    // S7-1/AA-119 (gap D6): the authenticated 50-user smoke harness. Pins the
+    // false-pass this card closes — the old harness accepted anything under 500
+    // and followed redirects, so appending /insights would have measured the
+    // LOGIN page and reported a healthy profile. A redirect now fails, only the
+    // expected status passes, redirect:manual is source-pinned, and a gated path
+    // with no session is a hard error rather than an unauthenticated
+    // measurement. Also pins the baseline comparison: jitter on a fast path must
+    // not fail an unchanged system, a real doubling must, and a baseline from a
+    // different concurrency is refused. Pure helpers + injected fetch; no server.
+    name: 'scale smoke harness auth + baseline (D6)',
+    args: ['--test', 'tests/smoke-scale-harness.test.ts'],
+  },
+  {
+    // S7-3/AA-121 (gap D3): the 60s micro-cache for the seven previously
+    // uncached insights endpoints. The load-bearing assertions are the isolation
+    // ones — two tenants never share an entry, and a missing/junk tenant yields
+    // NO key rather than a shared bucket (on a hit the scoped SQL never runs, so
+    // nothing downstream would catch a leak). Plus: the 60s ceiling is enforced
+    // in the module rather than trusted to callers, Cache-Control is `private`
+    // so a CDN cannot hold a per-tenant body, every cache read precedes
+    // pool.connect() (a hit must cost no client), and a confirmed reply
+    // invalidates conversations so an operator never watches their own reply
+    // fail to appear. In-memory; no DB.
+    name: 'insights micro-cache + freshness (D3)',
+    args: ['--test', 'tests/insights-micro-cache.test.ts'],
+  },
+  {
     // AA-159: task-execution engine classification. Pins the contracts the cost
     // analysis depends on — the engine vocabulary, hard-zero tokens on the
     // zero-cost engines vs NULL ("not reported") on AI rows, no model columns on
@@ -154,6 +195,59 @@ const steps = [
       'tests/billing/quota-alerts.test.ts',
       'tests/billing/quota-route.test.ts',
     ],
+  },
+  {
+    // AA-90/S1-11 (gap B1): the compose guard for the outage that ticket was
+    // misfiled as. The Hermes gateway is a HOST process, so HERMES_GATEWAY_URL
+    // is host.docker.internal-scoped; the sync worker had the credentials but
+    // NOT the host-gateway mapping, so every classification call died with
+    // ENOTFOUND and insights_comment_classifications sat at zero rows for weeks
+    // with nothing failing or alerting. No code test can catch that — the
+    // requirement lives only in the compose file. Derived from the file, so a
+    // NEW Hermes-calling sidecar is covered the day it is added. No DB.
+    name: 'compose: Hermes callers can resolve the host gateway (B1)',
+    args: ['--test', 'tests/compose-hermes-host-gateway.test.ts'],
+  },
+  {
+    // AA-90/S1-11: the label-quality gate itself. Labels are frozen once
+    // written (ON CONFLICT DO NOTHING on a pinned version) and flag-off does
+    // NOT roll them back, so a bad first batch is expensive. Pins the
+    // mechanical smells (uniform labels, out-of-vocabulary NULLs, everything
+    // flagged a lead), that a single row is never mis-flagged as uniform, that
+    // "needs_review" is the BEST verdict a script may return, and that the
+    // review is read-only. Injected queryable; no DB.
+    name: 'insights comment-label quality gate (B1)',
+    args: ['--test', 'tests/insights-classification-review.test.ts'],
+  },
+  {
+    // AA-114/S6-1 (gaps A6a/F3): the canonical goal WRITE path — the operator
+    // picks the goal instead of it being keyword-guessed from free text. Pins
+    // the A6a fix ("Increase social media presence" means content_growth, not
+    // the brand_awareness fallback) and its now-load-bearing consequence: since
+    // #964 that goal is the one whose metric, SUM(followers_delta), the
+    // strategy/publish prompts optimise for, so a mismatch would have the
+    // prompts and the dashboard chasing different numbers. Also pins the
+    // resolver's precedence — an explicit pick wins, an unrelated field edit
+    // never re-derives over it, a changed goal text still re-resolves — and
+    // that both keyword heuristics are retired. No DB.
+    name: 'canonical goal write path (A6a/F3)',
+    args: ['--test', 'tests/goal-canonical-write-path.test.ts'],
+  },
+  {
+    // AA-117/S6-4: structural guards for ops/aries-pipeline-monitor.py — the
+    // watchdog that would have caught the 2026-08-06→10 outage (4 days of
+    // failed weekly runs, nobody told). It is a HOST script by design, because
+    // one condition it alerts on is "the app is dead or wedged" and an in-app
+    // outbox cannot report its own absence — which also put it outside every
+    // existing test surface, leaving a 62KB alerting script whose own fixture
+    // suite nothing ran. Behaviour is covered by its --self-test, now wired
+    // into CI (ubuntu; fcntl is POSIX-only so it cannot run on Windows). These
+    // pin that the safety net still EXISTS to be run: the self-test, the
+    // provider-auth suppression whose over-suppression already hid real 401s
+    // once, the redaction promise, read-only DB access, and the stale-cron-path
+    // warning. No DB, no Python.
+    name: 'ops pipeline monitor guards (S6-4)',
+    args: ['--test', 'tests/ops-pipeline-monitor.test.ts'],
   },
   {
     // Regression for the 2026-06-09 prod wedge: a failed tick must release the

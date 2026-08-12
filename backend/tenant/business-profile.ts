@@ -35,6 +35,11 @@ import {
 } from '@/lib/marketing-competitor';
 import { invalidateGoalNarrativeCache } from '@/backend/insights/goal/cache-invalidation';
 import { deriveStoredGoalType, type GoalType } from '@/backend/insights/goal/goal-type-classification';
+import {
+  goalTypeForWrittenText,
+  isCanonicalGoalType,
+  resolveGoalTypeForWrite,
+} from '@/backend/insights/goal/goal-options';
 import { resolveDataPath } from '@/lib/runtime-paths';
 import { DEFAULT_TENANT_TIMEZONE, isValidTimeZone, resolveTenantTimeZone } from '@/lib/format-timestamp';
 import {
@@ -84,6 +89,13 @@ export type BusinessProfileView = {
   websiteUrl: string | null;
   businessType: string | null;
   primaryGoal: string | null;
+  /**
+   * AA-114: the canonical goal the operator CHOSE. Null means "not set" —
+   * which the S1-5 confirm chip surfaces rather than hiding behind a guess.
+   * `primaryGoal` stays alongside it as the descriptive free text that feeds
+   * the Hermes brand prompts; the two are not interchangeable.
+   */
+  goalType: GoalType | null;
   launchApproverUserId: string | null;
   launchApproverName: string | null;
   offer: string | null;
@@ -135,6 +147,11 @@ type BusinessProfileUpdateInput = {
   websiteUrl?: string | null;
   businessType?: string | null;
   primaryGoal?: string | null;
+  /**
+   * AA-114: the canonical goal from the select. `undefined` means the caller
+   * did not touch it (legacy/API writers); `null` explicitly clears it.
+   */
+  goalType?: GoalType | null;
   launchApproverUserId?: string | null;
   launchApproverName?: string | null;
   offer?: string | null;
@@ -340,7 +357,13 @@ function normalizeBusinessProfileRecord(
     business_type: stringOrNull(value.business_type),
     primary_goal: normalizedPrimaryGoal,
     primary_goal_source: primaryGoalSource(value.primary_goal_source),
-    goal_type: deriveStoredGoalType(normalizedPrimaryGoal),
+    // AA-114: honour a PERSISTED key. This previously re-derived from the free
+    // text on every load, which silently discarded an operator's explicit
+    // choice the moment the record was read back. Derivation is now only the
+    // fallback for legacy records that carry no key.
+    goal_type: isCanonicalGoalType(value.goal_type)
+      ? value.goal_type
+      : deriveStoredGoalType(normalizedPrimaryGoal),
     launch_approver_user_id: stringOrNull(value.launch_approver_user_id),
     launch_approver_name: stringOrNull(value.launch_approver_name),
     offer: stringOrNull(value.offer),
@@ -807,6 +830,10 @@ function buildBusinessProfileView(input: {
     websiteUrl,
     businessType: effectiveBusinessType,
     primaryGoal: effectivePrimaryGoal,
+    // AA-114: the operator's stored choice, surfaced as-is. Deliberately NOT
+    // derived from effectivePrimaryGoal here — an unset key must read as unset
+    // so the confirm chip can ask, rather than as a confident guess.
+    goalType: input.record?.goal_type ?? null,
     launchApproverUserId: input.record?.launch_approver_user_id ?? null,
     launchApproverName: input.approverName,
     offer: effectiveOffer,
@@ -1000,7 +1027,12 @@ export async function updateBusinessProfileWithDiagnostics(
     business_type: nextBusinessType,
     primary_goal: nextPrimaryGoal,
     primary_goal_source: nextPrimaryGoalSource,
-    goal_type: deriveStoredGoalType(nextPrimaryGoal),
+    goal_type: resolveGoalTypeForWrite({
+      explicitGoalType: input.goalType,
+      storedGoalType: currentStoredRecord?.goal_type ?? null,
+      previousPrimaryGoal: current.profile.primaryGoal,
+      nextPrimaryGoal,
+    }),
     launch_approver_user_id: nextApproverUserId,
     launch_approver_name: nextApproverName,
     offer: nextOffer,
@@ -1111,7 +1143,14 @@ export async function updatePublicBusinessProfile(input: Omit<BusinessProfileUpd
     website_url: normalizedWebsiteUrl,
     business_type: mergePersistedStringField(current.profile.businessType, input.businessType).value,
     primary_goal: nextPublicPrimaryGoal,
-    goal_type: deriveStoredGoalType(nextPublicPrimaryGoal),
+    // AA-114: the public (pre-auth) path has no select, so it never supplies an
+    // explicit key — but it must still not clobber one an operator already
+    // chose. The resolver re-resolves only when the goal text actually changed.
+    goal_type: resolveGoalTypeForWrite({
+      storedGoalType: loadBusinessProfileRecord(tenantId)?.goal_type ?? null,
+      previousPrimaryGoal: current.profile.primaryGoal,
+      nextPrimaryGoal: nextPublicPrimaryGoal,
+    }),
     primary_goal_source:
       typeof input.primaryGoal === 'string' && input.primaryGoal.trim()
         ? 'explicit'
@@ -1169,7 +1208,8 @@ export async function persistBusinessProfileFieldsFromMarketingPayload(
     business_type: current?.business_type ?? null,
     primary_goal: current?.primary_goal ?? null,
     primary_goal_source: current?.primary_goal_source ?? 'inferred',
-    goal_type: deriveStoredGoalType(current?.primary_goal ?? null),
+    // Seed from the stored key; only derive when the record has none (AA-114).
+    goal_type: current?.goal_type ?? deriveStoredGoalType(current?.primary_goal ?? null),
     launch_approver_user_id: current?.launch_approver_user_id ?? null,
     launch_approver_name: current?.launch_approver_name ?? null,
     offer: current?.offer ?? null,
@@ -1215,7 +1255,11 @@ export async function persistBusinessProfileFieldsFromMarketingPayload(
       nextRecord.primary_goal_source = operatorConfirmedGoal ? 'explicit' : 'inferred';
       // Re-derive alongside the goal text so a changed goal never leaves the
       // previous canonical key behind (AA-115).
-      nextRecord.goal_type = deriveStoredGoalType(primaryGoalMerge.value);
+      // Re-resolve alongside the goal text so a changed goal never leaves the
+      // previous canonical key behind (AA-115). AA-114 routes this through
+      // goalTypeForWrittenText, so an onboarding PRESET label now lands on the
+      // goal the option explicitly means instead of a keyword guess.
+      nextRecord.goal_type = goalTypeForWrittenText(primaryGoalMerge.value);
       shouldAwaitExplicitGoalPersistence = operatorConfirmedGoal;
       shouldPersist = true;
     }

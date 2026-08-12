@@ -225,6 +225,20 @@ jobs:
           set -o pipefail
           npm run lint 2>&1 | tee "${ARTIFACT_DIR}/lint.log"
 
+      - name: Pipeline monitor fixture suite (ops/aries-pipeline-monitor.py)
+        shell: bash
+        run: |
+          set -o pipefail
+          # AA-117: the pipeline monitor is the ONLY thing that would have caught
+          # the 2026-08-06→10 outage (4 days of failed weekly runs, nobody told).
+          # It ships its own stdlib-only fixture suite that nothing ran, so a
+          # regression in its alert or suppression logic would be silent — and a
+          # bug in exactly that suppression (over-suppressing genuine gateway-key
+          # 401s, i.e. hiding a real outage) was already caught once by a human
+          # reading the diff. stdlib only: no pip install, and fcntl is present
+          # on ubuntu (it is POSIX-only, which is why this cannot run on Windows).
+          python3 ops/aries-pipeline-monitor.py --self-test 2>&1 | tee "${ARTIFACT_DIR}/pipeline-monitor-selftest.log"
+
       - name: Full test suite (all tests/**, concurrency=1)
         shell: bash
         run: |

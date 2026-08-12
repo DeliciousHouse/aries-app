@@ -43,6 +43,26 @@ const SECTIONS: readonly CachedInsightsSection[] = [
   'activity',
   'trends',
   'top',
+  // S7-3/AA-121 added caching + `force` to these three. They read the
+  // micro-cache rather than insights_narratives, but bypass it on force and
+  // rebuild through the same pool, so they carry the same hazard and belong to
+  // the same limiter. Listing them here is what extends every structural check
+  // below to cover them.
+  'aries',
+  'audience',
+  'conversations',
+] as const;
+
+/**
+ * The micro-cache trio reach the pool through a builder rather than a literal
+ * `pool.connect()`/`pool.query` in the handler, so the generic scan above finds
+ * no marker to order against and would pass vacuously for them. Their pooled
+ * work is the builder call, so that is what the gate has to precede.
+ */
+const BUILDER_SECTIONS: ReadonlyArray<{ section: CachedInsightsSection; builder: string }> = [
+  { section: 'aries', builder: 'await buildWorkingWithAriesSnapshot(' },
+  { section: 'audience', builder: 'await buildAudienceSnapshot(' },
+  { section: 'conversations', builder: 'await buildConversationsSnapshot(' },
 ] as const;
 
 const T0 = 1_800_000_000_000; // fixed clock; the module takes `nowMs`, so no sleeping
@@ -90,6 +110,55 @@ test('a throttled request reaches no database work in any handler', () => {
       }
     }
   }
+});
+
+test('the micro-cache sections throttle before their builder reaches the pool', () => {
+  // The scan above orders the gate against literal pool use, which these three
+  // handlers do not contain — their rebuild is behind a builder that opens the
+  // client itself. Without this, adding them to SECTIONS would assert only that
+  // the gate exists somewhere, not that it runs before the expensive work.
+  for (const { section, builder } of BUILDER_SECTIONS) {
+    const source = read('backend', 'insights', section, 'handler.ts');
+
+    const gateAt = source.indexOf('checkInsightsForceThrottle(force,');
+    assert.notEqual(gateAt, -1, `${section} handler must call checkInsightsForceThrottle`);
+
+    const builderAt = source.indexOf(builder);
+    assert.notEqual(builderAt, -1, `${section} handler must call ${builder}`);
+
+    assert.ok(
+      gateAt < builderAt,
+      `${section}: throttle (at ${gateAt}) must precede "${builder}" (at ${builderAt})`,
+    );
+  }
+});
+
+test('a forced micro-cache request is throttled on the same bucket as any other section', () => {
+  // Behavioural, not structural: drain the bucket for one of the new sections
+  // and confirm it denies like the original six, so these are genuinely on the
+  // limiter rather than merely mentioning it.
+  reset();
+  const capacity = DEFAULT_FORCE_THROTTLE_CAPACITY;
+  for (let i = 0; i < capacity; i += 1) {
+    assert.equal(
+      checkInsightsForceThrottle(true, 42, 'aries', T0),
+      null,
+      `forced rebuild ${i + 1} of ${capacity} should be allowed`,
+    );
+  }
+  const denied = checkInsightsForceThrottle(true, 42, 'aries', T0);
+  assert.notEqual(denied, null, 'the request past capacity must be throttled');
+  assert.equal(denied?.status, 429);
+
+  // A different section keeps its own allowance — the per-(tenant, section)
+  // granularity must hold for the new entries too.
+  assert.equal(
+    checkInsightsForceThrottle(true, 42, 'audience', T0),
+    null,
+    'draining aries must not lock out audience',
+  );
+  // And a different tenant is unaffected.
+  assert.equal(checkInsightsForceThrottle(true, 43, 'aries', T0), null);
 });
 
 test('the narrative connection check runs after the throttle, not before it', () => {
