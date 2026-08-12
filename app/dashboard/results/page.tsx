@@ -19,7 +19,13 @@ export default function DashboardResultsPage() {
       {weeklyResultsEnabled ? (
         <div className="space-y-5">
           <WeeklyResultsReport />
-          <AriesResultsScreen />
+          {/* S8-3/AA-126: the live-posts roster is an operating view, not part of
+              the client-facing weekly report. Printing it would turn a one-page
+              summary into a screenshot of the app, so it is excluded from the
+              printout while staying exactly as it is on screen. */}
+          <div data-print-hidden>
+            <AriesResultsScreen />
+          </div>
         </div>
       ) : (
         <AriesResultsScreen />

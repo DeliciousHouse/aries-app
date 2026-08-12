@@ -479,6 +479,21 @@ const steps = [
     // account scores 0 rather than floating at its ~50 base, and a period with
     // posts but zero reach is "not enough data" rather than a summarizable one.
     // Mocked pool, no DB.
+    // S8-3/AA-126 (gap F2b): the print-ready weekly report — the cheap PDF path
+    // (Cmd+P), no PDF-generation infrastructure. These tests are deliberately
+    // NOT a claim that the printout looks right: no headless runner evaluates
+    // @media print, so the rendered proof came from driving real Chrome with
+    // print media emulated and reading computed styles (recorded in the file
+    // header). What runs here is the drift guard — the markup still carries the
+    // hooks the stylesheet keys on, and the stylesheet still covers each print
+    // hazard: the dark theme inverted (else white-on-white blank pages), the
+    // overflow containers unclipped (else a one-page truncated PDF), the motion
+    // opacity reset, cards kept off page breaks, and — the one that would bite
+    // every other route — every selector scoped behind the report marker.
+    name: 'print-ready weekly report (AA-126)',
+    args: ['--test', 'tests/weekly-results-print.test.ts'],
+  },
+  {
     name: 'insights read-api + narrative behaviour (AA-124)',
     args: [
       '--test',

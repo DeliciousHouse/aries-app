@@ -47,7 +47,8 @@ export default function WeeklyResultsReport() {
         <button
           type="button"
           onClick={() => void results.reload()}
-          className="mt-3 inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/[0.06] px-3 py-1.5 text-sm font-medium text-white/80 transition hover:bg-white/[0.1]"
+          data-print-hidden
+          className="print-hidden mt-3 inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/[0.06] px-3 py-1.5 text-sm font-medium text-white/80 transition hover:bg-white/[0.1]"
         >
           Try again
         </button>
@@ -62,16 +63,61 @@ export default function WeeklyResultsReport() {
   return <WeeklyResultsPanel report={report} />;
 }
 
-export function WeeklyResultsPanel({ report }: { report: WeeklyResultsReportShape }) {
+export function WeeklyResultsPanel({
+  report,
+  /** Injected in tests; real callers get the browser's print dialog. */
+  onPrint,
+}: {
+  report: WeeklyResultsReportShape;
+  onPrint?: () => void;
+}) {
   const summaryLine = [
     `${report.published.total} published`,
     `${report.skipped.total} skipped`,
     `${report.blocked.total} blocked`,
   ].join(' · ');
 
+  const print = () => {
+    if (onPrint) return onPrint();
+    if (typeof window !== 'undefined') window.print();
+  };
+
   return (
-    <div className="space-y-4">
-      <ShellPanel eyebrow="This week" title={`Results for ${report.week.label}`}>
+    // S8-3/AA-126: this attribute is what the @media print block in globals.css
+    // keys on. Scoping every print rule behind it keeps them inert on routes
+    // that do not render a report — see the note above that block.
+    <div className="space-y-4" data-print-report>
+      {/* Print-only masthead. On screen the page already has a heading and
+          chrome; on paper the reader needs to know what this is, whose it is,
+          and when it was produced. */}
+      <div className="hidden print:block" data-testid="weekly-results-print-header">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.24em]">Aries AI</p>
+        <h2 className="mt-1 text-xl font-semibold">Weekly results — {report.week.label}</h2>
+        <p className="mt-1 text-xs">
+          {report.week.startYmd} to {report.week.endYmd} · Generated{' '}
+          {new Date().toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          })}
+        </p>
+      </div>
+
+      <ShellPanel
+        eyebrow="This week"
+        title={`Results for ${report.week.label}`}
+        action={
+          <button
+            type="button"
+            onClick={print}
+            data-print-hidden
+            data-testid="weekly-results-print-button"
+            className="print-hidden inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/[0.06] px-3 py-1.5 text-sm font-medium text-white/80 transition hover:bg-white/[0.1]"
+          >
+            Print / Save as PDF
+          </button>
+        }
+      >
         <p className="max-w-3xl text-sm leading-7 text-white/65">{summaryLine}</p>
 
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
@@ -90,7 +136,8 @@ export function WeeklyResultsPanel({ report }: { report: WeeklyResultsReportShap
               report.blocked.reconnect ? (
                 <Link
                   href="/dashboard/settings/channel-integrations"
-                  className="mt-3 inline-flex items-center rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-1.5 text-sm font-medium text-amber-100 transition hover:bg-amber-500/20"
+                  data-print-hidden
+                  className="print-hidden mt-3 inline-flex items-center rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-1.5 text-sm font-medium text-amber-100 transition hover:bg-amber-500/20"
                 >
                   Reconnect Meta
                 </Link>
@@ -172,7 +219,8 @@ export function WeeklyResultsPanel({ report }: { report: WeeklyResultsReportShap
             {report.nextAction.href ? (
               <Link
                 href={report.nextAction.href}
-                className="mt-3 inline-flex items-center rounded-lg border border-white/15 bg-white/[0.06] px-3 py-1.5 text-sm font-medium text-white/80 transition hover:bg-white/[0.1]"
+                data-print-hidden
+                className="print-hidden mt-3 inline-flex items-center rounded-lg border border-white/15 bg-white/[0.06] px-3 py-1.5 text-sm font-medium text-white/80 transition hover:bg-white/[0.1]"
               >
                 Take me there
               </Link>
