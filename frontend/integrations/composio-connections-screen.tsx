@@ -37,6 +37,7 @@ type Connection = {
   status: 'not_connected' | 'pending' | 'connected' | 'reauthorization_required' | 'error';
   externalAccountName: string | null;
   capabilities: Capabilities | null;
+  lastSuccessfulPostAt: string | null;
   prerequisites?: string[];
   reconcileError?: string | null;
 };
@@ -94,6 +95,13 @@ const TONE_CLASS: Record<string, string> = {
   red: 'bg-rose-500/15 text-rose-300 border border-rose-500/30',
   gray: 'bg-slate-500/15 text-slate-300 border border-slate-500/30',
 };
+
+function lastSuccessfulPostText(value: string | null): string {
+  if (!value) return 'No successful posts yet';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'No successful posts yet';
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+}
 
 function Chip({ on, label }: { on: boolean; label: string }) {
   return (
@@ -219,7 +227,7 @@ export default function ComposioConnectionsScreen() {
   return (
     <div className="mx-auto max-w-3xl px-6 py-10 text-slate-100">
       <header className="mb-8">
-        <h1 className="text-2xl font-semibold">Connections</h1>
+        <h1 className="text-2xl font-semibold">Connections health</h1>
         <p className="mt-2 text-sm text-slate-400">
           Connect your social and advertising accounts so Aries can publish and report on your behalf. Just click
           Connect, approve the permissions, and pick the account or page you want to use.
@@ -246,6 +254,7 @@ export default function ComposioConnectionsScreen() {
           const cardPhase = conn.status === 'pending' ? pollingPhase : 'idle';
           const st = statusText(conn.status, caps, cardPhase);
           const isConnected = conn.status === 'connected';
+          const needsReconnect = conn.status === 'reauthorization_required';
           // A pending / reauthorization_required / error row has an EXISTING
           // connection record that can be cleared. A truly not_connected row has
           // nothing to clear (#703).
@@ -283,7 +292,7 @@ export default function ComposioConnectionsScreen() {
                         disabled={busy === conn.platform || (data ? !data.composioEnabled : true)}
                         className="rounded-lg bg-violet-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-violet-500 disabled:opacity-50"
                       >
-                        {busy === conn.platform ? 'Starting…' : 'Connect'}
+                        {busy === conn.platform ? 'Starting…' : needsReconnect ? 'Reconnect' : 'Connect'}
                       </button>
                       {hasClearableRow && (
                         <>
@@ -322,6 +331,11 @@ export default function ComposioConnectionsScreen() {
                   )}
                 </div>
               </div>
+
+              <p className="mt-3 text-xs text-slate-400">
+                Last successful post:{' '}
+                <span className="text-slate-300">{lastSuccessfulPostText(conn.lastSuccessfulPostAt)}</span>
+              </p>
 
               {caps && isConnected && (
                 <>

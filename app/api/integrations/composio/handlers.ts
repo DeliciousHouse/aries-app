@@ -29,6 +29,22 @@ import { IntegrationError } from '@/backend/integrations/providers/errors';
 import { notConnectedAccount } from '@/backend/integrations/composio/connection-store';
 import { platformPrerequisites } from '@/backend/integrations/composio/capability-preflight';
 
+export interface ConnectionHealthDb {
+  query(
+    sql: string,
+    params?: unknown[],
+  ): Promise<{ rows: Record<string, unknown>[]; rowCount?: number | null }>;
+}
+
+export const LAST_SUCCESSFUL_POSTS_SQL = `
+  SELECT spd.platform, MAX(spd.dispatched_at) AS last_successful_post_at
+    FROM scheduled_post_dispatches spd
+    JOIN scheduled_posts sp ON sp.id = spd.scheduled_post_id
+   WHERE sp.tenant_id = $1
+     AND spd.status = 'dispatched'
+     AND spd.dispatched_at IS NOT NULL
+   GROUP BY spd.platform`;
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -126,12 +142,29 @@ export async function handleComposioConnect(
 export async function handleComposioList(
   loader?: TenantContextLoader,
   provider: AccountConnectionProvider | null = getAccountConnectionProvider(),
+  db?: ConnectionHealthDb,
 ): Promise<Response> {
   const tenantResult = await loadTenantContextOrResponse(loader);
   if ('response' in tenantResult) return tenantResult.response;
   const { tenantId } = tenantResult.tenantContext;
 
   const config = resolveIntegrationConfig();
+
+  const lastSuccessfulPostByPlatform = new Map<string, string>();
+  if (db) {
+    try {
+      const result = await db.query(LAST_SUCCESSFUL_POSTS_SQL, [Number(tenantId)]);
+      for (const row of result.rows) {
+        const value = row.last_successful_post_at;
+        lastSuccessfulPostByPlatform.set(
+          String(row.platform),
+          value instanceof Date ? value.toISOString() : String(value),
+        );
+      }
+    } catch (error) {
+      return errorResponse(error);
+    }
+  }
 
   const externalUserId = externalUserIdFor(tenantId);
   // Per-platform reconcile failures captured as frontend-safe advisories (#699).
@@ -180,6 +213,7 @@ export async function handleComposioList(
     const account = byPlatform.get(platform) ?? notConnectedAccount(tenantId, externalUserId, platform, 'composio');
     return {
       ...account,
+      lastSuccessfulPostAt: lastSuccessfulPostByPlatform.get(platform) ?? null,
       prerequisites: platformPrerequisites(platform),
       reconcileError: reconcileErrors.get(platform) ?? null,
     };

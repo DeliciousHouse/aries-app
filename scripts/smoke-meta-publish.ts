@@ -125,6 +125,23 @@ export function pickBestCaption(
   return `${post.caption}${hashtags}`;
 }
 
+export function assertPublishCanaryTenantKind(kind: string): void {
+  if (kind !== 'test') {
+    throw new Error(`Publish canary requires an organization with kind=test; received kind=${kind}`);
+  }
+}
+
+async function assertPublishCanaryTenant(tenantId: string): Promise<void> {
+  const { default: pool } = await import('../lib/db');
+  const result = await pool.query<{ kind: string }>(
+    'SELECT kind FROM organizations WHERE id = $1',
+    [Number(tenantId)],
+  );
+  const kind = result.rows[0]?.kind;
+  if (!kind) throw new Error(`Publish canary tenant ${tenantId} was not found`);
+  assertPublishCanaryTenantKind(kind);
+}
+
 // ---------------------------------------------------------------------------
 // Runtime state resolution (uses same libs as the publish handler)
 // ---------------------------------------------------------------------------
@@ -250,6 +267,13 @@ async function main(): Promise<void> {
 
   log(`tenant=${tenantId} provider=${provider} dryRun=${dryRun}`);
   log(`appBase=${appBase}`);
+
+  try {
+    await assertPublishCanaryTenant(tenantId);
+    pass('Tenant is classified kind=test');
+  } catch (error) {
+    fatal(error instanceof Error ? error.message : String(error));
+  }
 
   if (!secret) {
     log('WARN: INTERNAL_API_SECRET is not set -- signed URL generation will fall back to internal URL');
