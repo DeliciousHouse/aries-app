@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.9.0 — fix(marketing): image prompt discipline + retries in the production contract
+
+Weekly image generation stopped failing on its own instructions.
+
+On 2026-08-12 every tenant-15 production run died with an uninformative
+`hermes_run_failed`. The real failure: the production agent forwarded its ENTIRE
+resume context (workflow header, request JSON, research and strategy blocks) as
+`image_generate`'s prompt. The image backend routes through a host chat model
+that cannot be forced to call the hosted image tool, and faced with a prompt
+that reads as a JSON copywriting assignment it answered the assignment as text —
+no image. The old contract then made it fatal: "call the `image_generate` tool
+exactly once per image" FORBADE retrying, so the agent recorded nothing and
+returned prose, failing the stage.
+
+### Changed
+
+- The production stage execution contract now mandates IMAGE PROMPT DISCIPLINE
+  (the `prompt` argument carries ONLY the rendered visual description — never
+  workflow headers, JSON schemas, or copywriting instructions) and IMAGE RETRY
+  (a failed `image_generate` is retried up to 2 more times before being recorded
+  in `artifacts.errors[]`). The anti-retry "exactly once per image" wording is
+  gone, and a requested image with neither a creative_asset nor an errors[]
+  entry is a stage failure.
+- Every per-image block in the production resume context spells out the same
+  hand-off at the point of use.
+
+### Notes
+
+Tests pin both mandates and pin that "exactly once per image" never returns.
+
+
 ## v0.2.8.1 — chore(deps): bump lucide-react to 1.29.0
 
 ### Changed
