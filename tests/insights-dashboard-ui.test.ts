@@ -91,7 +91,7 @@ test('analytics screen consumes the analytics hook, charts the series, and keeps
   // Selector is only rendered when more than one platform is enabled.
   assert.match(analyticsScreen, /enabledPlatforms\.length > 1/);
   // Headline tiles for the real summary fields.
-  assert.match(analyticsScreen, /summary\.totalViews/);
+  assert.match(analyticsScreen, /summary\.totalReach/);
   assert.match(analyticsScreen, /summary\.currentFollowers/);
   assert.match(analyticsScreen, /summary\.totalEngagement/);
   assert.match(analyticsScreen, /summary\.totalLikes/);
@@ -99,7 +99,7 @@ test('analytics screen consumes the analytics hook, charts the series, and keeps
   assert.match(analyticsScreen, /summary\.totalShares/);
   // Trend chart over the account-metrics series + per-post table.
   assert.match(analyticsScreen, /LineChart/);
-  assert.match(analyticsScreen, /post\.metrics\.totalViews/);
+  assert.match(analyticsScreen, /post\.metrics\.totalReach/);
   // Empty state preserved for the zero/empty payload.
   assert.match(analyticsScreen, /EmptyStatePanel/);
   assert.match(analyticsScreen, /No analytics yet/);
@@ -222,11 +222,13 @@ test('analytics screen renders honest EmptyStatePanel with per-platform reasons 
   assert.match(analyticsScreen, /LinkedIn organization/);
 });
 
-test('analytics screen gates the Views <th> and <td> on post_view_count capability (#684)', () => {
-  // Header cell for Views is wrapped in a postViewsSupported conditional.
-  assert.match(analyticsScreen, /postViewsSupported && <th[^>]*>Views<\/th>/);
-  // Data cell rendering totalViews is also wrapped in a postViewsSupported conditional.
-  assert.match(analyticsScreen, /postViewsSupported[\s\S]{0,300}totalViews/);
+test('analytics screen gates the Reach <th> and <td> on post_view_count capability (#684, relabeled AA-230)', () => {
+  // Header cell for Reach (renamed from Views — AA-230) is wrapped in a
+  // postViewsSupported conditional. The capability key itself is unchanged;
+  // see the comment in analytics-screen.tsx for why (AA-229 reconciles it).
+  assert.match(analyticsScreen, /postViewsSupported && <th[^>]*>Reach<\/th>/);
+  // Data cell rendering totalReach is also wrapped in a postViewsSupported conditional.
+  assert.match(analyticsScreen, /postViewsSupported[\s\S]{0,300}totalReach/);
 });
 
 // ─── #688 honest LinkedIn comments subtitle (no reply contradiction) ─────────

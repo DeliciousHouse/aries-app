@@ -59,7 +59,7 @@ export default function AriesAnalyticsScreen({
   // For unsupported-account-metrics platforms the sections are independently gated.
   const hasData = Boolean(
     summary &&
-      (summary.totalViews > 0 ||
+      (summary.totalReach > 0 ||
         summary.currentFollowers > 0 ||
         summary.followersGained > 0 ||
         summary.totalEngagement > 0 ||
@@ -78,9 +78,12 @@ export default function AriesAnalyticsScreen({
   const label = PLATFORM_LABELS[platform];
 
   // Shared posts table — rendered in both the supported and unsupported account-metrics
-  // paths. Views column is omitted for platforms that don't surface per-post view counts
+  // paths. Reach column is omitted for platforms that don't surface per-post view counts
   // (x, reddit, linkedin). For youtube/instagram/facebook postViewsSupported=true so the
   // column renders as it does today.
+  // AA-230: the column now renders reach-preferred (COALESCE(reach, views, 0)) while
+  // postViewsSupported still keys on the `post_view_count` capability — reconciling the
+  // gate name with the reach-preferred value is AA-229 (migration item 8), out of scope here.
   const postsTable = (
     <ShellPanel eyebrow="Posts" title="Per-post performance">
       {posts.length > 0 ? (
@@ -90,7 +93,7 @@ export default function AriesAnalyticsScreen({
               <tr className="border-b border-white/10 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/55">
                 <th className="py-3 pr-4 font-semibold">Post</th>
                 <th className="py-3 pr-4 font-semibold">Published</th>
-                {postViewsSupported && <th className="py-3 pr-4 text-right font-semibold">Views</th>}
+                {postViewsSupported && <th className="py-3 pr-4 text-right font-semibold">Reach</th>}
                 <th className="py-3 pr-4 text-right font-semibold">Likes</th>
                 {commentsSupported && <th className="py-3 pr-4 text-right font-semibold">Comments</th>}
                 {postSharesSupported && <th className="py-3 text-right font-semibold">Shares</th>}
@@ -104,7 +107,7 @@ export default function AriesAnalyticsScreen({
                   </td>
                   <td className="py-3 pr-4 text-white/55">{formatDay(post.publishedAt)}</td>
                   {postViewsSupported && (
-                    <td className="py-3 pr-4 text-right">{formatNumber(post.metrics.totalViews)}</td>
+                    <td className="py-3 pr-4 text-right">{formatNumber(post.metrics.totalReach)}</td>
                   )}
                   <td className="py-3 pr-4 text-right">{formatNumber(post.metrics.totalLikes)}</td>
                   {commentsSupported && <td className="py-3 pr-4 text-right">{formatNumber(post.metrics.totalComments)}</td>}
@@ -137,12 +140,12 @@ export default function AriesAnalyticsScreen({
       >
         {platform === 'facebook' ? (
           <p className="max-w-3xl text-sm leading-7 text-white/65">
-            Views, followers, and engagement from your connected Facebook Page, plus per-post results.
+            Reach, followers, and engagement from your connected Facebook Page, plus per-post results.
             Numbers populate here after Aries syncs analytics from Meta.
           </p>
         ) : (
           <p className="max-w-3xl text-sm leading-7 text-white/65">
-            Views, followers, and engagement from your connected {label} account, plus per-post results.
+            Reach, followers, and engagement from your connected {label} account, plus per-post results.
             Numbers populate here after Aries syncs analytics.
           </p>
         )}
@@ -164,7 +167,7 @@ export default function AriesAnalyticsScreen({
       ) : !accountMetricsSupported ? (
         // Platform doesn't expose account-level metrics (x, reddit, linkedin, youtube).
         // Show an honest panel instead of fabricated zeros, then render post-level data
-        // if any exists. The per-post Views column is also gated by postViewsSupported.
+        // if any exists. The per-post Reach column is also gated by postViewsSupported.
         <>
           <EmptyStatePanel
             title={`Account analytics aren't available for ${label}`}
@@ -180,14 +183,14 @@ export default function AriesAnalyticsScreen({
           title="No analytics yet"
           description={
             platform === 'facebook'
-              ? 'Once your Facebook posts are live and Aries has synced performance data from Meta, your views, followers, and per-post results will appear here.'
-              : `Once your ${label} posts are live and Aries has synced performance data, your views, followers, and per-post results will appear here.`
+              ? 'Once your Facebook posts are live and Aries has synced performance data from Meta, your reach, followers, and per-post results will appear here.'
+              : `Once your ${label} posts are live and Aries has synced performance data, your reach, followers, and per-post results will appear here.`
           }
         />
       ) : (
         <>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <MetricCard label="Views" value={formatNumber(summary.totalViews)} detail={`Last ${summary.period.days} days`} />
+            <MetricCard label="Reach" value={formatNumber(summary.totalReach)} detail={`Last ${summary.period.days} days`} />
             <MetricCard
               label="Followers"
               value={formatNumber(summary.currentFollowers)}
@@ -200,7 +203,7 @@ export default function AriesAnalyticsScreen({
             <MetricCard label="Shares" value={formatNumber(summary.totalShares)} detail={`Last ${summary.period.days} days`} />
           </div>
 
-          <ShellPanel eyebrow="Trend" title="Followers and views over time">
+          <ShellPanel eyebrow="Trend" title="Followers and reach over time">
             {series.length > 0 ? (
               <div className="h-72 w-full">
                 <ResponsiveContainer width="100%" height="100%">
@@ -218,7 +221,7 @@ export default function AriesAnalyticsScreen({
                       labelFormatter={(label) => formatDay(String(label))}
                     />
                     <Line type="monotone" dataKey="followers" name="Followers" stroke="#a78bfa" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="views" name="Views" stroke="#34d399" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="reach" name="Reach" stroke="#34d399" strokeWidth={2} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>

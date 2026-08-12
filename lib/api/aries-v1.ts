@@ -379,7 +379,7 @@ export type OnboardingDraftPatch = {
 export type InsightsSummaryResponse = {
   period: { days: number; from: string };
   platform: string | null;
-  totalViews: number;
+  totalReach: number;
   currentFollowers: number;
   followersGained: number;
   totalLikes: number;
@@ -392,7 +392,7 @@ export type InsightsSummaryResponse = {
 export type InsightsAccountMetricPoint = {
   date: string;
   platform: string;
-  views: number;
+  reach: number;
   watchTimeMinutes: number;
   followers: number;
   followersDelta: number;
@@ -407,7 +407,7 @@ export type InsightsAccountMetricsResponse = {
 };
 
 export type InsightsPostMetrics = {
-  totalViews: number;
+  totalReach: number;
   totalLikes: number;
   totalComments: number;
   totalShares: number;
