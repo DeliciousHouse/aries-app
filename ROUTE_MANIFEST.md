@@ -48,6 +48,7 @@ This manifest lists the supported direct route contract for the current Aries ru
 | `GET` | `/api/marketing/jobs/:jobId` | Read job status |
 | `POST` | `/api/marketing/jobs/:jobId/approve` | Resume an approval-gated job |
 | `GET`, `PATCH` | `/api/marketing/schedule` | Read and update the weekly content-generation cadence (settings card) |
+| `GET`, `PATCH` | `/api/marketing/auto-publish` | Read/set the workspace's auto-publish opt-in — whether scheduled posts dispatch autonomously or are held for a manual publish (`PATCH` is tenant admin; inert until `ARIES_AUTO_PUBLISH_GATE_ENABLED` is on) |
 | `GET` | `/api/marketing/posting-times` | Read AI-derived per-platform posting times (settings card) |
 | `POST` | `/api/marketing/posting-times/derive` | Force a fresh posting-time derivation (tenant admin; 404 when `ARIES_AI_POSTING_TIMES_ENABLED` is off) |
 | `GET` | `/api/integrations` | Read integrations page data |

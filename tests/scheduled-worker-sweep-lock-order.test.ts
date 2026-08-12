@@ -21,6 +21,14 @@ async function loadWorker(): Promise<WorkerModule> {
 type SweepCase = {
   name: string;
   sql: string;
+  /**
+   * Bind values for `sql`. The two sweeps no longer share an arity: the
+   * dead-campaign sweep takes a third param, the owner-gated auto-publish kill
+   * switch (`false` here — this test asserts the pre-gate lock order, and the
+   * gate must not change it). Postgres rejects a bind with more parameters than
+   * the statement uses, so these cannot be one shared array.
+   */
+  params: unknown[];
   ownerStatus: string;
   childStatus: string;
   dispatchStartedAt: string | null;
@@ -50,6 +58,7 @@ test('production sweeps execute against PostgreSQL in canonical-first order with
     {
       name: 'dead-campaign',
       sql: worker.SWEEP_DEAD_CAMPAIGN_SQL,
+      params: [10, '2021-01-01T00:00:00.000Z', false],
       ownerStatus: 'pending',
       childStatus: 'pending',
       dispatchStartedAt: null,
@@ -59,6 +68,7 @@ test('production sweeps execute against PostgreSQL in canonical-first order with
     {
       name: 'ambiguous-dispatch',
       sql: worker.SWEEP_AMBIGUOUS_DISPATCH_SQL,
+      params: [10, '2021-01-01T00:00:00.000Z'],
       ownerStatus: 'in_flight',
       childStatus: 'in_flight',
       dispatchStartedAt: '2020-01-01T00:00:01.000Z',
@@ -126,6 +136,18 @@ test('production sweeps execute against PostgreSQL in canonical-first order with
         error_message TEXT,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
+      -- SWEEP_DEAD_CAMPAIGN_SQL's owner-gated auto-publish admit predicate
+      -- references this table. Postgres resolves relations at PLAN time, so it
+      -- must exist even though $3 = false short-circuits the EXISTS before it
+      -- is ever evaluated — a missing table is a parse error, not a skipped
+      -- branch. Left empty on purpose: this test drives the gate OFF.
+      CREATE TABLE marketing_auto_publish_settings (
+        tenant_id INTEGER PRIMARY KEY,
+        enabled BOOLEAN NOT NULL DEFAULT false,
+        updated_by_user_id INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
     `);
 
     for (const scenario of sweepCases) {
@@ -164,7 +186,7 @@ test('production sweeps execute against PostgreSQL in canonical-first order with
           const blockedPass = await within(
             sweep.query<{ swept: number; posts_expired?: number }>(
               scenario.sql,
-              [10, '2021-01-01T00:00:00.000Z'],
+              scenario.params,
             ),
             `${scenario.name}_sweep_while_route_locked`,
           );
@@ -199,7 +221,7 @@ test('production sweeps execute against PostgreSQL in canonical-first order with
           const terminalPass = await within(
             sweep.query<{ swept: number; posts_expired?: number }>(
               scenario.sql,
-              [10, '2021-01-01T00:00:00.000Z'],
+              scenario.params,
             ),
             `${scenario.name}_terminal_sweep`,
           );

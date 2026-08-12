@@ -59,6 +59,43 @@ const SHUTDOWN_TIMEOUT_MS = parseShutdownTimeoutMs(
 // publish is not stolen mid-flight and re-dispatched into a duplicate.
 const IN_FLIGHT_RECLAIM_MS = 15 * 60 * 1000; // 15 minutes (> VIDEO_FETCH_TIMEOUT_MS)
 
+// ─── Owner-gated auto-publish ────────────────────────────────────────────────
+// Auto-schedule and auto-publish used to be the same action: a scheduled row
+// became live with no human step. With this gate ON, a due row is dispatched
+// only when its tenant has opted into autonomous delivery
+// (marketing_auto_publish_settings, written by tenant_admin via
+// app/api/marketing/auto-publish). A tenant that has not opted in is HELD — the
+// post keeps its calendar slot and waits for a manual publish.
+//
+// Parsed here rather than imported because this worker is plain `.mjs` and
+// cannot import the TS twin (backend/marketing/auto-publish-env.ts). Keep the
+// two token lists in sync; both follow the repo's canonical 4-token idiom.
+export function isAutoPublishGateEnabled(env = process.env) {
+  const v = env.ARIES_AUTO_PUBLISH_GATE_ENABLED?.trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+}
+
+// The admit predicate, in ONE place — it is spliced into the due-scan, the
+// per-row claim, and the dead-campaign sweep, and those three must never
+// disagree about which rows are held. Emitted as a fragment rather than a
+// shared CTE because the three statements have different shapes.
+//
+// `alias` MUST qualify the outer scheduled_posts reference. An unqualified
+// `tenant_id` inside the EXISTS resolves to the SUBQUERY's own `s.tenant_id`
+// (inner scope wins), making the comparison `s.tenant_id = s.tenant_id` — always
+// true, gate always open, no error. That is the whole bug class this fragment
+// exists to prevent.
+//
+// `param` is the $n holding the kill switch. `$n = false` short-circuits before
+// the EXISTS, so with the gate OFF the settings table is never probed and the
+// plan is identical to the pre-gate query.
+export function autoPublishAdmitSql(alias, param) {
+  return `(${param} = false OR EXISTS (
+           SELECT 1 FROM marketing_auto_publish_settings s
+            WHERE s.tenant_id = ${alias}.tenant_id
+              AND s.enabled))`;
+}
+
 export function resolveDispatchFetchTimeoutMs(mediaType) {
   const normalized = typeof mediaType === 'string' ? mediaType.trim().toLowerCase() : 'image';
   if (normalized === 'video') return VIDEO_FETCH_TIMEOUT_MS;
@@ -161,6 +198,7 @@ export const CLAIM_ROW_SQL = `WITH canonical AS MATERIALIZED (
              AND sp.dispatch_claimed_at < $2)
        )
        AND (sp.campaign_end_date IS NULL OR sp.campaign_end_date >= NOW())
+       AND ${autoPublishAdmitSql('sp', '$3')}
      FOR UPDATE OF sp SKIP LOCKED
   )
   SELECT * FROM locked_owner`;
@@ -180,6 +218,7 @@ export const DUE_ROWS_SQL = `SELECT id FROM scheduled_posts
              AND dispatch_claimed_at < $2)
        )
        AND (campaign_end_date IS NULL OR campaign_end_date >= NOW())
+       AND ${autoPublishAdmitSql('scheduled_posts', '$3')}
      ORDER BY scheduled_for
      LIMIT $1`;
 
@@ -263,6 +302,15 @@ export const RELEASE_PRE_PROVIDER_CLAIM_SQL = `WITH canonical AS MATERIALIZED (
 //     unclaimable); in_flight rows only once STALE past the reclaim window
 //     ($2, same cutoff as CLAIM_ROW_SQL), so a live publish that crossed the
 //     deadline mid-flight still writes its own real outcome.
+//   - HELD rows (owner-gated auto-publish: gate ON, tenant not opted in) are
+//     excluded from every arm. They are unclaimable by design, not by accident,
+//     so the "unclaimable => terminally dead" inference above does NOT apply to
+//     them: sweeping a held row would mark a post failed/expired for the sole
+//     reason that its owner had not clicked Publish yet, silently destroying the
+//     week this gate exists to protect. They keep their calendar slot and wait.
+//     The cost is that a held row past campaign_end_date lingers instead of
+//     self-clearing — that is the intended trade, and the held tray is what
+//     makes it visible.
 //   - Every mutating arm re-checks the full predicate (draft-expiry-sweep
 //     pattern). The canonical CTE locks posts first, then dead locks the owner,
 //     both with SKIP LOCKED, so a concurrent schedule/delete/publish is skipped,
@@ -281,6 +329,7 @@ WITH canonical AS MATERIALIZED (
          OR (owner.dispatch_status = 'in_flight'
          AND owner.dispatch_started_at IS NULL
          AND owner.dispatch_claimed_at < $2))
+    AND ${autoPublishAdmitSql('owner', '$3')}
   ORDER BY owner.scheduled_for ASC
   LIMIT $1
   FOR UPDATE OF post SKIP LOCKED
@@ -295,6 +344,7 @@ dead AS MATERIALIZED (
          OR (owner.dispatch_status = 'in_flight'
          AND owner.dispatch_started_at IS NULL
          AND owner.dispatch_claimed_at < $2))
+    AND ${autoPublishAdmitSql('owner', '$3')}
   ORDER BY owner.scheduled_for ASC
   FOR UPDATE OF owner SKIP LOCKED
 ),
@@ -322,6 +372,7 @@ marked AS (
              OR (sp.dispatch_status = 'in_flight'
              AND sp.dispatch_started_at IS NULL
              AND sp.dispatch_claimed_at < $2))
+        AND ${autoPublishAdmitSql('sp', '$3')}
       RETURNING sp.id, sp.post_id
    ),
    swept_children AS (
@@ -359,7 +410,11 @@ marked AS (
  */
 export async function sweepDeadCampaignRows(pool) {
   const staleCutoff = new Date(Date.now() - IN_FLIGHT_RECLAIM_MS).toISOString();
-  const result = await pool.query(SWEEP_DEAD_CAMPAIGN_SQL, [SWEEP_BATCH_SIZE, staleCutoff]);
+  const result = await pool.query(SWEEP_DEAD_CAMPAIGN_SQL, [
+    SWEEP_BATCH_SIZE,
+    staleCutoff,
+    isAutoPublishGateEnabled(),
+  ]);
   const row = result.rows?.[0] ?? {};
   const swept = Number(row.swept) || 0;
   const postsExpired = Number(row.posts_expired) || 0;
@@ -537,7 +592,11 @@ export async function sweepAmbiguousDispatchRows(pool) {
  */
 async function claimRow(client, rowId) {
   const staleCutoff = new Date(Date.now() - IN_FLIGHT_RECLAIM_MS).toISOString();
-  const lockResult = await client.query(CLAIM_ROW_SQL, [rowId, staleCutoff]);
+  const lockResult = await client.query(CLAIM_ROW_SQL, [
+    rowId,
+    staleCutoff,
+    isAutoPublishGateEnabled(),
+  ]);
   if (lockResult.rows.length === 0) return null;
   return lockResult.rows[0];
 }
@@ -1159,7 +1218,11 @@ export async function tick(pool, { shouldStop = () => false } = {}) {
   // crashed and have been stuck past the reclaim window. claimRow re-checks
   // both conditions under the row lock.
   const staleCutoff = new Date(Date.now() - IN_FLIGHT_RECLAIM_MS).toISOString();
-  const dueResult = await pool.query(DUE_ROWS_SQL, [BATCH_SIZE, staleCutoff]);
+  const dueResult = await pool.query(DUE_ROWS_SQL, [
+    BATCH_SIZE,
+    staleCutoff,
+    isAutoPublishGateEnabled(),
+  ]);
 
   const ids = dueResult.rows.map((r) => r.id);
   const report = {

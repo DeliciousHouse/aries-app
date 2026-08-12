@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import pg from 'pg';
 
 import { requireDbEnvOrSkip } from './helpers/requires-infra';
@@ -24,25 +24,27 @@ import { requireDbEnvOrSkip } from './helpers/requires-infra';
 // fresh row inserts inside a rolled-back transaction.
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const WORKER_SRC = readFileSync(
-  path.join(REPO_ROOT, 'scripts/automations/scheduled-posts-worker.mjs'),
-  'utf8',
-);
 const INIT_DB_SRC = readFileSync(
   path.join(REPO_ROOT, 'scripts/init-db.js'),
   'utf8',
 );
 
-function extractExportedSql(name: string): string {
-  const match = WORKER_SRC.match(
-    new RegExp(`export const ${name} = \`([\\s\\S]*?)\`;`),
-  );
-  assert.ok(match, `${name} must be defined and exported in the worker`);
-  return match[1];
-}
+// Imported, not regex-extracted from source. Extraction returns the raw
+// `${...}` text once a statement composes a shared fragment (the owner-gated
+// auto-publish admit predicate), which both defeats the source assertions below
+// and makes Postgres reject the query with `syntax error at or near "$"`.
+type WorkerSql = {
+  CLAIM_ROW_SQL: string;
+  DUE_ROWS_SQL: string;
+};
 
-const CLAIM_ROW_SQL = extractExportedSql('CLAIM_ROW_SQL');
-const DUE_ROWS_SQL = extractExportedSql('DUE_ROWS_SQL');
+// Loaded inside each test rather than at module scope: tsx transforms these
+// files to CJS, where top-level await is a build error.
+async function loadWorkerSql(): Promise<WorkerSql> {
+  return (await import(
+    pathToFileURL(path.join(REPO_ROOT, 'scripts/automations/scheduled-posts-worker.mjs')).href
+  )) as unknown as WorkerSql;
+}
 
 // ---------------------------------------------------------------------------
 // Layer 1: source-level assertions
@@ -56,7 +58,8 @@ test('init-db.js declares scheduled_posts.campaign_end_date TIMESTAMPTZ', () => 
   );
 });
 
-test('CLAIM_ROW_SQL filters past-end-date rows and leaves NULL rows claimable', () => {
+test('CLAIM_ROW_SQL filters past-end-date rows and leaves NULL rows claimable', async () => {
+  const { CLAIM_ROW_SQL, DUE_ROWS_SQL } = await loadWorkerSql();
   // The filter must be present.
   assert.match(
     CLAIM_ROW_SQL,
@@ -83,7 +86,8 @@ test('CLAIM_ROW_SQL filters past-end-date rows and leaves NULL rows claimable', 
   );
 });
 
-test('DUE_ROWS_SQL filters past-end-date rows and leaves NULL rows claimable', () => {
+test('DUE_ROWS_SQL filters past-end-date rows and leaves NULL rows claimable', async () => {
+  const { CLAIM_ROW_SQL, DUE_ROWS_SQL } = await loadWorkerSql();
   assert.match(
     DUE_ROWS_SQL,
     /campaign_end_date IS NULL OR campaign_end_date >= NOW\(\)/,
@@ -102,7 +106,8 @@ test('DUE_ROWS_SQL filters past-end-date rows and leaves NULL rows claimable', (
   );
 });
 
-test('campaign_end_date filter is applied to scheduled_posts row, not to joined posts row', () => {
+test('campaign_end_date filter is applied to scheduled_posts row, not to joined posts row', async () => {
+  const { CLAIM_ROW_SQL, DUE_ROWS_SQL } = await loadWorkerSql();
   // CLAIM_ROW_SQL JOINs posts; the filter must target sp (scheduled_posts),
   // not p (posts) -- the end-date column lives on scheduled_posts.
   assert.match(
@@ -151,6 +156,7 @@ test('campaign_end_date column exists and the new claim filter plans against rea
     return;
   }
 
+  const { CLAIM_ROW_SQL, DUE_ROWS_SQL } = await loadWorkerSql();
   const pool = new pg.Pool(dbConfig);
   try {
     const client = await pool.connect();
@@ -177,11 +183,11 @@ test('campaign_end_date column exists and the new claim filter plans against rea
       // 2. CLAIM_ROW_SQL with id=-1 plans the new WHERE term against the real
       //    planner. Any mistake in the column reference (e.g. p.campaign_end_date
       //    instead of sp.campaign_end_date) fails here even though no row matches.
-      await client.query(CLAIM_ROW_SQL, [-1, new Date().toISOString()]);
+      await client.query(CLAIM_ROW_SQL, [-1, new Date().toISOString(), false]);
 
       // 3. DUE_ROWS_SQL plans the same filter at scan time. A bad filter (wrong
       //    type, wrong column name) errors out before any row is touched.
-      await client.query(DUE_ROWS_SQL, [1, new Date().toISOString()]);
+      await client.query(DUE_ROWS_SQL, [1, new Date().toISOString(), false]);
 
       await client.query('ROLLBACK');
     } finally {

@@ -72,6 +72,18 @@ test('real claim and release SQL serialize on canonical post before scheduled ow
         status TEXT NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
+      -- CLAIM_ROW_SQL's owner-gated auto-publish admit predicate references this
+      -- table. Postgres resolves relations at PLAN time, so it must exist even
+      -- though $3 = false short-circuits the EXISTS before it is ever
+      -- evaluated — a missing table is a parse error, not a skipped branch.
+      -- Left empty on purpose: this test drives the gate OFF.
+      CREATE TABLE marketing_auto_publish_settings (
+        tenant_id INTEGER PRIMARY KEY,
+        enabled BOOLEAN NOT NULL DEFAULT false,
+        updated_by_user_id INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
       INSERT INTO posts (id, tenant_id, caption, published_status)
       VALUES (42, 15, 'canonical-first', 'approved');
       INSERT INTO scheduled_posts (
@@ -89,7 +101,7 @@ test('real claim and release SQL serialize on canonical post before scheduled ow
         await route.query('SELECT id FROM posts WHERE id = 42 AND tenant_id = 15 FOR UPDATE');
         await worker.query('BEGIN');
         await worker.query("SET LOCAL statement_timeout = '750ms'");
-        const claim = await worker.query(workerSql.CLAIM_ROW_SQL, [71, new Date(0).toISOString()]);
+        const claim = await worker.query(workerSql.CLAIM_ROW_SQL, [71, new Date(0).toISOString(), false]);
         assert.equal(claim.rowCount, 0, 'SKIP LOCKED observes the canonical winner before touching owner');
 
         await route.query("SET LOCAL statement_timeout = '750ms'");
@@ -108,7 +120,7 @@ test('real claim and release SQL serialize on canonical post before scheduled ow
       const route = await pool.connect();
       try {
         await worker.query('BEGIN');
-        const claim = await worker.query(workerSql.CLAIM_ROW_SQL, [71, new Date(0).toISOString()]);
+        const claim = await worker.query(workerSql.CLAIM_ROW_SQL, [71, new Date(0).toISOString(), false]);
         assert.equal(claim.rowCount, 1);
         await route.query('BEGIN');
         await route.query("SET LOCAL lock_timeout = '500ms'");

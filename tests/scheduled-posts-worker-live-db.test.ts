@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import pg from 'pg';
 
 import { requireDbEnvOrSkip } from './helpers/requires-infra';
@@ -13,10 +12,14 @@ import { requireDbEnvOrSkip } from './helpers/requires-infra';
 // the nullable side of an outer join` bug: CLAIM_ROW_SQL combines a LEFT JOIN
 // with a row lock, which mock pools never reject but a real planner does.
 //
-// The three SQL strings are text-extracted from the worker source (a .mjs
-// script with no type declarations, so it cannot be imported under the
-// route-type tsc gate). Extracting keeps the test from drifting away from the
-// query the worker actually runs.
+// The three SQL strings are imported from the worker (a .mjs script with no
+// type declarations, reached via a pathToFileURL dynamic import + cast — the
+// same route tests/scheduled-worker-claim-lock-order.test.ts takes). They used
+// to be text-extracted with a regex, which broke the moment the statements
+// started composing a shared fragment (the owner-gated auto-publish admit
+// predicate): extraction returns the raw `${...}` source text, and Postgres
+// rejects it with `syntax error at or near "$"`. Importing evaluates the
+// template, so the test runs the query the worker actually runs.
 //
 // When DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME are absent the test skips
 // loudly. When the DB is reachable it MUST run and pass: every query is
@@ -24,22 +27,20 @@ import { requireDbEnvOrSkip } from './helpers/requires-infra';
 // no rows are persisted.
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const WORKER_SRC = readFileSync(
-  path.join(REPO_ROOT, 'scripts/automations/scheduled-posts-worker.mjs'),
-  'utf8',
-);
 
-function extractExportedSql(name: string): string {
-  const match = WORKER_SRC.match(
-    new RegExp(`export const ${name} = \`([\\s\\S]*?)\`;`),
-  );
-  assert.ok(match, `${name} must be defined and exported in the worker`);
-  return match[1];
+type WorkerSql = {
+  CLAIM_ROW_SQL: string;
+  DUE_ROWS_SQL: string;
+  MARK_IN_FLIGHT_SQL: string;
+};
+
+// Loaded inside the test rather than at module scope: tsx transforms these
+// files to CJS, where top-level await is a build error.
+async function loadWorkerSql(): Promise<WorkerSql> {
+  return (await import(
+    pathToFileURL(path.join(REPO_ROOT, 'scripts/automations/scheduled-posts-worker.mjs')).href
+  )) as unknown as WorkerSql;
 }
-
-const CLAIM_ROW_SQL = extractExportedSql('CLAIM_ROW_SQL');
-const DUE_ROWS_SQL = extractExportedSql('DUE_ROWS_SQL');
-const MARK_IN_FLIGHT_SQL = extractExportedSql('MARK_IN_FLIGHT_SQL');
 
 function dbConfigFromEnv(): pg.PoolConfig | null {
   const { DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME } = process.env;
@@ -70,6 +71,7 @@ test('scheduled-posts worker claim queries run against real Postgres', async (t)
     return;
   }
 
+  const { CLAIM_ROW_SQL, DUE_ROWS_SQL, MARK_IN_FLIGHT_SQL } = await loadWorkerSql();
   const pool = new pg.Pool(dbConfig);
   try {
     const client = await pool.connect();
@@ -82,10 +84,10 @@ test('scheduled-posts worker claim queries run against real Postgres', async (t)
       // 1. CLAIM_ROW_SQL — the regression target. A bare `FOR UPDATE` on this
       //    LEFT JOIN fails at plan time; `FOR UPDATE OF sp` must succeed. Run
       //    with an id that matches nothing so no real row is locked.
-      await client.query(CLAIM_ROW_SQL, [-1, new Date().toISOString()]);
+      await client.query(CLAIM_ROW_SQL, [-1, new Date().toISOString(), false]);
 
       // 2. DUE_ROWS_SQL — the batch scan. $1 batch size, $2 stale cutoff.
-      await client.query(DUE_ROWS_SQL, [1, new Date().toISOString()]);
+      await client.query(DUE_ROWS_SQL, [1, new Date().toISOString(), false]);
 
       // 3. MARK_IN_FLIGHT_SQL — writes dispatch_status='in_flight'. This fails
       //    against the live schema unless the dispatch_status CHECK constraint
