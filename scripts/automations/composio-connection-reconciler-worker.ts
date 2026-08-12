@@ -18,7 +18,16 @@
  *   - default OFF; ships dormant.
  *   - GRACE_MINUTES-bounded query so only recently-pending rows are swept.
  *   - Per-row errors are isolated; never throws from the tick loop.
- *   - One-line log summary only when scanned > 0.
+ *   - One-line log summary when either pass did work.
+ *
+ * DEMOTION (2026-08-12): the sweep also re-verifies rows we already advertise as
+ * usable, so a channel that DIES stops showing green. Before this, `connected`
+ * was terminal — tenant 15's X sat connected for ~28 days after Composio
+ * recorded a permanent refresh failure, and a week of posts dead-lettered.
+ * Fail-safe by construction: an unreachable Composio is counted as an error and
+ * the row is left untouched, so a provider blip can never disconnect a working
+ * channel. Tuned by ARIES_COMPOSIO_RECONCILER_RECHECK_HOURS (default 6) and
+ * ARIES_COMPOSIO_RECONCILER_RECHECK_LIMIT (default 25, oldest first).
  */
 import 'dotenv/config';
 
@@ -28,6 +37,8 @@ import { pathToFileURL } from 'node:url';
 
 import {
   reconcilePendingConnections,
+  DEFAULT_RECHECK_HOURS,
+  DEFAULT_RECHECK_LIMIT,
   DEFAULT_RECONCILE_GRACE_MINUTES,
 } from '@/backend/integrations/composio/reconcile-pending-connections';
 import { parsePoolMax, WORKER_POOL_MAX } from '@/lib/db-pool-config';
@@ -50,6 +61,18 @@ function resolveIntervalMs(env: NodeJS.ProcessEnv = process.env): number {
 function resolveGraceMinutes(env: NodeJS.ProcessEnv = process.env): number {
   const raw = parseInt(env.ARIES_COMPOSIO_RECONCILER_GRACE_MINUTES ?? '', 10);
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_RECONCILE_GRACE_MINUTES;
+}
+
+/** How stale a believed-live connection may get before it is re-verified. */
+function resolveRecheckHours(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = parseInt(env.ARIES_COMPOSIO_RECONCILER_RECHECK_HOURS ?? '', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_RECHECK_HOURS;
+}
+
+/** Cap on believed-live connections re-verified per tick (oldest first). */
+function resolveRecheckLimit(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = parseInt(env.ARIES_COMPOSIO_RECONCILER_RECHECK_LIMIT ?? '', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_RECHECK_LIMIT;
 }
 
 // ---------------------------------------------------------------------------
@@ -82,10 +105,28 @@ async function tickSafe(pool: pg.Pool): Promise<void> {
   running = true;
   try {
     const graceMinutes = resolveGraceMinutes();
-    const summary = await reconcilePendingConnections({ db: pool, graceMinutes });
-    if (summary.scanned > 0) {
+    const summary = await reconcilePendingConnections({
+      db: pool,
+      graceMinutes,
+      recheckHours: resolveRecheckHours(),
+      recheckLimit: resolveRecheckLimit(),
+    });
+    // `scanned` counts only the PENDING promotion sweep. Gating the log on it
+    // alone would make the demotion pass silent on any tick with no in-flight
+    // connects — which is almost every tick, and exactly when a demotion is
+    // most likely to be the only thing that happened.
+    if (summary.scanned > 0 || summary.rechecked > 0) {
       console.log(
         `[composio-connection-reconciler-worker] tick summary ${JSON.stringify(summary)}`,
+      );
+    }
+    if (summary.demoted > 0) {
+      // A tenant just lost a channel. Every downstream gate (publish
+      // eligibility, the connections UI) reads these rows, so this is an
+      // operator-visible event, not routine bookkeeping.
+      console.warn(
+        `[composio-connection-reconciler-worker] ${summary.demoted} connection(s) DEMOTED ` +
+          `— a tenant can no longer publish to those channels until they reconnect`,
       );
     }
   } catch (err) {
@@ -122,7 +163,9 @@ async function main(): Promise<void> {
   const graceMinutes = resolveGraceMinutes();
   const pool = buildPool();
   console.log(
-    `[composio-connection-reconciler-worker] starting; interval=${intervalMs}ms grace_minutes=${graceMinutes}`,
+    `[composio-connection-reconciler-worker] starting; interval=${intervalMs}ms ` +
+      `grace_minutes=${graceMinutes} recheck_hours=${resolveRecheckHours()} ` +
+      `recheck_limit=${resolveRecheckLimit()}`,
   );
 
   await tickSafe(pool);
