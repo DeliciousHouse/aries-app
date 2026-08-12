@@ -43,10 +43,23 @@ import {
   handleGetInsightsAccountMetrics,
   handleGetInsightsComments,
 } from '../backend/insights/read-api';
+import { __resetInsightsMicroCacheForTests } from '../backend/insights/micro-cache';
 import type { TenantContextLoader } from '../lib/tenant-context-http';
 
 const TENANT_ID = 7;
 const loader = stubTenantLoader(TENANT_ID) as unknown as TenantContextLoader;
+
+/**
+ * S7-3/AA-121 landed a process-global 60s micro-cache in front of all four
+ * handlers, keyed on (section, tenant, params). Without this reset the second
+ * test to use a given key is served from the first test's body and issues NO
+ * query — which is not a hypothetical: it silently turned six of the assertions
+ * below into vacuous passes the moment that cache merged.
+ *
+ * Resetting per test is what keeps each one exercising the SQL path it claims
+ * to. The cache's own behaviour is asserted deliberately, at the bottom.
+ */
+test.beforeEach(() => __resetInsightsMicroCacheForTests());
 
 const req = (route: string, qs = '') =>
   new Request(`https://x.test/api/insights/${route}${qs ? `?${qs}` : ''}`);
@@ -106,8 +119,12 @@ test('summary binds the tenant id from context as $1, never from the request', a
 });
 
 test('summary clamps days to 1..90 and falls back on garbage', async () => {
+  // Each call is a separate logical request. Two of these clamp to the SAME
+  // cache key (days=0 and days=-5 both become 1), so without the reset the
+  // second would be answered from the first's body and assert nothing.
   const daysFor = async (qs: string) =>
     withMockPool(SUMMARY_RULES, async () => {
+      __resetInsightsMicroCacheForTests();
       const res = await handleGetInsightsSummary(req('summary', qs), loader);
       return (await res.json()).period.days;
     });
@@ -205,8 +222,12 @@ test('posts survives a row with no platform_data and no avg_view_percentage', as
 });
 
 test('posts clamps limit to 1..100 and floors offset at 0', async () => {
+  // offset=-3 and '' both clamp to limit 20 / offset 0 — the same cache key —
+  // so each call resets, or the later ones are served a cached body and never
+  // reach the query whose params they are inspecting.
   const paramsFor = async (qs: string) =>
     withMockPool(POSTS_RULES, async (m) => {
+      __resetInsightsMicroCacheForTests();
       await handleGetInsightsPosts(req('posts', qs), loader);
       return m.matching(/FROM insights_posts p/i)[0].params;
     });
@@ -310,8 +331,10 @@ test('comments joins the post title and coerces a null is_replied to false', asy
 });
 
 test('comments clamps limit to 1..200 and passes an absent postId as null', async () => {
+  // '' and postId=0 resolve to the same (limit 50, postId null) key.
   const paramsFor = async (qs: string) =>
     withMockPool(COMMENTS_RULES, async (m) => {
+      __resetInsightsMicroCacheForTests();
       await handleGetInsightsComments(req('comments', qs), loader);
       return m.matching(/FROM insights_comments c/i)[0].params;
     });
@@ -326,6 +349,73 @@ test('comments clamps limit to 1..200 and passes an absent postId as null', asyn
     null,
     'post id 0 is not a real row — it must fall through to null',
   );
+});
+
+// ── Micro-cache wiring (S7-3/AA-121) ─────────────────────────────────────────
+// tests/insights-micro-cache.test.ts pins the cache MODULE. These pin that each
+// handler is wired to it correctly, which is a different thing and the half that
+// can leak a tenant's data.
+
+test('a repeat request inside the window is served from cache, costing no DB work', async () => {
+  const mock = await withMockPool(SUMMARY_RULES, async (m) => {
+    const first = await handleGetInsightsSummary(req('summary', 'days=30'), loader);
+    assert.equal(first.status, 200);
+    const queriesAfterFirst = m.calls.length;
+    assert.ok(queriesAfterFirst > 0, 'the first request must actually query');
+
+    const second = await handleGetInsightsSummary(req('summary', 'days=30'), loader);
+    assert.equal(second.status, 200);
+    assert.deepEqual(await second.json(), await first.json(), 'same body');
+    assert.equal(m.calls.length, queriesAfterFirst, 'a hit must issue no query');
+    assert.equal(m.connectCount, 1, 'and must not check out a pooled client');
+    return m;
+  });
+  assert.equal(mock.releaseCount, 1);
+});
+
+test('the cached body is marked private so no CDN can hold per-tenant data', async () => {
+  // A shared cache holding this body would serve one tenant's numbers to
+  // another — the failure mode that makes `private` non-negotiable here.
+  await withMockPool(SUMMARY_RULES, async () => {
+    await handleGetInsightsSummary(req('summary'), loader);
+    const hit = await handleGetInsightsSummary(req('summary'), loader);
+    assert.match(hit.headers.get('Cache-Control') ?? '', /private/);
+  });
+});
+
+test('a different tenant never reads the first tenant\'s cached body', async () => {
+  // The isolation property. On a hit the tenant-scoped SQL never runs, so
+  // nothing downstream would catch a leaked entry — this assertion is the only
+  // thing standing between a key bug and cross-tenant disclosure.
+  const other = stubTenantLoader(99) as unknown as TenantContextLoader;
+  const rules: QueryRule[] = [
+    TIMEZONE_RULE,
+    {
+      match: /AS total_views/i,
+      // Answer per bound tenant, so a leak shows up as the wrong number.
+      rows: (params) => [{ ...SUMMARY_ROW, total_views: params[0] === TENANT_ID ? '1200' : '4242' }],
+    },
+  ];
+
+  await withMockPool(rules, async (m) => {
+    const a = await (await handleGetInsightsSummary(req('summary'), loader)).json();
+    const b = await (await handleGetInsightsSummary(req('summary'), other)).json();
+
+    assert.equal(a.totalViews, 1200);
+    assert.equal(b.totalViews, 4242, 'tenant 99 must not be served tenant 7\'s cached body');
+    assert.equal(m.matching(/AS total_views/i).length, 2, 'each tenant runs its own query');
+  });
+});
+
+test('a differing query param is a different cache entry, not a stale hit', async () => {
+  // days is part of the key; if it were not, changing the window would return
+  // the previous window's numbers under the new label.
+  await withMockPool(SUMMARY_RULES, async (m) => {
+    await handleGetInsightsSummary(req('summary', 'days=7'), loader);
+    const other = await handleGetInsightsSummary(req('summary', 'days=90'), loader);
+    assert.equal((await other.json()).period.days, 90);
+    assert.equal(m.matching(/AS total_views/i).length, 2, 'a new window must re-query');
+  });
 });
 
 // ── Coverage guard ───────────────────────────────────────────────────────────
