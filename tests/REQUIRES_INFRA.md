@@ -10,6 +10,30 @@ and only pass meaningfully against a reachable database. They self-skip with
 [`tests/helpers/requires-infra.ts`](./helpers/requires-infra.ts) (`requireDbEnvOrSkip`) when
 the DB env is absent — so the `full-suite` CI gate counts them as skipped, never failed.
 
+## Which of these actually run in CI
+
+Self-skipping is what keeps `full-suite` honest, but it is not coverage: a file that only
+ever skips is a file nobody is running. Two **dedicated** jobs in
+[`.github/workflows/tests.yml`](../.github/workflows/tests.yml) provision Postgres and run a
+named subset for real. Everything else in the index below is local-only today.
+
+| Job | Runs | Seed |
+|---|---|---|
+| `feedback-postgres` | `feedback-reports-store`, `scheduled-dispatch-cutover`, + the two lock-order suites | — (each builds its own schema/rows) |
+| `insights-endpoints-postgres` | `insights-endpoints.test.ts` (S8-2/AA-125) | `db:init` + `db:seed-insights` |
+
+`full-suite` itself is deliberately left alone — it sets no `DB_*` env, so every file here
+still self-skips there. Adding live-DB env to that gate would turn ~30 files into a hard
+database dependency for the whole suite.
+
+A job like this needs one guard to be worth having: **a skipped test is a passing test**, so
+a broken service container or a renamed env var would leave the job green having verified
+nothing. `insights-endpoints-postgres` therefore runs with `--test-reporter=tap` and fails
+when the summary reports `skipped != 0`. That is not belt-and-braces — the first real run of
+`insights-endpoints.test.ts` found an assertion (`activeTimes.hasData === false`) that had
+been wrong since S2-3 replaced that stub with a real heatmap, undetected for exactly as long
+as the file had no CI home.
+
 This file is the human-readable half of the "clearly split requires-infra vs self-contained"
 deliverable (public-readiness roadmap area 1a). The machine-readable half is
 `npm run test:requires-infra-report`.
@@ -50,7 +74,7 @@ All files below gate on the **superset** `DB_HOST` + `DB_PORT` + `DB_USER` + `DB
 | `tests/marketing/taste-tenant-scoped.requires-infra.test.ts` | the 20260609 tenant-scope relaxation (PK drop, nullable `user_id`, the two unique indexes) + tenant/per-user row coexistence + both upsert paths merge against the live schema (rolled back) | — |
 | `tests/feedback-reports-store.requires-infra.test.ts` | the SC-70 `feedback_reports` store: transactional rate-limit boundary + dedup, the `FOR UPDATE SKIP LOCKED` retry claim (incl. no re-steal via `updated_at`), the attempts→`failed` boundary, and bytes-NULLing on sync (throwaway schema, created + dropped) | — |
 | `tests/onboarding/variant-board-requires-infra.test.ts` | `creative_assets` variant_batch_id/variant_index columns + the board grouping query against the live schema (rolled back) | — |
-| `tests/insights-endpoints.test.ts` | Insights endpoints Sections 2–9 against live schema + seed data; wires `aries_post_id` via a temp post insert, rolled back after | seed: `npm run db:seed-insights` |
+| `tests/insights-endpoints.test.ts` | Insights endpoints Sections 2–9 against live schema + seed data; wires `aries_post_id` via a temp post insert, rolled back after. **Runs in CI** (`insights-endpoints-postgres`) — the only behaviour coverage the eight section endpoints have. `activeTimes` is asserted for COHERENCE (`hasData` agrees with whether a grid/peak is present), not for a fixed value: the seed dates comments randomly within 20 days, so how many land in the 7-day window — and therefore whether the heatmap clears its 8-event threshold — is not fixed | seed: `npm run db:seed-insights` |
 | `tests/draft-expiry-sweep.requires-infra.test.ts` | the draft-expiry sweep's four statements plan against the real `posts`/`scheduled_posts` schema, the `'expired'` value is accepted by the `published_status`/`status` CHECK constraints, and the scheduled-row + too-recent guards hold (rolled back) | — |
 | `tests/tenant/membership-backfill.requires-infra.test.ts` | the multi-workspace Phase 0 backfill `INSERT…SELECT` + membership/entitlement DDL from `scripts/init-db.js`: one membership per user-with-org, sentinel `password_hash='invited_pending'`→`status='invited'`, org-less exclusion, idempotent re-run (0 rows), `idx_users_email_lower_unique` rejects a case-variant email, `users.plan` default `'free'` (throwaway schema, created + dropped) | — |
 | `tests/tenant/multi-workspace-phase2-concurrency.requires-infra.test.ts` | multi-workspace Phase 2 TRUE-concurrency races (real row locks, each arm on its own `PoolClient` like the routes): accept-vs-signin TOCTOU (no second password / double-activation), concurrent duplicate + cross-org first invite (one users row, coherent memberships, safe aborts not 500s), symmetric admin demotes (never zero admins), free-limit double-accept (exactly one 402), accept-vs-revoke (no torn half-join). Asserts the true SAFE contract (invariant + no silent success, tolerating serialization/deadlock aborts) and documents deadlock-serialization findings for the guard + entitlement locks (throwaway schema, created + dropped) | — |

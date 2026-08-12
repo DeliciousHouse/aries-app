@@ -65,6 +65,113 @@ jobs:
           tests/scheduled-worker-sweep-lock-order.test.ts
           tests/scheduled-dispatch-cutover.requires-infra.test.ts
 
+  # S8-2/AA-125 (gap E4). tests/insights-endpoints.test.ts holds the ONLY
+  # behaviour tests for the eight /insights section endpoints, and it needs live
+  # Postgres PLUS seed data — so in `full-suite` (which sets no DB env) all 23
+  # self-skip and the endpoints have effectively been untested. This job gives
+  # them a home without touching that gate's self-skip semantics: `full-suite`
+  # still runs the file with no DB env and still counts it skipped.
+  #
+  # The stakes are not theoretical. The first real run of this file found an
+  # assertion that had been wrong since S2-3 gave `activeTimes` a real heatmap —
+  # nothing caught it precisely because the file never executed in CI.
+  insights-endpoints-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: aries_test
+          POSTGRES_PASSWORD: aries_test_password
+          POSTGRES_DB: aries_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aries_test -d aries_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      NODE_ENV: development
+      DB_HOST: 127.0.0.1
+      DB_PORT: '5432'
+      DB_USER: aries_test
+      DB_PASSWORD: aries_test_password
+      DB_NAME: aries_test
+      APP_BASE_URL: https://aries.example.com
+      NEXT_TELEMETRY_DISABLED: '1'
+      # Declares intent: this is the one job that opts into the live-DB split.
+      # It is NOT the mechanism — `requireDbEnvOrSkip` gates on the five DB_*
+      # vars above and never reads this flag; only scripts/list-requires-infra.mjs
+      # does. Kept so the job says out loud what it is, and so a future move to
+      # that runner needs no env change. See CLAUDE.md.
+      ARIES_TEST_REQUIRES_INFRA_ENABLED: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Initialize schema
+        run: npm run db:init
+
+      - name: Seed insights fixtures
+        # Creates the 'insights-demo' tenant the test resolves in its `before`
+        # hook: 1 YouTube account, 30 days of account metrics, 15 posts, 50
+        # comments. Without it the file fails fast with an explicit
+        # "Seed tenant not found" rather than passing vacuously.
+        run: npm run db:seed-insights
+
+      - name: Insights section endpoints against live Postgres
+        shell: bash
+        run: |
+          set -o pipefail
+          # --test-reporter=tap is load-bearing for the assertion step below:
+          # it emits a machine-readable `# pass N` / `# skipped N` summary. The
+          # default reporter writes `ℹ pass N` when piped, which the grep would
+          # silently fail to match — turning the guard into the very no-op it
+          # exists to prevent.
+          npx --no-install tsx --test --test-reporter=tap --test-concurrency=1 \
+            tests/insights-endpoints.test.ts 2>&1 | tee /tmp/insights-endpoints.log
+
+      - name: Assert the suite actually ran
+        # The failure mode this job must not have. `requireDbEnvOrSkip` makes
+        # every test SKIP when the DB env is wrong, and a skipped test is a
+        # passing test — so a broken service container, a renamed env var or a
+        # failed seed would leave this job green having verified nothing. A
+        # silent no-op gate is worse than no gate: it reports coverage that does
+        # not exist. Assert on the counts, not on the exit code.
+        shell: bash
+        run: |
+          set -euo pipefail
+          # awk, not `grep -oP`: PCRE mode is unavailable under some locales
+          # ("grep: -P supports only unibyte and UTF-8 locales"), and a guard
+          # that errors out is a guard that does not guard.
+          skipped=$(awk '/^# skipped /{print $3; exit}' /tmp/insights-endpoints.log)
+          passed=$(awk  '/^# pass /{print $3; exit}'    /tmp/insights-endpoints.log)
+          echo "pass=${passed:-?} skipped=${skipped:-?}"
+          if [ -z "${skipped:-}" ] || [ -z "${passed:-}" ]; then
+            echo "::error::Could not read the TAP summary — the suite did not report counts."
+            exit 1
+          fi
+          if [ "$skipped" -ne 0 ]; then
+            echo "::error::${skipped} insights endpoint tests SKIPPED. They self-skip when the DB env is absent, so this job verified nothing."
+            exit 1
+          fi
+          if [ "$passed" -lt 20 ]; then
+            echo "::error::Only ${passed} tests passed; this file carries 23. Something is not being collected."
+            exit 1
+          fi
+          echo "✓ ${passed} insights endpoint tests executed against live Postgres, 0 skipped"
+
   hermes-sidecar-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 10

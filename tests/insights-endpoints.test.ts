@@ -637,19 +637,55 @@ test('GET /api/insights/audience — week returns correct shape', async (t) => {
     assert.ok(typeof item.surface      === 'string', 'item.surface must be string');
   }
 
-  // demographics stub
+  // demographics — still a genuine stub: follower age/location come only from
+  // the platform audience-analytics APIs (Phase 3 adapters), so nothing can
+  // populate them yet.
   const demo = body.demographics as Record<string, unknown>;
   assert.equal(demo.hasData, false, 'demographics.hasData must be false');
   assert.ok(Array.isArray(demo.ages),      'demographics.ages must be array');
   assert.ok(Array.isArray(demo.locations), 'demographics.locations must be array');
 
-  // activeTimes stub
+  // activeTimes is NO LONGER a stub. S2-3 gave it a real comment-derived
+  // heatmap that reports hasData once the window holds MIN_HEATMAP_EVENTS (8)
+  // comments, and the seed produces 21–30 in the week window — so the old
+  // `hasData === false` assertion had been wrong ever since, undetected because
+  // this file self-skipped in CI (the gap AA-125 closes).
+  //
+  // Asserting a fixed value here would just re-pin whichever way the seed's
+  // dice fall. The invariant that actually holds is COHERENCE: an empty grid
+  // and a populated one are two shapes, and the flag must agree with the shape
+  // it describes — a `hasData: true` carrying a null grid would render an empty
+  // heatmap as if it were real data.
   const at = body.activeTimes as Record<string, unknown>;
-  assert.equal(at.hasData, false,   'activeTimes.hasData must be false');
-  assert.equal(at.grid,    null,    'activeTimes.grid must be null');
-  assert.equal(at.peakWindow, null, 'activeTimes.peakWindow must be null');
+  assert.ok(typeof at.hasData === 'boolean', 'activeTimes.hasData must be a boolean');
 
-  console.log(`[audience/week] schedule=${(body.schedule as unknown[]).length} items`);
+  if (at.hasData === false) {
+    assert.equal(at.grid,       null, 'no data means no grid');
+    assert.equal(at.peakWindow, null, 'no data means no peak window');
+  } else {
+    const grid = at.grid as number[][];
+    assert.ok(Array.isArray(grid), 'a populated heatmap must carry a grid');
+    assert.equal(grid.length, 7, 'the grid is 7 days');
+    for (const row of grid) {
+      assert.equal(row.length, 24, 'each day is 24 hours');
+      for (const cell of row) {
+        assert.ok(
+          Number.isFinite(cell) && cell >= 0 && cell <= 100,
+          'cells are normalized 0–100 relative to the busiest hour',
+        );
+      }
+    }
+    const peak = at.peakWindow as Record<string, unknown>;
+    assert.ok(peak, 'a populated heatmap must name its peak window');
+    assert.ok(typeof peak.day  === 'string', 'peakWindow.day must be a string');
+    assert.ok(typeof peak.hour === 'string', 'peakWindow.hour must be a string');
+    assert.equal(peak.score, 100, 'the peak cell is by definition the 100 of the scale');
+  }
+
+  console.log(
+    `[audience/week] schedule=${(body.schedule as unknown[]).length} items, ` +
+    `activeTimes.hasData=${String(at.hasData)}`,
+  );
 });
 
 test('GET /api/insights/audience — platform filter accepted', async (t) => {
