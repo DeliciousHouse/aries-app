@@ -2,6 +2,117 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.11.0 — fix(marketing): a refusal is not a post (AA-235)
+
+On 2026-08-12 the weekly pipeline published an AI agent's REFUSAL to live brand
+accounts. Seven posts were synthesized whose captions read
+
+> "Missing brand-kit research, campaign context, and approved content package
+> for publish-stage execution."
+
+They were created `approved`, auto-scheduled and dispatched. Two Facebook posts
+have been deleted; one Instagram post was still live at the time of writing. 27
+further posts are held in the database and are NOT touched by this change.
+
+Two independent defects had to line up. Both are fixed here.
+
+### Defect A — the request carried no inputs
+
+`usesPerStageProfilePipeline()` decides whether an `action:'run'` submission
+takes the weekly per-stage branch — brand kit, scope, objective and prior-stage
+artifacts, assembled by `buildSocialContentWeeklyRequest` — or the generic
+brand-campaign branch, whose run prompt is five lines of bare identifiers. It
+reads `doc.inputs.request.jobType`.
+
+`startSocialContentJob` receives `jobType` as a SIBLING of `payload`, and
+`createSocialContentJobRuntimeDocument` persists `request: input.payload`
+verbatim. Six sites create jobs; only `app/api/marketing/jobs/handler.ts` also
+duplicates jobType INTO the payload. `weekly-trigger.ts`,
+`onboarding-variant-batch.ts`, `variant-pick-finalize.ts` and
+`app/onboarding/resume/page.tsx` do not. Every SCHEDULED weekly run therefore
+reached Hermes with no brand kit, no scope and no prior-stage output, and the
+agent — correctly — refused for lack of inputs. 69 of the 74 weekly documents on
+disk carry no `inputs.request.jobType`; 33 of those were created by the
+weekly-trigger worker.
+
+The pre-existing port tests were green throughout because they hand-build the
+runtime document with jobType already inside the payload and never touch the
+real entry point.
+
+### Defect B — a refusal became an approved post
+
+Nothing between generation and publish asked whether the text was content.
+`extractContentPackage` fell back to the PUBLISH stage's `content_package` when
+production emitted none — and that fallback is what carried the refusal into
+`posts.caption`. It also quietly contradicted `PRODUCTION_EXECUTION_CONTRACT`,
+which already declares production output without a content_package "incomplete
+and will fail downstream publish"; instead of failing, publish invented the copy
+from whatever the publish agent happened to say. In the incident that agent had
+also labelled its own output `"stage": "strategy"`, and every reader took the
+artifact at face value.
+
+### Fixed
+
+- **Defect A.** When the persisted request states no jobType, routing falls back
+  to the document's own top-level `job_type`, which self-heals the 69 documents
+  already on disk (they cannot be re-stamped and are re-read on every
+  auto-advance hop). `startSocialContentJob` also stamps `requestPayload.jobType`
+  so a newly persisted request is self-describing at its own source of truth
+  rather than depending on each caller to remember to duplicate a sibling
+  parameter. An explicitly-stated `request.jobType` still wins outright and
+  ungated, so the one-off reel companion, the dashboard create path and the 16
+  legacy `brand_campaign` documents keep byte-identical routing.
+- **Defect B.** The publish-stage fallback for `content_package` is gone.
+  Production is the only source of post copy. When production ran and delivered
+  none — the `content_package` key absent or empty, NOT "entries parsed to zero",
+  which stays the pre-existing `no_content_package` no-op — synthesis refuses
+  with `production_content_package_missing`, the job is marked FAILED with the
+  reason on `doc.last_error` (not merely a console line), and the auto-schedule
+  hook is suppressed for that run.
+- **Defect B.** A publish artifact whose `primary_output` declares a `stage`
+  other than `publish` is DISTRUSTED: its schedule and its `publish_package` are
+  ignored (synthesis falls through to the default cadence, the same path an
+  absent schedule already takes) and the anomaly is recorded on the job
+  document. It is deliberately NOT a refusal. 21 of the 87 persisted documents
+  with a publish artifact declare some other stage, and 16 of those carry a
+  perfectly good production `content_package` and synthesized real posts —
+  including `mkt_c8ee6236`, the reference scenario in
+  `tests/marketing/default-cadence-slots.test.ts`. Failing on the label would
+  have broken roughly a fifth of publishing weeks to guard against a string. All
+  three documents whose production emitted nothing also carry a mislabelled
+  artifact, so the hard stop above catches the incident on its own. The check
+  fires only on a stated contradiction; an output with no `stage` key is normal
+  and is left alone.
+
+### Added
+
+- `ARIES_PER_STAGE_JOB_TYPE_FALLBACK_ENABLED` — rollout gate for defect A,
+  default OFF, with the `ON | OFF | tenant-allowlist` shape of
+  `ARIES_PLATFORM_NATIVE_CONTENT_ENABLED`. Both halves of the fix are behind it,
+  the stamp included: the read side consults `request.jobType` BEFORE the flag,
+  so stamping unconditionally would flip every new weekly job onto the per-stage
+  pipeline fleet-wide the moment this lands. **Landing this release moves no
+  traffic.** Defect B's gates are NOT flagged — they only ever refuse output
+  that was never publishable.
+
+### Notes
+
+Turning the flag on switches scheduled weekly runs to a different workflow key
+(`social_content_weekly`), a different request builder and the per-stage
+gateways. That code path is NOT new: 40 one-off reel documents and 38 legacy
+documents already execute the `action:'run'` weekly branch in production today,
+and their failures are auth/video-render issues, not routing ones. What is new
+is the weekly-trigger tenant population going through it. Recommended rollout is
+a single-tenant allowlist for one weekly cycle before ON.
+
+`INSERT_SYNTHESIZED_POST_SQL` still hard-codes `'approved','approved'`. Landing
+synthesized posts as `in_review` instead is the right long-term shape but is NOT
+a one-line change: no endpoint in the repo promotes a post out of `in_review`,
+so every synthesized post would sit until the draft-expiry sweep expired it —
+turning a content-safety improvement into a total delivery outage. It needs a
+promote route, the calendar backlog query, the auto-schedule gate and a UI
+affordance, and is deliberately left as follow-up work.
+
 ## v0.2.10.1 — fix(publishing): read LinkedIn's `x_restli_id` post id
 
 A successful LinkedIn publish is recorded as a success again.
