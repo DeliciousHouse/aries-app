@@ -375,6 +375,24 @@ const steps = [
     // request at all, and that an abort never surfaces as an error. The
     // structural half pins the dashboard wiring and the AA-152 invariant that a
     // lazy section gates its FETCH and never its MARKUP. jsdom, no DB or network.
+    // S8-1/AA-124 (gaps E2/E3): behavioural coverage for the read paths the
+    // shipped screens call. read-api backs analytics + comments; the narrative
+    // module backs the Hero band and had no tests at all. AA-108 pins the
+    // REJECTION path for these routes — nothing ran one to a 200, so the param
+    // binding, the clamps and pg's string→number coercion were unexercised (a
+    // missing Number() returns "12", and the next `+` concatenates). Also pins
+    // the two S3-1 honesty guards that make the Hero trustworthy: a no-signal
+    // account scores 0 rather than floating at its ~50 base, and a period with
+    // posts but zero reach is "not enough data" rather than a summarizable one.
+    // Mocked pool, no DB.
+    name: 'insights read-api + narrative behaviour (AA-124)',
+    args: [
+      '--test',
+      'tests/insights-read-api.test.ts',
+      'tests/insights-narrative.test.ts',
+    ],
+  },
+  {
     name: 'insights client coalescing: abort + dedup + lazy (AA-123)',
     args: [
       '--test',
