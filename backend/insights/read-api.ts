@@ -24,6 +24,7 @@ import {
 import { resolveTenantInsightsTimeZone } from './tenant-timezone';
 import { tenantZonePeriodStartDateKey } from '@/lib/format-timestamp';
 import { LATEST_POST_METRICS_LATERAL } from './latest-post-metrics-sql';
+import { accountEngagementSql } from './account-engagement-sql';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -103,7 +104,7 @@ export async function handleGetInsightsSummary(
     const tz      = await resolveTenantInsightsTimeZone(client, tenantId);
     const fromKey = tenantZonePeriodStartDateKey(days, tz);
     const res = await client.query<{
-      total_views:              string;
+      total_reach:              string;
       current_followers:        string;
       followers_gained:         string;
       total_likes:              string;
@@ -113,7 +114,12 @@ export async function handleGetInsightsSummary(
       total_engagement:         string;
     }>(
       `SELECT
-         COALESCE(SUM(views), 0)              AS total_views,
+         -- AA-230: prefer real reach over views (YouTube populates reach as
+         -- unique viewers; Instagram/Facebook populate reach as organic reach).
+         -- Matches every other LATEST_POST_METRICS_LATERAL consumer
+         -- (top-snapshot-builder.ts, narrative/snapshot-builder.ts) — this was
+         -- the one reader still reading views, which disagreed with /insights.
+         COALESCE(SUM(COALESCE(reach, views, 0)), 0) AS total_reach,
          (${LATEST_FOLLOWERS_PER_PLATFORM_SUBQUERY}) AS current_followers,
          COALESCE(SUM(followers_delta), 0)    AS followers_gained,
          COALESCE(SUM(likes), 0)              AS total_likes,
@@ -124,10 +130,7 @@ export async function handleGetInsightsSummary(
          -- page_post_engagements) when present; fall back to the like/comment/
          -- share breakdown for platforms that report one. Never a fake 0 when a
          -- real aggregate exists.
-         COALESCE(SUM(
-           COALESCE(engagement,
-                    COALESCE(likes, 0) + COALESCE(comments_count, 0) + COALESCE(shares, 0))
-         ), 0)                                AS total_engagement
+         COALESCE(SUM(${accountEngagementSql()}), 0) AS total_engagement
        FROM insights_account_metrics_daily
        WHERE tenant_id = $1
          AND date >= $2::date
@@ -139,7 +142,7 @@ export async function handleGetInsightsSummary(
     const body = {
       period: { days, from: fromKey },
       platform,
-      totalViews:            Number(row.total_views),
+      totalReach:            Number(row.total_reach),
       currentFollowers:      Number(row.current_followers),
       followersGained:       Number(row.followers_gained),
       totalLikes:            Number(row.total_likes),
@@ -209,7 +212,7 @@ export async function handleGetInsightsPosts(
       permalink:           string | null;
       duration_seconds:    number | null;
       platform_data:       Record<string, unknown>;
-      total_views:         string;
+      total_reach:         string;
       total_likes:         string;
       total_comments:      string;
       total_shares:        string;
@@ -229,7 +232,9 @@ export async function handleGetInsightsPosts(
          -- day, each an all-time running total), so the latest row IS the true
          -- lifetime total. SUMming across dates inflated it ~N×. Take the newest
          -- snapshot per post via LATERAL (same idiom as posting-time-advisor).
-         COALESCE(m.views, 0)             AS total_views,
+         -- AA-230: reach-preferred, matching every other LATEST_POST_METRICS_LATERAL
+         -- consumer (top-snapshot-builder.ts, narrative/snapshot-builder.ts).
+         COALESCE(m.reach, m.views, 0)    AS total_reach,
          COALESCE(m.likes, 0)             AS total_likes,
          COALESCE(m.comments_count, 0)    AS total_comments,
          COALESCE(m.shares, 0)            AS total_shares,
@@ -254,7 +259,7 @@ export async function handleGetInsightsPosts(
       durationSeconds: row.duration_seconds,
       thumbnailUrl:    (row.platform_data as Record<string, unknown>)?.thumbnailUrl ?? null,
       metrics: {
-        totalViews:         Number(row.total_views),
+        totalReach:         Number(row.total_reach),
         totalLikes:         Number(row.total_likes),
         totalComments:      Number(row.total_comments),
         totalShares:        Number(row.total_shares),
@@ -319,7 +324,7 @@ export async function handleGetInsightsAccountMetrics(
     const res = await client.query<{
       date:                 string;
       platform:             string;
-      views:                string;
+      reach:                string;
       watch_time_minutes:   string;
       followers:            string;
       followers_delta:      string;
@@ -330,7 +335,9 @@ export async function handleGetInsightsAccountMetrics(
       `SELECT
          date::text,
          platform,
-         COALESCE(SUM(views), 0)              AS views,
+         -- AA-230: reach-preferred, matching every other
+         -- LATEST_POST_METRICS_LATERAL consumer.
+         COALESCE(SUM(COALESCE(reach, views, 0)), 0) AS reach,
          COALESCE(SUM(watch_time_minutes), 0) AS watch_time_minutes,
          COALESCE(MAX(followers), 0)          AS followers,
          COALESCE(SUM(followers_delta), 0)    AS followers_delta,
@@ -349,7 +356,7 @@ export async function handleGetInsightsAccountMetrics(
     const series = res.rows.map((row) => ({
       date:               row.date,
       platform:           row.platform,
-      views:              Number(row.views),
+      reach:              Number(row.reach),
       watchTimeMinutes:   Number(row.watch_time_minutes),
       followers:          Number(row.followers),
       followersDelta:     Number(row.followers_delta),

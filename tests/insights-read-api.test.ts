@@ -66,7 +66,7 @@ const req = (route: string, qs = '') =>
 
 /** pg hands every aggregate back as a string — fixtures must too, or the test lies. */
 const SUMMARY_ROW = {
-  total_views: '1200',
+  total_reach: '1200',
   current_followers: '16000',
   followers_gained: '250',
   total_likes: '90',
@@ -78,7 +78,7 @@ const SUMMARY_ROW = {
 
 const SUMMARY_RULES: QueryRule[] = [
   TIMEZONE_RULE,
-  { match: /AS total_views/i, rows: [SUMMARY_ROW] },
+  { match: /AS total_reach/i, rows: [SUMMARY_ROW] },
 ];
 
 // ── Summary ──────────────────────────────────────────────────────────────────
@@ -90,12 +90,12 @@ test('summary returns the aggregate as NUMBERS, not pg strings', async () => {
     return res.json();
   });
 
-  assert.equal(body.totalViews, 1200);
+  assert.equal(body.totalReach, 1200);
   assert.equal(body.currentFollowers, 16000);
   assert.equal(body.followersGained, 250);
   assert.equal(body.totalEngagement, 106);
   for (const key of [
-    'totalViews', 'currentFollowers', 'followersGained', 'totalLikes',
+    'totalReach', 'currentFollowers', 'followersGained', 'totalLikes',
     'totalComments', 'totalShares', 'totalWatchTimeMinutes', 'totalEngagement',
   ]) {
     assert.equal(typeof body[key], 'number', `${key} must be coerced from pg's string`);
@@ -109,7 +109,7 @@ test('summary binds the tenant id from context as $1, never from the request', a
     return m;
   });
 
-  const [call] = mock.matching(/AS total_views/i);
+  const [call] = mock.matching(/AS total_reach/i);
   assert.equal(call.params[0], TENANT_ID, 'tenant id must come from the resolved context');
   assert.equal(call.params[2], 'instagram');
   assert.ok(
@@ -144,14 +144,14 @@ test('summary treats a missing platform as all-platforms (null), not the empty s
     await handleGetInsightsSummary(req('summary', 'platform='), loader);
     return m;
   });
-  assert.equal(mock.matching(/AS total_views/i)[0].params[2], null);
+  assert.equal(mock.matching(/AS total_reach/i)[0].params[2], null);
 });
 
 test('summary releases its pooled client even when the query throws', async () => {
   // A leak here exhausts DB_POOL_MAX (10 per worker) after ten failures.
   const rules: QueryRule[] = [
     TIMEZONE_RULE,
-    { match: /AS total_views/i, rows: [], throws: new Error('boom') },
+    { match: /AS total_reach/i, rows: [], throws: new Error('boom') },
   ];
   const mock = await withMockPool(rules, async (m) => {
     await assert.rejects(() => handleGetInsightsSummary(req('summary'), loader));
@@ -173,7 +173,7 @@ const POST_ROW = {
   permalink: 'https://instagram.com/p/1',
   duration_seconds: null,
   platform_data: { thumbnailUrl: 'https://cdn.test/t.jpg' },
-  total_views: '900',
+  total_reach: '900',
   total_likes: '45',
   total_comments: '6',
   total_shares: '2',
@@ -193,8 +193,8 @@ test('posts maps the row to the client shape with numeric metrics', async () => 
   const [post] = body.posts;
   assert.equal(post.externalPostId, 'ig_1');
   assert.equal(post.thumbnailUrl, 'https://cdn.test/t.jpg', 'lifted out of platform_data');
-  assert.equal(post.metrics.totalViews, 900);
-  assert.equal(typeof post.metrics.totalViews, 'number');
+  assert.equal(post.metrics.totalReach, 900);
+  assert.equal(typeof post.metrics.totalReach, 'number');
   assert.equal(post.metrics.avgViewPercentage, 38.5);
   assert.equal(typeof post.metrics.avgViewPercentage, 'number');
 });
@@ -257,7 +257,7 @@ const SERIES_RULES: QueryRule[] = [
     match: /GROUP BY date, platform/i,
     rows: [
       {
-        date: '2026-07-01', platform: 'facebook', views: '500',
+        date: '2026-07-01', platform: 'facebook', reach: '500',
         watch_time_minutes: '20', followers: '10000', followers_delta: '15',
         likes: '30', comments_count: '4', shares: '1',
       },
@@ -278,7 +278,7 @@ test('account-metrics returns a numeric series and echoes the resolved window', 
   assert.equal(point.date, '2026-07-01');
   assert.equal(point.followers, 10000);
   assert.equal(point.followersDelta, 15);
-  for (const key of ['views', 'watchTimeMinutes', 'followers', 'followersDelta', 'likes', 'commentsCount', 'shares']) {
+  for (const key of ['reach', 'watchTimeMinutes', 'followers', 'followersDelta', 'likes', 'commentsCount', 'shares']) {
     assert.equal(typeof point[key], 'number', `${key} must be coerced`);
   }
 });
@@ -391,9 +391,9 @@ test('a different tenant never reads the first tenant\'s cached body', async () 
   const rules: QueryRule[] = [
     TIMEZONE_RULE,
     {
-      match: /AS total_views/i,
+      match: /AS total_reach/i,
       // Answer per bound tenant, so a leak shows up as the wrong number.
-      rows: (params) => [{ ...SUMMARY_ROW, total_views: params[0] === TENANT_ID ? '1200' : '4242' }],
+      rows: (params) => [{ ...SUMMARY_ROW, total_reach: params[0] === TENANT_ID ? '1200' : '4242' }],
     },
   ];
 
@@ -401,9 +401,9 @@ test('a different tenant never reads the first tenant\'s cached body', async () 
     const a = await (await handleGetInsightsSummary(req('summary'), loader)).json();
     const b = await (await handleGetInsightsSummary(req('summary'), other)).json();
 
-    assert.equal(a.totalViews, 1200);
-    assert.equal(b.totalViews, 4242, 'tenant 99 must not be served tenant 7\'s cached body');
-    assert.equal(m.matching(/AS total_views/i).length, 2, 'each tenant runs its own query');
+    assert.equal(a.totalReach, 1200);
+    assert.equal(b.totalReach, 4242, 'tenant 99 must not be served tenant 7\'s cached body');
+    assert.equal(m.matching(/AS total_reach/i).length, 2, 'each tenant runs its own query');
   });
 });
 
@@ -414,7 +414,7 @@ test('a differing query param is a different cache entry, not a stale hit', asyn
     await handleGetInsightsSummary(req('summary', 'days=7'), loader);
     const other = await handleGetInsightsSummary(req('summary', 'days=90'), loader);
     assert.equal((await other.json()).period.days, 90);
-    assert.equal(m.matching(/AS total_views/i).length, 2, 'a new window must re-query');
+    assert.equal(m.matching(/AS total_reach/i).length, 2, 'a new window must re-query');
   });
 });
 

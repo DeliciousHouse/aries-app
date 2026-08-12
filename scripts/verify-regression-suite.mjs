@@ -487,6 +487,22 @@ const steps = [
     ],
   },
   {
+    // AA-230/AA-231: two "one reader disagreed with its siblings" metrics bugs
+    // in the same family — read-api.ts read a bare `views` column instead of
+    // the reach-preferring COALESCE every sibling reader used (parent/drill-
+    // down dashboards disagreed by ~9% on Instagram), and narrative's Hero
+    // summed likes+comments_count+shares in JS, which Facebook always writes
+    // as literal 0 (the third time that exact bug was fixed in isolation).
+    // Pins the shared SQL expression is used everywhere via a source-level
+    // scan across backend/insights/** (no untriaged reader of the raw
+    // columns), behavioural fixtures reproducing the exact IG/FB shapes that
+    // diverged in prod, and a cross-section agreement check (Hero vs Trends
+    // must report the SAME engagementRate off the same totals) — the guard
+    // that would have caught all three AA-231 instances. Mocked pool, no DB.
+    name: 'insights metric agreement: reach-preference + Facebook engagement (AA-230/AA-231)',
+    args: ['--test', 'tests/insights-metric-agreement.test.ts'],
+  },
+  {
     name: 'insights client coalescing: abort + dedup + lazy (AA-123)',
     args: [
       '--test',

@@ -59,7 +59,7 @@ export default function AriesAnalyticsScreen({
   // For unsupported-account-metrics platforms the sections are independently gated.
   const hasData = Boolean(
     summary &&
-      (summary.totalViews > 0 ||
+      (summary.totalReach > 0 ||
         summary.currentFollowers > 0 ||
         summary.followersGained > 0 ||
         summary.totalEngagement > 0 ||
@@ -81,6 +81,14 @@ export default function AriesAnalyticsScreen({
   // paths. Views column is omitted for platforms that don't surface per-post view counts
   // (x, reddit, linkedin). For youtube/instagram/facebook postViewsSupported=true so the
   // column renders as it does today.
+  // AA-230: the underlying value is now reach-preferred (COALESCE(reach, views, 0)) to
+  // agree with the other ten readers, but the LABEL stays "Views" on purpose. Instagram
+  // is the only adapter that populates `reach`, and this screen cannot select Instagram
+  // (app/dashboard/analytics/page.tsx builds enabledPlatforms without it), so for every
+  // platform renderable here the COALESCE resolves to `views` and "Reach" would be a
+  // false label. Make the label reach-aware — per getReachLabel in
+  // backend/insights/narrative/snapshot-builder.ts — when Instagram becomes selectable;
+  // that, and the postViewsSupported capability gate, are AA-229 (migration item 8).
   const postsTable = (
     <ShellPanel eyebrow="Posts" title="Per-post performance">
       {posts.length > 0 ? (
@@ -104,7 +112,7 @@ export default function AriesAnalyticsScreen({
                   </td>
                   <td className="py-3 pr-4 text-white/55">{formatDay(post.publishedAt)}</td>
                   {postViewsSupported && (
-                    <td className="py-3 pr-4 text-right">{formatNumber(post.metrics.totalViews)}</td>
+                    <td className="py-3 pr-4 text-right">{formatNumber(post.metrics.totalReach)}</td>
                   )}
                   <td className="py-3 pr-4 text-right">{formatNumber(post.metrics.totalLikes)}</td>
                   {commentsSupported && <td className="py-3 pr-4 text-right">{formatNumber(post.metrics.totalComments)}</td>}
@@ -187,7 +195,7 @@ export default function AriesAnalyticsScreen({
       ) : (
         <>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <MetricCard label="Views" value={formatNumber(summary.totalViews)} detail={`Last ${summary.period.days} days`} />
+            <MetricCard label="Views" value={formatNumber(summary.totalReach)} detail={`Last ${summary.period.days} days`} />
             <MetricCard
               label="Followers"
               value={formatNumber(summary.currentFollowers)}
@@ -218,7 +226,7 @@ export default function AriesAnalyticsScreen({
                       labelFormatter={(label) => formatDay(String(label))}
                     />
                     <Line type="monotone" dataKey="followers" name="Followers" stroke="#a78bfa" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="views" name="Views" stroke="#34d399" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="reach" name="Views" stroke="#34d399" strokeWidth={2} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>

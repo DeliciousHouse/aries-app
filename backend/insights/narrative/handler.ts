@@ -35,7 +35,14 @@ import { checkInsightsForceThrottle } from '../force-throttle';
 // estimate (was 0.35–0.9h/post + 0.05h/comment), and the Aries Score no longer
 // floats at the ~50 base for a dead/near-dead account (zero-signal → 0; near-dead
 // now hits the empty state). Bump invalidates stale v3 bodies.
-const TEMPLATE_VERSION = 'template-v4';
+// v5: AA-231 — engagementRate/engagementRatePrev now derive from the shared
+// accountEngagementSql aggregate (prefers the dedicated `engagement` column)
+// instead of summing likes+comments_count+shares in JS. That sum was
+// structurally 0 for every Facebook tenant (Facebook reports only the
+// aggregate), so engagementRate — and the engagement term of the Aries
+// Score — was always 0 on Facebook. Bump invalidates stale v4 bodies computed
+// on the broken sum.
+const TEMPLATE_VERSION = 'template-v5';
 const CACHE_TTL_BASE_MS     = 60 * 60 * 1000; // 1 hour
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);
