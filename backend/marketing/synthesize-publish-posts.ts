@@ -30,6 +30,18 @@
  * the autonomous publish run never creates one, so this module synthesizes that
  * record too — otherwise a synthesized post would 409 at scheduling time.
  *
+ * AA-235 REVISITED THIS AND LEFT IT. Auto-approving is what let the 2026-08-12
+ * refusal reach live accounts unchallenged, and landing synthesized posts as
+ * `in_review` instead is the right long-term shape. It is NOT a one-line
+ * change: no endpoint in this repo promotes a post out of `in_review` (the
+ * posts PATCH route edits caption text only), so every synthesized post would
+ * sit until `draft-expiry-sweep` expired it — a total delivery outage for every
+ * tenant. It needs a promote route, the calendar backlog query
+ * (`app/api/social-content/scheduled-posts/route.ts`), the auto-schedule gate
+ * and a UI affordance. Tracked as follow-up. What AA-235 DID change is the
+ * gate in front of this: nothing gets here unless the PRODUCTION stage actually
+ * emitted the copy. The publish stage is no longer a copy source of any kind.
+ *
  * Scope guard: this only fires when there is a populated `content_package` and
  * NO *consumable* `publish_package` — one with `platform_previews` / `posts` /
  * `content_calendar` that the legacy `dashboard-content.ts` path can turn into
@@ -119,7 +131,26 @@ export interface SynthesizePublishPostsResult {
     | 'no_content_package'
     | 'publish_package_present'
     | 'no_tenant'
-    | 'no_connected_platform';
+    | 'no_connected_platform'
+    /**
+     * AA-235. The production stage RAN and delivered no `content_package`, so
+     * there is no approved copy to publish. Distinct from `no_content_package`
+     * (nothing ran yet — a benign no-op): this one is a delivery failure and the
+     * caller records it on the job document. Before this existed, synthesis fell
+     * back to the PUBLISH stage's content_package, and on 2026-08-12 that turned
+     * the publish agent's refusal prose into approved, scheduled, published posts.
+     */
+    | 'production_content_package_missing';
+  /**
+   * AA-235. Set to the DECLARED stage when the publish artifact's
+   * `primary_output` says it is some stage other than `publish` (in the incident
+   * it said `strategy`). Not a refusal — 16 of the 21 persisted documents in
+   * this state carry perfectly good production copy — but the artifact's
+   * schedule and publish_package are ignored for this run, and the caller
+   * records the anomaly on the job document so it is visible rather than
+   * inferred from a console line.
+   */
+  publishArtifactStageMismatch?: string;
 }
 
 type NativeContentPlatform = 'facebook' | 'instagram' | CrosspostPlatform;
@@ -172,8 +203,16 @@ function normalizeMediaType(value: unknown): PostMediaType {
  * A reel entry with no media_type is a contract violation (a reel is always
  * video): we coerce it to video and let the validator/gate decide, rather than
  * silently posting an image reel.
+ *
+ * AA-235: `trustPublishArtifact` is false when the publish artifact declares
+ * itself to be a different stage. Its schedule is then skipped entirely and the
+ * lookup is built from the production content_package shapes alone — the same
+ * path an absent schedule already takes.
  */
-function buildScheduleShapeLookup(doc: SocialContentJobRuntimeDocument): Map<string, ScheduleShape> {
+function buildScheduleShapeLookup(
+  doc: SocialContentJobRuntimeDocument,
+  trustPublishArtifact = true,
+): Map<string, ScheduleShape> {
   const lookup = new Map<string, ScheduleShape>();
 
   const setShape = (ordinal: number, platformRaw: unknown, surface: PostSurface, mediaType: PostMediaType) => {
@@ -185,7 +224,7 @@ function buildScheduleShapeLookup(doc: SocialContentJobRuntimeDocument): Map<str
   };
 
   // 1. Primary source: the strategist/publish-stage weekly schedule.
-  const primary = recordValue(doc.stages?.publish?.primary_output);
+  const primary = trustPublishArtifact ? recordValue(doc.stages?.publish?.primary_output) : null;
   const rawSchedule =
     primary && Array.isArray((primary as { schedule?: unknown }).schedule)
       ? (primary as { schedule?: unknown[] }).schedule
@@ -443,20 +482,80 @@ function hasConsumablePublishPackage(doc: SocialContentJobRuntimeDocument): bool
 }
 
 /**
- * Locate the `content_package` array. It is canonical on the production stage's
- * primary_output (where it lines up 1:1 with the rendered creative_assets by
- * post_number); fall back to the publish stage's output if production lacks it.
+ * Locate the `content_package` array. It is canonical on the PRODUCTION stage's
+ * primary_output — and only there. That is where it lines up 1:1 with the
+ * rendered creative_assets by post_number, and it is what
+ * `PRODUCTION_EXECUTION_CONTRACT` requires the production agent to emit.
+ *
+ * AA-235 — WHY THERE IS NO LONGER A PUBLISH-STAGE FALLBACK.
+ * The original implementation fell back to the publish stage's output when
+ * production emitted no content_package. That fallback was the delivery
+ * mechanism for the 2026-08-12 incident: a weekly run reached the publish agent
+ * with no inputs (defect A), the agent replied with seven "theme":"gap" entries
+ * explaining what it was missing ("Missing brand-kit research, campaign context,
+ * and approved content package for publish-stage execution."), and this function
+ * handed that prose to `buildCaption` → `posts.caption` → `'approved'` →
+ * scheduled → published on live brand accounts.
+ *
+ * It also directly contradicted `PRODUCTION_EXECUTION_CONTRACT`
+ * (backend/marketing/ports/hermes.ts), which already declares production output
+ * without content_package "incomplete and will fail downstream publish". The
+ * fallback quietly made that statement false: instead of failing, publish
+ * invented the copy from whatever the publish agent happened to say.
+ *
+ * A missing production content_package is now a HARD STOP. It is a real
+ * delivery failure and the caller records it on the job document (see
+ * `markPublishFailedOnUnpublishableContent` in hermes-callbacks.ts) instead of
+ * substituting text that was never written to be published. Nothing in the repo
+ * legitimately produced content_package on the publish stage: no test, no
+ * ingest script, and only 3 of 200 persisted documents — all three the same
+ * pathology this removes.
  */
 function extractContentPackage(doc: SocialContentJobRuntimeDocument): unknown {
   const productionOutput = recordValue(doc.stages.production?.primary_output);
   if (productionOutput && Array.isArray(productionOutput.content_package)) {
     return productionOutput.content_package;
   }
-  const publishOutput = recordValue(doc.stages.publish?.primary_output);
-  if (publishOutput && Array.isArray(publishOutput.content_package)) {
-    return publishOutput.content_package;
-  }
   return null;
+}
+
+/**
+ * Detect a MISLABELLED publish-stage artifact: one whose `primary_output`
+ * declares a `stage` other than `publish`. Returns the declared stage, or null
+ * when the artifact is correctly labelled or states no stage at all.
+ *
+ * AA-235: in the incident the publish artifact carried `stage: 'strategy'` and
+ * every downstream reader took it at face value. The artifact feeds three
+ * things — the post copy (removed above: production is now the only source),
+ * the schedule (`buildScheduleShapeLookup`), and the deferral decision
+ * (`hasConsumablePublishPackage`).
+ *
+ * WHY THIS DOES NOT FAIL THE RUN. A mislabelled artifact is NOT rare and is NOT
+ * by itself evidence of a bad run: 21 of the 87 persisted documents with a
+ * publish artifact declare some other stage, and 16 of those have a perfectly
+ * good production `content_package` and synthesized real posts (`mkt_c8ee6236`,
+ * the reference scenario in tests/marketing/default-cadence-slots.test.ts, is
+ * one of them). Refusing those runs would break roughly a fifth of publishing
+ * weeks to guard against a label. So the label is treated as a reason to
+ * DISTRUST THE ARTIFACT, not to discard the week: its schedule and its
+ * publish_package are ignored — synthesis falls through to the default cadence,
+ * the same path an absent schedule already takes — while the copy still comes
+ * from production, which is the only place it may come from.
+ *
+ * The only hard stop is the one that actually distinguishes the incident:
+ * production having emitted no content_package at all. All three persisted
+ * documents in that state also carry a mislabelled publish artifact.
+ *
+ * Deliberately narrow: fires only on a STATED contradiction. An artifact with
+ * no `stage` key is the normal shape (most persisted documents and every
+ * pre-existing test omit it) and is left alone.
+ */
+function publishOutputStageMismatch(doc: SocialContentJobRuntimeDocument): string | null {
+  const publishOutput = recordValue(doc.stages.publish?.primary_output);
+  if (!publishOutput) return null;
+  const stage = publishOutput.stage;
+  if (typeof stage !== 'string' || stage.trim().length === 0) return null;
+  return stage.trim() === 'publish' ? null : stage.trim();
 }
 
 /**
@@ -527,11 +626,25 @@ export async function synthesizePublishPostsFromContentPackage(
     return { inserted: 0, skipped: 0, total: 0, approvalRecordReady: false, droppedVideoNoAsset: 0, droppedStoryPromised: 0, reason: 'no_tenant' };
   }
 
+  // AA-235: a publish artifact that declares itself to be some OTHER stage is
+  // not trustworthy, but it is also not proof of a bad run (see
+  // publishOutputStageMismatch). Distrust it — ignore its publish_package and
+  // its schedule — rather than discarding the week.
+  const mismatchedStage = publishOutputStageMismatch(doc);
+  if (mismatchedStage) {
+    console.error('[synthesize-publish-posts] publish artifact is labelled as another stage — ignoring its schedule and publish_package', {
+      jobId,
+      tenantId,
+      declaredStage: mismatchedStage,
+    });
+  }
+  const publishArtifactTrusted = mismatchedStage === null;
+
   // Scope guard: defer to the legacy path ONLY when the publish_package is one
   // the legacy consumer can actually turn into launch items (has
   // platform_previews / posts / content_calendar). A thin, plan-only
   // publish_package does NOT block synthesis — see hasConsumablePublishPackage.
-  if (hasConsumablePublishPackage(doc)) {
+  if (publishArtifactTrusted && hasConsumablePublishPackage(doc)) {
     return {
       inserted: 0,
       skipped: 0,
@@ -539,12 +652,47 @@ export async function synthesizePublishPostsFromContentPackage(
       approvalRecordReady: false,
       droppedVideoNoAsset: 0,
       droppedStoryPromised: 0,
+      ...(mismatchedStage ? { publishArtifactStageMismatch: mismatchedStage } : {}),
       reason: 'publish_package_present',
     };
   }
 
   const entries = parseContentPackage(extractContentPackage(doc));
   if (entries.length === 0) {
+    // AA-235, THE HARD STOP: production RAN and delivered no copy at all. This
+    // is the incident's exact shape (production returned `artifacts` only) and a
+    // real delivery failure, distinct from the long-standing benign no-op this
+    // function has always reported for a document where production never ran.
+    //
+    // "Delivered no copy" means the content_package key is absent or empty —
+    // NOT "the entries parsed to zero". A production output carrying a
+    // content_package whose entries are individually unusable (no caption, no
+    // valid platform) is a different, pre-existing shortfall that already
+    // reported `no_content_package`; widening this reason to cover it would
+    // change the behaviour of runs that were never at risk of publishing a
+    // refusal.
+    const productionRecord = doc.stages.production;
+    const productionOutput = recordValue(productionRecord?.primary_output);
+    const productionRan = productionRecord?.status === 'completed' || productionOutput !== null;
+    const productionPackage = productionOutput !== null ? productionOutput.content_package : undefined;
+    const productionDeliveredCopy = Array.isArray(productionPackage) && productionPackage.length > 0;
+    if (productionRan && !productionDeliveredCopy) {
+      console.error('[synthesize-publish-posts] production emitted no content_package — refusing to synthesize', {
+        jobId,
+        tenantId,
+        productionStatus: productionRecord?.status ?? null,
+      });
+      return {
+        inserted: 0,
+        skipped: 0,
+        total: 0,
+        approvalRecordReady: false,
+        droppedVideoNoAsset: 0,
+        droppedStoryPromised: 0,
+        ...(mismatchedStage ? { publishArtifactStageMismatch: mismatchedStage } : {}),
+        reason: 'production_content_package_missing',
+      };
+    }
     return {
       inserted: 0,
       skipped: 0,
@@ -552,6 +700,7 @@ export async function synthesizePublishPostsFromContentPackage(
       approvalRecordReady: false,
       droppedVideoNoAsset: 0,
       droppedStoryPromised: 0,
+      ...(mismatchedStage ? { publishArtifactStageMismatch: mismatchedStage } : {}),
       reason: 'no_content_package',
     };
   }
@@ -601,7 +750,7 @@ export async function synthesizePublishPostsFromContentPackage(
     });
   }
 
-  const scheduleShapeByKey = buildScheduleShapeLookup(doc);
+  const scheduleShapeByKey = buildScheduleShapeLookup(doc, publishArtifactTrusted);
   const videoPublishEnabled = isVideoPublishEnabled();
 
   // Reel-companion scope clamp. A job created by the weekly-reel trigger
@@ -664,6 +813,7 @@ export async function synthesizePublishPostsFromContentPackage(
         approvalRecordReady: false,
         droppedVideoNoAsset: 0,
         droppedStoryPromised: 0,
+        ...(mismatchedStage ? { publishArtifactStageMismatch: mismatchedStage } : {}),
         reason: 'no_connected_platform',
       };
     }
@@ -1042,5 +1192,5 @@ export async function synthesizePublishPostsFromContentPackage(
     });
   }
 
-  return { inserted, skipped, total, approvalRecordReady, droppedVideoNoAsset, droppedStoryPromised };
+  return { inserted, skipped, total, approvalRecordReady, droppedVideoNoAsset, droppedStoryPromised, ...(mismatchedStage ? { publishArtifactStageMismatch: mismatchedStage } : {}) };
 }

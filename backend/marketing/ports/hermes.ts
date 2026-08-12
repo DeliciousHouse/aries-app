@@ -41,6 +41,7 @@ import { buildBrandKitPayload } from '../../social-content/brand-kit-payload';
 import { isTasteBriefInjectionEnabled } from '../taste-brief-injection-env';
 import { loadTasteForBriefByTenant, type TasteDimensions } from '../taste-profile-store';
 import { isPerfContextEnabled } from '../performance-context-env';
+import { isPerStageJobTypeFallbackEnabled } from '../per-stage-job-type-fallback-env';
 import { isPlatformNativeContentEnabled } from '@/backend/integrations/providers/integration-config';
 import { renderPrimaryPlatformScopeBlock } from '../platform-native-content';
 import {
@@ -152,20 +153,65 @@ function resumeStageFromInput(
   return undefined;
 }
 
+/** Job types whose stages each run on their own Hermes profile. */
+const PER_STAGE_PIPELINE_JOB_TYPES = new Set(['weekly_social_content', 'one_off_post', 'one_off_campaign']);
+
 /**
  * Returns true for job types that use the per-stage profile pipeline
  * (strategy/production/publish each run on their own Hermes profile,
  * and each stage's output is forwarded as input to the next stage).
  * Both weekly_social_content and one_off_campaign use this pipeline.
  * BRAND_CAMPAIGN_WORKFLOW_KEY (marketing_pipeline) is the only exception.
+ *
+ * AA-235: `inputs.request.jobType` is the ORIGINAL and still-authoritative
+ * signal, and it is read first and ungated so every job that already reaches
+ * this branch keeps byte-identical behaviour. But five of the six job-creation
+ * sites never put `jobType` in the payload that becomes `inputs.request` (it is
+ * passed as a sibling parameter to `startSocialContentJob`, and
+ * `runtime-state.ts` persists `request: input.payload` verbatim) — so every
+ * SCHEDULED weekly run fell through to the generic brand-campaign branch, whose
+ * `run` prompt is five lines of bare identifiers. The agent then refused for
+ * lack of inputs, and that refusal prose was published to live brand accounts.
+ *
+ * When the request carries no jobType we therefore fall back to the doc's own
+ * top-level `job_type` label, which `createSocialContentJobRuntimeDocument`
+ * always writes — this self-heals docs already on disk as well as new ones.
+ * The fallback is gated per tenant by ARIES_PER_STAGE_JOB_TYPE_FALLBACK_ENABLED
+ * (default OFF) because it moves scheduled weekly runs onto a different
+ * workflow key, request builder and gateway set for the first time; see
+ * `backend/marketing/per-stage-job-type-fallback-env.ts`.
  */
-function usesPerStageProfilePipeline(doc?: SocialContentJobRuntimeDocument): boolean {
+function usesPerStageProfilePipeline(
+  doc?: SocialContentJobRuntimeDocument,
+  env: HermesMarketingEnv = process.env,
+): boolean {
   const request = doc?.inputs?.request;
-  if (!request || typeof request !== 'object' || Array.isArray(request)) {
-    return false;
+  const requestJobType =
+    request && typeof request === 'object' && !Array.isArray(request)
+      ? (request as Record<string, unknown>).jobType
+      : undefined;
+  // An explicitly-stated request jobType wins outright, exactly as before —
+  // including when it names a type that does NOT use this pipeline (a legacy
+  // `brand_campaign` request must keep routing to BRAND_CAMPAIGN_WORKFLOW_KEY).
+  if (typeof requestJobType === 'string' && requestJobType.length > 0) {
+    return PER_STAGE_PIPELINE_JOB_TYPES.has(requestJobType);
   }
-  const jobType = (request as Record<string, unknown>).jobType;
-  return jobType === 'weekly_social_content' || jobType === 'one_off_post' || jobType === 'one_off_campaign';
+  if (!doc) return false;
+  if (!isPerStageJobTypeFallbackEnabled(env, doc.tenant_id)) return false;
+  return PER_STAGE_PIPELINE_JOB_TYPES.has(doc.job_type);
+}
+
+/**
+ * Direct handle on the routing predicate for tests that need to pin its edge
+ * cases (explicit-jobType precedence, legacy `brand_campaign` documents) without
+ * standing up a full job. The end-to-end behaviour is covered through
+ * `startSocialContentJob` in tests/marketing/weekly-run-job-type-routing.test.ts.
+ */
+export function __usesPerStageProfilePipelineForTests(
+  doc?: SocialContentJobRuntimeDocument,
+  env: HermesMarketingEnv = process.env,
+): boolean {
+  return usesPerStageProfilePipeline(doc, env);
 }
 
 function readEnvValue(env: HermesMarketingEnv, key: string): string {
@@ -1060,7 +1106,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       };
     }
 
-    if (action === 'run' && input.doc && usesPerStageProfilePipeline(input.doc)) {
+    if (action === 'run' && input.doc && usesPerStageProfilePipeline(input.doc, this.env)) {
       const brandKitFailure = await this.refreshBrandKitOrFail(input.doc);
       if (brandKitFailure) {
         return brandKitFailure;
@@ -1133,7 +1179,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     const perfStage = isWeeklyResume ? (effectiveStage ?? 'strategy') : effectiveStage;
     const perfTenantId = input.tenantId ?? productionDoc?.tenant_id ?? input.doc?.tenant_id;
     const wantsPerfContext =
-      (action === 'run' && !!input.doc && usesPerStageProfilePipeline(input.doc)
+      (action === 'run' && !!input.doc && usesPerStageProfilePipeline(input.doc, this.env)
         // A regenerate/image-edit run is a single-creative operation carrying
         // its own per-image scope; it neither renders the block nor benefits
         // from it, so it keeps its byte-identical request (same exclusion the
@@ -1160,7 +1206,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     // The second arm covers the non-weekly generic run (brand campaign etc.),
     // which is the payload branch the old always-empty "Memory context" block
     // fed; it keeps that surface alive now that it can actually carry content.
-    const usesWeeklyStageProfiles = !!input.doc && usesPerStageProfilePipeline(input.doc);
+    const usesWeeklyStageProfiles = !!input.doc && usesPerStageProfilePipeline(input.doc, this.env);
     const genericRunPlansContent =
       effectiveStage === undefined || effectiveStage === 'research' || effectiveStage === 'strategy';
     const wantsBrandProfile =
@@ -1830,7 +1876,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     // submissionPayload — invoke() short-circuits it before any POST. See the
     // early-return in invoke().
 
-    if (action === 'run' && input.doc && usesPerStageProfilePipeline(input.doc)) {
+    if (action === 'run' && input.doc && usesPerStageProfilePipeline(input.doc, this.env)) {
       const request = buildSocialContentWeeklyRequest({
         doc: input.doc,
         ariesRunId,
@@ -2047,7 +2093,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     if (action === 'resume' && input.workflowKey && input.workflowKey.trim().length > 0) {
       return input.workflowKey.trim();
     }
-    return action === 'run' && input.doc && usesPerStageProfilePipeline(input.doc)
+    return action === 'run' && input.doc && usesPerStageProfilePipeline(input.doc, this.env)
       ? SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY
       : BRAND_CAMPAIGN_WORKFLOW_KEY;
   }

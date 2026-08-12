@@ -162,6 +162,22 @@ services:
       # TENANT-SCOPABLE: 0/unset = off, 1 = every tenant, or a CSV of tenant IDs
       # (e.g. `70`) so a canary is genuinely dark for everyone else.
       ARIES_PLATFORM_NATIVE_CONTENT_ENABLED: ${ARIES_PLATFORM_NATIVE_CONTENT_ENABLED:-0}
+      # AA-235. Route a job whose persisted request carries no `jobType` by its
+      # document-level `job_type` instead — the state every SCHEDULED weekly run
+      # is in, because only the dashboard create route ever duplicated jobType
+      # into the payload. Without it those runs submit the generic
+      # brand-campaign prompt (five identifier lines, no brand kit, no scope),
+      # the agent refuses for lack of inputs, and on 2026-08-12 that refusal
+      # reached live brand accounts as seven posts.
+      # Turning this ON moves scheduled weekly runs onto the per-stage weekly
+      # workflow, request builder and gateways for the first time — the same
+      # path the one-off reel companion already runs in production, but a new
+      # tenant population. TENANT-SCOPABLE: 0/unset = off, 1 = every tenant, or
+      # a CSV of tenant IDs so a canary is genuinely dark for everyone else.
+      # Job creation happens in THIS service (the weekly-trigger worker only
+      # POSTs to /api/internal/marketing/weekly-trigger), so this is the only
+      # service that needs it.
+      ARIES_PER_STAGE_JOB_TYPE_FALLBACK_ENABLED: ${ARIES_PER_STAGE_JOB_TYPE_FALLBACK_ENABLED:-0}
       # AI-derived per-platform posting times: every content-generation start
       # re-derives WHEN posts publish per platform — from the tenant's own
       # insights engagement once >= MIN_ANALYTICS_POSTS posts have metrics, else

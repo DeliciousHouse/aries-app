@@ -1469,6 +1469,89 @@ export function markPublishBlockedOnSynthesisRefusal(
 }
 
 /**
+ * AA-235: turn a CONTENT-VALIDITY refusal into a failed job.
+ *
+ * `production_content_package_missing` means the production stage ran and
+ * delivered no copy at all, so there is nothing publishable and no honest way to
+ * invent any. `PRODUCTION_EXECUTION_CONTRACT` already declares that output
+ * "incomplete and will fail downstream publish"; until AA-235 it silently did
+ * not, because synthesis fell back to the PUBLISH stage's content_package
+ * instead. On 2026-08-12 that fallback published the publish agent's refusal
+ * prose ("Missing brand-kit research, campaign context, and approved content
+ * package…") to live brand accounts as seven posts.
+ *
+ * The terminal callback has already set doc.state/status = 'completed' by the
+ * time this runs, so leaving it alone would report "Social content outputs are
+ * ready" over zero posts with only a console line as evidence — the same
+ * invisibility AA-217 fixed for the connection case. `recordStageFailure` flips
+ * the job to `failed`, records the reason on the publish stage AND on
+ * `doc.last_error`, and raises a runtime incident. The caller's
+ * `saveSocialContentJobRuntime` persists it.
+ *
+ * Marked NOT retryable: re-running publish cannot conjure production copy that
+ * was never generated. The fix is to re-run production (or fix its inputs —
+ * see defect A), which is an operator decision, not an automatic retry.
+ *
+ * A MISLABELLED publish artifact is deliberately NOT handled here — see
+ * `markPublishArtifactStageMismatch` below and the reasoning in
+ * `publishOutputStageMismatch`. Every other reason is left alone:
+ * `publish_package_present` and `no_content_package` are normal no-ops,
+ * `no_tenant` is not a content problem, and `no_connected_platform` has its own
+ * handler above. Returns true when the document was marked.
+ */
+export function markPublishFailedOnUnpublishableContent(
+  doc: SocialContentJobRuntimeDocument,
+  result: { reason?: string } | null | undefined,
+): boolean {
+  if (result?.reason !== 'production_content_package_missing') {
+    return false;
+  }
+  recordStageFailure(doc, 'publish', {
+    code: 'production_content_package_missing',
+    message: 'Publish refused: the production stage delivered no content_package, so there is no approved copy to publish.',
+    retryable: false,
+  });
+  appendHistory(doc, 'publish stage failed: production_content_package_missing', {
+    stage: 'publish',
+    state: doc.state,
+    status: doc.status,
+  });
+  return true;
+}
+
+/**
+ * AA-235: record — but do NOT fail on — a publish artifact that declares itself
+ * to be a stage other than `publish`.
+ *
+ * This was the second half of the incident: the publish artifact said
+ * `stage: 'strategy'` and every reader took it at face value. But the label is
+ * a weak signal on its own. 21 of the 87 persisted documents with a publish
+ * artifact declare some other stage, and 16 of those carry a perfectly good
+ * production `content_package` and synthesized real posts. Failing on the label
+ * would break roughly a fifth of publishing weeks to guard against a string.
+ *
+ * Synthesis therefore ignores the mislabelled artifact's schedule and
+ * publish_package (falling through to the default cadence, the same path an
+ * absent schedule already takes) and still builds posts from production copy.
+ * All this does is put the anomaly on the job document, so an operator can see
+ * WHY the week's timing came from the default cadence rather than the
+ * strategist's plan. Returns true when a note was appended.
+ */
+export function markPublishArtifactStageMismatch(
+  doc: SocialContentJobRuntimeDocument,
+  result: { publishArtifactStageMismatch?: string } | null | undefined,
+): boolean {
+  const declared = result?.publishArtifactStageMismatch;
+  if (typeof declared !== 'string' || declared.trim().length === 0) return false;
+  appendHistory(
+    doc,
+    `publish artifact declared stage "${declared}" instead of "publish" — its schedule and publish_package were ignored`,
+    { stage: 'publish', state: doc.state, status: doc.status },
+  );
+  return true;
+}
+
+/**
  * On publish-stage completion, turn the Hermes pipeline output into real
  * `posts` rows. The Hermes-native pipeline never emits the legacy
  * `publish_package`, so without this a completed pipeline leaves the operator
@@ -1494,6 +1577,10 @@ async function synthesizePublishPostsOnCompletion(
   publishRunId: string | null,
   opts: { autoSchedule?: boolean } = {},
 ): Promise<void> {
+  // AA-235: set when the run produced nothing publishable. Suppresses the
+  // auto-schedule hook below — a failed run must not push anything at a
+  // calendar, and there is nothing of its own for it to push.
+  let contentUnpublishable = false;
   try {
     const tenantNum = Number(doc.tenant_id);
     if (!Number.isFinite(tenantNum) || tenantNum <= 0) return;
@@ -1522,6 +1609,27 @@ async function synthesizePublishPostsOnCompletion(
       console.warn('[hermes-callbacks] synthesis refused — no connected publishing channel', {
         jobId: doc.job_id,
         tenantId: tenantNum,
+      });
+    }
+    // AA-235: a content-validity refusal fails the job rather than completing it
+    // with zero posts. Must run BEFORE the auto-schedule hook below, which would
+    // otherwise happily schedule whatever did land.
+    if (markPublishFailedOnUnpublishableContent(doc, result)) {
+      contentUnpublishable = true;
+      console.error('[hermes-callbacks] synthesis refused — production delivered no publishable copy', {
+        jobId: doc.job_id,
+        tenantId: tenantNum,
+        reason: result.reason,
+      });
+    }
+    // AA-235: a mislabelled publish artifact is an anomaly worth recording, not
+    // a reason to discard the week — synthesis already ignored its schedule and
+    // publish_package and built the posts from production copy.
+    if (markPublishArtifactStageMismatch(doc, result)) {
+      console.warn('[hermes-callbacks] publish artifact declared the wrong stage — schedule/publish_package ignored', {
+        jobId: doc.job_id,
+        tenantId: tenantNum,
+        declaredStage: result.publishArtifactStageMismatch,
       });
     }
     // AA-222: a surface the scope PROMISED produced nothing. Record it on the
@@ -1569,7 +1677,7 @@ async function synthesizePublishPostsOnCompletion(
   // surface with a manual "Publish now" button but nothing is scheduled or
   // published until the human chooses to. The projection recompute below still
   // runs so those reviewable posts show up in the dashboard.
-  if (opts.autoSchedule !== false && (autoApproveMarketingPipelineEnabled() || autoScheduleOnApprovalEnabled())) {
+  if (!contentUnpublishable && opts.autoSchedule !== false && (autoApproveMarketingPipelineEnabled() || autoScheduleOnApprovalEnabled())) {
     try {
       await autoScheduleApprovedPostsForJob(doc);
     } catch (err) {
