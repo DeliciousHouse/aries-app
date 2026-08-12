@@ -304,6 +304,20 @@ test('autoScheduleApprovedPostsForJob (via callback): empty schedule → default
         offer_summary: null, positioning: null, audience: null, tone_of_voice: null, style_vibe: null,
       },
     });
+    // AA-235: the copy lives on the PRODUCTION stage, which is the only place
+    // synthesis reads it from. This fixture used to skip production entirely and
+    // let the publish callback below supply the content_package while labelling
+    // itself `stage: 'strategy'` — which is, exactly, the shape of the
+    // 2026-08-12 incident (a mislabelled publish artifact standing in for
+    // production copy). The test still passes either way, but a fixture that
+    // presents the incident's shape as an ordinary input is a trap for whoever
+    // reads it next. The scenario under test is an EMPTY publish schedule, and
+    // that is preserved below; only the source of the copy is corrected.
+    doc.stages.production.status = 'completed';
+    doc.stages.production.primary_output = {
+      stage: 'production',
+      content_package: [{ post_number: 1, platforms: ['instagram', 'facebook'] }],
+    };
     saveSocialContentJobRuntime(doc.job_id, doc);
 
     const run = createExecutionRunRecord({
@@ -319,11 +333,13 @@ test('autoScheduleApprovedPostsForJob (via callback): empty schedule → default
       stage: 'publish',
       output: [
         {
-          // Strategy-shaped placeholder: has content_package but NO schedule[]
-          stage: 'strategy',
-          content_package: [
-            { post_number: 1, platforms: ['instagram', 'facebook'] },
-          ],
+          // The case under test: a publish stage that emits NO `schedule[]`, so
+          // `autoScheduleApprovedPostsForJob` must fall through to the
+          // default-cadence path. Correctly labelled `publish` — a publish
+          // artifact claiming to be another stage has its schedule ignored
+          // (AA-235), which reaches the same default cadence for a different
+          // reason and has its own tests.
+          stage: 'publish',
         },
       ],
     });
