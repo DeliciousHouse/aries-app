@@ -13,6 +13,7 @@
 
 import type { PoolClient } from '@/lib/db';
 import { LATEST_POST_METRICS_LATERAL } from '../latest-post-metrics-sql';
+import { accountEngagementSql } from '../account-engagement-sql';
 import { resolveTenantInsightsTimeZone } from '../tenant-timezone';
 import { tenantZonePeriodStart, tenantZonePeriodStartDateKey } from '@/lib/format-timestamp';
 import { estimateHoursSaved } from '../hours-saved';
@@ -35,7 +36,7 @@ export interface NarrativeSnapshot {
   reachPrev: number;
   reachDelta: number;          // % change vs previous equivalent period
   reachLabel: string;          // 'people' | 'unique viewers' | 'impressions'
-  engagementRate: number;      // (likes+comments+shares)/reach*100
+  engagementRate: number;      // accountEngagementSql aggregate / reach * 100 (AA-231)
   engagementRatePrev: number;  // same metric for previous period (used for scoreDelta)
   comments: number;            // total comments received in period
   unreplied: number;
@@ -98,19 +99,21 @@ export async function buildNarrativeSnapshot(
   const fromKey  = tenantZonePeriodStartDateKey(days, tz);
   const prevKey  = tenantZonePeriodStartDateKey(days * 2, tz);
 
-  // Current period account-level totals
+  // Current period account-level totals.
+  // AA-231: `engagement` is the reach-preferring, engagement-preferring aggregate
+  // (accountEngagementSql — shared with read-api.ts / trends-snapshot-builder.ts).
+  // Facebook writes literal 0s for likes/comments_count/shares (see
+  // adapters/facebook/index.ts) and puts the real number only in the dedicated
+  // `engagement` column; summing the three per-column fields alone previously
+  // produced a permanent 0% engagementRate for every Facebook tenant.
   const metricsRes = await client.query<{
     reach:              string;
-    likes:              string;
-    comments_count:     string;
-    shares:             string;
+    engagement:         string;
     watch_time_minutes: string;
   }>(
     `SELECT
        COALESCE(SUM(COALESCE(reach, views, 0)), 0) AS reach,
-       COALESCE(SUM(likes), 0)                     AS likes,
-       COALESCE(SUM(comments_count), 0)            AS comments_count,
-       COALESCE(SUM(shares), 0)                    AS shares,
+       COALESCE(SUM(${accountEngagementSql()}), 0) AS engagement,
        COALESCE(SUM(watch_time_minutes), 0)        AS watch_time_minutes
      FROM insights_account_metrics_daily
      WHERE tenant_id = $1
@@ -121,16 +124,12 @@ export async function buildNarrativeSnapshot(
 
   // Previous period totals (for delta + scoreDelta)
   const prevRes = await client.query<{
-    reach:          string;
-    likes:          string;
-    comments_count: string;
-    shares:         string;
+    reach:      string;
+    engagement: string;
   }>(
     `SELECT
        COALESCE(SUM(COALESCE(reach, views, 0)), 0) AS reach,
-       COALESCE(SUM(likes), 0)                     AS likes,
-       COALESCE(SUM(comments_count), 0)            AS comments_count,
-       COALESCE(SUM(shares), 0)                    AS shares
+       COALESCE(SUM(${accountEngagementSql()}), 0) AS engagement
      FROM insights_account_metrics_daily
      WHERE tenant_id = $1
        AND date >= $2::date
@@ -186,29 +185,27 @@ export async function buildNarrativeSnapshot(
   );
 
   // ── Assemble snapshot ────────────────────────────────────────────────────
-  const m         = metricsRes.rows[0];
-  const p         = prevRes.rows[0];
-  const reach     = Number(m.reach);
-  const reachPrev = Number(p.reach);
-  const likes     = Number(m.likes);
-  const commentsFromMetrics = Number(m.comments_count);
-  const shares    = Number(m.shares);
-  const watchTime = Number(m.watch_time_minutes);
-  const posts     = Number(postCountRes.rows[0].count);
-
-  const prevLikes    = Number(p.likes);
-  const prevComments = Number(p.comments_count);
-  const prevShares   = Number(p.shares);
+  const m          = metricsRes.rows[0];
+  const p          = prevRes.rows[0];
+  const reach      = Number(m.reach);
+  const reachPrev  = Number(p.reach);
+  const engagement     = Number(m.engagement);
+  const engagementPrev = Number(p.engagement);
+  const watchTime  = Number(m.watch_time_minutes);
+  const posts      = Number(postCountRes.rows[0].count);
 
   const commentsTotal = Number(commentsRes.rows[0].total);
   const unreplied     = Number(commentsRes.rows[0].unreplied);
 
+  // AA-231: derived from the single accountEngagementSql aggregate rather than
+  // summing likes+comments_count+shares in JS — that summation was always 0 on
+  // Facebook (see the query comment above).
   const engagementRate = reach > 0
-    ? Math.round(((likes + commentsFromMetrics + shares) / reach) * 10000) / 100
+    ? Math.round((engagement / reach) * 10000) / 100
     : 0;
 
   const engagementRatePrev = reachPrev > 0
-    ? Math.round(((prevLikes + prevComments + prevShares) / reachPrev) * 10000) / 100
+    ? Math.round((engagementPrev / reachPrev) * 10000) / 100
     : 0;
 
   // S3-1: hours saved is a synthetic ESTIMATE (rendered with "~"), reconciled to

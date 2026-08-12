@@ -231,10 +231,15 @@ test('a single post is not narrated as "1 posts"', () => {
 
 // ── Snapshot builder ─────────────────────────────────────────────────────────
 
+// AA-231: mock rows carry the `engagement` alias the query now selects
+// (accountEngagementSql — COALESCE(engagement, likes+comments_count+shares)).
+// 100 / 30 below are the same totals the old likes(60)+comments(20)+shares(20)
+// and likes(20)+comments(5)+shares(5) fixtures summed to, so the expected
+// engagementRate / engagementRatePrev assertions below are unchanged.
 const SNAPSHOT_RULES = (over: Record<string, QueryRule['rows']> = {}): QueryRule[] => [
   TIMEZONE_RULE,
-  { match: /watch_time_minutes/i, rows: over.current ?? [{ reach: '2000', likes: '60', comments_count: '20', shares: '20', watch_time_minutes: '90' }] },
-  { match: /date < \$3::date/i, rows: over.prev ?? [{ reach: '1000', likes: '20', comments_count: '5', shares: '5' }] },
+  { match: /watch_time_minutes/i, rows: over.current ?? [{ reach: '2000', engagement: '100', watch_time_minutes: '90' }] },
+  { match: /date < \$3::date/i, rows: over.prev ?? [{ reach: '1000', engagement: '30' }] },
   { match: /COUNT\(\*\) AS count/i, rows: over.posts ?? [{ count: '4' }] },
   { match: /ORDER BY total_reach DESC/i, rows: over.top ?? [{ title: 'Spring drop', platform: 'instagram', total_reach: '800' }] },
   { match: /FILTER \(WHERE is_replied = false\)/i, rows: over.comments ?? [{ total: '9', unreplied: '3' }] },
@@ -277,8 +282,8 @@ test('a period with posts but zero reach and zero engagement is NOT "has data"',
   // S3-1 again: `posts > 0` used to qualify, which let a 0-reach post render a
   // fabricated ~50 score instead of the empty state.
   const { snapshot } = await build('week', 'instagram', {
-    current: [{ reach: '0', likes: '0', comments_count: '0', shares: '0', watch_time_minutes: '0' }],
-    prev: [{ reach: '0', likes: '0', comments_count: '0', shares: '0' }],
+    current: [{ reach: '0', engagement: '0', watch_time_minutes: '0' }],
+    prev: [{ reach: '0', engagement: '0' }],
     top: [],
   });
 
@@ -290,13 +295,13 @@ test('a period with posts but zero reach and zero engagement is NOT "has data"',
 
 test('a first period with no prior data reports +100%, not a divide-by-zero', async () => {
   const { snapshot } = await build('week', 'instagram', {
-    prev: [{ reach: '0', likes: '0', comments_count: '0', shares: '0' }],
+    prev: [{ reach: '0', engagement: '0' }],
   });
   assert.equal(snapshot.reachDelta, 100);
 
   const flat = await build('week', 'instagram', {
-    current: [{ reach: '0', likes: '5', comments_count: '0', shares: '0', watch_time_minutes: '0' }],
-    prev: [{ reach: '0', likes: '0', comments_count: '0', shares: '0' }],
+    current: [{ reach: '0', engagement: '5', watch_time_minutes: '0' }],
+    prev: [{ reach: '0', engagement: '0' }],
   });
   assert.equal(flat.snapshot.reachDelta, 0, 'nothing from nothing is 0%, not 100%');
 });

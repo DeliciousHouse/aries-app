@@ -18,6 +18,7 @@
 
 import type { PoolClient } from '@/lib/db';
 import { LATEST_POST_METRICS_LATERAL } from '../latest-post-metrics-sql';
+import { accountEngagementSql } from '../account-engagement-sql';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -212,14 +213,12 @@ export async function buildTrendsSnapshot(
        SUM(COALESCE(comments_count, 0))                                   AS comments,
        -- Prefer the authoritative aggregate engagement column (Facebook's
        -- page_post_engagements); fall back to the like/comment/save/share sum
-       -- for platforms that report those instead. Mirrors read-api.ts — the
+       -- for platforms that report those instead (Trends includes saves,
+       -- unlike the other two account-engagement-sql.ts consumers — see that
+       -- module's doc comment). Mirrors read-api.ts / narrative — the
        -- per-column values are 0 for Facebook, so summing them alone yielded a
        -- 0% engagement rate despite real engagement.
-       SUM(
-         COALESCE(engagement,
-                  COALESCE(likes,0) + COALESCE(comments_count,0) +
-                  COALESCE(saves,0) + COALESCE(shares,0))
-       )                                                                   AS interactions,
+       SUM(${accountEngagementSql(true)})                                 AS interactions,
        SUM(COALESCE(reach, views, 0))                                     AS base_reach
      FROM insights_account_metrics_daily
      WHERE tenant_id = $1
@@ -329,7 +328,7 @@ export async function buildTrendsSnapshot(
        SUM(COALESCE(followers_delta,0)) AS followers,
        SUM(COALESCE(profile_visits,0))  AS visits,
        SUM(COALESCE(comments_count,0))  AS comments,
-       SUM(COALESCE(engagement, COALESCE(likes,0)+COALESCE(comments_count,0)+COALESCE(saves,0)+COALESCE(shares,0))) AS interactions,
+       SUM(${accountEngagementSql(true)}) AS interactions,
        SUM(COALESCE(reach, views, 0))   AS base_reach
      FROM insights_account_metrics_daily
      WHERE tenant_id = $1
@@ -454,7 +453,7 @@ export async function buildTrendsSnapshot(
     const baselineStart = utcDayStart(90);
     const blRes = await client.query<{ interactions: string; base_reach: string }>(
       `SELECT
-         SUM(COALESCE(engagement, COALESCE(likes,0)+COALESCE(comments_count,0)+COALESCE(saves,0)+COALESCE(shares,0))) AS interactions,
+         SUM(${accountEngagementSql(true)}) AS interactions,
          SUM(COALESCE(reach, views, 0)) AS base_reach
        FROM insights_account_metrics_daily
        WHERE tenant_id = $1
