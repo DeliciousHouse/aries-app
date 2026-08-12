@@ -574,6 +574,15 @@ export function buildProductionResumeContext(input: {
     lines.push(`Target platforms: ${imageTargetChannels.join(', ')}`);
     lines.push(`Aspect ratio: ${aspectRatio} (${channelAspectHints})`);
     lines.push(`Use ${aspectRatio} framing to maximise visual impact on these platforms.`);
+    // 2026-08-12 incident: the agent forwarded this ENTIRE block (workflow
+    // header included) as image_generate's prompt, and the image backend's
+    // host model answered the embedded JSON copywriting contract with text
+    // instead of rendering — every weekly run died at production. Spell the
+    // hand-off out at the point of use, not only in the stage instructions.
+    lines.push('');
+    lines.push(
+      `When you call image_generate for this image, pass ONLY your rendered visual description as the prompt — a self-contained scene description built from the brand, style, and platform notes above. Do NOT include the workflow header, request JSON, research/strategy blocks, or any copywriting instructions in the prompt. If the call fails, retry it up to 2 more times before recording the failure.`,
+    );
 
     imagePrompts.push({
       imageIndex,

@@ -23,6 +23,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { buildProductionResumeContext } from '../../backend/social-content/workflow-request';
+import { buildHermesStageInstructions } from '../../backend/marketing/ports/hermes';
 import type { SocialContentJobRuntimeDocument } from '../../backend/marketing/runtime-state';
 
 // ---------------------------------------------------------------------------
@@ -342,4 +343,57 @@ test('buildProductionResumeContext contextBlock mentions hashtags in content_pac
     contextBlock.includes('hashtags'),
     'contextBlock must include hashtags field in content_package schema',
   );
+});
+
+// ---- image prompt discipline + retry (2026-08-12 incident) ----
+//
+// The production agent forwarded the ENTIRE resume context (workflow header,
+// request JSON, research/strategy) as image_generate's prompt. The image
+// backend's host model answered the embedded JSON copywriting contract with
+// text instead of rendering, and — because the old contract said "exactly
+// once per image" — the agent gave up after that single failed call. Every
+// weekly production run died. These tests pin the two mandates that fix it.
+
+test('production instructions mandate a visual-only image prompt', () => {
+  const instructions = buildHermesStageInstructions('social_content_weekly', 'production', null);
+  assert.ok(
+    instructions.includes('IMAGE PROMPT DISCIPLINE'),
+    'production contract must carry the image-prompt discipline mandate',
+  );
+  assert.ok(
+    instructions.includes('ONLY the visual description'),
+    'the prompt argument must be restricted to the visual description',
+  );
+});
+
+test('production instructions mandate image_generate retries, and the anti-retry wording is gone', () => {
+  const instructions = buildHermesStageInstructions('social_content_weekly', 'production', null);
+  assert.ok(
+    instructions.includes('retry the SAME call up to 2 more times'),
+    'a failed image_generate must be retried before being recorded as an error',
+  );
+  assert.ok(
+    !instructions.includes('exactly once per image'),
+    '"exactly once per image" forbade retries — it must never come back',
+  );
+});
+
+test('per-image resume context spells out the visual-only hand-off at the point of use', () => {
+  const doc = makeProductionDoc();
+  const { imagePrompts } = buildProductionResumeContext({
+    doc,
+    researchOutput: null,
+    strategyOutput: null,
+  });
+  assert.ok(imagePrompts.length > 0, 'fixture doc must request at least one image');
+  for (const p of imagePrompts) {
+    assert.ok(
+      p.prompt.includes('pass ONLY your rendered visual description as the prompt'),
+      'every per-image block must carry the visual-only hand-off line',
+    );
+    assert.ok(
+      p.prompt.includes('retry it up to 2 more times'),
+      'every per-image block must carry the retry line',
+    );
+  }
 });

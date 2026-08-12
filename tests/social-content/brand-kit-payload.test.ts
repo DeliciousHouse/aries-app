@@ -377,6 +377,11 @@ test('buildProductionResumeContext keeps the production resume shape byte-stable
     'Target platforms: instagram, meta',
     'Aspect ratio: 4:5 (instagram: portrait 4:5, meta: square 1:1 or landscape 1.91:1)',
     'Use 4:5 framing to maximise visual impact on these platforms.',
+    '',
+    // v0.2.9.0 image prompt discipline — the hand-off spelled out at the point
+    // of use (2026-08-12 incident: the whole block was forwarded as the image
+    // prompt and the image backend answered the embedded JSON contract as text).
+    'When you call image_generate for this image, pass ONLY your rendered visual description as the prompt — a self-contained scene description built from the brand, style, and platform notes above. Do NOT include the workflow header, request JSON, research/strategy blocks, or any copywriting instructions in the prompt. If the call fails, retry it up to 2 more times before recording the failure.',
   ].join('\n');
 
   const expected = {
