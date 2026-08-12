@@ -70,7 +70,7 @@ export const SELECT_ALERT_CANDIDATES_SQL = `SELECT s.company_id,
             COALESCE(cr.credits, 0)::bigint AS credits
        FROM company_subscriptions s
        JOIN plan_rate_cards c ON c.tier_key = s.tier_key
-       LEFT JOIN organizations o ON o.id = s.company_id
+       JOIN organizations o ON o.id = s.company_id
        LEFT JOIN LATERAL (
          SELECT sum(total_tasks)::bigint AS tasks_used,
                 sum(total_tokens)::bigint AS tokens_used
@@ -82,7 +82,8 @@ export const SELECT_ALERT_CANDIDATES_SQL = `SELECT s.company_id,
            FROM company_credit_ledger l
           WHERE l.company_id = s.company_id
             AND (l.expires_at IS NULL OR l.expires_at > now())
-       ) cr ON TRUE`;
+       ) cr ON TRUE
+      WHERE o.kind = 'production'`;
 
 export const SELECT_WATERMARK_SQL = `SELECT rolled_through FROM usage_rollup_state WHERE id = 'hourly'`;
 

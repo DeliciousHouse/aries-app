@@ -124,6 +124,16 @@ export interface QuotaThresholdEmailParams {
   usageUrl: string;
 }
 
+export interface ConnectionHealthNudgeEmailParams {
+  /** Workspace admin's email address */
+  to: string;
+  workspaceName: string;
+  platform: string;
+  kind: 'reauthorization_required' | 'pending_over_7_days';
+  /** Existing, branded channel-connections flow. */
+  reconnectUrl: string;
+}
+
 export interface WorkspaceInviteEmailParams {
   /** Invited teammate's email address */
   to: string;
@@ -500,6 +510,56 @@ export async function sendQuotaThresholdEmail(params: QuotaThresholdEmailParams)
     html: renderQuotaThresholdHtml(params),
     text: renderQuotaThresholdText(params),
     context: 'quota-threshold',
+  });
+}
+
+function connectionNudgeCopy(p: ConnectionHealthNudgeEmailParams): {
+  title: string;
+  subject: string;
+  body: string;
+  cta: string;
+} {
+  const platform = p.platform.charAt(0).toUpperCase() + p.platform.slice(1);
+  if (p.kind === 'reauthorization_required') {
+    return {
+      title: `Reconnect ${platform}`,
+      subject: `${p.workspaceName}'s ${platform} connection needs attention`,
+      body: `${platform} needs to be reconnected before Aries can publish there again.`,
+      cta: 'Reconnect account',
+    };
+  }
+  return {
+    title: `Finish connecting ${platform}`,
+    subject: `${p.workspaceName}'s ${platform} connection is still waiting`,
+    body: `${platform} has been waiting for connection approval for more than seven days.`,
+    cta: 'Finish connecting',
+  };
+}
+
+export async function sendConnectionHealthNudgeEmail(
+  params: ConnectionHealthNudgeEmailParams,
+): Promise<void> {
+  const copy = connectionNudgeCopy(params);
+  const body = `
+    <p style="font-size:15px;line-height:1.5;color:rgba(255,255,255,0.7);margin:0 0 8px;">
+      <strong style="color:#ffffff;">${params.workspaceName}</strong>: ${copy.body}
+    </p>
+    ${renderCtaButton(copy.cta, params.reconnectUrl)}
+    <p style="font-size:13px;color:rgba(255,255,255,0.4);margin:24px 0 0;">
+      Or copy this link: ${params.reconnectUrl}
+    </p>`;
+  await sendEmail({
+    to: params.to,
+    subject: copy.subject,
+    html: renderEmailHtml(copy.title, body),
+    text: [
+      `Aries AI — ${copy.title}`,
+      '',
+      `${params.workspaceName}: ${copy.body}`,
+      '',
+      `${copy.cta}: ${params.reconnectUrl}`,
+    ].join('\n'),
+    context: 'connection-health-nudge',
   });
 }
 

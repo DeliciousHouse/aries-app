@@ -61,6 +61,7 @@ async function initDb() {
         id SERIAL PRIMARY KEY,
         name TEXT NOT NULL,
         slug TEXT UNIQUE,
+        kind TEXT NOT NULL DEFAULT 'production' CHECK (kind IN ('production','test','archived')),
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
 
@@ -76,6 +77,10 @@ async function initDb() {
 
       ALTER TABLE organizations
         ADD COLUMN IF NOT EXISTS slug TEXT;
+
+      ALTER TABLE organizations
+        ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'production'
+          CHECK (kind IN ('production','test','archived'));
 
       ALTER TABLE users
         ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'tenant_admin';
@@ -259,6 +264,7 @@ async function initDb() {
         last_error_message TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        status_changed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         UNIQUE (tenant_id, provider)
       );
 
@@ -308,6 +314,8 @@ async function initDb() {
         ADD COLUMN IF NOT EXISTS notify_channel_id TEXT;
       ALTER TABLE oauth_connections
         ADD COLUMN IF NOT EXISTS notify_channel_name TEXT;
+      ALTER TABLE oauth_connections
+        ADD COLUMN IF NOT EXISTS status_changed_at TIMESTAMPTZ NOT NULL DEFAULT now();
       CREATE TABLE IF NOT EXISTS oauth_audit_events (
         id BIGSERIAL PRIMARY KEY,
         tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
@@ -346,8 +354,12 @@ async function initDb() {
         last_capability_check_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        status_changed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         UNIQUE (tenant_id, platform)
       );
+
+      ALTER TABLE connected_accounts
+        ADD COLUMN IF NOT EXISTS status_changed_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
       CREATE INDEX IF NOT EXISTS idx_connected_accounts_tenant ON connected_accounts (tenant_id);
       CREATE INDEX IF NOT EXISTS idx_connected_accounts_tenant_platform ON connected_accounts (tenant_id, platform);
@@ -364,6 +376,42 @@ async function initDb() {
         '''x''',
         $check$platform IN ('facebook','instagram','meta_ads','tiktok','youtube','linkedin','reddit','x')$check$
       );
+
+      CREATE OR REPLACE FUNCTION set_connection_status_changed_at()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $function$
+      BEGIN
+        IF NEW.status IS DISTINCT FROM OLD.status THEN
+          NEW.status_changed_at = now();
+        END IF;
+        RETURN NEW;
+      END
+      $function$;
+
+      DROP TRIGGER IF EXISTS connected_accounts_status_changed_at ON connected_accounts;
+      CREATE TRIGGER connected_accounts_status_changed_at
+        BEFORE UPDATE OF status ON connected_accounts
+        FOR EACH ROW EXECUTE FUNCTION set_connection_status_changed_at();
+
+      DROP TRIGGER IF EXISTS oauth_connections_status_changed_at ON oauth_connections;
+      CREATE TRIGGER oauth_connections_status_changed_at
+        BEFORE UPDATE OF status ON oauth_connections
+        FOR EACH ROW EXECUTE FUNCTION set_connection_status_changed_at();
+
+      CREATE TABLE IF NOT EXISTS connection_nudge_notifications (
+        source TEXT NOT NULL CHECK (source IN ('connected_accounts','oauth_connections')),
+        connection_id BIGINT NOT NULL,
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        platform TEXT NOT NULL,
+        nudge_kind TEXT NOT NULL CHECK (nudge_kind IN ('reauthorization_required','pending_over_7_days')),
+        status_changed_at TIMESTAMPTZ NOT NULL,
+        sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (source, connection_id, nudge_kind, status_changed_at)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_connection_nudges_tenant_sent
+        ON connection_nudge_notifications (tenant_id, sent_at DESC);
     `);
 
     await client.query(`

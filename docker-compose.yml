@@ -1167,6 +1167,9 @@ services:
       # APP_BASE_URL for the link in the email. Deduped per company/period/
       # threshold, so an hourly tick cannot spam a customer.
       ARIES_QUOTA_ALERTS_ENABLED: ${ARIES_QUOTA_ALERTS_ENABLED:-0}
+      # B7 connection-health owner nudges share this hourly worker. Default OFF;
+      # durable per-state claims prevent repeated reauth/stale-pending emails.
+      ARIES_CONNECTION_NUDGES_ENABLED: ${ARIES_CONNECTION_NUDGES_ENABLED:-0}
       ARIES_PLAN_ENFORCEMENT_METRIC: ${ARIES_PLAN_ENFORCEMENT_METRIC:-tasks}
       APP_BASE_URL: ${APP_BASE_URL}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
