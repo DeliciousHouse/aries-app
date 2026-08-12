@@ -95,14 +95,27 @@
 
 import { NextResponse } from 'next/server';
 
-/** The six sections that read the `insights_narratives` cache and honor `force`. */
+/**
+ * The sections that honor `force` and rebuild on a pooled client.
+ *
+ * The first six read the `insights_narratives` cache. The last three (S7-3 /
+ * AA-121) read the in-process micro-cache instead, but they bypass it on
+ * `force` and then rebuild through the same pool, so they present the identical
+ * hazard and take the identical limiter. Adding a cached, force-honoring
+ * section WITHOUT adding it here reopens AA-120 for that endpoint —
+ * tests/insights-force-throttle.test.ts pins all nine so the omission fails CI
+ * rather than shipping silently.
+ */
 export type CachedInsightsSection =
   | 'narrative'
   | 'goal'
   | 'attention'
   | 'activity'
   | 'trends'
-  | 'top';
+  | 'top'
+  | 'aries'
+  | 'audience'
+  | 'conversations';
 
 /** Forced rebuilds allowed per (tenant, section) per refill window. */
 export const DEFAULT_FORCE_THROTTLE_CAPACITY = 5;

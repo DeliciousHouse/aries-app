@@ -97,6 +97,47 @@ const steps = [
     args: ['--test', 'tests/verify-honcho-writes.test.ts'],
   },
   {
+    // S6-5/AA-118 (gap F8): Approve/Edit/Reject for queued memory candidates —
+    // the human gate `curator_decision='queue_for_review'` always implied but
+    // never had. Pins the properties that make a memory write safe: a
+    // cross-tenant finding is NOT FOUND (never confirmed to exist), an
+    // already-settled one performs no second Honcho append, reject writes
+    // nothing to memory at all, an edit promotes the operator's wording while
+    // the stored candidate keeps its provenance, an unsupported peer or an
+    // empty claim is refused rather than guessed, and Honcho being off still
+    // records the decision while reporting the memory as pending. Injected
+    // store + Honcho; no DB, no network.
+    name: 'memory-candidate promotion route (F8)',
+    args: ['--test', 'tests/memory-finding-resolve.test.ts'],
+  },
+  {
+    // S7-1/AA-119 (gap D6): the authenticated 50-user smoke harness. Pins the
+    // false-pass this card closes — the old harness accepted anything under 500
+    // and followed redirects, so appending /insights would have measured the
+    // LOGIN page and reported a healthy profile. A redirect now fails, only the
+    // expected status passes, redirect:manual is source-pinned, and a gated path
+    // with no session is a hard error rather than an unauthenticated
+    // measurement. Also pins the baseline comparison: jitter on a fast path must
+    // not fail an unchanged system, a real doubling must, and a baseline from a
+    // different concurrency is refused. Pure helpers + injected fetch; no server.
+    name: 'scale smoke harness auth + baseline (D6)',
+    args: ['--test', 'tests/smoke-scale-harness.test.ts'],
+  },
+  {
+    // S7-3/AA-121 (gap D3): the 60s micro-cache for the seven previously
+    // uncached insights endpoints. The load-bearing assertions are the isolation
+    // ones — two tenants never share an entry, and a missing/junk tenant yields
+    // NO key rather than a shared bucket (on a hit the scoped SQL never runs, so
+    // nothing downstream would catch a leak). Plus: the 60s ceiling is enforced
+    // in the module rather than trusted to callers, Cache-Control is `private`
+    // so a CDN cannot hold a per-tenant body, every cache read precedes
+    // pool.connect() (a hit must cost no client), and a confirmed reply
+    // invalidates conversations so an operator never watches their own reply
+    // fail to appear. In-memory; no DB.
+    name: 'insights micro-cache + freshness (D3)',
+    args: ['--test', 'tests/insights-micro-cache.test.ts'],
+  },
+  {
     // AA-159: task-execution engine classification. Pins the contracts the cost
     // analysis depends on — the engine vocabulary, hard-zero tokens on the
     // zero-cost engines vs NULL ("not reported") on AI rows, no model columns on

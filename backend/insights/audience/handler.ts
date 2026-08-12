@@ -9,10 +9,22 @@
  *   activeTimes  — 7×24 heatmap grid          (hasData: false until Phase 3 adapters)
  *
  * No caching — schedule data is operator-facing and changes as posts are added.
+ *
+ * FRESHNESS: 60s micro-cache. Demographics and active-time grids are synced
+ * periodically and move over days; the upcoming-schedule list changes only when
+ * a post is scheduled, which is not a read-path operation.
  */
 
 import { NextResponse } from 'next/server';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
+import {
+  INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS,
+  insightsMicroCacheKey,
+  microCacheControlHeader,
+  readInsightsMicroCache,
+  writeInsightsMicroCache,
+} from '../micro-cache';
+import { checkInsightsForceThrottle } from '../force-throttle';
 import { buildAudienceSnapshot } from './audience-builder';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 
@@ -30,6 +42,10 @@ export async function handleGetInsightsAudience(
   if ('response' in tenantResult) return tenantResult.response;
 
   const { searchParams } = new URL(req.url);
+  // S7-3/AA-121: the UI's Retry button sends ?force=true. Before this section
+  // was cached that was a no-op; now it MUST bypass the cache, or Retry
+  // returns the same body for up to 60s and looks broken.
+  const force = searchParams.get('force') === 'true';
   const periodParam   = searchParams.get('period');
   const platformParam = (searchParams.get('platform') || 'all').toLowerCase();
 
@@ -44,12 +60,36 @@ export async function handleGetInsightsAudience(
   const period   = periodParam;
   const platform = platformParam;
 
+  // S7-3/AA-121: consult the cache BEFORE any pooled work — a hit must cost
+  // no database client at all, which is the point of caching these.
+  const cacheKey = insightsMicroCacheKey('audience', tenantId, { period, platform });
+  const cached = force ? null : readInsightsMicroCache<Record<string, unknown>>(cacheKey);
+  if (cached) {
+    return NextResponse.json(cached, {
+      headers: { 'Cache-Control': microCacheControlHeader(INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS) },
+    });
+  }
+
+  // AA-120: a forced request skipped the cache above and is about to rebuild on a
+  // pooled client. Unthrottled, that is the authenticated DB-hammer path AA-120
+  // closed for the other six sections — and /insights fires this one, audience and
+  // conversations concurrently, from any role including tenant_viewer. Must run
+  // BEFORE the builder: the limiter's whole job is to keep a burst off the pool.
+  const throttled = checkInsightsForceThrottle(force, tenantId, 'audience');
+  if (throttled) return throttled;
+
   const snapshot = await buildAudienceSnapshot(tenantId, period, platform);
 
-  return NextResponse.json({
+  const body = {
     status: 'ok',
     period,
     platform,
     ...snapshot,
+  };
+
+  writeInsightsMicroCache(cacheKey, body, INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS);
+
+  return NextResponse.json(body, {
+    headers: { 'Cache-Control': microCacheControlHeader(INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS) },
   });
 }
