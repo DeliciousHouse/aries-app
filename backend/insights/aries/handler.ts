@@ -23,6 +23,7 @@ import {
   readInsightsMicroCache,
   writeInsightsMicroCache,
 } from '../micro-cache';
+import { checkInsightsForceThrottle } from '../force-throttle';
 import { buildWorkingWithAriesSnapshot } from './aries-builder';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 
@@ -65,6 +66,14 @@ export async function handleGetInsightsAries(
       headers: { 'Cache-Control': microCacheControlHeader(INSIGHTS_MICRO_CACHE_DEFAULT_TTL_MS) },
     });
   }
+
+  // AA-120: a forced request skipped the cache above and is about to rebuild on a
+  // pooled client. Unthrottled, that is the authenticated DB-hammer path AA-120
+  // closed for the other six sections — and /insights fires this one, audience and
+  // conversations concurrently, from any role including tenant_viewer. Must run
+  // BEFORE the builder: the limiter's whole job is to keep a burst off the pool.
+  const throttled = checkInsightsForceThrottle(force, tenantId, 'aries');
+  if (throttled) return throttled;
 
   const snapshot = await buildWorkingWithAriesSnapshot(tenantId, period);
 
