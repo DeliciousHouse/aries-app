@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { dispatchPublish } from '../backend/integrations/publish-dispatch';
+import {
+  dispatchPublish,
+  formatRawResponseForLog,
+  MISSING_ID_RAW_RESPONSE_MAX_CHARS,
+} from '../backend/integrations/publish-dispatch';
 import { MetaPublishError } from '../backend/integrations/meta-publishing';
 import type { MetaPublishRequest, MetaPublishSuccess } from '../backend/integrations/meta-publishing';
 import type { PublisherProvider } from '../backend/integrations/providers/interfaces';
@@ -179,6 +183,144 @@ test('a live publish with no post id throws MetaPublishError(outcomeUnknown) —
       return true;
     },
   );
+});
+
+// ── missing-id diagnostics ────────────────────────────────────────────────────
+//
+// This branch used to discard `result.rawResponse`, which is why the LinkedIn
+// `x_restli_id` incident needed the broker's toolkit schema diffed by hand: the
+// one artifact naming the key we failed to read was thrown away. It is now
+// logged — redacted and length-capped, and never at the cost of the error's
+// outcome-unknown classification.
+
+/** Run `fn` with console.warn captured. */
+async function captureWarnings(fn: () => Promise<void>): Promise<Array<unknown[]>> {
+  const original = console.warn;
+  const lines: Array<unknown[]> = [];
+  console.warn = (...args: unknown[]) => {
+    lines.push(args);
+  };
+  try {
+    await fn();
+  } finally {
+    console.warn = original;
+  }
+  return lines;
+}
+
+test('the missing-id branch LOGS the raw provider response so the next occurrence is diagnosable', async () => {
+  // The exact production shape: LinkedIn answered with only x_restli_id, and a
+  // build whose idKeys lacked that key extracted nothing.
+  const { provider } = stubProvider({
+    provider: 'composio',
+    platform: 'linkedin',
+    externalPostId: null,
+    externalCampaignId: null,
+    externalAdId: null,
+    status: 'published',
+    url: null,
+    rawResponse: { x_restli_id: 'urn:li:share:7226991234567890123' },
+  });
+
+  const warnings = await captureWarnings(async () => {
+    await assert.rejects(() =>
+      dispatchPublish(baseRequest({ provider: 'linkedin' }), {
+        selector: () => 'composio',
+        composioEnabled: () => true,
+        publisherProvider: () => provider,
+      }),
+    );
+  });
+
+  assert.equal(warnings.length, 1, 'exactly one diagnostic line for a missing-id dispatch');
+  const [message, context] = warnings[0] as [string, Record<string, unknown>];
+  assert.match(String(message), /no post id/i);
+  assert.equal(context.platform, 'linkedin');
+  assert.equal(context.status, 'published');
+  assert.deepEqual(
+    context.rawResponseKeys,
+    ['x_restli_id'],
+    'the response key list is the fastest possible answer to "what did the broker actually send?"',
+  );
+  assert.match(
+    String(context.rawResponse),
+    /urn:li:share:7226991234567890123/,
+    'the raw response body must be present, not discarded',
+  );
+});
+
+test('logging the raw response does NOT change the missing-id classification', async () => {
+  const { provider } = stubProvider({
+    provider: 'composio',
+    platform: 'linkedin',
+    externalPostId: null,
+    externalCampaignId: null,
+    externalAdId: null,
+    status: 'published',
+    // A self-referencing object would throw inside a naive JSON.stringify; the
+    // formatter must swallow that, because an unclassified throw here is the
+    // exact failure mode that duplicates posts.
+    rawResponse: (() => {
+      const circular: Record<string, unknown> = { note: 'unserializable' };
+      circular.self = circular;
+      return circular;
+    })(),
+  } as unknown as PublishResult);
+
+  await captureWarnings(async () => {
+    await assert.rejects(
+      () =>
+        dispatchPublish(baseRequest({ provider: 'linkedin' }), {
+          selector: () => 'composio',
+          composioEnabled: () => true,
+          publisherProvider: () => provider,
+        }),
+      (err: unknown) => {
+        assert.ok(err instanceof MetaPublishError, 'still a MetaPublishError');
+        assert.equal(err.outcomeUnknown, true, 'still outcome-unknown — never auto-retried');
+        assert.equal(err.retryable, false);
+        return true;
+      },
+    );
+  });
+});
+
+test('formatRawResponseForLog strips secrets — a raw response may carry tokens', async () => {
+  // A Meta Graph body can legitimately return a Page access token next to the
+  // post id, and some brokers echo the request arguments back.
+  const line = formatRawResponseForLog({
+    id: 'fb_123',
+    access_token: 'EAAG_super_secret_page_token',
+    clientSecret: 'cs_live_abcdef',
+    nested: { refresh_token: 'rt_zzz', authorization: 'Bearer abcdefghijklmnop' },
+    // A token under an innocent-looking key still gets scrubbed by value.
+    note: 'call used Bearer abcdefghijklmnopqrstuvwxyz and sk-abcdefghijklmnop',
+  });
+
+  assert.match(line, /fb_123/, 'non-secret fields must survive — the log has to stay useful');
+  assert.doesNotMatch(line, /EAAG_super_secret_page_token/);
+  assert.doesNotMatch(line, /cs_live_abcdef/);
+  assert.doesNotMatch(line, /rt_zzz/);
+  assert.doesNotMatch(line, /abcdefghijklmnop/, 'bearer/api-key material must not survive anywhere in the line');
+  assert.doesNotMatch(line, /sk-abcdefghijklmnop/);
+});
+
+test('formatRawResponseForLog truncates instead of dumping an unbounded body into the log', async () => {
+  const line = formatRawResponseForLog({ blob: 'x'.repeat(50_000) });
+  assert.ok(
+    line.length < MISSING_ID_RAW_RESPONSE_MAX_CHARS + 60,
+    `expected a capped line, got ${line.length} chars`,
+  );
+  assert.match(line, /truncated \d+ chars/);
+});
+
+test('formatRawResponseForLog never throws on hostile input', async () => {
+  const circular: Record<string, unknown> = {};
+  circular.self = circular;
+  assert.doesNotThrow(() => formatRawResponseForLog(circular));
+  assert.doesNotThrow(() => formatRawResponseForLog(undefined));
+  assert.doesNotThrow(() => formatRawResponseForLog(null));
+  assert.doesNotThrow(() => formatRawResponseForLog(BigInt(1)));
 });
 
 test('pre-publish errors (missing connection, broker successful:false) propagate unchanged (definitely never posted)', async () => {

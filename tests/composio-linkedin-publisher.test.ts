@@ -22,6 +22,10 @@
  *     isMetaProvider('linkedin')===false.
  *  7. metaPlatform routing: provider='linkedin' reaches the seam with
  *     platform='linkedin', NOT coerced to 'facebook'.
+ *  8. RESPONSE SHAPE (the x_restli_id incident): the create-post response is
+ *     read correctly on BOTH live toolkit schemas — `x_restli_id`-only (what
+ *     `latest`/20260724_00 actually returns) and the legacy `share_id`/`id`
+ *     family — while a genuinely id-less response still yields null.
  */
 
 import { test } from 'node:test';
@@ -724,4 +728,143 @@ test('#646 metaPlatform routing: provider=linkedin reaches the seam with platfor
     out.connectionId.includes(':linkedin'),
     `connectionId must reference 'linkedin', got: ${out.connectionId}`,
   );
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 8. CREATE-POST RESPONSE SHAPE — the x_restli_id incident
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// The tests above all stub the create-post response as `{ id: 'urn:li:share:…' }`,
+// which is the LEGACY toolkit (00000000_00) shape. Execution floats on
+// COMPOSIO_TOOLKIT_VERSION=latest, and on the version `latest` resolves to
+// (20260724_00) `CreateLinkedInPostResponse` has exactly ONE required field:
+// `x_restli_id`. `id` is optional and is routinely absent, because LinkedIn's
+// POST /rest/posts answers 201 with an EMPTY BODY and returns the created URN
+// only in the `x-restli-id` HEADER.
+//
+// Nothing pinned that shape, so the id-key list shipped unvalidated against the
+// version we actually execute against: the publish succeeded, id extraction
+// returned null, and the dispatch was recorded provider_publish_missing_id —
+// a live post with no recorded id. These tests pin BOTH schemas at once, so
+// neither can be "cleaned up" away.
+
+/** Publish a LinkedIn text post against a stubbed create-post response. */
+async function publishWithResponse(data: unknown) {
+  const gateway = makeLinkedInGateway({
+    defaultResult: { data, successful: true, error: null },
+  });
+  const provider = new ComposioPublisherProvider(
+    gateway,
+    fakeConfig({ actions: LINKEDIN_ACTIONS }),
+    linkedinDb(),
+  );
+  const result = await provider.publishPost({
+    tenantId,
+    platform: 'linkedin',
+    content: 'hi',
+    mediaUrls: [],
+    approved: true,
+  });
+  return { result, gateway };
+}
+
+test('x_restli_id-ONLY response yields the post id — the exact toolkit 20260724_00 shape that broke production', async () => {
+  // LinkedIn returns 201 + empty body; the broker surfaces the URN from the
+  // x-restli-id header under this single key. No `id`, no `share_id`, nothing else.
+  const { result } = await publishWithResponse({ x_restli_id: 'urn:li:share:7226991234567890123' });
+
+  assert.equal(
+    result.externalPostId,
+    'urn:li:share:7226991234567890123',
+    'x_restli_id MUST be extracted — its absence from idKeys published a real post with no recorded id',
+  );
+  assert.equal(result.status, 'published');
+});
+
+test('x_restli_id is read even when the response carries nothing else at all', async () => {
+  // Belt-and-braces: the required field is genuinely the ONLY key present.
+  const { result } = await publishWithResponse({ x_restli_id: 'urn:li:ugcPost:999' });
+  assert.equal(result.externalPostId, 'urn:li:ugcPost:999');
+});
+
+test('legacy share_id response still yields the post id (toolkit 00000000_00 must keep working)', async () => {
+  const { result } = await publishWithResponse({ share_id: 'urn:li:share:legacy_555' });
+  assert.equal(
+    result.externalPostId,
+    'urn:li:share:legacy_555',
+    'the legacy key list must stay as fallbacks — a deployment pinned to 00000000_00 depends on it',
+  );
+});
+
+test('every legacy LinkedIn id key remains a working fallback', async () => {
+  for (const key of ['id', 'share_id', 'ugcPostUrn', 'activity_urn', 'urn'] as const) {
+    const { result } = await publishWithResponse({ [key]: `urn:li:share:via_${key}` });
+    assert.equal(
+      result.externalPostId,
+      `urn:li:share:via_${key}`,
+      `legacy key '${key}' must still resolve the post id`,
+    );
+  }
+});
+
+test('x_restli_id wins over a legacy key when a response carries both (it is the authoritative field)', async () => {
+  const { result } = await publishWithResponse({
+    id: 'urn:li:share:secondary',
+    x_restli_id: 'urn:li:share:authoritative',
+  });
+  assert.equal(
+    result.externalPostId,
+    'urn:li:share:authoritative',
+    'x_restli_id must be FIRST in idKeys — it is the required field on the version we execute against',
+  );
+});
+
+test('a response with NO id at all still yields null — the missing-id safety path is not broken', async () => {
+  // The fix must not paper over a genuinely id-less response: that case has to
+  // keep reaching publish-dispatch's outcome-unknown branch (never a silent
+  // success with an empty id, which would corrupt the posts row).
+  const { result } = await publishWithResponse({ status: 'ok', message: 'created' });
+  assert.equal(result.externalPostId, null, 'no id key present → null, so the outcome-unknown branch still fires');
+
+  const empty = await publishWithResponse({});
+  assert.equal(empty.result.externalPostId, null, 'empty response object → null');
+
+  const blank = await publishWithResponse({ x_restli_id: '   ' });
+  assert.equal(blank.result.externalPostId, null, 'whitespace-only x_restli_id is not an id');
+});
+
+test('end-to-end: an x_restli_id-only publish no longer raises provider_publish_missing_id', async () => {
+  // The incident, reproduced through the real provider + the real dispatcher.
+  const gateway = makeLinkedInGateway({
+    defaultResult: {
+      data: { x_restli_id: 'urn:li:share:e2e_777' },
+      successful: true,
+      error: null,
+    },
+  });
+  const provider = new ComposioPublisherProvider(
+    gateway,
+    fakeConfig({ actions: LINKEDIN_ACTIONS }),
+    linkedinDb(),
+  );
+
+  const out = await dispatchPublish(
+    { tenantId: '42', provider: 'linkedin', content: 'hello linkedin', mediaUrls: [], scheduledFor: null },
+    {
+      selector: () => 'composio',
+      composioEnabled: () => true,
+      directPublish: async () => {
+        throw new Error('linkedin must never reach the direct-Meta path');
+      },
+      publisherProvider: () => provider as unknown as PublisherProvider,
+    },
+  );
+
+  assert.equal(out.mode, 'live');
+  assert.equal(
+    out.platformPostId,
+    'urn:li:share:e2e_777',
+    'the dispatch must record the URN instead of throwing provider_publish_missing_id',
+  );
+  assert.equal(gateway.calls.length, 1, 'exactly one publish call — the whole point is not to publish twice');
 });

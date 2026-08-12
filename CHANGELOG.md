@@ -2,6 +2,65 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.10.1 — fix(publishing): read LinkedIn's `x_restli_id` post id
+
+A successful LinkedIn publish is recorded as a success again.
+
+On 2026-08-12 a scheduled LinkedIn post for tenant 70 went live as
+`urn:li:share:7493277659364270080`, was recorded as
+`provider_publish_missing_id` / outcome-unknown, and was then re-dispatched and
+published a SECOND time as `urn:li:share:7493305079693938689` — a duplicate on
+a real customer's account. The publish itself was fine both times; the response
+parsing was reading keys from the wrong schema.
+
+Composio's `CreateLinkedInPostResponse` exists in two shapes at once, and which
+one we get is an environment decision rather than a code one. Execution floats
+on `COMPOSIO_TOOLKIT_VERSION`, which defaults to `latest`; on the version
+`latest` currently resolves to, the response's ONLY required field is
+`x_restli_id`, and `id` is optional and routinely absent. That is LinkedIn's own
+contract showing through: `POST /rest/posts` answers 201 with an empty body and
+returns the created URN solely in the `x-restli-id` response header. Our id-key
+list carried only the legacy-toolkit names (`id`, `share_id`, `ugcPostUrn`,
+`activity_urn`, `urn`), so on the version we actually execute against there was
+nothing to find. `x_restli_id` appeared nowhere in the codebase.
+
+The blast radius is not just a wrong-looking record. A live post with no
+recorded id drops out of insights attribution (nothing to join on), puts a
+human in the loop on a publish that already succeeded, and — because the child
+dispatch row only reaches its terminal `manual_reconciliation` state once the
+post-publish status write lands — leaves the row inside the known stale-claim
+re-dispatch window. That window is what turned a bad record into a duplicate
+post. It is a pre-existing hazard and is NOT closed by this change; this change
+removes the trigger that walked into it.
+
+### Fixed
+
+- LinkedIn post-id extraction reads `x_restli_id` first, keeping the legacy keys
+  behind it as fallbacks so a deployment pinned to the older toolkit still
+  works. Both schemas are now pinned by tests and the reason for the apparent
+  redundancy is documented at the call site, so neither list can be tidied away.
+
+### Changed
+
+- The `provider_publish_missing_id` branch in `backend/integrations/publish-dispatch.ts`
+  logs the provider's raw response instead of discarding it. This incident
+  required diffing broker toolkit schemas by hand to find a key name the
+  discarded payload would have named outright. The response is redacted
+  (secret-named keys dropped, bearer/API-key material scrubbed from every
+  remaining string) and capped at 2000 characters. The formatter cannot throw:
+  an unclassified error on this path would strip the outcome-unknown verdict
+  that exists to stop duplicate posts.
+
+### Notes
+
+`COMPOSIO_TOOLKIT_VERSION` is deliberately left at `latest`. It is a single
+global string applied to every toolkit — publishing, analytics, replies, account
+resolution and the feedback sink all execute through the same gateway — and a
+concrete pin drops `dangerouslySkipVersionCheck`, so one version string that is
+not valid for one toolkit fails that toolkit's calls fleet-wide. Pinning is
+worth doing, but as its own change with per-toolkit verification, not as a
+side effect of this fix.
+
 ## v0.2.10.0 — fix(integrations): connection status can go DOWN as well as up
 
 A channel that dies now stops being advertised as connected.
