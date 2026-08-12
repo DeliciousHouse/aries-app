@@ -376,17 +376,37 @@ test('the goal read path selects goal_type and the cache version was bumped', ()
   );
 });
 
-test('every primary_goal write path derives goal_type alongside the text', () => {
-  // A stored key that outlives the text it came from would render the wrong
-  // goal forever with no chip — strictly worse than not having the column.
+test('every primary_goal write path resolves goal_type alongside the text', () => {
+  // SUPERSEDED BY AA-114 (S6-1). This test used to require that every
+  // record-building site call `deriveStoredGoalType` directly, because at the
+  // time derivation was the only way a key could exist. An operator can now
+  // CHOOSE the key in the canonical select, and blind re-derivation became the
+  // bug rather than the guarantee — it silently replaced a human's pick with a
+  // keyword guess whenever any unrelated field was saved.
+  //
+  // The invariant that actually mattered survives and is asserted here: a stored
+  // key must never outlive the text it came from WITHOUT a human having chosen
+  // it. `resolveGoalTypeForWrite` owns that rule (explicit pick > re-resolve on
+  // changed text > keep stored > derive), and each branch is pinned in
+  // tests/goal-canonical-write-path.test.ts.
   const source = fs.readFileSync(
     path.join(PROJECT_ROOT, 'backend', 'tenant', 'business-profile.ts'),
     'utf8',
   );
-  const derivations = source.match(/goal_type: deriveStoredGoalType\(/g) ?? [];
+
+  const resolutions =
+    (source.match(/goal_type:\s*(resolveGoalTypeForWrite|current\?\.goal_type|isCanonicalGoalType)/g) ?? []).length +
+    (source.match(/goal_type = goalTypeForWrittenText\(/g) ?? []).length;
   assert.ok(
-    derivations.length >= 4,
-    `expected every record-building site to derive goal_type, saw ${derivations.length}`,
+    resolutions >= 4,
+    `expected every record-building site to resolve goal_type, saw ${resolutions}`,
   );
-  assert.match(source, /goal_type = EXCLUDED\.goal_type/, 'the upsert must persist the derived key');
+
+  // No site may go back to deriving blind on a write.
+  assert.doesNotMatch(
+    source,
+    /goal_type:\s*deriveStoredGoalType\(/,
+    'a write path must resolve (honoring an explicit pick), not derive unconditionally',
+  );
+  assert.match(source, /goal_type = EXCLUDED\.goal_type/, 'the upsert must persist the resolved key');
 });

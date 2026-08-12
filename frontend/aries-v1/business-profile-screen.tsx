@@ -14,6 +14,8 @@ import {
 import { connectedProfileLabel } from './connected-profile-labels';
 import { customerSafeUiErrorMessage, profileApiErrorMessage } from './customer-safe-copy';
 import { DashboardHero, EmptyStatePanel, LoadingStateGrid, ShellPanel } from './components';
+import { CANONICAL_GOAL_OPTIONS } from '@/backend/insights/goal/goal-options';
+import type { GoalType } from '@/backend/insights/goal/goal-type-classification';
 
 type ChannelOption = {
   id: string;
@@ -100,6 +102,10 @@ export default function AriesBusinessProfileScreen() {
   const [websiteUrl, setWebsiteUrl] = useState('');
   const [businessType, setBusinessType] = useState('');
   const [primaryGoal, setPrimaryGoal] = useState('');
+  // AA-114: the canonical goal the operator picks, stored alongside the free
+  // text. '' renders as "Not set yet", which is honest — it is what keeps the
+  // S1-5 confirm chip asking instead of a guess looking settled.
+  const [goalType, setGoalType] = useState<GoalType | ''>('');
   const [offer, setOffer] = useState('');
   const [competitorUrl, setCompetitorUrl] = useState('');
   const [selectedChannels, setSelectedChannels] = useState<string[]>(DEFAULT_CHANNEL_IDS);
@@ -137,6 +143,7 @@ export default function AriesBusinessProfileScreen() {
     setWebsiteUrl(profile.websiteUrl || profile.brandKit?.source_url || '');
     setBusinessType(profile.businessType || '');
     setPrimaryGoal(profile.primaryGoal || '');
+    setGoalType(profile.goalType ?? '');
     setOffer(profile.offer || profile.brandIdentity?.offer || profile.brandKit?.offer_summary || '');
     setCompetitorUrl(profile.competitorUrl || '');
     setSelectedChannels(profile.channels.length > 0 ? profile.channels : DEFAULT_CHANNEL_IDS);
@@ -163,6 +170,7 @@ export default function AriesBusinessProfileScreen() {
       websiteUrl: websiteUrl.trim(),
       businessType,
       primaryGoal,
+      goalType: goalType === '' ? null : goalType,
       offer,
       competitorUrl,
       channels: selectedChannels,
@@ -376,9 +384,35 @@ export default function AriesBusinessProfileScreen() {
                   className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white"
                 />
               </EditableField>
+              {/* AA-114: the canonical goal is CHOSEN here. It decides which
+                  metric Insights reports — and, since #964, which KPI the
+                  strategy/publish prompts optimise for. The free text below
+                  stays as the descriptive wording that feeds the Hermes brand
+                  prompts: two fields answering two different questions. */}
               <EditableField
-                label="Primary goal"
-                hint="The business outcome that matters most right now."
+                label="Goal Aries optimises for"
+                hint="Sets which metric the Insights dashboard reports against."
+              >
+                <select
+                  value={goalType}
+                  onChange={(event) => setGoalType(event.target.value as GoalType | '')}
+                  className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white"
+                >
+                  <option value="">Not set yet</option>
+                  {CANONICAL_GOAL_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-2 text-xs leading-6 text-white/45">
+                  {CANONICAL_GOAL_OPTIONS.find((option) => option.value === goalType)?.description ??
+                    'Until this is set, Aries infers a goal from the description below and flags it for you to confirm.'}
+                </p>
+              </EditableField>
+              <EditableField
+                label="Primary goal (in your words)"
+                hint="Describes the outcome for Aries' content prompts. Does not change which metric is reported."
               >
                 <input
                   value={primaryGoal}
