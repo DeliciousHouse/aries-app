@@ -1097,6 +1097,13 @@ services:
       ARIES_COMPOSIO_RECONCILER_ENABLED: ${ARIES_COMPOSIO_RECONCILER_ENABLED:-0}
       ARIES_COMPOSIO_RECONCILER_INTERVAL_MS: ${ARIES_COMPOSIO_RECONCILER_INTERVAL_MS:-60000}
       ARIES_COMPOSIO_RECONCILER_GRACE_MINUTES: ${ARIES_COMPOSIO_RECONCILER_GRACE_MINUTES:-30}
+      # Demotion pass: re-verify connections we already advertise as usable, so a
+      # channel that DIES stops showing green. Before this existed `connected`
+      # was terminal and tenant 15's X sat connected for ~28 days after Composio
+      # recorded a permanent refresh failure. Oldest-first rolling audit; an
+      # unreachable Composio never demotes (errors are counted, rows untouched).
+      ARIES_COMPOSIO_RECONCILER_RECHECK_HOURS: ${ARIES_COMPOSIO_RECONCILER_RECHECK_HOURS:-6}
+      ARIES_COMPOSIO_RECONCILER_RECHECK_LIMIT: ${ARIES_COMPOSIO_RECONCILER_RECHECK_LIMIT:-25}
     restart: unless-stopped
     networks:
       - docker_stack

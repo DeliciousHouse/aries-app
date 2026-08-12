@@ -2,6 +2,55 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.10.0 — fix(integrations): connection status can go DOWN as well as up
+
+A channel that dies now stops being advertised as connected.
+
+Reported by the owner: "if profiles aren't actually connected, then the UI needs
+to show that. but right now, my aries UI shows 4 channels connected." They were
+right. Tenant 15's X connection had been `EXPIRED` in Composio ("Permanent auth
+error during token refresh") since 2026-07-15 while our row still said
+`connected`, last written 2026-07-04 — ~28 days of a green channel that could
+not publish.
+
+### Root cause
+
+`connected` was a terminal state. The reconciler swept only
+`WHERE status = 'pending' AND updated_at > now() - 30 minutes` — it existed to
+finish an OAuth handshake and never looked at a live row. The connections
+endpoint had the same blind spot, refreshing only `pending` entries against
+Composio and returning `connected` rows straight from our table. Nothing else
+writes this table after connect, so a connection that died later could never be
+corrected.
+
+The knock-on was worse than a wrong checkmark: the publish-eligibility gate reads
+the same rows, so a tenant whose channels were all dead still passed the gate,
+generated a full week of content, and dead-lettered at dispatch days later.
+
+### Changed
+
+- The reconciler now runs a second, slower DEMOTION pass over rows we advertise
+  as usable (`connected`, `reauthorization_required`), oldest-first and capped
+  per tick — a rolling audit rather than a full scan every minute.
+- No new status logic was needed: `refreshConnectionStatus` already persists
+  `mapComposioStatus(live status)`, and EXPIRED/REVOKED already map to
+  `reauthorization_required`. The only thing missing was ever calling it on a
+  non-pending row.
+- Demotions are logged loudly, and the worker's summary log no longer gates on
+  the promotion counter — otherwise a demotion on a tick with no in-flight
+  connects would have been silent, which is nearly every tick.
+- `ARIES_COMPOSIO_RECONCILER_RECHECK_HOURS` (default 6) and
+  `ARIES_COMPOSIO_RECONCILER_RECHECK_LIMIT` (default 25).
+
+### Fail-safe
+
+An unreachable Composio makes `refreshConnectionStatus` throw; the sweep counts
+that as an error and leaves the row untouched. Only a definitive non-ACTIVE
+status demotes. Demoting on a transient 5xx would disconnect working channels
+during a provider blip — turning a display bug into an outage — so there is a
+dedicated regression test for it.
+
+
 ## v0.2.9.0 — fix(marketing): image prompt discipline + retries in the production contract
 
 Weekly image generation stopped failing on its own instructions.

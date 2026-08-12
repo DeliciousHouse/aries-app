@@ -40,16 +40,24 @@ function makePendingRow(platform: string, tenantId: number): PendingRow {
 }
 
 /**
- * Fake Queryable: always returns the supplied rows regardless of SQL. Captures
- * the query params so tests can assert on the grace-window value.
+ * Fake Queryable. The sweep issues TWO different queries — the pending
+ * promotion sweep (`status = 'pending'`) and the demotion re-check
+ * (`status = ANY(...)`) — so this routes by SQL shape. Returning the same rows
+ * to both would make every promotion test also run a phantom re-check.
+ * Captures params so tests can assert on the grace/recheck windows.
  */
-function fakeDb(rows: PendingRow[] = []): Queryable & { capturedParams: unknown[][] } {
+function fakeDb(
+  rows: PendingRow[] = [],
+  recheckRows: Array<PendingRow & { status: string }> = [],
+): Queryable & { capturedParams: unknown[][] } {
   const capturedParams: unknown[][] = [];
   return {
     capturedParams,
     async query<T = Record<string, unknown>>(text: string, params: unknown[] = []) {
       capturedParams.push(params);
-      return { rows: rows as unknown as T[], rowCount: rows.length };
+      const isRecheck = text.includes('status = ANY');
+      const out = isRecheck ? recheckRows : rows;
+      return { rows: out as unknown as T[], rowCount: out.length };
     },
   };
 }
@@ -107,7 +115,7 @@ test('reconcilePendingConnections: no pending rows → summary zeroed, no refres
   const provider = fakeProvider();
   const summary = await reconcilePendingConnections({ db, provider });
 
-  assert.deepEqual(summary, { scanned: 0, reconciled: 0, stillPending: 0, errors: 0 } satisfies ReconcileSummary);
+  assert.deepEqual(summary, { scanned: 0, reconciled: 0, stillPending: 0, errors: 0, rechecked: 0, demoted: 0 } satisfies ReconcileSummary);
   assert.equal(provider.refreshCalls.length, 0);
 });
 
@@ -187,7 +195,7 @@ test('reconcilePendingConnections: null provider (Composio disabled) → zeroed 
   const db = fakeDb([makePendingRow('facebook', 1)]);
   const summary = await reconcilePendingConnections({ db, provider: null });
 
-  assert.deepEqual(summary, { scanned: 0, reconciled: 0, stillPending: 0, errors: 0 });
+  assert.deepEqual(summary, { scanned: 0, reconciled: 0, stillPending: 0, errors: 0, rechecked: 0, demoted: 0 });
   // DB must not be touched — provider null is an early-return path
   assert.equal(db.capturedParams.length, 0, 'DB must not be queried when provider is null');
 });
@@ -199,7 +207,7 @@ test('reconcilePendingConnections: top-level DB error returns zeroed summary wit
   const provider = fakeProvider();
   const summary = await reconcilePendingConnections({ db: brokenDb, provider });
 
-  assert.deepEqual(summary, { scanned: 0, reconciled: 0, stillPending: 0, errors: 1 });
+  assert.deepEqual(summary, { scanned: 0, reconciled: 0, stillPending: 0, errors: 1, rechecked: 0, demoted: 0 });
 });
 
 test('reconcilePendingConnections: externalUserId and tenantId are forwarded to refreshConnectionStatus', async () => {
@@ -214,4 +222,91 @@ test('reconcilePendingConnections: externalUserId and tenantId are forwarded to 
   assert.equal(provider.refreshCalls[0].externalUserId, 'aries-tenant-42');
   assert.equal(provider.refreshCalls[0].platform, 'facebook');
   assert.equal(provider.refreshCalls[0].tenantId, '42');
+});
+
+// ---------------------------------------------------------------------------
+// Demotion pass (2026-08-12)
+//
+// Before this existed, `connected` was a terminal state: the sweep only looked
+// at `pending` rows, so a channel that DIED kept reporting connected forever.
+// Tenant 15's X connection sat green for ~28 days after Composio recorded a
+// permanent refresh failure — the UI advertised it, the publish gate trusted
+// it, and a week of posts dead-lettered.
+//
+// The most important test here is the FAIL-SAFE one: an unreachable Composio
+// must never demote a working channel, or a display bug becomes an outage.
+// ---------------------------------------------------------------------------
+
+function makeRecheckRow(platform: string, tenantId: number, status = 'connected') {
+  return { tenant_id: tenantId, platform, external_user_id: `aries-tenant-${tenantId}`, status };
+}
+
+test('demotion: a believed-connected row that is no longer connected is demoted and counted', async () => {
+  const db = fakeDb([], [makeRecheckRow('x', 15)]);
+  // refresh returns null → not connected any more
+  const provider = fakeProvider({ refreshResults: new Map([['15:x', null] as const]) });
+  const summary = await reconcilePendingConnections({ db, provider });
+
+  assert.equal(summary.rechecked, 1);
+  assert.equal(summary.demoted, 1, 'a dead channel must be demoted');
+  assert.equal(provider.refreshCalls.length, 1);
+});
+
+test('demotion: a still-healthy row is re-verified but NOT demoted', async () => {
+  const db = fakeDb([], [makeRecheckRow('facebook', 15)]);
+  const provider = fakeProvider(); // default → connected
+  const summary = await reconcilePendingConnections({ db, provider });
+
+  assert.equal(summary.rechecked, 1);
+  assert.equal(summary.demoted, 0, 'a live channel must never be demoted');
+});
+
+test('FAIL-SAFE: an unreachable Composio does NOT demote a live channel', async () => {
+  // refreshConnectionStatus throws when Composio cannot be reached. That is not
+  // evidence the channel is dead — demoting here would disconnect working
+  // channels during a provider blip.
+  const db = fakeDb([], [makeRecheckRow('facebook', 15), makeRecheckRow('instagram', 15)]);
+  const provider = fakeProvider({
+    refreshResults: new Map<string, ConnectedAccount | null | Error>([
+      ['15:facebook', new Error('composio unreachable')],
+      ['15:instagram', new Error('composio unreachable')],
+    ]),
+  });
+  const summary = await reconcilePendingConnections({ db, provider });
+
+  assert.equal(summary.rechecked, 2);
+  assert.equal(summary.demoted, 0, 'a transient provider error must NEVER demote');
+  assert.equal(summary.errors, 2, 'the failures are surfaced as errors instead');
+});
+
+test('demotion: a previously-broken row that is healthy again heals back, not demoted', async () => {
+  const db = fakeDb([], [makeRecheckRow('x', 15, 'reauthorization_required')]);
+  const provider = fakeProvider(); // default → connected
+  const summary = await reconcilePendingConnections({ db, provider });
+
+  assert.equal(summary.rechecked, 1);
+  assert.equal(summary.demoted, 0, 'healing is not a demotion');
+});
+
+test('demotion: recheck window + limit are forwarded to the DB query', async () => {
+  const db = fakeDb([], []);
+  const provider = fakeProvider();
+  await reconcilePendingConnections({ db, provider, recheckHours: 12, recheckLimit: 7 });
+
+  const recheckParams = db.capturedParams[1];
+  assert.ok(recheckParams, 'expected a second (recheck) query');
+  assert.deepEqual(recheckParams[0], ['connected', 'reauthorization_required']);
+  assert.equal(recheckParams[1], 12);
+  assert.equal(recheckParams[2], 7);
+});
+
+test('demotion pass runs even when there are no pending rows to promote', async () => {
+  // The two passes are independent: an empty promotion sweep must not skip the
+  // re-check, or a fleet with no in-flight connects would never be audited.
+  const db = fakeDb([], [makeRecheckRow('x', 15)]);
+  const provider = fakeProvider({ refreshResults: new Map([['15:x', null] as const]) });
+  const summary = await reconcilePendingConnections({ db, provider });
+
+  assert.equal(summary.scanned, 0);
+  assert.equal(summary.demoted, 1);
 });
