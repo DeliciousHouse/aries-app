@@ -309,7 +309,7 @@ test('dead-campaign sweep semantics against real Postgres (rolled back)', async 
       // The generous batch limit guarantees the whole population (prod rows +
       // seeds) drains in one pass so the idempotency check is exact.
       const staleCutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
-      const sweep = await client.query(SWEEP_DEAD_CAMPAIGN_SQL, [100000, staleCutoff]);
+      const sweep = await client.query(SWEEP_DEAD_CAMPAIGN_SQL, [100000, staleCutoff, false]);
       const counts = sweep.rows[0] as { swept: number; posts_expired: number };
       assert.ok(counts.swept >= 4, `dead pending, stale in_flight, live-post, and partial rows must be swept (got ${counts.swept})`);
       assert.ok(counts.posts_expired >= 2, `the two never-live posts must be expired (got ${counts.posts_expired})`);
@@ -385,7 +385,7 @@ test('dead-campaign sweep semantics against real Postgres (rolled back)', async 
 
       // Idempotency: a second pass matches nothing (the first drained the
       // whole population within this transaction).
-      const again = await client.query(SWEEP_DEAD_CAMPAIGN_SQL, [100000, staleCutoff]);
+      const again = await client.query(SWEEP_DEAD_CAMPAIGN_SQL, [100000, staleCutoff, false]);
       assert.equal((again.rows[0] as { swept: number }).swept, 0, 'sweep is idempotent');
 
       await client.query('ROLLBACK');

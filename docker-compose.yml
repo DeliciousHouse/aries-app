@@ -108,6 +108,15 @@ services:
       # today (images ingested, no posts). Fixes "generated images but nowhere to
       # click to publish."
       ARIES_SYNTHESIZE_ON_PUBLISH_SKIP_ENABLED: ${ARIES_SYNTHESIZE_ON_PUBLISH_SKIP_ENABLED:-0}
+      # Owner-gated auto-publish. Auto-scheduling is unaffected (the calendar
+      # populates for every tenant); this decides whether a due row may actually
+      # be DISPATCHED, or is held for a human to publish. When ON, a tenant
+      # publishes autonomously only if it has opted in via
+      # marketing_auto_publish_settings (tenant_admin, /api/marketing/auto-publish).
+      # Default OFF — ships dark, every row dispatches exactly as before.
+      # MUST be set on aries-scheduled-posts-worker too: the admit predicate runs
+      # in that worker's SQL, not here.
+      ARIES_AUTO_PUBLISH_GATE_ENABLED: ${ARIES_AUTO_PUBLISH_GATE_ENABLED:-0}
       # Unattended-publish guards on the scheduled-dispatch route (2026-07-13
       # duplicate-post incident). Duplicate-caption window: a post whose exact
       # trimmed caption already published to the same tenant+platform within N
@@ -695,6 +704,12 @@ services:
       # The longest publish request is 330s. SIGTERM drains its active tick for
       # 350s, while Compose grants 360s before SIGKILL.
       ARIES_SCHEDULED_POSTS_SHUTDOWN_TIMEOUT_MS: ${ARIES_SCHEDULED_POSTS_SHUTDOWN_TIMEOUT_MS:-350000}
+      # Owner-gated auto-publish — the ENFORCEMENT point. The admit predicate is
+      # spliced into this worker's due-scan, claim and dead-campaign sweep, so
+      # the flag must be set HERE as well as on aries-app (which only reports the
+      # gate's state to the settings UI). A value set on one service and not the
+      # other means the UI and the dispatcher disagree.
+      ARIES_AUTO_PUBLISH_GATE_ENABLED: ${ARIES_AUTO_PUBLISH_GATE_ENABLED:-0}
     stop_grace_period: 6m
     restart: unless-stopped
     networks:

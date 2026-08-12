@@ -1231,6 +1231,30 @@ async function initDb() {
         ON slack_notifications (sent_at);
     `);
 
+    // ─── Auto-publish opt-in ─────────────────────────────────────────────────────
+    // One row per tenant that opts into autonomous DELIVERY. Auto-schedule stays
+    // on for everyone (the calendar populates from the AI's timing
+    // recommendation); this table decides whether scheduled-posts-worker is
+    // allowed to actually dispatch a due row to the provider, or whether it is
+    // held for a human to publish. Absence == disabled, so an unseeded tenant is
+    // held rather than published.
+    //
+    // Gated fleet-wide by ARIES_AUTO_PUBLISH_GATE_ENABLED — with that OFF this
+    // table is inert and every row dispatches exactly as before.
+    // Migration of record: migrations/20260812000000_marketing_auto_publish_settings.sql
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS marketing_auto_publish_settings (
+        tenant_id          INTEGER PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+        enabled            BOOLEAN NOT NULL DEFAULT false,
+        updated_by_user_id INTEGER,
+        created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_marketing_auto_publish_settings_enabled
+        ON marketing_auto_publish_settings (tenant_id)
+        WHERE enabled;
+    `);
+
     // ─── Weekly trigger schedule ─────────────────────────────────────────────────
     // One row per tenant that opts into the weekly-content cadence. The
     // weekly-job-trigger-worker (scripts/automations/weekly-job-trigger-worker.ts)

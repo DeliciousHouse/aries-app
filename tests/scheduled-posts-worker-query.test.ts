@@ -2,24 +2,24 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 // CLAIM_ROW_SQL is defined in the worker (a .mjs script with no type
-// declarations, so it cannot be imported under the route-type tsc gate).
-// Extract its value from source instead.
-function extractClaimRowSql(): string {
-  const workerSource = readFileSync(
-    path.join(REPO_ROOT, 'scripts/automations/scheduled-posts-worker.mjs'),
-    'utf8',
-  );
-  const match = workerSource.match(/export const CLAIM_ROW_SQL = `([\s\S]*?)`;/);
-  assert.ok(match, 'CLAIM_ROW_SQL must be defined and exported in the worker');
-  return match[1];
-}
+// declarations), reached via a pathToFileURL dynamic import + cast. It used to
+// be regex-extracted from source, which now returns the raw `${...}` text for
+// the composed admit predicate — assertions would then be matching source code
+// rather than the query the worker runs.
+// Loaded inside the test rather than at module scope: tsx transforms these
+// files to CJS, where top-level await is a build error.
+type WorkerSql = { CLAIM_ROW_SQL: string };
 
-const CLAIM_ROW_SQL = extractClaimRowSql();
+async function loadWorkerSql(): Promise<WorkerSql> {
+  return (await import(
+    pathToFileURL(path.join(REPO_ROOT, 'scripts/automations/scheduled-posts-worker.mjs')).href
+  )) as unknown as WorkerSql;
+}
 
 // T2 regression: the prod `posts` table has a `caption` column and no
 // `content` column (verified against information_schema). The worker claim
@@ -28,7 +28,8 @@ const CLAIM_ROW_SQL = extractClaimRowSql();
 // stack uses mock pools and `npm run verify` runs without a database), so this
 // asserts the three sources are mutually consistent and free of the drift.
 
-test('worker claimRow SQL selects p.caption and never p.content', () => {
+test('worker claimRow SQL selects p.caption and never p.content', async () => {
+  const { CLAIM_ROW_SQL } = await loadWorkerSql();
   assert.match(CLAIM_ROW_SQL, /\bp\.caption\b/, 'claim SQL must select p.caption');
   assert.doesNotMatch(CLAIM_ROW_SQL, /\bp\.content\b/, 'claim SQL must not select the dropped p.content column');
   // Sanity: the canonical-first CTE locks the posts row that supplies caption.
