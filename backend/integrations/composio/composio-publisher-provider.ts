@@ -508,7 +508,35 @@ export class ComposioPublisherProvider implements PublisherProvider {
       // Single publish slug (never guessed — capability-missing when unset).
       slug = this.requireSlug(input.platform, 'publish_post', 'publish posts');
       // LinkedIn returns a share / ugcPost urn, not the shared default keys.
-      idKeys = ['id', 'share_id', 'ugcPostUrn', 'activity_urn', 'urn'];
+      //
+      // TWO TOOLKIT SCHEMAS ARE LIVE AT ONCE — DO NOT "clean up" the keys below
+      // as redundant. Composio's `CreateLinkedInPostResponse` changed shape
+      // between toolkit versions, and which shape we get back is an ENVIRONMENT
+      // decision (COMPOSIO_TOOLKIT_VERSION, `composioToolkitVersion()` in
+      // backend/integrations/providers/integration-config.ts), not a code one:
+      //
+      //   toolkit 20260724_00 — what the default `latest` currently resolves to.
+      //     `x_restli_id` is the ONLY REQUIRED field of the response; `id` is
+      //     optional and is routinely ABSENT. That is not a Composio quirk:
+      //     LinkedIn's `POST /rest/posts` answers 201 with an EMPTY BODY and
+      //     returns the created post's URN solely in the `x-restli-id` response
+      //     HEADER, which the broker surfaces under this snake_cased key.
+      //
+      //   toolkit 00000000_00 — the legacy pin.
+      //     `id` / `share_id` / `ugcPostUrn` / `activity_urn` / `urn`.
+      //
+      // `x_restli_id` MUST stay FIRST: it is the authoritative field on the
+      // version we actually execute against, and a legacy response that carries
+      // both is still correct to read it from. The rest stay as fallbacks so a
+      // deployment pinned to the legacy toolkit keeps working.
+      //
+      // Its absence here was a production incident (tenant 70, scheduled_post
+      // 175, 2026-08-12): the publish SUCCEEDED, this extraction returned null,
+      // and publish-dispatch recorded the dispatch as provider_publish_missing_id
+      // / outcome-unknown instead of a clean success. A live post with no
+      // recorded id then went back through the stale-claim re-dispatch window
+      // and published a SECOND time on a real customer's LinkedIn.
+      idKeys = ['x_restli_id', 'id', 'share_id', 'ugcPostUrn', 'activity_urn', 'urn'];
 
       // Unlike X, LinkedIn has NO separate upload action: an image is staged to
       // Composio's S3 via gateway.uploadFile and the returned

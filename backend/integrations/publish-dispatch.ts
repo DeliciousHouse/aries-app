@@ -36,6 +36,7 @@ import type { PublisherProvider } from './providers/interfaces';
 import { isComposioEnabled, type ProviderSelector } from './providers/integration-config';
 import type { IntegrationPlatform, PublishResult } from './providers/types';
 import { publishNeverReachedPlatform } from './publish-outcome';
+import { redactTokenLikeString } from '../social-content/payload';
 
 export function metaPlatform(provider: string): IntegrationPlatform {
   // Map the dispatch request's provider string to the integration platform the
@@ -49,6 +50,79 @@ export function metaPlatform(provider: string): IntegrationPlatform {
   if (normalized === 'youtube') return 'youtube';
   if (normalized === 'instagram') return 'instagram';
   return 'facebook';
+}
+
+/** Cap on the redacted raw-response string written to the missing-id log line. */
+export const MISSING_ID_RAW_RESPONSE_MAX_CHARS = 2000;
+
+const REDACTED = '[redacted]';
+
+/**
+ * True for object keys whose VALUE must never reach a log line. Matched on
+ * word segments (so `accessToken`, `access_token` and `ACCESS-TOKEN` all hit),
+ * mirroring the payload sanitizer's rule set.
+ */
+function sensitiveResponseKey(key: string): boolean {
+  const segments = key
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  const compact = segments.join('');
+  return (
+    segments.includes('token') ||
+    segments.includes('secret') ||
+    segments.includes('password') ||
+    segments.includes('auth') ||
+    segments.includes('authorization') ||
+    segments.includes('oauth') ||
+    segments.includes('credential') ||
+    segments.includes('credentials') ||
+    segments.includes('cookie') ||
+    compact === 'apikey' ||
+    (segments.includes('api') && segments.includes('key'))
+  );
+}
+
+function redactForLog(value: unknown, depth = 0): unknown {
+  if (depth > 6) return '[depth-capped]';
+  if (typeof value === 'string') return redactTokenLikeString(value);
+  if (Array.isArray(value)) return value.slice(0, 20).map((entry) => redactForLog(entry, depth + 1));
+  if (!value || typeof value !== 'object') return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    out[key] = sensitiveResponseKey(key) ? REDACTED : redactForLog(entry, depth + 1);
+  }
+  return out;
+}
+
+/**
+ * Render a provider's raw response for a diagnostic log line: secrets stripped,
+ * length capped. Never throws — this runs on an already-failing path, and a
+ * throw here would replace the caller's outcome-unknown MetaPublishError with an
+ * unclassified one (which is exactly the failure mode that duplicates posts).
+ *
+ * Two-stage redaction, because the raw response is BOTH a third-party API body
+ * and, on some brokers, an echo of our own request arguments:
+ *  - key-named secrets (`access_token`, `clientSecret`, `authorization`, …) are
+ *    dropped wholesale — a Meta Graph body, for example, can legitimately carry
+ *    a Page access token alongside the post id; and
+ *  - every remaining string is run through the shared `redactTokenLikeString`,
+ *    which strips `Bearer …`, `sk-…`, `ya29.…`, `xox?-…`, `gh?_…` and sensitive
+ *    URL query parameters, catching tokens that arrive under an innocent key.
+ */
+export function formatRawResponseForLog(
+  raw: unknown,
+  maxChars: number = MISSING_ID_RAW_RESPONSE_MAX_CHARS,
+): string {
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(redactForLog(raw)) ?? String(raw);
+  } catch {
+    return '[unserializable]';
+  }
+  if (serialized.length <= maxChars) return serialized;
+  return `${serialized.slice(0, maxChars)}…[truncated ${serialized.length - maxChars} chars]`;
 }
 
 export interface DispatchPublishDeps {
@@ -139,6 +213,27 @@ export async function dispatchPublish(
     // very likely live (the action was accepted), so this is outcome-unknown, NOT
     // a clean failure: persisting an empty id would corrupt records, and a retry
     // would duplicate. Mirror the direct path's 2xx-without-id handling.
+    //
+    // LOG THE RAW RESPONSE. This branch used to discard `result.rawResponse`
+    // entirely, which made every occurrence a schema archaeology exercise: the
+    // LinkedIn `x_restli_id` incident (a live post with no recorded id) needed
+    // the broker's toolkit schema diffed by hand because the one artifact that
+    // would have named the missing key was thrown away here. The payload is
+    // redacted and length-capped by formatRawResponseForLog.
+    console.warn('[publish-dispatch] provider reported success with no post id', {
+      platform,
+      provider: result.provider,
+      tenantId: request.tenantId,
+      status: result.status,
+      // Key NAMES, not values — this is schema, and it is the fastest possible
+      // answer to "which key should we have been reading?". Bounded so a
+      // pathological body cannot flood the log on its own.
+      rawResponseKeys:
+        result.rawResponse && typeof result.rawResponse === 'object' && !Array.isArray(result.rawResponse)
+          ? Object.keys(result.rawResponse as Record<string, unknown>).slice(0, 40)
+          : null,
+      rawResponse: formatRawResponseForLog(result.rawResponse),
+    });
     throw new MetaPublishError(
       'provider_publish_missing_id',
       `Publish via ${result.provider} for ${platform} reported success but returned no post id (status=${result.status}); the post may already be live.`,
