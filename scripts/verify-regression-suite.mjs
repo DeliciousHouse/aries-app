@@ -365,6 +365,24 @@ const steps = [
     args: ['--test', 'tests/insights-force-throttle.test.ts'],
   },
   {
+    // S7-5/AA-123 (gap D1): client-side coalescing on /insights. The behavioural
+    // half drives the real hook against a stub fetch, because the ticket's
+    // complaint is a RUNTIME property — a module can contain the word
+    // AbortController and still never abort anything (my first draft did exactly
+    // that: the cleanup bumped a counter and left the request running). It pins
+    // that a superseded run is aborted, that the LAST consumer leaving aborts
+    // while a survivor keeps its request, that a deferred section issues no
+    // request at all, and that an abort never surfaces as an error. The
+    // structural half pins the dashboard wiring and the AA-152 invariant that a
+    // lazy section gates its FETCH and never its MARKUP. jsdom, no DB or network.
+    name: 'insights client coalescing: abort + dedup + lazy (AA-123)',
+    args: [
+      '--test',
+      'tests/insights-client-coalescing.test.ts',
+      'tests/insights-client-coalescing.behaviour.test.ts',
+    ],
+  },
+  {
     // 2026-07-13 duplicate-posting incident (AA-134 / PR #841) regression wall:
     // scheduler day-mapping + same-instant de-collision, the reel-companion
     // synthesis clamp, the publish-boundary duplicate/spacing guards, and the

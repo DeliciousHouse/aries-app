@@ -21,6 +21,9 @@ import {
 interface TrendsSectionProps {
   period:   Period;
   platform: Platform;
+  /** AA-123: false while the section is below the fold — defers the
+   *  FETCH only; the section's markup always renders. */
+  enabled?: boolean;
 }
 
 const METRIC_ORDER: TrendMetricKey[] = ["reach", "engagement", "followers", "comments", "visits"];
@@ -51,8 +54,8 @@ function LineSwatch({ color, dashed }: { color: string; dashed?: boolean }) {
   );
 }
 
-export function TrendsSection({ period, platform }: TrendsSectionProps) {
-  const { data, loading, error, refetch } = useInsight<TrendsData>("trends", period, platform);
+export function TrendsSection({ period, platform, enabled }: TrendsSectionProps) {
+  const { data, loading, error, refetch } = useInsight<TrendsData>("trends", period, platform, {}, { enabled });
   const [selected, setSelected] = useState<TrendMetricKey>("reach");
 
   if (loading || error || !data?.meta?.hasData) {

@@ -27,6 +27,9 @@ import {
 interface TopPostsSectionProps {
   period:   Period;
   platform: Platform;
+  /** AA-123: false while the section is below the fold — defers the
+   *  FETCH only; the section's markup always renders. */
+  enabled?: boolean;
 }
 
 const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
@@ -319,12 +322,12 @@ function PatternPanel({ pattern }: { pattern: TopData["pattern"] }) {
   );
 }
 
-export function TopPostsSection({ period, platform }: TopPostsSectionProps) {
+export function TopPostsSection({ period, platform, enabled }: TopPostsSectionProps) {
   const [sort, setSort]         = useState<SortKey>("reach");
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
   const { data, loading, error, refetch } =
-    useInsight<TopData>("top", period, platform, { sort });
+    useInsight<TopData>("top", period, platform, { sort }, { enabled });
 
   const toggleExpand = (id: number) =>
     setExpanded((prev) => {
