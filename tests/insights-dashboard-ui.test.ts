@@ -222,13 +222,28 @@ test('analytics screen renders honest EmptyStatePanel with per-platform reasons 
   assert.match(analyticsScreen, /LinkedIn organization/);
 });
 
-test('analytics screen gates the Reach <th> and <td> on post_view_count capability (#684, relabeled AA-230)', () => {
-  // Header cell for Reach (renamed from Views — AA-230) is wrapped in a
-  // postViewsSupported conditional. The capability key itself is unchanged;
-  // see the comment in analytics-screen.tsx for why (AA-229 reconciles it).
-  assert.match(analyticsScreen, /postViewsSupported && <th[^>]*>Reach<\/th>/);
-  // Data cell rendering totalReach is also wrapped in a postViewsSupported conditional.
+test('analytics screen gates the Views <th> and <td> on post_view_count capability (#684)', () => {
+  // Header cell for Views is wrapped in a postViewsSupported conditional.
+  assert.match(analyticsScreen, /postViewsSupported && <th[^>]*>Views<\/th>/);
+  // Data cell rendering the metric is also wrapped in a postViewsSupported conditional.
+  // AA-230 renamed the FIELD to totalReach (the value is now COALESCE(reach, views, 0),
+  // matching the other ten readers) but deliberately kept the LABEL as "Views".
   assert.match(analyticsScreen, /postViewsSupported[\s\S]{0,300}totalReach/);
+});
+
+test('AA-230: analytics screen labels the reach-preferred metric "Views", not "Reach"', () => {
+  // Regression guard for the review finding on AA-230. Instagram is the only
+  // adapter that populates insights_account_metrics_daily.reach, and
+  // app/dashboard/analytics/page.tsx builds enabledPlatforms WITHOUT instagram —
+  // so for every platform this screen can render, COALESCE(reach, views, 0)
+  // resolves to views. Labelling it "Reach" would replace a correct label with a
+  // false one. Relabel only when Instagram becomes selectable here (AA-229).
+  assert.doesNotMatch(
+    analyticsScreen,
+    /label="Reach"|>Reach<\/th>|name="Reach"/,
+    'user-facing "Reach" label on a Facebook-only screen whose value is views',
+  );
+  assert.match(analyticsScreen, /<MetricCard label="Views" value=\{formatNumber\(summary\.totalReach\)\}/);
 });
 
 // ─── #688 honest LinkedIn comments subtitle (no reply contradiction) ─────────
