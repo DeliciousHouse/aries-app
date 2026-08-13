@@ -2,6 +2,87 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.12.0 — fix(marketing): the strategist names the weekday two ways (AA-237)
+
+The strategist writes a weekday for every post it plans. `buildAutoScheduleRows`
+read that weekday from `recommended_day` and from nothing else, so when Hermes
+named the field `day` the value was dropped on the floor: `dayIndexFromName(null)`
+fails, the post lands on `fallback: first day in window`, and the de-collision
+probe then fans the whole week out +1d/+2d/… in ORDINAL order. No error, no log,
+no `skipped` reason — the editorial plan is silently replaced by a ladder.
+
+This is the second recurrence of one defect class, not a new bug. AA-134
+(2026-07-13, six Instagram posts inside 50 seconds) was the same collapse
+reached by a different route: the weekday had MOVED, into `platform_targets[]`.
+That fix taught the parser the new location and stopped there. It never
+considered that the strategist also RENAMES the field, and it left the discard
+itself silent — which is why the third route had to be found by hand rather than
+read off a log.
+
+The currently available runtime corpus does not reproduce the historical
+frequency claim from the defect report. A read-only census of
+`DATA_ROOT/generated/draft/marketing-jobs` contains 161 JSON documents and zero
+`schedule`, `weekly_schedule`, `recommended_day`, or `day` keys. This change
+therefore makes no current-corpus frequency or blast-radius claim. The census is
+reproducible with:
+
+`npx tsx scripts/marketing/census-schedule-weekdays.ts <DATA_ROOT>`
+
+### Fixed
+
+- The weekday is read through a single `readStrategistWeekday`, which accepts
+  both spellings (preferring `recommended_day`) and treats a blank string as
+  absent. It is used at BOTH sites — the entry level and the per-platform-target
+  level — so a future rename cannot land in the gap between them, which is
+  exactly the gap AA-134's fix left open.
+
+### Added
+
+- **A discarded weekday is never silent again.** Adding one more synonym does
+  not prevent a THIRD rename; a log line does. Whenever a schedule entry
+  resolves no usable weekday, `buildAutoScheduleRows` warns with `entryKeys` —
+  the field names the strategist actually emitted — so the next unknown spelling
+  is legible straight out of the log instead of requiring a corpus study. A
+  second aggregated warning names the POSTS whose (ordinal, platform) matched no
+  entry at all, which the per-entry check structurally cannot see. A schedule
+  that resolves every row logs nothing, so the line stays signal.
+- The warning distinguishes three causes: `no_recognized_weekday_field` (a
+  renamed field), `unparseable_weekday_value` (the field is right, the value is
+  not a weekday) and `entry_named_no_platform` (see Notes).
+
+### Changed
+
+- A weekday VALUE the scheduler cannot parse is now treated as absent rather
+  than carried forward, and is reported with the offending string. Previously
+  `resolvedAny` tested only that some string was present, so an entry reading
+  `recommended_day: "2026-06-08"` — or `"Mon"`, or `"Day 1"` — reproduced the
+  AA-237 symptom byte for byte while logging NOTHING: the parser nulls the value
+  downstream and the post falls back exactly as a renamed field does. Those are
+  not hypothetical values. `PUBLISH_SCHEDULE_CONTRACT` in
+  `backend/marketing/ports/hermes.ts` already tells the model that
+  `recommended_day` is "the FULL English weekday NAME only — never a date, never
+  'Day 1', never an abbreviation, never null", which is the team enumerating the
+  model failures it expects; every one of them was silent. The predicate is
+  `dayIndexFromName(...) !== null`, exported from `auto-schedule.ts` as
+  `isRecognizedWeekday`, so the check cannot drift from the parser and certify a
+  value the scheduler then drops. `AutoScheduleInputRow.recommendedDay` now
+  carries a recognized weekday or `null`, never an uninterpretable string.
+- An unparseable weekday on a `platform_target` falls through to the entry-level
+  weekday instead of shadowing it. A string that is not a weekday is a lost
+  decision, not an override, and the entry may still hold a real one.
+
+The value check is pinned directly against the scheduler's parser. The current
+runtime corpus cannot establish whether historical scheduling outcomes would
+change because it contains no readable schedule entries.
+
+### Notes
+
+A separate empty-`platforms` behavior is pinned but deliberately not repaired in
+AA-237: an entry naming no platform cannot populate the (ordinal, platform) map.
+The warning now reports `entry_named_no_platform`; AA-245 owns any behavior
+change. No prevalence claim is made because the current corpus has no schedule
+entries to measure.
+
 ## v0.2.11.4 — fix(ci): deploy keeps the host .env ARIES_APP_IMAGE pin in lockstep with what is running
 
 Every compose invocation in the Deploy workflow pins the image with an
@@ -195,7 +276,6 @@ that and scoped out of its PR.
 The final shared `executeTool` in `publishPost` is deliberately untouched: that
 call genuinely IS the outcome-unknown boundary, and catching there would enable
 a double post.
-
 ## v0.2.11.0 — fix(marketing): a refusal is not a post (AA-235)
 
 On 2026-08-12 the weekly pipeline published an AI agent's REFUSAL to live brand
