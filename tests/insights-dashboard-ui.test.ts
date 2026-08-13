@@ -227,6 +227,32 @@ test('insights sections never hardcode their scope label — no Aries-published 
   assert.equal(attributionScopeLabel(undefined), 'all channel activity');
 });
 
+test('Top Posts section gives two distinct empty-state reasons instead of one conflated message (AA-229 PR2a)', () => {
+  // Load-bearing (unchanged): the 'no_posts_in_window' branch keeps the exact
+  // literal the section always showed for an empty ranked set.
+  assert.match(insightsTopPostsSection, /No published posts in this period\./);
+
+  // The 'insights_not_connected' branch is lifted verbatim from the weekly
+  // results report's honesty-contract copy (frontend/aries-v1/weekly-results-report.tsx)
+  // — same words, so the "will not guess a winner" promise survives the move.
+  assert.match(insightsTopPostsSection, /Engagement ranking isn.t available yet/);
+  assert.match(insightsTopPostsSection, /Connect an account so Aries can rank posts by real engagement\./);
+  assert.match(insightsTopPostsSection, /it will not guess a winner/);
+
+  // The branch is keyed on the backend-reported reason, not guessed client-side.
+  assert.match(
+    insightsTopPostsSection,
+    /data\?\.meta\?\.availability\?\.reason\s*===\s*["']insights_not_connected["']/,
+  );
+
+  // The new copy must not reintroduce the "Aries-published" misattribution
+  // the section already guards against (see the test above).
+  const code = insightsTopPostsSection
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+  assert.doesNotMatch(code, /Aries-published/);
+});
+
 // ─── #684 honest analytics "metric unavailable" states ───────────────────────
 
 test('analytics screen imports platformSupports and derives accountMetricsSupported + postViewsSupported (#684)', () => {

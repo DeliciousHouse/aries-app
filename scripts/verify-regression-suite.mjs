@@ -288,6 +288,15 @@ const steps = [
     args: ['--test', 'tests/insights-math-pinning.test.ts'],
   },
   {
+    // AA-229/PR2a: Section 6 weakest-post card + two-reason empty state. Pins
+    // the SQL engagement expression against deriveTopPostMetrics() over a
+    // fixture grid (the highest-risk seam — the SQL and JS rankings must never
+    // silently diverge), the postCount<2 omission rule, and the
+    // availability→reason mapping. Pure/in-memory, no DB.
+    name: 'insights top-posts weakest-post + availability (AA-229 PR2a)',
+    args: ['--test', 'tests/insights-top-weakest.test.ts'],
+  },
+  {
     // S3-1/AA-97: honesty pass — no fabricated numbers posing as measured stats.
     // Dead account scores 0 (not ~50); one shared hoursSaved estimate; whyItWorked
     // uses the real multiplier not a hardcoded 1.5x/1.7x; and a copy tripwire
