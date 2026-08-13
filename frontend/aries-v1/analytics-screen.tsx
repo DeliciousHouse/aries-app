@@ -57,9 +57,18 @@ function resolveInitialPlatform(paramValue: string | null, enabledPlatforms: Pla
 // The read-api summary/account-metrics handlers clamp `days` to 1..90
 // server-side; mirror that here so an invalid query param never silently
 // diverges from what the request will actually be answered with.
-function resolveInitialDays(paramValue: string | null): number | undefined {
-  const parsed = paramValue ? Number.parseInt(paramValue, 10) : NaN;
-  if (!Number.isFinite(parsed)) return undefined;
+//
+// AA-229 F5: mirrors lib/db-pool-config.ts's parsePoolMax convention — only
+// an explicit unsigned-integer string is honored. A bare Number.parseInt
+// would also accept 'NaN'-adjacent junk it shouldn't (parseInt('1e3', 10)
+// is 1, parseInt('30abc', 10) is 30 — both silently truncate instead of
+// rejecting), so validate the whole string with a strict digits-only regex
+// first. parseInt never returns Infinity, so Number.isNaN (not
+// !Number.isFinite) is the precise "did this fail to parse" check.
+function resolveDaysParam(paramValue: string | null): number | undefined {
+  if (!paramValue || !/^\d+$/.test(paramValue)) return undefined;
+  const parsed = Number.parseInt(paramValue, 10);
+  if (Number.isNaN(parsed)) return undefined;
   return Math.min(Math.max(parsed, 1), 90);
 }
 
@@ -69,10 +78,18 @@ export default function AriesAnalyticsScreen({
   enabledPlatforms?: Platform[];
 }) {
   const searchParams = useSearchParams();
+  // AA-229 F4: both platform and days are captured ONCE at mount, from the
+  // same searchParams read — the URL is a one-time hand-off from the
+  // /insights drill-down link, not a live binding. `platform` has to be a
+  // lazy useState initializer because it's also user-adjustable in-page via
+  // PlatformSelector; `days` is seeded the same way (rather than recomputed
+  // every render) purely so the two halves of "the window" can never drift
+  // apart from each other if this screen ever gains an in-page navigation
+  // that updates the URL without a full remount.
   const [platform, setPlatform] = useState<Platform>(() =>
     resolveInitialPlatform(searchParams.get('platform'), enabledPlatforms),
   );
-  const days = resolveInitialDays(searchParams.get('days'));
+  const [days] = useState<number | undefined>(() => resolveDaysParam(searchParams.get('days')));
 
   const analytics = useInsightsAnalytics({ autoLoad: true, platform, days });
   const data = analytics.data;
@@ -107,6 +124,14 @@ export default function AriesAnalyticsScreen({
   // paths. Views column is omitted for platforms that don't surface per-post view counts
   // (x, reddit, linkedin). For youtube/instagram/facebook postViewsSupported=true so the
   // column renders as it does today.
+  // AA-229 F7: this table is NOT windowed by `days` — useInsightsAnalytics calls
+  // getInsightsPosts({ platform }) only (no days param; the endpoint has none —
+  // backend/insights/read-api.ts's handleGetInsightsPosts takes platform/limit/offset,
+  // period-free by design). It always shows the latest `limit` (20) posts of all time,
+  // regardless of the period the /insights drill-down carried in. Pre-existing (the
+  // hook never sent `days` to any endpoint before AA-229), but now sits directly under
+  // metric cards labelled "Last N days" — worth calling out rather than implying the
+  // table is windowed too.
   // AA-230: the underlying value is now reach-preferred (COALESCE(reach, views, 0)) to
   // agree with the other ten readers, but the LABEL stays "Views" on purpose. Instagram
   // is the only adapter that populates `reach`, and this screen cannot select Instagram

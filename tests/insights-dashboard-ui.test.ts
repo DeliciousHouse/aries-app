@@ -2,11 +2,14 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import { isValidElement, type ReactElement } from 'react';
 
 import { resolveProjectRoot } from './helpers/project-root';
 import { APP_ROUTES, getRouteById } from '../frontend/app-shell/routes';
 import { platformSupports } from '../backend/insights/platforms/capabilities';
 import { attributionScopeLabel } from '../frontend/insights/tokens';
+import { AnalyticsDrilldownLink } from '../frontend/insights/AnalyticsDrilldownLink';
+import type { Period, Platform } from '../frontend/insights/types';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
@@ -102,10 +105,17 @@ test('analytics screen consumes the analytics hook, charts the series, and keeps
   assert.match(analyticsScreen, /useState<Platform>\(\(\) =>/);
   assert.match(analyticsScreen, /resolveInitialPlatform\(searchParams\.get\('platform'\), enabledPlatforms\)/);
   assert.match(analyticsScreen, /enabledPlatforms\[0\] \?\? 'facebook'/);
-  // AA-229 PR1: `days` seeds from the same drill-down's `days` query param
-  // (resolveInitialDays), clamped 1..90 to mirror the read-api handlers —
-  // this is what carries the parent /insights period into the child screen.
-  assert.match(analyticsScreen, /resolveInitialDays\(searchParams\.get\('days'\)\)/);
+  // AA-229 F4: `days` seeds from the same drill-down's `days` query param
+  // (resolveDaysParam), clamped 1..90 to mirror the read-api handlers, and —
+  // like `platform` — captured ONCE via a useState initializer rather than
+  // recomputed every render, so the two halves of "the window" can never
+  // drift apart from each other.
+  assert.match(analyticsScreen, /const \[days\] = useState<number \| undefined>\(\(\) =>/);
+  assert.match(analyticsScreen, /resolveDaysParam\(searchParams\.get\('days'\)\)/);
+  // AA-229 F5: strict digits-only validation (parsePoolMax convention) — a
+  // bare Number.parseInt would truncate '1e3' to 1 and '30abc' to 30 instead
+  // of rejecting them.
+  assert.match(analyticsScreen, /!\/\^\\d\+\$\/\.test\(paramValue\)/);
   // The hook receives the platform + days STATE, not hard-coded literals.
   assert.match(analyticsScreen, /useInsightsAnalytics\(\{ autoLoad: true, platform, days \}\)/);
   // Prop default of ['facebook'] preserves the single-platform dormant state.
@@ -384,25 +394,84 @@ test('InsightsDashboard renders the analytics drill-down on the same control row
   assert.match(insightsDashboard, /<AnalyticsDrilldownLink period=\{period\} platform=\{platform\} \/>/);
 });
 
-test('AnalyticsDrilldownLink only renders for a single platform the analytics screen can select', () => {
-  // "all" has no single platform to drill into, and Instagram is deliberately
-  // absent from app/dashboard/analytics/page.tsx's enabledPlatforms — both
-  // must be excluded so the link is never a dead end.
-  // The exact set membership is the source of truth — "all" and "instagram"
-  // are excluded by omission (both are commented on above, so a naive
-  // substring check on the quoted literal would false-positive on the comment).
-  assert.match(
-    analyticsDrilldownLink,
-    /DRILLDOWN_PLATFORMS = new Set<Platform>\(\["facebook", "x", "youtube", "reddit", "linkedin"\]\)/,
-  );
-  assert.match(analyticsDrilldownLink, /if \(!DRILLDOWN_PLATFORMS\.has\(platform\)\) return null;/);
+// AnalyticsDrilldownLink has no hooks — calling it directly as a plain
+// function returns the same top-level React element a renderer would
+// produce, with no router/context needed (mirrors the pattern
+// tests/public-marketing-pages.test.ts uses for full page components).
+function drilldownLinkElement(period: Period, platform: Platform): ReactElement {
+  const el = AnalyticsDrilldownLink({ period, platform });
+  assert.equal(isValidElement(el), true, 'AnalyticsDrilldownLink must always return a real element, never null (AA-229 F1)');
+  return el as ReactElement;
+}
+
+function drilldownLinkHref(period: Period, platform: Platform): string {
+  return (drilldownLinkElement(period, platform).props as { href: string }).href;
+}
+
+function drilldownLinkLabel(period: Period, platform: Platform): string {
+  const children = (drilldownLinkElement(period, platform).props as { children: unknown }).children;
+  return (Array.isArray(children) ? children : [children]).join('');
+}
+
+test('AA-229 F1: AnalyticsDrilldownLink ALWAYS renders — the /insights default state (platform="all") is not a dead link', () => {
+  // InsightsDashboard.tsx seeds platform to "all" — this is the exact state
+  // every first load of /insights starts in, and the state the link is
+  // permanently stuck in when COMPOSIO_ENABLED=false (the compose/CI/local
+  // default) empties every platform chip except "all". An early-return-null
+  // here would make this component — the ONLY reference to
+  // /dashboard/analytics outside its own page and the docs — unreachable in
+  // both cases. This is the case that would have caught the regression.
+  const href = drilldownLinkHref('90day', 'all');
+  assert.equal(href, '/dashboard/analytics?days=90');
+  assert.doesNotMatch(href, /platform=/);
+  assert.match(drilldownLinkLabel('90day', 'all'), /Per-platform analytics/);
 });
 
-test('AnalyticsDrilldownLink carries the live period as `days` and the live platform to /dashboard/analytics', () => {
-  // Same period→days vocabulary as ExportMenu.tsx / ActivitySection.tsx.
-  assert.match(analyticsDrilldownLink, /PERIOD_DAYS: Record<Period, number> = \{ week: 7, "30day": 30, "90day": 90 \}/);
-  assert.match(analyticsDrilldownLink, /href=\{`\/dashboard\/analytics\?\$\{params\.toString\(\)\}`\}/);
-  assert.match(analyticsDrilldownLink, /new URLSearchParams\(\{ platform, days: String\(PERIOD_DAYS\[period\] \?\? 30\) \}\)/);
+test('AA-229 F1/F3: an unselectable platform (Instagram) also always renders, with the param omitted — never a silent Facebook swap', () => {
+  // Instagram is deliberately absent from app/dashboard/analytics/page.tsx's
+  // enabledPlatforms, so it must never ride as a `platform` query param —
+  // but the link itself must still render, and land the visitor on a screen
+  // that picks its OWN default (resolveInitialPlatform), not one that looks
+  // like it silently swapped the user's channel to Facebook.
+  const href = drilldownLinkHref('week', 'instagram');
+  assert.equal(href, '/dashboard/analytics?days=7');
+  assert.doesNotMatch(href, /platform=/);
+  assert.match(drilldownLinkLabel('week', 'instagram'), /Per-platform analytics/);
+});
+
+test('AnalyticsDrilldownLink carries the platform param for every platform the analytics screen can select', () => {
+  const cases: Array<[Platform, string]> = [
+    ['facebook', 'Facebook'],
+    ['x', 'X'],
+    ['youtube', 'YouTube'],
+    ['reddit', 'Reddit'],
+    ['linkedin', 'LinkedIn'],
+  ];
+  for (const [platform, label] of cases) {
+    const href = drilldownLinkHref('30day', platform);
+    assert.equal(href, `/dashboard/analytics?days=30&platform=${platform}`);
+    assert.match(drilldownLinkLabel('30day', platform), new RegExp(`^${label} analytics`));
+  }
+});
+
+test('AnalyticsDrilldownLink carries the live period as `days` (week=7, 30day=30, 90day=90) — same vocabulary as ExportMenu.tsx', () => {
+  assert.equal(drilldownLinkHref('week', 'facebook'), '/dashboard/analytics?days=7&platform=facebook');
+  assert.equal(drilldownLinkHref('30day', 'facebook'), '/dashboard/analytics?days=30&platform=facebook');
+  assert.equal(drilldownLinkHref('90day', 'facebook'), '/dashboard/analytics?days=90&platform=facebook');
+});
+
+test('AA-229 F6: AnalyticsDrilldownLink uses next/link, not a raw <a> (avoids re-paying the shell auth round trip)', () => {
+  assert.match(analyticsDrilldownLink, /^import Link from "next\/link";$/m);
+  assert.doesNotMatch(analyticsDrilldownLink, /<a\s/);
+});
+
+test('AA-229 F2: DRILLDOWN_PLATFORMS and app/dashboard/analytics/page.tsx enabledPlatforms cross-reference each other in comments', () => {
+  // Not compile-time linked (different flag families resolve each list — see
+  // the comments themselves) so a human has to keep them in sync; pin that
+  // each file at least points at the other.
+  assert.match(analyticsDrilldownLink, /DRILLDOWN_PLATFORMS = new Set<Platform>\(\["facebook", "x", "youtube", "reddit", "linkedin"\]\)/);
+  assert.match(analyticsDrilldownLink, /app\/dashboard\/analytics\/page\.tsx's enabledPlatforms/);
+  assert.match(analyticsPage, /AnalyticsDrilldownLink\.tsx's\s*\n\s*\/\/ DRILLDOWN_PLATFORMS set/);
 });
 
 test('AA-229 PR1: analytics screen reads platform + days from the URL query via next/navigation', () => {
