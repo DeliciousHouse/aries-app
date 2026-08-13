@@ -1910,8 +1910,8 @@ export function buildAutoScheduleRows(
           // A target value that is not a weekday falls through to the ENTRY's
           // day rather than shadowing it: an unparseable string is not an
           // override, it is a lost decision, and the entry may still carry a
-          // real one. (No corpus document exercises this today — every weekday
-          // value on disk parses — so this is a forward guard, not a repair.)
+          // real one. This synthetic forward guard is independent of the
+          // source-data census reported by the AA-237 census command.
           const targetDay = resolveStrategistWeekday(readStrategistWeekday(target), unparseable) ?? day;
           platformMap.set(platformKey, {
             recommendedDay: targetDay,
@@ -1952,7 +1952,7 @@ export function buildAutoScheduleRows(
           ordinal,
           // `platformMap` empty means the entry named no platform at all, so
           // nothing could consume its weekday even when the entry HAS one
-          // (live shape: `platforms: []` with a populated `recommended_day`).
+          // (`platforms: []` with a populated `recommended_day`).
           // That outranks an unparseable value: with no target, even a perfect
           // weekday is discarded, so it is the proximate cause to report.
           reason:
@@ -2026,13 +2026,10 @@ export function buildAutoScheduleRows(
 /**
  * Read the strategist's weekday off a schedule entry or a platform target.
  *
- * The strategist names this field TWO ways and the split is live in the job-doc
- * corpus, not hypothetical: of 57 `schedule[]`/`weekly_schedule[]` entries on
- * disk, 42 carry `recommended_day` and 8 carry the weekday ONLY as `day` (7 of
- * them a full Mon–Sun week in `mkt_16ceeeb2-8e5d-4c39-be72-f1dee2aeefe7`, the
- * eighth a `weekly_schedule[]` entry in `mkt_3f4ff3b4-…`). No entry carries
- * both, so accepting `day` cannot contradict an explicit `recommended_day`;
- * `recommended_day` still wins if a future doc ever carries the two.
+ * AA-237 accepts both `recommended_day` and `day`; `recommended_day` wins when
+ * both are present. Corpus frequency is intentionally not encoded here. Run
+ * `scripts/marketing/census-schedule-weekdays.ts` against an explicit data root
+ * for a reproducible report of currently available source documents.
  *
  * Blank/whitespace strings are treated as absent — `dayIndexFromName` would
  * reject them anyway, and collapsing them here keeps the "no weekday resolved"
@@ -2061,9 +2058,8 @@ function readStrategistWeekday(source: { recommended_day?: string | null; day?: 
  * abbreviation, never null" — so the first time one arrives it must be legible
  * from the log, not from a corpus study.
  *
- * Behaviour-neutral against the corpus as of AA-237: all 71 weekday values on
- * disk across the 14 documents carrying a schedule parse cleanly, so nothing
- * that resolves today starts resolving to null.
+ * The parser behavior is pinned directly in `marketing-auto-schedule.test.ts`;
+ * current source-data state is reported separately by the census command.
  */
 function resolveStrategistWeekday(raw: string | null, unparseable: string[]): string | null {
   if (raw === null) return null;
@@ -2079,9 +2075,8 @@ export interface WeeklyScheduleEntry {
   post_number?: number;
   recommended_day?: string | null;
   /**
-   * The strategist's OTHER spelling of `recommended_day` (AA-237). Live in the
-   * corpus, not speculative — read via `readStrategistWeekday`, which prefers
-   * `recommended_day`. Declared so a reader of this type sees both names.
+   * The strategist's other supported spelling of `recommended_day` (AA-237).
+   * Read via `readStrategistWeekday`, which prefers `recommended_day`.
    */
   day?: string | null;
   platforms?: string[];

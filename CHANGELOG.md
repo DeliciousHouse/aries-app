@@ -19,12 +19,14 @@ considered that the strategist also RENAMES the field, and it left the discard
 itself silent — which is why the third route had to be found by hand rather than
 read off a log.
 
-Corpus census at the time of the fix (`DATA_ROOT/generated/draft/marketing-jobs`,
-200 documents): 14 carry a `schedule[]`/`weekly_schedule[]` the reader can see,
-57 entries in total — 42 name the weekday `recommended_day`, 8 name it ONLY
-`day`, 7 name it neither way. No entry carries both spellings, so accepting the
-alias cannot contradict an explicit `recommended_day`. The 8 are a full Mon–Sun
-week in `mkt_16ceeeb2` plus one `weekly_schedule[]` entry in `mkt_3f4ff3b4`.
+The currently available runtime corpus does not reproduce the historical
+frequency claim from the defect report. A read-only census of
+`DATA_ROOT/generated/draft/marketing-jobs` contains 161 JSON documents and zero
+`schedule`, `weekly_schedule`, `recommended_day`, or `day` keys. This change
+therefore makes no current-corpus frequency or blast-radius claim. The census is
+reproducible with:
+
+`npx tsx scripts/marketing/census-schedule-weekdays.ts <DATA_ROOT>`
 
 ### Fixed
 
@@ -69,37 +71,17 @@ week in `mkt_16ceeeb2` plus one `weekly_schedule[]` entry in `mkt_3f4ff3b4`.
   weekday instead of shadowing it. A string that is not a weekday is a lost
   decision, not an override, and the entry may still hold a real one.
 
-**This changes no scheduling outcome for any document on disk.** All 71 weekday
-values across the 14 documents carrying a readable schedule parse cleanly, so
-nothing that resolves today starts resolving to `null`; the value check is a
-forward guard, pinned by a test that fails if a future normalization narrows the
-parser.
+The value check is pinned directly against the scheduler's parser. The current
+runtime corpus cannot establish whether historical scheduling outcomes would
+change because it contains no readable schedule entries.
 
 ### Notes
 
-A separate and LARGER defect in the same class is pinned but deliberately NOT
-fixed here — it is filed as **AA-245**. 21 of the 57 corpus entries (37%) carry
-a populated `recommended_day` beside an EMPTY `platforms: []` and no
-`platform_targets`, across six documents all written 2026-08-12. The
-`platforms.length > 0` guard falls through to an empty `platform_targets`, the
-platform map stays empty, and every post of that ordinal loses its weekday
-exactly as above. `synthesize-publish-posts.ts:244` carries the byte-identical
-guard, so `placement` and `media_type` are lost too — `mkt_7dc14e23` entry #2 is
-a reel/video that would synthesize as a feed image. Nothing is corrupted yet
-only because all six of those jobs are `status=failed` with zero posts rows.
-Repairing it means deciding that an entry naming no platform applies to EVERY
-post of its ordinal, which changes behaviour for 37% of corpus entries and
-deserves its own measured decision. Here the behaviour is unchanged and only its
-visibility moves (`reason: 'entry_named_no_platform'`), with a test pinning the
-current shape so a future fix is a chosen change rather than an accident.
-
-AA-245 also records a THIRD mechanism found while confirming the above: two
-documents put their schedule where `readWeeklySchedule` cannot see it at all
-(`primary_output.publish_package.schedule` and `primary_output.artifacts.schedule`).
-One of them, `mkt_37933254`, is `status=completed` — its seven-entry editorial
-week was invisible to the reader and the job silently took the default
-day-offset cadence. Neither AA-237 warning covers that case: an empty schedule
-short-circuits to the cadence branch before `buildAutoScheduleRows` is called.
+A separate empty-`platforms` behavior is pinned but deliberately not repaired in
+AA-237: an entry naming no platform cannot populate the (ordinal, platform) map.
+The warning now reports `entry_named_no_platform`; AA-245 owns any behavior
+change. No prevalence claim is made because the current corpus has no schedule
+entries to measure.
 
 ## v0.2.11.2 — fix(publishing): a failed page-id lookup is not a maybe-live post (AA-243)
 

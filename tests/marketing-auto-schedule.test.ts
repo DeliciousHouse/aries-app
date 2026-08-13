@@ -815,17 +815,15 @@ test('buildAutoScheduleRows: null/legacy surface falls back to feed/image', () =
 // same collapse as the 2026-07-13 IG burst; the fix for THAT incident added the
 // per-target LOCATION of recommended_day and never considered its NAME.
 //
-// Every fixture below is transcribed from a real job document under
-// DATA_ROOT/generated/draft/marketing-jobs. Long prose values (caption, notes,
-// scheduling_note) are elided to keep the file readable — the KEY SETS, the
-// field names and the weekday values are verbatim. Corpus census at the time of
-// the fix: 57 schedule[]/weekly_schedule[] entries across 14 documents —
-// 42 `recommended_day`, 8 `day`-only, 7 with neither. No entry carried both.
+// These compact fixtures exercise the wire shapes named in the defect report.
+// They are regression inputs, not a census or a substitute for source data.
+// Run `npx tsx scripts/marketing/census-schedule-weekdays.ts <DATA_ROOT>` for a
+// read-only census of the currently available runtime corpus.
 
-const AA237_JOB = 'mkt_16ceeeb2-8e5d-4c39-be72-f1dee2aeefe7';
+const AA237_JOB = 'mkt_day_alias';
 
-/** Verbatim key set of `stages.publish.primary_output.schedule[0]` in AA237_JOB. */
-const CORPUS_DAY_ONLY_ENTRY = {
+/** A schedule entry using the `day` alias. */
+const DAY_ONLY_ENTRY = {
   post_number: 1,
   day: 'Monday',
   theme: 'educational',
@@ -839,16 +837,15 @@ const CORPUS_DAY_ONLY_ENTRY = {
   asset: { assetId: 'img_1', status: 'available', artifact_url: 'https://example/img.png', local_path: '/cache/img.png' },
 };
 
-/** The full Mon–Sun week AA237_JOB carries — all seven entries name the day `day`. */
-const CORPUS_DAY_ONLY_WEEK = [
+/** A full Mon–Sun week whose entries all use the `day` alias. */
+const DAY_ONLY_WEEK = [
   'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday',
-].map((day, i) => ({ ...CORPUS_DAY_ONLY_ENTRY, post_number: i + 1, day }));
+].map((day, i) => ({ ...DAY_ONLY_ENTRY, post_number: i + 1, day }));
 
 /**
- * Verbatim key set of `schedule[0]` in mkt_ad75ad56-8682-4882-9f57-ce5990b17af0
- * — the canonical `recommended_day` spelling, 42 of 57 corpus entries.
+ * A schedule entry using the canonical `recommended_day` spelling.
  */
-const CORPUS_RECOMMENDED_DAY_ENTRY = {
+const RECOMMENDED_DAY_ENTRY = {
   post_number: 1,
   recommended_day: 'Monday',
   recommended_time_window: '9:00 AM - 11:00 AM local audience time',
@@ -861,11 +858,10 @@ const CORPUS_RECOMMENDED_DAY_ENTRY = {
 };
 
 /**
- * Verbatim key set of `schedule[0]` in mkt_fa9f7000-1ddf-47ff-8daf-b4a6aa5a8a46
- * — `platform_targets[]` whose members carry NO weekday, so the entry-level
- * field is the only source. This is the shape the `?? day` fallback serves.
+ * A `platform_targets[]` shape whose members carry no weekday, so the
+ * entry-level field is the only source. This is the shape the fallback serves.
  */
-const CORPUS_PLATFORM_TARGETS_ENTRY = {
+const PLATFORM_TARGETS_ENTRY = {
   post_number: 1,
   recommended_day: 'Monday',
   theme: 'educational',
@@ -877,12 +873,10 @@ const CORPUS_PLATFORM_TARGETS_ENTRY = {
 };
 
 /**
- * Verbatim key set of `schedule[0]` in mkt_7dc14e23-ef1b-4cfb-bc40-1229a09e8ad0
- * and mkt_aec35d38-fdcf-489e-870a-f4a72f9d8e29 (both written 2026-08-12): a
- * populated `recommended_day` alongside an EMPTY `platforms: []`. See the
- * `entry_named_no_platform` test below — this is a SEPARATE unfixed defect.
+ * A populated `recommended_day` alongside an empty `platforms: []`. See the
+ * `entry_named_no_platform` test below; this is a separate unfixed defect.
  */
-const CORPUS_EMPTY_PLATFORMS_ENTRY = {
+const EMPTY_PLATFORMS_ENTRY = {
   post_number: 1,
   recommended_day: 'Tuesday',
   platforms: [] as string[],
@@ -914,22 +908,20 @@ function captureWarnings<T>(fn: () => T): { result: T; warnings: unknown[][] } {
   }
 }
 
-test('AA-237: schedule[] entry naming the weekday `day` is honored (real corpus shape)', () => {
+test('AA-237: schedule[] entry naming the weekday `day` is honored', () => {
   const postRows = [
     metaPostRow(1, 'instagram', AA237_JOB, 1),
     metaPostRow(2, 'facebook', AA237_JOB, 1),
   ];
-  const rows = buildAutoScheduleRows(postRows, [CORPUS_DAY_ONLY_ENTRY], AA237_JOB);
+  const rows = buildAutoScheduleRows(postRows, [DAY_ONLY_ENTRY], AA237_JOB);
   assert.equal(rows.length, 2);
   assert.equal(rows[0]!.recommendedDay, 'Monday', '`day` must resolve the weekday, not be discarded');
   assert.equal(rows[1]!.recommendedDay, 'Monday');
 });
 
 test('AA-237: the `day` spelling also works through the weekly_schedule[] reader', () => {
-  // Verbatim key set of `weekly_schedule[0]` in
-  // mkt_3f4ff3b4-5a75-4bc8-b413-7fb2ca8c0f43 — the eighth `day`-only entry,
-  // and the most recent one on disk (2026-07-06). A different key set from the
-  // schedule[] document, so it exercises the legacy branch of readWeeklySchedule.
+  // A different key set from the schedule[] fixture exercises the legacy branch
+  // of readWeeklySchedule.
   const doc = makeMinimalDoc({
     weekly_schedule: [
       { day: 'Monday', post_number: 1, platforms: ['instagram', 'facebook'], priority: 'primary', note: '(elided)' },
@@ -937,17 +929,14 @@ test('AA-237: the `day` spelling also works through the weekly_schedule[] reader
   });
   const entries = readWeeklySchedule(doc as never);
   assert.equal(entries.length, 1);
-  const jobId = 'mkt_3f4ff3b4-5a75-4bc8-b413-7fb2ca8c0f43';
+  const jobId = 'mkt_weekly_schedule_day_alias';
   const rows = buildAutoScheduleRows([metaPostRow(1, 'instagram', jobId, 1)], entries, jobId);
   assert.equal(rows[0]!.recommendedDay, 'Monday');
 });
 
 test('AA-237: `day` on a platform_target resolves that target (defensive symmetry)', () => {
-  // HONESTY NOTE: no corpus document carries `day` INSIDE a platform_target —
-  // this is the real mkt_fa9f7000 target shape with the weekday moved onto the
-  // targets under the alias the strategist is known to use elsewhere. The entry
-  // level is where the corpus shows the split; the per-target branch gets the
-  // same reader so a rename cannot land in the gap between the two.
+  // Synthetic symmetry case: the per-target branch uses the same reader so a
+  // rename cannot land in the gap between entry and target handling.
   const jobId = 'mkt_pt_day_alias';
   const entry = {
     post_number: 1,
@@ -968,11 +957,9 @@ test('AA-237: `day` on a platform_target resolves that target (defensive symmetr
 });
 
 test('AA-237: entry-level `day` reaches platform_targets that carry no weekday of their own', () => {
-  const jobId = 'mkt_fa9f7000-1ddf-47ff-8daf-b4a6aa5a8a46';
-  // The real corpus entry with only the weekday FIELD NAME changed to the
-  // alias — the naming mkt_16ceeeb2 uses, crossed with the platform_targets
-  // fan-out this document actually uses.
-  const { recommended_day: _canonical, ...rest } = CORPUS_PLATFORM_TARGETS_ENTRY;
+  const jobId = 'mkt_entry_day_alias';
+  // Cross the alias with the platform_targets fan-out shape.
+  const { recommended_day: _canonical, ...rest } = PLATFORM_TARGETS_ENTRY;
   const entry = { ...rest, day: 'Monday' };
   const rows = buildAutoScheduleRows(
     [metaPostRow(1, 'instagram', jobId, 1), metaPostRow(2, 'facebook', jobId, 1)],
@@ -992,9 +979,9 @@ test('AA-237 end-to-end: a `day`-only week keeps its seven distinct weekdays', (
   // two — post 1 (Monday) belongs on 06-08, not on the window's first day.
   const WED_NOW = new Date('2026-06-03T12:00:00.000Z'); // Wednesday
   const WED_START = new Date('2026-06-03T00:00:00.000Z');
-  const postRows = CORPUS_DAY_ONLY_WEEK.map((_, i) => metaPostRow(100 + i, 'instagram', AA237_JOB, i + 1));
+  const postRows = DAY_ONLY_WEEK.map((_, i) => metaPostRow(100 + i, 'instagram', AA237_JOB, i + 1));
 
-  const rows = buildAutoScheduleRows(postRows, CORPUS_DAY_ONLY_WEEK, AA237_JOB);
+  const rows = buildAutoScheduleRows(postRows, DAY_ONLY_WEEK, AA237_JOB);
   const { slots } = computeAutoScheduleSlots({
     rows,
     tenantTimezone: TZ_NY,
@@ -1061,11 +1048,11 @@ test('AA-237: an unresolvable weekday is LOGGED, so the next synonym is loud', (
 });
 
 test('AA-237: a fully resolved schedule logs nothing (the warning must stay signal)', () => {
-  const jobId = 'mkt_ad75ad56-8682-4882-9f57-ce5990b17af0';
+  const jobId = 'mkt_resolved_schedule';
   const { warnings } = captureWarnings(() =>
     buildAutoScheduleRows(
       [metaPostRow(1, 'instagram', jobId, 1), metaPostRow(2, 'facebook', jobId, 1)],
-      [CORPUS_RECOMMENDED_DAY_ENTRY],
+      [RECOMMENDED_DAY_ENTRY],
       jobId,
     ),
   );
@@ -1073,12 +1060,11 @@ test('AA-237: a fully resolved schedule logs nothing (the warning must stay sign
 });
 
 test('AA-237: `recommended_day` still wins and is untouched by the alias', () => {
-  // Non-regression guard, not a proof: this passed before the fix too. It pins
-  // that adding the alias did not disturb the canonical 42-of-57 shape.
-  const jobId = 'mkt_ad75ad56-8682-4882-9f57-ce5990b17af0';
+  // Non-regression guard, not a proof: this passed before the fix too.
+  const jobId = 'mkt_recommended_day';
   const rows = buildAutoScheduleRows(
     [metaPostRow(1, 'instagram', jobId, 1)],
-    [{ ...CORPUS_RECOMMENDED_DAY_ENTRY, day: 'Saturday' }],
+    [{ ...RECOMMENDED_DAY_ENTRY, day: 'Saturday' }],
     jobId,
   );
   assert.equal(rows[0]!.recommendedDay, 'Monday', 'recommended_day must outrank the `day` alias');
@@ -1086,17 +1072,14 @@ test('AA-237: `recommended_day` still wins and is untouched by the alias', () =>
 
 test('AA-237: `platforms: []` still discards the weekday — but no longer silently', () => {
   // SEPARATE, UNFIXED DEFECT, pinned deliberately so a future fix is a chosen
-  // change rather than an accident. 21 of the 57 corpus entries carry a
-  // populated `recommended_day` next to an EMPTY `platforms: []` and no
-  // `platform_targets` — and all 21 were written on 2026-08-12. The entry names
-  // no platform, so nothing in the (ordinal, platform) map can consume its
-  // weekday and every post of that ordinal falls back. The behaviour is
-  // unchanged here; only its visibility is.
-  const jobId = 'mkt_7dc14e23-ef1b-4cfb-bc40-1229a09e8ad0';
+  // change rather than an accident. The entry names no platform, so nothing in
+  // the (ordinal, platform) map can consume its weekday and every post of that
+  // ordinal falls back. The behaviour is unchanged here; only its visibility is.
+  const jobId = 'mkt_empty_platforms';
   const { result: rows, warnings } = captureWarnings(() =>
     buildAutoScheduleRows(
       [metaPostRow(1, 'instagram', jobId, 1), metaPostRow(2, 'facebook', jobId, 1)],
-      [CORPUS_EMPTY_PLATFORMS_ENTRY],
+      [EMPTY_PLATFORMS_ENTRY],
       jobId,
     ),
   );
@@ -1128,9 +1111,8 @@ test('AA-237: `platforms: []` still discards the weekday — but no longer silen
 // abbreviation, never null" — the team enumerating the exact values it expects
 // the model to get wrong. Every one of those was silent.
 //
-// No corpus document carries an unparseable weekday today (all 71 values on
-// disk parse), so these tests pin a forward guard, not a repair — which is why
-// the LAST test here asserts the corpus shapes are undisturbed.
+// These tests pin the parser contract directly; corpus state is reported by the
+// separate read-only census command.
 
 test('AA-237: a weekday VALUE the scheduler cannot parse warns, and says which value', () => {
   const jobId = 'mkt_iso_date_weekday';
@@ -1246,29 +1228,4 @@ test('AA-237: the value check reuses the scheduler\'s own parser (no second week
   for (const bad of ['Mon', '2026-06-08', 'Day 1', 'Mondays', '', '   ', null, undefined]) {
     assert.equal(isRecognizedWeekday(bad), false, `${JSON.stringify(bad)} must not be recognized`);
   }
-});
-
-test('AA-237: every weekday value in the live corpus still resolves (the guard is forward-looking)', () => {
-  // The value check must not start rejecting shapes that work today. These are
-  // the seven distinct weekday values present across all 14 job documents on
-  // disk that carry a schedule[]/weekly_schedule[] (71 values, 0 unparseable at
-  // the time of the change) — if a future normalization narrows the parser,
-  // this test says so before a tenant's week collapses onto the ladder.
-  const CORPUS_WEEKDAY_VALUES = [
-    'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday',
-  ];
-  const jobId = 'mkt_corpus_values';
-  const { result: rows, warnings } = captureWarnings(() =>
-    buildAutoScheduleRows(
-      CORPUS_WEEKDAY_VALUES.map((_, i) => metaPostRow(200 + i, 'instagram', jobId, i + 1)),
-      CORPUS_WEEKDAY_VALUES.map((recommended_day, i) => ({
-        post_number: i + 1,
-        recommended_day,
-        platforms: ['instagram'],
-      })),
-      jobId,
-    ),
-  );
-  assert.deepEqual(rows.map((r) => r.recommendedDay), CORPUS_WEEKDAY_VALUES);
-  assert.deepEqual(warnings, [], 'no live corpus weekday value may trip the new check');
 });
