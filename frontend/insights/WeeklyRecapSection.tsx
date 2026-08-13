@@ -26,29 +26,24 @@ import {
   LoadingRows,
   Divider,
 } from "@/frontend/insights/ui";
-
-// ── ISO week math for the client-side stepper ────────────────────────────────
-// Mirrors backend/insights/weekly-recap/weekly-recap-week.ts::isoWeekParts
-// exactly (the "nearest Thursday" rule). Duplicated rather than imported: this
-// is a 'use client' component and that module lives under backend/ (server
-// only) — keep the two in sync if the algorithm ever changes.
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-function isoWeekIdOfMonday(monday: Date): string {
-  const d = new Date(monday.getTime());
-  const dayNum = d.getUTCDay() || 7; // Mon=1 … Sun=7 (always 1 for a Monday, but keep the general form)
-  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-  const isoYear = d.getUTCFullYear();
-  const yearStart = Date.UTC(isoYear, 0, 1);
-  const week = Math.ceil(((d.getTime() - yearStart) / DAY_MS + 1) / 7);
-  return `${isoYear}-W${String(week).padStart(2, "0")}`;
-}
+// The Monday-relative arithmetic for the client-side stepper reuses the exact
+// same ISO-week rule the server resolves `?week=` against, imported directly
+// rather than duplicated: this module is pure math (no `server-only`, no
+// `@/lib/db`, zero imports) so it is safe to pull into a component tree that
+// has no 'use client' directive of its own (it inherits the client boundary
+// from InsightsDashboard.tsx, same as every other section). Two ISO-week
+// implementations drifting apart by one week is exactly the bug class this
+// card exists to eliminate — see weekly-recap-week.ts for the "most recent
+// completed week" default, which stays server-only; the client only ever
+// shifts Mondays relative to a week the server already resolved.
+import { isoWeekParts } from "@/backend/insights/weekly-recap/weekly-recap-week";
 
 /** The ISO week id `deltaWeeks` away from the week whose Monday is `startYmd` (YYYY-MM-DD, UTC). */
 function shiftedWeekIso(startYmd: string, deltaWeeks: number): string {
   const [y, m, d] = startYmd.split("-").map(Number);
   const monday = new Date(Date.UTC(y, m - 1, d + deltaWeeks * 7));
-  return isoWeekIdOfMonday(monday);
+  const { year, week } = isoWeekParts(monday);
+  return `${year}-W${String(week).padStart(2, "0")}`;
 }
 
 function titleCase(value: string): string {

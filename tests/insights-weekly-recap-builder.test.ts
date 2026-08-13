@@ -249,6 +249,17 @@ test('the channel-reach window is BOUNDED at both ends', () => {
   assert.match(CHANNEL_REACH_SQL, /p\.published_at <\s+\$3/);
 });
 
+test('the channel-reach aggregate has a deterministic tie-break order', () => {
+  // The retired per-post ranking query was `ORDER BY reach DESC`, so an exact
+  // tie between two channels resolved consistently every time (stable row
+  // order in, stable `Object.entries` iteration out, and topChannel's strict
+  // `>` keeps whichever was inserted first). A GROUP BY with no ORDER BY has
+  // no such guarantee — Postgres is free to return a hash-aggregate's rows in
+  // any order, so an exact tie (e.g. Instagram 4,000 / Facebook 4,000) could
+  // flip which channel "wins" between two otherwise-identical requests.
+  assert.match(CHANNEL_REACH_SQL, /ORDER BY 2 DESC, 1 ASC/);
+});
+
 test('the builder never reaches for the un-flippable #513 read path or the attribution scope', () => {
   const src = readFileSync(
     path.join(PROJECT_ROOT, 'backend', 'insights', 'weekly-recap', 'weekly-recap-builder.ts'),

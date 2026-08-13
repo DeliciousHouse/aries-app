@@ -126,8 +126,13 @@ test('the authenticated route registry uses the required v1 top navigation label
   assert.match(routeSource, /title:\s*'Social Content'/);
   assert.match(routeSource, /title:\s*'Calendar'/);
   // AA-229/PR2b: 'results' (title 'Results', /dashboard/results) is retired —
-  // its content moved to /insights (Section 10 — Weekly recap).
+  // its content moved to /insights (Section 10 — Weekly recap). 'Insights' and
+  // '/insights' already existed pre-migration, so asserting their presence
+  // alone pins nothing the retirement could break; the negative assertion is
+  // what actually guards against 'results' silently coming back.
   assert.match(routeSource, /title:\s*'Insights'/);
   assert.match(routeSource, /href:\s*'\/dashboard\/social-content'/);
   assert.match(routeSource, /href:\s*'\/insights'/);
+  assert.doesNotMatch(routeSource, /title:\s*'Results'/);
+  assert.doesNotMatch(routeSource, /'\/dashboard\/results'/);
 });
