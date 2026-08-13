@@ -302,7 +302,16 @@ const steps = [
     // drift tripwire) plus the dispatcher upsert seam proving the INSERT binds
     // content_type and the ON CONFLICT clause COALESCE-preserves an already
     // classified row. Pure/in-memory, no DB.
-    name: 'insights content_type classifier + dispatcher upsert seam',
+    //
+    // S8-4/AA-127 (gap E5) also lands here: leg isolation for the two legs the
+    // M3 regression does not reach. An account-metrics throw and a misconfigured
+    // classifier must each isolate to legErrors and downgrade the run to
+    // 'partial' while every other leg still persists — a regression does not
+    // throw, it silently drops one leg's rows and still reports a healthy-looking
+    // run. Plus the distinction that keeps that signal usable: classification
+    // DISABLED is a skip, not a failure, so a deployment running without the
+    // classifier does not look permanently degraded.
+    name: 'insights content_type classifier + dispatcher leg isolation',
     args: [
       '--test',
       'tests/insights-content-type-classify.test.ts',
@@ -490,6 +499,19 @@ const steps = [
     // overflow containers unclipped (else a one-page truncated PDF), the motion
     // opacity reset, cards kept off page breaks, and — the one that would bite
     // every other route — every selector scoped behind the report marker.
+    // S8-4/AA-127 (gap D7): the goal builder's four Promise.all sites. The
+    // violation was BENIGN — all four ran on a single held PoolClient, and pg
+    // serialises queries on one connection, so the parallelism was imaginary.
+    // The danger is the obvious "fix": swapping client.query for pool.query
+    // would convert a style problem into real connection fan-out (2-3 pooled
+    // connections per goal read while one is already held), which is exactly
+    // what guardrail #1 exists to prevent. So this pins BOTH directions — no
+    // Promise.all AND no pool.query — plus the behaviour capture (same queries,
+    // same order, same bound params) that made the refactor safe to land.
+    name: 'goal-builder sequential on the held client (AA-127)',
+    args: ['--test', 'tests/insights-goal-builder-sequential.test.ts'],
+  },
+  {
     name: 'print-ready weekly report (AA-126)',
     args: ['--test', 'tests/weekly-results-print.test.ts'],
   },
