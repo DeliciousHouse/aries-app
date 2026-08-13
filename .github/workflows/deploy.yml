@@ -577,6 +577,20 @@ jobs:
           fi
           echo "Post-deploy check: all sidecar workers are running on the target image."
 
+          # Every compose invocation above pinned ARIES_APP_IMAGE via an
+          # environment override, so the containers now run TARGET_IMAGE while
+          # the host .env still names whatever the previous deploy (or an
+          # operator) left there. A later bare `docker compose up` in this
+          # directory resolves the stale .env pin and silently rolls production
+          # back to it — that happened twice on 2026-08-12. Rewrite the pin so
+          # the file always describes what is actually running. Fatal on
+          # failure: reporting deploy success while the pin is stale re-arms
+          # exactly that rollback footgun.
+          if ! ./scripts/release/sync-env-image-pin.sh .env "${TARGET_IMAGE}"; then
+            echo "ERROR: failed to sync ARIES_APP_IMAGE in ${repo_path}/.env to ${TARGET_IMAGE}; a bare 'docker compose up' would roll production back to the stale pin. Fix the pin (scripts/release/sync-env-image-pin.sh .env ${TARGET_IMAGE}) and re-run the deploy to verify." >&2
+            exit 1
+          fi
+
           cleanup_actions_attempted="preflight selected-builder cache prune + target-repository image cleanup (older than 168h; keep newest 3 + container-referenced)"
           docker_disk_after_snapshot="$(read_disk_snapshot "${docker_disk_path}")"
           IFS='|' read -r docker_disk_after_filesystem docker_disk_after_checked_path docker_disk_after_free_gb <<< "${docker_disk_after_snapshot:-${docker_disk_filesystem}|${docker_disk_checked_path}|unknown}"

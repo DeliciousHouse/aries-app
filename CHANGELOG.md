@@ -2,6 +2,44 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.11.4 — fix(ci): deploy keeps the host .env ARIES_APP_IMAGE pin in lockstep with what is running
+
+Every compose invocation in the Deploy workflow pins the image with an
+explicit `ARIES_APP_IMAGE="${TARGET_IMAGE}"` environment override, so the
+containers rolled forward while the deploy checkout's `.env` pin stayed
+wherever the last writer left it. Anyone who later ran a bare
+`docker compose up` in `/home/node/aries-app` resolved that stale pin and
+silently recreated production onto an old image. This bit twice on
+2026-08-12: a `docker compose up -d` recreated four containers onto git sha
+`89af7950` instead of the then-current `30e04d79`, and later the same day the
+pin read `sha256:a050fa08` while the containers actually ran
+`sha256:fe86ffce` — a compose up would have reverted three separate
+production fixes (#986, #987, #989). Both were caught only by manually
+comparing `docker inspect` output against the `.env` value.
+
+Two changes:
+
+- **The deploy now rewrites the pin.** After the app and every sidecar are
+  verified running on the target image (and only then — never pin an image
+  that did not fully roll out), the deploy step runs
+  `scripts/release/sync-env-image-pin.sh .env "${TARGET_IMAGE}"`, which
+  replaces the `ARIES_APP_IMAGE=` line in place (append when missing,
+  converge duplicates, preserve every other line and the file's permissions,
+  same-directory temp file + rename so a crash cannot truncate the `.env`).
+  A failed rewrite fails the deploy: reporting green while the pin is stale
+  re-arms exactly the rollback footgun.
+- **Operator pre-flight guard.** `scripts/check-image-pin.sh` (documented in
+  `DOCKER.md`) refuses, with remediation, when the pin compose would resolve
+  disagrees with the image ID the running containers actually run — the
+  precise mismatch operators previously had to detect by hand. Run it before
+  any manual `docker compose up` in the deploy checkout.
+
+`tests/deploy-env-image-pin.test.ts` pins the workflow ordering (pin sync
+strictly after the sidecar verification gate, fail-closed) and exercises both
+scripts for real: replace/append/duplicate-converge/create behavior, other
+variables byte-identical, permissions preserved, and guard match/mismatch/
+image-absent verdicts against a fake docker.
+
 ## v0.2.11.3 — fix(publishing): a failed media leg is not a maybe-live post (AA-238)
 
 X and Instagram publish in two calls. The first one stages the media — for X

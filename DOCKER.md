@@ -17,6 +17,16 @@
 
 For `aries-app`, deploy by merging or pushing to `master`. The GitHub Actions Deploy workflow builds and publishes `ghcr.io/delicioushouse/aries-app:<sha>` for the exact target commit, then the self-hosted deploy host starts the pinned `aries-autoheal` external sidecar, pulls that pinned app image, force-recreates the `aries-app` service, and — once the app passes its health check — force-recreates every app-image worker sidecar in `docker-compose.yml` onto the same pinned image. A post-deploy check then verifies each app-image sidecar has a running container on the target image ID; sidecar failures are non-fatal to the deploy but surface as GitHub `::warning::` annotations and step-summary lines. `tests/deploy-manifest-parity.test.ts` (in `npm run verify` and CI) fails when an app-image compose service is added without a matching recreate block in the workflow.
 
+After the app and every sidecar are verified on the target image, the deploy rewrites `ARIES_APP_IMAGE` in the deploy checkout's `.env` (`scripts/release/sync-env-image-pin.sh`) so the pin always describes what is actually running. Before that existed, the pin went stale on every deploy and a bare `docker compose up` in the checkout silently rolled production back to the old pinned image (this happened twice on 2026-08-12).
+
+Before any **manual** `docker compose up`/restart in the deploy checkout, run the pre-flight guard:
+
+```bash
+./scripts/check-image-pin.sh
+```
+
+It exits non-zero when the `.env` pin disagrees with the image the running containers actually run — the state where a compose up is a silent rollback — and prints how to fix the pin. To intentionally change what runs, use the Deploy workflow, not a bare compose up.
+
 Manual deploys still use workflow dispatch with an explicit image tag. Use the full commit SHA for normal production recovery so the workflow can build and verify the exact image before restart:
 
 ```bash
