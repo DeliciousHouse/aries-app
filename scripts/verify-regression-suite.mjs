@@ -578,6 +578,14 @@ const steps = [
     args: ['--test', 'tests/deploy-manifest-parity.test.ts'],
   },
   {
+    // The deploy must rewrite the host .env ARIES_APP_IMAGE pin (registry
+    // digest, only after full verification, fail-closed) and the operator
+    // guard must refuse a stale pin — otherwise a bare `docker compose up`
+    // on the deploy host silently rolls production back (2x on 2026-08-12).
+    name: 'deploy .env image-pin sync and guard',
+    args: ['--test', 'tests/deploy-env-image-pin.test.ts'],
+  },
+  {
     // Self-hosted deploy cleanup is destructive host policy. Keep its repository
     // scope, seven-day bound, rollback retention, and nonfatal behavior in the
     // fast gate so a workflow-only edit cannot silently broaden Docker deletion.
