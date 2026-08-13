@@ -235,6 +235,26 @@ export interface PatternBreakdownSlice {
   label:       string;
   count:       number;
 }
+// AA-229/PR2a — reduced projection for the weakest-post card. NOT the full
+// TopPost shape: the backend query only selects these 7 columns, so the other
+// TopPost fields (sentiment, multiplier, bestDow, …) are never computed for it.
+export interface WeakestPost {
+  id:        number;
+  platform:  string;
+  title:     string | null;
+  caption:   string | null;
+  permalink: string | null;
+  reach:     number;
+  metric:    number;   // the active sort metric's raw value for this post
+}
+// AA-229/PR2a — why the ranked set is empty. `reason` is null on the populated
+// path (nothing to explain) and one of the two documented values once the
+// backend has actually distinguished "no account" from "connected but no
+// posts in this window".
+export interface TopAvailability {
+  insightsConnected: boolean;
+  reason: "insights_not_connected" | "no_posts_in_window" | null;
+}
 export interface TopData extends ApiBase {
   posts:  TopPost[];
   pattern: {
@@ -244,11 +264,13 @@ export interface TopData extends ApiBase {
     breakdown: PatternBreakdownSlice[];
   };
   sortBy: SortKey;
+  weakest: WeakestPost | null;   // absent semantics: null below 2 posts, never undefined (pre-v9 caches are invalidated by the TEMPLATE_VERSION bump)
   meta: {
-    postCount:    number;
-    avgReach:     number;
-    hasData:      boolean;   // ← emptiness flag lives HERE
-    attribution?: AttributionScopeMeta;   // absent on pre-v8 cached bodies
+    postCount:     number;
+    avgReach:      number;
+    hasData:       boolean;   // ← emptiness flag lives HERE
+    attribution?:  AttributionScopeMeta;   // absent on pre-v8 cached bodies
+    availability:  TopAvailability;
   };
 }
 
