@@ -103,7 +103,7 @@ import { NextResponse } from 'next/server';
  * `force` and then rebuild through the same pool, so they present the identical
  * hazard and take the identical limiter. Adding a cached, force-honoring
  * section WITHOUT adding it here reopens AA-120 for that endpoint —
- * tests/insights-force-throttle.test.ts pins all nine so the omission fails CI
+ * tests/insights-force-throttle.test.ts pins all ten so the omission fails CI
  * rather than shipping silently.
  */
 export type CachedInsightsSection =
@@ -115,7 +115,14 @@ export type CachedInsightsSection =
   | 'top'
   | 'aries'
   | 'audience'
-  | 'conversations';
+  | 'conversations'
+  // AA-229/PR2b: Section 10 — Weekly Recap. Reads the micro-cache like
+  // aries/audience/conversations, but rebuilds on a literal
+  // `pool.connect()` in its own handler rather than through a builder that
+  // opens its own client (matching Section 6/`top`'s pattern), so it needs
+  // no entry in the BUILDER_SECTIONS list in
+  // tests/insights-force-throttle.test.ts.
+  | 'weekly-recap';
 
 /** Forced rebuilds allowed per (tenant, section) per refill window. */
 export const DEFAULT_FORCE_THROTTLE_CAPACITY = 5;

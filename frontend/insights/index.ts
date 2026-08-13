@@ -60,6 +60,11 @@ export type {
   AriesData,
   AudienceData,
   AudienceScheduleItem,
+  WeeklyRecapData,
+  WeeklyRecapReport,
+  WeeklyRecapTopChannel,
+  WeeklyRecapLearning,
+  WeeklyRecapNextAction,
 } from "@/frontend/insights/types";
 
 // Tokens
