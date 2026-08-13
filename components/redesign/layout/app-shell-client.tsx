@@ -7,7 +7,6 @@ import { AnimatePresence, motion } from 'motion/react';
 import { createPortal } from 'react-dom';
 import {
   Activity,
-  BarChart3,
   Calendar,
   CheckCheck,
   ChevronDown,
@@ -47,7 +46,6 @@ const ICONS: Record<AppRouteId, typeof LayoutDashboard> = {
   socialContent: Rocket,
   posts: FileStack,
   calendar: Calendar,
-  results: BarChart3,
   analytics: TrendingUp,
   insights: Activity,
   comments: MessageCircle,
@@ -137,7 +135,6 @@ export default function AppShellClient({
       { type: 'link', routeId: 'socialContent' },
       { type: 'link', routeId: 'posts' },
       { type: 'link', routeId: 'calendar' },
-      { type: 'link', routeId: 'results' },
       { type: 'link', routeId: 'insights' },
       { type: 'link', routeId: 'comments' },
     ],

@@ -404,19 +404,22 @@ const steps = [
     args: ['--test', 'tests/marketing/review-learning-labels.test.ts'],
   },
   {
-    // S5-1/AA-110 (gap F1b): the weekly results report + its flag-gated route.
-    // Pins the week boundary (most-recent COMPLETED ISO week in UTC, incl. the
-    // year-boundary and non-existent-W53 cases), the publish-state counts, the
-    // reconnect signal coming from oauth_connections rather than a per-post code
-    // (there is none), manual_reconciliation staying OUT of `blocked`, the
-    // honesty contract (an unavailable ranking carries no post payload), the A1
-    // regression (latest snapshot, never a SUM), the bounded ranking window, and
-    // the gate short-circuiting before any tenant/DB work. Fake queryable, no DB.
-    name: 'weekly results report + route (F1b)',
+    // S5-1/AA-110 (gap F1b), relocated by AA-229/PR2b into the insights
+    // section family (Section 10 — Weekly Recap). Pins the week boundary
+    // (most-recent COMPLETED ISO week in UTC, incl. the year-boundary and
+    // non-existent-W53 cases), the publish-state counts, the reconnect signal
+    // coming from oauth_connections rather than a per-post code (there is
+    // none), manual_reconciliation staying OUT of `blocked`, the topChannel
+    // aggregate's A1 regression (latest snapshot, never a SUM of dated rows),
+    // the bounded aggregate window, the two negatives that must survive the
+    // move (no attribution scope, no #513 read path), the required-client
+    // guardrail #1 seam, and the gate short-circuiting before any tenant/DB
+    // work. Fake queryable, no DB.
+    name: 'weekly recap builder + route (F1b, AA-229/PR2b)',
     args: [
       '--test',
-      'tests/weekly-results-report.test.ts',
-      'tests/weekly-results-route.test.ts',
+      'tests/insights-weekly-recap-builder.test.ts',
+      'tests/insights-weekly-recap-route.test.ts',
     ],
   },
   {

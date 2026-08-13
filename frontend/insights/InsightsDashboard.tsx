@@ -11,6 +11,7 @@ import { FreshnessStamp }        from "@/frontend/insights/FreshnessStamp";
 import { ExportMenu }            from "@/frontend/insights/ExportMenu";
 import { AnalyticsDrilldownLink } from "@/frontend/insights/AnalyticsDrilldownLink";
 import { HeroSection }          from "@/frontend/insights/HeroSection";
+import { WeeklyRecapSection }   from "@/frontend/insights/WeeklyRecapSection";
 import { GoalSection }          from "@/frontend/insights/GoalSection";
 import { AttentionSection }     from "@/frontend/insights/AttentionSection";
 import { ActivitySection }      from "@/frontend/insights/ActivitySection";
@@ -22,18 +23,26 @@ import { AudienceSection }      from "@/frontend/insights/AudienceSection";
 
 /**
  * Client body for the /insights route. Renders the full insights dashboard
- * (filters + the nine stacked sections) on the redesign's dark canvas. The
- * surrounding chrome — nav, header, auth/onboarding gate, and the real
- * operator identity — is provided by the shared AppShellLayout in
- * app/insights/page.tsx, so this component owns content only.
+ * (filters + the stacked sections, including the flag-gated weekly recap) on
+ * the redesign's dark canvas. The surrounding chrome — nav, header,
+ * auth/onboarding gate, and the real operator identity — is provided by the
+ * shared AppShellLayout in app/insights/page.tsx, so this component owns
+ * content only.
  */
 export function InsightsDashboard({
   nativeReplyEnabled = false,
   enabledPlatforms = [],
+  weeklyRecapEnabled = false,
 }: {
   nativeReplyEnabled?: boolean;
   /** Platforms with a live insights adapter, resolved server-side. */
   enabledPlatforms?: readonly Platform[];
+  /**
+   * AA-229/PR2b: ARIES_WEEKLY_RESULTS_ENABLED, read server-side in
+   * app/insights/page.tsx. False means the WeeklyRecapSection is not
+   * mounted at all — no markup, no fetch — mirroring nativeReplyEnabled.
+   */
+  weeklyRecapEnabled?: boolean;
 } = {}) {
   const [period, setPeriod]     = useState<Period>("90day");
   const [platform, setPlatform] = useState<Platform>("all");
@@ -79,6 +88,15 @@ export function InsightsDashboard({
               <FreshnessStamp />
             </div>
           </div>
+
+          {/* 10 — Weekly recap (AA-229/PR2b). Full-width band, rendered EAGERLY
+              — NOT wrapped in the lazy-section deferral used below — because
+              it carries the only urgent items on this page (blocked
+              dispatches, "Reconnect Meta"); a lazy gate would bury exactly the
+              thing this migration exists to surface. It owns its own ISO-week
+              axis, not period/platform, so it takes no props from the filter
+              row. */}
+          {weeklyRecapEnabled && <WeeklyRecapSection />}
 
           {/* 2 — Goal */}
           <GoalSection period={period} platform={platform} />

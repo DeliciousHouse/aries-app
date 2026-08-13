@@ -5,18 +5,18 @@ import test from 'node:test';
 
 import { resolveProjectRoot } from './helpers/project-root';
 import {
+  CHANNEL_REACH_SQL,
   DISPATCH_OUTCOMES_SQL,
-  WEEK_POST_RANKING_SQL,
   buildWeeklyResultsReport,
   deriveLearnings,
   type WeeklyResultsQueryable,
-} from '../backend/marketing/weekly-results-report';
+} from '../backend/insights/weekly-recap/weekly-recap-builder';
 import {
   isoWeekParts,
   mostRecentCompletedWeek,
   parseWeekIso,
   resolveReportWeek,
-} from '../backend/marketing/weekly-results-week';
+} from '../backend/insights/weekly-recap/weekly-recap-week';
 
 test('terminal dead letters are included in the weekly failed-dispatch count', () => {
   assert.match(
@@ -26,11 +26,12 @@ test('terminal dead letters are included in the weekly failed-dispatch count', (
 });
 
 /**
- * S5-1 / AA-110 (gap F1b) — the weekly results report builder.
+ * S5-1 / AA-110 (gap F1b) — the weekly recap builder. Relocated by AA-229/
+ * PR2b into the insights section family (Section 10 — Weekly Recap).
  *
  * Run:
  *   APP_BASE_URL=https://aries.example.com \
- *     ./node_modules/.bin/tsx --test tests/weekly-results-report.test.ts
+ *     ./node_modules/.bin/tsx --test tests/insights-weekly-recap-builder.test.ts
  */
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
@@ -110,7 +111,7 @@ function fakeDb(handlers: {
   outcomes?: Rows;
   reconnect?: Rows;
   availability?: Rows;
-  ranking?: Rows;
+  channelReach?: Rows;
 }): { db: WeeklyResultsQueryable; calls: string[] } {
   const calls: string[] = [];
   const db: WeeklyResultsQueryable = {
@@ -130,7 +131,10 @@ function fakeDb(handlers: {
           rows: (handlers.availability ?? [{ account_count: 0, metric_row_count: 0 }]) as never[],
         };
       }
-      if (text.includes('post_metrics')) return { rows: (handlers.ranking ?? []) as never[] };
+      // CHANNEL_REACH_SQL is the only query grouping by platform.
+      if (text.includes('GROUP BY 1') && text.includes('FROM insights_posts')) {
+        return { rows: (handlers.channelReach ?? []) as never[] };
+      }
       return { rows: [] as never[] };
     },
   };
@@ -166,19 +170,7 @@ test('builds the spec acceptance fixture exactly', async () => {
     basis: 'published_count',
     value: 3,
   });
-  assert.equal(report.bestPost.available, false);
-  assert.equal(report.bestPost.reason, 'insights_not_connected');
   assert.equal(report.insightsConnected, false);
-});
-
-test('an unavailable ranking slot carries NO post payload', () => {
-  // The honesty contract is not just a boolean — a stray postId on an
-  // unavailable slot is exactly how a "guessed winner" would reach the UI.
-  return buildWeeklyResultsReport(7, { now: NOW }, fakeDb(SPEC_FIXTURE).db).then((report) => {
-    assert.equal(report.bestPost.post, undefined);
-    assert.equal(report.weakestPost.post, undefined);
-    assert.equal(JSON.stringify(report.bestPost).includes('postId'), false);
-  });
 });
 
 test('reconnect is derived from oauth_connections, never from a per-post code', async () => {
@@ -205,100 +197,97 @@ test('manual_reconciliation is its own count and is NEVER folded into blocked', 
   assert.equal(report.blocked.failedCount, 1);
 });
 
-// ── Ranking + the A1 regression ──────────────────────────────────────────────
+// ── topChannel + the A1 regression ───────────────────────────────────────────
 
-test('with metrics present it ranks best and weakest from ONE inverted ordering', async () => {
+test('topChannel upgrades to the reach basis once real metrics exist, from the grouped aggregate', async () => {
   const { db } = fakeDb({
     published: [{ platform: 'instagram', surface: 'feed', n: 3 }],
     availability: [{ account_count: 1, metric_row_count: 3 }],
-    ranking: [
-      { id: 11, platform: 'instagram', title: 'Best', caption: null, permalink: 'https://x/1', reach: '900' },
-      { id: 12, platform: 'instagram', title: 'Mid', caption: null, permalink: null, reach: '400' },
-      { id: 13, platform: 'instagram', title: 'Worst', caption: null, permalink: null, reach: '20' },
-    ],
+    channelReach: [{ platform: 'instagram', reach: '1320' }],
   });
   const report = await buildWeeklyResultsReport(7, { now: NOW }, db);
 
   assert.equal(report.insightsConnected, true);
-  assert.equal(report.bestPost.available, true);
-  assert.equal(report.bestPost.post?.postId, '11');
-  assert.equal(report.bestPost.post?.reach, 900);
-  assert.equal(report.weakestPost.available, true);
-  assert.equal(report.weakestPost.post?.postId, '13');
-  assert.equal(report.weakestPost.post?.reach, 20);
-  // Basis upgrades to reach once real metrics exist.
   assert.equal(report.topChannel.basis, 'reach');
+  assert.equal(report.topChannel.channel, 'instagram');
   assert.equal(report.topChannel.value, 1320);
 });
 
-test('a single ranked post is both best and weakest (truthful, not a bug)', async () => {
+test('a connected account with zero in-window metrics keeps the published_count basis', async () => {
   const { db } = fakeDb({
-    availability: [{ account_count: 1, metric_row_count: 1 }],
-    ranking: [
-      { id: 5, platform: 'facebook', title: 'Only', caption: null, permalink: null, reach: '50' },
-    ],
+    published: [{ platform: 'instagram', surface: 'feed', n: 2 }],
+    availability: [{ account_count: 1, metric_row_count: 0 }],
   });
   const report = await buildWeeklyResultsReport(7, { now: NOW }, db);
-  assert.equal(report.bestPost.post?.postId, '5');
-  assert.equal(report.weakestPost.post?.postId, '5');
-});
-
-test('a connected account with zero in-window metrics does NOT rank', async () => {
-  const { db } = fakeDb({ availability: [{ account_count: 1, metric_row_count: 0 }] });
-  const report = await buildWeeklyResultsReport(7, { now: NOW }, db);
   assert.equal(report.insightsConnected, false);
-  assert.equal(report.bestPost.reason, 'insights_not_connected');
+  assert.equal(report.topChannel.basis, 'published_count');
 });
 
-test('connected with metrics but no posts in the window reports no_posts_in_window', async () => {
-  const { db } = fakeDb({ availability: [{ account_count: 1, metric_row_count: 4 }], ranking: [] });
+test('connected with metrics but zero aggregate reach falls back to the published_count basis', async () => {
+  const { db } = fakeDb({
+    published: [{ platform: 'facebook', surface: 'feed', n: 1 }],
+    availability: [{ account_count: 1, metric_row_count: 4 }],
+    channelReach: [],
+  });
   const report = await buildWeeklyResultsReport(7, { now: NOW }, db);
-  assert.equal(report.bestPost.available, false);
-  assert.equal(report.bestPost.reason, 'no_posts_in_window');
+  assert.equal(report.insightsConnected, true);
+  assert.equal(report.topChannel.basis, 'published_count');
 });
 
-test('A1 REGRESSION: ranking reads the LATEST snapshot, never a SUM of dated rows', () => {
+test('A1 REGRESSION: channel reach reads the LATEST snapshot, never a SUM of dated rows', () => {
   // insights_post_metrics_daily rows are lifetime-CUMULATIVE. SUMming a post's
-  // dated rows inflates it ~N× over N sync days and would hand "best post" to
-  // whichever post has simply been synced longest. LATEST_POST_METRICS_LATERAL
-  // is the shared fix (S2-1/AA-92); this pins that the builder uses it.
-  assert.match(WEEK_POST_RANKING_SQL, /LEFT JOIN LATERAL/);
-  assert.match(WEEK_POST_RANKING_SQL, /ORDER BY d\.date DESC\s*\n?\s*LIMIT 1/);
-  assert.doesNotMatch(WEEK_POST_RANKING_SQL, /SUM\s*\(/i, 'must never SUM per-post metrics');
-  assert.doesNotMatch(WEEK_POST_RANKING_SQL, /GROUP BY/i);
+  // dated rows inflates it ~N× over N sync days. LATEST_POST_METRICS_LATERAL is
+  // the shared fix (S2-1/AA-92); this pins that the builder uses it. The
+  // aggregate itself legitimately SUMs — but ACROSS posts (one latest snapshot
+  // each), never across one post's dated rows.
+  assert.match(CHANNEL_REACH_SQL, /LEFT JOIN LATERAL/);
+  assert.match(CHANNEL_REACH_SQL, /ORDER BY d\.date DESC\s*\n?\s*LIMIT 1/);
 });
 
-test('the ranking window is BOUNDED at both ends', () => {
-  // top-snapshot-builder ranks over `published_at >= fromDate` with no upper
-  // bound — correct for a rolling period, wrong for a completed week. Reusing it
-  // verbatim would silently include everything published since the week started.
-  assert.match(WEEK_POST_RANKING_SQL, /p\.published_at >= \$2/);
-  assert.match(WEEK_POST_RANKING_SQL, /p\.published_at <\s+\$3/);
+test('the channel-reach window is BOUNDED at both ends', () => {
+  assert.match(CHANNEL_REACH_SQL, /p\.published_at >= \$2/);
+  assert.match(CHANNEL_REACH_SQL, /p\.published_at <\s+\$3/);
 });
 
-test('the builder never reaches for the un-flippable #513 read path', () => {
-  const source = readFileSync(
-    path.join(PROJECT_ROOT, 'backend', 'marketing', 'weekly-results-report.ts'),
+test('the channel-reach aggregate has a deterministic tie-break order', () => {
+  // The retired per-post ranking query was `ORDER BY reach DESC`, so an exact
+  // tie between two channels resolved consistently every time (stable row
+  // order in, stable `Object.entries` iteration out, and topChannel's strict
+  // `>` keeps whichever was inserted first). A GROUP BY with no ORDER BY has
+  // no such guarantee — Postgres is free to return a hash-aggregate's rows in
+  // any order, so an exact tie (e.g. Instagram 4,000 / Facebook 4,000) could
+  // flip which channel "wins" between two otherwise-identical requests.
+  assert.match(CHANNEL_REACH_SQL, /ORDER BY 2 DESC, 1 ASC/);
+});
+
+test('the builder never reaches for the un-flippable #513 read path or the attribution scope', () => {
+  const src = readFileSync(
+    path.join(PROJECT_ROOT, 'backend', 'insights', 'weekly-recap', 'weekly-recap-builder.ts'),
     'utf8',
   );
-
-  // Assert on IMPORTS, not on any mention: the module's header deliberately
-  // names these paths to record why they are not used, and a bare substring
-  // check would forbid documenting the decision.
-  const imports = [...source.matchAll(/from\s+['"]([^'"]+)['"]/g)].map((m) => m[1]);
-  for (const forbidden of ['perf-insights-read', 'insights-513-contract', 'attribution-scope']) {
-    assert.ok(
-      !imports.some((i) => i.includes(forbidden)),
-      `must not import ${forbidden} (imports: ${imports.join(', ')})`,
-    );
-  }
-  assert.doesNotMatch(source, /insights513TablesPresent\(/);
-  // The default-OFF attribution scope must not silently change which posts this
-  // panel counts.
-  assert.doesNotMatch(source, /resolveAttributionScope\(/);
+  // AA-229/PR2b: these two negatives must survive the move out of
+  // backend/marketing/ — once this module lives under backend/insights/,
+  // importing either is one autocomplete away and would silently change every
+  // published/skipped/blocked count for a backfilled tenant.
+  assert.doesNotMatch(src, /attribution-scope|resolveAttributionScope|attributedOnly|aries_post_id/);
+  assert.doesNotMatch(src, /insights-513-contract|perf-insights-read|ARIES_INSIGHTS_513_TABLES_PRESENT/);
   // Guardrail #1: no fan-out across pool-backed calls. Match the CALL, so the
   // header can keep explaining why the fan-out is absent.
-  assert.doesNotMatch(source, /Promise\.all\(/);
+  assert.doesNotMatch(src, /Promise\.all\(/);
+});
+
+test('the builder holds no pooled client of its own — guardrail #1', () => {
+  // AA-229/PR2b: `db` is now REQUIRED (matching buildTopSnapshot(…, client));
+  // the handler owns the one pool.connect()/release() pair.
+  const src = readFileSync(
+    path.join(PROJECT_ROOT, 'backend', 'insights', 'weekly-recap', 'weekly-recap-builder.ts'),
+    'utf8',
+  );
+  // Match the CALL, not any mention — the header comment explains, by name,
+  // that the HANDLER owns pool.connect(), which would otherwise satisfy a bare
+  // substring search.
+  assert.doesNotMatch(src, /await pool\.connect\(\)/);
+  assert.doesNotMatch(src, /from ['"]@\/lib\/db['"]/);
 });
 
 // ── D.2: derived learning + next action ──────────────────────────────────────

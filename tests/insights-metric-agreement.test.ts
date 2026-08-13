@@ -135,6 +135,11 @@ const EXPECTED_VIEWS_TOUCHING_FILES = [
   'backend/insights/read-api.ts',
   'backend/insights/top/top-snapshot-builder.ts',
   'backend/insights/trends/trends-snapshot-builder.ts',
+  // AA-229/PR2b: Section 10 — Weekly Recap, relocated from backend/marketing/
+  // (never scanned by this test in its old location). Its topChannel
+  // aggregate reach-prefers with the same COALESCE(m.reach, m.views, 0)
+  // idiom as every sibling builder.
+  'backend/insights/weekly-recap/weekly-recap-builder.ts',
 ].sort();
 
 // ── AA-230: source-level "no reader can drift apart again" scan ────────────

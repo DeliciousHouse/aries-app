@@ -4,21 +4,24 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { resolveProjectRoot } from './helpers/project-root';
-import { handleGetWeeklyResults } from '../app/api/dashboard/weekly-results/route';
-import { isWeeklyResultsEnabled } from '../backend/marketing/weekly-results-env';
+import { handleGetInsightsWeeklyRecap } from '../backend/insights/weekly-recap/handler';
+import { isWeeklyResultsEnabled } from '../backend/insights/weekly-recap/weekly-recap-env';
 import { TenantContextError, type TenantContext } from '../lib/tenant-context';
 import type { TenantContextLoader } from '../lib/tenant-context-http';
 
 /**
- * S5-1 / AA-110 — GET /api/dashboard/weekly-results.
+ * S5-1 / AA-110 — GET /api/insights/weekly-recap.
+ *
+ * Relocated by AA-229/PR2b from GET /api/dashboard/weekly-results into the
+ * insights section family (Section 10 — Weekly Recap).
  *
  * Run:
  *   APP_BASE_URL=https://aries.example.com \
- *     ./node_modules/.bin/tsx --test tests/weekly-results-route.test.ts
+ *     ./node_modules/.bin/tsx --test tests/insights-weekly-recap-route.test.ts
  */
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
-const URL_BASE = 'https://aries.example.com/api/dashboard/weekly-results';
+const URL_BASE = 'https://aries.example.com/api/insights/weekly-recap';
 
 function tenantLoader(tenantId: string): TenantContextLoader {
   return async () =>
@@ -79,7 +82,7 @@ test('flag OFF returns {enabled:false} and resolves NO tenant context', async ()
       loaderCalls += 1;
       throw new Error('loader must not run while the flag is off');
     };
-    const res = await handleGetWeeklyResults(new Request(URL_BASE), spy);
+    const res = await handleGetInsightsWeeklyRecap(new Request(URL_BASE), spy);
     assert.equal(res.status, 200);
     assert.deepEqual(await res.json(), { enabled: false });
     assert.equal(loaderCalls, 0, 'no tenant resolution while disabled');
@@ -88,7 +91,7 @@ test('flag OFF returns {enabled:false} and resolves NO tenant context', async ()
 
 test('flag ON refuses an unauthenticated caller', async () => {
   await withFlag('1', async () => {
-    const res = await handleGetWeeklyResults(new Request(URL_BASE), unauthenticated);
+    const res = await handleGetInsightsWeeklyRecap(new Request(URL_BASE), unauthenticated);
     assert.equal(res.status, 403);
     const body = (await res.json()) as Record<string, unknown>;
     assert.equal(body.status, 'error');
@@ -99,7 +102,7 @@ test('flag ON refuses an unauthenticated caller', async () => {
 
 test('flag ON refuses a session with no workspace membership', async () => {
   await withFlag('1', async () => {
-    const res = await handleGetWeeklyResults(new Request(URL_BASE), async () => {
+    const res = await handleGetInsightsWeeklyRecap(new Request(URL_BASE), async () => {
       throw new TenantContextError('tenant_membership_missing', 'no membership');
     });
     assert.equal(res.status, 403);
@@ -112,7 +115,7 @@ test('a non-numeric tenant id is refused rather than coerced', async () => {
   // all-zero report that looks like a genuinely quiet week.
   await withFlag('1', async () => {
     for (const bad of ['not-a-number', '', '0', '-3']) {
-      const res = await handleGetWeeklyResults(new Request(URL_BASE), tenantLoader(bad));
+      const res = await handleGetInsightsWeeklyRecap(new Request(URL_BASE), tenantLoader(bad));
       assert.equal(res.status, 403, `tenant ${JSON.stringify(bad)} must be refused`);
     }
   });
@@ -120,49 +123,97 @@ test('a non-numeric tenant id is refused rather than coerced', async () => {
 
 // ── Source-level contracts ───────────────────────────────────────────────────
 
+const handlerSource = readFileSync(
+  path.join(PROJECT_ROOT, 'backend', 'insights', 'weekly-recap', 'handler.ts'),
+  'utf8',
+);
 const routeSource = readFileSync(
-  path.join(PROJECT_ROOT, 'app', 'api', 'dashboard', 'weekly-results', 'route.ts'),
+  path.join(PROJECT_ROOT, 'app', 'api', 'insights', 'weekly-recap', 'route.ts'),
   'utf8',
 );
 
 test('the flag gate precedes tenant resolution in the source', () => {
   // Compare CALL SITES, not the import lines — every import sits above the
   // handler body, so matching the bare identifier would compare nothing useful.
-  const gateAt = routeSource.indexOf('if (!isWeeklyResultsEnabled())');
-  const tenantAt = routeSource.indexOf('await loadTenantContextOrResponse(');
+  const gateAt = handlerSource.indexOf('if (!isWeeklyResultsEnabled())');
+  const tenantAt = handlerSource.indexOf('await loadTenantContextOrResponse(');
   assert.ok(gateAt > 0, 'gate call site not found');
   assert.ok(tenantAt > 0, 'tenant call site not found');
   assert.ok(gateAt < tenantAt, 'the disabled path must short-circuit before any DB work');
 });
 
 test('the tenant id comes only from the resolved context, never the request', () => {
-  assert.match(routeSource, /tenantResult\.tenantContext\.tenantId/);
+  assert.match(handlerSource, /tenantResult\.tenantContext\.tenantId/);
   assert.doesNotMatch(
-    routeSource,
+    handlerSource,
     /searchParams\.get\(\s*['"](tenant|tenantId|tenant_id|organizationId)['"]\s*\)/i,
   );
 });
 
 test('a build failure returns a safe body, never the raw error', () => {
-  assert.match(routeSource, /weekly_results_unavailable/);
+  assert.match(handlerSource, /weekly_results_unavailable/);
   // The caught error is logged server-side but must not be serialized to the client.
-  assert.doesNotMatch(routeSource, /json\([^)]*error:\s*(error|String\(error\)|err)/);
+  assert.doesNotMatch(handlerSource, /json\([^)]*error:\s*(error|String\(error\)|err)/);
 });
 
 test('the route is read-only', () => {
   // The MVP slice writes nothing at all — that is why its rollback is the flag
   // alone, with no migration to reverse.
-  assert.doesNotMatch(routeSource, /\b(INSERT|UPDATE|DELETE)\b/);
+  assert.doesNotMatch(handlerSource, /\b(INSERT|UPDATE|DELETE)\b/);
   assert.doesNotMatch(routeSource, /export async function (POST|PUT|PATCH|DELETE)/);
+  assert.doesNotMatch(handlerSource, /export async function (POST|PUT|PATCH|DELETE)/);
 });
 
-test('the page reads the flag server-side so a disabled screen mounts nothing', () => {
-  const page = readFileSync(
-    path.join(PROJECT_ROOT, 'app', 'dashboard', 'results', 'page.tsx'),
-    'utf8',
+test('the route file is a thin delegate to the backend/insights handler', () => {
+  assert.match(routeSource, /handleGetInsightsWeeklyRecap/);
+  assert.match(routeSource, /export async function GET/);
+});
+
+test('period and platform are ignored — only ?week selects the window', () => {
+  assert.doesNotMatch(
+    handlerSource,
+    /searchParams\.get\(\s*['"](period|platform)['"]\s*\)/,
   );
-  assert.match(page, /isWeeklyResultsEnabled\(\)/);
-  assert.match(page, /WeeklyResultsReport/);
-  // Flag OFF must still render today's screen — unchanged.
-  assert.match(page, /AriesResultsScreen/);
+  assert.match(handlerSource, /searchParams\.get\('week'\)/);
+});
+
+test('the cache key is built from the RESOLVED iso week, not the raw query string', () => {
+  // "?week=2026-31", "?week=2026-W31" and no override at all (once they land
+  // on the same week) must share one cache entry.
+  assert.match(handlerSource, /insightsMicroCacheKey\('weekly-recap', tenantId, \{ week: week\.iso \}\)/);
+});
+
+// ── AA-229/PR2b: the /insights page-level flag contract ────────────────────
+//
+// The weekly-recap SECTION also has its own disabled-mounts-nothing contract,
+// separate from the route's disabled-returns-{enabled:false} contract tested
+// above. app/insights/page.tsx reads the SAME flag server-side (mirroring how
+// isNativeReplyEnabled is already threaded there) and InsightsDashboard must
+// not mount <WeeklyRecapSection /> — no markup, no fetch — when it is off.
+// Rendering the full page requires a live tenant/session, so these are
+// source-level checks, matching every other contract test in this file.
+
+const insightsPageSource = readFileSync(
+  path.join(PROJECT_ROOT, 'app', 'insights', 'page.tsx'),
+  'utf8',
+);
+const insightsDashboardSource = readFileSync(
+  path.join(PROJECT_ROOT, 'frontend', 'insights', 'InsightsDashboard.tsx'),
+  'utf8',
+);
+
+test('/insights reads the weekly-recap flag server-side and passes it down', () => {
+  assert.match(
+    insightsPageSource,
+    /import \{ isWeeklyResultsEnabled \} from ['"]@\/backend\/insights\/weekly-recap\/weekly-recap-env['"]/,
+  );
+  assert.match(insightsPageSource, /const weeklyRecapEnabled = isWeeklyResultsEnabled\(\)/);
+  assert.match(insightsPageSource, /weeklyRecapEnabled=\{weeklyRecapEnabled\}/);
+});
+
+test('flag OFF mounts no recap component in InsightsDashboard — no markup, no fetch', () => {
+  assert.match(insightsDashboardSource, /import \{ WeeklyRecapSection \}\s+from ['"]@\/frontend\/insights\/WeeklyRecapSection['"]/);
+  // Conditional render, not an `enabled` prop threaded into a fetch hook —
+  // the component itself must not be instantiated when the flag is off.
+  assert.match(insightsDashboardSource, /\{weeklyRecapEnabled && <WeeklyRecapSection \/>\}/);
 });

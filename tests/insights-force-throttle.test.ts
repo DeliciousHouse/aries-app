@@ -51,6 +51,11 @@ const SECTIONS: readonly CachedInsightsSection[] = [
   'aries',
   'audience',
   'conversations',
+  // AA-229/PR2b: Section 10 — Weekly Recap. Also micro-cached, but rebuilds
+  // on a literal `pool.connect()` in its own handler (matching `top`'s
+  // pattern), so the generic scan below finds it directly and it needs no
+  // entry in BUILDER_SECTIONS.
+  'weekly-recap',
 ] as const;
 
 /**

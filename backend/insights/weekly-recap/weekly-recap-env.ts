@@ -1,10 +1,10 @@
 /**
- * Rollout gate for the WEEKLY RESULTS report (S5-1 / AA-110, gap F1b).
+ * Rollout gate for the WEEKLY RECAP report (S5-1 / AA-110, gap F1b; relocated
+ * into the insights section family by AA-229/PR2b).
  *
- * Gates the whole surface: the `/dashboard/results` panel and the
- * `GET /api/dashboard/weekly-results` route. OFF ⇒ the results screen renders
- * exactly today's roster and the route returns `{ enabled: false }` without
- * touching the database.
+ * Gates the `weekly-recap` insights section: `GET /api/insights/weekly-recap`.
+ * OFF ⇒ the route returns `{ enabled: false }` without touching the database,
+ * before tenant resolution and before any pooled client.
  *
  * Treat 1/true/yes/on as enabled, matching the ARIES_WEEKLY_REEL_ENABLED /
  * ARIES_IMAGE_EDIT_ENABLED convention. Process-wide; default OFF.
