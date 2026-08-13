@@ -1,6 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+// AA-243: the throw fixtures below are the REAL @composio/core error classes,
+// constructed the way the SDK constructs them (`throw new
+// ComposioToolNotFoundError(...)` from the tool-schema retrieve; `throw
+// handleToolExecutionError(tool.slug, error)` from execution). Hand-rolled
+// stand-ins are banned here: this codebase has shipped bugs behind green suites
+// whose fixtures encoded the same wrong belief as the code under test.
+import {
+  ComposioToolExecutionError,
+  ComposioToolNotFoundError,
+  handleToolExecutionError,
+} from '@composio/core';
+
 import {
   resolveFacebookManagedPage,
   DEFAULT_LIST_MANAGED_PAGES_SLUG,
@@ -52,4 +64,44 @@ test('skips entries without a string id and picks the first valid one', async ()
   });
   const page = await resolveFacebookManagedPage(gateway, fakeConfig({ actions: {} }), 'ca_1');
   assert.equal(page?.pageId, 'P9');
+});
+
+// ── AA-243: a thrown executeTool is swallowed to null, never leaked ─────────
+//
+// @composio/core does not convert transport failures into `successful:false` —
+// it THROWS, and LiveComposioGateway.executeTool does not catch. The resolver's
+// fail-safe contract ("returns null ... never invents a Page") must hold for
+// the thrown shape too, exactly like resolveInstagramAccount.
+
+test('AA-243: returns null when executeTool throws ComposioToolNotFoundError (tool-schema retrieve failure)', async () => {
+  const gateway = fakeGateway({
+    onExecute: () => {
+      // Verbatim SDK construction: `throw new ComposioToolNotFoundError(
+      //   `Unable to retrieve tool with slug ${slug}`, { cause: error })`.
+      throw new ComposioToolNotFoundError(
+        `Unable to retrieve tool with slug ${DEFAULT_LIST_MANAGED_PAGES_SLUG}`,
+        { cause: new Error('getaddrinfo ENOTFOUND backend.composio.dev') },
+      );
+    },
+  });
+  const page = await resolveFacebookManagedPage(gateway, fakeConfig({ actions: {} }), 'ca_1');
+  assert.equal(page, null);
+  assert.equal(gateway.calls.length, 1, 'the tool call was attempted before the throw');
+});
+
+test('AA-243: returns null when executeTool throws the handleToolExecutionError-produced error (execution transport failure)', async () => {
+  // Build the error EXACTLY as the SDK does at its execution throw site:
+  // `throw handleToolExecutionError(tool.slug, error)`.
+  const thrown = handleToolExecutionError(DEFAULT_LIST_MANAGED_PAGES_SLUG, new Error('socket hang up'));
+  assert.ok(
+    thrown instanceof ComposioToolExecutionError,
+    'fixture sanity: the factory must produce the real SDK class',
+  );
+  const gateway = fakeGateway({
+    onExecute: () => {
+      throw thrown;
+    },
+  });
+  const page = await resolveFacebookManagedPage(gateway, fakeConfig({ actions: {} }), 'ca_1');
+  assert.equal(page, null);
 });
