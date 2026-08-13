@@ -21,6 +21,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+// AA-238: the real SDK error surface, used as the fixture for a media-leg throw.
+// @composio/core never reports a transport failure as `successful:false` — it
+// rethrows: `tools.execute` → `getRawComposioToolBySlug` (tool-schema retrieve)
+// → `ComposioToolNotFoundError`, and `executeComposioTool` →
+// `handleToolExecutionError` → `ComposioToolExecutionError`. Importing the real
+// classes keeps this fixture honest: it cannot drift from the shipped SDK.
+import { ComposioToolNotFoundError, handleToolExecutionError } from '@composio/core';
+
 import { ComposioPublisherProvider } from '@/backend/integrations/composio/composio-publisher-provider';
 import { PublishGuardError } from '@/backend/integrations/providers/errors';
 import {
@@ -91,11 +99,20 @@ interface SequencedResult {
  * Build a gateway that returns per-slug results for executeTool and tracks
  * uploadFile calls independently. `slugResults` maps action slug → result;
  * falls back to `defaultResult` for unrecognised slugs.
+ *
+ * `executeToolShouldThrow` maps action slug → an error THROWN out of
+ * `executeTool` instead of returning a result. This is the case the harness
+ * could not express before AA-238: @composio/core signals transport failure by
+ * THROWING (it never returns `successful:false` for it), and until this option
+ * existed no test could distinguish "the broker said no" from "the call blew
+ * up". The call is still recorded in `calls` before the throw so assertions
+ * about which slugs were attempted stay meaningful.
  */
 function makeXGateway(opts?: {
   slugResults?: Map<string, GatewayToolResult>;
   defaultResult?: GatewayToolResult;
   uploadFileShouldThrow?: Error;
+  executeToolShouldThrow?: Map<string, Error>;
 }): ComposioGateway & {
   calls: RecordedExecute[];
   uploadFileCalls: Array<{ file: string; toolSlug: string; toolkitSlug: string }>;
@@ -126,6 +143,8 @@ function makeXGateway(opts?: {
     async executeTool(slug, options) {
       const rec = { slug, options };
       calls.push(rec);
+      const boom = opts?.executeToolShouldThrow?.get(slug);
+      if (boom) throw boom;
       return opts?.slugResults?.get(slug) ?? defaultResult;
     },
     async uploadFile(input: ComposioFileUploadInput): Promise<ComposioFileDescriptor> {
@@ -510,6 +529,110 @@ test('#631 X TWITTER_UPLOAD_MEDIA returns no media id → ComposioToolError (nev
   );
 });
 
+// ── AA-238: the media leg THROWS, and a throw there is still never-posted ────
+//
+// The fixtures below are the REAL @composio/core error objects, not hand-rolled
+// stand-ins: `ComposioToolNotFoundError` is exactly what `tools.execute` throws
+// when the tool-SCHEMA retrieve fails (it runs BEFORE a single byte of media is
+// sent), and `handleToolExecutionError` is the production factory
+// `executeComposioTool` calls on any execution failure. Verified against the
+// deployed bundle (@composio/core 0.14.1,
+// node_modules/@composio/core/dist/index.mjs): neither path returns
+// `successful:false` — both rethrow.
+
+test('AA-238 X TWITTER_UPLOAD_MEDIA schema-retrieve throw (real ComposioToolNotFoundError) → never-posted, not outcome-unknown', async () => {
+  // `tools.execute` retrieves the tool schema first; a blip there throws before
+  // any media leaves the process. Nothing was uploaded, no tweet exists.
+  const sdkError = new ComposioToolNotFoundError('Unable to retrieve tool with slug TWITTER_UPLOAD_MEDIA', {
+    cause: new Error('ECONNRESET'),
+  });
+
+  // The raw SDK class is deliberately NOT in publishNeverReachedPlatform's set —
+  // widening the taxonomy to accept it would ALSO make a create-post throw look
+  // never-posted and enable a double-post. The wrap at the call site is the fix.
+  assert.equal(
+    publishNeverReachedPlatform(sdkError),
+    false,
+    'a raw @composio/core error must NOT be recognised as never-posted (that is what makes the call-site wrap necessary)',
+  );
+
+  const gateway = makeXGateway({
+    executeToolShouldThrow: new Map([['TWITTER_UPLOAD_MEDIA', sdkError]]),
+  });
+
+  const provider = new ComposioPublisherProvider(gateway, xFakeConfig(X_ACTIONS), fakeDb());
+
+  let caught: unknown;
+  try {
+    await provider.publishPost({
+      tenantId,
+      platform: 'x',
+      content: 'hi',
+      mediaUrls: ['https://img.example.com/photo.png'],
+      approved: true,
+    });
+    assert.fail('expected rejection');
+  } catch (e) {
+    caught = e;
+  }
+
+  assert.ok(
+    caught instanceof ComposioToolError,
+    'an upload-leg throw must be wrapped in ComposioToolError — TWITTER_UPLOAD_MEDIA cannot create a tweet',
+  );
+  assert.equal(
+    publishNeverReachedPlatform(caught),
+    true,
+    'upload-leg throw must be definitely-never-posted (parking the row in manual_reconciliation tells the operator the post may be live when it provably is not)',
+  );
+  assert.equal(
+    gateway.calls.filter((c) => c.slug === 'TWITTER_CREATION_OF_A_POST').length,
+    0,
+    'create-post must not be called after the upload leg threw',
+  );
+});
+
+test('AA-238 X TWITTER_UPLOAD_MEDIA execution throw (real handleToolExecutionError output) → never-posted', async () => {
+  // The other SDK throw site: executeComposioTool's catch. Same verdict — the
+  // upload action returns MediaData {id, media_key, size, expires_after_secs}
+  // and cannot create a post however it fails.
+  const sdkError = handleToolExecutionError('TWITTER_UPLOAD_MEDIA', new Error('socket hang up'));
+
+  assert.equal(
+    publishNeverReachedPlatform(sdkError),
+    false,
+    'the raw execution error is not recognised either — hence the wrap',
+  );
+
+  const gateway = makeXGateway({
+    executeToolShouldThrow: new Map([['TWITTER_UPLOAD_MEDIA', sdkError as Error]]),
+  });
+
+  const provider = new ComposioPublisherProvider(gateway, xFakeConfig(X_ACTIONS), fakeDb());
+
+  let caught: unknown;
+  try {
+    await provider.publishPost({
+      tenantId,
+      platform: 'x',
+      content: 'hi',
+      mediaUrls: ['https://img.example.com/photo.png'],
+      approved: true,
+    });
+    assert.fail('expected rejection');
+  } catch (e) {
+    caught = e;
+  }
+
+  assert.ok(caught instanceof ComposioToolError, 'upload execution throw must be wrapped in ComposioToolError');
+  assert.equal(publishNeverReachedPlatform(caught), true, 'upload execution throw must be definitely-never-posted');
+  assert.equal(
+    gateway.calls.filter((c) => c.slug === 'TWITTER_CREATION_OF_A_POST').length,
+    0,
+    'create-post must not be called after the upload leg threw',
+  );
+});
+
 test('#631 X TWITTER_CREATION_OF_A_POST throw after successful upload is NOT definitely-never-posted (outcome-unknown boundary)', async () => {
   // The upload succeeds; the create-post call itself throws a raw network error.
   // At this point the tweet MAY have gone through (the POST was dispatched), so
@@ -558,6 +681,51 @@ test('#631 X TWITTER_CREATION_OF_A_POST throw after successful upload is NOT def
     publishNeverReachedPlatform(caught),
     false,
     'create-call throw is outcome-unknown, NOT definitely-never-posted',
+  );
+});
+
+test('AA-238 X TWITTER_CREATION_OF_A_POST throw STAYS outcome-unknown (the media-leg wrap must not spread to the post-creation call)', async () => {
+  // Guard on the fix itself. AA-238 wraps the UPLOAD leg only. Reaching for the
+  // same wrap on TWITTER_CREATION_OF_A_POST would classify a real post-creation
+  // failure as never-posted and license a retry that DOUBLE-POSTS. Asserted here
+  // through the same `executeToolShouldThrow` option the media-leg tests use, so
+  // the tempting refactor fails loudly.
+  const gateway = makeXGateway({
+    slugResults: new Map([
+      ['TWITTER_UPLOAD_MEDIA', { data: { media_id_string: 'mid_ok' }, successful: true, error: null }],
+    ]),
+    executeToolShouldThrow: new Map([
+      [
+        'TWITTER_CREATION_OF_A_POST',
+        handleToolExecutionError('TWITTER_CREATION_OF_A_POST', new Error('ECONNRESET after dispatch')) as Error,
+      ],
+    ]),
+  });
+
+  const provider = new ComposioPublisherProvider(gateway, xFakeConfig(X_ACTIONS), fakeDb());
+
+  let caught: unknown;
+  try {
+    await provider.publishPost({
+      tenantId,
+      platform: 'x',
+      content: 'hi',
+      mediaUrls: ['https://img.example.com/photo.png'],
+      approved: true,
+    });
+    assert.fail('expected rejection');
+  } catch (e) {
+    caught = e;
+  }
+
+  assert.ok(
+    caught instanceof Error && !(caught instanceof ComposioToolError),
+    'the post-creation call is the genuine outcome-unknown boundary — it must NOT be wrapped',
+  );
+  assert.equal(
+    publishNeverReachedPlatform(caught),
+    false,
+    'post-creation throw must stay outcome-unknown so nothing auto-retries a tweet that may be live',
   );
 });
 

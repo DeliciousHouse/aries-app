@@ -28,10 +28,22 @@ export function fakeConfig(overrides?: {
   };
 }
 
+/**
+ * `executeToolShouldThrow` maps action slug → an error THROWN out of
+ * `executeTool` instead of returning a `GatewayToolResult` (AA-238). The real
+ * @composio/core gateway does not convert a transport failure into
+ * `successful:false` — `LiveComposioGateway.executeTool` does not catch, and
+ * `tools.execute` rethrows (tool-schema retrieve → `ComposioToolNotFoundError`;
+ * execution → `handleToolExecutionError`). Without this option the doubles could
+ * only express the broker's explicit verdict, never the throw, so a whole class
+ * of publish-outcome misclassification was untestable. The call is recorded in
+ * `calls` before the throw so "which slugs were attempted" assertions still hold.
+ */
 export function fakeGateway(opts?: {
   executeResult?: GatewayToolResult;
   connections?: GatewayConnection[];
   onExecute?: (rec: RecordedExecute) => void;
+  executeToolShouldThrow?: Map<string, Error>;
 }): ComposioGateway & { calls: RecordedExecute[] } {
   const calls: RecordedExecute[] = [];
   return {
@@ -55,6 +67,8 @@ export function fakeGateway(opts?: {
       const rec = { slug, options };
       calls.push(rec);
       opts?.onExecute?.(rec);
+      const boom = opts?.executeToolShouldThrow?.get(slug);
+      if (boom) throw boom;
       return opts?.executeResult ?? { data: {}, successful: true, error: null };
     },
     async uploadFile(input) {
