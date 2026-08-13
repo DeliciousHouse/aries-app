@@ -267,12 +267,16 @@ function PostRow({
 // Reduced fields only (see WeakestPost in types.ts) — never fabricates the
 // sentiment/multiplier/bestDow/etc. the full top-5 rows carry, since the
 // backend query never computed them for this post.
-function weakestMetricLabel(metric: number, sortBy: SortKey): string {
+//
+// Includes `reach` as context whenever it isn't already the primary metric
+// (review F-non-blocking: `reach` rode the type/query/body unrendered).
+function weakestMetricLabel(weakest: NonNullable<TopData["weakest"]>, sortBy: SortKey): string {
+  const { metric, reach } = weakest;
   switch (sortBy) {
-    case "engagement": return `${metric}% engagement`;
-    case "saves":       return `${metric.toLocaleString()} saves`;
-    case "shares":      return `${metric.toLocaleString()} shares`;
-    case "comments":    return `${metric.toLocaleString()} comments`;
+    case "engagement": return `${metric}% engagement · ${reach.toLocaleString()} reach`;
+    case "saves":       return `${metric.toLocaleString()} saves · ${reach.toLocaleString()} reach`;
+    case "shares":      return `${metric.toLocaleString()} shares · ${reach.toLocaleString()} reach`;
+    case "comments":    return `${metric.toLocaleString()} comments · ${reach.toLocaleString()} reach`;
     default:            return `${metric.toLocaleString()} reach`;
   }
 }
@@ -310,7 +314,7 @@ function WeakestPostCard({ weakest, sortBy }: { weakest: NonNullable<TopData["we
           >
             {title}
           </span>
-          <span style={{ fontSize: 11, color: C.t3 }}>{weakestMetricLabel(weakest.metric, sortBy)}</span>
+          <span style={{ fontSize: 11, color: C.t3 }}>{weakestMetricLabel(weakest, sortBy)}</span>
         </div>
         {weakest.permalink && (
           <a
