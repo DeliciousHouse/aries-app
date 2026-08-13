@@ -20,8 +20,13 @@ const dashboard = readFileSync(
 );
 
 test('/insights styles preserve the desktop shell rail clearance (AA-145)', () => {
+  // S8-5/AA-128 scoped this reset under `.insights-surface`. The guarantee this
+  // test exists for — route CSS must never collapse the AppShell padding that
+  // clears the fixed nav rail — is not weakened by that change but strengthened:
+  // a scoped rule cannot reach the shell at all. The pattern is updated to the
+  // scoped form so the check keeps biting; the assertions below are unchanged.
   const universalReset = insightsCss.match(
-    /\*,\s*\n\*::before,\s*\n\*::after\s*\{(?<declarations>[\s\S]*?)\}/,
+    /\.insights-surface \*,\s*\n\.insights-surface \*::before,\s*\n\.insights-surface \*::after\s*\{(?<declarations>[\s\S]*?)\}/,
   );
 
   assert.ok(universalReset?.groups?.declarations, 'expected the shared box-sizing rule');

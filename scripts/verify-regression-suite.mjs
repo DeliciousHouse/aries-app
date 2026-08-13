@@ -512,6 +512,27 @@ const steps = [
     args: ['--test', 'tests/insights-goal-builder-sequential.test.ts'],
   },
   {
+    // S8-5/AA-128: the insights.css global leak + the missing section
+    // breakpoints. The leak was not a style nit — insights.css is imported by a
+    // CLIENT component, so Next bundles it app-wide and never unloads it; its
+    // `body { background; color; font-family }` rule therefore repainted the
+    // whole product's canvas and typeface from the first visit to /insights,
+    // and the scrollbar/focus-ring rules did the same. Everything is now scoped
+    // under `.insights-surface`, and this pins that no selector escapes it.
+    // The breakpoints had nowhere to live: every section set its columns via an
+    // INLINE gridTemplateColumns, which cannot carry a media query — so the
+    // guard is that no section sets one inline (auto-fit excepted; it reflows on
+    // its own). CSS cannot be evaluated here, so this is the drift guard; the
+    // rendered proof was computed styles in real Chrome at three widths with an
+    // unrelated route alongside (11/11 with this stylesheet, 2/11 with the old).
+    name: 'insights scoped CSS + responsive grids (AA-128)',
+    args: [
+      '--test',
+      'tests/insights-responsive-scoped-css.test.ts',
+      'tests/insights-shell-layout.regression-aa145.test.ts',
+    ],
+  },
+  {
     name: 'print-ready weekly report (AA-126)',
     args: ['--test', 'tests/weekly-results-print.test.ts'],
   },

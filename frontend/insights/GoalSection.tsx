@@ -108,7 +108,7 @@ export function GoalSection({ period, platform }: GoalSectionProps) {
             action={{ label: "Set your goal in Settings", href: SETTINGS_GOAL_HREF }}
           />
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 28 }}>
+          <div className="insights-grid" style={{ "--insights-cols": "1fr 1fr", gap: 28 } as React.CSSProperties}>
             {/* ── LEFT: the headline metric ── */}
             <div style={{ display: "flex", flexDirection: "column", paddingRight: 8 }}>
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", marginBottom: 14 }}>

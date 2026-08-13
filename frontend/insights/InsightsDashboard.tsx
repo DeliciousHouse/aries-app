@@ -38,7 +38,11 @@ export function InsightsDashboard({
   const [platform, setPlatform] = useState<Platform>("all");
 
   return (
-    <div style={{ background: C.bg, minHeight: "100%" }}>
+    // S8-5/AA-128: `insights-surface` is the scope every rule in insights.css
+    // hangs off. Without it the stylesheet applies to nothing here; with it,
+    // the stylesheet applies to nothing ELSEWHERE — which is the fix, since a
+    // client-imported stylesheet is bundled app-wide and never unloads.
+    <div className="insights-surface" style={{ background: C.bg, minHeight: "100%" }}>
       <div
         className="insights-dashboard-content"
         style={{

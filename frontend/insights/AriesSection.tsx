@@ -101,11 +101,11 @@ export function AriesSection({ period, platform, enabled }: AriesSectionProps) {
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
             <div
+              className="insights-grid"
               style={{
-                display:             "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap:                 28,
-              }}
+                "--insights-cols": "1fr 1fr",
+                gap:               28,
+              } as React.CSSProperties}
             >
               {/* LEFT — approval flow */}
               <div>

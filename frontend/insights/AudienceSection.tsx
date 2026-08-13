@@ -266,12 +266,12 @@ export function AudienceSection({ period, platform, enabled }: AudienceSectionPr
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
             <div
+              className="insights-grid"
               style={{
-                display:             "grid",
-                gridTemplateColumns: "1fr 1.15fr",
-                gap:                 32,
-                alignItems:          "start",
-              }}
+                "--insights-cols": "1fr 1.15fr",
+                gap:               32,
+                alignItems:        "start",
+              } as React.CSSProperties}
             >
               {/* LEFT — who's listening (demographics) */}
               <div>

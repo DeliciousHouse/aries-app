@@ -1,23 +1,50 @@
 /*
- * insights.css
- * Global resets + animation keyframes for the Insights component library.
- * Import once at your app root (e.g. in _app.tsx or layout.tsx).
+ * insights.css — styles for the /insights dashboard.
  *
- *   import "@/components/insights/insights.css";
+ * S8-5 / AA-128: EVERY rule in this file is scoped under `.insights-surface`
+ * (the dashboard root). That is a hard requirement, not a style preference.
+ *
+ * This file is imported by InsightsDashboard.tsx, a client component, so Next
+ * bundles it into the application CSS and it is never unloaded. An unscoped
+ * rule here therefore does not apply to "the insights page" — it applies to
+ * every route in the app, permanently, from the moment a user first visits
+ * /insights. That is exactly what the previous `body { background; color;
+ * font-family }` rule did: one visit here repainted the canvas and typeface of
+ * the entire product, and the scrollbar and focus-ring rules did the same.
+ *
+ * The reduced-motion block that used to live here was a byte-for-byte duplicate
+ * of the one in app/globals.css (which is more complete — it also resets
+ * scroll-behavior), so it was deleted rather than scoped. Nothing was lost.
+ *
+ * If you add a rule here, scope it. There is no rule this page needs that the
+ * rest of the app should inherit.
  */
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-}
+/* ── Surface ──────────────────────────────────────────────────────────────── */
 
-body {
-  background: #0e0e12;
+/*
+ * The dashboard's own canvas. These were `body` declarations; moving them here
+ * changes nothing on this page (the root element already paints C.bg behind
+ * them) and stops them reaching anywhere else.
+ */
+.insights-surface {
   color: #f4f4f8;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/*
+ * Tailwind's preflight already applies border-box app-wide, so this is a
+ * defensive duplicate rather than a load-bearing reset. It stays scoped anyway:
+ * a universal selector in a globally-bundled file is how the rest of this file
+ * went wrong. AA-145 additionally requires that it never set margin or padding —
+ * doing so would collapse the AppShell padding that clears the fixed nav rail.
+ */
+.insights-surface *,
+.insights-surface *::before,
+.insights-surface *::after {
+  box-sizing: border-box;
 }
 
 .insights-dashboard-content {
@@ -30,36 +57,79 @@ body {
   }
 }
 
-/* Skeleton shimmer */
+/* ── Responsive section grids (S8-5 / AA-128) ─────────────────────────────── */
+
+/*
+ * Every section laid its columns out with an INLINE `gridTemplateColumns`.
+ * Inline styles cannot carry a media query, so those splits were fixed at every
+ * viewport — at 768px a "1.55fr 1fr" pair is two unreadable columns rather than
+ * one readable one. That is the root cause; the sections were not simply
+ * missing a breakpoint, they had nowhere to put one.
+ *
+ * Rather than eleven bespoke classes, the ratio stays with the section that
+ * owns it — passed in as `--insights-cols` — and the breakpoint lives here,
+ * once. Sections keep their desktop proportions; the collapse is uniform.
+ */
+.insights-grid {
+  display: grid;
+  grid-template-columns: var(--insights-cols, 1fr 1fr);
+}
+
+/*
+ * Collapse at 900px, not at the 768px in the acceptance criterion. A 1.55fr/1fr
+ * split at 780px is *technically* two columns and practically unreadable — the
+ * charts and their legends both end up too narrow to parse. Collapsing earlier
+ * means 768px is comfortably inside the single-column regime rather than right
+ * at its edge.
+ */
+@media (max-width: 900px) {
+  .insights-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/*
+ * The three-across post grid steps down twice: three is unreadable well before
+ * a two-column layout is, so it drops to two at the tablet width and to one
+ * only when even a pair no longer fits.
+ */
+.insights-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+@media (max-width: 900px) {
+  .insights-grid-3 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .insights-grid-3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Chrome ───────────────────────────────────────────────────────────────── */
+
+/* Skeleton shimmer. Keyframes are global by nature (they are named, not
+   selected), but the animation that uses it is scoped to this surface. */
 @keyframes shimmer {
   0%   { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
 
-/* Scrollbar */
-::-webkit-scrollbar           { width: 6px; height: 6px; }
-::-webkit-scrollbar-track     { background: #0e0e12; }
-::-webkit-scrollbar-thumb     { background: #2a2a35; border-radius: 99px; }
-::-webkit-scrollbar-thumb:hover{ background: #33333f; }
+/* Scrollbars. Unscoped, these restyled every scrollbar in the app. */
+.insights-surface ::-webkit-scrollbar            { width: 6px; height: 6px; }
+.insights-surface ::-webkit-scrollbar-track      { background: #0e0e12; }
+.insights-surface ::-webkit-scrollbar-thumb      { background: #2a2a35; border-radius: 99px; }
+.insights-surface ::-webkit-scrollbar-thumb:hover{ background: #33333f; }
 
-/* Focus rings */
-button:focus-visible,
-a:focus-visible,
-select:focus-visible {
+/* Focus rings. Unscoped, these overrode the app's own focus treatment
+   everywhere — including on routes with a different accent colour. */
+.insights-surface button:focus-visible,
+.insights-surface a:focus-visible,
+.insights-surface select:focus-visible {
   outline: 2px solid #a855f7;
   outline-offset: 2px;
 }
-
-/* Reduced motion */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration:       0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration:      0.01ms !important;
-  }
-}
-
-/* Inter via Google Fonts — include in your <head> or import separately */
-/* @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap'); */

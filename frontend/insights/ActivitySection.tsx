@@ -97,10 +97,13 @@ export function ActivitySection({ period, platform, enabled }: ActivitySectionPr
       ) : !data?.meta?.hasData ? (
         <Panel><EmptyState message="No posts published on your channels in this period." /></Panel>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "1.55fr 1fr", gap: 20, alignItems: "stretch" }}>
+        <div
+          className="insights-grid"
+          style={{ "--insights-cols": "1.55fr 1fr", gap: 20, alignItems: "stretch" } as React.CSSProperties}
+        >
           {/* ── LEFT panel: metric cards + insight footer ── */}
           <Panel style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div className="insights-grid" style={{ "--insights-cols": "1fr 1fr", gap: 12 } as React.CSSProperties}>
               <MetricCard icon="post" value={data.strip.postsPublished.toLocaleString()} label="Posts published">
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
                   <span style={{ display: "inline-flex", gap: 3 }}>
