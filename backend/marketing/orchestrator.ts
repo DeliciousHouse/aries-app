@@ -94,6 +94,7 @@ import {
   type TenantBrandKit,
 } from './brand-kit';
 import { invalidateValidatedProfilesIfSourceChanged } from './validated-profile-store';
+import { isPerStageJobTypeFallbackEnabled } from './per-stage-job-type-fallback-env';
 import { submitMarketingResearchMemoryJob } from '@/backend/memory/submit-marketing-research-job';
 import type { TenantRole } from '@/lib/tenant-context';
 import { scheduleMarketingApprovalHonchoWrites } from '@/backend/memory/write-events';
@@ -1766,6 +1767,25 @@ export async function startSocialContentJob(input: StartSocialContentJobRequest)
   const jobId = makeSocialContentJobId();
   const tenantId = input.tenantId.trim();
   const requestPayload = prepareStartJobPayload(input.jobType, input.payload ?? {});
+  // AA-235 root cause. `jobType` arrives as a SIBLING of `payload`, and
+  // `createSocialContentJobRuntimeDocument` persists the payload verbatim as
+  // `inputs.request` — so unless a caller also duplicated it INSIDE the payload
+  // (only `app/api/marketing/jobs/handler.ts` did), the request the Hermes port
+  // reads carries no jobType at all. `usesPerStageProfilePipeline()` then
+  // routed every scheduled weekly run to the generic brand-campaign branch,
+  // whose prompt is five lines of identifiers, and the agent refused for lack
+  // of inputs. Stamp the request with the job type it was actually started as,
+  // so the persisted document is self-describing at its own source of truth.
+  //
+  // Gated by the SAME flag as the read-side fallback in the Hermes port
+  // (`per-stage-job-type-fallback-env.ts`, default OFF): request.jobType is
+  // consulted BEFORE the flag on the read side, so stamping unconditionally
+  // would flip every new weekly job onto the per-stage pipeline fleet-wide the
+  // moment this lands, which is exactly the decision that must stay an
+  // operator's. Remove the gate (and this comment) once the flag is retired.
+  if (isPerStageJobTypeFallbackEnabled(process.env, tenantId)) {
+    requestPayload.jobType = input.jobType;
+  }
   if (typeof input.createdBy === 'string' && input.createdBy.trim().length > 0) {
     requestPayload.userId = input.createdBy.trim();
   }

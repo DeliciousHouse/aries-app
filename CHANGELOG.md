@@ -2,6 +2,391 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.12.0 — fix(marketing): the strategist names the weekday two ways (AA-237)
+
+The strategist writes a weekday for every post it plans. `buildAutoScheduleRows`
+read that weekday from `recommended_day` and from nothing else, so when Hermes
+named the field `day` the value was dropped on the floor: `dayIndexFromName(null)`
+fails, the post lands on `fallback: first day in window`, and the de-collision
+probe then fans the whole week out +1d/+2d/… in ORDINAL order. No error, no log,
+no `skipped` reason — the editorial plan is silently replaced by a ladder.
+
+This is the second recurrence of one defect class, not a new bug. AA-134
+(2026-07-13, six Instagram posts inside 50 seconds) was the same collapse
+reached by a different route: the weekday had MOVED, into `platform_targets[]`.
+That fix taught the parser the new location and stopped there. It never
+considered that the strategist also RENAMES the field, and it left the discard
+itself silent — which is why the third route had to be found by hand rather than
+read off a log.
+
+The currently available runtime corpus does not reproduce the historical
+frequency claim from the defect report. A read-only census of
+`DATA_ROOT/generated/draft/marketing-jobs` contains 161 JSON documents and zero
+`schedule`, `weekly_schedule`, `recommended_day`, or `day` keys. This change
+therefore makes no current-corpus frequency or blast-radius claim. The census is
+reproducible with:
+
+`npx tsx scripts/marketing/census-schedule-weekdays.ts <DATA_ROOT>`
+
+### Fixed
+
+- The weekday is read through a single `readStrategistWeekday`, which accepts
+  both spellings (preferring `recommended_day`) and treats a blank string as
+  absent. It is used at BOTH sites — the entry level and the per-platform-target
+  level — so a future rename cannot land in the gap between them, which is
+  exactly the gap AA-134's fix left open.
+
+### Added
+
+- **A discarded weekday is never silent again.** Adding one more synonym does
+  not prevent a THIRD rename; a log line does. Whenever a schedule entry
+  resolves no usable weekday, `buildAutoScheduleRows` warns with `entryKeys` —
+  the field names the strategist actually emitted — so the next unknown spelling
+  is legible straight out of the log instead of requiring a corpus study. A
+  second aggregated warning names the POSTS whose (ordinal, platform) matched no
+  entry at all, which the per-entry check structurally cannot see. A schedule
+  that resolves every row logs nothing, so the line stays signal.
+- The warning distinguishes three causes: `no_recognized_weekday_field` (a
+  renamed field), `unparseable_weekday_value` (the field is right, the value is
+  not a weekday) and `entry_named_no_platform` (see Notes).
+
+### Changed
+
+- A weekday VALUE the scheduler cannot parse is now treated as absent rather
+  than carried forward, and is reported with the offending string. Previously
+  `resolvedAny` tested only that some string was present, so an entry reading
+  `recommended_day: "2026-06-08"` — or `"Mon"`, or `"Day 1"` — reproduced the
+  AA-237 symptom byte for byte while logging NOTHING: the parser nulls the value
+  downstream and the post falls back exactly as a renamed field does. Those are
+  not hypothetical values. `PUBLISH_SCHEDULE_CONTRACT` in
+  `backend/marketing/ports/hermes.ts` already tells the model that
+  `recommended_day` is "the FULL English weekday NAME only — never a date, never
+  'Day 1', never an abbreviation, never null", which is the team enumerating the
+  model failures it expects; every one of them was silent. The predicate is
+  `dayIndexFromName(...) !== null`, exported from `auto-schedule.ts` as
+  `isRecognizedWeekday`, so the check cannot drift from the parser and certify a
+  value the scheduler then drops. `AutoScheduleInputRow.recommendedDay` now
+  carries a recognized weekday or `null`, never an uninterpretable string.
+- An unparseable weekday on a `platform_target` falls through to the entry-level
+  weekday instead of shadowing it. A string that is not a weekday is a lost
+  decision, not an override, and the entry may still hold a real one.
+
+The value check is pinned directly against the scheduler's parser. The current
+runtime corpus cannot establish whether historical scheduling outcomes would
+change because it contains no readable schedule entries.
+
+### Notes
+
+A separate empty-`platforms` behavior is pinned but deliberately not repaired in
+AA-237: an entry naming no platform cannot populate the (ordinal, platform) map.
+The warning now reports `entry_named_no_platform`; AA-245 owns any behavior
+change. No prevalence claim is made because the current corpus has no schedule
+entries to measure.
+
+## v0.2.11.4 — fix(ci): deploy keeps the host .env ARIES_APP_IMAGE pin in lockstep with what is running
+
+Every compose invocation in the Deploy workflow pins the image with an
+explicit `ARIES_APP_IMAGE="${TARGET_IMAGE}"` environment override, so the
+containers rolled forward while the deploy checkout's `.env` pin stayed
+wherever the last writer left it. Anyone who later ran a bare
+`docker compose up` in `/home/node/aries-app` resolved that stale pin and
+silently recreated production onto an old image. This bit twice on
+2026-08-12: a `docker compose up -d` recreated four containers onto git sha
+`89af7950` instead of the then-current `30e04d79`, and later the same day the
+pin read `sha256:a050fa08` while the containers actually ran
+`sha256:fe86ffce` — a compose up would have reverted three separate
+production fixes (#986, #987, #989). Both were caught only by manually
+comparing `docker inspect` output against the `.env` value.
+
+Two changes:
+
+- **The deploy now rewrites the pin.** After the app and every sidecar are
+  verified running on the target image (and only then — never pin an image
+  that did not fully roll out), the deploy step resolves the image's
+  **registry digest** and runs `scripts/release/sync-env-image-pin.sh` with
+  the hybrid `name:<git-sha-tag>@sha256:<digest>` reference (the same form
+  compose already uses for the `aries-hermes` default) — the digest is the
+  authoritative immutable pin, the tag stays human-traceable, and the value
+  is deliberately NOT the nearby `target_image_id` local image ID, which is
+  not pullable and means nothing to compose. If no RepoDigest is available
+  the pin falls back to the tag ref with a `::warning::`. The script
+  replaces the `ARIES_APP_IMAGE=` line in place (append when missing,
+  converge duplicates, preserve every other line and the file's permissions,
+  owner-only mode when creating a missing `.env`, same-directory temp file +
+  rename so a crash cannot truncate the `.env`). A failed rewrite fails the
+  deploy: reporting green while the pin is stale re-arms exactly the
+  rollback footgun.
+- **Operator pre-flight guard.** `scripts/check-image-pin.sh` (documented in
+  `DOCKER.md`) refuses, with remediation, when the pin compose would resolve
+  disagrees with the image ID the running containers actually run — the
+  precise mismatch operators previously had to detect by hand. Run it before
+  any manual `docker compose up` in the deploy checkout.
+
+`tests/deploy-env-image-pin.test.ts` (in `npm run verify`) pins the workflow
+ordering (pin sync strictly after the sidecar verification gate, fail-closed,
+registry digest not local image ID) and exercises both scripts for real:
+replace/append/duplicate-converge/create behavior, other variables
+byte-identical, permissions preserved, and guard match/mismatch/hybrid-pin/
+image-absent verdicts against a fake docker.
+
+## v0.2.11.3 — fix(publishing): a failed media leg is not a maybe-live post (AA-238)
+
+X and Instagram publish in two calls. The first one stages the media — for X
+`TWITTER_UPLOAD_MEDIA` (bytes → a Twitter media id), for Instagram
+`INSTAGRAM_POST_IG_USER_MEDIA` (an UNPUBLISHED media container). Neither can
+create a post; only the second call does. Both were dispatched through
+`gateway.executeTool` with **no try/catch**.
+
+Only the broker's explicit `successful:false` verdict was being converted to
+`ComposioToolError`. A raw THROW out of the same call was not — and
+`@composio/core` (0.14.1, verified against the deployed bundle) signals transport
+failure by throwing, never by returning `successful:false`:
+`tools.execute` → `getRawComposioToolBySlug` rethrows any `client.tools.retrieve`
+failure as `ComposioToolNotFoundError`, and `executeComposioTool` rethrows via
+`handleToolExecutionError` as `ComposioToolExecutionError`. None of those classes
+is among the six matched by `publishNeverReachedPlatform`
+(`backend/integrations/publish-outcome.ts`), and `publishPost` has no outer
+catch, so the throw reaches `dispatchPublish` and is raised as
+`provider_publish_outcome_unknown` (`outcomeUnknown:true`). The row parks in
+`manual_reconciliation` — telling the operator the post MAY be live when it
+provably is not.
+
+The window is wider than the byte upload: `tools.execute` fetches the tool
+**schema** first, so a blip on the schema retrieve — before a single byte of
+media is sent — produces the identical misclassification.
+
+### Evidence status — read this before citing a row
+
+This describes a **code path**, not an observed incident. The defect was found by
+reading the deployed bundle and is reproduced in the new tests by constructing
+the real SDK errors at runtime. No log line or database row attributes a
+production failure to the media leg.
+
+One row is easy to cite wrongly in both directions, so state it precisely.
+`scheduled_posts` id 183 (tenant 15, X, 2026-08-12; dispatch 117227) is the only
+`failure_class='outcome_unknown'` row in the database, and an operator has
+already resolved it by hand ("VERIFIED NOT PUBLISHED … x.com/SocialMedi37970
+shows 0 posts").
+
+- It is **not** a text-only post. `posts` id 468 has `media_urls = '{}'`, but the
+  dispatch route only *prefers* that column: the worker sends no `media_urls` in
+  the body (`scripts/automations/scheduled-posts-worker.mjs:1109-1123`), so the
+  route falls back to `resolveMediaUrls(post_id, …)`, which joins
+  `creative_assets` (`app/api/internal/publishing/scheduled-dispatch/route.ts:784-786`).
+  That join resolves exactly one image for post 468 (`52e54ed0-…`,
+  `runtime_asset`, created `2026-08-11 22:15:30-07` — before the
+  `2026-08-12 05:15:06-07` dispatch). So `input.mediaUrls.length === 1` and the X
+  media leg was on that row's path.
+- It is equally **not** proof that the media leg is what failed. The stored
+  `error_message` is the generic outcome-unknown string with no slug, no SDK
+  class and no cause (**AA-244**), so the failing leg cannot be recovered from
+  the row — and container logs for the window are gone.
+
+Row 183 is consistent with this defect and with the genuine create-post boundary
+alike. It must not be cited as evidence for this fix.
+
+### Fixed
+
+- The X `TWITTER_UPLOAD_MEDIA` call and the Instagram container call now rethrow
+  as `ComposioToolError`, mirroring the `gateway.uploadFile` catch that already
+  sat immediately above the X one and the `successful:false` conversion that
+  already sat immediately below both. A media-leg failure is now uniformly
+  definitely-never-posted: safe to roll back the claim and retry.
+
+### Deliberately unchanged
+
+- The **final shared `executeTool`** in `publishPost` (the X create-post, the IG
+  container **publish**, and every single-call platform) stays bare. That one
+  genuinely is the outcome-unknown boundary — a transport drop after it may have
+  posted. Wrapping it would classify a real post-creation failure as
+  never-posted and license a retry that DOUBLE-POSTS to a live customer account.
+  Two tests now assert it stays unwrapped, so the tempting symmetry fails loudly.
+- `publishNeverReachedPlatform`'s recognized set is untouched. Adding the
+  `@composio/core` error classes to it would have looked like a tidier fix and
+  would have produced exactly the double-post above, since the final call throws
+  the same classes.
+- `backend/integrations/composio/facebook-page-resolver.ts` has the same
+  unwrapped-`executeTool` shape on a read-only page enumeration reached from
+  `publishPost` (`composio-publisher-provider.ts:321`, the
+  `externalAccountId IS NULL` fallback). Out of scope here; tracked as
+  **AA-243**. Its sibling `instagram-account-resolver.ts:79-84` already guards,
+  which is why IG has no equivalent hole.
+- `publish-dispatch.ts:190-206` still discards the caught error when it
+  constructs the outcome-unknown `MetaPublishError`, so a row that lands there
+  records no slug, no SDK class and no cause. Not changed here (this PR only
+  moves the media legs *out* of that path); tracked as **AA-244**.
+
+### Test-harness note
+
+Neither the X nor the shared Composio gateway double could make `executeTool`
+**throw** — they could only return a result — so this entire failure class was
+unexpressible. `makeXGateway` (`tests/composio-x-publisher.test.ts`) and
+`fakeGateway` (`tests/composio/helpers.ts`) both take a new per-slug
+`executeToolShouldThrow` map. The fixtures are the **real** SDK error objects,
+imported from `@composio/core` (`ComposioToolNotFoundError`,
+`handleToolExecutionError`), not hand-rolled stand-ins that could encode the same
+wrong belief as the code.
+
+## v0.2.11.2 — fix(publishing): a failed page-id lookup is not a maybe-live post (AA-243)
+
+Facebook's `publishPost` needs a Page id. It is normally stored at connect time
+in `connected_accounts.external_account_id`; when that is null (OAuth-callback
+race), `resolveFacebookManagedPage` calls the read-only
+`FACEBOOK_LIST_MANAGED_PAGES` enumeration as a fallback — BEFORE any
+post-creation call.
+
+That `gateway.executeTool` was not wrapped in try/catch. The resolver only
+handled the broker's explicit `successful:false` verdict (→ null); a THROWN
+call leaked raw. `@composio/core` 0.14.1 throws on transport failure
+(`ComposioToolNotFoundError` from the tool-schema retrieve,
+`ComposioToolExecutionError` via `handleToolExecutionError`), and
+`LiveComposioGateway.executeTool` does not catch. Neither class is in
+`publishNeverReachedPlatform`'s recognized never-posted set and `publishPost`
+has no outer catch, so the throw reached `publish-dispatch.ts` and was raised
+as `provider_publish_outcome_unknown` with `outcomeUnknown:true` — the row
+parked in manual reconciliation telling the operator the post MAY be live. It
+provably is not: a page enumeration cannot create a post, and it runs before
+any publish call. Same defect class as AA-238's media legs, found while fixing
+that and scoped out of its PR.
+
+### Fixed
+
+- `resolveFacebookManagedPage` now wraps its `executeTool` in try/catch and
+  swallows the throw to null — the exact contract its sibling
+  `resolveInstagramAccount` already had, and the one the file header already
+  documented ("Fail-safe: returns null ... Throwing is the caller's call to
+  make — this never invents a Page"). Null was chosen over rethrowing as
+  `ComposioToolError` because the caller's no-page path already produces the
+  right verdict: `publishPost` throws `ComposioCapabilityMissingError`
+  (`status` 403, `retryable:false`), which `publishNeverReachedPlatform`
+  recognizes — a clear, terminal, definitely-never-posted classification, the
+  same one a transient `successful:false` on this call has always produced.
+  Rethrowing would instead have pushed a publish-taxonomy error class into a
+  resolver shared by two non-publish callers (`composio-account-provider.ts`,
+  `insights/sync/ensure-account.ts`, both of which already guard with their own
+  try/catch and want the quiet null skip).
+- Regression tests pin both throw shapes with the REAL `@composio/core` error
+  classes (constructed exactly as the SDK constructs them — no hand-rolled
+  stand-ins): the resolver returns null, and at the provider level a throwing
+  fallback surfaces as `ComposioCapabilityMissingError` classified
+  never-posted, with only the read-only enumeration slug ever attempted.
+  (`tests/composio-facebook-page-resolver.test.ts`,
+  `tests/composio-publisher-fb-page-fallback.test.ts`)
+
+The final shared `executeTool` in `publishPost` is deliberately untouched: that
+call genuinely IS the outcome-unknown boundary, and catching there would enable
+a double post.
+## v0.2.11.0 — fix(marketing): a refusal is not a post (AA-235)
+
+On 2026-08-12 the weekly pipeline published an AI agent's REFUSAL to live brand
+accounts. Seven posts were synthesized whose captions read
+
+> "Missing brand-kit research, campaign context, and approved content package
+> for publish-stage execution."
+
+They were created `approved`, auto-scheduled and dispatched. Two Facebook posts
+have been deleted; one Instagram post was still live at the time of writing. 27
+further posts are held in the database and are NOT touched by this change.
+
+Two independent defects had to line up. Both are fixed here.
+
+### Defect A — the request carried no inputs
+
+`usesPerStageProfilePipeline()` decides whether an `action:'run'` submission
+takes the weekly per-stage branch — brand kit, scope, objective and prior-stage
+artifacts, assembled by `buildSocialContentWeeklyRequest` — or the generic
+brand-campaign branch, whose run prompt is five lines of bare identifiers. It
+reads `doc.inputs.request.jobType`.
+
+`startSocialContentJob` receives `jobType` as a SIBLING of `payload`, and
+`createSocialContentJobRuntimeDocument` persists `request: input.payload`
+verbatim. Six sites create jobs; only `app/api/marketing/jobs/handler.ts` also
+duplicates jobType INTO the payload. `weekly-trigger.ts`,
+`onboarding-variant-batch.ts`, `variant-pick-finalize.ts` and
+`app/onboarding/resume/page.tsx` do not. Every SCHEDULED weekly run therefore
+reached Hermes with no brand kit, no scope and no prior-stage output, and the
+agent — correctly — refused for lack of inputs. 69 of the 74 weekly documents on
+disk carry no `inputs.request.jobType`; 33 of those were created by the
+weekly-trigger worker.
+
+The pre-existing port tests were green throughout because they hand-build the
+runtime document with jobType already inside the payload and never touch the
+real entry point.
+
+### Defect B — a refusal became an approved post
+
+Nothing between generation and publish asked whether the text was content.
+`extractContentPackage` fell back to the PUBLISH stage's `content_package` when
+production emitted none — and that fallback is what carried the refusal into
+`posts.caption`. It also quietly contradicted `PRODUCTION_EXECUTION_CONTRACT`,
+which already declares production output without a content_package "incomplete
+and will fail downstream publish"; instead of failing, publish invented the copy
+from whatever the publish agent happened to say. In the incident that agent had
+also labelled its own output `"stage": "strategy"`, and every reader took the
+artifact at face value.
+
+### Fixed
+
+- **Defect A.** When the persisted request states no jobType, routing falls back
+  to the document's own top-level `job_type`, which self-heals the 69 documents
+  already on disk (they cannot be re-stamped and are re-read on every
+  auto-advance hop). `startSocialContentJob` also stamps `requestPayload.jobType`
+  so a newly persisted request is self-describing at its own source of truth
+  rather than depending on each caller to remember to duplicate a sibling
+  parameter. An explicitly-stated `request.jobType` still wins outright and
+  ungated, so the one-off reel companion, the dashboard create path and the 16
+  legacy `brand_campaign` documents keep byte-identical routing.
+- **Defect B.** The publish-stage fallback for `content_package` is gone.
+  Production is the only source of post copy. When production ran and delivered
+  none — the `content_package` key absent or empty, NOT "entries parsed to zero",
+  which stays the pre-existing `no_content_package` no-op — synthesis refuses
+  with `production_content_package_missing`, the job is marked FAILED with the
+  reason on `doc.last_error` (not merely a console line), and the auto-schedule
+  hook is suppressed for that run.
+- **Defect B.** A publish artifact whose `primary_output` declares a `stage`
+  other than `publish` is DISTRUSTED: its schedule and its `publish_package` are
+  ignored (synthesis falls through to the default cadence, the same path an
+  absent schedule already takes) and the anomaly is recorded on the job
+  document. It is deliberately NOT a refusal. 21 of the 87 persisted documents
+  with a publish artifact declare some other stage, and 16 of those carry a
+  perfectly good production `content_package` and synthesized real posts —
+  including `mkt_c8ee6236`, the reference scenario in
+  `tests/marketing/default-cadence-slots.test.ts`. Failing on the label would
+  have broken roughly a fifth of publishing weeks to guard against a string. All
+  three documents whose production emitted nothing also carry a mislabelled
+  artifact, so the hard stop above catches the incident on its own. The check
+  fires only on a stated contradiction; an output with no `stage` key is normal
+  and is left alone.
+
+### Added
+
+- `ARIES_PER_STAGE_JOB_TYPE_FALLBACK_ENABLED` — rollout gate for defect A,
+  default OFF, with the `ON | OFF | tenant-allowlist` shape of
+  `ARIES_PLATFORM_NATIVE_CONTENT_ENABLED`. Both halves of the fix are behind it,
+  the stamp included: the read side consults `request.jobType` BEFORE the flag,
+  so stamping unconditionally would flip every new weekly job onto the per-stage
+  pipeline fleet-wide the moment this lands. **Landing this release moves no
+  traffic.** Defect B's gates are NOT flagged — they only ever refuse output
+  that was never publishable.
+
+### Notes
+
+Turning the flag on switches scheduled weekly runs to a different workflow key
+(`social_content_weekly`), a different request builder and the per-stage
+gateways. That code path is NOT new: 40 one-off reel documents and 38 legacy
+documents already execute the `action:'run'` weekly branch in production today,
+and their failures are auth/video-render issues, not routing ones. What is new
+is the weekly-trigger tenant population going through it. Recommended rollout is
+a single-tenant allowlist for one weekly cycle before ON.
+
+`INSERT_SYNTHESIZED_POST_SQL` still hard-codes `'approved','approved'`. Landing
+synthesized posts as `in_review` instead is the right long-term shape but is NOT
+a one-line change: no endpoint in the repo promotes a post out of `in_review`,
+so every synthesized post would sit until the draft-expiry sweep expired it —
+turning a content-safety improvement into a total delivery outage. It needs a
+promote route, the calendar backlog query, the auto-schedule gate and a UI
+affordance, and is deliberately left as follow-up work.
+
 ## v0.2.10.1 — fix(publishing): read LinkedIn's `x_restli_id` post id
 
 A successful LinkedIn publish is recorded as a success again.

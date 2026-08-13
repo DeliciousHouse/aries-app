@@ -9,7 +9,9 @@ import { InsightsFilters }      from "@/frontend/insights/InsightsFilters";
 import { LazyInsightSection }   from "@/frontend/insights/LazyInsightSection";
 import { FreshnessStamp }        from "@/frontend/insights/FreshnessStamp";
 import { ExportMenu }            from "@/frontend/insights/ExportMenu";
+import { AnalyticsDrilldownLink } from "@/frontend/insights/AnalyticsDrilldownLink";
 import { HeroSection }          from "@/frontend/insights/HeroSection";
+import { WeeklyRecapSection }   from "@/frontend/insights/WeeklyRecapSection";
 import { GoalSection }          from "@/frontend/insights/GoalSection";
 import { AttentionSection }     from "@/frontend/insights/AttentionSection";
 import { ActivitySection }      from "@/frontend/insights/ActivitySection";
@@ -21,18 +23,26 @@ import { AudienceSection }      from "@/frontend/insights/AudienceSection";
 
 /**
  * Client body for the /insights route. Renders the full insights dashboard
- * (filters + the nine stacked sections) on the redesign's dark canvas. The
- * surrounding chrome — nav, header, auth/onboarding gate, and the real
- * operator identity — is provided by the shared AppShellLayout in
- * app/insights/page.tsx, so this component owns content only.
+ * (filters + the stacked sections, including the flag-gated weekly recap) on
+ * the redesign's dark canvas. The surrounding chrome — nav, header,
+ * auth/onboarding gate, and the real operator identity — is provided by the
+ * shared AppShellLayout in app/insights/page.tsx, so this component owns
+ * content only.
  */
 export function InsightsDashboard({
   nativeReplyEnabled = false,
   enabledPlatforms = [],
+  weeklyRecapEnabled = false,
 }: {
   nativeReplyEnabled?: boolean;
   /** Platforms with a live insights adapter, resolved server-side. */
   enabledPlatforms?: readonly Platform[];
+  /**
+   * AA-229/PR2b: ARIES_WEEKLY_RESULTS_ENABLED, read server-side in
+   * app/insights/page.tsx. False means the WeeklyRecapSection is not
+   * mounted at all — no markup, no fetch — mirroring nativeReplyEnabled.
+   */
+  weeklyRecapEnabled?: boolean;
 } = {}) {
   const [period, setPeriod]     = useState<Period>("90day");
   const [platform, setPlatform] = useState<Platform>("all");
@@ -51,8 +61,10 @@ export function InsightsDashboard({
           margin:   "0 auto",
         }}
       >
-        {/* Every section is its own full-width row, stacked top to bottom. */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 30 }}>
+        {/* Every section is its own full-width row, stacked top to bottom.
+            `insights-print-page` marks this as the column the print stylesheet
+            thins down to the weekly recap alone (S8-3/AA-126 + AA-229/PR2b). */}
+        <div className="insights-print-page" style={{ display: "flex", flexDirection: "column", gap: 30 }}>
           {/* 1 — Hero band */}
           <HeroSection period={period} platform={platform} />
 
@@ -71,12 +83,26 @@ export function InsightsDashboard({
                 was already near capacity (six channel chips) onto a second
                 line, where space-between left-aligns it under the filters. */}
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginLeft: "auto" }}>
+              {/* AA-229 PR1: the /dashboard/analytics per-platform drill-down,
+                  carrying the same live period + platform as everything else
+                  on this row. Renders nothing on "all" or Instagram (see the
+                  component for why). */}
+              <AnalyticsDrilldownLink period={period} platform={platform} />
               {/* S5-3: export sits on the control row so it inherits the same
                   period + platform the sections below are showing. */}
               <ExportMenu period={period} platform={platform} />
               <FreshnessStamp />
             </div>
           </div>
+
+          {/* 10 — Weekly recap (AA-229/PR2b). Full-width band, rendered EAGERLY
+              — NOT wrapped in the lazy-section deferral used below — because
+              it carries the only urgent items on this page (blocked
+              dispatches, "Reconnect Meta"); a lazy gate would bury exactly the
+              thing this migration exists to surface. It owns its own ISO-week
+              axis, not period/platform, so it takes no props from the filter
+              row. */}
+          {weeklyRecapEnabled && <WeeklyRecapSection />}
 
           {/* 2 — Goal */}
           <GoalSection period={period} platform={platform} />

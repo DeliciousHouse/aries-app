@@ -120,7 +120,9 @@ export interface DashboardHomeViewModel {
 }
 
 const DASHBOARD_POSTS_HREF = '/dashboard/posts';
-const DASHBOARD_RESULTS_HREF = '/dashboard/results';
+// AA-229/PR2b: /dashboard/results is retired; results now live on /insights
+// (Section 10 — Weekly recap, plus the rest of the analytics dashboard).
+const DASHBOARD_RESULTS_HREF = '/insights';
 
 function isScheduledValue(value: string): boolean {
   return !value.startsWith('Nothing') && !value.startsWith('Waiting');

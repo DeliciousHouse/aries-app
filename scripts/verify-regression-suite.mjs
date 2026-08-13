@@ -288,12 +288,31 @@ const steps = [
     args: ['--test', 'tests/insights-math-pinning.test.ts'],
   },
   {
+    // AA-229/PR2a: Section 6 weakest-post card + two-reason empty state. Pins
+    // the SQL engagement expression against deriveTopPostMetrics() over a
+    // fixture grid (the highest-risk seam — the SQL and JS rankings must never
+    // silently diverge), the postCount<2 omission rule, and the
+    // availability→reason mapping. Pure/in-memory, no DB.
+    name: 'insights top-posts weakest-post + availability (AA-229 PR2a)',
+    args: ['--test', 'tests/insights-top-weakest.test.ts'],
+  },
+  {
     // S3-1/AA-97: honesty pass — no fabricated numbers posing as measured stats.
     // Dead account scores 0 (not ~50); one shared hoursSaved estimate; whyItWorked
     // uses the real multiplier not a hardcoded 1.5x/1.7x; and a copy tripwire
     // against "design accounts" / "1-3.5%" / "N.Nx your ..." reintroduction. No DB.
     name: 'insights honesty pass (no fabricated stats)',
     args: ['--test', 'tests/insights-honesty-pass.test.ts'],
+  },
+  {
+    // AA-246: Trends Reach-tab ratio copy ("Nx your follower base of …" / "N%
+    // of your N followers") divides against the tenant's real current follower
+    // count (TrendsSnapshot.followerBase), never the period's follower DELTA,
+    // and is suppressed (not a formatted zero / clamped percentage) when the
+    // base is unknown or non-positive. Pure + no DB; regression here is the
+    // qa-defect #818 "8200% of 0 followers" class of bug shipping again.
+    name: 'insights trends follower-ratio honesty (AA-246)',
+    args: ['--test', 'tests/insights-trends-follower-ratio.test.ts'],
   },
   {
     // S3-2 (gap C1): insights_posts.content_type production writer. The pure
@@ -394,19 +413,22 @@ const steps = [
     args: ['--test', 'tests/marketing/review-learning-labels.test.ts'],
   },
   {
-    // S5-1/AA-110 (gap F1b): the weekly results report + its flag-gated route.
-    // Pins the week boundary (most-recent COMPLETED ISO week in UTC, incl. the
-    // year-boundary and non-existent-W53 cases), the publish-state counts, the
-    // reconnect signal coming from oauth_connections rather than a per-post code
-    // (there is none), manual_reconciliation staying OUT of `blocked`, the
-    // honesty contract (an unavailable ranking carries no post payload), the A1
-    // regression (latest snapshot, never a SUM), the bounded ranking window, and
-    // the gate short-circuiting before any tenant/DB work. Fake queryable, no DB.
-    name: 'weekly results report + route (F1b)',
+    // S5-1/AA-110 (gap F1b), relocated by AA-229/PR2b into the insights
+    // section family (Section 10 — Weekly Recap). Pins the week boundary
+    // (most-recent COMPLETED ISO week in UTC, incl. the year-boundary and
+    // non-existent-W53 cases), the publish-state counts, the reconnect signal
+    // coming from oauth_connections rather than a per-post code (there is
+    // none), manual_reconciliation staying OUT of `blocked`, the topChannel
+    // aggregate's A1 regression (latest snapshot, never a SUM of dated rows),
+    // the bounded aggregate window, the two negatives that must survive the
+    // move (no attribution scope, no #513 read path), the required-client
+    // guardrail #1 seam, and the gate short-circuiting before any tenant/DB
+    // work. Fake queryable, no DB.
+    name: 'weekly recap builder + route (F1b, AA-229/PR2b)',
     args: [
       '--test',
-      'tests/weekly-results-report.test.ts',
-      'tests/weekly-results-route.test.ts',
+      'tests/insights-weekly-recap-builder.test.ts',
+      'tests/insights-weekly-recap-route.test.ts',
     ],
   },
   {
@@ -533,8 +555,11 @@ const steps = [
     ],
   },
   {
-    name: 'print-ready weekly report (AA-126)',
-    args: ['--test', 'tests/weekly-results-print.test.ts'],
+    // AA-229/PR2b relocated this report onto /insights as Section 10, so the
+    // print rules gained a job: drop the other nine sections, or Cmd+P produces
+    // the whole dashboard instead of the one-page recap.
+    name: 'print-ready weekly recap (AA-126)',
+    args: ['--test', 'tests/insights-weekly-recap-print.test.ts'],
   },
   {
     name: 'insights read-api + narrative behaviour (AA-124)',
@@ -634,6 +659,14 @@ const steps = [
     // verify alone — a compose/deploy drift must fail before that dispatch.
     name: 'deploy manifest parity',
     args: ['--test', 'tests/deploy-manifest-parity.test.ts'],
+  },
+  {
+    // The deploy must rewrite the host .env ARIES_APP_IMAGE pin (registry
+    // digest, only after full verification, fail-closed) and the operator
+    // guard must refuse a stale pin — otherwise a bare `docker compose up`
+    // on the deploy host silently rolls production back (2x on 2026-08-12).
+    name: 'deploy .env image-pin sync and guard',
+    args: ['--test', 'tests/deploy-env-image-pin.test.ts'],
   },
   {
     // Self-hosted deploy cleanup is destructive host policy. Keep its repository

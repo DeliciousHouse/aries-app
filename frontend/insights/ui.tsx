@@ -14,7 +14,10 @@ export function SectionHeader({
   eyebrow: _eyebrow,
 }: {
   title:    string;
-  note?:    string;
+  /** Usually a short string, but a section that needs an interactive control
+   *  next to its scope line (e.g. WeeklyRecapSection's week stepper) may pass
+   *  a node instead. */
+  note?:    ReactNode;
   /** @deprecated single-line header now — pass the full label as `title`. */
   eyebrow?: string;
 }) {

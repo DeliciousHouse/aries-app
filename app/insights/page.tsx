@@ -1,6 +1,7 @@
 import AppShellLayout from "@/frontend/app-shell/layout";
 import { InsightsDashboard } from "@/frontend/insights/InsightsDashboard";
 import { isNativeReplyEnabled } from "@/backend/integrations/meta-reply-env";
+import { isWeeklyResultsEnabled } from "@/backend/insights/weekly-recap/weekly-recap-env";
 import { SUPPORTED_PLATFORMS } from "@/backend/insights/platforms/registry";
 import { isPlatformInsightsEnabled } from "@/backend/insights/sync/adapter-factory";
 import type { Platform } from "@/frontend/insights/types";
@@ -15,7 +16,7 @@ export const metadata = {
  * Renders inside the shared AppShellLayout (same chrome as every other authed
  * screen) so it inherits the real left-nav, the real operator identity, and the
  * auth + onboarding gate (the shell redirects unauthenticated users to /login).
- * The dark insights canvas + the nine data sections live in InsightsDashboard.
+ * The dark insights canvas + its data sections live in InsightsDashboard.
  */
 export default function InsightsPage() {
   // Read the native-reply rollout flag server-side and pass it down, mirroring
@@ -23,6 +24,13 @@ export default function InsightsPage() {
   // endpoint returns a real 404, so the UI must not offer a control that
   // cannot succeed.
   const nativeReplyEnabled = isNativeReplyEnabled();
+
+  // AA-229/PR2b: read the weekly-recap rollout flag server-side and pass it
+  // down, same pattern as nativeReplyEnabled above. When it is off,
+  // InsightsDashboard does not mount WeeklyRecapSection at all — no markup,
+  // no fetch — matching the route handler's own disabled-before-tenant-
+  // resolution contract (backend/insights/weekly-recap/handler.ts).
+  const weeklyRecapEnabled = isWeeklyResultsEnabled();
 
   // Only offer a channel chip when an insights adapter can actually produce
   // data for it. `isPlatformInsightsEnabled` is the same predicate the sync
@@ -37,6 +45,7 @@ export default function InsightsPage() {
       <InsightsDashboard
         nativeReplyEnabled={nativeReplyEnabled}
         enabledPlatforms={enabledPlatforms}
+        weeklyRecapEnabled={weeklyRecapEnabled}
       />
     </AppShellLayout>
   );

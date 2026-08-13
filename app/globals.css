@@ -673,6 +673,23 @@ html {
     color: #111 !important;
   }
 
+  /* AA-229/PR2b moved the recap out of its own page and onto /insights as one
+     section among ten. Printing therefore has to drop the other nine, or Cmd+P
+     produces the entire dashboard — hero, filters, goal, trends, the lot —
+     instead of the one-page recap a client is meant to receive.
+     Each direct child of the section column that neither IS nor CONTAINS the
+     report is hidden; the report keeps its place in the flow. */
+  body:has([data-print-report]) .insights-print-page > *:not([data-print-report]):not(:has([data-print-report])) {
+    display: none !important;
+  }
+
+  /* The dashboard surface paints its dark canvas via an INLINE style, which no
+     stylesheet rule outranks without !important. Left alone it is the one dark
+     background that survives onto the page. */
+  body:has([data-print-report]) .insights-surface {
+    background: #fff !important;
+  }
+
   /* The shell. A fixed sidebar or a full-bleed gradient layer would either
      overlay the report or paint every page. */
   body:has([data-print-report]) aside,

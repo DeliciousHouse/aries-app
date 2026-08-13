@@ -19,6 +19,7 @@
 import type { PoolClient } from '@/lib/db';
 import { LATEST_POST_METRICS_LATERAL } from '../latest-post-metrics-sql';
 import { accountEngagementSql } from '../account-engagement-sql';
+import { CURRENT_FOLLOWERS_SUM_SQL } from '../current-followers-sql';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -47,6 +48,15 @@ export interface TrendsSnapshot {
   followers:  TrendsMetric;
   comments:   TrendsMetric;
   visits:     TrendsMetric | null;
+
+  /** AA-246: the tenant's actual CURRENT follower count (DISTINCT ON latest
+   *  row per platform, summed via current-followers-sql.ts's
+   *  CURRENT_FOLLOWERS_SUM_SQL, also re-exported from read-api.ts) —
+   *  NOT `followers.value` above, which is the period's SUM(followers_delta)
+   *  (followers gained/lost, not held). This is the only field the Reach
+   *  ratio copy ("2.5x your follower base of …") may divide against; see
+   *  follower-ratio.ts. */
+  followerBase: number;
 
   series: {
     reach:      TrendsSeries;
@@ -469,6 +479,32 @@ export async function buildTrendsSnapshot(
       : curEngRate;
   }
 
+  // ── 8. Follower base (AA-246) ─────────────────────────────────────────────
+  // The tenant's actual CURRENT follower count for the Reach-ratio and
+  // Followers-growth copy — a point-in-time fact, not a period aggregate, so
+  // it is deliberately NOT bounded by `currentStart`/`priorStart` above (a
+  // quiet-week sync gap must not read as "no follower base"). Reused
+  // verbatim from current-followers-sql.ts rather than re-derived; it is a
+  // fully self-contained statement (its own $1/$2/$3) so it runs as its own
+  // sequential query rather than being spliced into the account-series query
+  // above, whose $4 is already the platform filter.
+  //
+  // Lookback is 90 days, matching handleGetInsightsSummary's own ceiling
+  // (`clamp(days, 1, 90)`) — the other reader of this exact quantity, which
+  // renders it as the Followers stat card on /dashboard/analytics. A wider
+  // window here would let a >90-day-stale tenant show a real follower count
+  // on Trends while Summary already shows 0 for the same tenant: the same
+  // "two readers of one quantity drifted" shape AA-231 was about. 90 days
+  // still clears the quiet-week concern (the sync worker ticks every 30
+  // minutes; a 90-day gap is a dead integration, not a quiet week), and it
+  // makes the suppress-when-unknown contract below agree with what Summary
+  // already shows for that tenant.
+  const followerBaseRes = await client.query<{ current_followers: string }>(
+    CURRENT_FOLLOWERS_SUM_SQL,
+    [tenantId, utcDayStart(90), platformFilter],
+  );
+  const followerBase = Number(followerBaseRes.rows[0]?.current_followers ?? 0);
+
   // ── Assemble series ───────────────────────────────────────────────────────
   const labels = currentBuckets.map(b => b.label);
 
@@ -488,6 +524,7 @@ export async function buildTrendsSnapshot(
       valuePrev: priFollow,
       delta:     null,
     },
+    followerBase,
     comments: {
       value:     curComments,
       valuePrev: priComments,

@@ -47,7 +47,13 @@ import { checkInsightsForceThrottle } from '../force-throttle';
 // bodies. NOTE: the scope is a property of the data, not of the request, so it
 // is deliberately NOT part of the cache key — a tenant that crosses the
 // threshold mid-cache keeps serving the all-channel body until the 1h TTL.
-const TEMPLATE_VERSION = 'top-v8';
+// v9 (2026-08-13, AA-229 PR2a): adds `body.weakest` (the lowest-ranked post by
+// the active sort metric, null below 2 posts) and `body.meta.availability`
+// (the two-reason empty state: 'insights_not_connected' vs
+// 'no_posts_in_window'). Bump is mandatory: a cached top-v8 body has neither
+// field, and both must read as "there is none" rather than `undefined` (the
+// #783/#785 stale-cache trap).
+const TEMPLATE_VERSION = 'top-v9';
 const CACHE_TTL_BASE_MS     = 60 * 60 * 1000;
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);
@@ -186,11 +192,13 @@ export async function handleGetInsightsTop(
       posts,
       pattern,
       sortBy,
+      weakest: snap.weakest,
       meta: {
-        postCount:   snap.postCount,
-        avgReach:    Math.round(snap.avgReach),
-        hasData:     snap.posts.length > 0,
-        attribution: snap.attribution,
+        postCount:    snap.postCount,
+        avgReach:     Math.round(snap.avgReach),
+        hasData:      snap.posts.length > 0,
+        attribution:  snap.attribution,
+        availability: snap.availability,
       },
     };
 

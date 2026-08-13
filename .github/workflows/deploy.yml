@@ -577,6 +577,39 @@ jobs:
           fi
           echo "Post-deploy check: all sidecar workers are running on the target image."
 
+          # --- ARIES_APP_IMAGE pin guard: every compose invocation above
+          # pinned the image via an environment override, so the containers
+          # now run TARGET_IMAGE while the host .env still names whatever the
+          # previous deploy (or an operator) left there. A later bare
+          # `docker compose up` in this directory resolves the stale .env pin
+          # and silently rolls production back to it — that happened twice on
+          # 2026-08-12. Rewrite the pin so the file always describes what is
+          # actually running. Fatal on failure: reporting deploy success while
+          # the pin is stale re-arms exactly that rollback footgun.
+          #
+          # Pin the hybrid tag@digest form (name:tag@sha256:...): the registry
+          # digest is the authoritative immutable reference, the git-sha tag
+          # stays human-traceable, and compose already uses this exact form
+          # for the aries-hermes default image. NOTE: target_image_id above is
+          # the LOCAL image ID, not a registry digest — never write it here
+          # (it is not pullable and means nothing to compose). RepoDigests can
+          # be empty in edge cases; fall back to the tag ref with a warning
+          # rather than failing a healthy deploy over pin cosmetics.
+          pin_ref="${TARGET_IMAGE}"
+          pin_repo="${TARGET_IMAGE%:*}"
+          pin_repo_digest="$(docker image inspect -f '{{range .RepoDigests}}{{println .}}{{end}}' "${TARGET_IMAGE}" 2>/dev/null | grep -m1 "^${pin_repo}@sha256:" || true)"
+          if [[ -n "${pin_repo_digest}" ]]; then
+            pin_ref="${TARGET_IMAGE}@${pin_repo_digest##*@}"
+          else
+            echo "::warning::No registry digest available for ${TARGET_IMAGE}; pinning the tag ref only in .env."
+          fi
+          if ! ./scripts/release/sync-env-image-pin.sh .env "${pin_ref}"; then
+            echo "ERROR: failed to sync ARIES_APP_IMAGE in ${repo_path}/.env to ${pin_ref}; a bare 'docker compose up' would roll production back to the stale pin. Fix the pin (scripts/release/sync-env-image-pin.sh .env ${pin_ref}) and re-run the deploy to verify." >&2
+            exit 1
+          fi
+          echo "::notice ::ARIES_APP_IMAGE pinned to ${pin_ref} in ${repo_path}/.env (matches the verified running deployment)."
+          # --- End ARIES_APP_IMAGE pin guard ---
+
           cleanup_actions_attempted="preflight selected-builder cache prune + target-repository image cleanup (older than 168h; keep newest 3 + container-referenced)"
           docker_disk_after_snapshot="$(read_disk_snapshot "${docker_disk_path}")"
           IFS='|' read -r docker_disk_after_filesystem docker_disk_after_checked_path docker_disk_after_free_gb <<< "${docker_disk_after_snapshot:-${docker_disk_filesystem}|${docker_disk_checked_path}|unknown}"

@@ -235,6 +235,26 @@ export interface PatternBreakdownSlice {
   label:       string;
   count:       number;
 }
+// AA-229/PR2a — reduced projection for the weakest-post card. NOT the full
+// TopPost shape: the backend query only selects these 7 columns, so the other
+// TopPost fields (sentiment, multiplier, bestDow, …) are never computed for it.
+export interface WeakestPost {
+  id:        number;
+  platform:  string;
+  title:     string | null;
+  caption:   string | null;
+  permalink: string | null;
+  reach:     number;
+  metric:    number;   // the active sort metric's raw value for this post
+}
+// AA-229/PR2a — why the ranked set is empty. `reason` is null on the populated
+// path (nothing to explain) and one of the two documented values once the
+// backend has actually distinguished "no account" from "connected but no
+// posts in this window".
+export interface TopAvailability {
+  insightsConnected: boolean;
+  reason: "insights_not_connected" | "no_posts_in_window" | null;
+}
 export interface TopData extends ApiBase {
   posts:  TopPost[];
   pattern: {
@@ -244,11 +264,13 @@ export interface TopData extends ApiBase {
     breakdown: PatternBreakdownSlice[];
   };
   sortBy: SortKey;
+  weakest: WeakestPost | null;   // absent semantics: null below 2 posts, never undefined (pre-v9 caches are invalidated by the TEMPLATE_VERSION bump)
   meta: {
-    postCount:    number;
-    avgReach:     number;
-    hasData:      boolean;   // ← emptiness flag lives HERE
-    attribution?: AttributionScopeMeta;   // absent on pre-v8 cached bodies
+    postCount:     number;
+    avgReach:      number;
+    hasData:       boolean;   // ← emptiness flag lives HERE
+    attribution?:  AttributionScopeMeta;   // absent on pre-v8 cached bodies
+    availability:  TopAvailability;
   };
 }
 
@@ -326,3 +348,54 @@ export interface AudienceData extends ApiBase {
     timezone:   string | null;
   };
 }
+
+// § Weekly Recap — backend/insights/weekly-recap/handler.ts (AA-229/PR2b)
+//
+// Section 10. Own time axis: a `?week=YYYY-WW` ISO week (default = most-recent
+// COMPLETED week), NOT the shared week|30day|90day `period`/`platform` pair —
+// those are ignored. Distinct envelope, not an ApiBase: disabled state is
+// `{ enabled: false }` at 200 (the flag gate precedes tenant resolution), not
+// an ApiBase `status`. Best/weakest post ranking is NOT part of this payload —
+// Section 6 (Top) owns that.
+export interface WeeklyRecapTopChannel {
+  channel: string | null;
+  basis:   "published_count" | "reach";
+  value:   number;
+}
+export interface WeeklyRecapLearning {
+  id:        string;
+  findingId: null;   // always null in the MVP — Honcho finding surfacing is a deferred slice
+  source:    "publish_reliability";
+  title:     string;
+  body:      string;
+}
+export interface WeeklyRecapNextAction {
+  title: string;
+  body:  string;
+  href?: string;
+}
+export interface WeeklyRecapReport {
+  week: { iso: string; startYmd: string; endYmd: string; label: string };
+  published: {
+    total:     number;
+    byChannel: Record<string, number>;
+    bySurface: Record<string, number>;
+  };
+  skipped: { total: number; note: string };
+  blocked: {
+    total:             number;
+    failedCount:       number;
+    reconnect:         boolean;
+    reconnectChannels: string[];
+  };
+  // Deliberately its own count, NEVER folded into `blocked` — the platform may
+  // well have received these; the outcome is just unconfirmed.
+  needsReconciliation: { total: number };
+  topChannel:          WeeklyRecapTopChannel;
+  insightsConnected:   boolean;
+  learnings:           WeeklyRecapLearning[];
+  nextAction:          WeeklyRecapNextAction | null;
+}
+export type WeeklyRecapData =
+  | { enabled: false }
+  | { enabled: true; report: WeeklyRecapReport };

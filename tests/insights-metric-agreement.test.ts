@@ -135,6 +135,11 @@ const EXPECTED_VIEWS_TOUCHING_FILES = [
   'backend/insights/read-api.ts',
   'backend/insights/top/top-snapshot-builder.ts',
   'backend/insights/trends/trends-snapshot-builder.ts',
+  // AA-229/PR2b: Section 10 — Weekly Recap, relocated from backend/marketing/
+  // (never scanned by this test in its old location). Its topChannel
+  // aggregate reach-prefers with the same COALESCE(m.reach, m.views, 0)
+  // idiom as every sibling builder.
+  'backend/insights/weekly-recap/weekly-recap-builder.ts',
 ].sort();
 
 // ── AA-230: source-level "no reader can drift apart again" scan ────────────
@@ -410,7 +415,11 @@ const TRENDS_RULES: QueryRule[] = [
   { match: /insights_comment_classifications/i, rows: [] },
   // 8. Top post title.
   { match: /SELECT p\.title/i, rows: [] },
-  // 9. Catch-all: the 90-day engagement baseline (no GROUP BY/ORDER BY marker
+  // 9. Follower base (AA-246) — CURRENT_FOLLOWERS_SUM_SQL, reused from
+  //    read-api.ts. Not exercised by this test's assertions (which are about
+  //    engagementRate agreement), so an arbitrary non-zero value is fine.
+  { match: /current_followers/i, rows: [{ current_followers: '2' }] },
+  // 10. Catch-all: the 90-day engagement baseline (no GROUP BY/ORDER BY marker
   //    of its own — must stay LAST so the more specific rules above win).
   {
     match: /AS interactions[\s\S]*AS base_reach[\s\S]*FROM insights_account_metrics_daily/i,
@@ -446,6 +455,16 @@ test('AA-231: Hero (narrative) and Trends compute the SAME engagementRate off ma
   // Bonus: the previous-period rates agree too (20%).
   assert.equal(hero.engagementRatePrev, 20);
   assert.equal(trends.engagement.valuePrev, 20);
+
+  // AA-246 (F2): pin that the builder actually populates followerBase from
+  // CURRENT_FOLLOWERS_SUM_SQL (rule 9 above returns '2'), not the period
+  // follower delta (rule 1's fixture rows return followers: '0' for both
+  // buckets, so trends.followers.value is 0 here). Without this, silently
+  // reverting `followerBase` back to `curFollow` in the builder keeps every
+  // template-level AA-246 test green — the seam that shipped the bug would
+  // be unguarded again.
+  assert.equal(trends.followerBase, 2, 'followerBase reads CURRENT_FOLLOWERS_SUM_SQL, not the period delta');
+  assert.notEqual(trends.followerBase, trends.followers.value, 'base and delta must never be the same field');
 
   // Structural pin: all three Trends call sites nest accountEngagementSql(true)
   // (Trends includes saves — the one deliberate, documented difference from

@@ -7,7 +7,6 @@ import { AnimatePresence, motion } from 'motion/react';
 import { createPortal } from 'react-dom';
 import {
   Activity,
-  BarChart3,
   Calendar,
   CheckCheck,
   ChevronDown,
@@ -47,7 +46,6 @@ const ICONS: Record<AppRouteId, typeof LayoutDashboard> = {
   socialContent: Rocket,
   posts: FileStack,
   calendar: Calendar,
-  results: BarChart3,
   analytics: TrendingUp,
   insights: Activity,
   comments: MessageCircle,
@@ -127,13 +125,16 @@ export default function AppShellClient({
     [],
   );
 
+  // AA-229 PR1: 'analytics' is deliberately NOT a top-level nav entry — it is
+  // retained as a narrowed per-platform drill-down reached from the 'insights'
+  // route (see the AnalyticsDrilldownLink in frontend/insights/InsightsDashboard.tsx),
+  // not a destination someone browses to directly. The route + getRouteById('analytics')
+  // still resolve (frontend/app-shell/routes.ts is unchanged) so that link keeps working.
   const utilityItems: SidebarItem[] = useMemo(
     () => [
       { type: 'link', routeId: 'socialContent' },
       { type: 'link', routeId: 'posts' },
       { type: 'link', routeId: 'calendar' },
-      { type: 'link', routeId: 'results' },
-      { type: 'link', routeId: 'analytics' },
       { type: 'link', routeId: 'insights' },
       { type: 'link', routeId: 'comments' },
     ],

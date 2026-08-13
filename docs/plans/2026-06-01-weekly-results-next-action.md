@@ -1,5 +1,7 @@
 # Weekly Results Report + one approved Next Action (with performance memory candidates)
 
+> **SUPERSEDED 2026-08-13 (AA-229 PR2b):** the MVP slice this plan specifies (Phases A + D.2 — the weekly report UI) shipped and now lives in `/insights` as **Section 10 — Weekly Recap**, served by `GET /api/insights/weekly-recap` and built from `backend/insights/weekly-recap/{weekly-recap-builder,weekly-recap-week,weekly-recap-env}.ts` (moved off the standalone `/dashboard/results` page, which is now retired to a redirect). The `ARIES_WEEKLY_RESULTS_ENABLED` flag is unchanged; only the module path and page moved. `best`/`weakest` post left this section's payload — Section 6 (Top Performing Content) owns that ranking (AA-229 PR2a, #997). The deferred D.1/E slice (Honcho perf-finding surfacing + the Approve/Edit/Reject promotion route) described below remains **not yet built**; this doc's body is left as historical record of that plan.
+
 > Status: **REBASED 2026-08-02** against as-built insights (S3-4 / AA-100 / gap F1a). Original draft 2026-06-01. Roadmap area **#11** ("Results → Next Action" loop), priority 6. Build #8 of the "10 best to build first". This plan builds the **weekly report UI + the learning-approval loop**. It is a *reader/presenter* over already-shipped state. It does **not** add a new Meta fetch and does **not** publish anything. Engagement ranking is now **buildable** from the shipped insights pipeline — see the rebase section below.
 
 ## Rebase (2026-08-02 — S3-4 / AA-100)

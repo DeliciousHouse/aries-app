@@ -58,7 +58,17 @@ import { handleGetInsightsGoal } from '../backend/insights/goal/handler';
 import { handleGetInsightsNarrative } from '../backend/insights/narrative/handler';
 import { handleGetInsightsTop } from '../backend/insights/top/handler';
 import { handleGetInsightsTrends } from '../backend/insights/trends/handler';
+import { handleGetInsightsWeeklyRecap } from '../backend/insights/weekly-recap/handler';
 import { handleGetInsightsExport } from '../app/api/insights/export/route';
+
+// AA-229/PR2b: `weekly-recap` gates on ARIES_WEEKLY_RESULTS_ENABLED and
+// returns `{ enabled: false }` (200) before ANY tenant resolution when the
+// flag is off — which would make it look "isolated" for the wrong reason (it
+// never runs the auth/tenant-scoping code this suite exists to exercise at
+// all). Force the flag on for this file so the structural checks below
+// actually cover its real path; the flag's own gate-ordering contract has its
+// own dedicated tests in tests/insights-weekly-recap-route.test.ts.
+process.env.ARIES_WEEKLY_RESULTS_ENABLED = '1';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 const INSIGHTS_API_DIR = path.join(PROJECT_ROOT, 'app', 'api', 'insights');
@@ -175,6 +185,15 @@ const INSIGHTS_GET_ROUTES: readonly RegisteredRoute[] = [
     source: 'backend/insights/trends/handler.ts',
     handler: handleGetInsightsTrends,
     query: '?period=week',
+  },
+  {
+    // AA-229/PR2b: Section 10 — Weekly Recap. No `period`/`platform` axis —
+    // it keys its own `?week=` window; an empty query exercises the default
+    // (most-recent completed ISO week) path.
+    route: 'weekly-recap',
+    source: 'backend/insights/weekly-recap/handler.ts',
+    handler: handleGetInsightsWeeklyRecap,
+    query: '',
   },
 ];
 

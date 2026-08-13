@@ -35,7 +35,21 @@ import { checkInsightsForceThrottle } from '../force-throttle';
 // copy no longer cites a fabricated "1–3.5% range for design accounts" benchmark
 // or assumes a "design accounts" niche (the tenant is not a design account); the
 // copy is now niche-neutral with no invented statistic. Bump invalidates v4.
-const TEMPLATE_VERSION = 'trends-v5';
+// v6: AA-246 — the Reach-tab ratio copy ("Nx your follower base of …" / "N% of
+// your N followers") now divides against the tenant's actual current follower
+// count (TrendsSnapshot.followerBase), not the period's follower DELTA, and is
+// suppressed entirely when the base is unknown/non-positive instead of printing
+// a percentage against a Math.max(1, …)-clamped denominator (qa-defect #818,
+// "8200% of 0 followers"). The Followers-tab clause changed in the same bump:
+// it divided the period delta by the SAME delta re-summed from
+// platformBreakdown (a structural x/x*100, so every tenant read a constant
+// "100.0% growth"); it now divides against followerBase too, and is worded
+// "net change against your N follower base" because followerBase is the ENDING
+// count, making this delta/end rather than the conventional delta/start.
+// Both changed fields are metrics.*.supporting; series, keyMovements,
+// platformBreakdown and meta are untouched. Bump invalidates v5 so prod stops
+// serving the fabricated strings for up to the 1h cache TTL.
+const TEMPLATE_VERSION = 'trends-v6';
 const CACHE_TTL_BASE_MS     = 60 * 60 * 1000; // 1 hour
 
 const VALID_PERIODS = new Set<string>(['week', '30day', '90day']);

@@ -185,7 +185,7 @@ export default function Docs() {
                     <strong className="text-white">Review and approve creative before anything goes live.</strong> Every weekly social content plan passes through a review step before it publishes. You'll see the generated copy, images, and channel-specific assets in a single approval view. Nothing is dispatched until you explicitly approve it.
                   </p>
                   <p>
-                    <strong className="text-white">Monitor performance in the results dashboard.</strong> After social content publishes, results appear in the Results section of your workspace. You can see reach, engagement, and spend at a glance — no marketing software experience required.
+                    <strong className="text-white">Monitor performance in Insights.</strong> After social content publishes, results appear in the Insights section of your workspace. You can see reach, engagement, and audience activity at a glance — no marketing software experience required.
                   </p>
                 </div>
               </section>

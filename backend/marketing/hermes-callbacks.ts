@@ -50,6 +50,7 @@ import { composeStoryAssetForBaseCreative, resolveStoryCtaText } from './story-c
 import {
   autoSchedulePosts,
   autoDefaultCadenceSchedulePosts,
+  isRecognizedWeekday,
   type AutoScheduleInputRow,
   type DefaultCadenceInputRow,
 } from './auto-schedule';
@@ -1469,6 +1470,89 @@ export function markPublishBlockedOnSynthesisRefusal(
 }
 
 /**
+ * AA-235: turn a CONTENT-VALIDITY refusal into a failed job.
+ *
+ * `production_content_package_missing` means the production stage ran and
+ * delivered no copy at all, so there is nothing publishable and no honest way to
+ * invent any. `PRODUCTION_EXECUTION_CONTRACT` already declares that output
+ * "incomplete and will fail downstream publish"; until AA-235 it silently did
+ * not, because synthesis fell back to the PUBLISH stage's content_package
+ * instead. On 2026-08-12 that fallback published the publish agent's refusal
+ * prose ("Missing brand-kit research, campaign context, and approved content
+ * package…") to live brand accounts as seven posts.
+ *
+ * The terminal callback has already set doc.state/status = 'completed' by the
+ * time this runs, so leaving it alone would report "Social content outputs are
+ * ready" over zero posts with only a console line as evidence — the same
+ * invisibility AA-217 fixed for the connection case. `recordStageFailure` flips
+ * the job to `failed`, records the reason on the publish stage AND on
+ * `doc.last_error`, and raises a runtime incident. The caller's
+ * `saveSocialContentJobRuntime` persists it.
+ *
+ * Marked NOT retryable: re-running publish cannot conjure production copy that
+ * was never generated. The fix is to re-run production (or fix its inputs —
+ * see defect A), which is an operator decision, not an automatic retry.
+ *
+ * A MISLABELLED publish artifact is deliberately NOT handled here — see
+ * `markPublishArtifactStageMismatch` below and the reasoning in
+ * `publishOutputStageMismatch`. Every other reason is left alone:
+ * `publish_package_present` and `no_content_package` are normal no-ops,
+ * `no_tenant` is not a content problem, and `no_connected_platform` has its own
+ * handler above. Returns true when the document was marked.
+ */
+export function markPublishFailedOnUnpublishableContent(
+  doc: SocialContentJobRuntimeDocument,
+  result: { reason?: string } | null | undefined,
+): boolean {
+  if (result?.reason !== 'production_content_package_missing') {
+    return false;
+  }
+  recordStageFailure(doc, 'publish', {
+    code: 'production_content_package_missing',
+    message: 'Publish refused: the production stage delivered no content_package, so there is no approved copy to publish.',
+    retryable: false,
+  });
+  appendHistory(doc, 'publish stage failed: production_content_package_missing', {
+    stage: 'publish',
+    state: doc.state,
+    status: doc.status,
+  });
+  return true;
+}
+
+/**
+ * AA-235: record — but do NOT fail on — a publish artifact that declares itself
+ * to be a stage other than `publish`.
+ *
+ * This was the second half of the incident: the publish artifact said
+ * `stage: 'strategy'` and every reader took it at face value. But the label is
+ * a weak signal on its own. 21 of the 87 persisted documents with a publish
+ * artifact declare some other stage, and 16 of those carry a perfectly good
+ * production `content_package` and synthesized real posts. Failing on the label
+ * would break roughly a fifth of publishing weeks to guard against a string.
+ *
+ * Synthesis therefore ignores the mislabelled artifact's schedule and
+ * publish_package (falling through to the default cadence, the same path an
+ * absent schedule already takes) and still builds posts from production copy.
+ * All this does is put the anomaly on the job document, so an operator can see
+ * WHY the week's timing came from the default cadence rather than the
+ * strategist's plan. Returns true when a note was appended.
+ */
+export function markPublishArtifactStageMismatch(
+  doc: SocialContentJobRuntimeDocument,
+  result: { publishArtifactStageMismatch?: string } | null | undefined,
+): boolean {
+  const declared = result?.publishArtifactStageMismatch;
+  if (typeof declared !== 'string' || declared.trim().length === 0) return false;
+  appendHistory(
+    doc,
+    `publish artifact declared stage "${declared}" instead of "publish" — its schedule and publish_package were ignored`,
+    { stage: 'publish', state: doc.state, status: doc.status },
+  );
+  return true;
+}
+
+/**
  * On publish-stage completion, turn the Hermes pipeline output into real
  * `posts` rows. The Hermes-native pipeline never emits the legacy
  * `publish_package`, so without this a completed pipeline leaves the operator
@@ -1494,6 +1578,10 @@ async function synthesizePublishPostsOnCompletion(
   publishRunId: string | null,
   opts: { autoSchedule?: boolean } = {},
 ): Promise<void> {
+  // AA-235: set when the run produced nothing publishable. Suppresses the
+  // auto-schedule hook below — a failed run must not push anything at a
+  // calendar, and there is nothing of its own for it to push.
+  let contentUnpublishable = false;
   try {
     const tenantNum = Number(doc.tenant_id);
     if (!Number.isFinite(tenantNum) || tenantNum <= 0) return;
@@ -1522,6 +1610,27 @@ async function synthesizePublishPostsOnCompletion(
       console.warn('[hermes-callbacks] synthesis refused — no connected publishing channel', {
         jobId: doc.job_id,
         tenantId: tenantNum,
+      });
+    }
+    // AA-235: a content-validity refusal fails the job rather than completing it
+    // with zero posts. Must run BEFORE the auto-schedule hook below, which would
+    // otherwise happily schedule whatever did land.
+    if (markPublishFailedOnUnpublishableContent(doc, result)) {
+      contentUnpublishable = true;
+      console.error('[hermes-callbacks] synthesis refused — production delivered no publishable copy', {
+        jobId: doc.job_id,
+        tenantId: tenantNum,
+        reason: result.reason,
+      });
+    }
+    // AA-235: a mislabelled publish artifact is an anomaly worth recording, not
+    // a reason to discard the week — synthesis already ignored its schedule and
+    // publish_package and built the posts from production copy.
+    if (markPublishArtifactStageMismatch(doc, result)) {
+      console.warn('[hermes-callbacks] publish artifact declared the wrong stage — schedule/publish_package ignored', {
+        jobId: doc.job_id,
+        tenantId: tenantNum,
+        declaredStage: result.publishArtifactStageMismatch,
       });
     }
     // AA-222: a surface the scope PROMISED produced nothing. Record it on the
@@ -1569,7 +1678,7 @@ async function synthesizePublishPostsOnCompletion(
   // surface with a manual "Publish now" button but nothing is scheduled or
   // published until the human chooses to. The projection recompute below still
   // runs so those reviewable posts show up in the dashboard.
-  if (opts.autoSchedule !== false && (autoApproveMarketingPipelineEnabled() || autoScheduleOnApprovalEnabled())) {
+  if (!contentUnpublishable && opts.autoSchedule !== false && (autoApproveMarketingPipelineEnabled() || autoScheduleOnApprovalEnabled())) {
     try {
       await autoScheduleApprovedPostsForJob(doc);
     } catch (err) {
@@ -1750,6 +1859,13 @@ export interface AutoSchedulePostRow {
  * (as the code once did) silently re-routed every promoted story back onto its
  * feed sibling's slot — the composed 9:16 image then published to the feed
  * instead of as a story. Exported for direct unit testing of that contract.
+ *
+ * The weekday is read through `readStrategistWeekday`, which accepts both names
+ * the strategist uses for it (`recommended_day` and `day`), and narrowed by
+ * `resolveStrategistWeekday`, which rejects values the scheduler cannot parse.
+ * A returned `recommendedDay` is therefore either a weekday `dayIndexFromName`
+ * accepts or `null` — never an uninterpretable string — and every discard is
+ * logged. See AA-237.
  */
 export function buildAutoScheduleRows(
   postRows: ReadonlyArray<AutoSchedulePostRow>,
@@ -1764,7 +1880,12 @@ export function buildAutoScheduleRows(
   weeklySchedule.forEach((entry, idx) => {
     const ordinal = typeof entry.post_number === 'number' ? entry.post_number : idx + 1;
     const platformMap = new Map<string, PlatformScheduleTarget>();
-    const day = entry.recommended_day ?? null;
+    // Every string the strategist offered as a weekday but that the scheduler
+    // cannot parse, kept for the warning below (the raw value is the whole
+    // diagnostic — `entryKeys` names the FIELD, this names the VALUE).
+    const unparseable: string[] = [];
+    const rawDay = readStrategistWeekday(entry);
+    const day = resolveStrategistWeekday(rawDay, unparseable);
     const entrySurface = normalizeScheduleSurface(entry.placement);
     const entryMediaType = normalizeScheduleMediaType(entry.media_type);
     // Accept `platforms` (flat string[], current Hermes wire shape) or `platform_targets` (legacy).
@@ -1779,15 +1900,19 @@ export function buildAutoScheduleRows(
       for (const target of entry.platform_targets ?? []) {
         const platformKey = String(target.platform || '').trim().toLowerCase();
         if (platformKey) {
-          // recommended_day may live on the entry OR inside each platform
-          // target (current Hermes wire shape). Missing the per-target form
-          // nulled every day → computeAutoScheduleSlots collapsed all posts
-          // onto the first-day fallback → the 6-posts-at-one-instant burst
-          // (2026-07-13 IG incident).
-          const targetDay =
-            typeof target.recommended_day === 'string' && target.recommended_day.trim()
-              ? target.recommended_day
-              : day;
+          // The weekday may live on the entry OR inside each platform target
+          // (current Hermes wire shape). Missing the per-target form nulled
+          // every day → computeAutoScheduleSlots collapsed all posts onto the
+          // first-day fallback → the 6-posts-at-one-instant burst (2026-07-13
+          // IG incident). `readStrategistWeekday` additionally accepts the
+          // `day` spelling here for symmetry with the entry level (AA-237).
+          //
+          // A target value that is not a weekday falls through to the ENTRY's
+          // day rather than shadowing it: an unparseable string is not an
+          // override, it is a lost decision, and the entry may still carry a
+          // real one. This synthetic forward guard is independent of the
+          // source-data census reported by the AA-237 census command.
+          const targetDay = resolveStrategistWeekday(readStrategistWeekday(target), unparseable) ?? day;
           platformMap.set(platformKey, {
             recommendedDay: targetDay,
             surface: normalizeScheduleSurface(target.placement ?? entry.placement),
@@ -1797,9 +1922,57 @@ export function buildAutoScheduleRows(
       }
     }
     targetByPlatformByOrdinal.set(ordinal, platformMap);
+
+    // AA-237 — a discarded weekday must never be silent again.
+    //
+    // Twice now the strategist has moved the weekday to a field this function
+    // did not read (2026-07-13: onto `platform_targets[]`; AA-237: renamed to
+    // `day`), and both times the symptom was posts silently collapsing onto
+    // `fallback: first day in window` with no error, no log and no skipped
+    // reason. Adding one more synonym does not prevent the THIRD rename — this
+    // warning does. `entryKeys` is the load-bearing field: it prints the names
+    // the strategist actually emitted, so the next unknown spelling is legible
+    // straight out of the log instead of requiring a corpus study.
+    //
+    // "Resolved" must mean RESOLVES TO A REAL WEEKDAY, not "a string was
+    // present". A renamed FIELD and an unparseable VALUE produce the identical
+    // symptom downstream — `dayIndexFromName` nulls both and the post lands on
+    // `fallback: first day in window` — so a check that only tested for
+    // non-null would stay silent on exactly the failure the publish prompt
+    // spells out ("recommended_day is the FULL English weekday NAME only —
+    // never a date, never 'Day 1', never an abbreviation", ports/hermes.ts).
+    // `isRecognizedWeekday` is the scheduler's OWN parser, so this cannot
+    // certify a value the scheduler then drops.
+    const resolvedAny = Array.from(platformMap.values()).some((t) => t.recommendedDay !== null);
+    if (!resolvedAny) {
+      console.warn(
+        '[hermes-callbacks] buildAutoScheduleRows: no strategist weekday resolved for schedule entry — its posts fall back to the first day in the window',
+        {
+          jobId,
+          ordinal,
+          // `platformMap` empty means the entry named no platform at all, so
+          // nothing could consume its weekday even when the entry HAS one
+          // (`platforms: []` with a populated `recommended_day`).
+          // That outranks an unparseable value: with no target, even a perfect
+          // weekday is discarded, so it is the proximate cause to report.
+          reason:
+            platformMap.size === 0
+              ? 'entry_named_no_platform'
+              : unparseable.length > 0
+                ? 'unparseable_weekday_value'
+                : 'no_recognized_weekday_field',
+          // The RAW string, not the resolved one — a value the parser rejected
+          // is the entire diagnostic and must survive into the log.
+          entryWeekday: rawDay,
+          unparseableWeekdays: unparseable,
+          entryKeys: Object.keys(entry as Record<string, unknown>).sort(),
+          platformKeys: Array.from(platformMap.keys()),
+        },
+      );
+    }
   });
 
-  return postRows
+  const rows = postRows
     .map((row): AutoScheduleInputRow | null => {
       const ordinal = parsePostNumberFromIdempotencyKey(row.idempotency_key, jobId);
       if (ordinal === null) {
@@ -1825,6 +1998,74 @@ export function buildAutoScheduleRows(
       };
     })
     .filter((r): r is AutoScheduleInputRow => r !== null);
+
+  // AA-237 — the ROW-side half of the same rule. The per-entry warning above
+  // cannot see a row whose (ordinal, platform) simply never matched any entry
+  // (uneven fan-out, a platform the strategist did not name, an off-by-one
+  // post_number). That row also lands on `fallback: first day in window`, and
+  // it was equally silent. One aggregated line names the posts so an incident
+  // can be reconstructed from the log alone. A schedule that resolved every
+  // row logs nothing.
+  const unresolved = rows.filter((r) => r.recommendedDay === null);
+  if (unresolved.length > 0) {
+    console.warn(
+      '[hermes-callbacks] buildAutoScheduleRows: posts have no strategist weekday — they fall back to the first day in the window',
+      {
+        jobId,
+        unresolved: unresolved.length,
+        total: rows.length,
+        posts: unresolved.map((r) => ({ postId: r.postId, platform: r.platform })),
+        scheduleOrdinals: Array.from(targetByPlatformByOrdinal.keys()).sort((a, b) => a - b),
+      },
+    );
+  }
+
+  return rows;
+}
+
+/**
+ * Read the strategist's weekday off a schedule entry or a platform target.
+ *
+ * AA-237 accepts both `recommended_day` and `day`; `recommended_day` wins when
+ * both are present. Corpus frequency is intentionally not encoded here. Run
+ * `scripts/marketing/census-schedule-weekdays.ts` against an explicit data root
+ * for a reproducible report of currently available source documents.
+ *
+ * Blank/whitespace strings are treated as absent — `dayIndexFromName` would
+ * reject them anyway, and collapsing them here keeps the "no weekday resolved"
+ * warning accurate.
+ */
+function readStrategistWeekday(source: { recommended_day?: string | null; day?: string | null }): string | null {
+  const canonical = typeof source.recommended_day === 'string' ? source.recommended_day.trim() : '';
+  if (canonical) return source.recommended_day as string;
+  const alias = typeof source.day === 'string' ? source.day.trim() : '';
+  if (alias) return source.day as string;
+  return null;
+}
+
+/**
+ * Narrow a raw strategist weekday to one the scheduler can actually act on.
+ *
+ * A value that `dayIndexFromName` cannot parse is NOT a weekday — carrying it
+ * forward has exactly one effect: it makes every downstream null-check lie
+ * while the post still lands on `fallback: first day in window`. Collapsing it
+ * to `null` here gives `AutoScheduleInputRow.recommendedDay` a real invariant
+ * (a recognized weekday, or nothing) so both AA-237 warnings mean what they say.
+ *
+ * The rejected string is pushed onto `unparseable` rather than dropped: it is
+ * the whole diagnostic. The repo's own publish prompt names these values as
+ * expected model failures — "never a date, never 'Day 1', never an
+ * abbreviation, never null" — so the first time one arrives it must be legible
+ * from the log, not from a corpus study.
+ *
+ * The parser behavior is pinned directly in `marketing-auto-schedule.test.ts`;
+ * current source-data state is reported separately by the census command.
+ */
+function resolveStrategistWeekday(raw: string | null, unparseable: string[]): string | null {
+  if (raw === null) return null;
+  if (isRecognizedWeekday(raw)) return raw;
+  unparseable.push(raw);
+  return null;
 }
 
 export type MetaScheduleSurface = 'feed' | 'story' | 'reel';
@@ -1833,6 +2074,11 @@ export type MetaScheduleMediaType = 'image' | 'video';
 export interface WeeklyScheduleEntry {
   post_number?: number;
   recommended_day?: string | null;
+  /**
+   * The strategist's other supported spelling of `recommended_day` (AA-237).
+   * Read via `readStrategistWeekday`, which prefers `recommended_day`.
+   */
+  day?: string | null;
   platforms?: string[];
   /**
    * Per-entry surface + media_type the strategist emits for the whole post.
@@ -1846,6 +2092,8 @@ export interface WeeklyScheduleEntry {
     media_type?: MetaScheduleMediaType;
     /** Current Hermes wire shape carries the day per target, not per entry. */
     recommended_day?: string | null;
+    /** Same `recommended_day`/`day` synonym as the entry level (AA-237). */
+    day?: string | null;
   }>;
 }
 
