@@ -46,7 +46,7 @@ Framing (roadmap area 1): *Aries is safety-first and traceable — you can see, 
 **Existing surfaces (reused as wiring precedent):**
 - `app/api/tenant/research/review-queue/route.ts` — `tenant_admin`-only GET over `listQueuedResearchFindingsForTenant`. **The pending-candidates read endpoint already exists**; the new screen extends/wraps this shape, it does not reinvent it.
 - `app/creative-memory/page.tsx` — internal prompt-recipe tool (NOT this screen; stays where it is, unlinked).
-- `app/dashboard/results/page.tsx` — the exact short page pattern (`AppShellLayout currentRouteId=... loginRedirectPath=...` wrapping a `frontend/aries-v1/*` screen) the new page copies.
+- `app/dashboard/results/page.tsx` — the exact short page pattern (`AppShellLayout currentRouteId=... loginRedirectPath=...` wrapping a `frontend/aries-v1/*` screen) the new page copies. [2026-08-13: AA-229 retired that page to a bare `redirect('/insights')` — mirror any other dashboard sub-page's `page.tsx`, e.g. `app/dashboard/posts/page.tsx`, instead.]
 - `frontend/aries-v1/review-queue.tsx` — the data-driven screen pattern (hook → `ShellPanel`/`EmptyStatePanel`/`StatusChip`/`LoadingStateGrid` primitives from `./components`, `customerSafeUiErrorMessage` from `./customer-safe-copy`) the new screen reuses.
 - `frontend/app-shell/routes.ts` — `AppRouteId` union + `APP_ROUTES` array; **no `memory` entry today.** `components/redesign/layout/app-shell-client.tsx` — `ICONS: Record<AppRouteId, …>` (32-47), `SidebarItem` union (49-51), `utilityItems` array (98-107) where a new nav link is added; `reviewCount` badge plumbing (app-shell.tsx 141/145/173) is the precedent for a pending-candidate badge.
 

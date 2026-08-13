@@ -60,7 +60,7 @@ Operator pages:
 | `/insights` | Primary analytics dashboard — cross-channel (ratified S1-10) |
 | `/dashboard/analytics` | Per-platform analytics drill-down |
 | `/dashboard/comments` | Comments and conversations tray |
-| `/dashboard/results` | Weekly results |
+| `/dashboard/results` | Retired; redirects to `/insights` (weekly recap is Section 10 there) |
 | `/dashboard/publish-status` | Publish queue status |
 | `/dashboard/creative-review`, `/dashboard/brand-review`, `/dashboard/strategy-review` | Creative / brand / strategy review surfaces |
 | `/dashboard/settings` | Tenant settings |
