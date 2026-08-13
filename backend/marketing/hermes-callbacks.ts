@@ -50,6 +50,7 @@ import { composeStoryAssetForBaseCreative, resolveStoryCtaText } from './story-c
 import {
   autoSchedulePosts,
   autoDefaultCadenceSchedulePosts,
+  isRecognizedWeekday,
   type AutoScheduleInputRow,
   type DefaultCadenceInputRow,
 } from './auto-schedule';
@@ -1860,7 +1861,11 @@ export interface AutoSchedulePostRow {
  * instead of as a story. Exported for direct unit testing of that contract.
  *
  * The weekday is read through `readStrategistWeekday`, which accepts both names
- * the strategist uses for it (`recommended_day` and `day`) — see AA-237.
+ * the strategist uses for it (`recommended_day` and `day`), and narrowed by
+ * `resolveStrategistWeekday`, which rejects values the scheduler cannot parse.
+ * A returned `recommendedDay` is therefore either a weekday `dayIndexFromName`
+ * accepts or `null` — never an uninterpretable string — and every discard is
+ * logged. See AA-237.
  */
 export function buildAutoScheduleRows(
   postRows: ReadonlyArray<AutoSchedulePostRow>,
@@ -1875,7 +1880,12 @@ export function buildAutoScheduleRows(
   weeklySchedule.forEach((entry, idx) => {
     const ordinal = typeof entry.post_number === 'number' ? entry.post_number : idx + 1;
     const platformMap = new Map<string, PlatformScheduleTarget>();
-    const day = readStrategistWeekday(entry);
+    // Every string the strategist offered as a weekday but that the scheduler
+    // cannot parse, kept for the warning below (the raw value is the whole
+    // diagnostic — `entryKeys` names the FIELD, this names the VALUE).
+    const unparseable: string[] = [];
+    const rawDay = readStrategistWeekday(entry);
+    const day = resolveStrategistWeekday(rawDay, unparseable);
     const entrySurface = normalizeScheduleSurface(entry.placement);
     const entryMediaType = normalizeScheduleMediaType(entry.media_type);
     // Accept `platforms` (flat string[], current Hermes wire shape) or `platform_targets` (legacy).
@@ -1896,7 +1906,13 @@ export function buildAutoScheduleRows(
           // first-day fallback → the 6-posts-at-one-instant burst (2026-07-13
           // IG incident). `readStrategistWeekday` additionally accepts the
           // `day` spelling here for symmetry with the entry level (AA-237).
-          const targetDay = readStrategistWeekday(target) ?? day;
+          //
+          // A target value that is not a weekday falls through to the ENTRY's
+          // day rather than shadowing it: an unparseable string is not an
+          // override, it is a lost decision, and the entry may still carry a
+          // real one. (No corpus document exercises this today — every weekday
+          // value on disk parses — so this is a forward guard, not a repair.)
+          const targetDay = resolveStrategistWeekday(readStrategistWeekday(target), unparseable) ?? day;
           platformMap.set(platformKey, {
             recommendedDay: targetDay,
             surface: normalizeScheduleSurface(target.placement ?? entry.placement),
@@ -1917,6 +1933,16 @@ export function buildAutoScheduleRows(
     // warning does. `entryKeys` is the load-bearing field: it prints the names
     // the strategist actually emitted, so the next unknown spelling is legible
     // straight out of the log instead of requiring a corpus study.
+    //
+    // "Resolved" must mean RESOLVES TO A REAL WEEKDAY, not "a string was
+    // present". A renamed FIELD and an unparseable VALUE produce the identical
+    // symptom downstream — `dayIndexFromName` nulls both and the post lands on
+    // `fallback: first day in window` — so a check that only tested for
+    // non-null would stay silent on exactly the failure the publish prompt
+    // spells out ("recommended_day is the FULL English weekday NAME only —
+    // never a date, never 'Day 1', never an abbreviation", ports/hermes.ts).
+    // `isRecognizedWeekday` is the scheduler's OWN parser, so this cannot
+    // certify a value the scheduler then drops.
     const resolvedAny = Array.from(platformMap.values()).some((t) => t.recommendedDay !== null);
     if (!resolvedAny) {
       console.warn(
@@ -1927,8 +1953,18 @@ export function buildAutoScheduleRows(
           // `platformMap` empty means the entry named no platform at all, so
           // nothing could consume its weekday even when the entry HAS one
           // (live shape: `platforms: []` with a populated `recommended_day`).
-          reason: platformMap.size === 0 ? 'entry_named_no_platform' : 'no_recognized_weekday_field',
-          entryWeekday: day,
+          // That outranks an unparseable value: with no target, even a perfect
+          // weekday is discarded, so it is the proximate cause to report.
+          reason:
+            platformMap.size === 0
+              ? 'entry_named_no_platform'
+              : unparseable.length > 0
+                ? 'unparseable_weekday_value'
+                : 'no_recognized_weekday_field',
+          // The RAW string, not the resolved one — a value the parser rejected
+          // is the entire diagnostic and must survive into the log.
+          entryWeekday: rawDay,
+          unparseableWeekdays: unparseable,
           entryKeys: Object.keys(entry as Record<string, unknown>).sort(),
           platformKeys: Array.from(platformMap.keys()),
         },
@@ -2007,6 +2043,32 @@ function readStrategistWeekday(source: { recommended_day?: string | null; day?: 
   if (canonical) return source.recommended_day as string;
   const alias = typeof source.day === 'string' ? source.day.trim() : '';
   if (alias) return source.day as string;
+  return null;
+}
+
+/**
+ * Narrow a raw strategist weekday to one the scheduler can actually act on.
+ *
+ * A value that `dayIndexFromName` cannot parse is NOT a weekday — carrying it
+ * forward has exactly one effect: it makes every downstream null-check lie
+ * while the post still lands on `fallback: first day in window`. Collapsing it
+ * to `null` here gives `AutoScheduleInputRow.recommendedDay` a real invariant
+ * (a recognized weekday, or nothing) so both AA-237 warnings mean what they say.
+ *
+ * The rejected string is pushed onto `unparseable` rather than dropped: it is
+ * the whole diagnostic. The repo's own publish prompt names these values as
+ * expected model failures — "never a date, never 'Day 1', never an
+ * abbreviation, never null" — so the first time one arrives it must be legible
+ * from the log, not from a corpus study.
+ *
+ * Behaviour-neutral against the corpus as of AA-237: all 71 weekday values on
+ * disk across the 14 documents carrying a schedule parse cleanly, so nothing
+ * that resolves today starts resolving to null.
+ */
+function resolveStrategistWeekday(raw: string | null, unparseable: string[]): string | null {
+  if (raw === null) return null;
+  if (isRecognizedWeekday(raw)) return raw;
+  unparseable.push(raw);
   return null;
 }
 

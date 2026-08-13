@@ -6,6 +6,7 @@ import {
   computeAutoScheduleSlots,
   computeDefaultCadenceSlots,
   autoSchedulePosts,
+  isRecognizedWeekday,
   type AutoScheduleInputRow,
 } from '../backend/marketing/auto-schedule';
 import {
@@ -1110,4 +1111,164 @@ test('AA-237: `platforms: []` still discards the weekday — but no longer silen
   assert.equal(ctx.reason, 'entry_named_no_platform', 'the log must distinguish this from a rename');
   assert.equal(ctx.entryWeekday, 'Tuesday', 'the discarded weekday must appear in the log');
   assert.deepEqual(ctx.platformKeys, []);
+});
+
+// --- AA-237 (review follow-up): a renamed FIELD is not the only silent discard --
+//
+// The first cut of the AA-237 warning tested `recommendedDay !== null`, which
+// means "a string was present" — not "a weekday was resolved". An entry naming
+// the field correctly but filling it with something that is not a weekday
+// therefore reproduced the AA-237 symptom byte for byte and logged NOTHING:
+// `dayIndexFromName` nulls the value, the post lands on `fallback: first day in
+// window`, and `appliedDay` is never persisted anywhere an operator can read.
+//
+// That is not a hypothetical shape. `PUBLISH_SCHEDULE_CONTRACT` in
+// backend/marketing/ports/hermes.ts instructs the model that recommended_day is
+// "the FULL English weekday NAME only — never a date, never 'Day 1', never an
+// abbreviation, never null" — the team enumerating the exact values it expects
+// the model to get wrong. Every one of those was silent.
+//
+// No corpus document carries an unparseable weekday today (all 71 values on
+// disk parse), so these tests pin a forward guard, not a repair — which is why
+// the LAST test here asserts the corpus shapes are undisturbed.
+
+test('AA-237: a weekday VALUE the scheduler cannot parse warns, and says which value', () => {
+  const jobId = 'mkt_iso_date_weekday';
+  const entry = {
+    post_number: 1,
+    // An ISO date where a weekday name belongs — the first failure mode the
+    // publish prompt tells the model not to produce.
+    recommended_day: '2026-06-08',
+    platforms: ['instagram'],
+    placement: 'feed' as const,
+    media_type: 'image' as const,
+  };
+  const { result: rows, warnings } = captureWarnings(() =>
+    buildAutoScheduleRows([metaPostRow(1, 'instagram', jobId, 1)], [entry], jobId),
+  );
+
+  // The row must carry NO weekday rather than an uninterpretable string: the
+  // scheduler drops it either way, and only null makes the null-checks honest.
+  assert.equal(rows[0]!.recommendedDay, null, 'a non-weekday must not masquerade as a resolved day');
+
+  const entryWarn = warnings.find(
+    (w) => typeof w[0] === 'string' && w[0].includes('no strategist weekday resolved'),
+  );
+  assert.ok(entryWarn, 'an unparseable weekday VALUE must warn, exactly as a renamed field does');
+  const ctx = entryWarn![1] as Record<string, unknown>;
+  assert.equal(ctx.reason, 'unparseable_weekday_value', 'the log must distinguish a bad value from a rename');
+  assert.deepEqual(ctx.unparseableWeekdays, ['2026-06-08'], 'the offending value is the whole diagnostic');
+  assert.equal(ctx.entryWeekday, '2026-06-08', 'the RAW value must survive into the log, not a scrubbed null');
+  // The field name was right, so `entryKeys` alone would have looked healthy —
+  // which is precisely why the value check has to exist.
+  assert.deepEqual(ctx.entryKeys, ['media_type', 'placement', 'platforms', 'post_number', 'recommended_day']);
+
+  const rowWarn = warnings.find(
+    (w) => typeof w[0] === 'string' && w[0].includes('posts have no strategist weekday'),
+  );
+  assert.ok(rowWarn, 'the affected post must be named too');
+  assert.deepEqual((rowWarn![1] as Record<string, unknown>).posts, [{ postId: 1, platform: 'instagram' }]);
+});
+
+test('AA-237: an abbreviated weekday warns too (`Mon` is not Monday to the parser)', () => {
+  const jobId = 'mkt_abbrev_weekday';
+  const { result: rows, warnings } = captureWarnings(() =>
+    buildAutoScheduleRows(
+      [metaPostRow(1, 'instagram', jobId, 1)],
+      // Via the `day` alias, so this covers the AA-237 synonym path AND the
+      // value check at once: the right value in the other spelling still works
+      // (asserted above), the wrong value in either spelling still warns.
+      [{ post_number: 1, day: 'Mon', platforms: ['instagram'] }],
+      jobId,
+    ),
+  );
+  assert.equal(rows[0]!.recommendedDay, null);
+  const ctx = warnings.find(
+    (w) => typeof w[0] === 'string' && w[0].includes('no strategist weekday resolved'),
+  )![1] as Record<string, unknown>;
+  assert.equal(ctx.reason, 'unparseable_weekday_value');
+  assert.deepEqual(ctx.unparseableWeekdays, ['Mon']);
+});
+
+test('AA-237: an unparseable weekday on a platform_target does not shadow the entry-level day', () => {
+  // Before the value check, `readStrategistWeekday(target) ?? day` accepted any
+  // non-blank string, so one junk target value discarded a perfectly good
+  // entry-level weekday. An unparseable string is a lost decision, not an
+  // override — the entry's day is the better remaining signal.
+  const jobId = 'mkt_target_junk_over_entry';
+  const entry = {
+    post_number: 1,
+    recommended_day: 'Thursday',
+    platform_targets: [
+      { platform: 'instagram', placement: 'feed' as const, recommended_day: 'Day 1' },
+      { platform: 'facebook', placement: 'feed' as const },
+    ],
+  };
+  const { result: rows, warnings } = captureWarnings(() =>
+    buildAutoScheduleRows(
+      [metaPostRow(1, 'instagram', jobId, 1), metaPostRow(2, 'facebook', jobId, 1)],
+      [entry],
+      jobId,
+    ),
+  );
+  assert.equal(rows.find((r) => r.postId === 1)!.recommendedDay, 'Thursday');
+  assert.equal(rows.find((r) => r.postId === 2)!.recommendedDay, 'Thursday');
+  // The entry resolved, so the "nothing resolved" line must stay quiet — but
+  // the junk value is not thereby forgiven; it simply did not cost a weekday.
+  assert.deepEqual(warnings, [], 'a recovered entry must not train operators to ignore the line');
+});
+
+test('AA-237: the value check reuses the scheduler\'s own parser (no second weekday table)', () => {
+  // A predicate that could disagree with `dayIndexFromName` would certify a
+  // value the scheduler then drops — reintroducing the silent discard through
+  // the check meant to end it. Pin the agreement across the seven names, the
+  // casing/whitespace the parser tolerates, and the shapes it rejects.
+  for (const good of ['Monday', 'sunday', '  Friday  ', 'WEDNESDAY']) {
+    assert.equal(isRecognizedWeekday(good), true, `${JSON.stringify(good)} must be recognized`);
+    const jobId = 'mkt_parser_agreement';
+    const rows = buildAutoScheduleRows(
+      [metaPostRow(1, 'instagram', jobId, 1)],
+      [{ post_number: 1, recommended_day: good, platforms: ['instagram'] }],
+      jobId,
+    );
+    const { slots } = computeAutoScheduleSlots({
+      rows,
+      tenantTimezone: TZ_NY,
+      campaignStart: CAMPAIGN_START,
+      campaignEnd: CAMPAIGN_END,
+      now: NOW,
+    });
+    assert.ok(
+      !slots[0]!.appliedDay.startsWith('fallback'),
+      `a value the predicate accepts must schedule: ${good} -> ${slots[0]!.appliedDay}`,
+    );
+  }
+  for (const bad of ['Mon', '2026-06-08', 'Day 1', 'Mondays', '', '   ', null, undefined]) {
+    assert.equal(isRecognizedWeekday(bad), false, `${JSON.stringify(bad)} must not be recognized`);
+  }
+});
+
+test('AA-237: every weekday value in the live corpus still resolves (the guard is forward-looking)', () => {
+  // The value check must not start rejecting shapes that work today. These are
+  // the seven distinct weekday values present across all 14 job documents on
+  // disk that carry a schedule[]/weekly_schedule[] (71 values, 0 unparseable at
+  // the time of the change) — if a future normalization narrows the parser,
+  // this test says so before a tenant's week collapses onto the ladder.
+  const CORPUS_WEEKDAY_VALUES = [
+    'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday',
+  ];
+  const jobId = 'mkt_corpus_values';
+  const { result: rows, warnings } = captureWarnings(() =>
+    buildAutoScheduleRows(
+      CORPUS_WEEKDAY_VALUES.map((_, i) => metaPostRow(200 + i, 'instagram', jobId, i + 1)),
+      CORPUS_WEEKDAY_VALUES.map((recommended_day, i) => ({
+        post_number: i + 1,
+        recommended_day,
+        platforms: ['instagram'],
+      })),
+      jobId,
+    ),
+  );
+  assert.deepEqual(rows.map((r) => r.recommendedDay), CORPUS_WEEKDAY_VALUES);
+  assert.deepEqual(warnings, [], 'no live corpus weekday value may trip the new check');
 });

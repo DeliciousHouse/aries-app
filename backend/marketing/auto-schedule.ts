@@ -383,6 +383,24 @@ function dayIndexFromName(name: string | null | undefined): number | null {
 }
 
 /**
+ * Does this string name a weekday THIS SCHEDULER can act on?
+ *
+ * Deliberately defined as `dayIndexFromName(name) !== null` rather than as its
+ * own table: a predicate that could disagree with the parser would be worse
+ * than none at all — it would certify a value the parser then drops, which is
+ * precisely the class of silent discard AA-237 exists to end.
+ *
+ * Callers upstream (`buildAutoScheduleRows`) use it to tell "the strategist
+ * named no weekday" apart from "the strategist named something that is not a
+ * weekday". Both land on `fallback: first day in window` here, so only the log
+ * can distinguish them — and the second is the failure the publish prompt
+ * itself anticipates ("never a date, never 'Day 1', never an abbreviation").
+ */
+export function isRecognizedWeekday(name: string | null | undefined): boolean {
+  return dayIndexFromName(name) !== null;
+}
+
+/**
  * Largest calendar-day shift the scheduler may apply after resolving dates.
  *
  * A <=2-day move keeps a post inside the same half of the week (Mon->Wed,
