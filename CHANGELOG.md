@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## v0.2.11.1 — fix(publishing): a failed media leg is not a maybe-live post (AA-238)
+## v0.2.11.3 — fix(publishing): a failed media leg is not a maybe-live post (AA-238)
 
 X and Instagram publish in two calls. The first one stages the media — for X
 `TWITTER_UPLOAD_MEDIA` (bytes → a Twitter media id), for Instagram
@@ -99,6 +99,56 @@ unexpressible. `makeXGateway` (`tests/composio-x-publisher.test.ts`) and
 imported from `@composio/core` (`ComposioToolNotFoundError`,
 `handleToolExecutionError`), not hand-rolled stand-ins that could encode the same
 wrong belief as the code.
+
+## v0.2.11.2 — fix(publishing): a failed page-id lookup is not a maybe-live post (AA-243)
+
+Facebook's `publishPost` needs a Page id. It is normally stored at connect time
+in `connected_accounts.external_account_id`; when that is null (OAuth-callback
+race), `resolveFacebookManagedPage` calls the read-only
+`FACEBOOK_LIST_MANAGED_PAGES` enumeration as a fallback — BEFORE any
+post-creation call.
+
+That `gateway.executeTool` was not wrapped in try/catch. The resolver only
+handled the broker's explicit `successful:false` verdict (→ null); a THROWN
+call leaked raw. `@composio/core` 0.14.1 throws on transport failure
+(`ComposioToolNotFoundError` from the tool-schema retrieve,
+`ComposioToolExecutionError` via `handleToolExecutionError`), and
+`LiveComposioGateway.executeTool` does not catch. Neither class is in
+`publishNeverReachedPlatform`'s recognized never-posted set and `publishPost`
+has no outer catch, so the throw reached `publish-dispatch.ts` and was raised
+as `provider_publish_outcome_unknown` with `outcomeUnknown:true` — the row
+parked in manual reconciliation telling the operator the post MAY be live. It
+provably is not: a page enumeration cannot create a post, and it runs before
+any publish call. Same defect class as AA-238's media legs, found while fixing
+that and scoped out of its PR.
+
+### Fixed
+
+- `resolveFacebookManagedPage` now wraps its `executeTool` in try/catch and
+  swallows the throw to null — the exact contract its sibling
+  `resolveInstagramAccount` already had, and the one the file header already
+  documented ("Fail-safe: returns null ... Throwing is the caller's call to
+  make — this never invents a Page"). Null was chosen over rethrowing as
+  `ComposioToolError` because the caller's no-page path already produces the
+  right verdict: `publishPost` throws `ComposioCapabilityMissingError`
+  (`status` 403, `retryable:false`), which `publishNeverReachedPlatform`
+  recognizes — a clear, terminal, definitely-never-posted classification, the
+  same one a transient `successful:false` on this call has always produced.
+  Rethrowing would instead have pushed a publish-taxonomy error class into a
+  resolver shared by two non-publish callers (`composio-account-provider.ts`,
+  `insights/sync/ensure-account.ts`, both of which already guard with their own
+  try/catch and want the quiet null skip).
+- Regression tests pin both throw shapes with the REAL `@composio/core` error
+  classes (constructed exactly as the SDK constructs them — no hand-rolled
+  stand-ins): the resolver returns null, and at the provider level a throwing
+  fallback surfaces as `ComposioCapabilityMissingError` classified
+  never-posted, with only the read-only enumeration slug ever attempted.
+  (`tests/composio-facebook-page-resolver.test.ts`,
+  `tests/composio-publisher-fb-page-fallback.test.ts`)
+
+The final shared `executeTool` in `publishPost` is deliberately untouched: that
+call genuinely IS the outcome-unknown boundary, and catching there would enable
+a double post.
 
 ## v0.2.11.0 — fix(marketing): a refusal is not a post (AA-235)
 

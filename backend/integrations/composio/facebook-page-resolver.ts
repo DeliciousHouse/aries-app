@@ -10,9 +10,21 @@
  * Single-page SMB case = the one Page. When several are managed we pick the
  * first deterministically and report the full set so the caller can log it.
  *
- * Fail-safe: returns null on an unsuccessful tool call or when no Page is
- * returned (e.g. missing pages_show_list scope, which silently returns []).
- * Throwing is the caller's call to make — this never invents a Page.
+ * Fail-safe: returns null on a THROWN tool call, an unsuccessful tool call, or
+ * when no Page is returned (e.g. missing pages_show_list scope, which silently
+ * returns []). Throwing is the caller's call to make — this never invents a
+ * Page.
+ *
+ * The thrown-call leg is load-bearing (AA-243): @composio/core throws raw on
+ * transport failure (`ComposioToolNotFoundError` from the tool-schema retrieve,
+ * `ComposioToolExecutionError` via `handleToolExecutionError`) and
+ * `LiveComposioGateway.executeTool` does not catch. Neither class is a
+ * recognized never-posted verdict in `publishNeverReachedPlatform`, so a throw
+ * leaked out of `publishPost`'s pre-publish page-id fallback used to park a
+ * provably-never-posted row as outcome-unknown in manual reconciliation. This
+ * call is a read-only page enumeration that cannot create a post, so null (→
+ * the caller's own terminal never-posted classification) is always the right
+ * verdict — same contract as instagram-account-resolver.ts.
  *
  * Response shape (verified via Composio MCP 2026-06-17):
  *   { data: { data: [ { id, name, ... } ], paging }, successful, error }
@@ -48,10 +60,15 @@ export async function resolveFacebookManagedPage(
   connectedAccountId: string,
 ): Promise<ResolvedFacebookPage | null> {
   const slug = config.actionSlugFor('facebook', 'list_pages') ?? DEFAULT_LIST_MANAGED_PAGES_SLUG;
-  const result = await gateway.executeTool(slug, {
-    connectedAccountId,
-    arguments: { user_id: 'me', limit: 25, fields: 'id,name' },
-  });
+  let result;
+  try {
+    result = await gateway.executeTool(slug, {
+      connectedAccountId,
+      arguments: { user_id: 'me', limit: 25, fields: 'id,name' },
+    });
+  } catch {
+    return null;
+  }
   if (!result.successful) return null;
 
   const pages = unwrapToArray(result.data);
