@@ -22,6 +22,8 @@ This manifest lists the supported direct route contract for the current Aries ru
 | `/dashboard/posts` | App shell | Publish controls |
 | `/dashboard/calendar` | App shell | Calendar and sync controls |
 | `/dashboard/results` | App shell | Runtime-backed results overview |
+| `/insights` | App shell | Primary cross-channel analytics surface (performance, audience, conversations) |
+| `/dashboard/analytics` | App shell | Per-platform analytics drill-down, reached from `/insights` (not a top-level nav entry) |
 | `/dashboard/settings` | App shell | Tenant settings surface |
 | `/review` | App shell | Review queue |
 | `/review/:reviewId` | App shell | Review detail |

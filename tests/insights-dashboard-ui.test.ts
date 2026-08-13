@@ -25,8 +25,16 @@ const appShellClient = read('components', 'redesign', 'layout', 'app-shell-clien
 const readApi = read('backend', 'insights', 'read-api.ts');
 const insightsActivitySection = read('frontend', 'insights', 'ActivitySection.tsx');
 const insightsTopPostsSection = read('frontend', 'insights', 'TopPostsSection.tsx');
+// AA-229 PR1: /dashboard/analytics demoted from top-level nav to the
+// per-platform drill-down reached from /insights.
+const insightsDashboard = read('frontend', 'insights', 'InsightsDashboard.tsx');
+const analyticsDrilldownLink = read('frontend', 'insights', 'AnalyticsDrilldownLink.tsx');
 
-test('analytics + comments nav routes are registered as reachable utility entries', () => {
+test('analytics + comments routes are registered and resolvable (AA-229 PR1: analytics is retained, not retired)', () => {
+  // getRouteById('analytics') must keep resolving — app/dashboard/analytics/page.tsx
+  // still calls AppShellLayout currentRouteId="analytics", which throws on an
+  // unknown id. Only its top-level NAV ENTRY is removed (see the next test);
+  // the route registration itself is untouched.
   const analytics = getRouteById('analytics');
   const comments = getRouteById('comments');
 
@@ -40,14 +48,18 @@ test('analytics + comments nav routes are registered as reachable utility entrie
   assert.ok(APP_ROUTES.some((r) => r.id === 'comments' && r.href === '/dashboard/comments'));
 });
 
-test('app shell wires the new routes into icons and the utility nav list', () => {
-  // Icon map is a Record<AppRouteId, ...>; missing keys would not even compile,
-  // but assert the entries exist so the nav renders a glyph for each.
+test('AA-229 PR1: app shell keeps the analytics icon wired but drops it from the top-level nav', () => {
+  // Icon map is a Record<AppRouteId, ...>; 'analytics' remains a required key
+  // (removing it would not even compile) even though it is no longer a nav
+  // link — TypeScript enforces this, but assert it explicitly here too.
   assert.match(appShellClient, /analytics:\s*TrendingUp/);
   assert.match(appShellClient, /comments:\s*MessageCircle/);
-  // Sidebar utility list must include both so they are clickable from the shell.
-  assert.match(appShellClient, /routeId:\s*'analytics'/);
-  assert.match(appShellClient, /routeId:\s*'comments'/);
+  // The sidebar utility list no longer links directly to analytics — it is
+  // reached only via the /insights per-platform drill-down now.
+  assert.doesNotMatch(appShellClient, /\{ type: 'link', routeId: 'analytics' \}/);
+  // insights and comments remain real top-level nav links.
+  assert.match(appShellClient, /\{ type: 'link', routeId: 'insights' \}/);
+  assert.match(appShellClient, /\{ type: 'link', routeId: 'comments' \}/);
 });
 
 test('analytics page renders the analytics screen inside the app shell', () => {
@@ -82,10 +94,20 @@ test('api client targets the real /api/insights/* endpoints (Facebook scoped by 
 
 test('analytics screen consumes the analytics hook, charts the series, and keeps the empty state', () => {
   assert.match(analyticsScreen, /useInsightsAnalytics/);
-  // Platform state defaults to 'facebook' — dormancy: flags-off renders FB-only, no selector.
-  assert.match(analyticsScreen, /useState<Platform>\('facebook'\)/);
-  // The hook receives the platform STATE variable, not a hard-coded literal.
-  assert.match(analyticsScreen, /useInsightsAnalytics\(\{ autoLoad: true, platform \}\)/);
+  // AA-229 PR1: platform state now seeds from the /insights drill-down's
+  // `platform` query param via resolveInitialPlatform, falling back to
+  // enabledPlatforms[0] ?? 'facebook' — dormancy preserved (flags-off + no
+  // query param still resolves to Facebook-only, no selector), just resolved
+  // dynamically instead of hard-pinned.
+  assert.match(analyticsScreen, /useState<Platform>\(\(\) =>/);
+  assert.match(analyticsScreen, /resolveInitialPlatform\(searchParams\.get\('platform'\), enabledPlatforms\)/);
+  assert.match(analyticsScreen, /enabledPlatforms\[0\] \?\? 'facebook'/);
+  // AA-229 PR1: `days` seeds from the same drill-down's `days` query param
+  // (resolveInitialDays), clamped 1..90 to mirror the read-api handlers —
+  // this is what carries the parent /insights period into the child screen.
+  assert.match(analyticsScreen, /resolveInitialDays\(searchParams\.get\('days'\)\)/);
+  // The hook receives the platform + days STATE, not hard-coded literals.
+  assert.match(analyticsScreen, /useInsightsAnalytics\(\{ autoLoad: true, platform, days \}\)/);
   // Prop default of ['facebook'] preserves the single-platform dormant state.
   assert.match(analyticsScreen, /enabledPlatforms\s*=\s*\['facebook'\]/);
   // Selector is only rendered when more than one platform is enabled.
@@ -350,4 +372,48 @@ test('capabilities.ts: post_view_count present for youtube/instagram/facebook, a
   assert.equal(platformSupports('reddit', 'account_daily_metrics'), false, 'reddit must NOT support account_daily_metrics');
   assert.equal(platformSupports('linkedin', 'account_daily_metrics'), false, 'linkedin must NOT support account_daily_metrics');
   assert.equal(platformSupports('youtube', 'account_daily_metrics'), false, 'youtube must NOT support account_daily_metrics');
+});
+
+// ─── AA-229 PR1: /insights → /dashboard/analytics drill-down ─────────────────
+
+test('InsightsDashboard renders the analytics drill-down on the same control row as export/freshness', () => {
+  assert.match(insightsDashboard, /import \{ AnalyticsDrilldownLink \} from "@\/frontend\/insights\/AnalyticsDrilldownLink"/);
+  // It receives the SAME live period + platform state as everything else on
+  // the page — this is the load-bearing bit: the child must inherit the
+  // parent's window, not silently reset to its own defaults.
+  assert.match(insightsDashboard, /<AnalyticsDrilldownLink period=\{period\} platform=\{platform\} \/>/);
+});
+
+test('AnalyticsDrilldownLink only renders for a single platform the analytics screen can select', () => {
+  // "all" has no single platform to drill into, and Instagram is deliberately
+  // absent from app/dashboard/analytics/page.tsx's enabledPlatforms — both
+  // must be excluded so the link is never a dead end.
+  // The exact set membership is the source of truth — "all" and "instagram"
+  // are excluded by omission (both are commented on above, so a naive
+  // substring check on the quoted literal would false-positive on the comment).
+  assert.match(
+    analyticsDrilldownLink,
+    /DRILLDOWN_PLATFORMS = new Set<Platform>\(\["facebook", "x", "youtube", "reddit", "linkedin"\]\)/,
+  );
+  assert.match(analyticsDrilldownLink, /if \(!DRILLDOWN_PLATFORMS\.has\(platform\)\) return null;/);
+});
+
+test('AnalyticsDrilldownLink carries the live period as `days` and the live platform to /dashboard/analytics', () => {
+  // Same period→days vocabulary as ExportMenu.tsx / ActivitySection.tsx.
+  assert.match(analyticsDrilldownLink, /PERIOD_DAYS: Record<Period, number> = \{ week: 7, "30day": 30, "90day": 90 \}/);
+  assert.match(analyticsDrilldownLink, /href=\{`\/dashboard\/analytics\?\$\{params\.toString\(\)\}`\}/);
+  assert.match(analyticsDrilldownLink, /new URLSearchParams\(\{ platform, days: String\(PERIOD_DAYS\[period\] \?\? 30\) \}\)/);
+});
+
+test('AA-229 PR1: analytics screen reads platform + days from the URL query via next/navigation', () => {
+  assert.match(analyticsScreen, /import \{ useSearchParams \} from 'next\/navigation'/);
+  assert.match(analyticsScreen, /const searchParams = useSearchParams\(\);/);
+});
+
+test('AA-229 PR1: hooks/use-insights-analytics.ts already threads `days` into summary + account-metrics (no change needed there)', () => {
+  // Pins that the read path analytics-screen.tsx now relies on was already
+  // wired end-to-end before this ticket — only the screen's call site needed
+  // to start passing a real `days` value.
+  assert.match(analyticsHook, /getInsightsSummary\(\{ platform, days \}\)/);
+  assert.match(analyticsHook, /getInsightsAccountMetrics\(\{ platform, days \}\)/);
 });

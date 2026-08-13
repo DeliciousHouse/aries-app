@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   CartesianGrid,
   Line,
@@ -41,14 +42,39 @@ const ACCOUNT_METRICS_UNAVAILABLE_REASON: Partial<Record<Platform, string>> = {
   linkedin: 'Account-level analytics need LinkedIn organization access.',
 };
 
+// AA-229 PR1: resolve the platform the /insights drill-down link
+// (frontend/insights/AnalyticsDrilldownLink.tsx) carried over. Query params
+// are untrusted input — only honor a platform this screen can actually
+// render (enabledPlatforms is server-resolved from rollout flags and never
+// includes Instagram), falling back to the same default as a bare visit.
+function resolveInitialPlatform(paramValue: string | null, enabledPlatforms: Platform[]): Platform {
+  if (paramValue && (enabledPlatforms as string[]).includes(paramValue)) {
+    return paramValue as Platform;
+  }
+  return enabledPlatforms[0] ?? 'facebook';
+}
+
+// The read-api summary/account-metrics handlers clamp `days` to 1..90
+// server-side; mirror that here so an invalid query param never silently
+// diverges from what the request will actually be answered with.
+function resolveInitialDays(paramValue: string | null): number | undefined {
+  const parsed = paramValue ? Number.parseInt(paramValue, 10) : NaN;
+  if (!Number.isFinite(parsed)) return undefined;
+  return Math.min(Math.max(parsed, 1), 90);
+}
+
 export default function AriesAnalyticsScreen({
   enabledPlatforms = ['facebook'],
 }: {
   enabledPlatforms?: Platform[];
 }) {
-  const [platform, setPlatform] = useState<Platform>('facebook');
+  const searchParams = useSearchParams();
+  const [platform, setPlatform] = useState<Platform>(() =>
+    resolveInitialPlatform(searchParams.get('platform'), enabledPlatforms),
+  );
+  const days = resolveInitialDays(searchParams.get('days'));
 
-  const analytics = useInsightsAnalytics({ autoLoad: true, platform });
+  const analytics = useInsightsAnalytics({ autoLoad: true, platform, days });
   const data = analytics.data;
 
   const summary = data?.summary;
