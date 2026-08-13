@@ -471,7 +471,10 @@ test('AA-229 F2: DRILLDOWN_PLATFORMS and app/dashboard/analytics/page.tsx enable
   // each file at least points at the other.
   assert.match(analyticsDrilldownLink, /DRILLDOWN_PLATFORMS = new Set<Platform>\(\["facebook", "x", "youtube", "reddit", "linkedin"\]\)/);
   assert.match(analyticsDrilldownLink, /app\/dashboard\/analytics\/page\.tsx's enabledPlatforms/);
-  assert.match(analyticsPage, /AnalyticsDrilldownLink\.tsx's\s*\n\s*\/\/ DRILLDOWN_PLATFORMS set/);
+  // Substring, not a line-wrap-sensitive pattern: the intent is "this file
+  // points at the other one", which a reflow of the comment must not break.
+  assert.match(analyticsPage, /DRILLDOWN_PLATFORMS/);
+  assert.match(analyticsPage, /AnalyticsDrilldownLink\.tsx/);
 });
 
 test('AA-229 PR1: analytics screen reads platform + days from the URL query via next/navigation', () => {

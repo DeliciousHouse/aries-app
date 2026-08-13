@@ -63,8 +63,11 @@ function resolveInitialPlatform(paramValue: string | null, enabledPlatforms: Pla
 // would also accept 'NaN'-adjacent junk it shouldn't (parseInt('1e3', 10)
 // is 1, parseInt('30abc', 10) is 30 — both silently truncate instead of
 // rejecting), so validate the whole string with a strict digits-only regex
-// first. parseInt never returns Infinity, so Number.isNaN (not
-// !Number.isFinite) is the precise "did this fail to parse" check.
+// first. (An earlier draft of this comment claimed parseInt never returns
+// Infinity — it does: Number.parseInt('9'.repeat(400), 10) is Infinity. The
+// digits-only gate runs first and Math.min(Infinity, 90) clamps to 90, so the
+// check below is correct either way; Number.isNaN is used because after the
+// regex the only way parse can fail is NaN.)
 function resolveDaysParam(paramValue: string | null): number | undefined {
   if (!paramValue || !/^\d+$/.test(paramValue)) return undefined;
   const parsed = Number.parseInt(paramValue, 10);
