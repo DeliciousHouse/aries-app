@@ -23,6 +23,7 @@ import { LATEST_POST_METRICS_LATERAL } from '../latest-post-metrics-sql';
 import { resolveTenantInsightsTimeZone } from '../tenant-timezone';
 import { tenantZonePeriodStart } from '@/lib/format-timestamp';
 import { resolveAttributionScope, type AttributionScopeResult } from '../attribution-scope';
+import { postEngagementPercent, POST_ENGAGEMENT_PERCENT_SQL } from '../post-engagement-percent';
 
 export type TopSortKey = 'reach' | 'engagement' | 'saves' | 'shares' | 'comments';
 
@@ -63,12 +64,44 @@ export interface TopPost {
   followerSplit: string | null;   // "62% / 38%" (IG only), null when unavailable
 }
 
+// AA-229/PR2a — reduced projection for the weakest-post card. Deliberately NOT
+// the full `TopPost` shape: the weakest-post query only ever selects 7 columns
+// (see buildWeakestPost below), so populating sentiment/multiplier/saveRate/
+// bestDow/etc. here would mean fabricating fields nothing computed — the exact
+// "confidently-wrong number" failure mode this section already guards against
+// elsewhere (S3-1/AA-97 honesty pass).
+export interface WeakestPost {
+  id:        number;
+  platform:  string;
+  title:     string | null;
+  caption:   string | null;
+  permalink: string | null;
+  reach:     number;
+  /** The active sort metric's raw value for this post (a count, or a % for engagement). */
+  metric:    number;
+}
+
+// AA-229/PR2a — why the ranked set is empty, reusing the exact semantics of
+// INSIGHTS_AVAILABILITY_SQL (backend/marketing/weekly-results-report.ts): an
+// `insights_accounts` row exists (that table has no `status` column — row
+// existence IS connectedness) AND at least one joined
+// `insights_post_metrics_daily` row landed in the window. `reason` is null
+// when the ranked set is populated (cheap default — see deriveTopAvailability
+// callers) and only takes on the two documented values once the extra
+// availability query has actually run.
+export interface TopAvailability {
+  insightsConnected: boolean;
+  reason: 'insights_not_connected' | 'no_posts_in_window' | null;
+}
+
 export interface TopSnapshot {
   posts:        TopPost[];
   avgReach:     number;   // period average reach (for the multiplier context)
   postCount:    number;   // posts in the scoped period set (for "still calibrating")
   sortBy:       TopSortKey;
   attribution:  AttributionScopeResult;
+  weakest:      WeakestPost | null;
+  availability: TopAvailability;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -100,10 +133,43 @@ function orderColumn(sortBy: TopSortKey): string {
   }
 }
 
+// SQL ORDER BY expression for the weakest-post query — same column names as
+// orderColumn() for reach/saves/shares/comments, but the shared
+// POST_ENGAGEMENT_PERCENT_SQL formula (not the 'reach' placeholder
+// orderColumn() returns) for engagement, so the weakest-post ranking and the
+// deriveTopPostMetrics() ranking below can never silently diverge.
+function weakestOrderExpr(sortBy: TopSortKey): string {
+  return sortBy === 'engagement' ? POST_ENGAGEMENT_PERCENT_SQL : orderColumn(sortBy);
+}
+
+// AA-229/PR2a — with fewer than 2 posts in the scoped set, the single post IS
+// both the best and the weakest post; showing a "weakest post" card next to an
+// identical "best post" card inside a top-5 list reads as a bug, so the card
+// is omitted entirely rather than showing a misleading duplicate.
+export function shouldComputeWeakest(postCount: number): boolean {
+  return postCount >= 2;
+}
+
+// AA-229/PR2a — reuses the exact semantics of INSIGHTS_AVAILABILITY_SQL
+// (backend/marketing/weekly-results-report.ts): connectedness is an
+// `insights_accounts` row existing; "actually usable" additionally requires
+// at least one synced metric row in the window. Pure so the reason mapping is
+// unit-testable without a DB.
+export function deriveTopAvailability(accountCount: number, metricRowCount: number): TopAvailability {
+  const insightsConnected = accountCount > 0 && metricRowCount > 0;
+  return {
+    insightsConnected,
+    reason: insightsConnected ? 'no_posts_in_window' : 'insights_not_connected',
+  };
+}
+
 /**
  * Per-post derived metrics from the LATEST-snapshot raw counts (S2-1) and the
  * period average reach. Pinned by tests/insights-math-pinning.test.ts (S2-5).
- *   engagement = (likes+comments+saves+shares)/reach, as a % to 1 decimal
+ *   engagement = (likes+comments+saves+shares)/reach, as a % to 1 decimal —
+ *                delegates to postEngagementPercent() (post-engagement-percent.ts),
+ *                the single JS implementation shared with the weakest-post
+ *                query's SQL ORDER BY expression (AA-229/PR2a).
  *   saveRate   = saves/reach, as a % to 2 decimals
  *   multiplier = reach / period-average-reach, to 1 decimal ("Nx average")
  * Each guards its divisor: reach<=0 → engagement/saveRate 0; avgReach<=0 → multiplier 0.
@@ -113,9 +179,8 @@ export function deriveTopPostMetrics(
   raw: { reach: number; likes: number; comments: number; saves: number; shares: number },
   avgReach: number,
 ): TopPostMetrics {
-  const interactions = raw.likes + raw.comments + raw.saves + raw.shares;
   return {
-    engagement: raw.reach > 0 ? Math.round((interactions / raw.reach) * 1000) / 10 : 0,
+    engagement: postEngagementPercent(raw),
     saveRate:   raw.reach > 0 ? Math.round((raw.saves / raw.reach) * 10000) / 100 : 0,
     multiplier: avgReach > 0 ? Math.round((raw.reach / avgReach) * 10) / 10 : 0,
   };
@@ -198,7 +263,85 @@ export async function buildTopSnapshot(
   const avgReach  = Number(avgRes.rows[0]?.avg_reach ?? 0);
   const postCount = Number(avgRes.rows[0]?.post_count ?? 0);
 
-  // ── 2. Top posts with aggregated metrics ─────────────────────────────────
+  // ── 2. Weakest post (AA-229/PR2a) ─────────────────────────────────────────
+  // Deliberately a SEPARATE query, not `.at(-1)` of the top-10 candidate list
+  // below: that list is `ORDER BY … DESC LIMIT 10`, so its last element is the
+  // 10th-BEST post, not the weakest. Skipped entirely below 2 posts, where
+  // best === weakest and a duplicate card would read as a bug.
+  let weakest: WeakestPost | null = null;
+  if (shouldComputeWeakest(postCount)) {
+    const weakestOrderCol = weakestOrderExpr(sortBy);
+    const weakestRes = await client.query<{
+      id:        number;
+      platform:  string;
+      title:     string | null;
+      caption:   string | null;
+      permalink: string | null;
+      reach:     string;
+      metric:    string;
+    }>(
+      `WITH post_metrics AS (
+         SELECT
+           p.id,
+           p.platform,
+           p.title,
+           p.caption,
+           p.permalink,
+           COALESCE(m.reach, m.views, 0) AS reach,
+           COALESCE(m.likes, 0)          AS likes,
+           COALESCE(m.comments_count, 0) AS comments,
+           COALESCE(m.saves, 0)          AS saves,
+           COALESCE(m.shares, 0)         AS shares
+         FROM insights_posts p
+         ${LATEST_POST_METRICS_LATERAL}
+         WHERE p.tenant_id     = $1
+           AND p.published_at  >= $2
+           AND ($3::text IS NULL OR p.platform = $3)
+           AND ($4::boolean IS NOT TRUE OR p.aries_post_id IS NOT NULL)
+       )
+       SELECT id, platform, title, caption, permalink, reach, ${weakestOrderCol} AS metric
+       FROM post_metrics
+       ORDER BY ${weakestOrderCol} ASC
+       LIMIT 1`,
+      [tenantId, fromDate, platformFilter, attributedOnly],
+    );
+    const row = weakestRes.rows[0];
+    if (row) {
+      weakest = {
+        id:        Number(row.id),
+        platform:  row.platform,
+        title:     row.title,
+        caption:   row.caption,
+        permalink: row.permalink,
+        reach:     Number(row.reach),
+        metric:    Number(row.metric),
+      };
+    }
+  }
+
+  // ── 3. Availability (AA-229/PR2a) ─────────────────────────────────────────
+  // Only costs a query when the ranked set is actually empty (postCount === 0
+  // ⟺ posts.length === 0, since postsRes below shares this exact predicate).
+  // The populated path gets the cheap default with no extra round trip.
+  let availability: TopAvailability = { insightsConnected: true, reason: null };
+  if (postCount === 0) {
+    const availRes = await client.query<{ account_count: string; metric_row_count: string }>(
+      `SELECT
+         (SELECT count(*) FROM insights_accounts WHERE tenant_id = $1)::int AS account_count,
+         (SELECT count(*)
+            FROM insights_posts p
+            JOIN insights_post_metrics_daily d
+              ON d.post_id = p.id AND d.tenant_id = p.tenant_id
+           WHERE p.tenant_id = $1
+             AND p.published_at >= $2)::int AS metric_row_count`,
+      [tenantId, fromDate],
+    );
+    const accountCount   = Number(availRes.rows[0]?.account_count ?? 0);
+    const metricRowCount = Number(availRes.rows[0]?.metric_row_count ?? 0);
+    availability = deriveTopAvailability(accountCount, metricRowCount);
+  }
+
+  // ── 4. Top posts with aggregated metrics ─────────────────────────────────
   const orderCol = orderColumn(sortBy);
   const postsRes = await client.query<{
     id:            number;
@@ -248,7 +391,7 @@ export async function buildTopSnapshot(
     [tenantId, fromDate, platformFilter, attributedOnly],
   );
 
-  // ── 3. Per-post sentiment (single grouped query for the candidate set) ────
+  // ── 5. Per-post sentiment (single grouped query for the candidate set) ────
   const candidateIds = postsRes.rows.map(r => r.id);
   const sentimentByPost = new Map<number, PostSentiment>();
 
@@ -285,7 +428,7 @@ export async function buildTopSnapshot(
     }
   }
 
-  // ── 4. Assemble + compute engagement, multiplier, sort finalize ───────────
+  // ── 6. Assemble + compute engagement, multiplier, sort finalize ───────────
   let posts: TopPost[] = postsRes.rows.map(row => {
     const reach    = Number(row.reach);
     const likes    = Number(row.likes);
@@ -325,6 +468,6 @@ export async function buildTopSnapshot(
   // the DB ORDER BY. Behavior-identical to the previous inline logic.
   posts = rankTopPosts(posts, sortBy);
 
-  return { posts, avgReach, postCount, sortBy, attribution };
+  return { posts, avgReach, postCount, sortBy, attribution, weakest, availability };
 
 }

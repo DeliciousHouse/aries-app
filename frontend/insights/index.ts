@@ -53,6 +53,8 @@ export type {
   TrendMetricKey,
   TopData,
   TopPost,
+  WeakestPost,
+  TopAvailability,
   ConversationsData,
   ConversationItem,
   AriesData,

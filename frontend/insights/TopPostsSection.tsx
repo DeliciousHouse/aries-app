@@ -263,6 +263,78 @@ function PostRow({
   );
 }
 
+// ── Weakest post card (AA-229/PR2a) ──────────────────────────────────────────
+// Reduced fields only (see WeakestPost in types.ts) — never fabricates the
+// sentiment/multiplier/bestDow/etc. the full top-5 rows carry, since the
+// backend query never computed them for this post.
+function weakestMetricLabel(metric: number, sortBy: SortKey): string {
+  switch (sortBy) {
+    case "engagement": return `${metric}% engagement`;
+    case "saves":       return `${metric.toLocaleString()} saves`;
+    case "shares":      return `${metric.toLocaleString()} shares`;
+    case "comments":    return `${metric.toLocaleString()} comments`;
+    default:            return `${metric.toLocaleString()} reach`;
+  }
+}
+
+function WeakestPostCard({ weakest, sortBy }: { weakest: NonNullable<TopData["weakest"]>; sortBy: SortKey }) {
+  const title = weakest.title ?? (weakest.caption ? weakest.caption.slice(0, 80) : "Untitled");
+  return (
+    <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
+      <div
+        style={{
+          fontSize:      10.5,
+          fontWeight:    700,
+          color:         C.t3,
+          textTransform: "uppercase",
+          letterSpacing: "0.07em",
+          marginBottom:  10,
+        }}
+      >
+        Weakest post this period
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <span style={{ flexShrink: 0, display: "flex" }}>
+          <ChannelIcon platform={weakest.platform} size={15} />
+        </span>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+          <span
+            style={{
+              fontSize:     13,
+              fontWeight:   500,
+              color:        C.t1,
+              overflow:     "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace:   "nowrap",
+            }}
+          >
+            {title}
+          </span>
+          <span style={{ fontSize: 11, color: C.t3 }}>{weakestMetricLabel(weakest.metric, sortBy)}</span>
+        </div>
+        {weakest.permalink && (
+          <a
+            href={weakest.permalink}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              flexShrink:     0,
+              border:         `1px solid ${C.border}`,
+              color:          C.t2,
+              borderRadius:   8,
+              padding:        "5px 10px",
+              fontSize:       12,
+              textDecoration: "none",
+            }}
+          >
+            Open on {platformLabel[weakest.platform] ?? weakest.platform}
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function PatternPanel({ pattern }: { pattern: TopData["pattern"] }) {
   const total = pattern.breakdown.reduce((s, b) => s + b.count, 0) || 1;
   return (
@@ -378,7 +450,13 @@ export function TopPostsSection({ period, platform, enabled }: TopPostsSectionPr
         ) : error ? (
           <ErrorState message={error} onRetry={refetch} />
         ) : empty || !data ? (
-          <EmptyState message="No published posts in this period." />
+          // AA-229/PR2a: two distinct reasons — don't conflate "no account
+          // connected" with "connected but published nothing in this window".
+          data?.meta?.availability?.reason === "insights_not_connected" ? (
+            <EmptyState message="Engagement ranking isn’t available yet. Connect an account so Aries can rank posts by real engagement. Until then it will not guess a winner." />
+          ) : (
+            <EmptyState message="No published posts in this period." />
+          )
         ) : (
           <>
             <div
@@ -413,6 +491,9 @@ export function TopPostsSection({ period, platform, enabled }: TopPostsSectionPr
                     />
                   ))}
                 </div>
+
+                {/* AA-229/PR2a — omitted entirely below 2 posts (best === weakest). */}
+                {data.weakest && <WeakestPostCard weakest={data.weakest} sortBy={data.sortBy} />}
               </div>
 
               {/* RIGHT — pattern spotted */}
