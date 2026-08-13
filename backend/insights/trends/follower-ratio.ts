@@ -71,5 +71,15 @@ export function buildFollowerGrowthLine(
   if (followerBase == null || followerBase <= 0) return null;
 
   const pct = ((delta / followerBase) * 100).toFixed(1);
-  return `${pct}% growth off your ${formatNumber(followerBase)} follower base`;
+  // "net change against", not "growth": `followerBase` is the ENDING count
+  // (the latest snapshot, which already includes this period's delta), so this
+  // is delta/end, not the conventional growth rate delta/start. Identical for
+  // any established account, but sharply different for a new one — +80 on an
+  // ending base of 100 is 80% here vs 400% true growth. Deriving the starting
+  // base as `followerBase - delta` is NOT safer: `followers` and
+  // `followers_delta` are separate platform-reported columns that disagree
+  // across sync gaps, and the difference can land <= 0. So the quantity stays
+  // delta/end and the noun matches what is actually computed. The denominator
+  // is stated in the copy either way, so a reader can back out the arithmetic.
+  return `${pct}% net change against your ${formatNumber(followerBase)} follower base`;
 }

@@ -185,13 +185,13 @@ test('buildFollowerGrowthLine: divides against the real base, not against a valu
   // computed as value/value*100 it would read 100.0 regardless of these
   // numbers. With the real base (5000), +80 followers is 1.6%.
   const line = buildFollowerGrowthLine(80, 5000, trivialFormat);
-  assert.equal(line, '1.6% growth off your 5000 follower base');
+  assert.equal(line, '1.6% net change against your 5000 follower base');
   assert.doesNotMatch(line!, /100\.0%/, 'must not be the old fabricated constant');
 });
 
 test('buildFollowerGrowthLine: a follower decline keeps the sign (negative growth, not clamped to 0)', () => {
   const line = buildFollowerGrowthLine(-10, 2000, trivialFormat);
-  assert.equal(line, '-0.5% growth off your 2000 follower base');
+  assert.equal(line, '-0.5% net change against your 2000 follower base');
 });
 
 // ── 4. Integration: buildMetricDisplays threads followerBase through the ──────
@@ -215,7 +215,7 @@ test('buildMetricDisplays: Followers tab never reports a constant 100% growth (F
   const displays = buildMetricDisplays(snap, 'week', 'all');
   const supporting = displays.followers.supporting;
   assert.doesNotMatch(supporting, /100\.0%/, 'no fabricated constant 100% growth claim');
-  assert.match(supporting, /1\.6% growth off your 5K follower base/, 'growth % divides against the real base');
+  assert.match(supporting, /1\.6% net change against your 5K follower base/, 'growth % divides against the real base');
 });
 
 test('buildMetricDisplays: Followers tab suppresses the growth clause without a dangling separator when the base is unknown', () => {
