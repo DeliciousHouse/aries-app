@@ -34,7 +34,9 @@ IMAGE_REF="${2:?usage: sync-env-image-pin.sh <env-file> <image-ref>}"
 PIN_LINE="ARIES_APP_IMAGE=${IMAGE_REF}"
 
 if [[ ! -e "${ENV_FILE}" ]]; then
-  printf '%s\n' "${PIN_LINE}" > "${ENV_FILE}"
+  # The .env holds secrets in practice; create it owner-only rather than
+  # inheriting the process umask.
+  (umask 077; printf '%s\n' "${PIN_LINE}" > "${ENV_FILE}")
   echo "sync-env-image-pin: ${ENV_FILE} did not exist; created it with ${PIN_LINE}."
   exit 0
 fi

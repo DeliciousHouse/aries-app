@@ -21,23 +21,31 @@ Two changes:
 
 - **The deploy now rewrites the pin.** After the app and every sidecar are
   verified running on the target image (and only then — never pin an image
-  that did not fully roll out), the deploy step runs
-  `scripts/release/sync-env-image-pin.sh .env "${TARGET_IMAGE}"`, which
+  that did not fully roll out), the deploy step resolves the image's
+  **registry digest** and runs `scripts/release/sync-env-image-pin.sh` with
+  the hybrid `name:<git-sha-tag>@sha256:<digest>` reference (the same form
+  compose already uses for the `aries-hermes` default) — the digest is the
+  authoritative immutable pin, the tag stays human-traceable, and the value
+  is deliberately NOT the nearby `target_image_id` local image ID, which is
+  not pullable and means nothing to compose. If no RepoDigest is available
+  the pin falls back to the tag ref with a `::warning::`. The script
   replaces the `ARIES_APP_IMAGE=` line in place (append when missing,
   converge duplicates, preserve every other line and the file's permissions,
-  same-directory temp file + rename so a crash cannot truncate the `.env`).
-  A failed rewrite fails the deploy: reporting green while the pin is stale
-  re-arms exactly the rollback footgun.
+  owner-only mode when creating a missing `.env`, same-directory temp file +
+  rename so a crash cannot truncate the `.env`). A failed rewrite fails the
+  deploy: reporting green while the pin is stale re-arms exactly the
+  rollback footgun.
 - **Operator pre-flight guard.** `scripts/check-image-pin.sh` (documented in
   `DOCKER.md`) refuses, with remediation, when the pin compose would resolve
   disagrees with the image ID the running containers actually run — the
   precise mismatch operators previously had to detect by hand. Run it before
   any manual `docker compose up` in the deploy checkout.
 
-`tests/deploy-env-image-pin.test.ts` pins the workflow ordering (pin sync
-strictly after the sidecar verification gate, fail-closed) and exercises both
-scripts for real: replace/append/duplicate-converge/create behavior, other
-variables byte-identical, permissions preserved, and guard match/mismatch/
+`tests/deploy-env-image-pin.test.ts` (in `npm run verify`) pins the workflow
+ordering (pin sync strictly after the sidecar verification gate, fail-closed,
+registry digest not local image ID) and exercises both scripts for real:
+replace/append/duplicate-converge/create behavior, other variables
+byte-identical, permissions preserved, and guard match/mismatch/hybrid-pin/
 image-absent verdicts against a fake docker.
 
 ## v0.2.11.3 — fix(publishing): a failed media leg is not a maybe-live post (AA-238)

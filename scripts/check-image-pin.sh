@@ -55,8 +55,21 @@ is_exempt() {
   return 1
 }
 
+resolve_pinned_image_id() {
+  # The deploy writes the hybrid tag@digest form (name:tag@sha256:...). Some
+  # local lookups only know the repo@digest form, so fall back to stripping
+  # the tag when the full hybrid reference does not resolve.
+  local ref="$1" id=""
+  id="$(docker image inspect -f '{{.Id}}' "${ref}" 2>/dev/null || true)"
+  if [[ -z "${id}" && "${ref}" == *:*@sha256:* ]]; then
+    local name_and_tag="${ref%%@sha256:*}"
+    id="$(docker image inspect -f '{{.Id}}' "${name_and_tag%:*}@sha256:${ref##*@sha256:}" 2>/dev/null || true)"
+  fi
+  printf '%s\n' "${id}"
+}
+
 pin="$(resolve_pin)"
-pinned_image_id="$(docker image inspect -f '{{.Id}}' "${pin}" 2>/dev/null || true)"
+pinned_image_id="$(resolve_pinned_image_id "${pin}")"
 
 services=("$@")
 if [[ ${#services[@]} -eq 0 ]]; then

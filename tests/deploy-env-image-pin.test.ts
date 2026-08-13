@@ -29,7 +29,7 @@ test('deploy workflow syncs the .env ARIES_APP_IMAGE pin after the sidecar verif
   const workerGate = workflow.indexOf(
     'echo "Post-deploy check: all sidecar workers are running on the target image."',
   );
-  const pinSync = workflow.indexOf('./scripts/release/sync-env-image-pin.sh .env "${TARGET_IMAGE}"');
+  const pinSync = workflow.indexOf('./scripts/release/sync-env-image-pin.sh .env "${pin_ref}"');
   assert.notEqual(workerGate, -1, 'deploy workflow is missing the sidecar verification gate');
   assert.notEqual(pinSync, -1, 'deploy workflow must rewrite the host .env ARIES_APP_IMAGE pin');
   assert.ok(
@@ -38,8 +38,27 @@ test('deploy workflow syncs the .env ARIES_APP_IMAGE pin after the sidecar verif
   );
   assert.match(
     workflow,
-    /if ! \.\/scripts\/release\/sync-env-image-pin\.sh \.env "\$\{TARGET_IMAGE\}"; then[\s\S]*?exit 1/,
+    /if ! \.\/scripts\/release\/sync-env-image-pin\.sh \.env "\$\{pin_ref\}"; then[\s\S]*?exit 1/,
     'a failed pin sync must fail the deploy — green-with-stale-pin re-arms the rollback footgun',
+  );
+  // The pin must be the immutable REGISTRY digest (hybrid tag@digest form),
+  // never the local image ID that sits nearby in the same step:
+  // target_image_id is `docker image inspect -f '{{.Id}}'` output, which is
+  // not pullable and means nothing to compose on any host.
+  assert.match(
+    workflow,
+    /pin_repo_digest="\$\(docker image inspect -f '\{\{range \.RepoDigests\}\}\{\{println \.\}\}\{\{end\}\}' "\$\{TARGET_IMAGE\}"/,
+    'the pin value must come from RepoDigests (registry digest), with the tag kept for readability',
+  );
+  assert.match(
+    workflow,
+    /pin_ref="\$\{TARGET_IMAGE\}@\$\{pin_repo_digest##\*@\}"/,
+    'the pin must use the hybrid name:tag@sha256:digest form',
+  );
+  assert.doesNotMatch(
+    workflow,
+    /sync-env-image-pin\.sh \.env "\$\{target_image_id\}"/,
+    'never write the LOCAL image ID into the .env pin',
   );
 });
 
@@ -134,6 +153,11 @@ test('sync-env-image-pin creates a missing .env instead of leaving the compose d
     const result = runSync(envFile, 'ghcr.io/delicioushouse/aries-app:abc');
     assert.equal(result.status, 0, result.stderr);
     assert.equal(readFileSync(envFile, 'utf8'), 'ARIES_APP_IMAGE=ghcr.io/delicioushouse/aries-app:abc\n');
+    assert.equal(
+      statSync(envFile).mode & 0o777,
+      0o600,
+      'a freshly created .env must be owner-only — it will hold secrets',
+    );
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -165,6 +189,10 @@ if [[ "$*" == "inspect -f {{.Config.Image}} app-container" ]]; then
   exit 0
 fi
 if [[ "$1" == "image" && "$2" == "inspect" ]]; then
+  ref="\${5:-}"
+  if [[ -n "\${PINNED_IMAGE_ACCEPT:-}" && "\${ref}" != "\${PINNED_IMAGE_ACCEPT}" ]]; then
+    exit 1
+  fi
   if [[ -n "\${PINNED_IMAGE_ID}" ]]; then
     printf '%s\\n' "\${PINNED_IMAGE_ID}"
     exit 0
@@ -229,6 +257,39 @@ test('check-image-pin passes when the pin matches the running container', () => 
       },
     });
     assert.equal(result.status, 0, `match must pass; stdout=${result.stdout} stderr=${result.stderr}`);
+    assert.match(result.stdout, /OK — 1 running service\(s\) match/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('check-image-pin resolves a hybrid tag@digest pin via the repo@digest fallback', () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), 'aries-pin-guard-hybrid-'));
+  try {
+    writeFileSync(
+      path.join(tempRoot, '.env'),
+      'ARIES_APP_IMAGE=ghcr.io/delicioushouse/aries-app:abc123@sha256:feedface\n',
+    );
+    const binDir = path.join(tempRoot, 'bin');
+    mkdirSync(binDir, { recursive: true });
+    const fakeDocker = path.join(binDir, 'docker');
+    writeFileSync(fakeDocker, FAKE_DOCKER, { mode: 0o755 });
+    chmodSync(fakeDocker, 0o755);
+    const result = spawnSync('bash', [guardScriptPath], {
+      cwd: tempRoot,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        ARIES_APP_IMAGE: '',
+        RUNNING_IMAGE_ID: 'sha256:same-image',
+        PINNED_IMAGE_ID: 'sha256:same-image',
+        // Only the tag-stripped repo@digest form resolves locally; the guard
+        // must fall back to it instead of reporting the pin as missing.
+        PINNED_IMAGE_ACCEPT: 'ghcr.io/delicioushouse/aries-app@sha256:feedface',
+        PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+      },
+    });
+    assert.equal(result.status, 0, `hybrid pin must resolve; stdout=${result.stdout} stderr=${result.stderr}`);
     assert.match(result.stdout, /OK — 1 running service\(s\) match/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
