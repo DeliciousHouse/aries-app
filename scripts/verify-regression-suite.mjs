@@ -296,6 +296,16 @@ const steps = [
     args: ['--test', 'tests/insights-honesty-pass.test.ts'],
   },
   {
+    // AA-246: Trends Reach-tab ratio copy ("Nx your follower base of …" / "N%
+    // of your N followers") divides against the tenant's real current follower
+    // count (TrendsSnapshot.followerBase), never the period's follower DELTA,
+    // and is suppressed (not a formatted zero / clamped percentage) when the
+    // base is unknown or non-positive. Pure + no DB; regression here is the
+    // qa-defect #818 "8200% of 0 followers" class of bug shipping again.
+    name: 'insights trends follower-ratio honesty (AA-246)',
+    args: ['--test', 'tests/insights-trends-follower-ratio.test.ts'],
+  },
+  {
     // S3-2 (gap C1): insights_posts.content_type production writer. The pure
     // caption-keyword classifier (6-bucket coverage, tie-break precedence,
     // null-on-no-signal, vocabulary-lock, and the seed/top-template-builder

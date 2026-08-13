@@ -11,6 +11,7 @@
 
 import type { TrendsSnapshot } from './trends-snapshot-builder';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
+import { buildFollowerRatioLine, buildFollowerGrowthLine } from './follower-ratio';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -64,13 +65,11 @@ function platformName(p: string): string {
 
 function buildReachDisplay(snap: TrendsSnapshot, period: NarrativePeriod): MetricDisplay {
   const { value, valuePrev, delta } = snap.reach;
-  const ratio = snap.followers.value > 0
-    ? Math.round((value / snap.followers.value) * 10) / 10
-    : 0;
-
-  const ratioLine = ratio >= 1
-    ? `${ratio}x your follower base of ${fmtNum(snap.followers.value)}`
-    : `reached ${Math.round((value / Math.max(1, snap.followers.value)) * 100)}% of your ${fmtNum(snap.followers.value)} followers`;
+  // AA-246: ratio against the tenant's actual follower BASE, not the period
+  // delta — see follower-ratio.ts. null when the base is unknown/non-positive;
+  // the supporting line below omits the clause entirely rather than printing
+  // a formatted zero or a percentage against a denominator the reader never sees.
+  const ratioLine = buildFollowerRatioLine(value, snap.followerBase, fmtNum);
 
   const deltaLabel = delta !== null ? `${fmtSigned(delta)}% vs prior` : null;
 
@@ -95,7 +94,9 @@ function buildReachDisplay(snap: TrendsSnapshot, period: NarrativePeriod): Metri
     headlineSuffix: ' people reached',
     delta,
     deltaLabel,
-    supporting:     `<span class="${(delta ?? 0) >= 0 ? 'pos' : 'neg'}">${deltaLabel ?? '—'}</span> · ${ratioLine}`,
+    // AA-246: ratioLine is null when the follower base is unknown/non-positive
+    // — omit the clause entirely rather than trailing " · " onto nothing.
+    supporting:     `<span class="${(delta ?? 0) >= 0 ? 'pos' : 'neg'}">${deltaLabel ?? '—'}</span>` + (ratioLine ? ` · ${ratioLine}` : ''),
     interpretation,
   };
 }
@@ -134,15 +135,16 @@ function buildEngagementDisplay(snap: TrendsSnapshot): MetricDisplay {
 
 function buildFollowersDisplay(snap: TrendsSnapshot): MetricDisplay {
   const { value, valuePrev } = snap.followers;
-  const totalFollowers = snap.reach.value > 0
-    ? Math.max(snap.followers.value, 0)
-    : 0;
-
-  // Use the max of current/prev followers from the platform breakdown as total
-  const totalFromBreakdown = snap.platformBreakdown.followers.reduce((s, p) => s + p.value, 0);
-  const growthPct = totalFromBreakdown > 0
-    ? ((value / totalFromBreakdown) * 100).toFixed(1)
-    : '0';
+  // AA-246 (F1): growth % divides the period's follower delta against the
+  // tenant's actual follower BASE (see follower-ratio.ts) — NOT
+  // `platformBreakdown.followers`, which is the SAME per-platform delta
+  // breakdown as `value` itself (trends-snapshot-builder.ts's platform-
+  // breakdown query sums the same `followers_delta` column). Dividing a
+  // quantity by itself is a constant 100% regardless of real growth — the
+  // old code's `x / x * 100` bug. null when the base is unknown/non-positive;
+  // the supporting line below omits the clause entirely rather than printing
+  // the old fabricated constant.
+  const growthLine = buildFollowerGrowthLine(value, snap.followerBase, fmtNum);
 
   let interpretation: string;
   if (value > 100) {
@@ -160,7 +162,11 @@ function buildFollowersDisplay(snap: TrendsSnapshot): MetricDisplay {
     headlineSuffix: ' new followers',
     delta:          null,
     deltaLabel:     null,
-    supporting:     `<span class="strong">${growthPct}%</span> growth this period · <span class="${value >= 0 ? 'pos' : 'neg'}">${fmtSigned(value)}</span> vs prior's ${fmtSigned(valuePrev)}`,
+    // AA-246 (F1): growthLine is null when the follower base is
+    // unknown/non-positive — omit the clause entirely rather than trailing
+    // " · " onto nothing (same no-dangling-separator contract as Reach).
+    supporting:     (growthLine ? `<span class="strong">${growthLine}</span> · ` : '') +
+      `<span class="${value >= 0 ? 'pos' : 'neg'}">${fmtSigned(value)}</span> vs prior's ${fmtSigned(valuePrev)}`,
     interpretation,
   };
 }
