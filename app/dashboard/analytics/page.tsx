@@ -17,6 +17,14 @@ export default function DashboardAnalyticsPage() {
   // Facebook is always first. All other platforms are gated by their rollout
   // flags; when all flags are OFF this collapses to ['facebook'] and the
   // client-side selector is never rendered (length === 1 guard in the screen).
+  //
+  // AA-229 F2: frontend/insights/AnalyticsDrilldownLink.tsx's
+  // DRILLDOWN_PLATFORMS set mirrors this list's possible members (minus
+  // Instagram, which never appears here — see analytics-screen.tsx's AA-229
+  // follow-up note). It cannot import this function directly (this file
+  // resolves flags server-side; the link is a client component reading a
+  // different set of flags via /insights' isPlatformInsightsEnabled), so if
+  // a platform is added or removed here, update that Set too.
   const enabledPlatforms: Platform[] = [
     'facebook',
     ...(isXEnabled() ? (['x'] as const) : []),

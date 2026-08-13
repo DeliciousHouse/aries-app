@@ -305,6 +305,16 @@ const steps = [
     args: ['--test', 'tests/insights-honesty-pass.test.ts'],
   },
   {
+    // AA-246: Trends Reach-tab ratio copy ("Nx your follower base of …" / "N%
+    // of your N followers") divides against the tenant's real current follower
+    // count (TrendsSnapshot.followerBase), never the period's follower DELTA,
+    // and is suppressed (not a formatted zero / clamped percentage) when the
+    // base is unknown or non-positive. Pure + no DB; regression here is the
+    // qa-defect #818 "8200% of 0 followers" class of bug shipping again.
+    name: 'insights trends follower-ratio honesty (AA-246)',
+    args: ['--test', 'tests/insights-trends-follower-ratio.test.ts'],
+  },
+  {
     // S3-2 (gap C1): insights_posts.content_type production writer. The pure
     // caption-keyword classifier (6-bucket coverage, tie-break precedence,
     // null-on-no-signal, vocabulary-lock, and the seed/top-template-builder
@@ -585,6 +595,14 @@ const steps = [
     // verify alone — a compose/deploy drift must fail before that dispatch.
     name: 'deploy manifest parity',
     args: ['--test', 'tests/deploy-manifest-parity.test.ts'],
+  },
+  {
+    // The deploy must rewrite the host .env ARIES_APP_IMAGE pin (registry
+    // digest, only after full verification, fail-closed) and the operator
+    // guard must refuse a stale pin — otherwise a bare `docker compose up`
+    // on the deploy host silently rolls production back (2x on 2026-08-12).
+    name: 'deploy .env image-pin sync and guard',
+    args: ['--test', 'tests/deploy-env-image-pin.test.ts'],
   },
   {
     // Self-hosted deploy cleanup is destructive host policy. Keep its repository

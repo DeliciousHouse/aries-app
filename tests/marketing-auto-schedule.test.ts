@@ -6,6 +6,7 @@ import {
   computeAutoScheduleSlots,
   computeDefaultCadenceSlots,
   autoSchedulePosts,
+  isRecognizedWeekday,
   type AutoScheduleInputRow,
 } from '../backend/marketing/auto-schedule';
 import {
@@ -803,4 +804,428 @@ test('buildAutoScheduleRows: null/legacy surface falls back to feed/image', () =
   const rows = buildAutoScheduleRows(postRows, WEEKLY_FEED_ONLY, STORY_JOB);
   assert.equal(rows[0]?.surface, 'feed');
   assert.equal(rows[0]?.mediaType, 'image');
+});
+
+// --- AA-237: the strategist names the weekday TWO ways ------------------------
+//
+// `buildAutoScheduleRows` read the weekday from `recommended_day` only. When
+// Hermes names the field `day` the value was dropped on the floor — no error,
+// no log, no `skipped` reason — and every affected post fell onto
+// `fallback: first day in window` inside computeAutoScheduleSlots. That is the
+// same collapse as the 2026-07-13 IG burst; the fix for THAT incident added the
+// per-target LOCATION of recommended_day and never considered its NAME.
+//
+// These compact fixtures exercise the wire shapes named in the defect report.
+// They are regression inputs, not a census or a substitute for source data.
+// Run `npx tsx scripts/marketing/census-schedule-weekdays.ts <DATA_ROOT>` for a
+// read-only census of the currently available runtime corpus.
+
+const AA237_JOB = 'mkt_day_alias';
+
+/** A schedule entry using the `day` alias. */
+const DAY_ONLY_ENTRY = {
+  post_number: 1,
+  day: 'Monday',
+  theme: 'educational',
+  format: 'carousel',
+  platforms: ['instagram', 'facebook'],
+  recommended_time_window: 'Morning or early workday',
+  hook: 'Your social content should not feel like a weekly scramble.',
+  caption: '(elided)',
+  instagram_notes: '(elided)',
+  facebook_notes: '(elided)',
+  asset: { assetId: 'img_1', status: 'available', artifact_url: 'https://example/img.png', local_path: '/cache/img.png' },
+};
+
+/** A full Mon–Sun week whose entries all use the `day` alias. */
+const DAY_ONLY_WEEK = [
+  'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday',
+].map((day, i) => ({ ...DAY_ONLY_ENTRY, post_number: i + 1, day }));
+
+/**
+ * A schedule entry using the canonical `recommended_day` spelling.
+ */
+const RECOMMENDED_DAY_ENTRY = {
+  post_number: 1,
+  recommended_day: 'Monday',
+  recommended_time_window: '9:00 AM - 11:00 AM local audience time',
+  theme: 'educational',
+  format: 'carousel',
+  platforms: ['instagram', 'facebook'],
+  assetId: 'img_1',
+  asset_url: 'https://example/img.png',
+  publishing_note: '(elided)',
+};
+
+/**
+ * A `platform_targets[]` shape whose members carry no weekday, so the
+ * entry-level field is the only source. This is the shape the fallback serves.
+ */
+const PLATFORM_TARGETS_ENTRY = {
+  post_number: 1,
+  recommended_day: 'Monday',
+  theme: 'educational',
+  format: 'carousel',
+  platform_targets: [
+    { platform: 'instagram', placement: 'feed' as const, assetId: 'img_1', asset_url: 'https://example/img.png', caption: '(elided)', scheduling_note: '(elided)' },
+    { platform: 'facebook', placement: 'feed' as const, assetId: 'img_1', asset_url: 'https://example/img.png', caption: '(elided)', scheduling_note: '(elided)' },
+  ],
+};
+
+/**
+ * A populated `recommended_day` alongside an empty `platforms: []`. See the
+ * `entry_named_no_platform` test below; this is a separate unfixed defect.
+ */
+const EMPTY_PLATFORMS_ENTRY = {
+  post_number: 1,
+  recommended_day: 'Tuesday',
+  platforms: [] as string[],
+  placement: 'feed' as const,
+  media_type: 'image' as const,
+};
+
+function metaPostRow(id: number, platform: string, jobId: string, ordinal: number): AutoSchedulePostRow {
+  return {
+    id,
+    platform,
+    idempotency_key: `${jobId}:${ordinal}:${platform}`,
+    surface: 'feed',
+    media_type: 'image',
+    width_px: null,
+    height_px: null,
+    duration_seconds: null,
+  };
+}
+
+function captureWarnings<T>(fn: () => T): { result: T; warnings: unknown[][] } {
+  const original = console.warn;
+  const warnings: unknown[][] = [];
+  console.warn = (...args: unknown[]) => { warnings.push(args); };
+  try {
+    return { result: fn(), warnings };
+  } finally {
+    console.warn = original;
+  }
+}
+
+test('AA-237: schedule[] entry naming the weekday `day` is honored', () => {
+  const postRows = [
+    metaPostRow(1, 'instagram', AA237_JOB, 1),
+    metaPostRow(2, 'facebook', AA237_JOB, 1),
+  ];
+  const rows = buildAutoScheduleRows(postRows, [DAY_ONLY_ENTRY], AA237_JOB);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0]!.recommendedDay, 'Monday', '`day` must resolve the weekday, not be discarded');
+  assert.equal(rows[1]!.recommendedDay, 'Monday');
+});
+
+test('AA-237: the `day` spelling also works through the weekly_schedule[] reader', () => {
+  // A different key set from the schedule[] fixture exercises the legacy branch
+  // of readWeeklySchedule.
+  const doc = makeMinimalDoc({
+    weekly_schedule: [
+      { day: 'Monday', post_number: 1, platforms: ['instagram', 'facebook'], priority: 'primary', note: '(elided)' },
+    ],
+  });
+  const entries = readWeeklySchedule(doc as never);
+  assert.equal(entries.length, 1);
+  const jobId = 'mkt_weekly_schedule_day_alias';
+  const rows = buildAutoScheduleRows([metaPostRow(1, 'instagram', jobId, 1)], entries, jobId);
+  assert.equal(rows[0]!.recommendedDay, 'Monday');
+});
+
+test('AA-237: `day` on a platform_target resolves that target (defensive symmetry)', () => {
+  // Synthetic symmetry case: the per-target branch uses the same reader so a
+  // rename cannot land in the gap between entry and target handling.
+  const jobId = 'mkt_pt_day_alias';
+  const entry = {
+    post_number: 1,
+    theme: 'educational',
+    format: 'carousel',
+    platform_targets: [
+      { platform: 'instagram', placement: 'feed' as const, day: 'Thursday', caption: '(elided)' },
+      { platform: 'facebook', placement: 'feed' as const, day: 'Friday', caption: '(elided)' },
+    ],
+  };
+  const rows = buildAutoScheduleRows(
+    [metaPostRow(1, 'instagram', jobId, 1), metaPostRow(2, 'facebook', jobId, 1)],
+    [entry],
+    jobId,
+  );
+  assert.equal(rows.find((r) => r.postId === 1)!.recommendedDay, 'Thursday');
+  assert.equal(rows.find((r) => r.postId === 2)!.recommendedDay, 'Friday');
+});
+
+test('AA-237: entry-level `day` reaches platform_targets that carry no weekday of their own', () => {
+  const jobId = 'mkt_entry_day_alias';
+  // Cross the alias with the platform_targets fan-out shape.
+  const { recommended_day: _canonical, ...rest } = PLATFORM_TARGETS_ENTRY;
+  const entry = { ...rest, day: 'Monday' };
+  const rows = buildAutoScheduleRows(
+    [metaPostRow(1, 'instagram', jobId, 1), metaPostRow(2, 'facebook', jobId, 1)],
+    [entry],
+    jobId,
+  );
+  assert.equal(rows[0]!.recommendedDay, 'Monday');
+  assert.equal(rows[1]!.recommendedDay, 'Monday');
+});
+
+test('AA-237 end-to-end: a `day`-only week keeps its seven distinct weekdays', () => {
+  // The consequence the unit assertions stand in for. The window opens on a
+  // WEDNESDAY on purpose: with the defect present every row falls onto the
+  // first day in the window and the de-collision probe then spreads them
+  // +1d/+2d/… in ORDINAL order, which on a Monday-opening window would
+  // coincidentally reproduce the correct dates. Opening mid-week separates the
+  // two — post 1 (Monday) belongs on 06-08, not on the window's first day.
+  const WED_NOW = new Date('2026-06-03T12:00:00.000Z'); // Wednesday
+  const WED_START = new Date('2026-06-03T00:00:00.000Z');
+  const postRows = DAY_ONLY_WEEK.map((_, i) => metaPostRow(100 + i, 'instagram', AA237_JOB, i + 1));
+
+  const rows = buildAutoScheduleRows(postRows, DAY_ONLY_WEEK, AA237_JOB);
+  const { slots } = computeAutoScheduleSlots({
+    rows,
+    tenantTimezone: TZ_NY,
+    campaignStart: WED_START,
+    campaignEnd: CAMPAIGN_END,
+    now: WED_NOW,
+  });
+
+  assert.equal(slots.length, 7);
+  const dateByPostId = new Map(slots.map((s) => [s.postId, s.appliedWallTime.slice(0, 10)]));
+  assert.deepEqual(
+    [...dateByPostId.entries()].sort((a, b) => a[0] - b[0]),
+    [
+      [100, '2026-06-08'], // Monday
+      [101, '2026-06-09'], // Tuesday
+      [102, '2026-06-03'], // Wednesday — the window's own first day
+      [103, '2026-06-04'], // Thursday
+      [104, '2026-06-05'], // Friday
+      [105, '2026-06-06'], // Saturday
+      [106, '2026-06-07'], // Sunday
+    ],
+  );
+  // The audit trail must name the weekday, never the fallback.
+  for (const slot of slots) {
+    assert.ok(
+      !slot.appliedDay.startsWith('fallback'),
+      `post ${slot.postId} landed on the fallback cadence: ${slot.appliedDay}`,
+    );
+  }
+});
+
+test('AA-237: an unresolvable weekday is LOGGED, so the next synonym is loud', () => {
+  // This assertion matters more than the `day` fallback itself. Adding one
+  // synonym does not stop a THIRD rename; a warning naming the keys the
+  // strategist actually emitted does.
+  const jobId = 'mkt_unknown_weekday_field';
+  const entry = {
+    post_number: 1,
+    // A weekday field this code has never seen — stands in for the next rename.
+    posting_weekday: 'Monday',
+    platforms: ['instagram'],
+  };
+  const { result: rows, warnings } = captureWarnings(() =>
+    buildAutoScheduleRows([metaPostRow(1, 'instagram', jobId, 1)], [entry], jobId),
+  );
+  assert.equal(rows[0]!.recommendedDay, null, 'an unknown field genuinely cannot be resolved');
+
+  const entryWarn = warnings.find(
+    (w) => typeof w[0] === 'string' && w[0].includes('no strategist weekday resolved'),
+  );
+  assert.ok(entryWarn, 'an entry whose weekday cannot be resolved must warn');
+  const ctx = entryWarn![1] as Record<string, unknown>;
+  assert.equal(ctx.jobId, jobId);
+  assert.equal(ctx.ordinal, 1);
+  assert.equal(ctx.reason, 'no_recognized_weekday_field');
+  // The load-bearing field: the unknown spelling is legible straight from the log.
+  assert.deepEqual(ctx.entryKeys, ['platforms', 'post_number', 'posting_weekday']);
+
+  const rowWarn = warnings.find(
+    (w) => typeof w[0] === 'string' && w[0].includes('posts have no strategist weekday'),
+  );
+  assert.ok(rowWarn, 'the affected posts must be named too');
+  assert.deepEqual((rowWarn![1] as Record<string, unknown>).posts, [{ postId: 1, platform: 'instagram' }]);
+});
+
+test('AA-237: a fully resolved schedule logs nothing (the warning must stay signal)', () => {
+  const jobId = 'mkt_resolved_schedule';
+  const { warnings } = captureWarnings(() =>
+    buildAutoScheduleRows(
+      [metaPostRow(1, 'instagram', jobId, 1), metaPostRow(2, 'facebook', jobId, 1)],
+      [RECOMMENDED_DAY_ENTRY],
+      jobId,
+    ),
+  );
+  assert.deepEqual(warnings, [], 'a healthy schedule must not train operators to ignore this line');
+});
+
+test('AA-237: `recommended_day` still wins and is untouched by the alias', () => {
+  // Non-regression guard, not a proof: this passed before the fix too.
+  const jobId = 'mkt_recommended_day';
+  const rows = buildAutoScheduleRows(
+    [metaPostRow(1, 'instagram', jobId, 1)],
+    [{ ...RECOMMENDED_DAY_ENTRY, day: 'Saturday' }],
+    jobId,
+  );
+  assert.equal(rows[0]!.recommendedDay, 'Monday', 'recommended_day must outrank the `day` alias');
+});
+
+test('AA-237: `platforms: []` still discards the weekday — but no longer silently', () => {
+  // SEPARATE, UNFIXED DEFECT, pinned deliberately so a future fix is a chosen
+  // change rather than an accident. The entry names no platform, so nothing in
+  // the (ordinal, platform) map can consume its weekday and every post of that
+  // ordinal falls back. The behaviour is unchanged here; only its visibility is.
+  const jobId = 'mkt_empty_platforms';
+  const { result: rows, warnings } = captureWarnings(() =>
+    buildAutoScheduleRows(
+      [metaPostRow(1, 'instagram', jobId, 1), metaPostRow(2, 'facebook', jobId, 1)],
+      [EMPTY_PLATFORMS_ENTRY],
+      jobId,
+    ),
+  );
+  assert.equal(rows[0]!.recommendedDay, null);
+  assert.equal(rows[1]!.recommendedDay, null);
+
+  const entryWarn = warnings.find(
+    (w) => typeof w[0] === 'string' && w[0].includes('no strategist weekday resolved'),
+  );
+  assert.ok(entryWarn, 'an entry that names no platform must warn');
+  const ctx = entryWarn![1] as Record<string, unknown>;
+  assert.equal(ctx.reason, 'entry_named_no_platform', 'the log must distinguish this from a rename');
+  assert.equal(ctx.entryWeekday, 'Tuesday', 'the discarded weekday must appear in the log');
+  assert.deepEqual(ctx.platformKeys, []);
+});
+
+// --- AA-237 (review follow-up): a renamed FIELD is not the only silent discard --
+//
+// The first cut of the AA-237 warning tested `recommendedDay !== null`, which
+// means "a string was present" — not "a weekday was resolved". An entry naming
+// the field correctly but filling it with something that is not a weekday
+// therefore reproduced the AA-237 symptom byte for byte and logged NOTHING:
+// `dayIndexFromName` nulls the value, the post lands on `fallback: first day in
+// window`, and `appliedDay` is never persisted anywhere an operator can read.
+//
+// That is not a hypothetical shape. `PUBLISH_SCHEDULE_CONTRACT` in
+// backend/marketing/ports/hermes.ts instructs the model that recommended_day is
+// "the FULL English weekday NAME only — never a date, never 'Day 1', never an
+// abbreviation, never null" — the team enumerating the exact values it expects
+// the model to get wrong. Every one of those was silent.
+//
+// These tests pin the parser contract directly; corpus state is reported by the
+// separate read-only census command.
+
+test('AA-237: a weekday VALUE the scheduler cannot parse warns, and says which value', () => {
+  const jobId = 'mkt_iso_date_weekday';
+  const entry = {
+    post_number: 1,
+    // An ISO date where a weekday name belongs — the first failure mode the
+    // publish prompt tells the model not to produce.
+    recommended_day: '2026-06-08',
+    platforms: ['instagram'],
+    placement: 'feed' as const,
+    media_type: 'image' as const,
+  };
+  const { result: rows, warnings } = captureWarnings(() =>
+    buildAutoScheduleRows([metaPostRow(1, 'instagram', jobId, 1)], [entry], jobId),
+  );
+
+  // The row must carry NO weekday rather than an uninterpretable string: the
+  // scheduler drops it either way, and only null makes the null-checks honest.
+  assert.equal(rows[0]!.recommendedDay, null, 'a non-weekday must not masquerade as a resolved day');
+
+  const entryWarn = warnings.find(
+    (w) => typeof w[0] === 'string' && w[0].includes('no strategist weekday resolved'),
+  );
+  assert.ok(entryWarn, 'an unparseable weekday VALUE must warn, exactly as a renamed field does');
+  const ctx = entryWarn![1] as Record<string, unknown>;
+  assert.equal(ctx.reason, 'unparseable_weekday_value', 'the log must distinguish a bad value from a rename');
+  assert.deepEqual(ctx.unparseableWeekdays, ['2026-06-08'], 'the offending value is the whole diagnostic');
+  assert.equal(ctx.entryWeekday, '2026-06-08', 'the RAW value must survive into the log, not a scrubbed null');
+  // The field name was right, so `entryKeys` alone would have looked healthy —
+  // which is precisely why the value check has to exist.
+  assert.deepEqual(ctx.entryKeys, ['media_type', 'placement', 'platforms', 'post_number', 'recommended_day']);
+
+  const rowWarn = warnings.find(
+    (w) => typeof w[0] === 'string' && w[0].includes('posts have no strategist weekday'),
+  );
+  assert.ok(rowWarn, 'the affected post must be named too');
+  assert.deepEqual((rowWarn![1] as Record<string, unknown>).posts, [{ postId: 1, platform: 'instagram' }]);
+});
+
+test('AA-237: an abbreviated weekday warns too (`Mon` is not Monday to the parser)', () => {
+  const jobId = 'mkt_abbrev_weekday';
+  const { result: rows, warnings } = captureWarnings(() =>
+    buildAutoScheduleRows(
+      [metaPostRow(1, 'instagram', jobId, 1)],
+      // Via the `day` alias, so this covers the AA-237 synonym path AND the
+      // value check at once: the right value in the other spelling still works
+      // (asserted above), the wrong value in either spelling still warns.
+      [{ post_number: 1, day: 'Mon', platforms: ['instagram'] }],
+      jobId,
+    ),
+  );
+  assert.equal(rows[0]!.recommendedDay, null);
+  const ctx = warnings.find(
+    (w) => typeof w[0] === 'string' && w[0].includes('no strategist weekday resolved'),
+  )![1] as Record<string, unknown>;
+  assert.equal(ctx.reason, 'unparseable_weekday_value');
+  assert.deepEqual(ctx.unparseableWeekdays, ['Mon']);
+});
+
+test('AA-237: an unparseable weekday on a platform_target does not shadow the entry-level day', () => {
+  // Before the value check, `readStrategistWeekday(target) ?? day` accepted any
+  // non-blank string, so one junk target value discarded a perfectly good
+  // entry-level weekday. An unparseable string is a lost decision, not an
+  // override — the entry's day is the better remaining signal.
+  const jobId = 'mkt_target_junk_over_entry';
+  const entry = {
+    post_number: 1,
+    recommended_day: 'Thursday',
+    platform_targets: [
+      { platform: 'instagram', placement: 'feed' as const, recommended_day: 'Day 1' },
+      { platform: 'facebook', placement: 'feed' as const },
+    ],
+  };
+  const { result: rows, warnings } = captureWarnings(() =>
+    buildAutoScheduleRows(
+      [metaPostRow(1, 'instagram', jobId, 1), metaPostRow(2, 'facebook', jobId, 1)],
+      [entry],
+      jobId,
+    ),
+  );
+  assert.equal(rows.find((r) => r.postId === 1)!.recommendedDay, 'Thursday');
+  assert.equal(rows.find((r) => r.postId === 2)!.recommendedDay, 'Thursday');
+  // The entry resolved, so the "nothing resolved" line must stay quiet — but
+  // the junk value is not thereby forgiven; it simply did not cost a weekday.
+  assert.deepEqual(warnings, [], 'a recovered entry must not train operators to ignore the line');
+});
+
+test('AA-237: the value check reuses the scheduler\'s own parser (no second weekday table)', () => {
+  // A predicate that could disagree with `dayIndexFromName` would certify a
+  // value the scheduler then drops — reintroducing the silent discard through
+  // the check meant to end it. Pin the agreement across the seven names, the
+  // casing/whitespace the parser tolerates, and the shapes it rejects.
+  for (const good of ['Monday', 'sunday', '  Friday  ', 'WEDNESDAY']) {
+    assert.equal(isRecognizedWeekday(good), true, `${JSON.stringify(good)} must be recognized`);
+    const jobId = 'mkt_parser_agreement';
+    const rows = buildAutoScheduleRows(
+      [metaPostRow(1, 'instagram', jobId, 1)],
+      [{ post_number: 1, recommended_day: good, platforms: ['instagram'] }],
+      jobId,
+    );
+    const { slots } = computeAutoScheduleSlots({
+      rows,
+      tenantTimezone: TZ_NY,
+      campaignStart: CAMPAIGN_START,
+      campaignEnd: CAMPAIGN_END,
+      now: NOW,
+    });
+    assert.ok(
+      !slots[0]!.appliedDay.startsWith('fallback'),
+      `a value the predicate accepts must schedule: ${good} -> ${slots[0]!.appliedDay}`,
+    );
+  }
+  for (const bad of ['Mon', '2026-06-08', 'Day 1', 'Mondays', '', '   ', null, undefined]) {
+    assert.equal(isRecognizedWeekday(bad), false, `${JSON.stringify(bad)} must not be recognized`);
+  }
 });
