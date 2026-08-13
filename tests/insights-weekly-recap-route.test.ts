@@ -182,3 +182,38 @@ test('the cache key is built from the RESOLVED iso week, not the raw query strin
   // on the same week) must share one cache entry.
   assert.match(handlerSource, /insightsMicroCacheKey\('weekly-recap', tenantId, \{ week: week\.iso \}\)/);
 });
+
+// ── AA-229/PR2b: the /insights page-level flag contract ────────────────────
+//
+// The weekly-recap SECTION also has its own disabled-mounts-nothing contract,
+// separate from the route's disabled-returns-{enabled:false} contract tested
+// above. app/insights/page.tsx reads the SAME flag server-side (mirroring how
+// isNativeReplyEnabled is already threaded there) and InsightsDashboard must
+// not mount <WeeklyRecapSection /> — no markup, no fetch — when it is off.
+// Rendering the full page requires a live tenant/session, so these are
+// source-level checks, matching every other contract test in this file.
+
+const insightsPageSource = readFileSync(
+  path.join(PROJECT_ROOT, 'app', 'insights', 'page.tsx'),
+  'utf8',
+);
+const insightsDashboardSource = readFileSync(
+  path.join(PROJECT_ROOT, 'frontend', 'insights', 'InsightsDashboard.tsx'),
+  'utf8',
+);
+
+test('/insights reads the weekly-recap flag server-side and passes it down', () => {
+  assert.match(
+    insightsPageSource,
+    /import \{ isWeeklyResultsEnabled \} from ['"]@\/backend\/insights\/weekly-recap\/weekly-recap-env['"]/,
+  );
+  assert.match(insightsPageSource, /const weeklyRecapEnabled = isWeeklyResultsEnabled\(\)/);
+  assert.match(insightsPageSource, /weeklyRecapEnabled=\{weeklyRecapEnabled\}/);
+});
+
+test('flag OFF mounts no recap component in InsightsDashboard — no markup, no fetch', () => {
+  assert.match(insightsDashboardSource, /import \{ WeeklyRecapSection \}\s+from ['"]@\/frontend\/insights\/WeeklyRecapSection['"]/);
+  // Conditional render, not an `enabled` prop threaded into a fetch hook —
+  // the component itself must not be instantiated when the flag is off.
+  assert.match(insightsDashboardSource, /\{weeklyRecapEnabled && <WeeklyRecapSection \/>\}/);
+});

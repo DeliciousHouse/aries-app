@@ -8,7 +8,6 @@ export type AppRouteId =
   | 'socialContent'
   | 'posts'
   | 'calendar'
-  | 'results'
   | 'analytics'
   | 'insights'
   | 'comments'
@@ -88,13 +87,6 @@ export const APP_ROUTES: readonly AppRoute[] = [
     href: '/dashboard/calendar',
     section: 'utility',
     description: 'Human-readable schedule visibility across posts and channels.'
-  },
-  {
-    id: 'results',
-    title: 'Results',
-    href: '/dashboard/results',
-    section: 'utility',
-    description: 'Business-readable reporting and recommended next actions.'
   },
   {
     id: 'analytics',
