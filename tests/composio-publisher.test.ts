@@ -8,7 +8,13 @@ import {
   ComposioConnectionMissingError,
   ComposioToolError,
 } from '@/backend/integrations/composio/errors';
+import { publishNeverReachedPlatform } from '@/backend/integrations/publish-outcome';
 import { fakeConfig, fakeGateway, fakeDb } from './composio/helpers';
+
+// AA-238: the real SDK error surface, used as the fixture for a container-leg
+// throw. Importing the real classes keeps the fixture honest — it cannot encode
+// a belief about the shape that the shipped SDK does not actually produce.
+import { ComposioToolNotFoundError, handleToolExecutionError } from '@composio/core';
 
 const tenantId = '42';
 
@@ -361,6 +367,146 @@ test('IG feed-video is validated as a Reel (9:16): a 16:9 feed clip fails closed
     'a non-9:16 IG feed video must fail closed against reel constraints (never-posted)',
   );
   assert.equal(gateway.calls.length, 0, 'no container is created when feed-video validation fails closed');
+});
+
+// ── AA-238: the IG container leg THROWS, and a throw there is still never-posted ──
+//
+// Same defect as the X media upload. `INSTAGRAM_POST_IG_USER_MEDIA` creates an
+// UNPUBLISHED container; only step 2 (`INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH`)
+// makes it live. @composio/core signals transport failure by THROWING, never by
+// returning `successful:false` (verified against the deployed bundle,
+// @composio/core 0.14.1: `tools.execute` → `getRawComposioToolBySlug` rethrows
+// as `ComposioToolNotFoundError`; `executeComposioTool` → `handleToolExecutionError`).
+// The fixtures are the real SDK error objects so they cannot drift from the SDK.
+
+test('AA-238 IG container throw (real ComposioToolNotFoundError) → ComposioToolError (never-posted), publish step never called', async () => {
+  // The tool-SCHEMA retrieve fails, i.e. before the container request is even
+  // sent. No container exists, so certainly no post exists.
+  const sdkError = new ComposioToolNotFoundError('Unable to retrieve tool with slug IG_CONTAINER', {
+    cause: new Error('ETIMEDOUT'),
+  });
+
+  // The raw SDK class is deliberately NOT recognised — widening the taxonomy to
+  // accept it would also make the IG PUBLISH step look never-posted and license
+  // a retry that double-posts. The call-site wrap is the fix.
+  assert.equal(
+    publishNeverReachedPlatform(sdkError),
+    false,
+    'a raw @composio/core error must NOT be recognised as never-posted',
+  );
+
+  const gateway = fakeGateway({
+    executeResult: { data: { id: 'ig_should_not_be_used' }, successful: true, error: null },
+    executeToolShouldThrow: new Map([['IG_CONTAINER', sdkError]]),
+  });
+  const provider = new ComposioPublisherProvider(
+    gateway,
+    fakeConfig({ actions: { upload_media: 'IG_CONTAINER', publish_post: 'IG_PUBLISH' } }),
+    fakeDb(),
+  );
+
+  let caught: unknown;
+  try {
+    await provider.publishPost({
+      tenantId,
+      platform: 'instagram',
+      content: 'Hello IG',
+      mediaUrls: ['https://cdn.example.com/img.jpg'],
+      approved: true,
+    });
+    assert.fail('expected rejection');
+  } catch (e) {
+    caught = e;
+  }
+
+  assert.ok(
+    caught instanceof ComposioToolError,
+    'a container-leg throw must be wrapped in ComposioToolError — a container is not a post',
+  );
+  assert.equal(
+    publishNeverReachedPlatform(caught),
+    true,
+    'container-leg throw must be definitely-never-posted (manual_reconciliation would claim the post may be live when no container was ever created)',
+  );
+  assert.equal(
+    gateway.calls.filter((c) => c.slug === 'IG_PUBLISH').length,
+    0,
+    'the publish step must not run after the container leg threw',
+  );
+});
+
+test('AA-238 IG container execution throw (real handleToolExecutionError output) → never-posted', async () => {
+  const sdkError = handleToolExecutionError('IG_CONTAINER', new Error('socket hang up')) as Error;
+
+  const gateway = fakeGateway({
+    executeResult: { data: { id: 'ig_should_not_be_used' }, successful: true, error: null },
+    executeToolShouldThrow: new Map([['IG_CONTAINER', sdkError]]),
+  });
+  const provider = new ComposioPublisherProvider(
+    gateway,
+    fakeConfig({ actions: { upload_media: 'IG_CONTAINER', publish_post: 'IG_PUBLISH' } }),
+    fakeDb(),
+  );
+
+  let caught: unknown;
+  try {
+    await provider.publishPost({
+      tenantId,
+      platform: 'instagram',
+      content: 'Hello IG',
+      mediaUrls: ['https://cdn.example.com/img.jpg'],
+      approved: true,
+    });
+    assert.fail('expected rejection');
+  } catch (e) {
+    caught = e;
+  }
+
+  assert.ok(caught instanceof ComposioToolError, 'container execution throw must be wrapped in ComposioToolError');
+  assert.equal(publishNeverReachedPlatform(caught), true, 'container execution throw must be definitely-never-posted');
+  assert.equal(gateway.calls.filter((c) => c.slug === 'IG_PUBLISH').length, 0, 'publish step must not run');
+});
+
+test('AA-238 IG PUBLISH-step throw STAYS outcome-unknown (the container wrap must not spread to the publish call)', async () => {
+  // Guard on the fix itself. AA-238 wraps the CONTAINER leg only. Wrapping
+  // INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH too would classify a real publish
+  // failure as never-posted and license a retry that DOUBLE-POSTS to a live
+  // customer account.
+  const gateway = fakeGateway({
+    executeResult: { data: { id: 'ig_container_ok' }, successful: true, error: null },
+    executeToolShouldThrow: new Map([
+      ['IG_PUBLISH', handleToolExecutionError('IG_PUBLISH', new Error('ECONNRESET after dispatch')) as Error],
+    ]),
+  });
+  const provider = new ComposioPublisherProvider(
+    gateway,
+    fakeConfig({ actions: { upload_media: 'IG_CONTAINER', publish_post: 'IG_PUBLISH' } }),
+    fakeDb(),
+  );
+
+  let caught: unknown;
+  try {
+    await provider.publishPost({
+      tenantId,
+      platform: 'instagram',
+      content: 'Hello IG',
+      mediaUrls: ['https://cdn.example.com/img.jpg'],
+      approved: true,
+    });
+    assert.fail('expected rejection');
+  } catch (e) {
+    caught = e;
+  }
+
+  assert.ok(
+    caught instanceof Error && !(caught instanceof ComposioToolError),
+    'the IG publish call is the genuine outcome-unknown boundary — it must NOT be wrapped',
+  );
+  assert.equal(
+    publishNeverReachedPlatform(caught),
+    false,
+    'publish-step throw must stay outcome-unknown so nothing auto-retries a post that may be live',
+  );
 });
 
 test('FB video uses FACEBOOK_CREATE_VIDEO_POST (publish_video slot) with file_url + published=true', async () => {

@@ -24,7 +24,7 @@ import {
 import { PublishGuardError } from '../providers/errors';
 import { redditTargetSubreddit } from '../providers/integration-config';
 import type { ComposioConfig, ComposioOperation } from './composio-config';
-import type { ComposioFileDescriptor, ComposioGateway } from './composio-client';
+import type { ComposioFileDescriptor, ComposioGateway, GatewayToolResult } from './composio-client';
 import { getConnectionRow, type Queryable } from './connection-store';
 import {
   ComposioCapabilityMissingError,
@@ -411,10 +411,32 @@ export class ComposioPublisherProvider implements PublisherProvider {
             error instanceof Error ? error.message : 'failed to stage media for upload',
           );
         }
-        const uploaded = await this.gateway.executeTool(uploadSlug, {
-          connectedAccountId: conn.connectedAccountId!,
-          arguments: { media: descriptor, media_category: 'tweet_image' },
-        });
+        // A RAW THROW out of this call is never-posted too, not outcome-unknown.
+        // @composio/core does not report transport failure as `successful:false`
+        // — `tools.execute` rethrows it (`getRawComposioToolBySlug` →
+        // `ComposioToolNotFoundError`; `executeComposioTool` →
+        // `handleToolExecutionError` → `ComposioToolExecutionError`). None of
+        // those is in `publishNeverReachedPlatform`'s set, so an unwrapped throw
+        // reaches `dispatchPublish` as `provider_publish_outcome_unknown` and
+        // parks the row in manual_reconciliation — telling the operator the post
+        // MAY be live when TWITTER_UPLOAD_MEDIA provably cannot create one (it
+        // returns MediaData {id, media_key, size, expires_after_secs}). The
+        // window is wider than the byte upload: `tools.execute` retrieves the
+        // tool SCHEMA first, so a blip before a single byte is sent produces the
+        // identical misclassification. Mirrors the uploadFile catch above and the
+        // `successful:false` verdict below — both already never-posted.
+        let uploaded: GatewayToolResult;
+        try {
+          uploaded = await this.gateway.executeTool(uploadSlug, {
+            connectedAccountId: conn.connectedAccountId!,
+            arguments: { media: descriptor, media_category: 'tweet_image' },
+          });
+        } catch (error) {
+          throw new ComposioToolError(
+            uploadSlug,
+            error instanceof Error ? error.message : 'media upload failed before any post was created',
+          );
+        }
         if (!uploaded.successful) {
           throw new ComposioToolError(uploadSlug, uploaded.error ?? 'media upload reported unsuccessful');
         }
@@ -694,10 +716,26 @@ export class ComposioPublisherProvider implements PublisherProvider {
         containerArgs.image_url = input.mediaUrls[0];
       }
 
-      const container = await this.gateway.executeTool(containerSlug, {
-        connectedAccountId: conn.connectedAccountId!,
-        arguments: containerArgs,
-      });
+      // A RAW THROW here is never-posted, exactly like the `successful:false`
+      // verdict below: an IG media container is an unpublished draft, and only
+      // step 2 (INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH) makes it live. @composio/core
+      // rethrows transport failure rather than reporting `successful:false` (see
+      // the X upload note above), and no SDK error class is recognised by
+      // `publishNeverReachedPlatform`, so an unwrapped throw parks the row in
+      // manual_reconciliation claiming the post may be live when no container —
+      // let alone a post — was ever created.
+      let container: GatewayToolResult;
+      try {
+        container = await this.gateway.executeTool(containerSlug, {
+          connectedAccountId: conn.connectedAccountId!,
+          arguments: containerArgs,
+        });
+      } catch (error) {
+        throw new ComposioToolError(
+          containerSlug,
+          error instanceof Error ? error.message : 'media container create failed before any post was created',
+        );
+      }
       if (!container.successful) {
         // The broker explicitly rejected the container — no container, no post.
         throw new ComposioToolError(containerSlug, container.error ?? 'media container create reported unsuccessful');

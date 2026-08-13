@@ -2,6 +2,104 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.11.3 — fix(publishing): a failed media leg is not a maybe-live post (AA-238)
+
+X and Instagram publish in two calls. The first one stages the media — for X
+`TWITTER_UPLOAD_MEDIA` (bytes → a Twitter media id), for Instagram
+`INSTAGRAM_POST_IG_USER_MEDIA` (an UNPUBLISHED media container). Neither can
+create a post; only the second call does. Both were dispatched through
+`gateway.executeTool` with **no try/catch**.
+
+Only the broker's explicit `successful:false` verdict was being converted to
+`ComposioToolError`. A raw THROW out of the same call was not — and
+`@composio/core` (0.14.1, verified against the deployed bundle) signals transport
+failure by throwing, never by returning `successful:false`:
+`tools.execute` → `getRawComposioToolBySlug` rethrows any `client.tools.retrieve`
+failure as `ComposioToolNotFoundError`, and `executeComposioTool` rethrows via
+`handleToolExecutionError` as `ComposioToolExecutionError`. None of those classes
+is among the six matched by `publishNeverReachedPlatform`
+(`backend/integrations/publish-outcome.ts`), and `publishPost` has no outer
+catch, so the throw reaches `dispatchPublish` and is raised as
+`provider_publish_outcome_unknown` (`outcomeUnknown:true`). The row parks in
+`manual_reconciliation` — telling the operator the post MAY be live when it
+provably is not.
+
+The window is wider than the byte upload: `tools.execute` fetches the tool
+**schema** first, so a blip on the schema retrieve — before a single byte of
+media is sent — produces the identical misclassification.
+
+### Evidence status — read this before citing a row
+
+This describes a **code path**, not an observed incident. The defect was found by
+reading the deployed bundle and is reproduced in the new tests by constructing
+the real SDK errors at runtime. No log line or database row attributes a
+production failure to the media leg.
+
+One row is easy to cite wrongly in both directions, so state it precisely.
+`scheduled_posts` id 183 (tenant 15, X, 2026-08-12; dispatch 117227) is the only
+`failure_class='outcome_unknown'` row in the database, and an operator has
+already resolved it by hand ("VERIFIED NOT PUBLISHED … x.com/SocialMedi37970
+shows 0 posts").
+
+- It is **not** a text-only post. `posts` id 468 has `media_urls = '{}'`, but the
+  dispatch route only *prefers* that column: the worker sends no `media_urls` in
+  the body (`scripts/automations/scheduled-posts-worker.mjs:1109-1123`), so the
+  route falls back to `resolveMediaUrls(post_id, …)`, which joins
+  `creative_assets` (`app/api/internal/publishing/scheduled-dispatch/route.ts:784-786`).
+  That join resolves exactly one image for post 468 (`52e54ed0-…`,
+  `runtime_asset`, created `2026-08-11 22:15:30-07` — before the
+  `2026-08-12 05:15:06-07` dispatch). So `input.mediaUrls.length === 1` and the X
+  media leg was on that row's path.
+- It is equally **not** proof that the media leg is what failed. The stored
+  `error_message` is the generic outcome-unknown string with no slug, no SDK
+  class and no cause (**AA-244**), so the failing leg cannot be recovered from
+  the row — and container logs for the window are gone.
+
+Row 183 is consistent with this defect and with the genuine create-post boundary
+alike. It must not be cited as evidence for this fix.
+
+### Fixed
+
+- The X `TWITTER_UPLOAD_MEDIA` call and the Instagram container call now rethrow
+  as `ComposioToolError`, mirroring the `gateway.uploadFile` catch that already
+  sat immediately above the X one and the `successful:false` conversion that
+  already sat immediately below both. A media-leg failure is now uniformly
+  definitely-never-posted: safe to roll back the claim and retry.
+
+### Deliberately unchanged
+
+- The **final shared `executeTool`** in `publishPost` (the X create-post, the IG
+  container **publish**, and every single-call platform) stays bare. That one
+  genuinely is the outcome-unknown boundary — a transport drop after it may have
+  posted. Wrapping it would classify a real post-creation failure as
+  never-posted and license a retry that DOUBLE-POSTS to a live customer account.
+  Two tests now assert it stays unwrapped, so the tempting symmetry fails loudly.
+- `publishNeverReachedPlatform`'s recognized set is untouched. Adding the
+  `@composio/core` error classes to it would have looked like a tidier fix and
+  would have produced exactly the double-post above, since the final call throws
+  the same classes.
+- `backend/integrations/composio/facebook-page-resolver.ts` has the same
+  unwrapped-`executeTool` shape on a read-only page enumeration reached from
+  `publishPost` (`composio-publisher-provider.ts:321`, the
+  `externalAccountId IS NULL` fallback). Out of scope here; tracked as
+  **AA-243**. Its sibling `instagram-account-resolver.ts:79-84` already guards,
+  which is why IG has no equivalent hole.
+- `publish-dispatch.ts:190-206` still discards the caught error when it
+  constructs the outcome-unknown `MetaPublishError`, so a row that lands there
+  records no slug, no SDK class and no cause. Not changed here (this PR only
+  moves the media legs *out* of that path); tracked as **AA-244**.
+
+### Test-harness note
+
+Neither the X nor the shared Composio gateway double could make `executeTool`
+**throw** — they could only return a result — so this entire failure class was
+unexpressible. `makeXGateway` (`tests/composio-x-publisher.test.ts`) and
+`fakeGateway` (`tests/composio/helpers.ts`) both take a new per-slug
+`executeToolShouldThrow` map. The fixtures are the **real** SDK error objects,
+imported from `@composio/core` (`ComposioToolNotFoundError`,
+`handleToolExecutionError`), not hand-rolled stand-ins that could encode the same
+wrong belief as the code.
+
 ## v0.2.11.2 — fix(publishing): a failed page-id lookup is not a maybe-live post (AA-243)
 
 Facebook's `publishPost` needs a Page id. It is normally stored at connect time
