@@ -9,6 +9,7 @@ import { InsightsFilters }      from "@/frontend/insights/InsightsFilters";
 import { LazyInsightSection }   from "@/frontend/insights/LazyInsightSection";
 import { FreshnessStamp }        from "@/frontend/insights/FreshnessStamp";
 import { ExportMenu }            from "@/frontend/insights/ExportMenu";
+import { AnalyticsDrilldownLink } from "@/frontend/insights/AnalyticsDrilldownLink";
 import { HeroSection }          from "@/frontend/insights/HeroSection";
 import { GoalSection }          from "@/frontend/insights/GoalSection";
 import { AttentionSection }     from "@/frontend/insights/AttentionSection";
@@ -67,6 +68,11 @@ export function InsightsDashboard({
                 was already near capacity (six channel chips) onto a second
                 line, where space-between left-aligns it under the filters. */}
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginLeft: "auto" }}>
+              {/* AA-229 PR1: the /dashboard/analytics per-platform drill-down,
+                  carrying the same live period + platform as everything else
+                  on this row. Renders nothing on "all" or Instagram (see the
+                  component for why). */}
+              <AnalyticsDrilldownLink period={period} platform={platform} />
               {/* S5-3: export sits on the control row so it inherits the same
                   period + platform the sections below are showing. */}
               <ExportMenu period={period} platform={platform} />
