@@ -451,6 +451,16 @@ test('AA-231: Hero (narrative) and Trends compute the SAME engagementRate off ma
   assert.equal(hero.engagementRatePrev, 20);
   assert.equal(trends.engagement.valuePrev, 20);
 
+  // AA-246 (F2): pin that the builder actually populates followerBase from
+  // CURRENT_FOLLOWERS_SUM_SQL (rule 9 above returns '2'), not the period
+  // follower delta (rule 1's fixture rows return followers: '0' for both
+  // buckets, so trends.followers.value is 0 here). Without this, silently
+  // reverting `followerBase` back to `curFollow` in the builder keeps every
+  // template-level AA-246 test green — the seam that shipped the bug would
+  // be unguarded again.
+  assert.equal(trends.followerBase, 2, 'followerBase reads CURRENT_FOLLOWERS_SUM_SQL, not the period delta');
+  assert.notEqual(trends.followerBase, trends.followers.value, 'base and delta must never be the same field');
+
   // Structural pin: all three Trends call sites nest accountEngagementSql(true)
   // (Trends includes saves — the one deliberate, documented difference from
   // Hero/read-api) directly inside SUM(...).

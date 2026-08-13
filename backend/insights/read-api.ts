@@ -25,6 +25,20 @@ import { resolveTenantInsightsTimeZone } from './tenant-timezone';
 import { tenantZonePeriodStartDateKey } from '@/lib/format-timestamp';
 import { LATEST_POST_METRICS_LATERAL } from './latest-post-metrics-sql';
 import { accountEngagementSql } from './account-engagement-sql';
+import {
+  LATEST_FOLLOWERS_PER_PLATFORM_SUBQUERY,
+  CURRENT_FOLLOWERS_SUM_SQL,
+} from './current-followers-sql';
+
+// AA-246 (F3): re-exported so tests/insights-summary-current-followers.
+// requires-infra.test.ts and any other existing importer of
+// CURRENT_FOLLOWERS_SUM_SQL from this module keep working unchanged. The
+// constant itself now lives in current-followers-sql.ts (zero runtime
+// imports), which is the module Trends' trends-snapshot-builder.ts imports
+// from — importing it from here would transitively pull in `next/server` +
+// `@/lib/db` (which constructs a `pg.Pool` at module scope) for a builder
+// that otherwise has no runtime imports at all.
+export { CURRENT_FOLLOWERS_SUM_SQL };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -36,30 +50,6 @@ function parseIntParam(value: string | null, fallback: number): number {
   const n = parseInt(value ?? '', 10);
   return Number.isFinite(n) ? n : fallback;
 }
-
-// S1-8 / AA-87: currentFollowers = SUM of each platform's LATEST follower count.
-// NOT MAX across platforms (which shows only the largest single platform — a
-// multi-platform tenant with FB 10k + IG 6k wrongly saw 10k) and NOT SUM across
-// dates (which multiplies by the number of daily snapshots). DISTINCT ON
-// (platform) ORDER BY platform, date DESC takes the most recent non-null
-// follower row per platform; the outer SUM adds those per-platform latest
-// values. Uncorrelated scalar subquery (uses only $1/$2/$3), so it composes
-// with the other SUM aggregates in the summary query. Exported standalone so
-// the requires-infra test proves the exact expression against the real schema.
-const LATEST_FOLLOWERS_PER_PLATFORM_SUBQUERY = `
-      SELECT COALESCE(SUM(latest.followers), 0)
-      FROM (
-        SELECT DISTINCT ON (platform) followers
-        FROM insights_account_metrics_daily
-        WHERE tenant_id = $1
-          AND date >= $2
-          AND ($3::text IS NULL OR platform = $3)
-          AND followers IS NOT NULL
-        ORDER BY platform, date DESC
-      ) latest`;
-
-export const CURRENT_FOLLOWERS_SUM_SQL =
-  `SELECT (${LATEST_FOLLOWERS_PER_PLATFORM_SUBQUERY}) AS current_followers`;
 
 // ── Summary ───────────────────────────────────────────────────────────────────
 

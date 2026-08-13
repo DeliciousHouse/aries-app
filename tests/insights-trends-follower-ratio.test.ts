@@ -1,22 +1,32 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildFollowerRatioLine } from '../backend/insights/trends/follower-ratio';
+import { buildFollowerRatioLine, buildFollowerGrowthLine } from '../backend/insights/trends/follower-ratio';
 import { buildMetricDisplays } from '../backend/insights/trends/trends-template-builder';
 import type { TrendsSnapshot } from '../backend/insights/trends/trends-snapshot-builder';
 
-// AA-246 — the Trends Reach-tab ratio copy ("Nx your follower base of …" /
-// "N% of your N followers") must divide against the tenant's actual current
-// follower count (TrendsSnapshot.followerBase), never the period's follower
-// DELTA (snap.followers.value = SUM(followers_delta)), and must never assert
-// a claim against a non-positive/unknown base. Pure + no DB — runs in
-// `npm run verify` on every PR (registered in verify-regression-suite.mjs).
+// AA-246 — two Trends metrics both divided against the wrong quantity:
 //
-// Root cause (qa-defect #818, "8200% of 0 followers"): the old code read
-// snap.followers.value as the base and clamped the DENOMINATOR to
-// Math.max(1, …) on a non-positive delta while still printing the raw
-// (possibly 0/negative) value in the copy — the clamp hid the divide-by-zero
-// without hiding the fabricated claim.
+//   1. Reach-tab ratio copy ("Nx your follower base of …" / "N% of your N
+//      followers") must divide against the tenant's actual current follower
+//      count (TrendsSnapshot.followerBase), never the period's follower
+//      DELTA (snap.followers.value = SUM(followers_delta)), and must never
+//      assert a claim against a non-positive/unknown base.
+//
+//      Root cause (qa-defect #818, "8200% of 0 followers"): the old code
+//      read snap.followers.value as the base and clamped the DENOMINATOR to
+//      Math.max(1, …) on a non-positive delta while still printing the raw
+//      (possibly 0/negative) value in the copy — the clamp hid the
+//      divide-by-zero without hiding the fabricated claim.
+//
+//   2. Followers-tab "N% growth this period" copy (F1, found in review) must
+//      also divide against followerBase, never against
+//      `platformBreakdown.followers` summed — which is the SAME
+//      followers_delta breakdown as the numerator, making the old fraction
+//      a constant fabricated 100.0% for every tenant.
+//
+// Pure + no DB — runs in `npm run verify` on every PR (registered in
+// verify-regression-suite.mjs).
 
 const trivialFormat = (n: number) => String(n);
 
@@ -68,13 +78,21 @@ test('buildFollowerRatioLine: above-base reach renders the "Nx your follower bas
 });
 
 test('buildFollowerRatioLine: percentage branch never reaches or exceeds 100% (rounding routes borderline cases to the x-branch)', () => {
-  for (const [value, base] of [[1, 2], [999, 1000], [1, 1000], [0, 100]] as const) {
+  // [949,1000] (94.9% raw, rounds to 0.9 ratio → stays in the % branch at 95)
+  // and [950,1000] (95.0% raw, rounds to 1.0 ratio → crosses into the x
+  // branch) are the explicit ≤95% crossover pair: everything at or above
+  // 95.0% raw is routed to the x-branch by the ratio rounding in
+  // buildFollowerRatioLine, so the % branch's ceiling is exactly 95, not 99.
+  for (const [value, base] of [[1, 2], [999, 1000], [1, 1000], [0, 100], [949, 1000], [950, 1000]] as const) {
     const line = buildFollowerRatioLine(value, base, trivialFormat);
     const pctMatch = line?.match(/reached (\d+)% of/);
     if (pctMatch) {
       assert.ok(Number(pctMatch[1]) < 100, `percentage ${pctMatch[1]} must stay under 100 for value=${value} base=${base}`);
     }
   }
+  // Pin the crossover explicitly rather than leaving it incidental.
+  assert.equal(buildFollowerRatioLine(949, 1000, trivialFormat), 'reached 95% of your 1000 followers');
+  assert.equal(buildFollowerRatioLine(950, 1000, trivialFormat), '1x your follower base of 1000');
 });
 
 // ── 2. Integration: buildMetricDisplays threads TrendsSnapshot.followerBase ────
@@ -146,4 +164,68 @@ test('buildMetricDisplays: followerBase=1000, reach=2500 renders the 2.5x branch
   });
   const displays = buildMetricDisplays(snap, 'week', 'all');
   assert.match(displays.reach.supporting, /2\.5x your follower base of 1K/);
+});
+
+// ── 3. buildFollowerGrowthLine — pure helper unit tests (F1) ───────────────────
+
+test('buildFollowerGrowthLine: followerBase = 0 suppresses the line entirely', () => {
+  assert.equal(buildFollowerGrowthLine(80, 0, trivialFormat), null);
+});
+
+test('buildFollowerGrowthLine: followerBase = null suppresses the line entirely', () => {
+  assert.equal(buildFollowerGrowthLine(80, null, trivialFormat), null);
+});
+
+test('buildFollowerGrowthLine: followerBase = undefined also suppresses (defensive)', () => {
+  assert.equal(buildFollowerGrowthLine(80, undefined, trivialFormat), null);
+});
+
+test('buildFollowerGrowthLine: divides against the real base, not against a value equal to itself', () => {
+  // This is the exact shape of the F1 bug: if the growth % were still
+  // computed as value/value*100 it would read 100.0 regardless of these
+  // numbers. With the real base (5000), +80 followers is 1.6%.
+  const line = buildFollowerGrowthLine(80, 5000, trivialFormat);
+  assert.equal(line, '1.6% growth off your 5000 follower base');
+  assert.doesNotMatch(line!, /100\.0%/, 'must not be the old fabricated constant');
+});
+
+test('buildFollowerGrowthLine: a follower decline keeps the sign (negative growth, not clamped to 0)', () => {
+  const line = buildFollowerGrowthLine(-10, 2000, trivialFormat);
+  assert.equal(line, '-0.5% growth off your 2000 follower base');
+});
+
+// ── 4. Integration: buildMetricDisplays threads followerBase through the ──────
+// Followers-tab "supporting" copy (F1).
+
+test('buildMetricDisplays: Followers tab never reports a constant 100% growth (F1 regression)', () => {
+  // Reproduces the exact real-world invariant that made the old bug ALWAYS
+  // fire: platformBreakdown.followers is the SAME followers_delta quantity
+  // as `followers.value`, just grouped by platform, so it always sums back
+  // to the same number. The old code divided value by that sum — a
+  // structural x/x*100 — which is why every tenant, not just an edge case,
+  // saw exactly 100.0%.
+  const snap = fixtureSnapshot({
+    followers: { value: 80, valuePrev: 10, delta: null },
+    platformBreakdown: {
+      reach: [], engagement: [], comments: [], visits: null,
+      followers: [{ platform: 'facebook', value: 80, pct: 100 }],
+    },
+    followerBase: 5000,
+  });
+  const displays = buildMetricDisplays(snap, 'week', 'all');
+  const supporting = displays.followers.supporting;
+  assert.doesNotMatch(supporting, /100\.0%/, 'no fabricated constant 100% growth claim');
+  assert.match(supporting, /1\.6% growth off your 5K follower base/, 'growth % divides against the real base');
+});
+
+test('buildMetricDisplays: Followers tab suppresses the growth clause without a dangling separator when the base is unknown', () => {
+  const snap = fixtureSnapshot({
+    followers: { value: 80, valuePrev: 10, delta: null },
+    followerBase: 0,
+  });
+  const displays = buildMetricDisplays(snap, 'week', 'all');
+  const supporting = displays.followers.supporting;
+  assert.doesNotMatch(supporting, /%/, 'no growth-percentage claim when the base is unknown');
+  assert.doesNotMatch(supporting, /^\s*·/, 'no leading bare separator with nothing before it');
+  assert.equal(supporting, `<span class="pos">+80</span> vs prior's +10`, 'delta clause renders alone with no growth clause prepended');
 });
