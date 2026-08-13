@@ -19,6 +19,7 @@
 import type { PoolClient } from '@/lib/db';
 import { LATEST_POST_METRICS_LATERAL } from '../latest-post-metrics-sql';
 import { accountEngagementSql } from '../account-engagement-sql';
+import { CURRENT_FOLLOWERS_SUM_SQL } from '../read-api';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -47,6 +48,14 @@ export interface TrendsSnapshot {
   followers:  TrendsMetric;
   comments:   TrendsMetric;
   visits:     TrendsMetric | null;
+
+  /** AA-246: the tenant's actual CURRENT follower count (DISTINCT ON latest
+   *  row per platform, summed via read-api.ts's CURRENT_FOLLOWERS_SUM_SQL) —
+   *  NOT `followers.value` above, which is the period's SUM(followers_delta)
+   *  (followers gained/lost, not held). This is the only field the Reach
+   *  ratio copy ("2.5x your follower base of …") may divide against; see
+   *  follower-ratio.ts. */
+  followerBase: number;
 
   series: {
     reach:      TrendsSeries;
@@ -469,6 +478,20 @@ export async function buildTrendsSnapshot(
       : curEngRate;
   }
 
+  // ── 8. Follower base (AA-246) ─────────────────────────────────────────────
+  // The tenant's actual CURRENT follower count for the Reach-ratio copy — a
+  // point-in-time fact, not a period aggregate, so it is deliberately NOT
+  // bounded by `currentStart`/`priorStart` above (a quiet-week sync gap must
+  // not read as "no follower base"). Reused verbatim from read-api.ts rather
+  // than re-derived; it is a fully self-contained statement (its own $1/$2/$3)
+  // so it runs as its own sequential query rather than being spliced into the
+  // account-series query above, whose $4 is already the platform filter.
+  const followerBaseRes = await client.query<{ current_followers: string }>(
+    CURRENT_FOLLOWERS_SUM_SQL,
+    [tenantId, utcDayStart(365), platformFilter],
+  );
+  const followerBase = Number(followerBaseRes.rows[0]?.current_followers ?? 0);
+
   // ── Assemble series ───────────────────────────────────────────────────────
   const labels = currentBuckets.map(b => b.label);
 
@@ -488,6 +511,7 @@ export async function buildTrendsSnapshot(
       valuePrev: priFollow,
       delta:     null,
     },
+    followerBase,
     comments: {
       value:     curComments,
       valuePrev: priComments,

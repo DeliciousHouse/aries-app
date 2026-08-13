@@ -410,7 +410,11 @@ const TRENDS_RULES: QueryRule[] = [
   { match: /insights_comment_classifications/i, rows: [] },
   // 8. Top post title.
   { match: /SELECT p\.title/i, rows: [] },
-  // 9. Catch-all: the 90-day engagement baseline (no GROUP BY/ORDER BY marker
+  // 9. Follower base (AA-246) — CURRENT_FOLLOWERS_SUM_SQL, reused from
+  //    read-api.ts. Not exercised by this test's assertions (which are about
+  //    engagementRate agreement), so an arbitrary non-zero value is fine.
+  { match: /current_followers/i, rows: [{ current_followers: '2' }] },
+  // 10. Catch-all: the 90-day engagement baseline (no GROUP BY/ORDER BY marker
   //    of its own — must stay LAST so the more specific rules above win).
   {
     match: /AS interactions[\s\S]*AS base_reach[\s\S]*FROM insights_account_metrics_daily/i,

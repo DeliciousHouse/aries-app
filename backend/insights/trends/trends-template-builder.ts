@@ -11,6 +11,7 @@
 
 import type { TrendsSnapshot } from './trends-snapshot-builder';
 import type { NarrativePeriod } from '../narrative/snapshot-builder';
+import { buildFollowerRatioLine } from './follower-ratio';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -64,13 +65,11 @@ function platformName(p: string): string {
 
 function buildReachDisplay(snap: TrendsSnapshot, period: NarrativePeriod): MetricDisplay {
   const { value, valuePrev, delta } = snap.reach;
-  const ratio = snap.followers.value > 0
-    ? Math.round((value / snap.followers.value) * 10) / 10
-    : 0;
-
-  const ratioLine = ratio >= 1
-    ? `${ratio}x your follower base of ${fmtNum(snap.followers.value)}`
-    : `reached ${Math.round((value / Math.max(1, snap.followers.value)) * 100)}% of your ${fmtNum(snap.followers.value)} followers`;
+  // AA-246: ratio against the tenant's actual follower BASE, not the period
+  // delta — see follower-ratio.ts. null when the base is unknown/non-positive;
+  // the supporting line below omits the clause entirely rather than printing
+  // a formatted zero or a percentage against a denominator the reader never sees.
+  const ratioLine = buildFollowerRatioLine(value, snap.followerBase, fmtNum);
 
   const deltaLabel = delta !== null ? `${fmtSigned(delta)}% vs prior` : null;
 
@@ -95,7 +94,9 @@ function buildReachDisplay(snap: TrendsSnapshot, period: NarrativePeriod): Metri
     headlineSuffix: ' people reached',
     delta,
     deltaLabel,
-    supporting:     `<span class="${(delta ?? 0) >= 0 ? 'pos' : 'neg'}">${deltaLabel ?? '—'}</span> · ${ratioLine}`,
+    // AA-246: ratioLine is null when the follower base is unknown/non-positive
+    // — omit the clause entirely rather than trailing " · " onto nothing.
+    supporting:     `<span class="${(delta ?? 0) >= 0 ? 'pos' : 'neg'}">${deltaLabel ?? '—'}</span>` + (ratioLine ? ` · ${ratioLine}` : ''),
     interpretation,
   };
 }
