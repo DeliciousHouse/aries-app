@@ -209,7 +209,6 @@ export function DonorFooter() {
               <li><a href="/onboarding/start" className="hover:text-white transition-colors">Set up your business</a></li>
               <li><a href="/login" className="hover:text-white transition-colors">Sign in</a></li>
               <li><a href="/calendar" className="hover:text-white transition-colors">Calendar</a></li>
-              <li><a href="/results" className="hover:text-white transition-colors">Results</a></li>
             </ul>
           </div>
 

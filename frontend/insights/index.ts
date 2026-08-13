@@ -12,6 +12,7 @@ export { TopPostsSection }      from "@/frontend/insights/TopPostsSection";
 export { ConversationsSection } from "@/frontend/insights/ConversationsSection";
 export { AriesSection }         from "@/frontend/insights/AriesSection";
 export { AudienceSection }      from "@/frontend/insights/AudienceSection";
+export { WeeklyRecapSection }   from "@/frontend/insights/WeeklyRecapSection";
 
 // Layout chrome
 export { Sidebar }              from "@/frontend/insights/Sidebar";
@@ -60,6 +61,11 @@ export type {
   AriesData,
   AudienceData,
   AudienceScheduleItem,
+  WeeklyRecapData,
+  WeeklyRecapReport,
+  WeeklyRecapTopChannel,
+  WeeklyRecapLearning,
+  WeeklyRecapNextAction,
 } from "@/frontend/insights/types";
 
 // Tokens

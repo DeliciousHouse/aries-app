@@ -192,7 +192,7 @@ test('live campaigns produce results-oriented working-now messaging', () => {
   });
 
   assert.equal(model.workingNow.mode, 'results');
-  assert.equal(model.workingNow.href, '/dashboard/results');
+  assert.equal(model.workingNow.href, '/insights');
   assert.equal(model.results.items.length, 1);
   assert.match(model.workingNow.title, /result signal/i);
 });

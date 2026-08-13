@@ -348,3 +348,54 @@ export interface AudienceData extends ApiBase {
     timezone:   string | null;
   };
 }
+
+// § Weekly Recap — backend/insights/weekly-recap/handler.ts (AA-229/PR2b)
+//
+// Section 10. Own time axis: a `?week=YYYY-WW` ISO week (default = most-recent
+// COMPLETED week), NOT the shared week|30day|90day `period`/`platform` pair —
+// those are ignored. Distinct envelope, not an ApiBase: disabled state is
+// `{ enabled: false }` at 200 (the flag gate precedes tenant resolution), not
+// an ApiBase `status`. Best/weakest post ranking is NOT part of this payload —
+// Section 6 (Top) owns that.
+export interface WeeklyRecapTopChannel {
+  channel: string | null;
+  basis:   "published_count" | "reach";
+  value:   number;
+}
+export interface WeeklyRecapLearning {
+  id:        string;
+  findingId: null;   // always null in the MVP — Honcho finding surfacing is a deferred slice
+  source:    "publish_reliability";
+  title:     string;
+  body:      string;
+}
+export interface WeeklyRecapNextAction {
+  title: string;
+  body:  string;
+  href?: string;
+}
+export interface WeeklyRecapReport {
+  week: { iso: string; startYmd: string; endYmd: string; label: string };
+  published: {
+    total:     number;
+    byChannel: Record<string, number>;
+    bySurface: Record<string, number>;
+  };
+  skipped: { total: number; note: string };
+  blocked: {
+    total:             number;
+    failedCount:       number;
+    reconnect:         boolean;
+    reconnectChannels: string[];
+  };
+  // Deliberately its own count, NEVER folded into `blocked` — the platform may
+  // well have received these; the outcome is just unconfirmed.
+  needsReconciliation: { total: number };
+  topChannel:          WeeklyRecapTopChannel;
+  insightsConnected:   boolean;
+  learnings:           WeeklyRecapLearning[];
+  nextAction:          WeeklyRecapNextAction | null;
+}
+export type WeeklyRecapData =
+  | { enabled: false }
+  | { enabled: true; report: WeeklyRecapReport };

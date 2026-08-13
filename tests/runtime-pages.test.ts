@@ -48,7 +48,6 @@ import AriesLatestPostView from '../frontend/aries-v1/latest-post-view';
 import AriesReviewQueueScreen from '../frontend/aries-v1/review-queue';
 import AriesReviewItemScreen from '../frontend/aries-v1/review-item';
 import AriesCalendarScreen from '../frontend/aries-v1/calendar-screen';
-import AriesResultsScreen from '../frontend/aries-v1/results-screen';
 import AriesSettingsScreen from '../frontend/aries-v1/settings-screen';
 import AriesPostsScreen from '../frontend/aries-v1/posts-screen';
 import AriesOnboardingFlow from '../frontend/aries-v1/onboarding-flow';
@@ -389,20 +388,12 @@ test('/posts redirects to the canonical dashboard posts route', () => {
   expectRedirect(() => PostsPage(), '/dashboard/posts');
 });
 
-test('/dashboard/results wraps the results screen in the app shell', () => {
-  const element = DashboardResultsPage();
-
-  assert.equal(isValidElement(element), true);
-  assert.equal(element.type, AppShellLayout);
-  assert.equal(element.props.currentRouteId, 'results');
-  assert.equal(element.props.loginRedirectPath, '/dashboard/results');
-  assert.equal(buildLoginRedirect(element.props.loginRedirectPath), '/login?callbackUrl=%2Fdashboard%2Fresults');
-  assert.equal(isValidElement(element.props.children), true);
-  assert.equal(element.props.children.type, AriesResultsScreen);
+test('/dashboard/results redirects to /insights (AA-229/PR2b: retired, superseded by Section 10)', () => {
+  expectRedirect(() => DashboardResultsPage(), '/insights');
 });
 
-test('/results redirects to the canonical dashboard results route', () => {
-  expectRedirect(() => ResultsPage(), '/dashboard/results');
+test('/results redirects to /insights', () => {
+  expectRedirect(() => ResultsPage(), '/insights');
 });
 
 test('/features renders inside the marketing layout', () => {

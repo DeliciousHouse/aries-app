@@ -163,6 +163,8 @@ const SECTION_HANDLERS: Array<[string, string]> = [
   ['conversations', 'backend/insights/conversations/handler.ts'],
   ['aries', 'backend/insights/aries/handler.ts'],
   ['audience', 'backend/insights/audience/handler.ts'],
+  // AA-229/PR2b: Section 10 — Weekly Recap.
+  ['weekly-recap', 'backend/insights/weekly-recap/handler.ts'],
 ];
 
 for (const [section, file] of SECTION_HANDLERS) {
