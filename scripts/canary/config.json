@@ -13,7 +13,7 @@
     { "path": "/onboarding", "name": "onboarding", "auth_required": true }
   ],
   "api_health": [
-    { "path": "/api/health", "expect_status": 200 },
+    { "path": "/api/health/db", "expect_status": 200 },
     { "path": "/api/marketing/jobs/health", "expect_status": [200, 401] }
   ],
   "thresholds": {
