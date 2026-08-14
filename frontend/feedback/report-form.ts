@@ -87,6 +87,7 @@ export function buildReportSubmitBody(
   values: ReportFormValues,
   screenshot: ReportScreenshotPayload | null,
   idempotencyKey: string,
+  pagePath: string,
 ): Record<string, unknown> {
   return {
     idempotency_key: idempotencyKey,
@@ -94,6 +95,7 @@ export function buildReportSubmitBody(
     category: values.category,
     title: values.title.trim(),
     description: values.description.trim(),
+    page_path: pagePath,
     screenshot,
   };
 }

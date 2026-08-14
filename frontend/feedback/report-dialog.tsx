@@ -194,10 +194,12 @@ export default function ReportModal({ onClose }: { onClose: () => void }): React
     try {
       const values = { impact, category, title, description };
       const screenshotPayload = screenshot?.payload ?? null;
+      const pagePath = window.location.pathname;
       const payload = JSON.stringify({
         ...values,
         title: title.trim(),
         description: description.trim(),
+        page_path: pagePath,
         screenshot: screenshotPayload,
       });
       if (submissionAttemptRef.current?.payload !== payload) {
@@ -206,7 +208,12 @@ export default function ReportModal({ onClose }: { onClose: () => void }): React
       const data = await requestJson<Record<string, unknown>>('/api/feedback/submit', {
         method: 'POST',
         body: JSON.stringify(
-          buildReportSubmitBody(values, screenshotPayload, submissionAttemptRef.current.key),
+          buildReportSubmitBody(
+            values,
+            screenshotPayload,
+            submissionAttemptRef.current.key,
+            pagePath,
+          ),
         ),
       });
       const mapped = outcomeFromResponse(typeof data.jira_ticket_key === 'string' ? 201 : 202, data);

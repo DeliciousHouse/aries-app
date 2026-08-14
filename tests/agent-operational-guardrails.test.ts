@@ -41,8 +41,19 @@ test('Claude guidance promotes lessons into active rules for future agents', () 
   assert.match(claude, /50[\s\S]*(people|users)/i, 'guidance should include the initial 50-person scale target');
 });
 
-test('database health route singleflights 50-person smoke checks', () => {
-  const healthRoute = readRepoFile('app/api/health/db/route.ts');
+test('database readiness canary targets the real singleflight health route', () => {
+  const canaryConfig = JSON.parse(readRepoFile('scripts/canary/config.json')) as {
+    api_health?: Array<{ path: string; expect_status: number | number[] }>;
+  };
+  const readinessChecks = (canaryConfig.api_health ?? []).filter((check) => check.expect_status === 200);
+
+  assert.deepEqual(readinessChecks.map((check) => check.path), ['/api/health/db']);
+
+  const routePath = ['app', ...readinessChecks[0].path.split('/').filter(Boolean), 'route.ts'].join('/');
+  assert.equal(routePath, 'app/api/health/db/route.ts');
+  assert.equal(existsSync(path.join(PROJECT_ROOT, routePath)), true, 'configured readiness route should exist');
+
+  const healthRoute = readRepoFile(routePath);
 
   assert.match(healthRoute, /HEALTH_CACHE_TTL_MS\s*=\s*1_000/, 'health route should use a short TTL to absorb bursts');
   assert.match(healthRoute, /inFlightProbe/, 'health route should share one in-flight DB probe across concurrent requests');

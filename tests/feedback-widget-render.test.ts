@@ -75,4 +75,11 @@ test('public-page feedback opens the durable report pipeline without an auth pro
   assert.doesNotMatch(source, /<FeedbackModal onClose=/);
   assert.doesNotMatch(source, /function FeedbackModal\(/);
   assert.doesNotMatch(source, /fetch\(['"]\/api\/feedback['"]/);
+  assert.doesNotMatch(source, /installConsoleCapture/);
+});
+
+test('root layout mounts the global feedback widget', () => {
+  const source = readFileSync(path.join(PROJECT_ROOT, 'app', 'layout.tsx'), 'utf8');
+  assert.match(source, /import FeedbackWidget from ['"]@\/frontend\/feedback\/feedback-widget['"]/);
+  assert.match(source, /resolveFeedbackConfig\(\)\.enabled\s*\?\s*<FeedbackWidget \/>/);
 });

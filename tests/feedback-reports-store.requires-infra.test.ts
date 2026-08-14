@@ -48,6 +48,7 @@ function record(id: string, overrides: Partial<FeedbackReportRecord> = {}): Feed
     impact: 'p2_feature_degraded',
     title: `title-${id}`,
     description: `description-${id}`,
+    pagePath: '/insights',
     screenshot: null,
     requestFingerprint: `fingerprint-${id}`,
     ...overrides,
@@ -91,10 +92,19 @@ test('feedback_reports store: limits, claim, boundary, and sync against real Pos
       new URL('../migrations/20260723000000_feedback_reports_delivery_states.sql', import.meta.url),
       'utf8',
     );
+    const pagePathMigration = readFileSync(
+      new URL('../migrations/20260814000000_feedback_reports_page_path.sql', import.meta.url),
+      'utf8',
+    );
     const initDbSource = readFileSync(new URL('../scripts/init-db.js', import.meta.url), 'utf8');
     const initDbDeliveryState =
       /DO \$feedback_delivery_state\$[\s\S]*?\$feedback_delivery_state\$;/.exec(initDbSource)?.[0];
     assert.ok(initDbDeliveryState, 'scripts/init-db.js must carry the delivery-state bootstrap');
+    const initDbPagePath =
+      /ALTER TABLE feedback_reports\s+ADD COLUMN IF NOT EXISTS page_path TEXT;/.exec(
+        initDbSource,
+      )?.[0];
+    assert.ok(initDbPagePath, 'scripts/init-db.js must carry the page_path bootstrap');
     const legacyRowsSql = `
       INSERT INTO feedback_reports (
         id, tenant_id, submitter_id, category, impact, title, description,
@@ -131,6 +141,7 @@ test('feedback_reports store: limits, claim, boundary, and sync against real Pos
     await pool.query(legacySchema);
     await pool.query(legacyRowsSql, [Buffer.from('legacy-image')]);
     await pool.query(deliveryStateMigration);
+    await pool.query(pagePathMigration);
     const migratedLegacy = await pool.query<{
       id: string;
       jira_create_state: string;
@@ -143,12 +154,17 @@ test('feedback_reports store: limits, claim, boundary, and sync against real Pos
        ORDER BY id
     `);
     assert.deepEqual(migratedLegacy.rows, expectedLegacyStates);
+    const migratedLegacyPaths = await pool.query<{ page_path: string | null }>(
+      `SELECT page_path FROM feedback_reports WHERE id LIKE 'legacy-%'`,
+    );
+    assert.ok(migratedLegacyPaths.rows.every(({ page_path }) => page_path === null));
 
     // Execute the exact scripts/init-db bootstrap against another populated
     // legacy table, not a hand-copied approximation.
     await pool.query('DROP TABLE feedback_reports');
     await pool.query(legacySchema);
     await pool.query(legacyRowsSql, [Buffer.from('legacy-image')]);
+    await pool.query(initDbPagePath);
     await pool.query(initDbDeliveryState);
     const initDbLegacy = await pool.query<{
       id: string;
@@ -162,6 +178,10 @@ test('feedback_reports store: limits, claim, boundary, and sync against real Pos
        ORDER BY id
     `);
     assert.deepEqual(initDbLegacy.rows, expectedLegacyStates);
+    const initDbLegacyPaths = await pool.query<{ page_path: string | null }>(
+      `SELECT page_path FROM feedback_reports WHERE id LIKE 'legacy-%'`,
+    );
+    assert.ok(initDbLegacyPaths.rows.every(({ page_path }) => page_path === null));
 
     // The on-demand application bootstrap must make the same first-upgrade
     // decision, without reclassifying future not_started rows on every restart.
@@ -182,6 +202,10 @@ test('feedback_reports store: limits, claim, boundary, and sync against real Pos
        ORDER BY id
     `);
     assert.deepEqual(bootstrappedLegacy.rows, expectedLegacyStates);
+    const bootstrappedLegacyPaths = await pool.query<{ page_path: string | null }>(
+      `SELECT page_path FROM feedback_reports WHERE id LIKE 'legacy-%'`,
+    );
+    assert.ok(bootstrappedLegacyPaths.rows.every(({ page_path }) => page_path === null));
 
     const migratedKeyless = await getFeedbackReportById(pool, 'legacy-attempted-keyless');
     assert.ok(migratedKeyless);
@@ -284,6 +308,10 @@ test('feedback_reports store: limits, claim, boundary, and sync against real Pos
       const outcome = await insertReportWithLimits(pool, record(`r${i}`), limits);
       assert.deepEqual(outcome, { outcome: 'ok' }, `insert ${i} of limit 3 must pass`);
     }
+    const storedPagePath = await pool.query<{ page_path: string | null }>(
+      `SELECT page_path FROM feedback_reports WHERE id = 'r1'`,
+    );
+    assert.equal(storedPagePath.rows[0].page_path, '/insights');
     assert.deepEqual(await insertReportWithLimits(pool, record('r4'), limits), {
       outcome: 'rate_limited',
     });
@@ -552,6 +580,7 @@ test('feedback_reports store: limits, claim, boundary, and sync against real Pos
       impact: 'p2_feature_degraded' as const,
       title: 'lost acknowledgement',
       description: 'the first response never reached the browser',
+      pagePath: '/insights',
       screenshot: null,
     };
     const submitter = {

@@ -12,6 +12,7 @@ test('a valid body validates with trimmed fields and default category', () => {
     impact: 'p2_feature_degraded',
     title: '  Broken publish button  ',
     description: '  It does nothing.  ',
+    page_path: '/insights',
   });
   assert.ok(result.ok);
   if (result.ok) {
@@ -19,7 +20,37 @@ test('a valid body validates with trimmed fields and default category', () => {
     assert.equal(result.value.category, 'bug');
     assert.equal(result.value.title, 'Broken publish button');
     assert.equal(result.value.description, 'It does nothing.');
+    assert.equal(result.value.pagePath, '/insights');
     assert.equal(result.value.screenshot, null);
+  }
+});
+
+test('page_path is optional, pathname-only, and bounded to 512 characters', () => {
+  const base = {
+    idempotency_key: IDEMPOTENCY_KEY,
+    impact: 'p4_question',
+    title: 't',
+    description: 'd',
+  };
+  const missing = validateReportRequest(base);
+  assert.ok(missing.ok);
+  if (missing.ok) assert.equal(missing.value.pagePath, null);
+
+  const boundary = validateReportRequest({ ...base, page_path: `/${'x'.repeat(511)}` });
+  assert.ok(boundary.ok);
+
+  for (const page_path of [
+    null,
+    123,
+    'insights',
+    '//evil.example/path',
+    '/insights?token=query-secret',
+    '/insights#hash-secret',
+    `/${'x'.repeat(512)}`,
+  ]) {
+    const invalid = validateReportRequest({ ...base, page_path });
+    assert.ok(!invalid.ok);
+    if (!invalid.ok) assert.ok(invalid.fieldErrors.page_path);
   }
 });
 
@@ -104,6 +135,7 @@ test('INVARIANT: body-supplied identity/tenant/priority fields are ignored entir
       'description',
       'idempotencyKey',
       'impact',
+      'pagePath',
       'screenshot',
       'title',
     ]);

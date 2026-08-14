@@ -3,23 +3,16 @@ import test from 'node:test';
 import React from 'react';
 
 /**
- * Component-level coverage for ReportModal (frontend/feedback/report-dialog.tsx)
- * closing two gaps left by the pure-function tests in feedback-report-form.test.ts:
- *
- *   1. The double-submit guard (`if (submitting || phase === 'success') return;`
- *      + `disabled={submitting}` on the submit button) — proven here as "exactly
- *      one POST" when the form's onSubmit fires twice in quick succession.
- *   2. The 429 branch keeps the dialog open with the typed values intact and
- *      shows the server's rate-limit message (report-dialog.tsx's own comment:
- *      "429 / errors: dialog stays open, values intact, retry works").
- *
- * ReportModal itself is NOT wrapped in createPortal (the widget does that), so
- * react-test-renderer can mount it directly — same pattern as the existing
- * feedback-widget-render.test.ts smoke test. The repo has no jsdom, so this
- * file stubs only the minimal window/document surface the component's effects
- * touch (focus-trap keydown listener, activeElement read on mount/unmount) and
- * a fetch stub, all removed in `finally` so no other test observes them.
+ * Component-level coverage for ReportModal (frontend/feedback/report-dialog.tsx).
+ * ReportModal itself is not portaled, so react-test-renderer can mount it
+ * directly. The harness supplies the minimal focus and keyboard surface needed
+ * to exercise the modal contract without a browser DOM.
  */
+
+interface FocusTarget {
+  focusCalls: number;
+  focus: () => void;
+}
 
 interface Harness {
   root: import('react-test-renderer').ReactTestRenderer;
@@ -33,13 +26,39 @@ interface Harness {
   hasSubmitButton: () => boolean;
   alertMessages: () => string[];
   submitLabel: () => string;
+  dispatchKey: (key: string, shiftKey?: boolean) => { preventDefaultCalled: boolean };
+  firstFocusable: FocusTarget;
+  lastFocusable: FocusTarget;
+  previouslyFocused: FocusTarget;
+  setActiveElement: (target: FocusTarget | null) => void;
 }
 
 async function withReportDialog(
   fetchImpl: (input: unknown, init?: unknown) => Promise<unknown>,
   run: (h: Harness) => Promise<void>,
+  afterUnmount?: (h: Harness) => Promise<void> | void,
 ): Promise<void> {
   const listeners = new Map<string, Set<(event: unknown) => void>>();
+  let activeElement: FocusTarget | null = null;
+  const makeFocusTarget = (): FocusTarget => {
+    const target: FocusTarget = {
+      focusCalls: 0,
+      focus: () => {
+        target.focusCalls += 1;
+        activeElement = target;
+      },
+    };
+    return target;
+  };
+  const firstFocusable = makeFocusTarget();
+  const lastFocusable = makeFocusTarget();
+  const previouslyFocused = makeFocusTarget();
+  activeElement = previouslyFocused;
+  const dialogNode = {
+    style: {},
+    querySelectorAll: () => [firstFocusable, lastFocusable],
+    contains: (node: unknown) => node === firstFocusable || node === lastFocusable,
+  };
   (globalThis as Record<string, unknown>).window = {
     addEventListener: (type: string, fn: (event: unknown) => void) => {
       if (!listeners.has(type)) listeners.set(type, new Set());
@@ -50,10 +69,19 @@ async function withReportDialog(
     },
     setTimeout: (...args: Parameters<typeof setTimeout>) => setTimeout(...args),
     clearTimeout: (id: ReturnType<typeof setTimeout>) => clearTimeout(id),
+    location: {
+      pathname: '/insights',
+      origin: 'https://aries.example.com',
+      href: 'https://aries.example.com/insights?token=query-secret#hash-secret',
+      search: '?token=query-secret',
+      hash: '#hash-secret',
+    },
+    consoleErrors: ['console-secret'],
+    currentUser: { email: 'person@example.com', tenantId: 'tenant-secret' },
   };
-  (globalThis as Record<string, unknown>).document = {
-    activeElement: null,
-  };
+  const documentStub = {};
+  Object.defineProperty(documentStub, 'activeElement', { get: () => activeElement });
+  (globalThis as Record<string, unknown>).document = documentStub;
 
   let fetchCalls = 0;
   const requestBodies: Array<Record<string, unknown>> = [];
@@ -90,6 +118,10 @@ async function withReportDialog(
             onCloseCalls += 1;
           },
         }),
+        {
+          createNodeMock: (element) =>
+            (element.props as { role?: string }).role === 'dialog' ? dialogNode : null,
+        },
       );
     });
 
@@ -140,6 +172,24 @@ async function withReportDialog(
         const button = root.root.findByProps({ 'data-testid': 'report-submit' });
         return String(button.props.children);
       },
+      dispatchKey: (key, shiftKey = false) => {
+        let preventDefaultCalled = false;
+        const event = {
+          key,
+          shiftKey,
+          preventDefault: () => {
+            preventDefaultCalled = true;
+          },
+        };
+        for (const listener of listeners.get('keydown') ?? []) listener(event);
+        return { preventDefaultCalled };
+      },
+      firstFocusable,
+      lastFocusable,
+      previouslyFocused,
+      setActiveElement: (target) => {
+        activeElement = target;
+      },
     };
 
     await run(harness);
@@ -147,12 +197,59 @@ async function withReportDialog(
     await act(async () => {
       root.unmount();
     });
+    await afterUnmount?.(harness);
   } finally {
     delete (globalThis as Record<string, unknown>).window;
     delete (globalThis as Record<string, unknown>).document;
     delete (globalThis as Record<string, unknown>).fetch;
   }
 }
+
+test('dialog declares modal semantics and mobile-safe overlay containment', async () => {
+  await withReportDialog(
+    async () => ({ status: 500, ok: false }),
+    async (h) => {
+      const overlay = h.root.root.findByProps({ role: 'presentation' });
+      const dialog = h.root.root.findByProps({ role: 'dialog' });
+
+      assert.equal(dialog.props['aria-modal'], 'true');
+      assert.ok(String(overlay.props.className).split(/\s+/).includes('z-[200]'));
+      assert.ok(
+        String(dialog.props.className).split(/\s+/).includes('max-h-[calc(100dvh-2rem)]'),
+      );
+    },
+  );
+});
+
+test('Escape closes and Tab focus stays contained in both directions', async () => {
+  await withReportDialog(
+    async () => ({ status: 500, ok: false }),
+    async (h) => {
+      h.setActiveElement(h.lastFocusable);
+      assert.equal(h.dispatchKey('Tab').preventDefaultCalled, true);
+      assert.equal(h.firstFocusable.focusCalls, 1);
+
+      h.setActiveElement(h.firstFocusable);
+      assert.equal(h.dispatchKey('Tab', true).preventDefaultCalled, true);
+      assert.equal(h.lastFocusable.focusCalls, 1);
+
+      h.dispatchKey('Escape');
+      assert.equal(h.onCloseCalls, 1);
+    },
+  );
+});
+
+test('unmount restores focus to the element active before the dialog opened', async () => {
+  await withReportDialog(
+    async () => ({ status: 500, ok: false }),
+    async (h) => {
+      assert.equal(h.previouslyFocused.focusCalls, 0);
+    },
+    async (h) => {
+      assert.equal(h.previouslyFocused.focusCalls, 1);
+    },
+  );
+});
 
 test('INVARIANT double-submit guard: firing onSubmit twice sends exactly one POST', async () => {
   await withReportDialog(
@@ -165,6 +262,48 @@ test('INVARIANT double-submit guard: firing onSubmit twice sends exactly one POS
       // The submit button itself must reflect the guard (disabled while submitting).
       const button = h.root.root.findByProps({ 'data-testid': 'report-submit' });
       assert.equal(button.props.disabled, true);
+    },
+  );
+});
+
+test('browser POST uses an exact allowlist and sends only window.location.pathname', async () => {
+  await withReportDialog(
+    async () => ({
+      status: 503,
+      ok: false,
+      json: async () => ({ error: 'persist_failed' }),
+    }),
+    async (h) => {
+      await h.fillValidForm();
+      await h.submitOnce();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      assert.equal(h.requestBodies.length, 1);
+      const body = h.requestBodies[0];
+      assert.deepEqual(Object.keys(body).sort(), [
+        'category',
+        'description',
+        'idempotency_key',
+        'impact',
+        'page_path',
+        'screenshot',
+        'title',
+      ]);
+      assert.equal(body.page_path, '/insights');
+      const serialized = JSON.stringify(body);
+      for (const secret of [
+        'aries.example.com',
+        'query-secret',
+        'hash-secret',
+        'console-secret',
+        'person@example.com',
+        'tenant-secret',
+        'priority',
+        'labels',
+        'project',
+      ]) {
+        assert.ok(!serialized.includes(secret), `browser payload must not contain ${secret}`);
+      }
     },
   );
 });
