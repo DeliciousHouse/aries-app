@@ -16,6 +16,7 @@ import test from 'node:test';
 
 import {
   EXECUTION_ENGINES,
+  estimateAiCostCents,
   normalizeTaskExecutionRow,
   recordTaskExecution,
   withTaskExecutionLog,
@@ -24,6 +25,18 @@ import {
 
 const ON = { ARIES_TASK_TELEMETRY_ENABLED: '1' };
 const OFF = {} as Record<string, string | undefined>;
+
+test('AI cost estimator keeps missing usage NULL and rejects empty/invalid calibration', () => {
+  assert.equal(estimateAiCostCents(null), null);
+  assert.equal(estimateAiCostCents(1_000_000, { ARIES_AI_ESTIMATED_COST_PER_MILLION_TOKENS_CENTS: '500' }), 500);
+  for (const value of ['', ' ', '-1', 'not-a-number']) {
+    assert.equal(
+      estimateAiCostCents(1_000_000, { ARIES_AI_ESTIMATED_COST_PER_MILLION_TOKENS_CENTS: value }),
+      250,
+      `invalid calibration ${JSON.stringify(value)} must use the documented default`,
+    );
+  }
+});
 
 type Captured = { sql: string; params: unknown[] };
 

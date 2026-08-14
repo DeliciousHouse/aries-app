@@ -15,6 +15,7 @@ import {
   type FeedbackSeverity,
 } from './options';
 import type { FeedbackSeverityLlmConfig } from './feedback-config';
+import { emitTaskExecution } from '@/backend/telemetry/task-execution-log';
 
 const INSTRUCTIONS =
   'You triage product feedback severity for an app called Aries. ' +
@@ -68,16 +69,38 @@ export function parseSeverityFromOutput(output: string): FeedbackSeverity | null
 }
 
 async function classifyViaHermes(
-  comment: string,
-  category: FeedbackCategory,
+  input: {
+    comment: string;
+    category: FeedbackCategory;
+    tenantId?: number | string | null;
+    taskId?: string | null;
+  },
   cfg: FeedbackSeverityLlmConfig,
   deps: Required<ClassifyDeps>,
 ): Promise<FeedbackSeverity | null> {
   const auth = `Bearer ${cfg.apiKey}`;
   const deadline = deps.nowMs() + cfg.timeoutMs;
+  const startedAt = new Date();
+  let runId: string | null = null;
+  const finish = (severity: FeedbackSeverity | null, errorCode: string | null): FeedbackSeverity | null => {
+    const endTime = new Date();
+    emitTaskExecution({
+      engine: 'AI_LLM',
+      taskKey: 'feedback.classify_severity',
+      taskId: input.taskId ?? `feedback-severity:${startedAt.getTime()}`,
+      tenantId: input.tenantId ?? null,
+      userId: null,
+      status: severity ? 'succeeded' : 'failed',
+      errorCode,
+      externalRunId: runId,
+      startedAt,
+      endTime,
+      durationMs: Math.max(0, endTime.getTime() - startedAt.getTime()),
+    });
+    return severity;
+  };
 
   // Submit
-  let runId: string;
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
@@ -87,7 +110,7 @@ async function classifyViaHermes(
         method: 'POST',
         headers: { authorization: auth, 'content-type': 'application/json' },
         body: JSON.stringify({
-          input: `Category: ${category}\nComment: ${comment}`,
+          input: `Category: ${input.category}\nComment: ${input.comment}`,
           instructions: INSTRUCTIONS,
           session_id: cfg.sessionKey,
         }),
@@ -96,13 +119,13 @@ async function classifyViaHermes(
     } finally {
       clearTimeout(timer);
     }
-    if (!submit.ok) return null;
+    if (!submit.ok) return finish(null, 'submit_rejected');
     const json = (await submit.json().catch(() => null)) as Record<string, unknown> | null;
     const candidate = json && typeof json.run_id === 'string' ? json.run_id.trim() : '';
-    if (!candidate) return null;
+    if (!candidate) return finish(null, 'submit_invalid');
     runId = candidate;
-  } catch {
-    return null;
+  } catch (error) {
+    return finish(null, (error as NodeJS.ErrnoException)?.code ?? 'unreachable');
   }
 
   // Poll until terminal or deadline
@@ -124,20 +147,21 @@ async function classifyViaHermes(
       } finally {
         clearTimeout(timer);
       }
-      if (!poll.ok) return null;
+      if (!poll.ok) return finish(null, 'poll_rejected');
       json = (await poll.json().catch(() => null)) as Record<string, unknown> | null;
-    } catch {
-      return null;
+    } catch (error) {
+      return finish(null, (error as NodeJS.ErrnoException)?.code ?? 'unreachable');
     }
     const status = json && typeof json.status === 'string' ? json.status.toLowerCase() : '';
     if (TERMINAL.has(status)) {
-      if (status !== 'completed') return null;
+      if (status !== 'completed') return finish(null, status || 'run_failed');
       const output = typeof json?.output === 'string' ? json.output : '';
-      return parseSeverityFromOutput(output);
+      const severity = parseSeverityFromOutput(output);
+      return finish(severity, severity ? null : 'output_invalid');
     }
     await deps.sleep(Math.min(500, Math.max(100, remaining)));
   }
-  return null;
+  return finish(null, 'timeout');
 }
 
 /**
@@ -146,7 +170,12 @@ async function classifyViaHermes(
  * configured timeout.
  */
 export async function classifySeverity(
-  input: { comment: string; category: FeedbackCategory },
+  input: {
+    comment: string;
+    category: FeedbackCategory;
+    tenantId?: number | string | null;
+    taskId?: string | null;
+  },
   cfg: FeedbackSeverityLlmConfig | null,
   deps: ClassifyDeps = {},
 ): Promise<SeverityResult> {
@@ -160,7 +189,7 @@ export async function classifySeverity(
   };
 
   try {
-    const llm = await classifyViaHermes(input.comment, input.category, cfg, resolved);
+    const llm = await classifyViaHermes(input, cfg, resolved);
     if (llm) return { severity: llm, source: 'llm' };
   } catch {
     // fall through to heuristic

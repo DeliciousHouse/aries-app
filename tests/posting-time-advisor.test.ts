@@ -24,6 +24,7 @@ import {
   deriveCompetitorPostingTimes,
   loadPostingTimeOverrides,
   MIN_ANALYTICS_POSTS_DEFAULT,
+  POSTING_TIME_BASELINE_SQL,
   type AnalyticsBucket,
   type PostingTimeQueryable,
 } from '../backend/marketing/posting-time-advisor';
@@ -313,6 +314,36 @@ test('override read: database error → null (fail-open to platform defaults)', 
 
 // ── deriveAndPersistPostingTimes ────────────────────────────────────────────
 
+test('tenant-15 rollout captures an immutable four-week engagement baseline', () => {
+  assert.match(POSTING_TIME_BASELINE_SQL, /INSERT INTO marketing_posting_time_experiments/);
+  assert.match(POSTING_TIME_BASELINE_SQL, /INTERVAL '28 days'/);
+  assert.match(POSTING_TIME_BASELINE_SQL, /ORDER BY d\.date DESC\s+LIMIT 1/);
+  assert.match(POSTING_TIME_BASELINE_SQL, /ON CONFLICT \(tenant_id\) DO NOTHING/);
+});
+
+test('tenant-15 rollout fails closed when its pre-rollout baseline cannot be captured', async () => {
+  let fetchCalled = false;
+  let queries = 0;
+  const result = await deriveAndPersistPostingTimes({
+    tenantId: 15,
+    env: HERMES_ENV,
+    queryable: {
+      async query(sql) {
+        queries += 1;
+        assert.match(sql, /marketing_posting_time_experiments/);
+        throw new Error('baseline table unavailable');
+      },
+    },
+    fetchImpl: async () => {
+      fetchCalled = true;
+      throw new Error('Hermes must not run without baseline evidence');
+    },
+  });
+  assert.deepEqual(result, { status: 'failed' });
+  assert.equal(queries, 1, 'baseline failure must stop before freshness, claim, or analytics queries');
+  assert.equal(fetchCalled, false);
+});
+
 test('derive: flag off → disabled, nothing runs', async () => {
   const { queryable, calls } = makeFakeDb();
   const result = await deriveAndPersistPostingTimes({ tenantId: 15, env: {}, queryable });
@@ -440,7 +471,7 @@ test('derive: competitor URL equal to the brand URL is treated as "no competitor
     return new Response(JSON.stringify({ run_id: 'x' }), { status: 200 });
   };
   const result = await deriveAndPersistPostingTimes({
-    tenantId: 998877, // no business profile on disk → stored competitor lookup resolves null
+    tenantId: 15, // DATA_ROOT is isolated, so tenant 15 has no stored business profile
     env: HERMES_ENV,
     queryable,
     fetchImpl,
@@ -489,8 +520,8 @@ test('derive: a second concurrent call for the same tenant returns in_flight', a
       return { rows: [], rowCount: 0 };
     },
   };
-  const first = deriveAndPersistPostingTimes({ tenantId: 42, env: FLAG_ON, queryable });
-  const second = await deriveAndPersistPostingTimes({ tenantId: 42, env: FLAG_ON, queryable });
+  const first = deriveAndPersistPostingTimes({ tenantId: 15, env: FLAG_ON, queryable });
+  const second = await deriveAndPersistPostingTimes({ tenantId: 15, env: FLAG_ON, queryable });
   assert.deepEqual(second, { status: 'in_flight' });
   releaseFreshness!();
   const firstResult = await first;
@@ -510,7 +541,7 @@ test('derive: a denied cross-process claim returns in_flight — even under forc
   assert.deepEqual(result, { status: 'in_flight' });
   assert.equal(upsertCalls(calls).length, 0);
   assert.equal(
-    calls.some((c) => c.sql.includes('WITH per_post')),
+    calls.some((c) => c.sql.includes('WITH per_post') && !c.sql.includes('marketing_posting_time_experiments')),
     false,
     'a denied claim must stop the derivation before any analytics scan',
   );
@@ -591,7 +622,7 @@ test('derive: claim lifecycle — released when rows were produced, retained as 
     // will change, and the next attempt costs only a cheap analytics scan.
     const { queryable, calls } = makeFakeDb();
     const result = await deriveAndPersistPostingTimes({
-      tenantId: 998877,
+      tenantId: 15,
       env: FLAG_ON,
       queryable,
       competitorUrl: null,

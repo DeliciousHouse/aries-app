@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.10.0 — feat(telemetry): close the cost and engagement learning loop
+
+### Added
+
+- Fleet monitoring can chart each tenant's estimated reported-token cost per
+  day against the `$100/day` reference, with a companion coverage panel that
+  makes partial estimates visible instead of presenting them as exact spend.
+- Tenant 15 gets an immutable four-week posting-time engagement baseline and a
+  documented 28-day readout query. Derivation fails closed if that evidence
+  cannot be captured.
+
+### Changed
+
+- Terminal Hermes executions now flow into `task_execution_log` from callback,
+  submit/poll, posting-time research, brand enrichment, and feedback-severity
+  paths, including pre-callback launch failures such as `ENOENT`.
+- Reported token totals produce a configurable blended-rate cost estimate;
+  missing usage remains unknown rather than becoming a fabricated zero.
+- AI-derived posting times are enabled only for tenant 15, while weekly results,
+  task telemetry, and daily usage rollups default on with explicit rollback
+  switches.
+
 ## v0.2.8.1 — chore(deps): bump lucide-react to 1.29.0
 
 ### Changed

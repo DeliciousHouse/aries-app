@@ -14,7 +14,7 @@ import path from 'node:path';
 
 import { resolveDataPath } from '@/lib/runtime-paths';
 import type { MarketingStage } from '@/backend/marketing/runtime-state';
-import type { ExecutionEngine } from '@/backend/telemetry/task-execution-log';
+import { emitTaskExecution, type ExecutionEngine } from '@/backend/telemetry/task-execution-log';
 
 export type ExecutionRunProvider = 'hermes';
 export type ExecutionRunDomain = 'route' | 'marketing';
@@ -302,7 +302,42 @@ export function markExecutionRunFailed(
   record.status = 'failed';
   record.last_error = error;
   saveExecutionRunRecord(record);
+  emitExecutionRunTelemetry(record, 'failed', error?.code ?? 'hermes_run_failed');
   return record;
+}
+
+function emitExecutionRunTelemetry(
+  record: ExecutionRunRecord,
+  status: 'completed' | 'failed' | 'cancelled',
+  errorCode: string | null,
+  usage: {
+    modelReported?: string | null;
+    promptTokens?: number | null;
+    completionTokens?: number | null;
+    totalTokens?: number | null;
+    costCents?: number | null;
+  } = {},
+): void {
+  const startedMs = Date.parse(record.created_at);
+  emitTaskExecution({
+    engine: 'AI_LLM',
+    taskKey: record.stage ? `marketing.stage.${record.stage}` : `execution.${record.workflow_key}`,
+    taskId: record.marketing_job_id ?? record.aries_run_id,
+    tenantId: record.tenant_id,
+    userId: null,
+    status: status === 'completed' ? 'succeeded' : 'failed',
+    errorCode,
+    startedAt: Number.isFinite(startedMs) ? new Date(startedMs) : null,
+    endTime: new Date(),
+    durationMs: Number.isFinite(startedMs) ? Math.max(0, Date.now() - startedMs) : null,
+    targetProfile: record.target_profile ?? null,
+    externalRunId: record.external_run_id,
+    modelReported: usage.modelReported ?? null,
+    promptTokens: usage.promptTokens ?? null,
+    completionTokens: usage.completionTokens ?? null,
+    totalTokens: usage.totalTokens ?? null,
+    costCents: usage.costCents ?? null,
+  });
 }
 
 export function hasExecutionRunEvent(ariesRunId: string, eventId: string): boolean {
@@ -319,6 +354,11 @@ export function markExecutionRunEventApplied(
     result?: unknown;
     error?: ExecutionRunRecord['last_error'];
     externalRunId?: string | null;
+    modelReported?: string | null;
+    promptTokens?: number | null;
+    completionTokens?: number | null;
+    totalTokens?: number | null;
+    costCents?: number | null;
   },
 ): ExecutionRunRecord | null {
   const record = loadExecutionRunRecord(ariesRunId);
@@ -352,6 +392,19 @@ export function markExecutionRunEventApplied(
     record.last_error = null;
   }
   saveExecutionRunRecord(record);
+  const terminalStatus = input.status === 'completed' || input.status === 'failed' || input.status === 'cancelled'
+    ? input.status
+    : null;
+  if (!currentIsTerminal && terminalStatus) {
+    emitExecutionRunTelemetry(
+      record,
+      terminalStatus,
+      terminalStatus === 'completed'
+        ? null
+        : (input.error?.code ?? (terminalStatus === 'cancelled' ? 'cancelled' : 'hermes_run_failed')),
+      input,
+    );
+  }
   return record;
 }
 

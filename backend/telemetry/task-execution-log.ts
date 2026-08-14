@@ -24,9 +24,9 @@
  *      `model_reported` (what the gateway said it actually ran). Hermes owns
  *      model routing and does not currently report the resolved model or token
  *      usage back to Aries, so `model_reported`, the token columns, and
- *      `cost_cents` stay NULL on AI rows until the gateway reports them. NULL
- *      means "not reported", never "zero" — that distinction is the whole point
- *      of the analysis, so we do not synthesize costs from a price table.
+ *      `cost_cents` stay NULL on AI rows until the gateway reports usage. Once
+ *      total tokens are known, cost is an explicit blended-rate ESTIMATE, never
+ *      provider-bill precision. NULL means "not reported", never "zero".
  *   3. Writing is best-effort and NEVER throws: telemetry must not be able to
  *      fail a publish, a sweep, or a render.
  *   4. Nothing is written unless ARIES_TASK_TELEMETRY_ENABLED is on, and the
@@ -163,6 +163,23 @@ function totalTokensColumn(record: TaskExecutionRecord): number | null {
   const completion = nonNegativeInt(record.completionTokens);
   if (prompt === null || completion === null) return null;
   return prompt + completion;
+}
+
+/**
+ * Blended model-cost estimate. Hermes owns model routing, so Aries cannot claim
+ * provider-bill precision; operators can calibrate this explicit estimate as
+ * the fleet mix changes. Missing usage remains NULL, never a fabricated zero.
+ */
+export function estimateAiCostCents(
+  totalTokens: unknown,
+  env: Partial<Record<string, string | undefined>> = process.env,
+): number | null {
+  const tokens = nonNegativeInt(totalTokens);
+  if (tokens === null) return null;
+  const rawRate = env.ARIES_AI_ESTIMATED_COST_PER_MILLION_TOKENS_CENTS;
+  const configured = rawRate?.trim() ? Number(rawRate) : 250;
+  const centsPerMillion = Number.isFinite(configured) && configured >= 0 ? configured : 250;
+  return (tokens * centsPerMillion) / 1_000_000;
 }
 
 /**

@@ -46,6 +46,7 @@ import pool from '@/lib/db';
 import { DEFAULT_TENANT_TIMEZONE } from '@/lib/format-timestamp';
 import { sanitizeLegacyCompetitorUrl, competitorDomain } from '@/lib/marketing-competitor';
 import { loadTenantTimezoneOrFallback, marketingPayloadDefaultsFromBusinessProfile } from '@/backend/tenant/business-profile';
+import { emitTaskExecution } from '@/backend/telemetry/task-execution-log';
 import { resolveCrosspostPlatforms } from './weekly-crosspost';
 import { isAiPostingTimesEnabled } from './posting-times-env';
 import type { PostingTimeSlotOverrides } from './auto-schedule';
@@ -441,7 +442,28 @@ export async function deriveCompetitorPostingTimes(input: {
     session_id: sessionKey,
   };
 
-  let runId: string;
+  const startedAt = new Date();
+  const taskId = `posting-time:${input.tenantId}:${startedAt.getTime()}`;
+  let runId: string | null = null;
+  const finish = (result: CompetitorDeriveResult): CompetitorDeriveResult => {
+    const endTime = new Date();
+    emitTaskExecution({
+      engine: 'AI_LLM',
+      taskKey: 'marketing.posting_time_research',
+      taskId,
+      tenantId: input.tenantId,
+      userId: null,
+      status: result.ok ? 'succeeded' : 'failed',
+      errorCode: result.ok ? null : result.reason,
+      modelRequested: modelHint,
+      targetProfile: null,
+      externalRunId: runId,
+      startedAt,
+      endTime,
+      durationMs: Math.max(0, endTime.getTime() - startedAt.getTime()),
+    });
+    return result;
+  };
   try {
     // The abort timer stays armed through the BODY read, not just the headers
     // — a gateway that returns headers then stalls/trickles the body must not
@@ -456,16 +478,16 @@ export async function deriveCompetitorPostingTimes(input: {
         body: JSON.stringify(body),
         signal: submitController.signal,
       });
-      if (!submit.ok) return { ok: false, reason: 'submit_rejected', detail: `HTTP ${submit.status}` };
+      if (!submit.ok) return finish({ ok: false, reason: 'submit_rejected', detail: `HTTP ${submit.status}` });
       submitJson = (await submit.json().catch(() => null)) as Record<string, unknown> | null;
     } finally {
       clearTimeout(submitTimer);
     }
     const candidate = submitJson && typeof submitJson.run_id === 'string' ? submitJson.run_id.trim() : '';
-    if (!candidate) return { ok: false, reason: 'submit_invalid' };
+    if (!candidate) return finish({ ok: false, reason: 'submit_invalid' });
     runId = candidate;
   } catch (error) {
-    return { ok: false, reason: 'unreachable', detail: error instanceof Error ? error.message : String(error) };
+    return finish({ ok: false, reason: 'unreachable', detail: error instanceof Error ? error.message : String(error) });
   }
 
   const deadline = Date.now() + timeoutMs;
@@ -483,26 +505,26 @@ export async function deriveCompetitorPostingTimes(input: {
           headers: { authorization: auth },
           signal: pollController.signal,
         });
-        if (!poll.ok) return { ok: false, reason: 'poll_rejected', detail: `HTTP ${poll.status}` };
+        if (!poll.ok) return finish({ ok: false, reason: 'poll_rejected', detail: `HTTP ${poll.status}` });
         pollJson = (await poll.json().catch(() => null)) as Record<string, unknown> | null;
       } finally {
         clearTimeout(pollTimer);
       }
     } catch (error) {
-      return { ok: false, reason: 'unreachable', detail: error instanceof Error ? error.message : String(error) };
+      return finish({ ok: false, reason: 'unreachable', detail: error instanceof Error ? error.message : String(error) });
     }
     const status = pollJson && typeof pollJson.status === 'string' ? pollJson.status : '';
-    if (!status) return { ok: false, reason: 'poll_invalid' };
+    if (!status) return finish({ ok: false, reason: 'poll_invalid' });
     if (TERMINAL_STATUSES.has(status)) {
-      if (status !== 'completed') return { ok: false, reason: 'run_failed', detail: status };
+      if (status !== 'completed') return finish({ ok: false, reason: 'run_failed', detail: status });
       const outputText = typeof pollJson?.output === 'string' ? pollJson.output : '';
       const recommendations = competitorRecommendationsFromOutput(tryParseJson(outputText), input.platforms);
-      if (!recommendations) return { ok: false, reason: 'output_invalid' };
-      return { ok: true, recommendations };
+      if (!recommendations) return finish({ ok: false, reason: 'output_invalid' });
+      return finish({ ok: true, recommendations });
     }
     await sleep(intervalMs);
   }
-  return { ok: false, reason: 'timeout' };
+  return finish({ ok: false, reason: 'timeout' });
 }
 
 // ---------------------------------------------------------------------------
@@ -559,7 +581,7 @@ export async function loadPostingTimeOverrides(
   queryable: PostingTimeQueryable = pool,
   env: Env = process.env,
 ): Promise<PostingTimeSlotOverrides | null> {
-  if (!isAiPostingTimesEnabled(env)) return null;
+  if (!isAiPostingTimesEnabled(env, tenantId)) return null;
   if (!Number.isFinite(tenantId) || tenantId <= 0) return null;
   try {
     // `source` is selected so the auto-schedule day-blend can tell a ranking
@@ -679,6 +701,72 @@ const CLAIM_SQL = `
 
 const RELEASE_CLAIM_SQL = 'DELETE FROM marketing_posting_time_claims WHERE tenant_id = $1';
 
+/**
+ * Immutable pre-rollout snapshot for the tenant-15 four-weeks-before/after
+ * comparison. Metrics are lifetime snapshots, so read only each post's latest
+ * row; summing dated snapshots would multiply engagement by sync count.
+ */
+export const POSTING_TIME_BASELINE_SQL = `
+  INSERT INTO marketing_posting_time_experiments (
+    tenant_id,
+    enabled_at,
+    baseline_start,
+    baseline_end,
+    baseline_posts,
+    baseline_engagements,
+    baseline_impressions,
+    baseline_engagement_rate
+  )
+  WITH per_post AS (
+    SELECT
+      p.id,
+      COALESCE(d.likes, 0) + COALESCE(d.comments_count, 0)
+        + COALESCE(d.shares, 0) + COALESCE(d.saves, 0) AS engagements,
+      COALESCE(d.reach, d.views, 0) AS impressions
+    FROM insights_posts p
+    JOIN LATERAL (
+      SELECT d.likes, d.comments_count, d.shares, d.saves, d.reach, d.views
+      FROM insights_post_metrics_daily d
+      WHERE d.tenant_id = p.tenant_id AND d.post_id = p.id
+      ORDER BY d.date DESC
+      LIMIT 1
+    ) d ON true
+    WHERE p.tenant_id = $1
+      AND p.published_at >= CURRENT_DATE - INTERVAL '28 days'
+      AND p.published_at < CURRENT_DATE
+  ), summary AS (
+    SELECT
+      count(*)::int AS posts,
+      COALESCE(sum(engagements), 0)::bigint AS engagements,
+      COALESCE(sum(impressions), 0)::bigint AS impressions
+    FROM per_post
+  )
+  SELECT
+    $1,
+    CURRENT_DATE,
+    (CURRENT_DATE - INTERVAL '28 days')::date,
+    (CURRENT_DATE - INTERVAL '1 day')::date,
+    posts,
+    engagements,
+    impressions,
+    CASE WHEN impressions > 0 THEN engagements::numeric / impressions ELSE NULL END
+  FROM summary
+  ON CONFLICT (tenant_id) DO NOTHING
+`;
+
+async function capturePostingTimeBaseline(queryable: PostingTimeQueryable, tenantId: number): Promise<boolean> {
+  try {
+    await queryable.query(POSTING_TIME_BASELINE_SQL, [tenantId]);
+    return true;
+  } catch (err) {
+    console.error('[posting-time-advisor] baseline capture failed — derivation stopped', {
+      tenantId,
+      error: (err as Error)?.message ?? String(err),
+    });
+    return false;
+  }
+}
+
 /** Best-effort claim release — a release failure must not flip the result. */
 async function releaseClaim(queryable: PostingTimeQueryable, tenantId: number): Promise<void> {
   try {
@@ -702,12 +790,11 @@ export async function deriveAndPersistPostingTimes(
   input: DerivePostingTimesInput,
 ): Promise<DerivePostingTimesResult> {
   const env = input.env ?? process.env;
-  if (!isAiPostingTimesEnabled(env)) return { status: 'disabled' };
-
   const tenantId = input.tenantId;
   if (!Number.isFinite(tenantId) || !Number.isInteger(tenantId) || tenantId <= 0) {
     return { status: 'invalid_tenant' };
   }
+  if (!isAiPostingTimesEnabled(env, tenantId)) return { status: 'disabled' };
   // The claim window scales with the operator-tunable Hermes timeout so a
   // long-timeout deployment can never have a second worker steal the claim
   // mid-run (submit + poll each get timeoutMs → worst case ~2x).
@@ -721,6 +808,9 @@ export async function deriveAndPersistPostingTimes(
   inFlightTenants.set(tenantId, Date.now());
   try {
     const queryable = input.queryable ?? pool;
+    if (!await capturePostingTimeBaseline(queryable, tenantId)) {
+      return { status: 'failed' };
+    }
 
     // Platforms: FB+IG always (every weekly synthesis targets them), plus the
     // crosspost platforms whose rollout flag is ON and the tenant has an

@@ -7,6 +7,7 @@ import {
   createExecutionRunRecord,
   isTerminalExecutionStatus,
   loadExecutionRunRecord,
+  markExecutionRunEventApplied,
   markExecutionRunFailed,
   markExecutionRunSubmitted,
   type ExecutionRunRecord,
@@ -1275,7 +1276,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     // so record that profile — the reconciler polls the same gateway later.
     markExecutionRunSubmitted(run.aries_run_id, { externalRunId: hermesRunId, targetProfile });
     if (this.syncPollingEnabled()) {
-      return this.pollRunUntilTerminal(hermesRunId, run.aries_run_id, targetProfile);
+      return this.pollRunUntilTerminal(hermesRunId, run.aries_run_id, targetProfile, true);
     }
     // Hermes /v1/runs is a polled API — it never invokes the `callback_url`
     // field on the submission body. Without this bridge, marketing pipelines
@@ -1434,7 +1435,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       return { status: 'pending' };
     }
 
-    const terminal = this.resultFromTerminalRun(hermesRunId, ariesRunId, polled.record);
+    const terminal = this.resultFromTerminalRun(hermesRunId, ariesRunId, polled.record, false);
     const payload = this.buildBridgeCallbackPayload(
       ariesRunId,
       hermesRunId,
@@ -2056,6 +2057,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     runId: string,
     ariesRunId: string,
     profile?: HermesTargetProfile,
+    recordCompletion = false,
   ): Promise<MarketingExecutionResult> {
     const timeoutMs = readEnvInt(this.env, 'HERMES_RUN_TIMEOUT_MS', DEFAULT_RUN_TIMEOUT_MS);
     const intervalMs = Math.max(
@@ -2100,7 +2102,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         );
       }
       if (TERMINAL_STATUSES.has(record.status)) {
-        return this.resultFromTerminalRun(runId, ariesRunId, record);
+        return this.resultFromTerminalRun(runId, ariesRunId, record, recordCompletion);
       }
       await this.sleep(intervalMs);
     }
@@ -2115,6 +2117,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     runId: string,
     ariesRunId: string,
     record: Record<string, unknown>,
+    recordCompletion: boolean,
   ): MarketingExecutionResult {
     const status = typeof record.status === 'string' ? record.status : '';
     if (status === 'failed') {
@@ -2136,6 +2139,14 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       const message = `Hermes run ${runId} returned unparseable output.`;
       markSubmissionFailed(ariesRunId, 'hermes_output_invalid', message);
       return gatewayErrorResult('hermes_output_invalid', message, { run_id: runId });
+    }
+    if (recordCompletion) {
+      markExecutionRunEventApplied(ariesRunId, {
+        eventId: `poll:${runId}:completed`,
+        status: 'completed',
+        result: output,
+        externalRunId: runId,
+      });
     }
     return { kind: 'completed', provider: 'hermes', output };
   }

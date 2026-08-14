@@ -89,9 +89,9 @@ export const UPSERT_WATERMARK_SQL = `INSERT INTO usage_rollup_state (id, rolled_
  * The measure list, shared verbatim by all three grains so hourly, daily and
  * monthly can never drift apart in what they count.
  *
- * Token/cost columns are SUMmed and stay NULLable — SUM skips NULLs, and NULL
- * means "not reported" (Hermes does not report usage back to Aries yet), never
- * "free". That is exactly why `ai_events_with_usage` exists next to `ai_events`:
+ * Token/estimated-cost columns are SUMmed and stay NULLable — SUM skips NULLs,
+ * and NULL means "not reported", never "free". That is exactly why
+ * `ai_events_with_usage` exists next to `ai_events`:
  * it is the denominator that stops a $0 bucket from being read as "no spend"
  * when the truth is "nothing reported its spend".
  */

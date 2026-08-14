@@ -1,6 +1,7 @@
 import { ExecutionError } from '../errors';
 import {
   createExecutionRunRecord,
+  markExecutionRunEventApplied,
   markExecutionRunFailed,
   markExecutionRunSubmitted,
 } from '../run-store';
@@ -286,7 +287,7 @@ export class HermesExecutionAdapter {
       sessionKey: this.sessionKey(),
     }) as HermesRunRequestEnvelope;
 
-    return this.invokeRun(envelope);
+    return this.invokeRun(envelope, input);
   }
 
   private configurationError(): ExecutionError | null {
@@ -317,15 +318,36 @@ export class HermesExecutionAdapter {
     return `Bearer ${readEnvValue(this.env, 'HERMES_API_SERVER_KEY')}`;
   }
 
-  private async invokeRun(envelope: HermesRunRequestEnvelope): Promise<WorkflowExecutionResult> {
+  private async invokeRun(
+    envelope: HermesRunRequestEnvelope,
+    input: Record<string, unknown>,
+  ): Promise<WorkflowExecutionResult> {
+    const rawTenantId = input.tenant_id ?? input.tenantId;
+    const tenantId = typeof rawTenantId === 'string' || typeof rawTenantId === 'number'
+      ? String(rawTenantId)
+      : undefined;
     const run = createExecutionRunRecord({
       provider: 'hermes',
       domain: 'route',
       workflowKey: envelope.workflowId,
       action: 'run',
+      tenantId,
     });
     const submission = await this.submitRun(envelope, run.aries_run_id);
     if (submission.kind !== 'submitted') {
+      const error = submission.result.kind === 'gateway_error'
+        ? submission.result.error
+        : new ExecutionError({
+            provider: 'hermes',
+            code: 'server_error',
+            status: 500,
+            message: 'Hermes submission failed.',
+          });
+      markExecutionRunFailed(run.aries_run_id, {
+        code: (error.cause as NodeJS.ErrnoException | undefined)?.code ?? error.code,
+        message: error.message,
+        retryable: error.code === 'unreachable',
+      });
       return submission.result;
     }
     markExecutionRunSubmitted(run.aries_run_id, { externalRunId: submission.runId });
@@ -504,6 +526,12 @@ export class HermesExecutionAdapter {
     if (envelope.run_id === undefined) {
       envelope.run_id = runId;
     }
+    markExecutionRunEventApplied(ariesRunId, {
+      eventId: `poll:${runId}:completed`,
+      status: 'completed',
+      result: envelope,
+      externalRunId: runId,
+    });
     return {
       kind: 'ok',
       envelope,
