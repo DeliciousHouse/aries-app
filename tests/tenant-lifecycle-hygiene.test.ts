@@ -37,6 +37,15 @@ test('organization kind is constrained and defaults legacy tenants to production
   }
 });
 
+test('existing connection state ages are backfilled before status timestamps become required', () => {
+  for (const source of [initDb, migration]) {
+    assert.match(
+      source,
+      /ADD COLUMN IF NOT EXISTS status_changed_at TIMESTAMPTZ;[\s\S]*SET status_changed_at = COALESCE\(updated_at, created_at, now\(\)\)[\s\S]*ALTER COLUMN status_changed_at SET NOT NULL/i,
+    );
+  }
+});
+
 test('fleet alert candidates exclude test and archived organizations by default', () => {
   assert.match(SELECT_ALERT_CANDIDATES_SQL, /JOIN organizations o ON o\.id = s\.company_id/i);
   assert.match(SELECT_ALERT_CANDIDATES_SQL, /WHERE o\.kind = 'production'/i);

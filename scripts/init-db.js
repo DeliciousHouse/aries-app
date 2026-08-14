@@ -315,7 +315,13 @@ async function initDb() {
       ALTER TABLE oauth_connections
         ADD COLUMN IF NOT EXISTS notify_channel_name TEXT;
       ALTER TABLE oauth_connections
-        ADD COLUMN IF NOT EXISTS status_changed_at TIMESTAMPTZ NOT NULL DEFAULT now();
+        ADD COLUMN IF NOT EXISTS status_changed_at TIMESTAMPTZ;
+      UPDATE oauth_connections
+         SET status_changed_at = COALESCE(updated_at, created_at, now())
+       WHERE status_changed_at IS NULL;
+      ALTER TABLE oauth_connections
+        ALTER COLUMN status_changed_at SET DEFAULT now(),
+        ALTER COLUMN status_changed_at SET NOT NULL;
       CREATE TABLE IF NOT EXISTS oauth_audit_events (
         id BIGSERIAL PRIMARY KEY,
         tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
@@ -359,7 +365,13 @@ async function initDb() {
       );
 
       ALTER TABLE connected_accounts
-        ADD COLUMN IF NOT EXISTS status_changed_at TIMESTAMPTZ NOT NULL DEFAULT now();
+        ADD COLUMN IF NOT EXISTS status_changed_at TIMESTAMPTZ;
+      UPDATE connected_accounts
+         SET status_changed_at = COALESCE(updated_at, created_at, now())
+       WHERE status_changed_at IS NULL;
+      ALTER TABLE connected_accounts
+        ALTER COLUMN status_changed_at SET DEFAULT now(),
+        ALTER COLUMN status_changed_at SET NOT NULL;
 
       CREATE INDEX IF NOT EXISTS idx_connected_accounts_tenant ON connected_accounts (tenant_id);
       CREATE INDEX IF NOT EXISTS idx_connected_accounts_tenant_platform ON connected_accounts (tenant_id, platform);
@@ -386,7 +398,7 @@ async function initDb() {
           NEW.status_changed_at = now();
         END IF;
         RETURN NEW;
-      END
+      END;
       $function$;
 
       DROP TRIGGER IF EXISTS connected_accounts_status_changed_at ON connected_accounts;
