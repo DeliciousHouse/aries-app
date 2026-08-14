@@ -7,9 +7,9 @@ tests:
   - interval: 5m
     input_series:
       - series: aries_marketing_trigger_last_attempt_timestamp_seconds{tenant_id="61"}
-        values: 90000x20
+        values: 90000x313
       - series: aries_marketing_trigger_last_success_timestamp_seconds{tenant_id="61"}
-        values: 0x20
+        values: 0x313
     alert_rule_test:
       - eval_time: 26h
         alertname: AriesMarketingTriggerStalled
