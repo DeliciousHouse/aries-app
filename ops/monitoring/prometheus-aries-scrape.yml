@@ -1,0 +1,9 @@
+# Merge into the private GEN-39 Prometheus configuration.
+scrape_configs:
+  - job_name: aries-app
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /run/secrets/aries_internal_api_secret
+    static_configs:
+      - targets: ["aries-app:3000"]
