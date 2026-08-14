@@ -424,34 +424,96 @@ def detect_stage_failures(docs, reference=None):
 
 
 SQL_DEGRADED = f"""
-SELECT tenant_id, account_id, platform,
-       count(*) FILTER (WHERE status <> 'ok') AS bad,
+SELECT r.tenant_id, r.account_id, r.platform,
+       count(*) FILTER (WHERE r.status <> 'ok') AS bad,
        count(*) AS total,
-       coalesce((array_agg(error_message ORDER BY started_at DESC)
-                 FILTER (WHERE error_message IS NOT NULL))[1], '') AS last_err
-  FROM insights_sync_runs
- WHERE started_at > now() - interval '24 hours'
+       coalesce((array_agg(r.error_message ORDER BY r.started_at DESC)
+                 FILTER (WHERE r.error_message IS NOT NULL))[1], '') AS last_err
+  FROM insights_sync_runs r
+  JOIN organizations o ON o.id = r.tenant_id
+ WHERE r.started_at > now() - interval '24 hours'
+   AND o.kind = 'production'
  GROUP BY 1, 2, 3
-HAVING count(*) FILTER (WHERE status = 'ok') = 0
-   AND count(*) FILTER (WHERE status <> 'ok') >= {DEGRADED_MIN_BAD}
+HAVING count(*) FILTER (WHERE r.status = 'ok') = 0
+   AND count(*) FILTER (WHERE r.status <> 'ok') >= {DEGRADED_MIN_BAD}
  ORDER BY bad DESC
  LIMIT 50
 """
 
-SQL_LAST_SYNC = "SELECT coalesce(max(started_at)::text, '') FROM insights_sync_runs"
+SQL_LAST_SYNC = """
+SELECT coalesce(max(started_at)::text, '')
+  FROM insights_sync_runs r
+  JOIN organizations o ON o.id = r.tenant_id
+ WHERE o.kind = 'production'
+"""
 
-SQL_ENABLED_SCHEDULES = "SELECT count(*) FROM marketing_schedule WHERE enabled"
+SQL_ENABLED_SCHEDULES = """
+SELECT count(*)
+  FROM marketing_schedule ms
+  JOIN organizations o ON o.id = ms.tenant_id
+ WHERE ms.enabled AND o.kind = 'production'
+"""
 
 SQL_QUARANTINE = """
-SELECT count(*) FILTER (WHERE metrics_unavailable_at IS NOT NULL),
-       count(*) FILTER (WHERE comments_unavailable_at IS NOT NULL),
-       count(*) FILTER (WHERE metrics_error_count > 0 AND metrics_unavailable_at IS NULL)
-  FROM insights_posts
+SELECT count(*) FILTER (WHERE ip.metrics_unavailable_at IS NOT NULL),
+       count(*) FILTER (WHERE ip.comments_unavailable_at IS NOT NULL),
+       count(*) FILTER (WHERE ip.metrics_error_count > 0 AND ip.metrics_unavailable_at IS NULL)
+  FROM insights_posts ip
+  JOIN organizations o ON o.id = ip.tenant_id
+ WHERE o.kind = 'production'
 """
 
 SQL_DISABLED_ACCOUNTS = """
-SELECT tenant_id, platform, coalesce(disabled_reason, '')
-  FROM insights_accounts WHERE disabled_at IS NOT NULL ORDER BY 1, 2 LIMIT 50
+SELECT ia.tenant_id, ia.platform, coalesce(ia.disabled_reason, '')
+  FROM insights_accounts ia
+  JOIN organizations o ON o.id = ia.tenant_id
+ WHERE ia.disabled_at IS NOT NULL AND o.kind = 'production'
+ ORDER BY 1, 2 LIMIT 50
+"""
+
+SQL_TENANT_HYGIENE = """
+/* tenant_hygiene_candidates: read-only owner proposal; never mutates organizations */
+WITH hygiene AS (
+  SELECT o.id, o.name, o.kind,
+         coalesce(m.active_members, 0) AS active_members,
+         coalesce(c.connection_count, 0) AS connection_count,
+         coalesce(p.published_post_count, 0) AS published_post_count
+    FROM organizations o
+    LEFT JOIN (
+      SELECT organization_id, count(*) FILTER (WHERE status = 'active') AS active_members
+        FROM organization_memberships GROUP BY organization_id
+    ) m ON m.organization_id = o.id
+    LEFT JOIN (
+      SELECT tenant_id, count(*) AS connection_count
+        FROM connected_accounts GROUP BY tenant_id
+    ) c ON c.tenant_id = o.id
+    LEFT JOIN (
+      SELECT tenant_id, count(*) FILTER (WHERE published_status = 'published') AS published_post_count
+        FROM posts GROUP BY tenant_id
+    ) p ON p.tenant_id = o.id
+), keyed AS (
+  SELECT *, regexp_replace(replace(lower(btrim(name)), '&', ' and '), '[^a-z0-9]+', '', 'g') AS duplicate_key
+    FROM hygiene
+), ranked AS (
+  SELECT *, row_number() OVER (
+    PARTITION BY duplicate_key
+    ORDER BY (
+      CASE kind WHEN 'production' THEN 1000000000 WHEN 'test' THEN 1000000 ELSE 0 END
+      + active_members * 10000 + connection_count * 1000 + published_post_count
+    ) DESC, id
+  ) AS keeper_rank
+  FROM keyed
+  WHERE duplicate_key <> ''
+)
+SELECT duplicate_key,
+       max(id) FILTER (WHERE keeper_rank = 1)::text AS keeper_id,
+       string_agg(id::text, ', ' ORDER BY id) FILTER (WHERE keeper_rank > 1) AS review_ids,
+       string_agg(DISTINCT name, ' / ' ORDER BY name) AS names
+  FROM ranked
+ GROUP BY duplicate_key
+HAVING count(*) > 1
+ ORDER BY duplicate_key
+ LIMIT 50
 """
 
 
@@ -932,6 +994,20 @@ def build_report(reference=None) -> str:
             if len(row) >= 3:
                 lines.append(f"  • tenant {row[0]} {row[1]} — {row[2]}")
 
+    hygiene = psql_query(SQL_TENANT_HYGIENE)
+    if hygiene is None:
+        lines.append("tenant hygiene proposals: db unavailable")
+    else:
+        lines.append(f"tenant hygiene proposals (owner approval required): {len(hygiene)}")
+        for row in hygiene[:MAX_NAMED_ITEMS]:
+            if len(row) >= 4:
+                _, keeper, review, names = row[:4]
+                safe_names = " ".join(names.splitlines()).strip()[:160]
+                lines.append(f"  • {safe_names} — keep {keeper}; review {review}")
+        if len(hygiene) > MAX_NAMED_ITEMS:
+            lines.append(f"  • +{len(hygiene) - MAX_NAMED_ITEMS} more")
+        lines.append("  • proposal only; no organization changes applied")
+
     if notes["db_unavailable"]:
         lines.append("NOTE: db unavailable — DB-backed sections above are incomplete.")
     return "\n".join(lines)
@@ -1346,6 +1422,33 @@ def cookie_digest_reports_unknowns_that_never_alert():
         report = build_report()
         assert "agent-reach sessions" in report, report
         assert "twitter=unknown" in report, report
+
+
+@scenario
+def tenant_hygiene_candidates_are_posted_as_proposals_only():
+    def psql(sql):
+        if "tenant_hygiene_candidates" in sql:
+            return [["sugarandleather", "15", "12, 18", "Sugar & Leather / Sugar and Leather"]]
+        return []
+
+    with fixture(psql=psql):
+        run_digest()
+        assert len(SENT) == 1, SENT
+        assert "tenant hygiene proposals (owner approval required): 1" in SENT[0], SENT[0]
+        assert "keep 15; review 12, 18" in SENT[0], SENT[0]
+        assert "no organization changes applied" in SENT[0], SENT[0]
+
+
+@scenario
+def fleet_queries_exclude_non_production_tenants():
+    for sql in (
+        SQL_DEGRADED,
+        SQL_LAST_SYNC,
+        SQL_ENABLED_SCHEDULES,
+        SQL_QUARANTINE,
+        SQL_DISABLED_ACCOUNTS,
+    ):
+        assert "kind = 'production'" in sql, sql
 
 
 @scenario

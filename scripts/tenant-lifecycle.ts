@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { argv, exitCode } from 'node:process';
+import { argv } from 'node:process';
 import { pathToFileURL } from 'node:url';
 
 import pool from '@/lib/db';

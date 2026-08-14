@@ -6,16 +6,22 @@ ALTER TABLE organizations
     CHECK (kind IN ('production', 'test', 'archived'));
 
 ALTER TABLE connected_accounts
-  ADD COLUMN IF NOT EXISTS status_changed_at TIMESTAMPTZ NOT NULL DEFAULT now();
+  ADD COLUMN IF NOT EXISTS status_changed_at TIMESTAMPTZ;
 UPDATE connected_accounts
-   SET status_changed_at = COALESCE(updated_at, created_at)
+   SET status_changed_at = COALESCE(updated_at, created_at, now())
  WHERE status_changed_at IS NULL;
+ALTER TABLE connected_accounts
+  ALTER COLUMN status_changed_at SET DEFAULT now(),
+  ALTER COLUMN status_changed_at SET NOT NULL;
 
 ALTER TABLE oauth_connections
-  ADD COLUMN IF NOT EXISTS status_changed_at TIMESTAMPTZ NOT NULL DEFAULT now();
+  ADD COLUMN IF NOT EXISTS status_changed_at TIMESTAMPTZ;
 UPDATE oauth_connections
-   SET status_changed_at = COALESCE(updated_at, created_at)
+   SET status_changed_at = COALESCE(updated_at, created_at, now())
  WHERE status_changed_at IS NULL;
+ALTER TABLE oauth_connections
+  ALTER COLUMN status_changed_at SET DEFAULT now(),
+  ALTER COLUMN status_changed_at SET NOT NULL;
 
 CREATE OR REPLACE FUNCTION set_connection_status_changed_at()
 RETURNS trigger

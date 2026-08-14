@@ -540,9 +540,15 @@ export async function sendConnectionHealthNudgeEmail(
   params: ConnectionHealthNudgeEmailParams,
 ): Promise<void> {
   const copy = connectionNudgeCopy(params);
+  const safeWorkspaceName = params.workspaceName
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
   const body = `
     <p style="font-size:15px;line-height:1.5;color:rgba(255,255,255,0.7);margin:0 0 8px;">
-      <strong style="color:#ffffff;">${params.workspaceName}</strong>: ${copy.body}
+      <strong style="color:#ffffff;">${safeWorkspaceName}</strong>: ${copy.body}
     </p>
     ${renderCtaButton(copy.cta, params.reconnectUrl)}
     <p style="font-size:13px;color:rgba(255,255,255,0.4);margin:24px 0 0;">

@@ -161,8 +161,15 @@ export async function handleComposioList(
           value instanceof Date ? value.toISOString() : String(value),
         );
       }
-    } catch (error) {
-      return errorResponse(error);
+    } catch {
+      return json(
+        {
+          status: 'error',
+          reason: 'connection_health_unavailable',
+          message: "We couldn't load publishing history. Please try again.",
+        },
+        500,
+      );
     }
   }
 

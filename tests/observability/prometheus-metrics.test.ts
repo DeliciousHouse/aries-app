@@ -5,10 +5,12 @@ import { collectAriesMetrics } from '../../backend/observability/prometheus-metr
 
 class FakeDb {
   index = 0;
+  readonly queries: string[] = [];
 
   constructor(private readonly results: Array<Array<Record<string, unknown>>>) {}
 
-  async query() {
+  async query(text: string) {
+    this.queries.push(text);
     return { rows: this.results[this.index++] ?? [] };
   }
 }
@@ -20,6 +22,7 @@ test('exports dead-man, queue, publish, account, expiry and dependency metrics',
     [{ status: 'failed', count: '2' }, { status: 'dead_letter', count: '1' }],
     [{ tenant_id: 61, platform: 'instagram', last_success_at: '2026-08-10T08:00:00Z' }],
     [{ tenant_id: 61, provider: 'composio', platform: 'instagram', status: 'reauthorization_required', count: '1' }],
+    [{ tenant_id: 61, platform: 'instagram', nudge_kind: 'reauthorization_required', last_nudge_at: '2026-08-11T12:00:00Z' }],
     [{ expired_count: '7', expiring_24h_count: '3' }],
   ]);
 
@@ -31,17 +34,24 @@ test('exports dead-man, queue, publish, account, expiry and dependency metrics',
   assert.match(output, /aries_dispatch_failed_count\{status="dead_letter"\} 1/);
   assert.match(output, /aries_last_successful_publish_timestamp_seconds\{tenant_id="61",platform="instagram"\} 1786348800/);
   assert.match(output, /aries_connected_accounts\{provider="composio",platform="instagram",status="reauthorization_required"\} 1/);
+  assert.match(output, /aries_connection_nudge_required\{tenant_id="61",platform="instagram",kind="reauthorization_required"\} 0/);
+  assert.match(output, /aries_connection_nudge_last_sent_timestamp_seconds\{tenant_id="61",platform="instagram",kind="reauthorization_required"\} 1786449600/);
   assert.match(output, /aries_expiry_sweep_posts_total\{result="expired"\} 7/);
   assert.match(output, /aries_drafts_expiring_24h 3/);
   assert.match(output, /aries_external_dependency_up\{dependency="hermes"\} 0/);
   assert.match(output, /aries_external_dependency_degraded\{dependency="composio",tenant_id="61",platform="instagram"\} 1/);
   assert.match(output, /aries_external_dependency_up\{dependency="platform_api",tenant_id="61",platform="instagram"\} 0/);
+
+  for (const sql of db.queries) {
+    assert.match(sql, /organizations/i, 'every fleet metric query must join organizations');
+    assert.match(sql, /kind\s*=\s*'production'/i, 'test and archived tenants must be excluded');
+  }
 });
 
 test('escapes bounded Prometheus label values', async () => {
   const db = new FakeDb([[], [], [], [], [
     { tenant_id: 1, provider: 'composio', platform: 'x"\\\n', status: 'connected', count: 1 },
-  ], [{ expired_count: 0, expiring_24h_count: 0 }]]);
+  ], [], [{ expired_count: 0, expiring_24h_count: 0 }]]);
 
   const output = await collectAriesMetrics(db, { hermesUp: true, draftExpiryAgeDays: 14 });
   assert.match(output, /platform="x\\"\\\\\\n"/);

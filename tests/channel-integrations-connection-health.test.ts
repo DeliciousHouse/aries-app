@@ -76,6 +76,18 @@ test('Connections health API renders live connection status and last successful 
   assert.match(seen[0]?.sql ?? '', /spd\.status = 'dispatched'/i);
 });
 
+test('Connections health API does not leak database failures to customers', async () => {
+  const response = await handleComposioList(tenantLoader, provider(connection('connected')), {
+    query: async () => {
+      throw new Error('postgres host db.internal.local rejected secret role');
+    },
+  });
+  const text = await response.text();
+  assert.equal(response.status, 500);
+  assert.match(text, /connection_health_unavailable/);
+  assert.doesNotMatch(text, /postgres|db\.internal|secret role/i);
+});
+
 test('Connections health screen names the view, shows last post, and reconnects through the existing connect flow', () => {
   assert.match(screenSource, />Connections health</);
   assert.match(screenSource, /Last successful post/);
