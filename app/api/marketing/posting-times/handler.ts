@@ -44,7 +44,7 @@ export async function handleGetPostingTimes(
     return tenantResult.response;
   }
   const tenantId = Number(tenantResult.tenantContext.tenantId);
-  const enabled = isAiPostingTimesEnabled(deps.env ?? process.env);
+  const enabled = isAiPostingTimesEnabled(deps.env ?? process.env, tenantId);
 
   // When the feature is off there is nothing to show and nothing to read —
   // the card renders its "not enabled" copy off `enabled` alone.
@@ -61,12 +61,13 @@ export async function handleDerivePostingTimes(
     return tenantResult.response;
   }
   const { tenantContext } = tenantResult;
+  const tenantId = Number(tenantContext.tenantId);
 
   // Flag check BEFORE the role check: a flag-off endpoint is invisible to
   // every role (the ARIES_NATIVE_REPLY_ENABLED / ARIES_IMAGE_EDIT_ENABLED
   // precedent) — a 403 for analysts would reveal it exists. 409 is reserved
   // for the shared workspace-mismatch interlock in requestJson.
-  if (!isAiPostingTimesEnabled(deps.env ?? process.env)) {
+  if (!isAiPostingTimesEnabled(deps.env ?? process.env, tenantId)) {
     return json({ error: 'posting_times_disabled' }, 404);
   }
   if (tenantContext.role !== 'tenant_admin') {
@@ -74,7 +75,6 @@ export async function handleDerivePostingTimes(
   }
 
   // Tenant id ONLY from tenantContext — never from the body.
-  const tenantId = Number(tenantContext.tenantId);
   const derive = deps.derive ?? deriveAndPersistPostingTimes;
 
   // Fire-and-forget with force (the button always re-derives past the TTL

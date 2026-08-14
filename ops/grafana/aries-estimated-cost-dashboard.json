@@ -1,0 +1,112 @@
+{
+  "uid": "aries-estimated-cost-day",
+  "title": "Aries — Estimated AI Cost / Day",
+  "tags": ["aries", "cost-estimate"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1h",
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "DS_ARIES_POSTGRES",
+        "label": "Aries PostgreSQL",
+        "type": "datasource",
+        "query": "grafana-postgresql-datasource",
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Estimated reported-token cost/day by tenant (USD) — $100/day reference",
+      "description": "Estimate only: Hermes-reported tokens are valued at the operator-calibrated blended rate. When coverage is incomplete this is a partial lower-bound estimate; use the coverage panel below.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_ARIES_POSTGRES}"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT usage_date::timestamp AS time, company_id::text AS metric, (total_cogs_cents / 100.0)::double precision AS \"Estimated reported-token cost/day (USD)\" FROM daily_company_usage WHERE company_id <> 0 AND tasks_with_usage_reported > 0 AND total_cogs_cents IS NOT NULL AND $__timeFilter(usage_date::timestamp) ORDER BY 1, 2"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["lastNotNull", "max"]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Estimated cost coverage by tenant/day",
+      "description": "Completeness denominator for the estimated cost panel. Less than 100% means the displayed estimate is a partial lower bound because one or more AI runs did not report tokens.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_ARIES_POSTGRES}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 12
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT usage_date AS \"Day\", company_id AS \"Tenant\", tasks_with_usage_reported AS \"AI runs with reported tokens\", ai_tasks AS \"All AI runs\", round(100.0 * tasks_with_usage_reported / NULLIF(ai_tasks, 0), 1) AS \"Estimated cost coverage (%)\" FROM daily_company_usage WHERE company_id <> 0 AND ai_tasks > 0 AND $__timeFilter(usage_date::timestamp) ORDER BY usage_date DESC, company_id"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      }
+    }
+  ]
+}

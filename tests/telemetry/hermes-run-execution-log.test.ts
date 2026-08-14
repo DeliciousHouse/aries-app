@@ -1,10 +1,9 @@
 /**
  * AA-159 — the Hermes callback path logs AI_LLM executions.
  *
- * `handleHermesRunCallback` is the single post-dedup convergence point for every
- * Hermes run (marketing pipeline stages and route workflows alike), so it is
- * where the cost-bearing side of the execution log is produced. The contracts
- * pinned here are the ones a cost query would silently get wrong:
+ * Callback-driven runs converge through the run store; raw submit/poll callers
+ * log at their terminal boundary. The contracts pinned here are the ones a cost
+ * query would silently get wrong:
  *   - exactly ONE row per finished run, on TERMINAL deliveries only (a
  *     'running' progress ping is not a finished execution);
  *   - a reconciler/duplicate re-delivery never double-writes;
@@ -161,6 +160,38 @@ test('a marketing stage run is keyed by its stage', async (t) => {
   });
 });
 
+test('reported Hermes tokens produce a clearly calibrated cost estimate', async (t) => {
+  await withCallbackHarness(t, '1', async ({ inserts }) => {
+    const { createExecutionRunRecord } = await import('../../backend/execution/run-store');
+    const { handleHermesRunCallback } = await import('../../backend/execution/hermes-callbacks');
+    const record = createExecutionRunRecord({
+      provider: 'hermes',
+      domain: 'route',
+      workflowKey: 'estimated_cost_demo',
+      action: 'run',
+      tenantId: '15',
+    });
+
+    await handleHermesRunCallback({
+      event_id: 'evt-estimated-cost',
+      aries_run_id: record.aries_run_id,
+      hermes_run_id: 'hermes-cost-1',
+      status: 'completed',
+      output: [{ ok: true }],
+      usage: {
+        model: 'example/model',
+        prompt_tokens: 800_000,
+        completion_tokens: 200_000,
+        total_tokens: 1_000_000,
+      },
+    } as never);
+
+    await settleTaskExecutionBuffer();
+    assert.equal(inserts.length, 1);
+    assert.equal(row(inserts[0]).cost_cents, 250, 'default estimate is $2.50 per million reported tokens');
+  });
+});
+
 test('a non-terminal progress callback logs nothing', async (t) => {
   await withCallbackHarness(t, '1', async ({ inserts }) => {
     const { createExecutionRunRecord } = await import('../../backend/execution/run-store');
@@ -243,6 +274,164 @@ test('a failed run is logged as a failed execution with its error code', async (
     const logged = row(inserts[0]);
     assert.equal(logged.status, 'failed');
     assert.equal(logged.error_code, 'hermes_gateway_timeout');
+  });
+});
+
+test('a pre-callback Hermes launch failure logs ENOENT exactly once', async (t) => {
+  await withCallbackHarness(t, '1', async ({ inserts }) => {
+    const { HermesExecutionAdapter } = await import('../../backend/execution/providers/hermes');
+    const missingBinary = Object.assign(new Error('spawn hermes ENOENT'), { code: 'ENOENT' });
+    const adapter = new HermesExecutionAdapter(
+      {
+        HERMES_GATEWAY_URL: 'https://hermes.example.com',
+        HERMES_API_SERVER_KEY: 'test-key',
+      },
+      async () => { throw missingBinary; },
+      async () => {},
+    );
+    const result = await adapter.runWorkflow('calendar_sync', { tenant_id: 15 });
+    assert.equal(result.kind, 'gateway_error');
+
+    await settleTaskExecutionBuffer();
+    assert.equal(inserts.length, 1);
+    const logged = row(inserts[0]);
+    assert.equal(logged.execution_engine, 'AI_LLM');
+    assert.equal(logged.status, 'failed');
+    assert.equal(logged.error_code, 'ENOENT');
+    assert.equal(logged.tenant_id, 15);
+  });
+});
+
+test('raw posting-time Hermes research logs its terminal execution', async (t) => {
+  await withCallbackHarness(t, '1', async ({ inserts }) => {
+    const { deriveCompetitorPostingTimes } = await import('../../backend/marketing/posting-time-advisor');
+    const fetchImpl = async (url: string | URL, init?: RequestInit): Promise<Response> => {
+      if (init?.method === 'POST') {
+        return new Response(JSON.stringify({ run_id: 'posting-time-run-1' }), { status: 200 });
+      }
+      assert.match(String(url), /posting-time-run-1$/);
+      return new Response(JSON.stringify({
+        status: 'completed',
+        output: JSON.stringify({
+          status: 'ok',
+          output: [{ platform: 'instagram', hour: 9, minute: 0, days: [2], rationale: 'Observed.' }],
+        }),
+      }), { status: 200 });
+    };
+
+    const result = await deriveCompetitorPostingTimes({
+      tenantId: 15,
+      competitorUrl: 'https://competitor.example.com',
+      timezone: 'America/Los_Angeles',
+      platforms: ['instagram'],
+      env: {
+        HERMES_GATEWAY_URL: 'https://hermes.example.com',
+        HERMES_API_SERVER_KEY: 'test-key',
+      },
+      fetchImpl,
+      sleep: async () => {},
+    });
+
+    assert.equal(result.ok, true);
+    await settleTaskExecutionBuffer();
+    assert.equal(inserts.length, 1);
+    const logged = row(inserts[0]);
+    assert.equal(logged.task_key, 'marketing.posting_time_research');
+    assert.equal(logged.tenant_id, 15);
+    assert.equal(logged.external_run_id, 'posting-time-run-1');
+    assert.equal(logged.status, 'succeeded');
+  });
+});
+
+test('raw brand-kit Hermes enrichment logs its terminal execution', async (t) => {
+  await withCallbackHarness(t, '1', async ({ inserts }) => {
+    const { enrichBrandKitWithGemini } = await import('../../backend/marketing/brand-kit-enrich');
+    const responses = [
+      new Response('<html><body>Brand copy</body></html>', { status: 200 }),
+      new Response(JSON.stringify({ run_id: 'brand-run-1' }), { status: 200 }),
+      new Response(JSON.stringify({
+        status: 'completed',
+        output: JSON.stringify({ output: [{ brandVoiceSummary: 'Warm and direct.' }] }),
+      }), { status: 200 }),
+    ];
+    const result = await enrichBrandKitWithGemini({
+      tenantId: 15,
+      brandUrl: 'https://brand.example.com',
+      scrapedBrandKit: { brand_name: 'Brand' },
+      env: {
+        ARIES_BRAND_ENRICHMENT_ENABLED: '1',
+        HERMES_GATEWAY_URL: 'https://hermes.example.com',
+        HERMES_API_SERVER_KEY: 'test-key',
+        HERMES_POLL_INTERVAL_MS: '0',
+      },
+      fetchImpl: async () => responses.shift()!,
+      sleep: async () => {},
+    } as never);
+
+    assert.equal(result.ok, true);
+    await settleTaskExecutionBuffer();
+    assert.equal(inserts.length, 1);
+    const logged = row(inserts[0]);
+    assert.equal(logged.task_key, 'marketing.brand_kit_enrichment');
+    assert.equal(logged.tenant_id, 15);
+    assert.equal(logged.external_run_id, 'brand-run-1');
+    assert.equal(logged.status, 'succeeded');
+  });
+});
+
+test('raw feedback-severity Hermes failure is logged before heuristic fallback', async (t) => {
+  await withCallbackHarness(t, '1', async ({ inserts }) => {
+    const { classifySeverity } = await import('../../lib/feedback/severity-classifier');
+    const result = await classifySeverity(
+      { comment: 'cannot log in', category: 'Login issue', tenantId: 15, taskId: 'feedback-1' } as never,
+      { gatewayUrl: 'https://hermes.example.com', apiKey: 'test-key', sessionKey: 'feedback', timeoutMs: 100 },
+      {
+        fetchImpl: async () => { throw new Error('spawn hermes ENOENT'); },
+        sleep: async () => {},
+        nowMs: () => 0,
+      },
+    );
+
+    assert.equal(result.source, 'heuristic');
+    await settleTaskExecutionBuffer();
+    assert.equal(inserts.length, 1);
+    const logged = row(inserts[0]);
+    assert.equal(logged.task_key, 'feedback.classify_severity');
+    assert.equal(logged.tenant_id, 15);
+    assert.equal(logged.task_id, 'feedback-1');
+    assert.equal(logged.status, 'failed');
+  });
+});
+
+test('raw workflow adapter polling logs a completed Hermes execution', async (t) => {
+  await withCallbackHarness(t, '1', async ({ inserts }) => {
+    const { HermesExecutionAdapter } = await import('../../backend/execution/providers/hermes');
+    const responses = [
+      new Response(JSON.stringify({ run_id: 'workflow-run-1' }), { status: 202 }),
+      new Response(JSON.stringify({
+        status: 'completed',
+        output: JSON.stringify({ status: 'ok', output: [{ synced: true }] }),
+      }), { status: 200 }),
+    ];
+    const adapter = new HermesExecutionAdapter(
+      {
+        HERMES_GATEWAY_URL: 'https://hermes.example.com',
+        HERMES_API_SERVER_KEY: 'test-key',
+        HERMES_POLL_INTERVAL_MS: '0',
+      },
+      async () => responses.shift()!,
+      async () => {},
+    );
+
+    const result = await adapter.runWorkflow('calendar_sync', { tenant_id: 15 });
+    assert.equal(result.kind, 'ok');
+    await settleTaskExecutionBuffer();
+    assert.equal(inserts.length, 1);
+    const logged = row(inserts[0]);
+    assert.equal(logged.task_key, 'execution.calendar_sync');
+    assert.equal(logged.tenant_id, 15);
+    assert.equal(logged.external_run_id, 'workflow-run-1');
+    assert.equal(logged.status, 'succeeded');
   });
 });
 

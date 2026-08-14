@@ -11,10 +11,8 @@
 --
 -- Token/cost columns are a hard 0 on the two zero-cost engines (by
 -- construction) and NULL on AI rows until the gateway reports usage — NULL
--- means "not reported", never "free". Hermes does not report token usage or the
--- resolved model back to Aries yet; the optional `usage` block on the callback
--- protocol is the receiving half, and these columns fill in the moment Hermes
--- emits it.
+-- means "not reported", never "free". On AI rows cost_cents is an explicit
+-- operator-calibrated blended-rate estimate, not provider-bill precision.
 --
 -- user_id is nullable and is NULL on the majority of rows BY DESIGN — the
 -- weekly cron, every sidecar, the reconciler, and all Hermes callbacks are
@@ -47,7 +45,7 @@ CREATE TABLE IF NOT EXISTS task_execution_log (
   prompt_tokens     INTEGER,
   completion_tokens INTEGER,
   total_tokens      INTEGER,
-  cost_cents        NUMERIC(10,4),
+  cost_cents        NUMERIC(10,4), -- estimate for AI_LLM; hard 0 for non-AI
   started_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   end_time          TIMESTAMPTZ,
   recorded_at       TIMESTAMPTZ NOT NULL DEFAULT now()

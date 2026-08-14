@@ -92,6 +92,18 @@ test('GET with the flag off reports enabled:false and never queries', async () =
   assert.equal(calls.length, 0);
 });
 
+test('GET keeps the posting-time canary dark outside tenant 15', async () => {
+  const { db, calls } = makeDb();
+  const res = await handleGetPostingTimes(getRequest(), {
+    tenantContextLoader: tenantLoader(16),
+    db,
+    env: FLAG_ON,
+  });
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { enabled: false, postingTimes: [] });
+  assert.equal(calls.length, 0);
+});
+
 test('POST derive requires tenant_admin', async () => {
   const res = await handleDerivePostingTimes(deriveRequest(), {
     tenantContextLoader: tenantLoader(15, 'tenant_analyst'),
@@ -126,6 +138,20 @@ test('POST derive with the flag off is invisible to EVERY role — non-admins ge
     derive: async () => ({ status: 'done', platforms: {} }),
   });
   assert.equal(res.status, 404, 'a 403 for analysts would reveal the flag-off endpoint exists');
+});
+
+test('POST derive is invisible outside tenant 15 even when the process flag is on', async () => {
+  let called = false;
+  const res = await handleDerivePostingTimes(deriveRequest(), {
+    tenantContextLoader: tenantLoader(16),
+    env: FLAG_ON,
+    derive: async () => {
+      called = true;
+      return { status: 'done', platforms: {} };
+    },
+  });
+  assert.equal(res.status, 404);
+  assert.equal(called, false);
 });
 
 test('POST derive fires a forced derivation for the session tenant and returns 202', async () => {

@@ -22,11 +22,10 @@
 -- rebuild and REQUIRES the unique index below; it also cannot run inside a
 -- transaction block, so it is issued as its own statement outside any BEGIN.
 --
--- COGS reads 0/NULL today and that is truthful, not a bug: cost_cents is a hard 0
--- on DETERMINISTIC_RULE/LOCAL_EDGE rows by construction and NULL on every AI_LLM
--- row, because Hermes owns model routing and does not report usage or cost back to
--- Aries yet (the protocol 1.3.0 `usage` block is the receiving half; nothing emits
--- it). No cost is ever synthesized from a price table. That is exactly why
+-- COGS is explicitly estimated: cost_cents is a hard 0 on
+-- DETERMINISTIC_RULE/LOCAL_EDGE rows and, when Hermes reports total tokens, an
+-- operator-calibrated blended-rate estimate on AI_LLM rows. Missing usage stays
+-- NULL. That is exactly why
 -- ai_tasks and tasks_with_usage_reported ride alongside the sums: they are the
 -- denominators that let a consumer tell "$0 spent" from "nothing reported its
 -- spend". A chargeback that reads total_cogs_cents without them will silently bill

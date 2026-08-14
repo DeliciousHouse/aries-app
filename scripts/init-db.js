@@ -1344,6 +1344,22 @@ async function initDb() {
         tenant_id INTEGER PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
         claimed_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
+
+      -- Immutable tenant-15 four-week pre-rollout baseline. The advisor inserts
+      -- once before its first derivation; post-rollout results remain queryable
+      -- from insights_post_metrics_daily without mutating this evidence.
+      CREATE TABLE IF NOT EXISTS marketing_posting_time_experiments (
+        tenant_id INTEGER PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+        enabled_at DATE NOT NULL,
+        baseline_start DATE NOT NULL,
+        baseline_end DATE NOT NULL,
+        baseline_posts INTEGER NOT NULL DEFAULT 0,
+        baseline_engagements BIGINT NOT NULL DEFAULT 0,
+        baseline_impressions BIGINT NOT NULL DEFAULT 0,
+        baseline_engagement_rate NUMERIC,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CHECK (baseline_end >= baseline_start)
+      );
     `);
 
     // ─── Insights module ────────────────────────────────────────────────────────
@@ -1775,7 +1791,8 @@ async function initDb() {
       --   DETERMINISTIC_RULE -> rule-based automation (sweeps, dispatchers).
       --   LOCAL_EDGE         -> in-process CPU work (sharp composite, ffmpeg).
       -- Token/cost columns are a hard 0 on the two zero-cost engines (by
-      -- construction) and NULL on AI rows until the gateway reports usage —
+      -- construction) and NULL on AI rows until the gateway reports usage. AI
+      -- cost_cents is a blended-rate estimate, never provider-bill precision;
       -- NULL means "not reported", never "free". model_requested is the hint
       -- Aries SENT; model_reported is what the gateway said it actually routed
       -- to (Hermes owns routing and does not report it back today).
@@ -1992,9 +2009,9 @@ async function initDb() {
       -- permanent. Refreshed CONCURRENTLY at the end of each rollup pass by the
       -- aries-usage-rollup-worker sidecar.
       --
-      -- COGS reads 0/NULL today and that is truthful: cost_cents is a hard 0 on
-      -- the zero-cost engines and NULL on every AI row (Hermes does not report
-      -- usage back yet, and no cost is ever synthesized from a price table). That
+      -- COGS is explicitly estimated: cost_cents is a hard 0 on the zero-cost
+      -- engines and a blended-rate estimate when Hermes reports AI tokens. Missing
+      -- usage stays NULL. That
       -- is why ai_tasks / tasks_with_usage_reported ride alongside the sums — they
       -- are what distinguishes "$0 spent" from "nothing reported its spend".
       CREATE MATERIALIZED VIEW IF NOT EXISTS daily_company_usage AS

@@ -1,4 +1,5 @@
 import type { TenantBrandKit } from '@/backend/marketing/brand-kit';
+import { emitTaskExecution } from '@/backend/telemetry/task-execution-log';
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
@@ -22,6 +23,7 @@ type EnrichmentFetch = (input: string | URL, init?: RequestInit) => Promise<Resp
 type EnrichmentSleep = (ms: number) => Promise<void>;
 
 export type EnrichBrandKitInput = {
+  tenantId?: number | string | null;
   brandUrl: string;
   scrapedBrandKit: TenantBrandKit;
   env?: EnrichmentEnv;
@@ -342,7 +344,27 @@ export async function enrichBrandKitWithGemini(input: EnrichBrandKitInput): Prom
     session_id: sessionKey,
   };
 
-  let runId: string;
+  const startedAt = new Date();
+  const taskId = `brand-kit:${input.tenantId ?? 'unscoped'}:${startedAt.getTime()}`;
+  let runId: string | null = null;
+  const finish = (result: EnrichmentResult): EnrichmentResult => {
+    const endTime = new Date();
+    emitTaskExecution({
+      engine: 'AI_LLM',
+      taskKey: 'marketing.brand_kit_enrichment',
+      taskId,
+      tenantId: input.tenantId ?? null,
+      userId: null,
+      status: result.ok ? 'succeeded' : 'failed',
+      errorCode: result.ok ? null : result.reason,
+      modelRequested: HERMES_MODEL_HINT,
+      externalRunId: runId,
+      startedAt,
+      endTime,
+      durationMs: Math.max(0, endTime.getTime() - startedAt.getTime()),
+    });
+    return result;
+  };
   try {
     const submitController = new AbortController();
     const submitTimer = setTimeout(() => submitController.abort(), timeoutMs);
@@ -358,16 +380,16 @@ export async function enrichBrandKitWithGemini(input: EnrichBrandKitInput): Prom
       clearTimeout(submitTimer);
     }
     if (!submit.ok) {
-      return { ok: false, reason: 'submit_rejected', detail: `HTTP ${submit.status}` };
+      return finish({ ok: false, reason: 'submit_rejected', detail: `HTTP ${submit.status}` });
     }
     const submitJson = (await submit.json().catch(() => null)) as Record<string, unknown> | null;
     const candidate = submitJson && typeof submitJson.run_id === 'string' ? submitJson.run_id.trim() : '';
     if (!candidate) {
-      return { ok: false, reason: 'submit_invalid' };
+      return finish({ ok: false, reason: 'submit_invalid' });
     }
     runId = candidate;
   } catch (error) {
-    return { ok: false, reason: 'unreachable', detail: error instanceof Error ? error.message : String(error) };
+    return finish({ ok: false, reason: 'unreachable', detail: error instanceof Error ? error.message : String(error) });
   }
 
   const deadline = Date.now() + timeoutMs;
@@ -389,28 +411,28 @@ export async function enrichBrandKitWithGemini(input: EnrichBrandKitInput): Prom
         clearTimeout(pollTimer);
       }
       if (!poll.ok) {
-        return { ok: false, reason: 'poll_rejected', detail: `HTTP ${poll.status}` };
+        return finish({ ok: false, reason: 'poll_rejected', detail: `HTTP ${poll.status}` });
       }
       pollJson = (await poll.json().catch(() => null)) as Record<string, unknown> | null;
     } catch (error) {
-      return { ok: false, reason: 'unreachable', detail: error instanceof Error ? error.message : String(error) };
+      return finish({ ok: false, reason: 'unreachable', detail: error instanceof Error ? error.message : String(error) });
     }
     const status = pollJson && typeof pollJson.status === 'string' ? pollJson.status : '';
     if (!status) {
-      return { ok: false, reason: 'poll_invalid' };
+      return finish({ ok: false, reason: 'poll_invalid' });
     }
     if (TERMINAL_STATUSES.has(status)) {
       if (status !== 'completed') {
-        return { ok: false, reason: 'run_failed', detail: status };
+        return finish({ ok: false, reason: 'run_failed', detail: status });
       }
       const outputText = typeof pollJson?.output === 'string' ? pollJson.output : '';
       const enrichment = enrichmentFromOutput(tryParseJson(outputText));
       if (!enrichment) {
-        return { ok: false, reason: 'output_invalid' };
+        return finish({ ok: false, reason: 'output_invalid' });
       }
-      return { ok: true, enrichment };
+      return finish({ ok: true, enrichment });
     }
     await sleep(intervalMs);
   }
-  return { ok: false, reason: 'timeout' };
+  return finish({ ok: false, reason: 'timeout' });
 }
