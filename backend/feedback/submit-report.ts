@@ -92,6 +92,7 @@ function requestFingerprint(
         impact: input.impact,
         title: input.title,
         description: input.description,
+        pagePath: input.pagePath,
         screenshot: screenshot ? { mime: screenshot.mime, digest: screenshotDigest } : null,
         submittedScreenshotDigest,
         screenshotDiscarded: discarded,
@@ -136,6 +137,7 @@ export async function submitFeedbackReport(
     impact: input.impact,
     title: input.title,
     description: input.description,
+    pagePath: input.pagePath,
     screenshot: shot.screenshot,
   };
 
@@ -204,6 +206,7 @@ export async function submitFeedbackReport(
     submitterId: record.submitterId,
     category: record.category,
     impact: record.impact,
+    pagePath: record.pagePath,
     jiraTicketKey: null,
     jiraCreateState: 'not_started',
     jiraCreateToken: null,

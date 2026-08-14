@@ -35,6 +35,7 @@ export interface FeedbackReportRecord {
   impact: FeedbackImpact;
   title: string;
   description: string;
+  pagePath: string | null;
   screenshot: { bytes: Buffer; mime: string } | null;
 }
 
@@ -51,6 +52,7 @@ export interface FeedbackReportRow {
   impact: string;
   title: string;
   description: string;
+  page_path: string | null;
   screenshot_bytes: Buffer | null;
   screenshot_mime: string | null;
   jira_ticket_key: string | null;
@@ -70,8 +72,8 @@ let ensured = false;
 
 /**
  * Create the table on demand (mirrors lib/feedback/feedback-store.ts). The
- * migration in migrations/20260703000000_feedback_reports.sql is the canonical
- * schema; this keeps the feature working on databases where the migration has
+ * migrations are the canonical schema; this keeps the feature working on
+ * databases where a migration has
  * not run yet. Idempotent.
  */
 export async function ensureFeedbackReportsTable(pool: Pool): Promise<void> {
@@ -94,6 +96,7 @@ export async function ensureFeedbackReportsTable(pool: Pool): Promise<void> {
       )),
       title VARCHAR(255) NOT NULL,
       description TEXT NOT NULL,
+      page_path TEXT,
       screenshot_bytes BYTEA,
       screenshot_mime VARCHAR(64),
       jira_ticket_key VARCHAR(50),
@@ -119,6 +122,10 @@ export async function ensureFeedbackReportsTable(pool: Pool): Promise<void> {
   await pool.query(`
     ALTER TABLE feedback_reports
       ADD COLUMN IF NOT EXISTS request_fingerprint TEXT NOT NULL DEFAULT ''
+  `);
+  await pool.query(`
+    ALTER TABLE feedback_reports
+      ADD COLUMN IF NOT EXISTS page_path TEXT
   `);
   await pool.query(`
     DO $feedback_delivery_state$
@@ -316,8 +323,8 @@ export async function insertReportWithLimits(
          id, request_fingerprint, submitter_type, tenant_id, submitter_id,
          submitter_email, submitter_name,
          customer_slug, category, impact, title, description,
-         screenshot_bytes, screenshot_mime, attachment_state, status
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'pending')`,
+         page_path, screenshot_bytes, screenshot_mime, attachment_state, status
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'pending')`,
       [
         record.id,
         record.requestFingerprint,
@@ -331,6 +338,7 @@ export async function insertReportWithLimits(
         record.impact,
         record.title,
         record.description,
+        record.pagePath,
         record.screenshot?.bytes ?? null,
         record.screenshot?.mime ?? null,
         record.screenshot ? 'retained_private' : 'none',

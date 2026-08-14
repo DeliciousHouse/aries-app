@@ -50,6 +50,7 @@ const INPUT = {
   impact: 'p2_feature_degraded' as const,
   title: 'Broken button',
   description: 'It does nothing.',
+  pagePath: '/insights',
   screenshot: null as unknown,
 };
 
@@ -84,6 +85,7 @@ function persistedRow(
     impact: record.impact,
     title: record.title,
     description: record.description,
+    page_path: record.pagePath,
     screenshot_bytes: record.screenshot?.bytes ?? null,
     screenshot_mime: record.screenshot?.mime ?? null,
     jira_ticket_key: null,
@@ -177,6 +179,30 @@ test('identity comes from the session argument, never the body', async () => {
   assert.equal(record.submitterEmail, null);
   assert.equal(record.submitterName, null);
   assert.equal(record.submitterType, 'authenticated');
+  assert.equal(record.pagePath, '/insights');
+});
+
+test('page context reaches the durable record and Jira delivery metadata', async () => {
+  let inserted: FeedbackReportRecord | null = null;
+  let deliveredPagePath: string | null | undefined;
+  await submitFeedbackReport(
+    INPUT,
+    SUBMITTER,
+    config(),
+    deps({
+      insert: async (_pool, record) => {
+        inserted = record;
+        return { outcome: 'ok' };
+      },
+      sync: async (report) => {
+        deliveredPagePath = report.pagePath;
+        return { status: 'synced', ticketKey: 'AA-1' };
+      },
+    }),
+  );
+
+  assert.equal((inserted as unknown as FeedbackReportRecord).pagePath, '/insights');
+  assert.equal(deliveredPagePath, '/insights');
 });
 
 test('anonymous reports persist the hashed rate-limit identity before Jira delivery', async () => {
@@ -377,6 +403,7 @@ test('replay after Jira create but before acknowledgement reconciles under the o
       impact: INPUT.impact,
       title: INPUT.title,
       description: INPUT.description,
+      pagePath: INPUT.pagePath,
       screenshot: null,
     },
     { status: 'pending' },
@@ -454,6 +481,31 @@ test('idempotency binds discarded screenshot input, not only its shared discard 
   assert.equal(changed.body.submission_id, null);
 });
 
+test('idempotency binds page_path so a key cannot replay changed route context', async () => {
+  let original: FeedbackReportRecord | null = null;
+  const insert: NonNullable<SubmitReportDeps['insert']> = async (_pool, record) => {
+    if (!original) {
+      original = record;
+      return { outcome: 'ok' };
+    }
+    return original.requestFingerprint === record.requestFingerprint
+      ? { outcome: 'replay', report: persistedRow(original, { status: 'synced' }) }
+      : { outcome: 'idempotency_conflict' };
+  };
+  const replayDeps = deps({ insert });
+
+  await submitFeedbackReport(INPUT, SUBMITTER, config(), replayDeps);
+  const changed = await submitFeedbackReport(
+    { ...INPUT, pagePath: '/settings' },
+    SUBMITTER,
+    config(),
+    replayDeps,
+  );
+
+  assert.equal(changed.httpStatus, 409);
+  assert.equal(changed.body.status, 'idempotency_conflict');
+});
+
 test('a scheduled replay returns stored state without bypassing retry policy', async () => {
   let syncCalls = 0;
   const existing = persistedRow(
@@ -470,6 +522,7 @@ test('a scheduled replay returns stored state without bypassing retry policy', a
       impact: INPUT.impact,
       title: INPUT.title,
       description: INPUT.description,
+      pagePath: INPUT.pagePath,
       screenshot: null,
     },
     { status: 'pending_retry', attempts: 2 },
@@ -507,6 +560,7 @@ test('replaying a terminal row reclaims it under the lock and safely reconciles'
       impact: INPUT.impact,
       title: INPUT.title,
       description: INPUT.description,
+      pagePath: INPUT.pagePath,
       screenshot: null,
     },
     { status: 'failed', jira_ticket_key: 'AA-88', attempts: 5 },
@@ -553,6 +607,7 @@ test('a failed replay stays an accurate retryable 503 when reclaim throws or can
       impact: INPUT.impact,
       title: INPUT.title,
       description: INPUT.description,
+      pagePath: INPUT.pagePath,
       screenshot: null,
     },
     { status: 'failed', jira_ticket_key: null, attempts: 5 },

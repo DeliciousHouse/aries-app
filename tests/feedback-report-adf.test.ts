@@ -22,6 +22,7 @@ test('ADF node-type set is exactly {doc, paragraph, text} with zero marks', () =
     category: 'bug',
     tenantId: MALICIOUS[0],
     submitterId: MALICIOUS[1],
+    pagePath: null,
     reportId: 'rid-1',
     submittedAtIso: '2026-07-03T00:00:00.000Z',
   });
@@ -73,6 +74,7 @@ test('only redacted triage metadata and opaque internal identifiers reach Jira',
     category: 'bug',
     tenantId: 'tenant-15',
     submitterId: 'user-9',
+    pagePath: '/insights',
     reportId: 'rid-3',
     submittedAtIso: '2026-07-03T01:02:03.000Z',
   });
@@ -81,6 +83,7 @@ test('only redacted triage metadata and opaque internal identifiers reach Jira',
   assert.ok(!serialized.includes('jo@acme.co'));
   assert.ok(serialized.includes('Tenant ID: tenant-15'));
   assert.ok(serialized.includes('Submitter ID: user-9'));
+  assert.ok(serialized.includes('Page path: /insights'));
   assert.ok(serialized.includes('Impact: A feature is degraded/broken'));
   assert.ok(serialized.includes('Submission ID: rid-3'));
 });
@@ -91,6 +94,7 @@ test('missing opaque identifiers render as "unknown", never empty nodes', () => 
     category: 'other',
     tenantId: null,
     submitterId: null,
+    pagePath: null,
     reportId: 'rid-4',
     submittedAtIso: '2026-07-03T00:00:00.000Z',
   });
@@ -107,6 +111,7 @@ test('anonymous contact renders an explicit anonymous marker without invented na
     tenantId: 'anonymous',
     submitterId: 'anonymous:opaque-hash',
     submitterType: 'anonymous',
+    pagePath: null,
     reportId: 'rid-anon',
     submittedAtIso: '2026-07-20T00:00:00.000Z',
   });
