@@ -160,6 +160,7 @@ async function initDb() {
         )),
         title VARCHAR(255) NOT NULL,
         description TEXT NOT NULL,
+        page_path TEXT,
         screenshot_bytes BYTEA,
         screenshot_mime VARCHAR(64),
         jira_ticket_key VARCHAR(50),
@@ -180,6 +181,8 @@ async function initDb() {
           CHECK (submitter_type IN ('authenticated','anonymous'));
       ALTER TABLE feedback_reports
         ADD COLUMN IF NOT EXISTS request_fingerprint TEXT NOT NULL DEFAULT '';
+      ALTER TABLE feedback_reports
+        ADD COLUMN IF NOT EXISTS page_path TEXT;
       DO $feedback_delivery_state$
       DECLARE
         jira_create_state_was_missing BOOLEAN;

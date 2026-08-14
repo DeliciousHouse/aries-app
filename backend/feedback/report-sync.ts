@@ -51,6 +51,7 @@ export interface SyncableReport {
   submitterId: string;
   category: string;
   impact: string;
+  pagePath: string | null;
   jiraTicketKey: string | null;
   jiraCreateState: JiraCreateState;
   jiraCreateToken: string | null;
@@ -67,6 +68,7 @@ export function rowToSyncable(row: FeedbackReportRow): SyncableReport {
     submitterId: row.submitter_id,
     category: row.category,
     impact: row.impact,
+    pagePath: row.page_path,
     jiraTicketKey: row.jira_ticket_key,
     jiraCreateState: row.jira_create_state,
     jiraCreateToken: row.jira_create_token,
@@ -135,6 +137,7 @@ export function buildIssueFields(
       submitterType: report.submitterType,
       tenantId: report.tenantId,
       submitterId: report.submitterId,
+      pagePath: report.pagePath,
       reportId: report.id,
       submittedAtIso: report.createdAtIso,
     }),

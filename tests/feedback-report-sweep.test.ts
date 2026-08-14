@@ -57,6 +57,7 @@ function row(id: string, overrides: Partial<FeedbackReportRow> = {}): FeedbackRe
     impact: 'p2_feature_degraded',
     title: 't',
     description: 'd',
+    page_path: '/insights',
     screenshot_bytes: null,
     screenshot_mime: null,
     jira_ticket_key: null,
@@ -215,9 +216,10 @@ test('a claim-level failure is caught (cycle survives, reported as an error)', a
   assert.equal(report.claimed, 0);
 });
 
-test('rows keep their loaded attempts/ticket key through rowToSyncable (reconcile-only path)', async () => {
+test('rows keep attempts, ticket key, and page path through rowToSyncable (reconcile-only path)', async () => {
   let sawKey: string | null = null;
   let sawAttempts = -1;
+  let sawPagePath: string | null = null;
   const claimed = [
     row('with-key', {
       jira_ticket_key: 'AA-9',
@@ -233,10 +235,12 @@ test('rows keep their loaded attempts/ticket key through rowToSyncable (reconcil
     sync: async (syncable) => {
       sawKey = syncable.jiraTicketKey;
       sawAttempts = syncable.attempts;
+      sawPagePath = syncable.pagePath;
       return { status: 'synced' as const, ticketKey: 'AA-9' };
     },
     store: NOOP_STORE,
   });
   assert.equal(sawKey, 'AA-9');
   assert.equal(sawAttempts, 3);
+  assert.equal(sawPagePath, '/insights');
 });

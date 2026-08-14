@@ -3,7 +3,7 @@
  *
  * INVARIANT (SC-70): identity comes from server context only (session when
  * present, otherwise an IP-hashed anonymous identity). This validator reads
- * exactly idempotency_key/category/impact/title/description/screenshot from
+ * exactly idempotency_key/category/impact/title/description/page_path/screenshot from
  * the body — client submitter/tenant/priority fields are never read.
  */
 
@@ -21,6 +21,7 @@ export interface ValidatedReportRequest {
   impact: FeedbackImpact;
   title: string;
   description: string;
+  pagePath: string | null;
   /** Raw screenshot payload — validated separately with discard (not 422) semantics. */
   screenshot: unknown;
 }
@@ -69,6 +70,21 @@ export function validateReportRequest(body: unknown): ReportRequestValidation {
     fieldErrors.description = `Description must be at most ${FEEDBACK_REPORT_LIMITS.descriptionMax} characters.`;
   }
 
+  let pagePath: string | null = null;
+  if (obj.page_path !== undefined) {
+    if (
+      typeof obj.page_path === 'string' &&
+      obj.page_path.startsWith('/') &&
+      !obj.page_path.startsWith('//') &&
+      obj.page_path.length <= FEEDBACK_REPORT_LIMITS.pagePathMax &&
+      !/[?#\u0000-\u001f\u007f]/u.test(obj.page_path)
+    ) {
+      pagePath = obj.page_path;
+    } else {
+      fieldErrors.page_path = `Page path must start with /, omit origin, query, and hash, and be at most ${FEEDBACK_REPORT_LIMITS.pagePathMax} characters.`;
+    }
+  }
+
   if (Object.keys(fieldErrors).length > 0) {
     return { ok: false, error: 'invalid_input', fieldErrors };
   }
@@ -81,6 +97,7 @@ export function validateReportRequest(body: unknown): ReportRequestValidation {
       impact: obj.impact as FeedbackImpact,
       title,
       description,
+      pagePath,
       screenshot: obj.screenshot ?? null,
     },
   };

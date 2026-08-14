@@ -31,6 +31,7 @@ export interface ReportAdfInput {
   submitterType?: 'authenticated' | 'anonymous';
   tenantId: string | null;
   submitterId: string | null;
+  pagePath: string | null;
   reportId: string;
   submittedAtIso: string;
 }
@@ -46,6 +47,7 @@ export function buildReportAdf(input: ReportAdfInput): AdfNode {
   content.push(paragraph('— Redacted triage details —'));
   content.push(paragraph(`Impact: ${input.impactAnswer}`));
   content.push(paragraph(`Category: ${input.category}`));
+  if (input.pagePath) content.push(paragraph(`Page path: ${input.pagePath}`));
 
   if (input.submitterType === 'anonymous') {
     content.push(paragraph('Submitter: Anonymous'));

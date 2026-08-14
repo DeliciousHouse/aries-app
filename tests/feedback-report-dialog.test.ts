@@ -50,6 +50,15 @@ async function withReportDialog(
     },
     setTimeout: (...args: Parameters<typeof setTimeout>) => setTimeout(...args),
     clearTimeout: (id: ReturnType<typeof setTimeout>) => clearTimeout(id),
+    location: {
+      pathname: '/insights',
+      origin: 'https://aries.example.com',
+      href: 'https://aries.example.com/insights?token=query-secret#hash-secret',
+      search: '?token=query-secret',
+      hash: '#hash-secret',
+    },
+    consoleErrors: ['console-secret'],
+    currentUser: { email: 'person@example.com', tenantId: 'tenant-secret' },
   };
   (globalThis as Record<string, unknown>).document = {
     activeElement: null,
@@ -165,6 +174,48 @@ test('INVARIANT double-submit guard: firing onSubmit twice sends exactly one POS
       // The submit button itself must reflect the guard (disabled while submitting).
       const button = h.root.root.findByProps({ 'data-testid': 'report-submit' });
       assert.equal(button.props.disabled, true);
+    },
+  );
+});
+
+test('browser POST uses an exact allowlist and sends only window.location.pathname', async () => {
+  await withReportDialog(
+    async () => ({
+      status: 503,
+      ok: false,
+      json: async () => ({ error: 'persist_failed' }),
+    }),
+    async (h) => {
+      await h.fillValidForm();
+      await h.submitOnce();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      assert.equal(h.requestBodies.length, 1);
+      const body = h.requestBodies[0];
+      assert.deepEqual(Object.keys(body).sort(), [
+        'category',
+        'description',
+        'idempotency_key',
+        'impact',
+        'page_path',
+        'screenshot',
+        'title',
+      ]);
+      assert.equal(body.page_path, '/insights');
+      const serialized = JSON.stringify(body);
+      for (const secret of [
+        'aries.example.com',
+        'query-secret',
+        'hash-secret',
+        'console-secret',
+        'person@example.com',
+        'tenant-secret',
+        'priority',
+        'labels',
+        'project',
+      ]) {
+        assert.ok(!serialized.includes(secret), `browser payload must not contain ${secret}`);
+      }
     },
   );
 });

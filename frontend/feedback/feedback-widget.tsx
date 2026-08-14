@@ -17,7 +17,6 @@ import { MessageSquarePlus } from 'lucide-react';
 
 import { cn } from '../donor/lib/utils';
 import { CAPTURE_IGNORE_ATTR } from './capture-screenshot';
-import { installConsoleCapture } from './console-capture';
 import ReportModal from './report-dialog';
 
 const isDisabled = process.env.NEXT_PUBLIC_FEEDBACK_DISABLED === 'true' || process.env.NEXT_PUBLIC_FEEDBACK_DISABLED === '1';
@@ -28,7 +27,6 @@ export default function FeedbackWidget(): React.ReactElement | null {
 
   useEffect(() => {
     setMounted(true);
-    installConsoleCapture();
   }, []);
 
   const openDialog = useCallback(() => {

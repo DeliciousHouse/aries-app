@@ -49,26 +49,41 @@ test('client validation blocks the POST: impact required, title/description boun
   );
 });
 
-test('INVARIANT: the POST body contains no identity or tenant fields', () => {
+test('INVARIANT: the POST body is the exact allowlist with pathname-only route context', () => {
   const idempotencyKey = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
   const body = buildReportSubmitBody(
     { impact: 'p1_account_blocked', category: 'bug', title: ' t ', description: ' d ' },
     { base64: 'AAAA', mime: 'image/png' },
     idempotencyKey,
+    '/insights',
   );
   assert.deepEqual(Object.keys(body).sort(), [
     'category',
     'description',
     'idempotency_key',
     'impact',
+    'page_path',
     'screenshot',
     'title',
   ]);
   assert.equal(body.idempotency_key, idempotencyKey);
+  assert.equal(body.page_path, '/insights');
   assert.equal(body.title, 't');
   assert.equal(body.description, 'd');
   const serialized = JSON.stringify(body);
-  for (const banned of ['tenant', 'user', 'email', 'submitter', 'priority', 'label']) {
+  for (const banned of [
+    'https://',
+    '?',
+    '#',
+    'console',
+    'tenant',
+    'user',
+    'email',
+    'submitter',
+    'priority',
+    'label',
+    'project',
+  ]) {
     assert.ok(!serialized.toLowerCase().includes(banned), `body must not carry "${banned}"`);
   }
 });

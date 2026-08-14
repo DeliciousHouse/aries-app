@@ -47,6 +47,7 @@ export function isFeedbackReportCategory(value: unknown): value is FeedbackRepor
 export const FEEDBACK_REPORT_LIMITS = {
   titleMax: 255,
   descriptionMax: 10_000,
+  pagePathMax: 512,
   /** Default decoded screenshot cap (bytes); server honors FEEDBACK_MAX_IMAGE_BYTES. */
   screenshotBytesMax: 2_000_000,
 } as const;

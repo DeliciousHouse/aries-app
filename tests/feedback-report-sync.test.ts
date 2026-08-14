@@ -40,6 +40,7 @@ function report(overrides: Partial<SyncableReport> = {}): SyncableReport {
     submitterId: 'user-42',
     category: 'bug',
     impact: 'p1_account_blocked',
+    pagePath: '/insights',
     jiraTicketKey: null,
     jiraCreateState: 'not_started',
     jiraCreateToken: null,
@@ -353,6 +354,7 @@ test('issue fields carry only redacted triage metadata and opaque internal ident
   assert.ok(!serialized.includes('customer-acme'));
   assert.ok(serialized.includes('tenant-15'));
   assert.ok(serialized.includes('user-42'));
+  assert.ok(serialized.includes('Page path: /insights'));
   const without = buildIssueFields(jira, report(), false);
   assert.equal(without.priority, undefined);
 });
