@@ -13,6 +13,7 @@ import {
 } from '../backend/insights/export/csv';
 import {
   EXPORT_ACCOUNT_METRICS_HEADER,
+  EXPORT_ACCOUNT_METRICS_SQL,
   EXPORT_POSTS_HEADER,
   EXPORT_POSTS_SQL,
   MAX_EXPORT_POST_ROWS,
@@ -290,4 +291,91 @@ test('the /insights control row offers the download and omits comments', () => {
   );
   // And it must pass the live filters through, so the file matches the screen.
   assert.match(menu, /params\.set\("platform", platform\)/);
+});
+
+// ── AA-236: Facebook engagement must appear in the account-metrics CSV ───────
+//
+// Fourth instance of the AA-231 defect class. Facebook's page adapter writes
+// likes/comments_count/shares as literal 0 and puts the real number only in the
+// dedicated `engagement` aggregate, so an export that selects the trio but not
+// `engagement` reports 0/0/0 with the true value NOWHERE in the file.
+//
+// The fix is a raw column rather than folding `engagement` into the per-column
+// values: this dataset's contract is "raw columns, no interpretation" (it
+// already keeps reach AND views separate for the same reason), and merging
+// would quietly change what `likes` means for every consumer.
+
+test('AA-236: a Facebook-shaped row exports its real engagement number', async () => {
+  // The acceptance case. Per-column zeros are what FB actually stores; N is the
+  // page_post_engagements aggregate.
+  const { db } = fakeDb([
+    {
+      date: '2026-08-10', platform: 'facebook',
+      views: 500, reach: 400, followers: 10_000, followers_delta: 5, profile_visits: 0,
+      likes: 0, comments_count: 0, shares: 0, saves: 0, watch_time_minutes: 0,
+      engagement: 137,
+    },
+  ]);
+  const out = await loadAccountMetricsDataset(db, 7, '2026-08-01', 'facebook');
+
+  assert.ok(
+    out.header.includes('engagement' as never),
+    'the header must carry an engagement column',
+  );
+  assert.ok(
+    out.rows[0].includes(137),
+    `the real engagement number must appear in the row, got: ${JSON.stringify(out.rows[0])}`,
+  );
+});
+
+test('AA-236: the SQL actually selects engagement (not just the header)', async () => {
+  // A header entry with no matching SELECT would export a column of undefined —
+  // arguably worse than omitting it, since it looks like a real zero.
+  const { db, values } = fakeDb([]);
+  await loadAccountMetricsDataset(db, 7, '2026-08-01', null);
+  assert.deepEqual(values[0], [7, '2026-08-01', null]);
+  assert.match(EXPORT_ACCOUNT_METRICS_SQL, /COALESCE\(SUM\(engagement\),\s*0\)\s*AS engagement/);
+});
+
+test('AA-236: a non-Facebook row keeps its per-column breakdown untouched', async () => {
+  // Instagram reports the trio and leaves `engagement` NULL. The export must NOT
+  // synthesize a total there — COALESCE to 0 keeps the raw-column contract
+  // honest, and the consumer can still add the trio itself.
+  const { db } = fakeDb([
+    {
+      date: '2026-08-10', platform: 'instagram',
+      views: 900, reach: 800, followers: 6_000, followers_delta: 3, profile_visits: 12,
+      likes: 60, comments_count: 20, shares: 20, saves: 4, watch_time_minutes: 0,
+      engagement: 0,
+    },
+  ]);
+  const out = await loadAccountMetricsDataset(db, 7, '2026-08-01', 'instagram');
+  const cell = (col: string) => out.rows[0][out.header.indexOf(col as never)];
+
+  assert.equal(cell('likes'), 60, 'the per-column values are unchanged');
+  assert.equal(cell('comments_count'), 20);
+  assert.equal(cell('shares'), 20);
+  assert.equal(cell('engagement'), 0, 'no fabricated total where the platform reports none');
+});
+
+test('AA-236: engagement is APPENDED — every pre-existing column keeps its index', () => {
+  // The acceptance asks to verify no column-order change breaks a consumer.
+  // Grouping engagement next to the like/comment/share trio would read better
+  // but shifts `saves` and `watch_time_minutes` for anything reading the CSV
+  // positionally, so it goes on the end instead.
+  const PRE_AA236_ORDER = [
+    'date', 'platform', 'views', 'reach', 'followers', 'followers_delta',
+    'profile_visits', 'likes', 'comments_count', 'shares', 'saves',
+    'watch_time_minutes',
+  ];
+  assert.deepEqual(
+    EXPORT_ACCOUNT_METRICS_HEADER.slice(0, PRE_AA236_ORDER.length),
+    PRE_AA236_ORDER,
+    'existing columns must keep their exact positions',
+  );
+  assert.equal(
+    EXPORT_ACCOUNT_METRICS_HEADER[EXPORT_ACCOUNT_METRICS_HEADER.length - 1],
+    'engagement',
+    'the new column is strictly appended',
+  );
 });

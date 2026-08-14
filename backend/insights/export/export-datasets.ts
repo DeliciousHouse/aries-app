@@ -124,7 +124,20 @@ export const EXPORT_ACCOUNT_METRICS_SQL = `
     COALESCE(SUM(comments_count), 0)     AS comments_count,
     COALESCE(SUM(shares), 0)             AS shares,
     COALESCE(SUM(saves), 0)              AS saves,
-    COALESCE(SUM(watch_time_minutes), 0) AS watch_time_minutes
+    COALESCE(SUM(watch_time_minutes), 0) AS watch_time_minutes,
+    -- AA-236: Facebook's page adapter writes likes/comments_count/shares as
+    -- literal 0 and reports the real number ONLY in this aggregate column
+    -- (Meta's page_post_engagements). Without it a Facebook tenant's export
+    -- reads 0/0/0 with the true value nowhere in the file.
+    --
+    -- Kept as a RAW column rather than folded into the three above, matching
+    -- how this dataset already exports reach AND views side by side: the
+    -- contract here is "raw columns, no interpretation", and merging would
+    -- silently change what the likes column means for every consumer.
+    -- Platforms that report a breakdown instead leave engagement NULL, so this
+    -- COALESCEs to 0 there rather than fabricating a total nobody sent.
+    -- (No backticks in this comment: it lives inside a JS template literal.)
+    COALESCE(SUM(engagement), 0)         AS engagement
   FROM insights_account_metrics_daily
   WHERE tenant_id = $1
     AND date >= $2::date
@@ -146,6 +159,10 @@ export const EXPORT_ACCOUNT_METRICS_HEADER = [
   'shares',
   'saves',
   'watch_time_minutes',
+  // AA-236: APPENDED, deliberately. Grouping it beside the like/comment/share
+  // trio would read better, but would shift the index of every column after it
+  // for anything consuming this CSV positionally. New columns go on the end.
+  'engagement',
 ] as const;
 
 export async function loadPostsDataset(
