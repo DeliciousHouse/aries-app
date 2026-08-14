@@ -1563,7 +1563,7 @@ async function initDb() {
       -- AA-129 item 12 (2026-08-14): a per-LLM-call cost audit table was
       -- removed from here. It was created but never wired — no code read or
       -- wrote it, so it held zero rows for its whole life — and the job it was
-      -- meant to do is done by `task_execution_log` (AA-159), which records
+      -- meant to do is done by task_execution_log (AA-159), which records
       -- engine, tokens, cost and duration for real work. Dropped by
       -- migrations/20260814000000_*.sql; the name is deliberately not repeated
       -- here so a repo scan for it stays a reliable "is it wired again?" check.

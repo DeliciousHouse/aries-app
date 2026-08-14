@@ -26,6 +26,7 @@
  */
 
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
@@ -116,6 +117,24 @@ test('item 12: that guard would still catch a real reintroduction', () => {
     codeWithoutComments('-- drops it\nDROP TABLE insights_llm_calls;', '.sql')
       .includes('insights_llm_calls'),
   );
+});
+
+test('scripts/init-db.js parses — the schema file is JS, not just SQL', () => {
+  // This exists because I broke it. The tombstone comment above the removed
+  // table wrapped a table name in BACKTICKS, inside a JS template literal —
+  // which terminated the string and made the whole file a syntax error. CI
+  // caught it, nothing local did: `tsc --noEmit` does not typecheck .js, and
+  // no test in `verify` executes init-db.js, so a schema file that cannot even
+  // parse passed every pre-push gate.
+  //
+  // `node --check` is the cheapest possible cover for that gap, and the failure
+  // it prevents is total: db:init is the first step of every deploy and every
+  // CI Postgres job, so a syntax error here is not a degraded feature, it is a
+  // deployment that cannot start.
+  const result = spawnSync(process.execPath, ['--check', path.join(PROJECT_ROOT, 'scripts', 'init-db.js')], {
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, `init-db.js does not parse:\n${result.stderr}`);
 });
 
 test('item 12: the surviving cost record is task_execution_log', () => {
