@@ -321,7 +321,16 @@ const steps = [
     // drift tripwire) plus the dispatcher upsert seam proving the INSERT binds
     // content_type and the ON CONFLICT clause COALESCE-preserves an already
     // classified row. Pure/in-memory, no DB.
-    name: 'insights content_type classifier + dispatcher upsert seam',
+    //
+    // S8-4/AA-127 (gap E5) also lands here: leg isolation for the two legs the
+    // M3 regression does not reach. An account-metrics throw and a misconfigured
+    // classifier must each isolate to legErrors and downgrade the run to
+    // 'partial' while every other leg still persists — a regression does not
+    // throw, it silently drops one leg's rows and still reports a healthy-looking
+    // run. Plus the distinction that keeps that signal usable: classification
+    // DISABLED is a skip, not a failure, so a deployment running without the
+    // classifier does not look permanently degraded.
+    name: 'insights content_type classifier + dispatcher leg isolation',
     args: [
       '--test',
       'tests/insights-content-type-classify.test.ts',
@@ -501,6 +510,58 @@ const steps = [
     // account scores 0 rather than floating at its ~50 base, and a period with
     // posts but zero reach is "not enough data" rather than a summarizable one.
     // Mocked pool, no DB.
+    // S8-3/AA-126 (gap F2b): the print-ready weekly report — the cheap PDF path
+    // (Cmd+P), no PDF-generation infrastructure. These tests are deliberately
+    // NOT a claim that the printout looks right: no headless runner evaluates
+    // @media print, so the rendered proof came from driving real Chrome with
+    // print media emulated and reading computed styles (recorded in the file
+    // header). What runs here is the drift guard — the markup still carries the
+    // hooks the stylesheet keys on, and the stylesheet still covers each print
+    // hazard: the dark theme inverted (else white-on-white blank pages), the
+    // overflow containers unclipped (else a one-page truncated PDF), the motion
+    // opacity reset, cards kept off page breaks, and — the one that would bite
+    // every other route — every selector scoped behind the report marker.
+    // S8-4/AA-127 (gap D7): the goal builder's four Promise.all sites. The
+    // violation was BENIGN — all four ran on a single held PoolClient, and pg
+    // serialises queries on one connection, so the parallelism was imaginary.
+    // The danger is the obvious "fix": swapping client.query for pool.query
+    // would convert a style problem into real connection fan-out (2-3 pooled
+    // connections per goal read while one is already held), which is exactly
+    // what guardrail #1 exists to prevent. So this pins BOTH directions — no
+    // Promise.all AND no pool.query — plus the behaviour capture (same queries,
+    // same order, same bound params) that made the refactor safe to land.
+    name: 'goal-builder sequential on the held client (AA-127)',
+    args: ['--test', 'tests/insights-goal-builder-sequential.test.ts'],
+  },
+  {
+    // S8-5/AA-128: the insights.css global leak + the missing section
+    // breakpoints. The leak was not a style nit — insights.css is imported by a
+    // CLIENT component, so Next bundles it app-wide and never unloads it; its
+    // `body { background; color; font-family }` rule therefore repainted the
+    // whole product's canvas and typeface from the first visit to /insights,
+    // and the scrollbar/focus-ring rules did the same. Everything is now scoped
+    // under `.insights-surface`, and this pins that no selector escapes it.
+    // The breakpoints had nowhere to live: every section set its columns via an
+    // INLINE gridTemplateColumns, which cannot carry a media query — so the
+    // guard is that no section sets one inline (auto-fit excepted; it reflows on
+    // its own). CSS cannot be evaluated here, so this is the drift guard; the
+    // rendered proof was computed styles in real Chrome at three widths with an
+    // unrelated route alongside (11/11 with this stylesheet, 2/11 with the old).
+    name: 'insights scoped CSS + responsive grids (AA-128)',
+    args: [
+      '--test',
+      'tests/insights-responsive-scoped-css.test.ts',
+      'tests/insights-shell-layout.regression-aa145.test.ts',
+    ],
+  },
+  {
+    // AA-229/PR2b relocated this report onto /insights as Section 10, so the
+    // print rules gained a job: drop the other nine sections, or Cmd+P produces
+    // the whole dashboard instead of the one-page recap.
+    name: 'print-ready weekly recap (AA-126)',
+    args: ['--test', 'tests/insights-weekly-recap-print.test.ts'],
+  },
+  {
     name: 'insights read-api + narrative behaviour (AA-124)',
     args: [
       '--test',

@@ -101,6 +101,160 @@ test('M3: a clean run (no leg errors) still takes the ok path', async () => {
   assert.equal(result.errorMessage, undefined);
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// S8-4 / AA-127 (gap E5) — leg isolation for the two legs the M3 tests above do
+// not reach: ACCOUNT METRICS and CLASSIFICATION.
+//
+// The isolation contract is the same for every leg and is the whole reason the
+// sync is worth running at all: one platform endpoint failing must not discard
+// the work the other legs already persisted. A regression here does not throw —
+// it silently drops a leg's rows and still reports a green-looking run, which is
+// precisely the class of bug that made #597 survive so long.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('AA-127: an account-metrics failure isolates; comments and posts still persist', async () => {
+  const recorded: Recorded[] = [];
+  const adapter: InsightsAdapter = {
+    ...throwingPostMetricsAdapter,
+    fetchPostMetrics: async () => [],
+    fetchAccountMetrics: async () => {
+      throw new Error('ACCOUNT_INSIGHTS 503');
+    },
+  };
+
+  const result = await syncAccountForTenant(42, 7, 'interval', {
+    pool: fakePool(recorded),
+    resolveAdapter: () => adapter,
+  });
+
+  // The failing leg wrote nothing…
+  const accountUpserts = recorded.filter((q) =>
+    /INSERT INTO insights_account_metrics_daily/i.test(q.text),
+  );
+  assert.equal(accountUpserts.length, 0, 'the account-metrics leg produced no rows');
+
+  // …but the legs downstream of it still ran to completion.
+  const commentInserts = recorded.filter((q) => /INSERT INTO insights_comments/i.test(q.text));
+  assert.equal(commentInserts.length, 1, 'the comments leg must not be skipped');
+  assert.equal(result.commentsSeen, 1);
+
+  assert.equal(result.status, 'partial', 'isolated, so partial — not failed, not ok');
+  assert.match(String(result.errorMessage), /fetchAccountMetrics/, 'the failing leg is named');
+  assert.match(String(result.errorMessage), /ACCOUNT_INSIGHTS 503/, 'with the real cause');
+
+  const okTerminal = recorded.find((q) =>
+    /UPDATE insights_sync_runs[\s\S]*status\s*=\s*'ok'/i.test(q.text),
+  );
+  assert.equal(okTerminal, undefined, 'a failed leg must never take the ok fast-path');
+});
+
+/**
+ * The shared fakePool returns no rows for the classify-candidate SELECT, so the
+ * classifier is never invoked and the leg cannot be observed. This wrapper
+ * serves exactly one unclassified comment for that query and delegates
+ * everything else, so the recording (and every other leg) is unchanged.
+ */
+function fakePoolWithUnclassifiedComment(recorded: Recorded[]) {
+  const base = fakePool(recorded);
+  return {
+    async connect() {
+      const client = await base.connect();
+      return {
+        async query<T = Record<string, unknown>>(text: string, params: unknown[] = []) {
+          const passthrough = await client.query<T>(text, params);
+          if (/LEFT JOIN insights_comment_classifications/i.test(text)) {
+            return {
+              rows: [{ id: 501, body_text: 'do you ship to canada?' }] as unknown as T[],
+              rowCount: 1,
+            };
+          }
+          return passthrough;
+        },
+        release() {},
+      };
+    },
+  };
+}
+
+test('AA-127: an unconfigured classifier isolates and is reported, not swallowed', async () => {
+  // The documented "empty-default trap": with the flag ON but the worker missing
+  // Hermes creds, classification cannot run. That must be LOUD (a leg error,
+  // status partial) rather than a silent no-op — otherwise Conversations shows
+  // 0% positive and the lead count reads 0 with nothing anywhere saying why.
+  //
+  // Driven through the real classifier's not_configured branch rather than a
+  // stub: the dispatcher imports it directly, and this is a genuine production
+  // state (a worker deployed without HERMES_GATEWAY_URL).
+  const prev = {
+    flag: process.env.ARIES_COMMENT_CLASSIFICATION_ENABLED,
+    url: process.env.HERMES_GATEWAY_URL,
+    key: process.env.HERMES_API_SERVER_KEY,
+  };
+  process.env.ARIES_COMMENT_CLASSIFICATION_ENABLED = '1';
+  delete process.env.HERMES_GATEWAY_URL;
+  delete process.env.HERMES_API_SERVER_KEY;
+
+  try {
+    const recorded: Recorded[] = [];
+    const adapter: InsightsAdapter = {
+      ...throwingPostMetricsAdapter,
+      fetchPostMetrics: async () => [],
+    };
+    const result = await syncAccountForTenant(42, 7, 'interval', {
+      pool: fakePoolWithUnclassifiedComment(recorded),
+      resolveAdapter: () => adapter,
+    });
+
+    assert.equal(result.status, 'partial', 'a misconfigured classifier downgrades the run');
+    assert.match(String(result.errorMessage), /classifyComments/, 'the leg is named');
+    assert.match(String(result.errorMessage), /not_configured/, 'and the reason is specific');
+
+    // The comments themselves still landed — only their LABELS are missing.
+    assert.equal(result.commentsSeen, 1, 'the comment ingest leg is unaffected');
+    const labelWrites = recorded.filter((q) =>
+      /INSERT INTO insights_comment_classifications/i.test(q.text),
+    );
+    assert.equal(labelWrites.length, 0, 'no labels can be written without a classifier');
+  } finally {
+    if (prev.flag === undefined) delete process.env.ARIES_COMMENT_CLASSIFICATION_ENABLED;
+    else process.env.ARIES_COMMENT_CLASSIFICATION_ENABLED = prev.flag;
+    if (prev.url !== undefined) process.env.HERMES_GATEWAY_URL = prev.url;
+    if (prev.key !== undefined) process.env.HERMES_API_SERVER_KEY = prev.key;
+  }
+});
+
+test('AA-127: classification DISABLED is a skip, not a failure', async () => {
+  // The distinction that keeps the signal usable. A gate-skip is not an error:
+  // if the flag being off downgraded every run to partial, then every
+  // deployment running without the classifier would look permanently degraded
+  // and a real leg failure would be invisible in the noise.
+  const prev = process.env.ARIES_COMMENT_CLASSIFICATION_ENABLED;
+  process.env.ARIES_COMMENT_CLASSIFICATION_ENABLED = '0';
+
+  try {
+    const recorded: Recorded[] = [];
+    const adapter: InsightsAdapter = {
+      ...throwingPostMetricsAdapter,
+      fetchPostMetrics: async () => [],
+    };
+    const result = await syncAccountForTenant(42, 7, 'interval', {
+      pool: fakePool(recorded),
+      resolveAdapter: () => adapter,
+    });
+
+    assert.equal(result.status, 'ok', 'the flag being off is not a leg failure');
+    assert.equal(result.errorMessage, undefined, 'and contributes no error text');
+
+    const classifySelect = recorded.find((q) =>
+      /FROM insights_comments c[\s\S]*classifier_version IS DISTINCT FROM/i.test(q.text),
+    );
+    assert.equal(classifySelect, undefined, 'a disabled leg must not even query for candidates');
+  } finally {
+    if (prev === undefined) delete process.env.ARIES_COMMENT_CLASSIFICATION_ENABLED;
+    else process.env.ARIES_COMMENT_CLASSIFICATION_ENABLED = prev;
+  }
+});
+
 // S3-2 (gap C1): insights_posts upsert must stamp content_type on INSERT and
 // preserve an already-classified row via COALESCE on conflict — never
 // re-derive/overwrite a stamped value on a later sync.

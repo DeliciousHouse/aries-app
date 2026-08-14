@@ -647,3 +647,134 @@ html {
 .text-text-muted {
   color: rgba(255, 255, 255, 0.5);
 }
+
+/* ───────────────────────────────────────────────────────────────────────────
+   S8-3 / AA-126 (gap F2b) — print-ready weekly report.
+   The cheap PDF path: Cmd+P (or the Print button) on /dashboard/results yields
+   a client-ready document. No PDF-generation infrastructure.
+
+   EVERY rule is scoped behind `body:has([data-print-report])`, so this block is
+   inert on every route that does not render the report. That scoping is the
+   point, not caution: importing a stylesheet from a component is how
+   frontend/insights/insights.css leaked its body styles onto unrelated routes
+   (a known open bug, roadmap S8-5). One of those is enough.
+
+   The app is dark-theme — white text on translucent panels. Browsers drop
+   backgrounds when printing, so without this block the report prints white on
+   white: a stack of blank pages. Everything below is either "make the ink dark"
+   or "stop the app chrome coming with it".
+   ─────────────────────────────────────────────────────────────────────────── */
+@media print {
+  /* Ink on paper. `print-color-adjust: exact` is deliberately NOT set: we want
+     the browser to drop the dark fills, not faithfully reproduce them. */
+  body:has([data-print-report]),
+  body:has([data-print-report]) [data-print-report] {
+    background: #fff !important;
+    color: #111 !important;
+  }
+
+  /* AA-229/PR2b moved the recap out of its own page and onto /insights as one
+     section among ten. Printing therefore has to drop the other nine, or Cmd+P
+     produces the entire dashboard — hero, filters, goal, trends, the lot —
+     instead of the one-page recap a client is meant to receive.
+     Each direct child of the section column that neither IS nor CONTAINS the
+     report is hidden; the report keeps its place in the flow. */
+  body:has([data-print-report]) .insights-print-page > *:not([data-print-report]):not(:has([data-print-report])) {
+    display: none !important;
+  }
+
+  /* The dashboard surface paints its dark canvas via an INLINE style, which no
+     stylesheet rule outranks without !important. Left alone it is the one dark
+     background that survives onto the page. */
+  body:has([data-print-report]) .insights-surface {
+    background: #fff !important;
+  }
+
+  /* The shell. A fixed sidebar or a full-bleed gradient layer would either
+     overlay the report or paint every page. */
+  body:has([data-print-report]) aside,
+  body:has([data-print-report]) header.sticky,
+  body:has([data-print-report]) [data-print-hidden],
+  body:has([data-print-report]) .print-hidden {
+    display: none !important;
+  }
+
+  /* The full-viewport gradient backdrop behind the shell. */
+  body:has([data-print-report]) > div > .fixed.inset-0 {
+    display: none !important;
+  }
+
+  /* Unclip. <main> and its scroll container are overflow-hidden / overflow-auto,
+     which truncates a printout to ONE page — the single most common reason a
+     long report prints as a single cut-off sheet. Also drop the sidebar indent
+     so the report uses the full page width. */
+  body:has([data-print-report]),
+  body:has([data-print-report]) main,
+  body:has([data-print-report]) main * {
+    overflow: visible !important;
+  }
+  body:has([data-print-report]) main {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    display: block !important;
+    min-height: 0 !important;
+  }
+
+  /* framer-motion mounts the route content at opacity 0 / translateY and
+     animates in. A print issued before (or during) that animation would
+     otherwise capture an invisible or offset page. */
+  body:has([data-print-report]) main * {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+    animation: none !important;
+  }
+
+  /* Panels: readable outlines instead of translucent fills, and no shadow or
+     blur (both cost ink and render as grey mud). */
+  [data-print-report] section,
+  [data-print-report] [class*="rounded-"] {
+    background: #fff !important;
+    border-color: #d4d4d8 !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  /* The dark theme sets text via dozens of white/NN opacity utilities. Rather
+     than chase each, re-assert the two tones the report actually uses. */
+  [data-print-report] * {
+    color: #111 !important;
+    text-shadow: none !important;
+  }
+  [data-print-report] p[class*="text-white/4"],
+  [data-print-report] p[class*="text-white/5"],
+  [data-print-report] [class*="text-xs"] {
+    color: #52525b !important;
+  }
+
+  /* Keep a metric and its label on the same sheet. A "Published / 12" card
+     split across a page break is worse than a shorter page. */
+  [data-print-report] section,
+  [data-print-report] section > div > div > div {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  [data-print-report] h2 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  /* A permalink is a dead end on paper unless the URL comes with it. Applied
+     only to real outbound post links — not to in-app hrefs, which are noise. */
+  [data-print-report] a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 10px;
+    color: #52525b !important;
+    word-break: break-all;
+  }
+
+  @page {
+    margin: 16mm 14mm;
+  }
+}

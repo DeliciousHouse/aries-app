@@ -94,12 +94,12 @@ export function HeroSection({ period, platform }: HeroSectionProps) {
         <EmptyState message="Not enough data yet — publish some posts to see your summary." />
       ) : (
         <div
+          className="insights-grid"
           style={{
-            display:             "grid",
-            gridTemplateColumns: "1fr auto",
-            gap:                 40,
-            alignItems:          "center",
-          }}
+            "--insights-cols": "1fr auto",
+            gap:               40,
+            alignItems:        "center",
+          } as React.CSSProperties}
         >
           {/* ── Left: storytelling narrative + comparison line ── */}
           <div style={{ display: "flex", flexDirection: "column", gap: 18, minWidth: 0 }}>

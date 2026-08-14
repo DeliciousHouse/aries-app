@@ -200,7 +200,7 @@ function PostRow({
             <div style={{ fontSize: 10.5, fontWeight: 700, color: C.t3, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>
               Performance
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px 12px" }}>
+            <div className="insights-grid-3" style={{ gap: "16px 12px" }}>
               <MetricCell label="Reach"           value={post.reach.toLocaleString()} />
               <MetricCell label="Engagement rate" value={`${post.engagement}%`} />
               <MetricCell label="Saves"           value={post.saves.toLocaleString()} />
@@ -464,11 +464,11 @@ export function TopPostsSection({ period, platform, enabled }: TopPostsSectionPr
         ) : (
           <>
             <div
+              className="insights-grid"
               style={{
-                display:             "grid",
-                gridTemplateColumns: "1.7fr 1fr",
-                gap:                 24,
-              }}
+                "--insights-cols": "1.7fr 1fr",
+                gap:               24,
+              } as React.CSSProperties}
             >
               {/* LEFT — top 5 posts */}
               <div>

@@ -121,7 +121,7 @@ export function TrendsSection({ period, platform, enabled }: TrendsSectionProps)
             })}
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 28 }}>
+          <div className="insights-grid" style={{ "--insights-cols": "1.6fr 1fr", gap: 28 } as React.CSSProperties}>
             {/* LEFT: headline + chart + Aries interpretation (below chart) */}
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               {metric && (

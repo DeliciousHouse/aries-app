@@ -206,19 +206,24 @@ async function queryLeadGeneration(
   prevFrom: Date,
   platformFilter: string | null,
 ): Promise<{ current: number; prev: number; secondary: null }> {
-  const [curr, prev] = await Promise.all([
-    client.query<{ count: string }>(
-      `SELECT COUNT(*) AS count
+  // S8-4/AA-127 (gap D7): sequential on the HELD client, deliberately.
+  // These ran under Promise.all, which guardrail #1 bans around DB call chains.
+  // The violation was benign — pg serialises queries on a single connection, so
+  // the parallelism was imaginary — but do NOT "fix" it by reaching for
+  // pool.query: that would turn a style problem into real connection fan-out,
+  // taking two pooled connections per goal read while this one is still held.
+  const curr = await client.query<{ count: string }>(
+    `SELECT COUNT(*) AS count
        FROM insights_comment_classifications cc
        JOIN insights_comments c ON c.id = cc.comment_id
        WHERE c.tenant_id = $1
          AND c.received_at >= $2
          AND cc.is_lead = true
          AND ($3::text IS NULL OR c.platform = $3)`,
-      [tenantId, fromDate, platformFilter],
-    ),
-    client.query<{ count: string }>(
-      `SELECT COUNT(*) AS count
+    [tenantId, fromDate, platformFilter],
+  );
+  const prev = await client.query<{ count: string }>(
+    `SELECT COUNT(*) AS count
        FROM insights_comment_classifications cc
        JOIN insights_comments c ON c.id = cc.comment_id
        WHERE c.tenant_id = $1
@@ -226,9 +231,8 @@ async function queryLeadGeneration(
          AND c.received_at < $3
          AND cc.is_lead = true
          AND ($4::text IS NULL OR c.platform = $4)`,
-      [tenantId, prevFrom, fromDate, platformFilter],
-    ),
-  ]);
+    [tenantId, prevFrom, fromDate, platformFilter],
+  );
   return {
     current:   Number(curr.rows[0].count),
     prev:      Number(prev.rows[0].count),
@@ -245,25 +249,29 @@ async function queryContentGrowth(
 ): Promise<{ current: number; prev: number; secondary: null }> {
   // S2-3: the bare DATE column is bounded by a tenant-tz calendar date ($n::date),
   // never a timestamptz instant (session-tz-dependent, off-by-one at the boundary).
-  const [curr, prev] = await Promise.all([
-    client.query<{ total: string }>(
-      `SELECT COALESCE(SUM(followers_delta), 0) AS total
+  // S8-4/AA-127 (gap D7): sequential on the HELD client, deliberately.
+  // These ran under Promise.all, which guardrail #1 bans around DB call chains.
+  // The violation was benign — pg serialises queries on a single connection, so
+  // the parallelism was imaginary — but do NOT "fix" it by reaching for
+  // pool.query: that would turn a style problem into real connection fan-out,
+  // taking two pooled connections per goal read while this one is still held.
+  const curr = await client.query<{ total: string }>(
+    `SELECT COALESCE(SUM(followers_delta), 0) AS total
        FROM insights_account_metrics_daily
        WHERE tenant_id = $1
          AND date >= $2::date
          AND ($3::text IS NULL OR platform = $3)`,
-      [tenantId, fromKey, platformFilter],
-    ),
-    client.query<{ total: string }>(
-      `SELECT COALESCE(SUM(followers_delta), 0) AS total
+    [tenantId, fromKey, platformFilter],
+  );
+  const prev = await client.query<{ total: string }>(
+    `SELECT COALESCE(SUM(followers_delta), 0) AS total
        FROM insights_account_metrics_daily
        WHERE tenant_id = $1
          AND date >= $2::date
          AND date < $3::date
          AND ($4::text IS NULL OR platform = $4)`,
-      [tenantId, prevKey, fromKey, platformFilter],
-    ),
-  ]);
+    [tenantId, prevKey, fromKey, platformFilter],
+  );
   return {
     current:   Number(curr.rows[0].total),
     prev:      Number(prev.rows[0].total),
@@ -290,26 +298,31 @@ async function queryProductSales(
   // through LATEST_POST_METRICS_LATERAL (each post's newest row) and summed
   // ACROSS posts. Never SUM a single post's dated rows — that inflates ~Nx.
   // Windowing is by p.published_at, matching every other post-level builder.
-  const [curr, prev, visits] = await Promise.all([
-    client.query<{ saves: string }>(
-      `SELECT COALESCE(SUM(m.saves), 0) AS saves
+  // S8-4/AA-127 (gap D7): sequential on the HELD client, deliberately.
+  // These ran under Promise.all, which guardrail #1 bans around DB call chains.
+  // The violation was benign — pg serialises queries on a single connection, so
+  // the parallelism was imaginary — but do NOT "fix" it by reaching for
+  // pool.query: that would turn a style problem into real connection fan-out,
+  // taking three pooled connections per goal read while this one is still held.
+  const curr = await client.query<{ saves: string }>(
+    `SELECT COALESCE(SUM(m.saves), 0) AS saves
        FROM insights_posts p
        ${LATEST_POST_METRICS_LATERAL}
        WHERE p.tenant_id = $1
          AND p.published_at >= $2::date
          AND ($3::text IS NULL OR p.platform = $3)`,
-      [tenantId, fromKey, platformFilter],
-    ),
-    client.query<{ saves: string }>(
-      `SELECT COALESCE(SUM(m.saves), 0) AS saves
+    [tenantId, fromKey, platformFilter],
+  );
+  const prev = await client.query<{ saves: string }>(
+    `SELECT COALESCE(SUM(m.saves), 0) AS saves
        FROM insights_posts p
        ${LATEST_POST_METRICS_LATERAL}
        WHERE p.tenant_id = $1
          AND p.published_at >= $2::date
          AND p.published_at < $3::date
          AND ($4::text IS NULL OR p.platform = $4)`,
-      [tenantId, prevKey, fromKey, platformFilter],
-    ),
+    [tenantId, prevKey, fromKey, platformFilter],
+  );
     // profile_visits has NO source and is expected to stay NULL indefinitely:
     // Instagram's `profile_views` metric is DEPRECATED by Meta and Facebook's
     // nearest equivalent (page_views_total) counts something else. So this
@@ -317,15 +330,14 @@ async function queryProductSales(
     // a null `secondary` makes the UI OMIT the line entirely
     // (GoalSection renders it only when `secondaryValue != null`). Coalescing
     // here is what rendered a confident "0 profile visits" to every operator.
-    client.query<{ visits: string | null }>(
-      `SELECT SUM(profile_visits) AS visits
+  const visits = await client.query<{ visits: string | null }>(
+    `SELECT SUM(profile_visits) AS visits
        FROM insights_account_metrics_daily
        WHERE tenant_id = $1
          AND date >= $2::date
          AND ($3::text IS NULL OR platform = $3)`,
-      [tenantId, fromKey, platformFilter],
-    ),
-  ]);
+    [tenantId, fromKey, platformFilter],
+  );
   const rawVisits = visits.rows[0]?.visits ?? null;
   return {
     current:   Number(curr.rows[0].saves),
@@ -342,25 +354,29 @@ async function queryBrandAwareness(
   platformFilter: string | null,
 ): Promise<{ current: number; prev: number; secondary: null }> {
   // S2-3: bare DATE column bounded by a tenant-tz calendar date ($n::date).
-  const [curr, prev] = await Promise.all([
-    client.query<{ reach: string }>(
-      `SELECT COALESCE(SUM(COALESCE(reach, views, 0)), 0) AS reach
+  // S8-4/AA-127 (gap D7): sequential on the HELD client, deliberately.
+  // These ran under Promise.all, which guardrail #1 bans around DB call chains.
+  // The violation was benign — pg serialises queries on a single connection, so
+  // the parallelism was imaginary — but do NOT "fix" it by reaching for
+  // pool.query: that would turn a style problem into real connection fan-out,
+  // taking two pooled connections per goal read while this one is still held.
+  const curr = await client.query<{ reach: string }>(
+    `SELECT COALESCE(SUM(COALESCE(reach, views, 0)), 0) AS reach
        FROM insights_account_metrics_daily
        WHERE tenant_id = $1
          AND date >= $2::date
          AND ($3::text IS NULL OR platform = $3)`,
-      [tenantId, fromKey, platformFilter],
-    ),
-    client.query<{ reach: string }>(
-      `SELECT COALESCE(SUM(COALESCE(reach, views, 0)), 0) AS reach
+    [tenantId, fromKey, platformFilter],
+  );
+  const prev = await client.query<{ reach: string }>(
+    `SELECT COALESCE(SUM(COALESCE(reach, views, 0)), 0) AS reach
        FROM insights_account_metrics_daily
        WHERE tenant_id = $1
          AND date >= $2::date
          AND date < $3::date
          AND ($4::text IS NULL OR platform = $4)`,
-      [tenantId, prevKey, fromKey, platformFilter],
-    ),
-  ]);
+    [tenantId, prevKey, fromKey, platformFilter],
+  );
   return {
     current:   Number(curr.rows[0].reach),
     prev:      Number(prev.rows[0].reach),

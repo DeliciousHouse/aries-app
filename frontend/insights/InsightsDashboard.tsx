@@ -48,7 +48,11 @@ export function InsightsDashboard({
   const [platform, setPlatform] = useState<Platform>("all");
 
   return (
-    <div style={{ background: C.bg, minHeight: "100%" }}>
+    // S8-5/AA-128: `insights-surface` is the scope every rule in insights.css
+    // hangs off. Without it the stylesheet applies to nothing here; with it,
+    // the stylesheet applies to nothing ELSEWHERE — which is the fix, since a
+    // client-imported stylesheet is bundled app-wide and never unloads.
+    <div className="insights-surface" style={{ background: C.bg, minHeight: "100%" }}>
       <div
         className="insights-dashboard-content"
         style={{
@@ -57,8 +61,10 @@ export function InsightsDashboard({
           margin:   "0 auto",
         }}
       >
-        {/* Every section is its own full-width row, stacked top to bottom. */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 30 }}>
+        {/* Every section is its own full-width row, stacked top to bottom.
+            `insights-print-page` marks this as the column the print stylesheet
+            thins down to the weekly recap alone (S8-3/AA-126 + AA-229/PR2b). */}
+        <div className="insights-print-page" style={{ display: "flex", flexDirection: "column", gap: 30 }}>
           {/* 1 — Hero band */}
           <HeroSection period={period} platform={platform} />
 

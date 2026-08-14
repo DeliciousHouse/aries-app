@@ -299,7 +299,10 @@ function RecapBody({ report }: { report: WeeklyRecapReport }) {
 
 // ── Section ───────────────────────────────────────────────────────────────────
 
-export function WeeklyRecapSection() {
+export function WeeklyRecapSection({
+  /** Injected in tests; real callers get the browser's print dialog. */
+  onPrint,
+}: { onPrint?: () => void } = {}) {
   // null = the most recent COMPLETED week (the server's default); stepping
   // sets an explicit `YYYY-Www` override.
   const [selectedWeek, setSelectedWeek] = useState<string | null>(null);
@@ -341,16 +344,67 @@ export function WeeklyRecapSection() {
 
   const scopeLine = report ? `Week of ${report.week.label} · all channels` : "Its own week — not the filters above";
 
+  const print = () => {
+    if (onPrint) return onPrint();
+    if (typeof window !== "undefined") window.print();
+  };
+
   return (
-    <section id="weekly-recap">
+    // S8-3/AA-126: the marker every print rule in globals.css is scoped to.
+    // AA-229/PR2b moved this report out of its own page and onto /insights
+    // alongside nine other sections, so the print stylesheet now has to hide
+    // those siblings too — otherwise Cmd+P yields the whole dashboard instead of
+    // the one-page recap a client is meant to receive.
+    <section id="weekly-recap" data-print-report>
+      {/* Print-only masthead. On screen the section header and the page chrome
+          say what this is; on paper the reader needs the brand, the week it
+          covers and when it was produced. */}
+      {report ? (
+        <div className="hidden print:block" data-testid="weekly-recap-print-header">
+          <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.24em" }}>
+            Aries AI
+          </p>
+          <h2 style={{ margin: "4px 0 0", fontSize: 20, fontWeight: 600 }}>
+            Weekly recap — {report.week.label}
+          </h2>
+          <p style={{ margin: "4px 0 0", fontSize: 12 }}>
+            {report.week.startYmd} to {report.week.endYmd} · Generated{" "}
+            {new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
+          </p>
+        </div>
+      ) : null}
+
       <SectionHeader
         title="Weekly recap"
         note={
           <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
             <span>{scopeLine}</span>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            {/* The week stepper and the print control are things you CLICK.
+                On paper they are dead ink, and a disabled arrow reads as a
+                rendering fault. */}
+            <span data-print-hidden className="print-hidden" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
               <StepButton label="‹" ariaLabel="Previous week" disabled={loading || !report} onClick={goPrev} />
               <StepButton label="›" ariaLabel="Next week" disabled={loading || !report || selectedWeek === null} onClick={goNext} />
+              <button
+                type="button"
+                onClick={print}
+                data-print-hidden
+                data-testid="weekly-recap-print-button"
+                className="print-hidden"
+                style={{
+                  marginLeft: 6,
+                  padding: "4px 10px",
+                  borderRadius: 8,
+                  border: `1px solid ${C.border}`,
+                  background: "transparent",
+                  color: "inherit",
+                  font: "inherit",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                Print / Save as PDF
+              </button>
             </span>
           </span>
         }

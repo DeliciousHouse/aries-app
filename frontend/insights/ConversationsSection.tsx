@@ -291,7 +291,7 @@ export function ConversationsSection({ period, platform, enabled, nativeReplyEna
         ) : empty || !data ? (
           <EmptyState message="No comments recorded in this period." />
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 24 }}>
+          <div className="insights-grid" style={{ "--insights-cols": "1.6fr 1fr", gap: 24 } as React.CSSProperties}>
             {/* LEFT — meta + feed + view-all */}
             <div style={{ display: "flex", flexDirection: "column" }}>
               <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, paddingBottom: 4 }}>
