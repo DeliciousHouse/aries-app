@@ -1560,22 +1560,13 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_insights_sync_runs_running_started
         ON insights_sync_runs (started_at) WHERE status = 'running';
 
-      -- Audit log: every LLM call with cost, tokens, and outcome.
-      CREATE TABLE IF NOT EXISTS insights_llm_calls (
-        id            BIGSERIAL PRIMARY KEY,
-        tenant_id     INTEGER NOT NULL,
-        purpose       TEXT NOT NULL,    -- 'classify_comment'|'generate_narrative'
-        model         TEXT NOT NULL,
-        cost_cents    NUMERIC(10,4) NOT NULL,
-        input_tokens  INT,
-        output_tokens INT,
-        duration_ms   INT,
-        succeeded     BOOLEAN NOT NULL,
-        error_code    TEXT,
-        called_at     TIMESTAMPTZ NOT NULL DEFAULT now()
-      );
-      CREATE INDEX IF NOT EXISTS idx_insights_llm_calls_tenant_called_at
-        ON insights_llm_calls (tenant_id, called_at DESC);
+      -- AA-129 item 12 (2026-08-14): a per-LLM-call cost audit table was
+      -- removed from here. It was created but never wired — no code read or
+      -- wrote it, so it held zero rows for its whole life — and the job it was
+      -- meant to do is done by `task_execution_log` (AA-159), which records
+      -- engine, tokens, cost and duration for real work. Dropped by
+      -- migrations/20260814000000_*.sql; the name is deliberately not repeated
+      -- here so a repo scan for it stays a reliable "is it wired again?" check.
 
       -- content_type is derived at sync time by a caption-keyword heuristic
       -- (backend/insights/sync/classify-post.ts), stamped inline in the

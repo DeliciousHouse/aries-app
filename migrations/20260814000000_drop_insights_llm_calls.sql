@@ -1,0 +1,29 @@
+-- 20260814000000_drop_insights_llm_calls.sql
+--
+-- AA-129 item 12: drop the dead `insights_llm_calls` table.
+--
+-- The table was created as a per-LLM-call cost audit log ("every LLM call with
+-- cost, tokens, and outcome") and was never wired to anything. A repo-wide
+-- search finds it in exactly three places — scripts/init-db.js, CLAUDE.md and
+-- the analytics roadmap — and in zero lines of application code. Nothing has
+-- ever inserted a row, so on every deployment it has been an empty table with
+-- an index, and any query written against it would truthfully report that this
+-- product makes no LLM calls.
+--
+-- Its intended job is now done properly by `task_execution_log` (AA-159), which
+-- records the processing engine, model hint, tokens, cost and duration for real
+-- work, with the rollup/retention layer (AA-161) on top. Keeping a second,
+-- permanently-empty cost table next to a populated one is worse than having
+-- neither: it invites someone to read the wrong one.
+--
+-- DROP, not archive: there is no data to preserve. `IF EXISTS` keeps this
+-- idempotent and safe on a database that never ran the original CREATE (the
+-- table is `CREATE TABLE IF NOT EXISTS` in init-db, so its presence varies by
+-- how old the deployment is). The index goes with the table automatically; it
+-- is named here only so a reader grepping for the index finds this file.
+--
+-- Reversal, if ever needed, is the CREATE TABLE block removed from
+-- scripts/init-db.js in the same commit — recoverable from git history.
+
+DROP TABLE IF EXISTS insights_llm_calls;
+-- (idx_insights_llm_calls_tenant_called_at is dropped with its table)
