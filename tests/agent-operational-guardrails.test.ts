@@ -50,6 +50,21 @@ test('database health route singleflights 50-person smoke checks', () => {
   assert.match(healthRoute, /cacheAgeMs/, 'health response should expose cache age for diagnostics');
 });
 
+test('canary database readiness check targets its implemented route', () => {
+  const config = JSON.parse(readRepoFile('scripts/canary/config.json')) as {
+    api_health: Array<{ path: string; expect_status: number | number[] }>;
+  };
+  const readinessCheck = config.api_health.find(({ expect_status }) => expect_status === 200);
+
+  assert.ok(readinessCheck, 'expected one canary database readiness check');
+  assert.equal(readinessCheck.path, '/api/health/db');
+  assert.equal(
+    existsSync(path.join(PROJECT_ROOT, 'app', ...readinessCheck.path.split('/').filter(Boolean), 'route.ts')),
+    true,
+    `expected ${readinessCheck.path} to map to an implemented route`,
+  );
+});
+
 test('Docker docs include a 50-person starting profile and full-endpoint load check', () => {
   const dockerDocs = readRepoFile('DOCKER.md');
 

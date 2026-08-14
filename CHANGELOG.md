@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.13.1 — fix(canary): probe the implemented database health route
+
+Post-deploy canaries can now distinguish an unhealthy database from a missing
+endpoint instead of reporting a false failure for an otherwise healthy deploy.
+
+### Fixed
+
+- The canary database readiness check now probes `/api/health/db`, matching the
+  implemented App Router endpoint and existing Docker documentation.
+- A regression guard verifies that the configured `200` readiness path maps to
+  an implemented route.
+
 ## v0.2.12.0 — fix(marketing): the strategist names the weekday two ways (AA-237)
 
 The strategist writes a weekday for every post it plans. `buildAutoScheduleRows`
