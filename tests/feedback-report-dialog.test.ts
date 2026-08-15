@@ -119,8 +119,12 @@ async function withReportDialog(
           },
         }),
         {
-          createNodeMock: (element) =>
-            (element.props as { role?: string }).role === 'dialog' ? dialogNode : null,
+          createNodeMock: (element) => {
+            const props = element.props as { role?: string; 'aria-label'?: string };
+            if (props.role === 'dialog') return dialogNode;
+            if (props['aria-label'] === 'Close report dialog') return firstFocusable;
+            return null;
+          },
         },
       );
     });
@@ -221,13 +225,23 @@ test('dialog declares modal semantics and mobile-safe overlay containment', asyn
   );
 });
 
+test('opening moves focus to an interactive control inside the dialog', async () => {
+  await withReportDialog(
+    async () => ({ status: 500, ok: false }),
+    async (h) => {
+      assert.equal(h.firstFocusable.focusCalls, 1);
+    },
+  );
+});
+
 test('Escape closes and Tab focus stays contained in both directions', async () => {
   await withReportDialog(
     async () => ({ status: 500, ok: false }),
     async (h) => {
+      const initialFirstFocusCalls = h.firstFocusable.focusCalls;
       h.setActiveElement(h.lastFocusable);
       assert.equal(h.dispatchKey('Tab').preventDefaultCalled, true);
-      assert.equal(h.firstFocusable.focusCalls, 1);
+      assert.equal(h.firstFocusable.focusCalls, initialFirstFocusCalls + 1);
 
       h.setActiveElement(h.firstFocusable);
       assert.equal(h.dispatchKey('Tab', true).preventDefaultCalled, true);
