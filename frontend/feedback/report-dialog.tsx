@@ -68,6 +68,7 @@ export default function ReportModal({ onClose }: { onClose: () => void }): React
   const descriptionId = useId();
 
   const dialogRef = useRef<HTMLDivElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   const submissionAttemptRef = useRef<{ payload: string; key: string } | null>(null);
@@ -115,10 +116,11 @@ export default function ReportModal({ onClose }: { onClose: () => void }): React
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, phase]);
 
-  // Return focus to the trigger on close.
+  // Move focus inside on open, then return it to the trigger on close.
   useEffect(() => {
     previouslyFocusedRef.current =
       typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
+    closeButtonRef.current?.focus();
     return () => {
       previouslyFocusedRef.current?.focus?.();
     };
@@ -292,6 +294,7 @@ export default function ReportModal({ onClose }: { onClose: () => void }): React
             </p>
           </div>
           <button
+            ref={closeButtonRef}
             type="button"
             onClick={onClose}
             disabled={submitting}
