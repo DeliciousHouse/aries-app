@@ -132,7 +132,12 @@ test('community governance contract runs in verify and follows changelog format'
   const version = readRepoFile('VERSION').trim().replaceAll('.', '\\.');
 
   assert.match(verifySuite, /tests\/community-governance-contract\.test\.ts/);
-  const firstVersionHeading = changelog.match(/^## v.+$/m);
+  const firstVersionHeading = changelog.match(
+    /^## (?:v[\d.]+ — .+|\[[\d.]+\] - \d{4}-\d{2}-\d{2})$/m,
+  );
   assert.ok(firstVersionHeading, 'changelog must contain a version heading');
-  assert.match(firstVersionHeading[0], new RegExp(`^## v${version} — .+$`));
+  assert.match(
+    firstVersionHeading[0],
+    new RegExp(`^## (?:v${version} — .+|\\[${version}\\] - \\d{4}-\\d{2}-\\d{2})$`),
+  );
 });
