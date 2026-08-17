@@ -18,6 +18,13 @@ All notable changes to this project will be documented in this file.
 - Preserve PostgreSQL transition precision so connection nudge attempts join the
   correct health metric, including when fleet diagnostics explicitly include tests.
 
+## [0.2.15.2] - 2026-08-24
+
+### Fixed
+
+- Tests now force React development mode, so they keep working when launched
+  from a shell whose ambient `NODE_ENV` is `production`.
+
 ## [0.2.15.1] - 2026-08-23
 
 ### Changed
