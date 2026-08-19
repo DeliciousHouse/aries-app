@@ -40,6 +40,54 @@ const ACCOUNTS_SQL = `
    GROUP BY tenant_id, provider, platform, status
    ORDER BY tenant_id, provider, platform, status`;
 
+const CONNECTION_HEALTH_SQL = `
+  WITH current_connections AS (
+    SELECT 'connected_accounts'::text AS source,
+           ca.id AS connection_id,
+           ca.tenant_id,
+           ca.platform,
+           ca.status,
+           ca.status_changed_at
+      FROM connected_accounts ca
+     WHERE ca.status IN ('pending', 'reauthorization_required')
+    UNION ALL
+    SELECT 'oauth_connections'::text AS source,
+           oc.id AS connection_id,
+           oc.tenant_id,
+           oc.provider AS platform,
+           oc.status,
+           oc.status_changed_at
+      FROM oauth_connections oc
+     WHERE oc.status IN ('pending', 'reauthorization_required')
+       AND oc.provider <> 'slack'
+       AND NOT EXISTS (
+         SELECT 1
+           FROM connected_accounts ca
+          WHERE ca.tenant_id = oc.tenant_id
+            AND ca.platform = oc.provider
+       )
+  )
+  SELECT c.tenant_id,
+         c.platform,
+         CASE WHEN c.status = 'reauthorization_required'
+              THEN 'reauthorization_required'
+              ELSE 'pending_over_7_days'
+          END AS reason,
+         MAX(n.sent_at) AS last_nudge_at
+    FROM current_connections c
+    JOIN organizations o ON o.id = c.tenant_id
+    LEFT JOIN connection_nudge_notifications n
+      ON n.source = c.source
+     AND n.connection_id = c.connection_id
+     AND n.status_changed_at = c.status_changed_at
+   WHERE o.kind = 'production'
+     AND (
+       c.status = 'reauthorization_required'
+       OR (c.status = 'pending' AND c.status_changed_at < CURRENT_TIMESTAMP - INTERVAL '7 days')
+     )
+   GROUP BY c.tenant_id, c.platform, c.status
+   ORDER BY c.tenant_id, c.platform`;
+
 const EXPIRY_SQL = `
   SELECT
     COUNT(*) FILTER (WHERE expired_at IS NOT NULL)::text AS expired_count,
@@ -88,6 +136,7 @@ export async function collectAriesMetrics(db: MetricsDb, options: CollectOptions
   const failed = await db.query(FAILED_SQL);
   const publishes = await db.query(PUBLISH_SQL);
   const accounts = await db.query(ACCOUNTS_SQL);
+  const connectionHealth = await db.query(CONNECTION_HEALTH_SQL);
   const expiry = await db.query(EXPIRY_SQL, [options.draftExpiryAgeDays]);
   const lines: string[] = [];
 
@@ -122,6 +171,17 @@ export async function collectAriesMetrics(db: MetricsDb, options: CollectOptions
     else accountCounts.set(key, { provider: row.provider, platform: row.platform, status: row.status, count: number(row.count) });
   }
   for (const row of accountCounts.values()) lines.push(sample('aries_connected_accounts', { provider: row.provider, platform: row.platform, status: row.status }, row.count));
+
+  family(lines, 'aries_connection_health_unhealthy', 'Unhealthy platform connections that need owner action.', 'gauge');
+  family(lines, 'aries_connection_health_nudge_last_sent_timestamp_seconds', 'Last owner nudge for the current unhealthy connection state.', 'gauge');
+  for (const row of connectionHealth.rows) {
+    const labels = { tenant_id: row.tenant_id, platform: row.platform, reason: row.reason };
+    lines.push(sample('aries_connection_health_unhealthy', labels, 1));
+    const lastNudgeAt = seconds(row.last_nudge_at);
+    if (lastNudgeAt !== null) {
+      lines.push(sample('aries_connection_health_nudge_last_sent_timestamp_seconds', labels, lastNudgeAt));
+    }
+  }
 
   const expiryRow = expiry.rows[0] ?? {};
   family(lines, 'aries_expiry_sweep_posts_total', 'Posts expired by the draft expiry sweep.', 'gauge');
