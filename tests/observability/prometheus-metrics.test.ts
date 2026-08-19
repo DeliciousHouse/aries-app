@@ -5,10 +5,12 @@ import { collectAriesMetrics } from '../../backend/observability/prometheus-metr
 
 class FakeDb {
   index = 0;
+  readonly calls: Array<{ text: string; params: unknown[] }> = [];
 
   constructor(private readonly results: Array<Array<Record<string, unknown>>>) {}
 
-  async query() {
+  async query(text: string, params: unknown[] = []) {
+    this.calls.push({ text, params });
     return { rows: this.results[this.index++] ?? [] };
   }
 }
@@ -36,6 +38,12 @@ test('exports dead-man, queue, publish, account, expiry and dependency metrics',
   assert.match(output, /aries_external_dependency_up\{dependency="hermes"\} 0/);
   assert.match(output, /aries_external_dependency_degraded\{dependency="composio",tenant_id="61",platform="instagram"\} 1/);
   assert.match(output, /aries_external_dependency_up\{dependency="platform_api",tenant_id="61",platform="instagram"\} 0/);
+
+  for (const call of db.calls) {
+    assert.match(call.text, /organizations/i, 'every fleet metric query must classify its tenant');
+    assert.match(call.text, /kind\s*=\s*ANY/i, 'non-production tenants are excluded by default');
+    assert.deepEqual(call.params[0], ['production']);
+  }
 });
 
 test('escapes bounded Prometheus label values', async () => {
@@ -45,4 +53,16 @@ test('escapes bounded Prometheus label values', async () => {
 
   const output = await collectAriesMetrics(db, { hermesUp: true, draftExpiryAgeDays: 14 });
   assert.match(output, /platform="x\\"\\\\\\n"/);
+});
+
+test('fleet metrics include test tenants only when explicitly requested', async () => {
+  const db = new FakeDb([[], [], [], [], [], [{ expired_count: 0, expiring_24h_count: 0 }]]);
+
+  await collectAriesMetrics(db, {
+    hermesUp: true,
+    draftExpiryAgeDays: 14,
+    tenantKinds: ['production', 'test'],
+  });
+
+  for (const call of db.calls) assert.deepEqual(call.params[0], ['production', 'test']);
 });

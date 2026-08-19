@@ -24,6 +24,10 @@
  */
 
 import { sendQuotaThresholdEmail } from '@/lib/email';
+import {
+  resolveFleetTenantKinds,
+  type OrganizationKind,
+} from '@/backend/tenant/organization-kind';
 
 import { computeQuotaFigures } from './quota-summary';
 import { DEFAULT_PLAN_TIER, isPlanTier, resolveIncludedAllowance, type PlanTier } from './rate-cards';
@@ -70,7 +74,7 @@ export const SELECT_ALERT_CANDIDATES_SQL = `SELECT s.company_id,
             COALESCE(cr.credits, 0)::bigint AS credits
        FROM company_subscriptions s
        JOIN plan_rate_cards c ON c.tier_key = s.tier_key
-       LEFT JOIN organizations o ON o.id = s.company_id
+       JOIN organizations o ON o.id = s.company_id
        LEFT JOIN LATERAL (
          SELECT sum(total_tasks)::bigint AS tasks_used,
                 sum(total_tokens)::bigint AS tokens_used
@@ -82,7 +86,8 @@ export const SELECT_ALERT_CANDIDATES_SQL = `SELECT s.company_id,
            FROM company_credit_ledger l
           WHERE l.company_id = s.company_id
             AND (l.expires_at IS NULL OR l.expires_at > now())
-       ) cr ON TRUE`;
+       ) cr ON TRUE
+      WHERE o.kind = ANY($2::text[])`;
 
 export const SELECT_WATERMARK_SQL = `SELECT rolled_through FROM usage_rollup_state WHERE id = 'hourly'`;
 
@@ -121,6 +126,7 @@ export type QuotaAlertReport = {
 
 export type RunQuotaAlertsOptions = {
   env?: Partial<Record<string, string | undefined>>;
+  tenantKinds?: readonly OrganizationKind[];
   now?: () => Date;
   appBaseUrl?: string;
   /** Injectable so a test can assert the emails without a transport. */
@@ -147,6 +153,7 @@ export async function runQuotaThresholdAlerts(
   options: RunQuotaAlertsOptions = {},
 ): Promise<QuotaAlertReport> {
   const env = options.env ?? process.env;
+  const tenantKinds = options.tenantKinds ?? resolveFleetTenantKinds(env);
   const now = options.now ?? (() => new Date());
   const periodStart = billingPeriodStart(now());
   const metric = resolvePlanEnforcementMetric(env);
@@ -178,7 +185,7 @@ export async function runQuotaThresholdAlerts(
     return report;
   }
 
-  const candidates = await db.query(SELECT_ALERT_CANDIDATES_SQL, [periodStart]);
+  const candidates = await db.query(SELECT_ALERT_CANDIDATES_SQL, [periodStart, tenantKinds]);
   report.skipped = false;
 
   for (const raw of candidates.rows as Array<Record<string, unknown>>) {

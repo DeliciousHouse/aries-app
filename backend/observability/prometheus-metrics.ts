@@ -1,57 +1,74 @@
+import type { OrganizationKind } from '@/backend/tenant/organization-kind';
+
 type QueryResult = { rows: Array<Record<string, unknown>> };
 export type MetricsDb = { query(text: string, params?: unknown[]): Promise<QueryResult> };
 
 type CollectOptions = {
   hermesUp: boolean;
   draftExpiryAgeDays: number;
+  tenantKinds?: readonly OrganizationKind[];
 };
 
 const MARKETING_SQL = `
-  SELECT tenant_id, last_attempt_at, last_success_at
-    FROM marketing_schedule
-   WHERE enabled = true
-   ORDER BY tenant_id`;
+  SELECT ms.tenant_id, ms.last_attempt_at, ms.last_success_at
+    FROM marketing_schedule ms
+    JOIN organizations o ON o.id = ms.tenant_id
+   WHERE ms.enabled = true
+     AND o.kind = ANY($1::text[])
+   ORDER BY ms.tenant_id`;
 
 const QUEUE_SQL = `
-  SELECT dispatch_status AS status, COUNT(*)::text AS count
-    FROM scheduled_posts
-   WHERE dispatch_status IN ('pending', 'in_flight')
-   GROUP BY dispatch_status
-   ORDER BY dispatch_status`;
+  SELECT sp.dispatch_status AS status, COUNT(*)::text AS count
+    FROM scheduled_posts sp
+    JOIN organizations o ON o.id = sp.tenant_id
+   WHERE sp.dispatch_status IN ('pending', 'in_flight')
+     AND o.kind = ANY($1::text[])
+   GROUP BY sp.dispatch_status
+   ORDER BY sp.dispatch_status`;
 
 const FAILED_SQL = `
-  SELECT status, COUNT(*)::text AS count
-    FROM scheduled_post_dispatches
-   WHERE status IN ('failed', 'dead_letter', 'manual_reconciliation')
-   GROUP BY status
-   ORDER BY status`;
+  SELECT spd.status, COUNT(*)::text AS count
+    FROM scheduled_post_dispatches spd
+    JOIN scheduled_posts sp ON sp.id = spd.scheduled_post_id
+    JOIN organizations o ON o.id = sp.tenant_id
+   WHERE spd.status IN ('failed', 'dead_letter', 'manual_reconciliation')
+     AND o.kind = ANY($1::text[])
+   GROUP BY spd.status
+   ORDER BY spd.status`;
 
 const PUBLISH_SQL = `
   SELECT sp.tenant_id, spd.platform, MAX(spd.dispatched_at) AS last_success_at
     FROM scheduled_post_dispatches spd
     JOIN scheduled_posts sp ON sp.id = spd.scheduled_post_id
-   WHERE spd.status = 'dispatched' AND spd.dispatched_at IS NOT NULL
+    JOIN organizations o ON o.id = sp.tenant_id
+   WHERE spd.status = 'dispatched'
+     AND spd.dispatched_at IS NOT NULL
+     AND o.kind = ANY($1::text[])
    GROUP BY sp.tenant_id, spd.platform
    ORDER BY sp.tenant_id, spd.platform`;
 
 const ACCOUNTS_SQL = `
-  SELECT tenant_id, provider, platform, status, COUNT(*)::text AS count
-    FROM connected_accounts
-   GROUP BY tenant_id, provider, platform, status
-   ORDER BY tenant_id, provider, platform, status`;
+  SELECT ca.tenant_id, ca.provider, ca.platform, ca.status, COUNT(*)::text AS count
+    FROM connected_accounts ca
+    JOIN organizations o ON o.id = ca.tenant_id
+   WHERE o.kind = ANY($1::text[])
+   GROUP BY ca.tenant_id, ca.provider, ca.platform, ca.status
+   ORDER BY ca.tenant_id, ca.provider, ca.platform, ca.status`;
 
 const EXPIRY_SQL = `
   SELECT
-    COUNT(*) FILTER (WHERE expired_at IS NOT NULL)::text AS expired_count,
+    COUNT(*) FILTER (WHERE p.expired_at IS NOT NULL)::text AS expired_count,
     COUNT(*) FILTER (
-      WHERE published_status IN ('draft', 'in_review', 'approved')
-        AND published_at IS NULL
-        AND platform_post_id IS NULL
-        AND NOT EXISTS (SELECT 1 FROM scheduled_posts sp WHERE sp.post_id = posts.id)
-        AND updated_at > CURRENT_TIMESTAMP - $1::int * INTERVAL '1 day'
-        AND updated_at <= CURRENT_TIMESTAMP - $1::int * INTERVAL '1 day' + INTERVAL '24 hours'
+      WHERE p.published_status IN ('draft', 'in_review', 'approved')
+        AND p.published_at IS NULL
+        AND p.platform_post_id IS NULL
+        AND NOT EXISTS (SELECT 1 FROM scheduled_posts sp WHERE sp.post_id = p.id)
+        AND p.updated_at > CURRENT_TIMESTAMP - $2::int * INTERVAL '1 day'
+        AND p.updated_at <= CURRENT_TIMESTAMP - $2::int * INTERVAL '1 day' + INTERVAL '24 hours'
     )::text AS expiring_24h_count
-  FROM posts`;
+    FROM posts p
+    JOIN organizations o ON o.id = p.tenant_id
+   WHERE o.kind = ANY($1::text[])`;
 
 function label(value: unknown): string {
   return String(value ?? '')
@@ -83,12 +100,13 @@ function family(lines: string[], name: string, help: string, type: 'gauge' | 'co
 }
 
 export async function collectAriesMetrics(db: MetricsDb, options: CollectOptions): Promise<string> {
-  const marketing = await db.query(MARKETING_SQL);
-  const queue = await db.query(QUEUE_SQL);
-  const failed = await db.query(FAILED_SQL);
-  const publishes = await db.query(PUBLISH_SQL);
-  const accounts = await db.query(ACCOUNTS_SQL);
-  const expiry = await db.query(EXPIRY_SQL, [options.draftExpiryAgeDays]);
+  const tenantKinds = options.tenantKinds ?? ['production'];
+  const marketing = await db.query(MARKETING_SQL, [tenantKinds]);
+  const queue = await db.query(QUEUE_SQL, [tenantKinds]);
+  const failed = await db.query(FAILED_SQL, [tenantKinds]);
+  const publishes = await db.query(PUBLISH_SQL, [tenantKinds]);
+  const accounts = await db.query(ACCOUNTS_SQL, [tenantKinds]);
+  const expiry = await db.query(EXPIRY_SQL, [tenantKinds, options.draftExpiryAgeDays]);
   const lines: string[] = [];
 
   family(lines, 'aries_marketing_trigger_last_attempt_timestamp_seconds', 'Last weekly marketing trigger attempt.', 'gauge');

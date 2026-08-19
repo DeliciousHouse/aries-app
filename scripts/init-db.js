@@ -61,6 +61,8 @@ async function initDb() {
         id SERIAL PRIMARY KEY,
         name TEXT NOT NULL,
         slug TEXT UNIQUE,
+        kind TEXT NOT NULL DEFAULT 'production'
+          CHECK (kind IN ('production', 'test', 'archived')),
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
 
@@ -76,6 +78,16 @@ async function initDb() {
 
       ALTER TABLE organizations
         ADD COLUMN IF NOT EXISTS slug TEXT;
+
+      ALTER TABLE organizations
+        ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'production';
+
+      SELECT pg_temp.ensure_check_constraint(
+        'organizations'::regclass,
+        'organizations_kind_check',
+        'archived',
+        $check$kind IN ('production','test','archived')$check$
+      );
 
       ALTER TABLE users
         ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'tenant_admin';

@@ -32,6 +32,9 @@ services:
       # Fail container health when the configured network Hermes endpoint is
       # unavailable. Self-host installs without Hermes explicitly set this off.
       ARIES_HERMES_NETWORK_HEALTHCHECK_ENABLED: ${ARIES_HERMES_NETWORK_HEALTHCHECK_ENABLED:-1}
+      # Fleet metrics and alerts default to customer production tenants only.
+      # Explicitly add test/archived here only for a bounded diagnostic.
+      ARIES_FLEET_TENANT_KINDS: ${ARIES_FLEET_TENANT_KINDS:-production}
       # Phase B three-profile routing. Strategy/content retain their production
       # cutover defaults; research stays on the shared gateway until its URL and
       # key are explicitly configured together.
@@ -1167,6 +1170,7 @@ services:
       # APP_BASE_URL for the link in the email. Deduped per company/period/
       # threshold, so an hourly tick cannot spam a customer.
       ARIES_QUOTA_ALERTS_ENABLED: ${ARIES_QUOTA_ALERTS_ENABLED:-0}
+      ARIES_FLEET_TENANT_KINDS: ${ARIES_FLEET_TENANT_KINDS:-production}
       ARIES_PLAN_ENFORCEMENT_METRIC: ${ARIES_PLAN_ENFORCEMENT_METRIC:-tasks}
       APP_BASE_URL: ${APP_BASE_URL}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
