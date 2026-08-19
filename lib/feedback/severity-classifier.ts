@@ -15,6 +15,7 @@ import {
   type FeedbackSeverity,
 } from './options';
 import type { FeedbackSeverityLlmConfig } from './feedback-config';
+import { withTaskExecutionLog } from '@/backend/telemetry/task-execution-log';
 
 const INSTRUCTIONS =
   'You triage product feedback severity for an app called Aries. ' +
@@ -72,72 +73,117 @@ async function classifyViaHermes(
   category: FeedbackCategory,
   cfg: FeedbackSeverityLlmConfig,
   deps: Required<ClassifyDeps>,
+  telemetry: { tenantId?: number | string | null; taskId?: string | null },
 ): Promise<FeedbackSeverity | null> {
   const auth = `Bearer ${cfg.apiKey}`;
   const deadline = deps.nowMs() + cfg.timeoutMs;
+  let runId = '';
+  let failure = {
+    errorCode: 'hermes_classification_failed',
+    errorClass: 'HermesInvocationError',
+    errorMessage: 'Hermes severity classification did not produce a verdict.',
+  };
 
-  // Submit
-  let runId: string;
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
-    let submit: Response;
-    try {
-      submit = await deps.fetchImpl(`${cfg.gatewayUrl}/v1/runs`, {
-        method: 'POST',
-        headers: { authorization: auth, 'content-type': 'application/json' },
-        body: JSON.stringify({
-          input: `Category: ${category}\nComment: ${comment}`,
-          instructions: INSTRUCTIONS,
-          session_id: cfg.sessionKey,
-        }),
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timer);
-    }
-    if (!submit.ok) return null;
-    const json = (await submit.json().catch(() => null)) as Record<string, unknown> | null;
-    const candidate = json && typeof json.run_id === 'string' ? json.run_id.trim() : '';
-    if (!candidate) return null;
-    runId = candidate;
-  } catch {
-    return null;
-  }
-
-  // Poll until terminal or deadline
-  const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'errored', 'error', 'timeout']);
-  while (deps.nowMs() <= deadline) {
-    const remaining = deadline - deps.nowMs();
-    if (remaining <= 0) break;
-    let json: Record<string, unknown> | null;
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), remaining);
-      let poll: Response;
+  return withTaskExecutionLog(
+    {
+      engine: 'AI_LLM',
+      taskKey: 'feedback.severity_classification',
+      taskId: telemetry.taskId,
+      tenantId: telemetry.tenantId,
+      detailsFromResult: () => ({ externalRunId: runId || null }),
+      outcomeFromResult: (result) => result
+        ? { status: 'succeeded' }
+        : { status: 'failed', ...failure },
+    },
+    async () => {
       try {
-        poll = await deps.fetchImpl(`${cfg.gatewayUrl}/v1/runs/${encodeURIComponent(runId)}`, {
-          method: 'GET',
-          headers: { authorization: auth },
-          signal: controller.signal,
-        });
-      } finally {
-        clearTimeout(timer);
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
+        let submit: Response;
+        try {
+          submit = await deps.fetchImpl(`${cfg.gatewayUrl}/v1/runs`, {
+            method: 'POST',
+            headers: { authorization: auth, 'content-type': 'application/json' },
+            body: JSON.stringify({
+              input: `Category: ${category}\nComment: ${comment}`,
+              instructions: INSTRUCTIONS,
+              session_id: cfg.sessionKey,
+            }),
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timer);
+        }
+        if (!submit.ok) {
+          failure = { ...failure, errorCode: `http_${submit.status}`, errorMessage: `Hermes returned HTTP ${submit.status} while submitting severity classification.` };
+          return null;
+        }
+        const json = (await submit.json().catch(() => null)) as Record<string, unknown> | null;
+        const candidate = json && typeof json.run_id === 'string' ? json.run_id.trim() : '';
+        if (!candidate) {
+          failure = { ...failure, errorCode: 'submit_invalid', errorMessage: 'Hermes severity submission response is missing run_id.' };
+          return null;
+        }
+        runId = candidate;
+      } catch (error) {
+        failure = failureFromError(error);
+        return null;
       }
-      if (!poll.ok) return null;
-      json = (await poll.json().catch(() => null)) as Record<string, unknown> | null;
-    } catch {
+
+      const terminal = new Set(['completed', 'failed', 'cancelled', 'errored', 'error', 'timeout']);
+      while (deps.nowMs() <= deadline) {
+        const remaining = deadline - deps.nowMs();
+        if (remaining <= 0) break;
+        let json: Record<string, unknown> | null;
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), remaining);
+          let poll: Response;
+          try {
+            poll = await deps.fetchImpl(`${cfg.gatewayUrl}/v1/runs/${encodeURIComponent(runId)}`, {
+              method: 'GET',
+              headers: { authorization: auth },
+              signal: controller.signal,
+            });
+          } finally {
+            clearTimeout(timer);
+          }
+          if (!poll.ok) {
+            failure = { ...failure, errorCode: `http_${poll.status}`, errorMessage: `Hermes returned HTTP ${poll.status} while polling severity classification.` };
+            return null;
+          }
+          json = (await poll.json().catch(() => null)) as Record<string, unknown> | null;
+        } catch (error) {
+          failure = failureFromError(error);
+          return null;
+        }
+        const status = json && typeof json.status === 'string' ? json.status.toLowerCase() : '';
+        if (terminal.has(status)) {
+          if (status !== 'completed') {
+            failure = { ...failure, errorCode: 'run_failed', errorMessage: `Hermes severity run ended with status ${status}.` };
+            return null;
+          }
+          const output = typeof json?.output === 'string' ? json.output : '';
+          const severity = parseSeverityFromOutput(output);
+          if (!severity) {
+            failure = { ...failure, errorCode: 'output_invalid', errorMessage: 'Hermes severity output did not contain a supported severity.' };
+          }
+          return severity;
+        }
+        await deps.sleep(Math.min(500, Math.max(100, remaining)));
+      }
+      failure = { ...failure, errorCode: 'timeout', errorMessage: 'Hermes severity classification timed out.' };
       return null;
-    }
-    const status = json && typeof json.status === 'string' ? json.status.toLowerCase() : '';
-    if (TERMINAL.has(status)) {
-      if (status !== 'completed') return null;
-      const output = typeof json?.output === 'string' ? json.output : '';
-      return parseSeverityFromOutput(output);
-    }
-    await deps.sleep(Math.min(500, Math.max(100, remaining)));
-  }
-  return null;
+    },
+  );
+}
+
+function failureFromError(error: unknown) {
+  return {
+    errorCode: (error as { code?: string } | null)?.code ?? 'unreachable',
+    errorClass: error instanceof Error ? error.name : 'Error',
+    errorMessage: error instanceof Error ? error.message : String(error),
+  };
 }
 
 /**
@@ -146,7 +192,12 @@ async function classifyViaHermes(
  * configured timeout.
  */
 export async function classifySeverity(
-  input: { comment: string; category: FeedbackCategory },
+  input: {
+    comment: string;
+    category: FeedbackCategory;
+    tenantId?: number | string | null;
+    taskId?: string | null;
+  },
   cfg: FeedbackSeverityLlmConfig | null,
   deps: ClassifyDeps = {},
 ): Promise<SeverityResult> {
@@ -160,7 +211,7 @@ export async function classifySeverity(
   };
 
   try {
-    const llm = await classifyViaHermes(input.comment, input.category, cfg, resolved);
+    const llm = await classifyViaHermes(input.comment, input.category, cfg, resolved, input);
     if (llm) return { severity: llm, source: 'llm' };
   } catch {
     // fall through to heuristic

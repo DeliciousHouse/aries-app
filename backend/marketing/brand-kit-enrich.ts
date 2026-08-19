@@ -1,4 +1,8 @@
 import type { TenantBrandKit } from '@/backend/marketing/brand-kit';
+import {
+  hermesResultOutcome,
+  withTaskExecutionLog,
+} from '@/backend/telemetry/task-execution-log';
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
@@ -22,6 +26,7 @@ type EnrichmentFetch = (input: string | URL, init?: RequestInit) => Promise<Resp
 type EnrichmentSleep = (ms: number) => Promise<void>;
 
 export type EnrichBrandKitInput = {
+  tenantId?: number | string | null;
   brandUrl: string;
   scrapedBrandKit: TenantBrandKit;
   env?: EnrichmentEnv;
@@ -342,7 +347,17 @@ export async function enrichBrandKitWithGemini(input: EnrichBrandKitInput): Prom
     session_id: sessionKey,
   };
 
-  let runId: string;
+  let runId = '';
+  return withTaskExecutionLog(
+    {
+      engine: 'AI_LLM',
+      taskKey: 'marketing.brand_kit_enrichment',
+      tenantId: input.tenantId,
+      modelRequested: HERMES_MODEL_HINT,
+      detailsFromResult: () => ({ externalRunId: runId || null }),
+      outcomeFromResult: hermesResultOutcome,
+    },
+    async () => {
   try {
     const submitController = new AbortController();
     const submitTimer = setTimeout(() => submitController.abort(), timeoutMs);
@@ -413,4 +428,7 @@ export async function enrichBrandKitWithGemini(input: EnrichBrandKitInput): Prom
     await sleep(intervalMs);
   }
   return { ok: false, reason: 'timeout' };
+    },
+    { env },
+  );
 }

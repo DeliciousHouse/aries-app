@@ -71,6 +71,8 @@ const COLUMNS = [
   'status',
   'attempt_number',
   'error_code',
+  'error_class',
+  'error_message',
   'duration_ms',
   'cpu_ms',
   'model_requested',
@@ -243,6 +245,8 @@ test('a failed run is logged as a failed execution with its error code', async (
     const logged = row(inserts[0]);
     assert.equal(logged.status, 'failed');
     assert.equal(logged.error_code, 'hermes_gateway_timeout');
+    assert.equal(logged.error_class, 'HermesRunError');
+    assert.equal(logged.error_message, 'timed out');
   });
 });
 
