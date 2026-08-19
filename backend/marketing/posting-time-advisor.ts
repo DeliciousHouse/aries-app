@@ -43,6 +43,10 @@
  */
 
 import pool from '@/lib/db';
+import {
+  hermesResultOutcome,
+  withTaskExecutionLog,
+} from '@/backend/telemetry/task-execution-log';
 import { DEFAULT_TENANT_TIMEZONE } from '@/lib/format-timestamp';
 import { sanitizeLegacyCompetitorUrl, competitorDomain } from '@/lib/marketing-competitor';
 import { loadTenantTimezoneOrFallback, marketingPayloadDefaultsFromBusinessProfile } from '@/backend/tenant/business-profile';
@@ -441,7 +445,17 @@ export async function deriveCompetitorPostingTimes(input: {
     session_id: sessionKey,
   };
 
-  let runId: string;
+  let runId = '';
+  return withTaskExecutionLog(
+    {
+      engine: 'AI_LLM',
+      taskKey: 'marketing.competitor_posting_times',
+      tenantId: input.tenantId,
+      modelRequested: modelHint,
+      detailsFromResult: () => ({ externalRunId: runId || null }),
+      outcomeFromResult: hermesResultOutcome,
+    },
+    async () => {
   try {
     // The abort timer stays armed through the BODY read, not just the headers
     // — a gateway that returns headers then stalls/trickles the body must not
@@ -503,6 +517,9 @@ export async function deriveCompetitorPostingTimes(input: {
     await sleep(intervalMs);
   }
   return { ok: false, reason: 'timeout' };
+    },
+    { env },
+  );
 }
 
 // ---------------------------------------------------------------------------
