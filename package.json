@@ -52,6 +52,7 @@
     "test:requires-infra": "node scripts/list-requires-infra.mjs --run",
     "test:insights": "APP_BASE_URL=https://aries.example.com tsx --test tests/insights-endpoints.test.ts",
     "report:insights-health": "tsx scripts/insights-object-health.ts",
+    "report:duplicate-org-hygiene": "tsx scripts/report-duplicate-organization-hygiene.ts",
     "test:reply": "APP_BASE_URL=https://aries.example.com tsx --test tests/meta-reply.test.ts tests/insights-comment-reply-route.test.ts",
     "eval:creative-memory-learning": "tsx scripts/eval-creative-memory-learning.ts"
   },
