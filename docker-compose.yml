@@ -1171,6 +1171,10 @@ services:
       # threshold, so an hourly tick cannot spam a customer.
       ARIES_QUOTA_ALERTS_ENABLED: ${ARIES_QUOTA_ALERTS_ENABLED:-0}
       ARIES_FLEET_TENANT_KINDS: ${ARIES_FLEET_TENANT_KINDS:-production}
+      # Email tenant admins when a production connection enters reauthorization
+      # required or stays pending for more than seven days. Durable per-transition
+      # claims keep the hourly sweep from sending duplicates. Default OFF.
+      ARIES_CONNECTION_NUDGES_ENABLED: ${ARIES_CONNECTION_NUDGES_ENABLED:-0}
       ARIES_PLAN_ENFORCEMENT_METRIC: ${ARIES_PLAN_ENFORCEMENT_METRIC:-tasks}
       APP_BASE_URL: ${APP_BASE_URL}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
