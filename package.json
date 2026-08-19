@@ -29,6 +29,7 @@
     "test:concurrent": "APP_BASE_URL=https://aries.example.com tsx --test --test-concurrency=8 tests/agent-operational-guardrails.test.ts tests/production-process-concurrency.test.ts tests/post-workspace-state.test.ts",
     "smoke:scale50": "node scripts/smoke-scale-50.mjs",
     "smoke:meta-publish": "tsx scripts/smoke-meta-publish.ts",
+    "tenant:kind": "tsx scripts/tenant-kind.ts",
     "test:e2e": "tsx --test tests/frontend-api-layer.test.ts tests/public-marketing-pages.test.ts tests/runtime-api-truth.test.ts tests/runtime-pages.test.ts",
     "db:init": "node scripts/init-db.js",
     "db:seed-insights": "node scripts/seed-insights.mjs",
