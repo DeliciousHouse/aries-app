@@ -2,7 +2,9 @@
  * scripts/automations/insights-sync-worker.ts
  *
  * Long-lived sidecar that syncs platform analytics for every tenant that has
- * at least one connected insights_account. Runs every 30 minutes.
+ * at least one connected insights_account. After each sync it materializes the
+ * most recently completed weekly engagement trend once per process/week. Runs
+ * every 30 minutes.
  *
  * Follows the same pattern as scheduled-posts-worker.mjs:
  *   - Single replica in docker-compose (avoids duplicate API calls / DB writes)
@@ -31,6 +33,11 @@ import { syncAllAccountsForTenant } from '@/backend/insights/sync/dispatcher';
 import { sweepAbandonedSyncRuns } from '@/backend/insights/sync/sweep-stranded-runs';
 import { ensureInsightsAccountsForConnectedPlatforms } from '@/backend/insights/sync/ensure-account';
 import { classifyGatewayOrigin, probeClassifierGateway } from '@/backend/insights/sync/classify-comments';
+import {
+  runWeeklyEngagementIfDue,
+  type WeeklyEngagementQueryable,
+  type WeeklyEngagementScheduleState,
+} from '@/backend/insights/weekly-engagement-job';
 import type { Queryable } from '@/backend/integrations/composio/connection-store';
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -67,6 +74,38 @@ export type TickPool = {
 
 /** Injectable per-tenant sync, so tests can exercise the fan-out loop. */
 export type SyncAllAccountsFn = typeof syncAllAccountsForTenant;
+
+const weeklyEngagementState: WeeklyEngagementScheduleState = { completedWeekIso: null };
+let workerCycleRunning = false;
+
+/** Refresh metrics first, then materialize the most recently completed week. */
+export async function runWorkerCycle(
+  db: WeeklyEngagementQueryable,
+  sync: () => Promise<void>,
+  state: WeeklyEngagementScheduleState = weeklyEngagementState,
+  now: Date = new Date(),
+): Promise<Awaited<ReturnType<typeof runWeeklyEngagementIfDue>>> {
+  if (workerCycleRunning) {
+    log({ event: 'insights_worker_cycle_skip', reason: 'previous_cycle_still_running' });
+    return null;
+  }
+  workerCycleRunning = true;
+  try {
+    await sync();
+    try {
+      const report = await runWeeklyEngagementIfDue(db, state, now);
+      if (report) log({ event: 'insights_weekly_engagement_materialized', ...report });
+      return report;
+    } catch (err) {
+      // A failed materialization leaves the week unmarked so the next sync tick
+      // retries. Existing analytics syncs remain independent and successful.
+      log({ event: 'insights_weekly_engagement_failed', error: describeError(err) });
+      return null;
+    }
+  } finally {
+    workerCycleRunning = false;
+  }
+}
 
 async function tick(dbPool: TickPool, syncFn: SyncAllAccountsFn): Promise<void> {
   // Sweep stranded runs before syncing; a sweep failure must not cost the
@@ -241,9 +280,14 @@ function main(): void {
   // insights_accounts (otherwise the sync no-ops), then runs tickSafe — which
   // never rejects: failures are logged as insights_sync_fatal and the overlap
   // guard is released so the next interval retries.
-  void bridgeAndTick(pool);
+  const runCycle = () => runWorkerCycle(
+    pool as unknown as WeeklyEngagementQueryable,
+    () => bridgeAndTick(pool),
+  );
 
-  const intervalHandle = setInterval(() => void bridgeAndTick(pool), INTERVAL_MS);
+  void runCycle();
+
+  const intervalHandle = setInterval(() => void runCycle(), INTERVAL_MS);
 
   // ── Graceful shutdown ───────────────────────────────────────────────────────
 

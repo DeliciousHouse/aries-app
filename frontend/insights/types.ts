@@ -374,6 +374,15 @@ export interface WeeklyRecapNextAction {
   body:  string;
   href?: string;
 }
+export interface WeeklyRecapEngagementTrend {
+  direction:         "upward" | "downward" | "flat" | "insufficient_data";
+  currentPostCount:  number;
+  previousPostCount: number;
+  currentAverage:    number | null;
+  previousAverage:   number | null;
+  changePercent:     number | null;
+  computedAt:        string;
+}
 export interface WeeklyRecapReport {
   week: { iso: string; startYmd: string; endYmd: string; label: string };
   published: {
@@ -393,6 +402,7 @@ export interface WeeklyRecapReport {
   needsReconciliation: { total: number };
   topChannel:          WeeklyRecapTopChannel;
   insightsConnected:   boolean;
+  engagementTrend:     WeeklyRecapEngagementTrend | null;
   learnings:           WeeklyRecapLearning[];
   nextAction:          WeeklyRecapNextAction | null;
 }
