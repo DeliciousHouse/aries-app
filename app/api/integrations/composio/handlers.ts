@@ -29,6 +29,22 @@ import { IntegrationError } from '@/backend/integrations/providers/errors';
 import { notConnectedAccount } from '@/backend/integrations/composio/connection-store';
 import { platformPrerequisites } from '@/backend/integrations/composio/capability-preflight';
 
+export interface ConnectionHealthDb {
+  query(
+    sql: string,
+    params?: unknown[],
+  ): Promise<{ rows: Record<string, unknown>[]; rowCount?: number | null }>;
+}
+
+export const LAST_SUCCESSFUL_POSTS_SQL = `
+  SELECT spd.platform, MAX(spd.dispatched_at) AS last_successful_post_at
+    FROM scheduled_post_dispatches spd
+    JOIN scheduled_posts sp ON sp.id = spd.scheduled_post_id
+   WHERE sp.tenant_id = $1
+     AND spd.status = 'dispatched'
+     AND spd.dispatched_at IS NOT NULL
+   GROUP BY spd.platform`;
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -126,12 +142,38 @@ export async function handleComposioConnect(
 export async function handleComposioList(
   loader?: TenantContextLoader,
   provider: AccountConnectionProvider | null = getAccountConnectionProvider(),
+  db?: ConnectionHealthDb,
 ): Promise<Response> {
   const tenantResult = await loadTenantContextOrResponse(loader);
   if ('response' in tenantResult) return tenantResult.response;
   const { tenantId } = tenantResult.tenantContext;
 
   const config = resolveIntegrationConfig();
+
+  const lastSuccessfulPostByPlatform = new Map<string, string>();
+  if (db) {
+    try {
+      const result = await db.query(LAST_SUCCESSFUL_POSTS_SQL, [Number(tenantId)]);
+      for (const row of result.rows) {
+        const value = row.last_successful_post_at;
+        if (value !== null && value !== undefined) {
+          lastSuccessfulPostByPlatform.set(
+            String(row.platform),
+            value instanceof Date ? value.toISOString() : new Date(String(value)).toISOString(),
+          );
+        }
+      }
+    } catch {
+      return json(
+        {
+          status: 'error',
+          reason: 'connection_health_unavailable',
+          message: "We couldn't load publishing history. Please try again.",
+        },
+        500,
+      );
+    }
+  }
 
   const externalUserId = externalUserIdFor(tenantId);
   // Per-platform reconcile failures captured as frontend-safe advisories (#699).
@@ -142,15 +184,13 @@ export async function handleComposioList(
   if (provider) {
     try {
       stored = await provider.listConnections(externalUserId, { tenantId });
-      // Reconcile any pending connections: once the user has approved out-of-band,
-      // this flips the stored row from `pending` to `connected` and records the
-      // connected-account id. A refresh failure no longer silently leaves the row
-      // stranded as `pending` (#699) — we record a frontend-safe per-platform
-      // advisory and still re-read + return 200.
-      const pending = stored.filter((c) => c.status === 'pending');
-      if (pending.length > 0) {
+      // Refresh every stored row so the response reflects live provider state,
+      // including connected accounts that have since expired or been revoked.
+      // Failures remain per-platform advisories so an upstream outage does not
+      // blank the entire connection screen (#699).
+      if (stored.length > 0) {
         await Promise.all(
-          pending.map((c) =>
+          stored.map((c) =>
             provider
               .refreshConnectionStatus(externalUserId, c.platform, { tenantId })
               .then(() => undefined)
@@ -180,6 +220,8 @@ export async function handleComposioList(
     const account = byPlatform.get(platform) ?? notConnectedAccount(tenantId, externalUserId, platform, 'composio');
     return {
       ...account,
+      lastSuccessfulPostAt: lastSuccessfulPostByPlatform.get(platform) ?? null,
+      reauthorizationPath: `/api/integrations/composio/${platform}/connect`,
       prerequisites: platformPrerequisites(platform),
       reconcileError: reconcileErrors.get(platform) ?? null,
     };
