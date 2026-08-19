@@ -1,4 +1,8 @@
 import type { TenantContext } from '@/lib/tenant-context';
+import {
+  hermesResultOutcome,
+  withTaskExecutionLog,
+} from '@/backend/telemetry/task-execution-log';
 import { pseudonymForTenant } from './pseudonym';
 import type { ResearchMemoryContextEntry } from './orchestrator';
 
@@ -60,30 +64,43 @@ export async function dispatchResearchJob(
     callbackToken: input.callbackToken,
   };
 
-  let response: Response;
-  try {
-    response = await fetchImpl(webhookUrl, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(payload),
-    });
-  } catch (err) {
-    return {
-      ok: false,
-      error: `Hermes request failed: ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
+  return withTaskExecutionLog(
+    {
+      engine: 'AI_LLM',
+      taskKey: 'memory.marketing_research',
+      taskId: input.jobId,
+      tenantId: ctx.tenantId,
+      targetProfile: 'aries-research',
+      outcomeFromResult: hermesResultOutcome,
+    },
+    async () => {
+      let response: Response;
+      try {
+        response = await fetchImpl(webhookUrl, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'authorization': `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify(payload),
+        });
+      } catch (err) {
+        return {
+          ok: false,
+          error: `Hermes request failed: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
 
-  if (!response.ok) {
-    return {
-      ok: false,
-      error: `Hermes returned ${response.status}`,
-      status: response.status,
-    };
-  }
+      if (!response.ok) {
+        return {
+          ok: false,
+          error: `Hermes returned ${response.status}`,
+          status: response.status,
+        };
+      }
 
-  return { ok: true };
+      return { ok: true };
+    },
+    { env },
+  );
 }
