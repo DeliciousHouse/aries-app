@@ -6,6 +6,7 @@ import {
   sendApprovalNeededEmail,
   sendPublishFailedEmail,
   sendMetaReconnectWarningEmail,
+  sendConnectionHealthNudgeEmail,
   type NotificationEmailPayload,
 } from '../lib/email.js';
 
@@ -320,6 +321,29 @@ describe('email-notifications', () => {
         );
       } finally {
         if (saved !== undefined) process.env.RESEND_API_KEY = saved;
+      }
+    });
+  });
+
+  describe('sendConnectionHealthNudgeEmail', () => {
+    it('sends the owner to the branded reconnect flow', async () => {
+      const calls: NotificationEmailPayload[] = [];
+      const restore = withHook(calls);
+      try {
+        await sendConnectionHealthNudgeEmail({
+          to: 'owner@example.com',
+          workspaceName: 'Sugar & Leather',
+          platform: 'facebook',
+          kind: 'reauthorization_required',
+          reconnectUrl: 'https://aries.example.com/dashboard/settings/channel-integrations',
+        });
+        assert.equal(calls[0].context, 'connection-health-nudge');
+        assert.match(calls[0].subject, /facebook connection needs attention/i);
+        assert.match(calls[0].html, /Sugar &amp; Leather/);
+        assert.match(calls[0].text, /Reconnect account/);
+        assert.match(calls[0].text, /dashboard\/settings\/channel-integrations/);
+      } finally {
+        restore();
       }
     });
   });

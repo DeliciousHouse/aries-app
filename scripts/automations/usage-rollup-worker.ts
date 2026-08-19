@@ -37,6 +37,10 @@ import {
 } from '@/backend/telemetry/usage-rollup-env';
 import { runQuotaThresholdAlerts } from '@/backend/billing/quota-alerts';
 import {
+  connectionNudgesEnabled,
+  runConnectionHealthNudges,
+} from '@/backend/tenant/connection-health-nudges';
+import {
   runUsageRetentionSweep,
   type UsageRetentionReport,
 } from '@/backend/telemetry/usage-retention';
@@ -97,6 +101,17 @@ function summarizeRetention(report: UsageRetentionReport): Record<string, unknow
 let running = false;
 let intervalHandle: NodeJS.Timeout | null = null;
 
+async function runConnectionHealthNudgeTick(pool: pg.Pool): Promise<void> {
+  try {
+    const report = await runConnectionHealthNudges(pool);
+    if (report.emailsSent > 0 || report.errors > 0) {
+      console.log(`[usage-rollup-worker] connection nudges ${JSON.stringify(report)}`);
+    }
+  } catch (error) {
+    console.error('[usage-rollup-worker] connection nudge error', error);
+  }
+}
+
 /**
  * Overlap-guarded tick. The guard is released in `finally`, so a failed tick
  * (e.g. Postgres not up yet) retries next interval instead of wedging the worker
@@ -109,6 +124,9 @@ export async function tickSafe(pool: pg.Pool): Promise<void> {
   }
   running = true;
   try {
+    await runConnectionHealthNudgeTick(pool);
+    if (!usageRollupEnabled()) return;
+
     const rollup = await runUsageRollup(pool, {
       maxHoursPerPass: resolveUsageRollupMaxHoursPerPass(),
       maxBackfillDays: resolveUsageRollupMaxBackfillDays(),
@@ -178,13 +196,13 @@ export async function tickSafe(pool: pg.Pool): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  if (!usageRollupEnabled()) {
+  if (!usageRollupEnabled() && !connectionNudgesEnabled()) {
     // IDLE, do not exit. This runs as a docker-compose service with
     // `restart: unless-stopped`; a clean exit(0) makes Docker restart-loop the
     // container. Staying alive doing nothing leaves it cleanly "up" when the
     // flag is off, while still responding to `docker stop`.
     console.log(
-      '[usage-rollup-worker] ARIES_USAGE_ROLLUP_ENABLED is off; idling (no work). Set the flag and restart to enable.',
+      '[usage-rollup-worker] usage rollups and connection nudges are off; idling (no work). Set a flag and restart to enable.',
     );
     if (process.env.ARIES_USAGE_ROLLUP_RUN_ONCE?.trim() === '1') {
       process.exit(0); // one-shot / smoke invocations must not hang
@@ -202,7 +220,7 @@ async function main(): Promise<void> {
   const intervalMs = resolveUsageRollupIntervalMs();
   const pool = buildPool();
   console.log(
-    `[usage-rollup-worker] starting; interval=${intervalMs}ms retention=${usageRetentionEnabled()} retention_dry_run=${usageRetentionDryRun()} raw_retention_days=${resolveUsageRawRetentionDays()}`,
+    `[usage-rollup-worker] starting; interval=${intervalMs}ms rollup=${usageRollupEnabled()} connection_nudges=${connectionNudgesEnabled()} retention=${usageRetentionEnabled()} retention_dry_run=${usageRetentionDryRun()} raw_retention_days=${resolveUsageRawRetentionDays()}`,
   );
 
   await tickSafe(pool);
