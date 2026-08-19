@@ -112,6 +112,7 @@ function fakeDb(handlers: {
   reconnect?: Rows;
   availability?: Rows;
   channelReach?: Rows;
+  engagementTrend?: Rows;
 }): { db: WeeklyResultsQueryable; calls: string[] } {
   const calls: string[] = [];
   const db: WeeklyResultsQueryable = {
@@ -134,6 +135,9 @@ function fakeDb(handlers: {
       // CHANNEL_REACH_SQL is the only query grouping by platform.
       if (text.includes('GROUP BY 1') && text.includes('FROM insights_posts')) {
         return { rows: (handlers.channelReach ?? []) as never[] };
+      }
+      if (text.includes('FROM insights_engagement_trends_weekly')) {
+        return { rows: (handlers.engagementTrend ?? []) as never[] };
       }
       return { rows: [] as never[] };
     },
@@ -232,6 +236,41 @@ test('connected with metrics but zero aggregate reach falls back to the publishe
   const report = await buildWeeklyResultsReport(7, { now: NOW }, db);
   assert.equal(report.insightsConnected, true);
   assert.equal(report.topChannel.basis, 'published_count');
+});
+
+test('exposes the materialized engagement trend for the selected recap week', async () => {
+  const { db } = fakeDb({
+    engagementTrend: [{
+      direction: 'upward',
+      current_post_count: 4,
+      previous_post_count: 3,
+      current_average: '28.5',
+      previous_average: '19',
+      change_percent: '50',
+      computed_at: new Date('2026-08-10T00:05:00Z'),
+    }],
+  });
+
+  const report = await buildWeeklyResultsReport(7, { now: new Date('2026-08-12T12:00:00Z') }, db);
+
+  assert.deepEqual(report.engagementTrend, {
+    direction: 'upward',
+    currentPostCount: 4,
+    previousPostCount: 3,
+    currentAverage: 28.5,
+    previousAverage: 19,
+    changePercent: 50,
+    computedAt: '2026-08-10T00:05:00.000Z',
+  });
+});
+
+test('the weekly recap dashboard renders the materialized engagement direction', () => {
+  const source = readFileSync(
+    path.join(PROJECT_ROOT, 'frontend', 'insights', 'WeeklyRecapSection.tsx'),
+    'utf8',
+  );
+  assert.match(source, /report\.engagementTrend/);
+  assert.match(source, /Average engagement per measured post/);
 });
 
 test('A1 REGRESSION: channel reach reads the LATEST snapshot, never a SUM of dated rows', () => {

@@ -30,7 +30,7 @@ Separately, six sidecar Compose services run the same app image with a different
 | `aries-weekly-trigger-worker` | `node_modules/.bin/tsx scripts/automations/weekly-job-trigger-worker.ts` | OFF (`ARIES_WEEKLY_TRIGGER_ENABLED:-0`) | every 15m |
 | `aries-draft-expiry-sweep-worker` | `node_modules/.bin/tsx scripts/automations/draft-expiry-sweep-worker.ts` | OFF (`ARIES_DRAFT_EXPIRY_ENABLED:-0`) | every 6h |
 | `aries-hermes-gc-worker` | `node_modules/.bin/tsx scripts/automations/gc-missing-hermes-assets-worker.ts` | OFF (`ARIES_HERMES_GC_ENABLED:-0`) | every 6h |
-| `aries-insights-sync-worker` | `node_modules/.bin/tsx scripts/automations/insights-sync-worker.ts` | Always on | every 30m (hardcoded) |
+| `aries-insights-sync-worker` | `node_modules/.bin/tsx scripts/automations/insights-sync-worker.ts` | Always on | every 30m (hardcoded; weekly engagement is materialized after sync) |
 | `aries-honcho-performance-worker` | `npx tsx scripts/automations/honcho-performance-worker.ts` | Ledger writes ON (`HONCHO_WRITE_PUBLISH_ENABLED:-true`) | every 30m (hardcoded) |
 
 Gate parsing (`workerGateEnabled` in `start-runtime.mjs`) treats `1/true/yes/on` as truthy and `0/false/no/off` as falsy. Anything unset or unrecognized falls back to that gate's shipped default.
@@ -150,7 +150,7 @@ docker compose logs -f aries-scheduled-posts-worker
 - `aries-weekly-trigger-worker`: `summary {scanned,due,claimed,started,skipped,failed}` when `claimed` or `failed` > 0.
 - `aries-draft-expiry-sweep-worker`: `summary {dry_run,age_days,cutoff,candidates,expired,batches,truncated,top_tenants}` when there are candidates, expirations, or truncation.
 - `aries-honcho-performance-worker`: `summary {tenantsScanned,due,written,...,failed}` when `due` or `failed` > 0.
-- `aries-insights-sync-worker`: emits newline-delimited JSON events every tick, for example `{"event":"insights_sync_start",...}`, `insights_sync_account`, `insights_sync_done`, and `insights_sync_noop` when no accounts are connected.
+- `aries-insights-sync-worker`: emits newline-delimited JSON events every tick, for example `{"event":"insights_sync_start",...}`, `insights_sync_account`, `insights_sync_done`, and `insights_sync_noop` when no accounts are connected. After the first successful sync cycle in a new completed week, it emits `insights_weekly_engagement_materialized` with tenant scan/write counts.
 
 ### Check the database for evidence of work
 
@@ -161,6 +161,14 @@ docker compose exec aries-app sh -c \
 ```
 
 Expected result: as the scheduled-posts worker runs, rows move through the `dispatch_status` enum `pending -> in_flight -> dispatched` (or `failed`). Insights runs are recorded in `insights_sync_runs`.
+
+Confirm the weekly engagement materialization that feeds the Insights recap:
+
+```bash
+docker compose exec aries-app sh -c \
+  'PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
+  -c "SELECT tenant_id, week_start, direction, change_percent, computed_at FROM insights_engagement_trends_weekly ORDER BY week_start DESC, tenant_id;"'
+```
 
 ## Troubleshooting
 

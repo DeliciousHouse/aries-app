@@ -55,6 +55,16 @@ export interface WeeklyResultsNextAction {
   href?: string;
 }
 
+export interface WeeklyEngagementTrend {
+  direction: 'upward' | 'downward' | 'flat' | 'insufficient_data';
+  currentPostCount: number;
+  previousPostCount: number;
+  currentAverage: number | null;
+  previousAverage: number | null;
+  changePercent: number | null;
+  computedAt: string;
+}
+
 export interface WeeklyResultsReport {
   week: { iso: string; startYmd: string; endYmd: string; label: string };
   published: { total: number; byChannel: Record<string, number>; bySurface: Record<string, number> };
@@ -69,6 +79,7 @@ export interface WeeklyResultsReport {
   needsReconciliation: { total: number };
   topChannel: { channel: string | null; basis: 'published_count' | 'reach'; value: number };
   insightsConnected: boolean;
+  engagementTrend: WeeklyEngagementTrend | null;
   learnings: WeeklyResultsLearning[];
   nextAction: WeeklyResultsNextAction | null;
 }
@@ -179,11 +190,31 @@ export const CHANNEL_REACH_SQL = `
   ORDER BY 2 DESC, 1 ASC
 `;
 
+export const ENGAGEMENT_TREND_SQL = `
+  SELECT direction,
+         current_post_count,
+         previous_post_count,
+         current_average,
+         previous_average,
+         change_percent,
+         computed_at
+  FROM insights_engagement_trends_weekly
+  WHERE tenant_id = $1
+    AND week_start = $2::date
+  LIMIT 1
+`;
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function toInt(v: unknown): number {
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : 0;
+}
+
+function toNumberOrNull(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function titleCaseChannel(channel: string): string {
@@ -376,7 +407,30 @@ export async function buildWeeklyResultsReport(
     }, {});
   }
 
-  // ── 6. Top channel — basis follows the data, and is always labeled ──────
+  // ── 6. Materialized week-over-week engagement trend ────────────────────
+  const trendRes = await db.query<{
+    direction: WeeklyEngagementTrend['direction'];
+    current_post_count: number | string;
+    previous_post_count: number | string;
+    current_average: number | string | null;
+    previous_average: number | string | null;
+    change_percent: number | string | null;
+    computed_at: string | Date;
+  }>(ENGAGEMENT_TREND_SQL, [tenantId, week.startYmd]);
+  const trendRow = trendRes.rows[0];
+  const engagementTrend: WeeklyEngagementTrend | null = trendRow
+    ? {
+        direction: trendRow.direction,
+        currentPostCount: toInt(trendRow.current_post_count),
+        previousPostCount: toInt(trendRow.previous_post_count),
+        currentAverage: toNumberOrNull(trendRow.current_average),
+        previousAverage: toNumberOrNull(trendRow.previous_average),
+        changePercent: toNumberOrNull(trendRow.change_percent),
+        computedAt: new Date(trendRow.computed_at).toISOString(),
+      }
+    : null;
+
+  // ── 7. Top channel — basis follows the data, and is always labeled ──────
   const reachTotal = Object.values(reachByChannel).reduce((a, b) => a + b, 0);
   const useReach = insightsConnected && reachTotal > 0;
   const basisSource = useReach ? reachByChannel : byChannel;
@@ -418,6 +472,7 @@ export async function buildWeeklyResultsReport(
     needsReconciliation,
     topChannel,
     insightsConnected,
+    engagementTrend,
     learnings,
     nextAction,
   };
