@@ -20,6 +20,12 @@
  *   category  ∈ question | compliment | complaint | spam | other
  */
 
+import {
+  hermesResultOutcome,
+  withTaskExecutionLog,
+  type RecordTaskExecutionOptions,
+} from '@/backend/telemetry/task-execution-log';
+
 const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
 const MIN_POLL_INTERVAL_MS = 250;
@@ -103,6 +109,8 @@ type ClassifySleep = (ms: number) => Promise<void>;
 
 export type ClassifyCommentsInput = {
   comments:  ClassifyInput[];
+  tenantId?: number | string | null;
+  telemetryDb?: RecordTaskExecutionOptions['db'];
   env?:      ClassifyEnv;
   fetchImpl?: ClassifyFetch;
   sleep?:    ClassifySleep;
@@ -314,7 +322,17 @@ export async function classifyCommentsWithHermes(input: ClassifyCommentsInput): 
     session_id: sessionKey,
   };
 
-  let runId: string;
+  let runId = '';
+  return withTaskExecutionLog(
+    {
+      engine: 'AI_LLM',
+      taskKey: 'insights.classify_comments',
+      tenantId: input.tenantId,
+      modelRequested: modelHint,
+      detailsFromResult: () => ({ externalRunId: runId || null }),
+      outcomeFromResult: hermesResultOutcome,
+    },
+    async () => {
   try {
     const submitController = new AbortController();
     const submitTimer = setTimeout(() => submitController.abort(), timeoutMs);
@@ -373,4 +391,7 @@ export async function classifyCommentsWithHermes(input: ClassifyCommentsInput): 
     await sleep(intervalMs);
   }
   return { ok: false, reason: 'timeout' };
+    },
+    { env, db: input.telemetryDb },
+  );
 }

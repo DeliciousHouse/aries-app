@@ -332,6 +332,8 @@ export async function handleHermesRunCallback(
             appliedStatus === 'completed'
               ? null
               : (appliedError?.code ?? (appliedStatus === 'cancelled' ? 'cancelled' : 'hermes_run_failed')),
+          errorClass: appliedStatus === 'completed' ? null : 'HermesRunError',
+          errorMessage: appliedStatus === 'completed' ? null : appliedError?.message,
           startedAt: Number.isFinite(startedMs) ? new Date(startedMs) : null,
           endTime: new Date(),
           durationMs: durationSinceIso(run.created_at),
