@@ -71,6 +71,17 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def parse_tenant_kinds(raw: str | None) -> tuple[str, ...]:
+    text = (raw or "").strip()
+    if not text:
+        return ("production",)
+    kinds = tuple(dict.fromkeys(part.strip().lower() for part in text.split(",") if part.strip()))
+    invalid = next((kind for kind in kinds if kind not in {"production", "test", "archived"}), None)
+    if invalid:
+        raise ValueError(f"invalid PIPEMON_TENANT_KINDS value: {invalid}")
+    return kinds or ("production",)
+
+
 DATA_ROOT = Path(_env_str("DATA_ROOT", "/home/node/aries-data")).expanduser()
 STATE_DIR = Path(
     _env_str("STATE_DIR", str(Path.home() / ".local/state/aries-pipeline-monitor"))
@@ -85,6 +96,8 @@ HERMES_BIN = _env_str("HERMES_BIN", "/home/node/.local/bin/hermes")
 TELEGRAM_TARGET = _env_str("TELEGRAM_TARGET", "telegram")
 PG_CONTAINER = _env_str("PG_CONTAINER", "n8n-postgres")
 DB_NAME = _env_str("DB_NAME", "aries_auth")
+INCLUDED_TENANT_KINDS = parse_tenant_kinds(_env_str("TENANT_KINDS", "production"))
+TENANT_KIND_LIST_SQL = ", ".join(f"'{kind}'" for kind in INCLUDED_TENANT_KINDS)
 
 # A failed run doc older than this is history, not news. 26 h (not 24) so a
 # daily-cadence failure is never missed by clock drift between ticks.
@@ -424,35 +437,67 @@ def detect_stage_failures(docs, reference=None):
 
 
 SQL_DEGRADED = f"""
-SELECT tenant_id, account_id, platform,
-       count(*) FILTER (WHERE status <> 'ok') AS bad,
+SELECT r.tenant_id, r.account_id, r.platform,
+       count(*) FILTER (WHERE r.status <> 'ok') AS bad,
        count(*) AS total,
-       coalesce((array_agg(error_message ORDER BY started_at DESC)
-                 FILTER (WHERE error_message IS NOT NULL))[1], '') AS last_err
-  FROM insights_sync_runs
- WHERE started_at > now() - interval '24 hours'
+       coalesce((array_agg(r.error_message ORDER BY r.started_at DESC)
+                 FILTER (WHERE r.error_message IS NOT NULL))[1], '') AS last_err
+  FROM insights_sync_runs r
+  JOIN organizations o ON o.id = r.tenant_id
+ WHERE r.started_at > now() - interval '24 hours'
+   AND o.kind IN ({TENANT_KIND_LIST_SQL})
  GROUP BY 1, 2, 3
-HAVING count(*) FILTER (WHERE status = 'ok') = 0
-   AND count(*) FILTER (WHERE status <> 'ok') >= {DEGRADED_MIN_BAD}
+HAVING count(*) FILTER (WHERE r.status = 'ok') = 0
+   AND count(*) FILTER (WHERE r.status <> 'ok') >= {DEGRADED_MIN_BAD}
  ORDER BY bad DESC
  LIMIT 50
 """
 
-SQL_LAST_SYNC = "SELECT coalesce(max(started_at)::text, '') FROM insights_sync_runs"
-
-SQL_ENABLED_SCHEDULES = "SELECT count(*) FROM marketing_schedule WHERE enabled"
-
-SQL_QUARANTINE = """
-SELECT count(*) FILTER (WHERE metrics_unavailable_at IS NOT NULL),
-       count(*) FILTER (WHERE comments_unavailable_at IS NOT NULL),
-       count(*) FILTER (WHERE metrics_error_count > 0 AND metrics_unavailable_at IS NULL)
-  FROM insights_posts
+SQL_LAST_SYNC = f"""
+SELECT coalesce(max(started_at)::text, '')
+  FROM insights_sync_runs r
+  JOIN organizations o ON o.id = r.tenant_id
+ WHERE o.kind IN ({TENANT_KIND_LIST_SQL})
 """
 
-SQL_DISABLED_ACCOUNTS = """
-SELECT tenant_id, platform, coalesce(disabled_reason, '')
-  FROM insights_accounts WHERE disabled_at IS NOT NULL ORDER BY 1, 2 LIMIT 50
+SQL_ENABLED_SCHEDULES = f"""
+SELECT count(*)
+  FROM marketing_schedule ms
+  JOIN organizations o ON o.id = ms.tenant_id
+ WHERE ms.enabled AND o.kind IN ({TENANT_KIND_LIST_SQL})
 """
+
+SQL_QUARANTINE = f"""
+SELECT count(*) FILTER (WHERE ip.metrics_unavailable_at IS NOT NULL),
+       count(*) FILTER (WHERE ip.comments_unavailable_at IS NOT NULL),
+       count(*) FILTER (WHERE ip.metrics_error_count > 0 AND ip.metrics_unavailable_at IS NULL)
+  FROM insights_posts ip
+  JOIN organizations o ON o.id = ip.tenant_id
+ WHERE o.kind IN ({TENANT_KIND_LIST_SQL})
+"""
+
+SQL_DISABLED_ACCOUNTS = f"""
+SELECT ia.tenant_id, ia.platform, coalesce(ia.disabled_reason, '')
+  FROM insights_accounts ia
+  JOIN organizations o ON o.id = ia.tenant_id
+ WHERE ia.disabled_at IS NOT NULL AND o.kind IN ({TENANT_KIND_LIST_SQL})
+ ORDER BY 1, 2 LIMIT 50
+"""
+
+SQL_INCLUDED_TENANTS = f"""
+/* fleet_tenant_ids */
+SELECT o.id::text
+  FROM organizations o
+ WHERE o.kind IN ({TENANT_KIND_LIST_SQL})
+ ORDER BY o.id
+"""
+
+
+def load_included_tenant_ids():
+    rows = psql_query(SQL_INCLUDED_TENANTS)
+    if rows is None:
+        return None
+    return {str(row[0]) for row in rows if row and str(row[0]).strip()}
 
 
 def detect_sync_degraded():
@@ -714,7 +759,14 @@ def collect(docs, reference=None):
     findings = []
     notes = {"db_unavailable": False, "auth_suppressed": 0, "by_stage_code": {}}
 
-    stage, auth_suppressed, by_stage_code = detect_stage_failures(docs, reference)
+    included_tenant_ids = load_included_tenant_ids()
+    if included_tenant_ids is None:
+        notes["db_unavailable"] = True
+        fleet_docs = docs
+    else:
+        fleet_docs = [doc for doc in docs if str(doc.get("tenant_id") or "") in included_tenant_ids]
+
+    stage, auth_suppressed, by_stage_code = detect_stage_failures(fleet_docs, reference)
     findings.extend(stage)
     notes["auth_suppressed"] = auth_suppressed
     notes["by_stage_code"] = by_stage_code
@@ -727,7 +779,7 @@ def collect(docs, reference=None):
     for detector in (
         lambda: detect_sync_degraded(),
         lambda: detect_sync_silent(reference),
-        lambda: detect_trigger_silence(docs, reference),
+        lambda: detect_trigger_silence(fleet_docs, reference),
     ):
         result = detector()
         if result is None:
@@ -960,7 +1012,7 @@ def scenario(fn):
 
 
 @contextlib.contextmanager
-def fixture(docs=None, psql=None, armed=True, send_outcome=None, cookies=None):
+def fixture(docs=None, psql=None, armed=True, send_outcome=None, cookies=None, included_tenants=None):
     """Throwaway state dir + fixture run docs + a stubbed psql, with sends
     captured instead of delivered. `send_outcome` (callable(text) -> bool)
     simulates delivery failures. `cookies` writes a prober state file (dict) —
@@ -977,9 +1029,22 @@ def fixture(docs=None, psql=None, armed=True, send_outcome=None, cookies=None):
         CFG.cookie_state.write_text(json.dumps(cookies), encoding="utf-8")
     jobs = CFG.data_root / "generated" / "draft" / "marketing-jobs"
     jobs.mkdir(parents=True, exist_ok=True)
-    for i, doc in enumerate(docs or []):
+    fixture_docs = docs or []
+    for i, doc in enumerate(fixture_docs):
         (jobs / f"job{i}.json").write_text(json.dumps(doc), encoding="utf-8")
-    CFG.psql_stub = psql if psql is not None else (lambda sql: [])
+    psql_stub = psql if psql is not None else (lambda sql: [])
+    tenant_ids = (
+        {str(value) for value in included_tenants}
+        if included_tenants is not None
+        else {str(doc.get("tenant_id")) for doc in fixture_docs if doc.get("tenant_id") is not None}
+    )
+
+    def fixture_psql(sql):
+        if "fleet_tenant_ids" in sql:
+            return [[tenant_id] for tenant_id in sorted(tenant_ids)]
+        return psql_stub(sql)
+
+    CFG.psql_stub = fixture_psql
     CFG.capture_sends = True
     CFG.dry_run = False
     CFG.send_outcome = send_outcome
@@ -1233,6 +1298,39 @@ def trigger_silence_fires_when_schedules_enabled_but_no_runs():
         tick()
         assert len(SENT) == 1, SENT
         assert "Weekly trigger silent" in SENT[0], SENT[0]
+
+
+@scenario
+def fleet_alert_queries_exclude_non_production_tenants_by_default():
+    assert parse_tenant_kinds("") == ("production",)
+    assert parse_tenant_kinds("production,test") == ("production", "test")
+    try:
+        parse_tenant_kinds("production,customer")
+        raise AssertionError("invalid tenant kinds must fail closed")
+    except ValueError:
+        pass
+    for sql in (
+        SQL_DEGRADED,
+        SQL_LAST_SYNC,
+        SQL_ENABLED_SCHEDULES,
+        SQL_QUARANTINE,
+        SQL_DISABLED_ACCOUNTS,
+    ):
+        assert "JOIN organizations o" in sql, sql
+        assert "o.kind IN" in sql, sql
+
+
+@scenario
+def test_tenant_run_docs_do_not_page_the_operator():
+    docs = [
+        failed_doc("mkt_prod", 15, "generation_failed", "production failed"),
+        failed_doc("mkt_test", 70, "generation_failed", "canary failed"),
+    ]
+    with fixture(docs=docs, included_tenants={"15"}):
+        tick()
+        assert len(SENT) == 1, SENT
+        assert "tenant 15" in SENT[0], SENT[0]
+        assert "tenant 70" not in SENT[0], SENT[0]
 
 
 # ── COOKIE_STALE (Agent-Reach cookie sessions) ─────────────────────────────

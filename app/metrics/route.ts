@@ -1,5 +1,6 @@
 import { collectAriesMetrics } from '@/backend/observability/prometheus-metrics';
 import { probeHermesGatewayHealth } from '@/backend/marketing/hermes-runtime-contract';
+import { resolveFleetTenantKinds } from '@/backend/tenant/organization-kind';
 import pool from '@/lib/db';
 import { verifyInternalCallbackRequest } from '@/lib/internal-callback-auth';
 
@@ -21,6 +22,7 @@ export async function GET(request: Request): Promise<Response> {
     const body = await collectAriesMetrics(pool, {
       hermesUp: hermes.ok,
       draftExpiryAgeDays: draftExpiryAgeDays(),
+      tenantKinds: resolveFleetTenantKinds(),
     });
     return new Response(body, {
       headers: {

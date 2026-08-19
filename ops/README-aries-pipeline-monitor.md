@@ -21,7 +21,7 @@ outside the app means an alerting bug cannot break the pipeline.
 
 | Detector | Fires when | Source |
 | --- | --- | --- |
-| `STAGE_FAILURE` | a run doc is `failed`/`failed_stale` and was updated within `LOOKBACK_HOURS` (26) | `$PIPEMON_DATA_ROOT/generated/draft/marketing-jobs/*.json` |
+| `STAGE_FAILURE` | an included-tenant run doc is `failed`/`failed_stale` and was updated within `LOOKBACK_HOURS` (26) | `$PIPEMON_DATA_ROOT/generated/draft/marketing-jobs/*.json` + `organizations.kind` |
 | `SYNC_DEGRADED` | an account has ≥ `DEGRADED_MIN_BAD` (6) non-`ok` sync runs and **zero** `ok` runs in 24 h | `insights_sync_runs` |
 | `SYNC_SILENT` | no sync run started in `SILENT_AFTER_HOURS` (2) | `insights_sync_runs` |
 | `TRIGGER_SILENCE` | ≥1 enabled `marketing_schedule` row but no run doc created in `TRIGGER_SILENCE_DAYS` (8) | `marketing_schedule` + run docs |
@@ -165,6 +165,7 @@ if the deploy moves.
 | `PIPEMON_TELEGRAM_TARGET` | `telegram` |
 | `PIPEMON_PG_CONTAINER` | `n8n-postgres` |
 | `PIPEMON_DB_NAME` | `aries_auth` |
+| `PIPEMON_TENANT_KINDS` | `production` (comma-separated; add other kinds explicitly) |
 | `PIPEMON_LOOKBACK_HOURS` | `26` |
 | `PIPEMON_RE_ALERT_HOURS` | `6` |
 | `PIPEMON_DEGRADED_MIN_BAD` | `6` |
