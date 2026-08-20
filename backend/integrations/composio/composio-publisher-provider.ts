@@ -64,6 +64,31 @@ function pickId(data: unknown, keys: string[]): string | null {
   return null;
 }
 
+function readSuccessVerdict(
+  data: unknown,
+  depth = 0,
+): { success: boolean; detail: string | null } | undefined {
+  if (!data || typeof data !== 'object' || depth > 3) return undefined;
+  const obj = data as Record<string, unknown>;
+
+  if (typeof obj.success === 'boolean') {
+    const detail =
+      (typeof obj.validation_error === 'string' && obj.validation_error.trim()) ||
+      (typeof obj.validation_message === 'string' && obj.validation_message.trim()) ||
+      null;
+    return { success: obj.success, detail };
+  }
+
+  for (const nestKey of ['data', 'response', 'result', 'json']) {
+    const nested = obj[nestKey];
+    if (nested && typeof nested === 'object') {
+      const found = readSuccessVerdict(nested, depth + 1);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
 function pickUrl(data: unknown): string | null {
   return pickId(data, ['permalink', 'permalink_url', 'url', 'link']);
 }
@@ -107,6 +132,11 @@ const PERMANENT_REDDIT_ERROR_TOKENS = [
   'SUBREDDIT_REQUIRED',
   'NO_SELFS',
   'NO_LINKS',
+  'FLAIR_REQUIRED',
+  'INVALID_FLAIR_ID',
+  'BODY_NOT_ALLOWED',
+  'POST_GUIDANCE_VALIDATION_FAILED',
+  'BANNED_FROM_SUBREDDIT',
 ] as const;
 
 function isPermanentBrokerError(error: string | null | undefined): boolean {
@@ -771,6 +801,30 @@ export class ComposioPublisherProvider implements PublisherProvider {
       connectedAccountId: conn.connectedAccountId!,
       arguments: toolArgs,
     });
+
+    // AA-241: the ENVELOPE is not the whole verdict. The live
+    // REDDIT_CREATE_REDDIT_POST model declares `success` as the ONLY required
+    // response field — "Whether the post was created successfully. If false,
+    // check 'validation_error' for details" — with id/url/name "Present when
+    // post creation succeeds".
+    //
+    // Reading only `result.successful` meant a rejected post took the SUCCESS
+    // path: no id to pick up, so publishPost returned status:'published' with
+    // externalPostId:null, which publish-dispatch converts into
+    // provider_publish_missing_id + outcomeUnknown:true — "the post may already
+    // be live", explicitly never auto-retried. Nothing was posted, and the
+    // operator was told it might have been.
+    //
+    // ONLY an explicit `success === false` is a failure. A body that omits the
+    // field (the pre-typed-model shape, still returned by some paths) is left
+    // alone, so this cannot turn a working publish into an error.
+    const verdict = readSuccessVerdict(result.data);
+    if (verdict && verdict.success === false) {
+      const detail = verdict.detail ?? 'the platform reported the post was not created';
+      throw new ComposioToolError(slug, detail, {
+        terminal: input.platform === 'reddit' && isPermanentBrokerError(detail),
+      });
+    }
 
     if (!result.successful) {
       // Classify the broker verdict: a PERMANENT Reddit error code (e.g.

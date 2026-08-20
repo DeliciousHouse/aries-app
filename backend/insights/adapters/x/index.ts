@@ -63,8 +63,7 @@ const DEFAULT_SLUGS: Partial<Record<ComposioOperation, string>> = {
   list_comments: 'TWITTER_RECENT_SEARCH',
 };
 
-/** tweet_fields requested by the batch lookup (engagement + thread root id). */
-const X_LOOKUP_FIELDS = 'public_metrics,conversation_id';
+const X_LOOKUP_FIELDS = ['public_metrics', 'conversation_id'];
 
 // ── Response unwrapping helpers (mirror the FB adapter) ─────────────────────────
 
@@ -256,7 +255,8 @@ export class XInsightsAdapter implements InsightsAdapter {
     // ONE batch gateway call for engagement + conversation_id (no fan-out).
     const ids = dbRows.map((r) => r.platform_post_id);
     const data = await this.exec('list_posts', {
-      ids: ids.join(','),
+      // AA-241: the declared type is `array`, not a comma-joined string.
+      ids,
       tweet_fields: X_LOOKUP_FIELDS,
     });
     for (const tweet of unwrapToArray(data)) {
@@ -335,7 +335,7 @@ export class XInsightsAdapter implements InsightsAdapter {
     let conversationId = this.engagementCache.get(externalPostId)?.conversationId ?? null;
     if (!conversationId) {
       const lookup = unwrapToObject(
-        await this.exec('post_insights', { id: externalPostId, tweet_fields: 'conversation_id' }),
+        await this.exec('post_insights', { id: externalPostId, tweet_fields: ['conversation_id'] }),
       );
       conversationId = conversationIdOf(lookup);
     }
@@ -351,9 +351,9 @@ export class XInsightsAdapter implements InsightsAdapter {
       query,
       // X recent search requires max_results in [10, 100].
       max_results: Math.min(Math.max(limit, 10), 100),
-      tweet_fields: 'created_at,author_id',
-      expansions: 'author_id',
-      user_fields: 'username',
+      tweet_fields: ['created_at', 'author_id'],
+      expansions: ['author_id'],
+      user_fields: ['username'],
     });
 
     const { tweets, users } = parseSearchEnvelope(data);
