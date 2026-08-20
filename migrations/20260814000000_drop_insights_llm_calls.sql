@@ -15,28 +15,46 @@
 -- one database that had it kept it. If you are reading this file to find out
 -- what runs, read init-db.js instead.
 --
--- The table was created as a per-LLM-call cost audit log ("every LLM call with
--- cost, tokens, and outcome") and was never wired to anything. A repo-wide
--- search finds it in exactly three places — scripts/init-db.js, CLAUDE.md and
--- the analytics roadmap — and in zero lines of application code. Nothing has
--- ever inserted a row, so on every deployment it has been an empty table with
--- an index, and any query written against it would truthfully report that this
--- product makes no LLM calls.
+-- WHAT IS VERIFIED, AND WHAT IS NOT. Precision matters here because an earlier
+-- version of this file asserted things it had not measured, and review rejected
+-- it on exactly that basis.
 --
--- Its intended job is now done properly by `task_execution_log` (AA-159), which
--- records the processing engine, model hint, tokens, cost and duration for real
--- work, with the rollup/retention layer (AA-161) on top. Keeping a second,
--- permanently-empty cost table next to a populated one is worse than having
--- neither: it invites someone to read the wrong one.
+-- Verified, from the repository:
+--   * The table was created as a per-LLM-call cost audit log ("every LLM call
+--     with cost, tokens, and outcome") and no code reads or writes it. A
+--     repo-wide search finds it only in the two sanctioned removal sites and in
+--     documentation — zero lines of application code. This is guarded by a test
+--     (tests/insights-backlog-10-12.test.ts), so it stays true.
+--   * Its intended job is done by `task_execution_log` (AA-159), which records
+--     engine, model hint, tokens, cost and duration for real work, with the
+--     rollup/retention layer (AA-161) on top.
 --
--- DROP, not archive: there is no data to preserve. `IF EXISTS` keeps this
--- idempotent and safe on a database that never ran the original CREATE (the
--- table is `CREATE TABLE IF NOT EXISTS` in init-db, so its presence varies by
--- how old the deployment is). The index goes with the table automatically; it
--- is named here only so a reader grepping for the index finds this file.
+-- NOT verified, and deliberately not claimed:
+--   * How many rows this table holds in production, or has ever held. Nobody
+--     has queried it. "No writer exists, therefore it is empty" is a sound
+--     inference about the code, not a measurement of a database, and the two
+--     are not interchangeable — a row could have arrived from a migration, a
+--     manual session, an older revision of the app, or a path nobody
+--     remembers.
+--
+-- THE DROP DOES NOT DEPEND ON THAT INFERENCE. The executed block in
+-- scripts/init-db.js counts rows first: it drops only an EMPTY table, and
+-- leaves a non-empty one in place with a loud WARNING for a human to inspect.
+-- So the argument for removing this table is "nothing uses it", which is
+-- checkable; the safety of removing it does not rest on any belief about its
+-- contents, which is not.
+--
+-- `IF EXISTS` here keeps this statement idempotent and safe on a database that
+-- never ran the original CREATE (the table was `CREATE TABLE IF NOT EXISTS`, so
+-- its presence varies by how old the deployment is). Note this mirrored
+-- statement is UNGUARDED — it would drop a non-empty table. That is tolerable
+-- only because this file does not execute; if you ever run it by hand, check
+-- the row count first, exactly as init-db.js does.
 --
 -- Reversal, if ever needed, is the CREATE TABLE block removed from
--- scripts/init-db.js in the same commit — recoverable from git history.
+-- scripts/init-db.js in the same commit — recoverable from git history. Rows,
+-- if any turn out to exist, are NOT recoverable from git; that is the reason
+-- the executed path refuses to drop them.
 
 DROP TABLE IF EXISTS insights_llm_calls;
 -- (idx_insights_llm_calls_tenant_called_at is dropped with its table)

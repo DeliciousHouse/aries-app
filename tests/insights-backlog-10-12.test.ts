@@ -128,6 +128,49 @@ test('item 12: the migration file exists as a RECORD, and says it does not apply
   );
 });
 
+test('item 12: no AA-129 file claims a production row count nobody measured', () => {
+  // Review rejected this twice. The first fix left "nothing has ever inserted a
+  // row / every deployment kept it empty / there is no data to preserve" in the
+  // migration body and "held zero rows for its entire life" in CLAUDE.md — all
+  // statements about production history and current state that nobody has
+  // queried.
+  //
+  // The defensible claim is about the CODE ("no writer exists"), which this
+  // suite verifies. The claim about the DATA is not ours to make, and the drop
+  // is built so it does not need to be: it counts at runtime. This guard keeps
+  // the prose honest, because prose is where the overreach happened both times.
+  const UNVERIFIABLE = [
+    /\bheld zero rows\b/i,
+    /\bnever held a row\b/i,
+    /\bnothing has ever inserted a row\b/i,
+    /\bno data to preserve\b/i,
+    /\bpermanently[- ]empty\b/i,
+    /\bon every deployment it has been an empty table\b/i,
+  ];
+  const FILES = [
+    ['migrations', '20260814000000_drop_insights_llm_calls.sql'],
+    ['scripts', 'init-db.js'],
+  ] as const;
+
+  for (const parts of FILES) {
+    const source = read(...parts);
+    for (const pattern of UNVERIFIABLE) {
+      // A file may QUOTE the rejected claim while explaining why it is not made
+      // — what it must not do is assert it. Lines that also carry the retraction
+      // vocabulary are allowed.
+      const offending = source
+        .split(/\r?\n/)
+        .filter((line) => pattern.test(line))
+        .filter((line) => !/not claimed|NOT verified|inference|nobody has queried|deliberately not/i.test(line));
+      assert.deepEqual(
+        offending,
+        [],
+        `${parts.join('/')}: asserts an unmeasured production row count — ${offending.join(' | ')}`,
+      );
+    }
+  }
+});
+
 test('item 12: the drop refuses to act on an unverified assumption', () => {
   // "It held zero rows for its whole life" was an INFERENCE from the code (no
   // writers), not a measurement of production — the review was right to reject

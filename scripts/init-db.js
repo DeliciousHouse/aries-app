@@ -1583,7 +1583,9 @@ async function initDb() {
       -- created here. It was never wired — no code reads or writes it — and the
       -- job it was meant to do is done by task_execution_log (AA-159), which
       -- records engine, tokens, cost and duration for real work. Two cost
-      -- tables where one is permanently empty invites querying the wrong one.
+      -- cost tables, one of which nothing writes to, invites querying the
+      -- wrong one. (How many rows it actually holds is NOT claimed here — see
+      -- the count below, which is why that question does not need answering.)
       --
       -- REMOVING THE CREATE IS ONLY HALF THE JOB, and the half that helps the
       -- fewest databases. A migrations/-only file does NOT run in production —
