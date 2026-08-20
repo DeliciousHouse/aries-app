@@ -31,6 +31,31 @@ test('YouTube post mapper sends id as an array', () => {
   assert.deepEqual(args.id, ['vid1']);
 });
 
+test('AA-241: the X post-insights mapper sends tweet_fields as an ARRAY', () => {
+  // The SIXTH site from AA-241, and the one the first pass missed: the ticket
+  // listed five call sites in the X insights adapter AND this mapper, and only
+  // the adapter was converted.
+  //
+  // The live twitter toolkit (20260812_00) declares tweet_fields as `array`
+  // with an itemEnum on TWITTER_POST_LOOKUP_BY_POST_ID as it does on the batch
+  // lookup. A string here is rejected by the broker, exec throws on
+  // successful:false, and the analytics leg reports an error instead of
+  // engagement.
+  const m = getAnalyticsMapper('x', 'post_insights');
+  assert.ok(m);
+  assert.equal(m!.slug, 'TWITTER_POST_LOOKUP_BY_POST_ID');
+
+  const args = m!.buildArgs({ externalAccountId: null, externalPostId: 'tweet1' });
+  assert.deepEqual(
+    args.tweet_fields,
+    ['public_metrics'],
+    'tweet_fields must be an array, not the comma-joinable string form',
+  );
+  // `id` is the SINGULAR lookup's scalar path argument — unlike the batch
+  // lookup's `ids`, it is declared a string, so it must stay one.
+  assert.equal(args.id, 'tweet1');
+});
+
 test('LinkedIn builds an organization URN', () => {
   const m = getAnalyticsMapper('linkedin', 'account_insights')!;
   assert.equal(m.buildArgs({ externalAccountId: '2414183' }).organizational_entity, 'urn:li:organization:2414183');
