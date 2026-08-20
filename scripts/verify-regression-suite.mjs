@@ -555,24 +555,10 @@ const steps = [
     ],
   },
   {
-    // AA-229/PR2b relocated this report onto /insights as Section 10, so the
-    // print rules gained a job: drop the other nine sections, or Cmd+P produces
-    // the whole dashboard instead of the one-page recap.
-    // AA-129 backlog items 10 + 12. ITEM 12: the dead `insights_llm_calls`
-    // table — created as an LLM cost audit log but never wired in application
-    // code, while `task_execution_log` (AA-159) did the job for real. The risk
-    // was someone querying the dead schema and concluding
-    // this product makes no LLM calls. Dropped in both places (init-db + a
-    // migration, since removing it from init-db alone would leave it forever on
-    // exactly the deployments that have it), with a repo scan asserting nothing
-    // references it — that scan is the evidence the delete decision rests on.
-    // ITEM 10 (qa-defect #648): LinkedIn exposes no Composio list-comments
-    // action, so Conversations can only ever be empty for a LinkedIn view.
-    // "No comments recorded in this period" reads as "nobody commented" — an
-    // operator chasing that difference files a bug against working software.
-    // The copy is now driven off the capability matrix (which already knew), so
-    // it follows the facts if LinkedIn ever gains support, and 'all' keeps the
-    // generic message because there an absence really does mean none.
+    name: 'composio external_account_id guessing (AA-242)',
+    args: ['--test', 'tests/composio-external-account-id.test.ts'],
+  },
+  {
     name: 'insights backlog items 10 + 12 (AA-129)',
     args: ['--test', 'tests/insights-backlog-10-12.test.ts'],
   },
@@ -589,18 +575,7 @@ const steps = [
     ],
   },
   {
-    // AA-230/AA-231: two "one reader disagreed with its siblings" metrics bugs
-    // in the same family — read-api.ts read a bare `views` column instead of
-    // the reach-preferring COALESCE every sibling reader used (parent/drill-
-    // down dashboards disagreed by ~9% on Instagram), and narrative's Hero
-    // summed likes+comments_count+shares in JS, which Facebook always writes
-    // as literal 0 (the third time that exact bug was fixed in isolation).
-    // Pins the shared SQL expression is used everywhere via a source-level
-    // scan across backend/insights/** (no untriaged reader of the raw
-    // columns), behavioural fixtures reproducing the exact IG/FB shapes that
-    // diverged in prod, and a cross-section agreement check (Hero vs Trends
-    // must report the SAME engagementRate off the same totals) — the guard
-    // that would have caught all three AA-231 instances. Mocked pool, no DB.
+  
     name: 'insights metric agreement: reach-preference + Facebook engagement (AA-230/AA-231)',
     args: ['--test', 'tests/insights-metric-agreement.test.ts'],
   },
