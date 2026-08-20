@@ -71,12 +71,35 @@ jobs:
         run: npm ci
 
       - name: Required PostgreSQL concurrency and recovery suites
+        # AA-129 item 12's drop test is here rather than left to self-skip: the
+        # review's objection was that nothing EXECUTED the drop, and a test that
+        # only ever skips does not answer that. It builds its own scratch schema,
+        # so it needs no db:init.
         run: >-
           npx --no-install tsx --test --test-concurrency=1
           tests/feedback-reports-store.requires-infra.test.ts
           tests/scheduled-worker-claim-lock-order.test.ts
           tests/scheduled-worker-sweep-lock-order.test.ts
           tests/scheduled-dispatch-cutover.requires-infra.test.ts
+          tests/insights-llm-calls-drop.requires-infra.test.ts
+
+      - name: Assert the live-DB suites actually ran
+        # Same guard as insights-endpoints-postgres, for the same reason: these
+        # files self-skip when DB env is absent, and a skipped test is a passing
+        # test — so a broken service container would leave this job green having
+        # executed nothing.
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --no-install tsx --test --test-reporter=tap --test-concurrency=1 \
+            tests/insights-llm-calls-drop.requires-infra.test.ts 2>&1 | tee /tmp/aa129-drop.log
+          skipped=$(awk '/^# skipped /{print $3; exit}' /tmp/aa129-drop.log)
+          passed=$(awk  '/^# pass /{print $3; exit}'    /tmp/aa129-drop.log)
+          echo "pass=${passed:-?} skipped=${skipped:-?}"
+          if [ -z "${skipped:-}" ] || [ "$skipped" -ne 0 ]; then
+            echo "::error::the AA-129 drop test skipped — it verified nothing"
+            exit 1
+          fi
 
   # S8-2/AA-125 (gap E4). tests/insights-endpoints.test.ts holds the ONLY
   # behaviour tests for the eight /insights section endpoints, and it needs live

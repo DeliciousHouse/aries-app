@@ -15,7 +15,11 @@ import type {
   Period, Platform, ConversationsData, ConversationItem, LeadQualityItem,
 } from "@/frontend/insights/types";
 import { useInsight } from "@/frontend/insights/useInsight";
-import { C, platformColor } from "@/frontend/insights/tokens";
+// AA-129 item 10 (qa-defect #648): the capability matrix already knows which
+// platforms can serve comments at all. Reading it here means the empty state
+// explains itself instead of implying the tenant simply has no comments.
+import { platformSupports } from "@/backend/insights/platforms/capabilities";
+import { C, platformColor, platformLabel } from "@/frontend/insights/tokens";
 import {
   SectionHeader, Panel, ChannelIcon, Icon, ErrorState, EmptyState, LoadingRows,
 } from "@/frontend/insights/ui";
@@ -276,6 +280,33 @@ function LeadQualityRow({ item }: { item: LeadQualityItem }) {
   );
 }
 
+/**
+ * AA-129 item 10 / qa-defect #648 — why a platform can show no comments.
+ *
+ * LinkedIn is the live case: Composio exposes NO list-comments action for it,
+ * so the adapter ingests nothing and this section can only ever be empty for a
+ * LinkedIn-filtered view. "No comments recorded in this period" is then a
+ * misleading answer — it reads as "nobody commented", when the truth is "we
+ * cannot see LinkedIn comments at all". An operator chasing that difference
+ * files a bug against working software.
+ *
+ * Driven off the capability matrix rather than a hardcoded platform check, so a
+ * platform that gains (or loses) comment support carries the right copy with no
+ * change here. 'all' keeps the generic message: other channels' comments are
+ * genuinely included, so an absence there really does mean no comments.
+ */
+function emptyCommentsMessage(platform: Platform): string {
+  if (platform === "all" || platformSupports(platform, "comments")) {
+    return "No comments recorded in this period.";
+  }
+  // The shared label map, NOT a capitalise-the-first-letter fallback: that
+  // rendered "Linkedin" (and would render "Youtube", "X" aside). A render test
+  // caught it; no source scan could have, because the sentence around it was
+  // already correct.
+  const label = platformLabel[platform] ?? platform;
+  return `${label} comments aren't available to Aries yet — the platform doesn't expose them, so this list can't include them. Comments from your other channels still appear here.`;
+}
+
 export function ConversationsSection({ period, platform, enabled, nativeReplyEnabled = false }: ConversationsSectionProps) {
   const { data, loading, error, refetch } = useInsight<ConversationsData>("conversations", period, platform, {}, { enabled });
   const empty = !data?.conversations?.length;
@@ -289,7 +320,7 @@ export function ConversationsSection({ period, platform, enabled, nativeReplyEna
         ) : error ? (
           <ErrorState message={error} onRetry={refetch} />
         ) : empty || !data ? (
-          <EmptyState message="No comments recorded in this period." />
+          <EmptyState message={emptyCommentsMessage(platform)} />
         ) : (
           <div className="insights-grid" style={{ "--insights-cols": "1.6fr 1fr", gap: 24 } as React.CSSProperties}>
             {/* LEFT — meta + feed + view-all */}

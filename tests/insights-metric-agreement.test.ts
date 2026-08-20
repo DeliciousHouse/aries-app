@@ -196,6 +196,94 @@ test('the raw CSV export deliberately keeps reach and views as SEPARATE columns,
   assert.match(src, /COALESCE\(SUM\(reach\),\s*0\)\s*AS reach/);
 });
 
+// ── AA-236: the engagement half of the same scan ───────────────────────────
+//
+// AA-231 created accountEngagementSql() so a FOURTH reader could not miss
+// Facebook's engagement column. A fourth one did: the CSV export
+// (backend/insights/export/export-datasets.ts) selected likes/comments_count/
+// shares and no `engagement` at all, so a Facebook tenant exported 0/0/0 with
+// the real number nowhere in the file (AA-236). The reach half of this scan
+// had explicitly exempted that file; the engagement half did not exist.
+//
+// This is that missing half. Its shape mirrors the reach scan above: enumerate
+// every reader that touches the per-column trio, and require each to be either
+// a derived reader (must use accountEngagementSql) or the sanctioned raw
+// export (must emit engagement as its own column).
+
+/** Files whose (comment-stripped) source sums the per-column engagement trio
+ *  off the account-metrics table. */
+const ENGAGEMENT_TRIO_FILES = ALL_INSIGHTS_FILES
+  .filter((f) => {
+    const src = stripJsComments(readFileSync(f, 'utf8'));
+    return /SUM\(\s*likes\s*\)/.test(src)
+      || /SUM\(\s*comments_count\s*\)/.test(src)
+      || /accountEngagementSql\(/.test(src);
+  })
+  .map(relPath)
+  .sort();
+
+/** The helper itself — it matches the scan because it DEFINES
+ *  accountEngagementSql, not because it reads anything. */
+const ENGAGEMENT_SQL_SOURCE = 'backend/insights/account-engagement-sql.ts';
+
+const EXPECTED_ENGAGEMENT_TRIO_FILES = [
+  ENGAGEMENT_SQL_SOURCE,
+  RAW_DUAL_COLUMN_EXPORT,
+  'backend/insights/narrative/snapshot-builder.ts',
+  'backend/insights/read-api.ts',
+  'backend/insights/trends/trends-snapshot-builder.ts',
+].sort();
+
+test('AA-236: the set of files reading the per-column engagement trio is fully accounted for', () => {
+  assert.deepEqual(
+    ENGAGEMENT_TRIO_FILES,
+    EXPECTED_ENGAGEMENT_TRIO_FILES,
+    'a new file summing likes/comments_count was added without being triaged here as ' +
+      'either an accountEngagementSql() reader or the deliberate raw-column export',
+  );
+});
+
+test('AA-236: every derived reader of the trio goes through accountEngagementSql()', () => {
+  // The rule AA-231 established. A reader that sums the trio directly reports a
+  // permanent zero for Facebook, because the adapter writes those three as
+  // literal 0 and puts the real number only in `engagement`.
+  for (const relFile of ENGAGEMENT_TRIO_FILES) {
+    if (relFile === RAW_DUAL_COLUMN_EXPORT) continue;
+    if (relFile === ENGAGEMENT_SQL_SOURCE) continue; // defines it, reads nothing
+    const src = stripJsComments(readFileSync(path.join(PROJECT_ROOT, relFile), 'utf8'));
+    assert.match(
+      src,
+      /accountEngagementSql\(/,
+      `${relFile}: sums the engagement trio without accountEngagementSql() — this is the ` +
+        `exact defect fixed three times already (read-api, trends, narrative)`,
+    );
+  }
+});
+
+test('AA-236: the raw export is exempt ONLY because it emits engagement as its own column', () => {
+  // The export legitimately does not merge — its contract is raw columns. But
+  // "does not merge" must not mean "omits", which is what AA-236 was. This pin
+  // makes dropping the column an intentional, reviewed change.
+  const src = readFileSync(path.join(PROJECT_ROOT, RAW_DUAL_COLUMN_EXPORT), 'utf8');
+  assert.match(
+    src,
+    /COALESCE\(SUM\(engagement\),\s*0\)\s*AS engagement/,
+    'the raw export must select engagement, or a Facebook tenant exports 0/0/0 with the ' +
+      'real number nowhere in the file',
+  );
+  assert.match(src, /'engagement',/, 'and carry it in the exported header');
+
+  // …as its OWN column, not folded into the trio. The ticket's fix is
+  // deliberately additive: merging engagement into likes would silently change
+  // what that column means for every existing CSV consumer, and the raw-column
+  // contract is the whole reason this file is exempt from the reach scan above.
+  // (A mocked-pool test cannot catch this — the fake returns fixture rows
+  // regardless of the SQL — so it is pinned at the source, like reach/views.)
+  assert.match(src, /COALESCE\(SUM\(likes\),\s*0\)\s*AS likes/);
+  assert.match(src, /COALESCE\(SUM\(comments_count\),\s*0\)\s*AS comments_count/);
+  assert.match(src, /COALESCE\(SUM\(shares\),\s*0\)\s*AS shares/);
+});
+
 // ── AA-230: behavioural cross-reader agreement (mocked pool) ────────────────
 //
 // The exact shape that diverged in prod: Instagram writes BOTH reach and

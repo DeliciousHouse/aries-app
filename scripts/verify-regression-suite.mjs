@@ -558,6 +558,25 @@ const steps = [
     // AA-229/PR2b relocated this report onto /insights as Section 10, so the
     // print rules gained a job: drop the other nine sections, or Cmd+P produces
     // the whole dashboard instead of the one-page recap.
+    // AA-129 backlog items 10 + 12. ITEM 12: the dead `insights_llm_calls`
+    // table — created as an LLM cost audit log but never wired in application
+    // code, while `task_execution_log` (AA-159) did the job for real. The risk
+    // was someone querying the dead schema and concluding
+    // this product makes no LLM calls. Dropped in both places (init-db + a
+    // migration, since removing it from init-db alone would leave it forever on
+    // exactly the deployments that have it), with a repo scan asserting nothing
+    // references it — that scan is the evidence the delete decision rests on.
+    // ITEM 10 (qa-defect #648): LinkedIn exposes no Composio list-comments
+    // action, so Conversations can only ever be empty for a LinkedIn view.
+    // "No comments recorded in this period" reads as "nobody commented" — an
+    // operator chasing that difference files a bug against working software.
+    // The copy is now driven off the capability matrix (which already knew), so
+    // it follows the facts if LinkedIn ever gains support, and 'all' keeps the
+    // generic message because there an absence really does mean none.
+    name: 'insights backlog items 10 + 12 (AA-129)',
+    args: ['--test', 'tests/insights-backlog-10-12.test.ts'],
+  },
+  {
     name: 'print-ready weekly recap (AA-126)',
     args: ['--test', 'tests/insights-weekly-recap-print.test.ts'],
   },
