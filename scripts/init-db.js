@@ -1466,6 +1466,22 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_insights_post_metrics_daily_tenant_platform_date
         ON insights_post_metrics_daily (tenant_id, platform, date DESC);
 
+      -- Weekly engagement summaries. The tenant/week primary key makes the
+      -- scheduled materialization safely rerunnable. Mirrors
+      -- migrations/20260819203008_weekly_engagement_trends.sql.
+      CREATE TABLE IF NOT EXISTS insights_engagement_trends_weekly (
+        tenant_id            INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        week_start           DATE NOT NULL,
+        current_post_count   INTEGER NOT NULL CHECK (current_post_count >= 0),
+        previous_post_count  INTEGER NOT NULL CHECK (previous_post_count >= 0),
+        current_average      NUMERIC(14,4),
+        previous_average     NUMERIC(14,4),
+        change_percent       NUMERIC(12,4),
+        direction            TEXT NOT NULL CHECK (direction IN ('upward', 'downward', 'flat', 'insufficient_data')),
+        computed_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (tenant_id, week_start)
+      );
+
       -- Raw comments fetched from platforms.
       CREATE TABLE IF NOT EXISTS insights_comments (
         id                  BIGSERIAL PRIMARY KEY,

@@ -70,13 +70,14 @@ Each sidecar is a separate `docker-compose.yml` service. All depend on `aries-ap
 ### aries-insights-sync-worker
 
 - Command: `node_modules/.bin/tsx scripts/automations/insights-sync-worker.ts`
-- What it does: Syncs platform analytics (YouTube, Instagram, Facebook, and others) for every tenant with a connected `insights_account`. One replica avoids duplicate API calls.
+- What it does: Syncs platform analytics (YouTube, Instagram, Facebook, and others) for every tenant with a connected `insights_account`, then idempotently materializes each tenant's most recently completed week-over-week engagement trend for the Insights weekly recap. One replica avoids duplicate API calls.
 - Cadence: 30m. `INTERVAL_MS = 30 * 60 * 1000` is hardcoded (no env override). First tick runs immediately on startup.
 - Config env:
   - `ARIES_INSIGHTS_SWEEP_GRACE_MINUTES` (Compose default `60`) - grace window before a stranded `running` `insights_sync_runs` row is failed out.
   - `HONCHO_WRITE_PUBLISH_ENABLED` (Compose default `false` on this service) - gates Honcho performance writes inside the sync.
   - Per-platform insights gates, each requiring `COMPOSIO_ENABLED=true` plus the platform flag: `ARIES_X_ENABLED`, `ARIES_YOUTUBE_ENABLED`, `ARIES_REDDIT_ENABLED`, `ARIES_LINKEDIN_ENABLED` (all Compose default `false`), and `ANALYTICS_PROVIDER` (default `composio`) for the Facebook path.
 - Default: on. No gate on the worker itself.
+- Database output: one `insights_engagement_trends_weekly` row per tenant/completed-week when measured posts are available. A process restart may recompute the same week; the `(tenant_id, week_start)` primary key makes that an update, not a duplicate.
 
 ### aries-honcho-performance-worker
 

@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.13.1] - 2026-08-15
+
+### Fixed
+
+- Opening the global feedback dialog now moves keyboard focus to its close
+  control while preserving Escape-to-close and focus restoration to the trigger.
+
+## v0.2.13.0 — feat(observability): add dead-man and freshness metrics
+
+### Added
+
+- Authenticated Prometheus `/metrics` endpoint for weekly trigger attempts and
+  successes, publish freshness, dispatch queue failures, connection states,
+  draft expiry, Hermes health, platform APIs, and Composio dependencies.
+- Tested Prometheus alert rules, scrape configuration, Aries Grafana dashboard,
+  and operator runbooks for silent trigger, publish, account, and dispatch
+  failures.
+
 ## v0.2.12.0 — fix(marketing): the strategist names the weekday two ways (AA-237)
 
 The strategist writes a weekday for every post it plans. `buildAutoScheduleRows`

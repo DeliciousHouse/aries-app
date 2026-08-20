@@ -143,6 +143,10 @@ function channelDetail(byChannel: Record<string, number>): string {
   return entries.map(([channel, n]) => `${titleCase(channel)} ${n}`).join(" · ");
 }
 
+function formatEngagementAverage(value: number | null): string {
+  return value === null ? "—" : value.toLocaleString("en-US", { maximumFractionDigits: 1 });
+}
+
 // ── Learnings + next action ──────────────────────────────────────────────────
 
 function LearningCard({ learning }: { learning: WeeklyRecapLearning }) {
@@ -252,21 +256,42 @@ function RecapBody({ report }: { report: WeeklyRecapReport }) {
 
       <Divider />
 
-      {/* Top channel */}
-      <div>
-        <div style={{ fontSize: 10.5, fontWeight: 700, color: C.t3, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>
-          Top channel
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 18 }}>
+        {/* Top channel */}
+        <div>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: C.t3, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>
+            Top channel
+          </div>
+          <div style={{ fontSize: 14.5, fontWeight: 600, color: C.t1 }}>
+            {report.topChannel.channel
+              ? `${titleCase(report.topChannel.channel)} — ${report.topChannel.value.toLocaleString("en-US")} ${
+                  report.topChannel.basis === "reach" ? "reach" : "posts published"
+                }`
+              : "No posts published this week"}
+          </div>
+          {report.topChannel.channel && (
+            <div style={{ fontSize: 11.5, color: C.t3, marginTop: 4 }}>
+              {report.topChannel.basis === "reach" ? "Ranked by reach" : "Ranked by posts published"}
+            </div>
+          )}
         </div>
-        <div style={{ fontSize: 14.5, fontWeight: 600, color: C.t1 }}>
-          {report.topChannel.channel
-            ? `${titleCase(report.topChannel.channel)} — ${report.topChannel.value.toLocaleString("en-US")} ${
-                report.topChannel.basis === "reach" ? "reach" : "posts published"
-              }`
-            : "No posts published this week"}
-        </div>
-        {report.topChannel.channel && (
-          <div style={{ fontSize: 11.5, color: C.t3, marginTop: 4 }}>
-            {report.topChannel.basis === "reach" ? "Ranked by reach" : "Ranked by posts published"}
+
+        {/* The worker compares the completed week with the week before it. */}
+        {report.engagementTrend && (
+          <div>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: C.t3, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>
+              Engagement trend
+            </div>
+            <div style={{ fontSize: 14.5, fontWeight: 600, color: C.t1 }}>
+              {report.engagementTrend.direction === "upward" && "↑ Upward"}
+              {report.engagementTrend.direction === "downward" && "↓ Downward"}
+              {report.engagementTrend.direction === "flat" && "→ Flat"}
+              {report.engagementTrend.direction === "insufficient_data" && "Not enough comparable data"}
+              {report.engagementTrend.changePercent !== null && ` · ${Math.abs(report.engagementTrend.changePercent).toLocaleString("en-US", { maximumFractionDigits: 1 })}%`}
+            </div>
+            <div style={{ fontSize: 11.5, color: C.t3, marginTop: 4 }}>
+              Average engagement per measured post: {formatEngagementAverage(report.engagementTrend.currentAverage)} this week vs {formatEngagementAverage(report.engagementTrend.previousAverage)} previously
+            </div>
           </div>
         )}
       </div>
