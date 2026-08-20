@@ -19,7 +19,7 @@ import { useInsight } from "@/frontend/insights/useInsight";
 // platforms can serve comments at all. Reading it here means the empty state
 // explains itself instead of implying the tenant simply has no comments.
 import { platformSupports } from "@/backend/insights/platforms/capabilities";
-import { C, platformColor } from "@/frontend/insights/tokens";
+import { C, platformColor, platformLabel } from "@/frontend/insights/tokens";
 import {
   SectionHeader, Panel, ChannelIcon, Icon, ErrorState, EmptyState, LoadingRows,
 } from "@/frontend/insights/ui";
@@ -299,7 +299,11 @@ function emptyCommentsMessage(platform: Platform): string {
   if (platform === "all" || platformSupports(platform, "comments")) {
     return "No comments recorded in this period.";
   }
-  const label = platform.charAt(0).toUpperCase() + platform.slice(1);
+  // The shared label map, NOT a capitalise-the-first-letter fallback: that
+  // rendered "Linkedin" (and would render "Youtube", "X" aside). A render test
+  // caught it; no source scan could have, because the sentence around it was
+  // already correct.
+  const label = platformLabel[platform] ?? platform;
   return `${label} comments aren't available to Aries yet — the platform doesn't expose them, so this list can't include them. Comments from your other channels still appear here.`;
 }
 

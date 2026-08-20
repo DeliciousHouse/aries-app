@@ -1579,13 +1579,52 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_insights_sync_runs_running_started
         ON insights_sync_runs (started_at) WHERE status = 'running';
 
-      -- AA-129 item 12 (2026-08-14): a per-LLM-call cost audit table was
-      -- removed from here. It was created but never wired — no code read or
-      -- wrote it, so it held zero rows for its whole life — and the job it was
-      -- meant to do is done by task_execution_log (AA-159), which records
-      -- engine, tokens, cost and duration for real work. Dropped by
-      -- migrations/20260814000000_*.sql; the name is deliberately not repeated
-      -- here so a repo scan for it stays a reliable "is it wired again?" check.
+      -- AA-129 item 12 (2026-08-14): a per-LLM-call cost audit table used to be
+      -- created here. It was never wired — no code reads or writes it — and the
+      -- job it was meant to do is done by task_execution_log (AA-159), which
+      -- records engine, tokens, cost and duration for real work. Two cost
+      -- tables where one is permanently empty invites querying the wrong one.
+      --
+      -- REMOVING THE CREATE IS ONLY HALF THE JOB, and the half that helps the
+      -- fewest databases. A migrations/-only file does NOT run in production —
+      -- init-db.js is the schema applied at container start (see the note in
+      -- migrations/20260604000000_marketing_schedule.sql, and
+      -- scripts/release/apply-schema-with-worker-restore.sh, which runs exactly
+      -- this file). So the drop has to happen HERE or it never happens on the
+      -- one database that actually has the table.
+      --
+      -- IT DROPS ONLY WHEN EMPTY. "It never held a row" is an inference from
+      -- the code — nothing writes it — not a measurement of production. Rather
+      -- than let a DROP act on an unverified assumption, the assumption is
+      -- CHECKED at drop time: an empty table is removed, and a table with rows
+      -- is kept and reported loudly for a human to look at. That turns the
+      -- claim into a precondition, and the failure mode from "silently
+      -- destroyed data nobody knew existed" into "a warning in the deploy log".
+      DO $drop_dead_llm_calls$
+      DECLARE
+        row_count bigint;
+      BEGIN
+        -- Unqualified, like every other statement in this file: it resolves
+        -- through search_path, which is public in production and lets the
+        -- requires-infra test run this exact block against a scratch schema
+        -- (the repo's established isolation idiom) instead of touching a real
+        -- table to prove it works.
+        IF to_regclass('insights_llm_calls') IS NULL THEN
+          RETURN;  -- already gone, or a database created after this landed
+        END IF;
+
+        EXECUTE 'SELECT count(*) FROM insights_llm_calls' INTO row_count;
+
+        IF row_count = 0 THEN
+          DROP TABLE insights_llm_calls;  -- index goes with it
+          RAISE NOTICE 'AA-129 item 12: dropped unused empty table insights_llm_calls';
+        ELSE
+          RAISE WARNING
+            'AA-129 item 12: insights_llm_calls holds % row(s) — NOT dropping. Something wrote to a table believed unused; investigate before removing it.',
+            row_count;
+        END IF;
+      END
+      $drop_dead_llm_calls$;
 
       -- content_type is derived at sync time by a caption-keyword heuristic
       -- (backend/insights/sync/classify-post.ts), stamped inline in the

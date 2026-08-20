@@ -2,6 +2,19 @@
 --
 -- AA-129 item 12: drop the dead `insights_llm_calls` table.
 --
+-- THIS FILE IS A RECORD, NOT THE DELIVERY PATH. migrations/-only files do NOT
+-- run in prod — scripts/init-db.js is the schema applied at container start
+-- (see migrations/20260604000000_marketing_schedule.sql, and
+-- scripts/release/apply-schema-with-worker-restore.sh, which runs exactly that
+-- file). The drop that actually executes is the guarded DO block in
+-- scripts/init-db.js; this mirrors it so the schema change is recorded under
+-- migrations/ like every sibling change.
+--
+-- The first version of this ticket shipped ONLY this file and claimed the table
+-- was dropped. It was not: fresh databases simply stopped getting it, while the
+-- one database that had it kept it. If you are reading this file to find out
+-- what runs, read init-db.js instead.
+--
 -- The table was created as a per-LLM-call cost audit log ("every LLM call with
 -- cost, tokens, and outcome") and was never wired to anything. A repo-wide
 -- search finds it in exactly three places — scripts/init-db.js, CLAUDE.md and
