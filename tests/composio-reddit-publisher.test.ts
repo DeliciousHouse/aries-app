@@ -1096,3 +1096,157 @@ test('#641 flair_id omitted when COMPOSIO_REDDIT_FLAIR_ID is unset', async () =>
     },
   );
 });
+
+test('AA-241: data.success === false is a FAILURE, not a published post with no id', async () => {
+  await withEnv(
+    { COMPOSIO_REDDIT_TARGET_SUBREDDIT: 'testcommunity', ARIES_REDDIT_ENABLED: '1' },
+    async () => {
+      // The live failure shape: envelope reports success, body says otherwise.
+      const gateway = makeRedditGateway({
+        defaultResult: {
+          data: { success: false, validation_error: 'FLAIR_REQUIRED', id: null, url: null, name: null },
+          successful: true,
+          error: null,
+        },
+      });
+      const provider = new ComposioPublisherProvider(
+        gateway,
+        fakeConfig({ actions: REDDIT_ACTIONS }),
+        redditDb(),
+      );
+
+      await assert.rejects(
+        () =>
+          provider.publishPost({
+            tenantId,
+            platform: 'reddit',
+            content: 'Body with a link https://example.com',
+            mediaUrls: [],
+            approved: true,
+          }),
+        (err: Error) => {
+          // The reason must reach the operator: "check validation_error for
+          // details" is useless if the detail is dropped.
+          assert.match(err.message, /FLAIR_REQUIRED/, `expected the validation_error in the message, got: ${err.message}`);
+          return true;
+        },
+        'a body-level failure must throw, never return status:published',
+      );
+    },
+  );
+});
+
+test('AA-241: the five live validation_error values classify as TERMINAL, not retryable', async () => {
+
+  const LIVE_VALIDATION_ERRORS = [
+    'FLAIR_REQUIRED',
+    'INVALID_FLAIR_ID',
+    'BODY_NOT_ALLOWED',
+    'POST_GUIDANCE_VALIDATION_FAILED',
+    'BANNED_FROM_SUBREDDIT',
+  ];
+
+  for (const validationError of LIVE_VALIDATION_ERRORS) {
+    await withEnv(
+      { COMPOSIO_REDDIT_TARGET_SUBREDDIT: 'testcommunity', ARIES_REDDIT_ENABLED: '1' },
+      async () => {
+        const gateway = makeRedditGateway({
+          defaultResult: {
+            data: { success: false, validation_error: validationError },
+            successful: true,
+            error: null,
+          },
+        });
+        const provider = new ComposioPublisherProvider(
+          gateway,
+          fakeConfig({ actions: REDDIT_ACTIONS }),
+          redditDb(),
+        );
+
+        await assert.rejects(
+          () =>
+            provider.publishPost({
+              tenantId,
+              platform: 'reddit',
+              content: 'Post body',
+              mediaUrls: [],
+              approved: true,
+            }),
+
+          (err: Error & { retryable?: boolean }) => {
+            assert.equal(
+              err.retryable,
+              false,
+              `${validationError} must be terminal — a retryable classification re-fails it every tick forever`,
+            );
+            return true;
+          },
+        );
+      },
+    );
+  }
+});
+
+test('AA-241: a genuine success payload is unaffected', async () => {
+  // The guard must not turn working publishes into failures. The live success
+  // shape carries success:true alongside the id.
+  await withEnv(
+    { COMPOSIO_REDDIT_TARGET_SUBREDDIT: 'testcommunity', ARIES_REDDIT_ENABLED: '1' },
+    async () => {
+      const gateway = makeRedditGateway({
+        defaultResult: {
+          data: { success: true, id: 't3_96ak55', name: 't3_96ak55', url: 'https://reddit.com/r/testcommunity/comments/96ak55' },
+          successful: true,
+          error: null,
+        },
+      });
+      const provider = new ComposioPublisherProvider(
+        gateway,
+        fakeConfig({ actions: REDDIT_ACTIONS }),
+        redditDb(),
+      );
+
+      const result = await provider.publishPost({
+        tenantId,
+        platform: 'reddit',
+        content: 'Hello',
+        mediaUrls: [],
+        approved: true,
+      });
+
+      assert.equal(result.status, 'published');
+      assert.equal(result.externalPostId, 't3_96ak55');
+    },
+  );
+});
+
+test('AA-241: a payload with NO success field still publishes (absence is not failure)', async () => {
+  await withEnv(
+    { COMPOSIO_REDDIT_TARGET_SUBREDDIT: 'testcommunity', ARIES_REDDIT_ENABLED: '1' },
+    async () => {
+      const gateway = makeRedditGateway({
+        defaultResult: {
+          data: { json: { data: { name: 't3_legacy' } } },
+          successful: true,
+          error: null,
+        },
+      });
+      const provider = new ComposioPublisherProvider(
+        gateway,
+        fakeConfig({ actions: REDDIT_ACTIONS }),
+        redditDb(),
+      );
+
+      const result = await provider.publishPost({
+        tenantId,
+        platform: 'reddit',
+        content: 'Hello',
+        mediaUrls: [],
+        approved: true,
+      });
+
+      assert.equal(result.status, 'published');
+      assert.equal(result.externalPostId, 't3_legacy');
+    },
+  );
+});

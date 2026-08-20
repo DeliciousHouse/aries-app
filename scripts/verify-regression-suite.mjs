@@ -577,6 +577,21 @@ const steps = [
     args: ['--test', 'tests/insights-backlog-10-12.test.ts'],
   },
   {
+    // AA-242: `external_account_id` was picked out of the raw OAuth credential
+    // blob with a bare `id` wildcard. It reads null today only because none of
+    // the four keys happens to appear — luck, not design, on a
+    // provider-controlled object that varies per toolkit and per toolkit
+    // version. One wrong value is PERMANENT: the publisher reads this column
+    // verbatim as the LinkedIn author URN and the Facebook Page id, the store's
+    // COALESCE keeps a non-null value against every later null, and both
+    // back-heal branches are gated on `!externalAccountId` — so the garbage
+    // suppresses the resolver that would repair it. Pins the narrowed key list,
+    // the per-platform shape gate, and why the gate drops to NULL rather than
+    // throwing or persisting: null is the state in which back-heal still runs.
+    name: 'composio external_account_id guessing (AA-242)',
+    args: ['--test', 'tests/composio-external-account-id.test.ts'],
+  },
+  {
     name: 'print-ready weekly recap (AA-126)',
     args: ['--test', 'tests/insights-weekly-recap-print.test.ts'],
   },

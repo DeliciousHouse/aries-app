@@ -124,11 +124,22 @@ export function buildToolExecuteOptions(
 
 function pickExternalAccountId(data: Record<string, unknown> | null | undefined): string | null {
   if (!data) return null;
-  for (const key of ['external_account_id', 'externalAccountId', 'account_id', 'id']) {
+  for (const key of ['external_account_id', 'externalAccountId', 'account_id']) {
     const v = data[key];
     if (typeof v === 'string' && v.trim()) return v.trim();
   }
   return null;
+}
+
+function isPlausibleExternalAccountId(toolkitSlug: string | null, value: string): boolean {
+  switch ((toolkitSlug ?? '').toLowerCase()) {
+    case 'linkedin':
+      return /^urn:li:(person|organization):[A-Za-z0-9_-]+$/.test(value);
+    case 'facebook':
+      return /^\d+$/.test(value);
+    default:
+      return true;
+  }
 }
 
 function pickExternalAccountName(data: Record<string, unknown> | null | undefined): string | null {
@@ -150,13 +161,28 @@ function toGatewayConnection(model: {
   meta?: Record<string, unknown> | null;
 }): GatewayConnection {
   const data = model.data ?? model.meta ?? null;
+  const toolkitSlug = model.toolkit?.slug ?? null;
+
+  const pickedAccountId = pickExternalAccountId(data);
+  let externalAccountId = pickedAccountId;
+  if (pickedAccountId && !isPlausibleExternalAccountId(toolkitSlug, pickedAccountId)) {
+    console.warn('[composio] ignoring implausible external_account_id from connection metadata', {
+      connectionId: model.id,
+      toolkitSlug,
+      // The value itself is provider data of unknown provenance — log its shape,
+      // never its content.
+      valueLength: pickedAccountId.length,
+    });
+    externalAccountId = null;
+  }
+
   return {
     id: model.id,
     status: String(model.status ?? '').toUpperCase(),
     statusReason: model.statusReason ?? null,
     authConfigId: model.authConfig?.id ?? null,
-    toolkitSlug: model.toolkit?.slug ?? null,
-    externalAccountId: pickExternalAccountId(data),
+    toolkitSlug,
+    externalAccountId,
     externalAccountName: pickExternalAccountName(data),
     raw: model,
   };

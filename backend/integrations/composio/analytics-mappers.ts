@@ -252,7 +252,10 @@ const MAPPERS: Partial<Record<string, PlatformAnalyticsMapper>> = {
   // lookup) .public_metrics.
   'x:post_insights': {
     slug: 'TWITTER_POST_LOOKUP_BY_POST_ID',
-    buildArgs: (ctx) => ({ id: ctx.externalPostId, tweet_fields: 'public_metrics' }),
+    // AA-241: tweet_fields is declared `array` (with an itemEnum) on the live
+    // twitter toolkit, here as on the batch lookup. `id` is the SINGULAR
+    // lookup's scalar path argument and stays a string.
+    buildArgs: (ctx) => ({ id: ctx.externalPostId, tweet_fields: ['public_metrics'] }),
     parse: (raw) => {
       const p = payload(raw);
       const tweet = (p.data && typeof p.data === 'object' && !Array.isArray(p.data)

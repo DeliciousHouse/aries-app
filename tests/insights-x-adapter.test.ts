@@ -129,12 +129,16 @@ test('fetchPostList: queries tenant X posts from DB and issues ONE TWITTER_POST_
   const call = gateway.calls[0];
   assert.equal(call.slug, 'TWITTER_POST_LOOKUP_BY_POST_IDS');
   assert.equal(call.connectedAccountId, 'ca_x_1');
-  // tweet_fields must include both public_metrics and conversation_id.
-  assert.match(String(call.arguments?.tweet_fields), /public_metrics/);
-  assert.match(String(call.arguments?.tweet_fields), /conversation_id/);
-  // ids is a comma-joined list containing both post ids.
-  const ids = String(call.arguments?.ids);
-  assert.ok(ids.includes('tweet1') && ids.includes('tweet2'), 'both post ids in batch call');
+  assert.deepEqual(
+    call.arguments?.tweet_fields,
+    ['public_metrics', 'conversation_id'],
+    'tweet_fields must be an array, not a comma-joined string',
+  );
+  assert.deepEqual(
+    call.arguments?.ids,
+    ['tweet1', 'tweet2'],
+    'ids must be an array of post ids, not a comma-joined string',
+  );
 
   // DB SELECT must be tenant-scoped and platform-filtered.
   const dbQuery = db.queries[0];
@@ -306,6 +310,12 @@ test('fetchComments: issues TWITTER_RECENT_SEARCH with conversation_id query, re
   const searchCall = gateway.calls.find((c) => c.slug === 'TWITTER_RECENT_SEARCH');
   assert.ok(searchCall, 'calls TWITTER_RECENT_SEARCH');
 
+  // AA-241: the recent-search call declares array-typed field lists too.
+  assert.deepEqual(searchCall!.arguments?.tweet_fields, ['created_at', 'author_id']);
+  assert.deepEqual(searchCall!.arguments?.expansions, ['author_id']);
+  assert.deepEqual(searchCall!.arguments?.user_fields, ['username']);
+
+  // `query` is genuinely a string in the declared schema — unchanged.
   const query = String(searchCall!.arguments?.query);
   // Thread anchor — uses the conversation_id from the cached tweet, NOT just the post id.
   assert.match(query, /conversation_id:conv_root_abc/);
