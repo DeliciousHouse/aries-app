@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.13.2] - 2026-08-17
+
+### Fixed
+
+- Tests now force React development mode, so they keep working when launched
+  from a shell whose ambient `NODE_ENV` is `production`.
+
 ## [0.2.13.1] - 2026-08-15
 
 ### Fixed
