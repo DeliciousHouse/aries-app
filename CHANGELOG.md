@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.15.0] - 2026-08-20
+
+### Fixed
+
+- X post-insight and comment lookups now send Composio's array-shaped field and
+  post ID arguments instead of comma-joined strings that the live tools reject.
+- Reddit publish validation failures now return their platform reason as a
+  terminal failure instead of reporting an uncreated post as possibly live.
+- Facebook and LinkedIn connections no longer persist generic or malformed
+  OAuth metadata as an external account ID, leaving the existing repair path
+  able to resolve the real account.
+
 ## [0.2.13.1] - 2026-08-15
 
 ### Fixed

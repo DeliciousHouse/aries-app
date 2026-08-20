@@ -1172,7 +1172,7 @@ test('AA-241: the five live validation_error values classify as TERMINAL, not re
               mediaUrls: [],
               approved: true,
             }),
-        
+
           (err: Error & { retryable?: boolean }) => {
             assert.equal(
               err.retryable,
