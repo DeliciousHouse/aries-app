@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.14.0] - 2026-08-19
+
+### Added
+
+- Operators can trace every Hermes engine attempt in `task_execution_log`,
+  including submission, network, and process failures that occur before a
+  terminal callback, with tenant, task, profile, model, run, timing, usage, and
+  bounded error details where available.
+- Automated coverage now guards every direct Hermes run submission boundary and
+  verifies that successful and `ENOENT`-class failed invocations are recorded
+  without changing caller results or fallback behavior.
+
+### Changed
+
+- Execution logs now retain error class and message fields, keep terminal
+  callbacks as the canonical outcome for asynchronous runs, and label recorded
+  costs as estimates while leaving unavailable estimates `NULL`.
+
 ## [0.2.13.1] - 2026-08-15
 
 ### Fixed

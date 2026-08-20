@@ -112,7 +112,12 @@ export async function POST(req: Request): Promise<NextResponse> {
     // Severity is inferred server-side (users no longer pick it — it confused
     // people). Bounded + heuristic fallback, so it never blocks long or fails.
     const { severity } = await classifySeverity(
-      { comment: input.comment, category: input.category },
+      {
+        comment: input.comment,
+        category: input.category,
+        tenantId,
+        taskId: input.submissionId,
+      },
       config.severityLlm,
     );
 
