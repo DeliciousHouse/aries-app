@@ -141,6 +141,7 @@ test('item 12: no AA-129 file claims a production row count nobody measured', ()
   // the prose honest, because prose is where the overreach happened both times.
   const UNVERIFIABLE = [
     /\bheld zero rows\b/i,
+    /\bzero rows for its\b/i,
     /\bnever held a row\b/i,
     /\bnothing has ever inserted a row\b/i,
     /\bno data to preserve\b/i,
@@ -150,6 +151,7 @@ test('item 12: no AA-129 file claims a production row count nobody measured', ()
   const FILES = [
     ['migrations', '20260814000000_drop_insights_llm_calls.sql'],
     ['scripts', 'init-db.js'],
+    ['scripts', 'verify-regression-suite.mjs'],
   ] as const;
 
   for (const parts of FILES) {

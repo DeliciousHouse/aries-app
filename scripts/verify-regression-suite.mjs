@@ -559,9 +559,9 @@ const steps = [
     // print rules gained a job: drop the other nine sections, or Cmd+P produces
     // the whole dashboard instead of the one-page recap.
     // AA-129 backlog items 10 + 12. ITEM 12: the dead `insights_llm_calls`
-    // table — created as an LLM cost audit log, never wired, zero rows for its
-    // whole life while `task_execution_log` (AA-159) did the job for real. The
-    // risk was never the empty table; it was someone querying it and concluding
+    // table — created as an LLM cost audit log but never wired in application
+    // code, while `task_execution_log` (AA-159) did the job for real. The risk
+    // was someone querying the dead schema and concluding
     // this product makes no LLM calls. Dropped in both places (init-db + a
     // migration, since removing it from init-db alone would leave it forever on
     // exactly the deployments that have it), with a repo scan asserting nothing
