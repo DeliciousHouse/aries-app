@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.15.1] - 2026-08-23
+
+### Changed
+
+- Updated `lucide-react` from 1.31.0 to 1.33.0.
+
 ## [0.2.15.0] - 2026-08-20
 
 ### Fixed
