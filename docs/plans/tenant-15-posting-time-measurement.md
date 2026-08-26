@@ -39,19 +39,22 @@ At `E`, record non-secret evidence of the exact runtime flag/config state and th
 
 `TREATED_PLATFORMS = ['instagram', 'facebook', ...resolver result in resolver order]`
 
-Do not infer this array later from whatever platforms happen to exist in `insights_posts`. Copy the exact array into both read-only queries below. A treated platform with no measurable frozen account remains in the array and makes the result inconclusive; it must not disappear and create a vacuous success.
+Do not infer this array later from whatever platforms happen to exist in `insights_posts`. Both read-only queries are intentionally invalid until the unbound SQL identifier `REPLACE_WITH_EXACT_E_TIME_CROSSPOST_ARRAY` is replaced with the exact E-time resolver result as a typed array. An empty resolver result still requires the explicit replacement `ARRAY[]::text[]` (the valid base-only freeze); a non-empty result requires, for example, `ARRAY['x', 'linkedin']::text[]` in resolver order. Do not delete the concatenation or leave an executable base-only fallback. After replacement, the complete array is `instagram`, `facebook`, then that explicit resolver array. A treated platform with no measurable frozen account remains in the array and makes the result inconclusive; it must not disappear and create a vacuous success.
 
 ### Active-account freeze query
 
-Run this read-only query once at `E`, after the account self-heal has completed. Replace only the timestamp and platform array. It applies the production-reader requirement `disabled_at IS NULL` (`scripts/init-db.js:1370-1383`; `backend/insights/sync/dispatcher.ts:923-930`) and returns the exact account IDs to freeze.
+Run this read-only query once at `E`, after the account self-heal has completed. Replace only the timestamp and required crosspost-array token. It applies the production-reader requirement `disabled_at IS NULL` (`scripts/init-db.js:1370-1383`; `backend/insights/sync/dispatcher.ts:923-930`) and returns the exact account IDs to freeze.
 
 ```sql
 WITH params AS (
   SELECT
     15::integer AS tenant_id,
     TIMESTAMPTZ 'REPLACE_WITH_EXACT_ENABLEMENT_UTC' AS enablement_at,
-    ARRAY['instagram', 'facebook']::text[] AS treated_platforms
-    -- Append only the exact E-time resolveCrosspostPlatforms result.
+    ARRAY['instagram', 'facebook']::text[]
+      || REPLACE_WITH_EXACT_E_TIME_CROSSPOST_ARRAY AS treated_platforms
+    -- REQUIRED replacement: ARRAY[]::text[] for the valid base-only freeze,
+    -- or the exact non-empty resolver result in resolver order. Until replaced,
+    -- the unbound identifier makes the query fail closed.
 ),
 eligible_accounts AS (
   SELECT a.id AS account_id, lower(a.platform) AS platform
@@ -140,18 +143,21 @@ A post-close sync does not reveal when a prior date row was last refreshed. It e
 
 ## Fixed bounded measurement query
 
-Replace the three fail-closed literals (`E`, exact treated-platform array, exact frozen-account array) from the verified freeze evidence, then do not edit the query between pre and final reads. It is bounded to 56 publication days, tenant 15, frozen accounts, frozen platforms, and feed-equivalent posts. It returns one JSON object containing contract metadata, account/sync evidence, platform-period summaries, and the bounded post-level sample needed for uncertainty. It returns no caption, title, permalink, external provider ID, or raw provider payload.
+Replace the three required inputs (`E`, the unbound E-time crosspost-array token that completes the exact treated-platform array, and the exact frozen-account array) from the verified freeze evidence, then do not edit the query between pre and final reads. The `E` placeholder and unbound crosspost token prevent a valid read until replaced; the empty account array remains explicitly ineligible. It is bounded to 56 publication days, tenant 15, frozen accounts, frozen platforms, and feed-equivalent posts. It returns one JSON object containing contract metadata, account/sync evidence, platform-period summaries, and the bounded post-level sample needed for uncertainty. It returns no caption, title, permalink, external provider ID, or raw provider payload.
 
 ```sql
 WITH params AS (
   SELECT
     15::integer AS tenant_id,
     TIMESTAMPTZ 'REPLACE_WITH_EXACT_ENABLEMENT_UTC' AS enablement_at,
-    ARRAY['instagram', 'facebook']::text[] AS treated_platforms,
+    ARRAY['instagram', 'facebook']::text[]
+      || REPLACE_WITH_EXACT_E_TIME_CROSSPOST_ARRAY AS treated_platforms,
     ARRAY[]::bigint[] AS included_account_ids,
     7::integer AS checkpoint_days
-    -- Replace both arrays with the exact E-time freeze evidence. An empty
-    -- account array is intentionally ineligible, not a request to discover now.
+    -- REQUIRED crosspost replacement: ARRAY[]::text[] for the valid base-only
+    -- freeze, or the exact non-empty resolver result in resolver order. The
+    -- unbound identifier fails closed. Replace the account array with the exact
+    -- E-time freeze evidence; empty remains ineligible, not discovery.
 ),
 bounds AS (
   SELECT
