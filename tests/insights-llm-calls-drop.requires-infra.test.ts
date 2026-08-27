@@ -12,7 +12,7 @@
  * So this runs the real block — extracted from scripts/init-db.js, the file the
  * deploy actually applies — against a live database, and checks both branches:
  *
- *   - an EMPTY table is dropped (the expected production state), and
+ *   - an EMPTY table is dropped, and
  *   - a table WITH ROWS is kept and reported, because "it never held a row" is
  *     an inference from the code, not a measurement of prod. If that inference
  *     is ever wrong, the deploy must not silently destroy the rows.

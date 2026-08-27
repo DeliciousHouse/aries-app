@@ -1580,18 +1580,19 @@ async function initDb() {
         ON insights_sync_runs (started_at) WHERE status = 'running';
 
       -- AA-129 item 12 (2026-08-14): a per-LLM-call cost audit table used to be
-      -- created here. It was never wired — no code reads or writes it — and the
-      -- job it was meant to do is done by task_execution_log (AA-159), which
-      -- records engine, tokens, cost and duration for real work. Two cost
-      -- tables where one is permanently empty invites querying the wrong one.
+      -- created here. Current application source has no reader or writer for it;
+      -- that does not establish its historical or current production row count.
+      -- Its intended job is done by task_execution_log (AA-159), which records
+      -- engine, tokens, cost and duration for real work. Two cost schemas where
+      -- only one is application-wired invites querying the wrong one.
       --
       -- REMOVING THE CREATE IS ONLY HALF THE JOB, and the half that helps the
       -- fewest databases. A migrations/-only file does NOT run in production —
       -- init-db.js is the schema applied at container start (see the note in
       -- migrations/20260604000000_marketing_schedule.sql, and
       -- scripts/release/apply-schema-with-worker-restore.sh, which runs exactly
-      -- this file). So the drop has to happen HERE or it never happens on the
-      -- one database that actually has the table.
+      -- this file). So the drop has to happen HERE to affect an existing
+      -- database that still has the table.
       --
       -- IT DROPS ONLY WHEN EMPTY. "It never held a row" is an inference from
       -- the code — nothing writes it — not a measurement of production. Rather

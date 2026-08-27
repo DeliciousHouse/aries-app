@@ -9,15 +9,15 @@
  * lines of application code. The ticket said "delete or wire"; the evidence
  * said delete, because `task_execution_log` (AA-159) already does that job for
  * real. Two permanently-divergent cost tables is worse than one — the risk is
- * not the empty table, it is someone querying it and concluding this product
- * makes no LLM calls.
+ * someone querying an application-unwired schema and concluding this product
+ * makes no LLM calls. Source inspection does not establish production history.
  *
  * TWO CORRECTIONS FROM REVIEW, both worth stating because the first version of
  * this ticket got them wrong:
  *
  *   1. The drop shipped as a migration ONLY, and migrations/-only files do not
- *      run in production. Fresh databases stopped getting the table; the one
- *      database that had it kept it. The drop now lives in scripts/init-db.js,
+ *      run in production. Fresh databases stopped getting the table; existing
+ *      databases were unchanged. The drop now lives in scripts/init-db.js,
  *      the schema the deploy actually applies.
  *
  *   2. "It held zero rows for its whole life" was an INFERENCE from the code
@@ -95,8 +95,8 @@ test('item 12: the drop is on the path that actually RUNS in production', () => 
   // migrations/-only files do NOT run in prod"), and the deploy proves it:
   // scripts/release/apply-schema-with-worker-restore.sh runs
   // `node scripts/init-db.js` and nothing else. So a drop that lives only
-  // under migrations/ leaves the table on the one database that has it —
-  // forever — which is precisely the outcome the ticket exists to prevent.
+  // under migrations/ leaves existing databases unchanged, which is precisely
+  // the outcome the ticket exists to prevent.
   const initDb = read('scripts', 'init-db.js');
   assert.match(
     initDb,
@@ -125,6 +125,21 @@ test('item 12: the migration file exists as a RECORD, and says it does not apply
     sql,
     /do NOT run in prod|does not run in prod|mirror/i,
     'the file must state that migrations/ do not execute, so nobody reads it as the delivery path',
+  );
+});
+
+test('item 12: repo evidence does not claim unmeasured production row history', () => {
+  const evidence = [
+    read('migrations', '20260814000000_drop_insights_llm_calls.sql'),
+    read('scripts', 'init-db.js'),
+    read('scripts', 'verify-regression-suite.mjs'),
+    read('CLAUDE.md'),
+  ].join('\n');
+
+  assert.doesNotMatch(
+    evidence,
+    /nothing has ever inserted|zero rows for its (?:entire|whole) life|permanently[- ]empty|there is no data to preserve|expected production state/i,
+    'source evidence and guarded-drop tests cannot establish production history or current row count',
   );
 });
 
