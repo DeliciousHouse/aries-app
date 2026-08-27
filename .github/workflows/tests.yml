@@ -77,6 +77,7 @@ jobs:
           tests/scheduled-worker-claim-lock-order.test.ts
           tests/scheduled-worker-sweep-lock-order.test.ts
           tests/scheduled-dispatch-cutover.requires-infra.test.ts
+          tests/insights-llm-calls-drop.requires-infra.test.ts
 
   # S8-2/AA-125 (gap E4). tests/insights-endpoints.test.ts holds the ONLY
   # behaviour tests for the eight /insights section endpoints, and it needs live

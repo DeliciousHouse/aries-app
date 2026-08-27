@@ -1563,13 +1563,11 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_insights_sync_runs_running_started
         ON insights_sync_runs (started_at) WHERE status = 'running';
 
-      -- AA-129 item 12 (2026-08-14): a per-LLM-call cost audit table was
-      -- removed from here. It was created but never wired — no code read or
-      -- wrote it, so it held zero rows for its whole life — and the job it was
-      -- meant to do is done by task_execution_log (AA-159), which records
-      -- engine, tokens, cost and duration for real work. Dropped by
-      -- migrations/20260814000000_*.sql; the name is deliberately not repeated
-      -- here so a repo scan for it stays a reliable "is it wired again?" check.
+      -- AA-129 item 12: task_execution_log supersedes this unused cost table.
+      -- Production runs this file on deploy; migrations/*.sql are reference
+      -- mirrors only. Do not assume a row count: the live-schema test seeds a
+      -- row and proves this deployed path still removes the table.
+      DROP TABLE IF EXISTS insights_llm_calls;
 
       -- content_type is derived at sync time by a caption-keyword heuristic
       -- (backend/insights/sync/classify-post.ts), stamped inline in the

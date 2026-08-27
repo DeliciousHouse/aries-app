@@ -19,6 +19,7 @@ import { useInsight } from "@/frontend/insights/useInsight";
 // platforms can serve comments at all. Reading it here means the empty state
 // explains itself instead of implying the tenant simply has no comments.
 import { platformSupports } from "@/backend/insights/platforms/capabilities";
+import { PLATFORM_LABELS } from "@/backend/insights/platforms/registry";
 import { C, platformColor } from "@/frontend/insights/tokens";
 import {
   SectionHeader, Panel, ChannelIcon, Icon, ErrorState, EmptyState, LoadingRows,
@@ -299,7 +300,7 @@ function emptyCommentsMessage(platform: Platform): string {
   if (platform === "all" || platformSupports(platform, "comments")) {
     return "No comments recorded in this period.";
   }
-  const label = platform.charAt(0).toUpperCase() + platform.slice(1);
+  const label = PLATFORM_LABELS[platform];
   return `${label} comments aren't available to Aries yet — the platform doesn't expose them, so this list can't include them. Comments from your other channels still appear here.`;
 }
 
