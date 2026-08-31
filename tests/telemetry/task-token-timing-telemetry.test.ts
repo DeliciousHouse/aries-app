@@ -52,6 +52,8 @@ const COLUMNS = [
   'status',
   'attempt_number',
   'error_code',
+  'error_class',
+  'error_message',
   'duration_ms',
   'cpu_ms',
   'model_requested',
