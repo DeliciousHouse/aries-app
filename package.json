@@ -74,7 +74,7 @@
     "react-dom": "^19.2.8",
     "recharts": "^3.10.1",
     "resend": "^6.21.0",
-    "sharp": "^0.35.3",
+    "sharp": "^0.35.4",
     "tailwind-merge": "^3.6.0",
     "tailwindcss-animate": "^1.0.7",
     "tsx": "^4.23.12",
