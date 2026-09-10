@@ -6,6 +6,7 @@ import {
 } from '../run-store';
 import type { WorkflowEnvelope, WorkflowExecutionResult } from '../types';
 import { ARIES_WORKFLOWS } from '../workflow-catalog';
+import { withTaskExecutionLog } from '../../telemetry/task-execution-log';
 
 type HermesExecutionEnv = Partial<Record<string, string | undefined>>;
 type HermesFetch = (input: string | URL, init?: RequestInit) => Promise<Response>;
@@ -286,7 +287,37 @@ export class HermesExecutionAdapter {
       sessionKey: this.sessionKey(),
     }) as HermesRunRequestEnvelope;
 
-    return this.invokeRun(envelope);
+    const tenantId = input.tenantId ?? input.tenant_id;
+    const executionTenantId = typeof tenantId === 'string' || typeof tenantId === 'number'
+      ? String(tenantId)
+      : undefined;
+    return withTaskExecutionLog(
+      {
+        engine: 'AI_LLM',
+        taskKey: `execution.${key}`,
+        tenantId: typeof tenantId === 'string' || typeof tenantId === 'number' ? tenantId : null,
+        detailsFromResult(result) {
+          const execution = result as WorkflowExecutionResult;
+          return execution.kind === 'ok'
+            ? { externalRunId: typeof execution.envelope.run_id === 'string' ? execution.envelope.run_id : null }
+            : {};
+        },
+        outcomeFromResult(result) {
+          const execution = result as WorkflowExecutionResult;
+          if (execution.kind !== 'gateway_error') return { status: 'succeeded' };
+          const detail = execution.error.cause ?? execution.error;
+          const detailCode = (detail as { code?: unknown } | null)?.code;
+          return {
+            status: 'failed',
+            errorCode: typeof detailCode === 'string' ? detailCode : execution.error.code,
+            errorClass: detail instanceof Error ? detail.name : 'ExecutionError',
+            errorMessage: detail instanceof Error ? detail.message : execution.error.message,
+          };
+        },
+      },
+      () => this.invokeRun(envelope, executionTenantId),
+      { env: this.env },
+    );
   }
 
   private configurationError(): ExecutionError | null {
@@ -317,12 +348,16 @@ export class HermesExecutionAdapter {
     return `Bearer ${readEnvValue(this.env, 'HERMES_API_SERVER_KEY')}`;
   }
 
-  private async invokeRun(envelope: HermesRunRequestEnvelope): Promise<WorkflowExecutionResult> {
+  private async invokeRun(
+    envelope: HermesRunRequestEnvelope,
+    tenantId: string | undefined,
+  ): Promise<WorkflowExecutionResult> {
     const run = createExecutionRunRecord({
       provider: 'hermes',
       domain: 'route',
       workflowKey: envelope.workflowId,
       action: 'run',
+      tenantId,
     });
     const submission = await this.submitRun(envelope, run.aries_run_id);
     if (submission.kind !== 'submitted') {

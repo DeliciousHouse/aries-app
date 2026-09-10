@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS task_execution_log (
   status            TEXT NOT NULL CHECK (status IN ('succeeded','failed','retry')),
   attempt_number    INTEGER NOT NULL DEFAULT 1,
   error_code        TEXT,
+  error_class       TEXT,
+  error_message     TEXT,
   duration_ms       INTEGER,
   cpu_ms            INTEGER,
   model_requested   TEXT,
@@ -47,11 +49,15 @@ CREATE TABLE IF NOT EXISTS task_execution_log (
   prompt_tokens     INTEGER,
   completion_tokens INTEGER,
   total_tokens      INTEGER,
+  -- Estimated execution cost only; NULL means no trustworthy estimate.
   cost_cents        NUMERIC(10,4),
   started_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   end_time          TIMESTAMPTZ,
   recorded_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+COMMENT ON COLUMN task_execution_log.cost_cents IS
+  'Estimated execution cost in cents; NULL when no trustworthy estimate is available.';
 
 CREATE INDEX IF NOT EXISTS idx_task_execution_log_tenant_started
   ON task_execution_log (tenant_id, started_at DESC);
