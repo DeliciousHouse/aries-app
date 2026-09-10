@@ -59,6 +59,7 @@ All files below gate on the **superset** `DB_HOST` + `DB_PORT` + `DB_USER` + `DB
 
 | File | What it proves against real Postgres | Extra env |
 |---|---|---|
+| `tests/telemetry/daily-cost-dashboard.test.ts` | Grafana's exact daily estimated-cost query over seeded `task_execution_log` rows: UTC tenant/day totals, failures/retries, missing cost vs explicit zero, fractional cents, time bounds and empty input. Uses the shipped DDL in a session-local temporary table; no app data or `db:init` needed. The config assertion also runs without Postgres | — |
 | `tests/insights-sync-runs-sweep.requires-infra.test.ts` | the stranded-run sweep predicate flips only stale `'running'` rows, and the dispatcher's terminal-ok UPDATE overrides a mid-flight sweep + clears the abort message (rolled back) | — |
 | `tests/insights-summary-current-followers.requires-infra.test.ts` | `summary.currentFollowers` is the SUM of each platform's LATEST follower count (`CURRENT_FOLLOWERS_SUM_SQL`), not MAX across platforms and not SUM across dated snapshots — seeds older+latest FB/IG rows and asserts 16k, not 10k/29k (rolled back) | — |
 | `tests/publish-creative-asset-ids.test.ts` | `creative_asset_ids` round-trips through the real `posts` schema + `resolveMediaUrls` SQL (rolled back) | — |
