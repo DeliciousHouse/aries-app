@@ -39,6 +39,7 @@ type Connection = {
   capabilities: Capabilities | null;
   prerequisites?: string[];
   reconcileError?: string | null;
+  lastSuccessfulPostAt?: string | null;
 };
 
 /** Whether we are actively polling after an OAuth return. */
@@ -234,10 +235,19 @@ export default function ComposioConnectionsScreen() {
       )}
 
       {error && (
-        <div className="mb-6 rounded-lg border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">{error}</div>
+        <div role="alert" className="mb-6 rounded-lg border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">
+          {error}
+          <button type="button" onClick={load} disabled={loading} className="ml-3 underline disabled:opacity-50">
+            Try again
+          </button>
+        </div>
       )}
 
-      {loading && <p className="text-sm text-slate-400">Loading your connections…</p>}
+      {loading && <p role="status" className="text-sm text-slate-400">Loading your connections…</p>}
+
+      {!loading && !error && data && data.connections.every((conn) => conn.status === 'not_connected') && (
+        <p role="status" className="mb-6 text-sm text-slate-400">No accounts connected yet.</p>
+      )}
 
       <div className="space-y-4">
         {data?.connections.map((conn) => {
@@ -246,6 +256,9 @@ export default function ComposioConnectionsScreen() {
           const cardPhase = conn.status === 'pending' ? pollingPhase : 'idle';
           const st = statusText(conn.status, caps, cardPhase);
           const isConnected = conn.status === 'connected';
+          const lastPost = conn.lastSuccessfulPostAt ? new Date(conn.lastSuccessfulPostAt) : null;
+          const connectLabel = conn.status === 'reauthorization_required' || conn.status === 'error'
+            ? 'Reconnect' : conn.status === 'pending' ? 'Finish connecting' : 'Connect';
           // A pending / reauthorization_required / error row has an EXISTING
           // connection record that can be cleared. A truly not_connected row has
           // nothing to clear (#703).
@@ -280,10 +293,11 @@ export default function ComposioConnectionsScreen() {
                       <button
                         type="button"
                         onClick={() => connect(conn.platform)}
+                        aria-label={`${connectLabel} ${PLATFORM_LABEL[conn.platform] ?? conn.platform}`}
                         disabled={busy === conn.platform || (data ? !data.composioEnabled : true)}
                         className="rounded-lg bg-violet-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-violet-500 disabled:opacity-50"
                       >
-                        {busy === conn.platform ? 'Starting…' : 'Connect'}
+                        {busy === conn.platform ? 'Starting…' : connectLabel}
                       </button>
                       {hasClearableRow && (
                         <>
@@ -322,6 +336,15 @@ export default function ComposioConnectionsScreen() {
                   )}
                 </div>
               </div>
+
+              <p className="mt-4 text-xs text-slate-400">
+                Last successful post:{' '}
+                {lastPost && !Number.isNaN(lastPost.getTime()) ? (
+                  <time dateTime={lastPost.toISOString()}>
+                    {lastPost.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                  </time>
+                ) : conn.lastSuccessfulPostAt === null ? 'No successful posts yet' : 'History unavailable'}
+              </p>
 
               {caps && isConnected && (
                 <>
