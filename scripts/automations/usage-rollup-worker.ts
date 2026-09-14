@@ -9,8 +9,9 @@
  * hermes-gc workers. The logic lives in backend/telemetry/usage-rollups.ts and
  * backend/telemetry/usage-retention.ts — this file is just the loop.
  *
- * Two independent gates:
- *   ARIES_USAGE_ROLLUP_ENABLED    (default OFF) — the whole worker idles without it.
+ * Independent gates:
+ *   ARIES_CONNECTION_NUDGES_ENABLED (default OFF) — owner connection-health emails.
+ *   ARIES_USAGE_ROLLUP_ENABLED    (default OFF) — aggregation and quota alerts.
  *   ARIES_USAGE_RETENTION_ENABLED (default OFF) — aggregation runs, nothing is
  *     ever deleted. Aggregate for as long as you like before enabling the only
  *     destructive half, and run it with ARIES_USAGE_RETENTION_DRY_RUN=1 first.

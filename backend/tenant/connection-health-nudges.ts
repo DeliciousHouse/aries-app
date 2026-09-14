@@ -52,7 +52,7 @@ export const SELECT_CONNECTION_NUDGE_CANDIDATES_SQL = `
          o.name AS organization_name,
          c.platform,
          c.status,
-         c.status_changed_at
+         c.status_changed_at::text
     FROM connection_candidates c
     JOIN organizations o ON o.id = c.tenant_id
    WHERE o.kind = 'production'
@@ -166,7 +166,7 @@ export async function runConnectionHealthNudges(
 
       const statusChangedAt = candidate.status_changed_at instanceof Date
         ? candidate.status_changed_at.toISOString()
-        : new Date(candidate.status_changed_at).toISOString();
+        : candidate.status_changed_at; // Preserve PostgreSQL microseconds for the metrics join.
       // Claim before delivery, matching quota-alert idempotency: after a crash or
       // transport failure we intentionally risk one missed nudge rather than
       // retrying an email that may already have reached the owner.

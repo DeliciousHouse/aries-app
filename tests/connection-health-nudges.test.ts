@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import type pg from 'pg';
+import { tickSafe } from '@/scripts/automations/usage-rollup-worker';
+import type { NotificationEmailPayload } from '@/lib/email';
 
 import {
   deriveConnectionNudgeKind,
@@ -203,6 +206,36 @@ test('existing hourly worker schedules the nudge sweep', () => {
     composeSource,
     /ARIES_CONNECTION_NUDGES_ENABLED:\s*\$\{ARIES_CONNECTION_NUDGES_ENABLED:-0\}/,
   );
+});
+
+test('hourly tick sends through the email boundary with usage rollups off', async (t) => {
+  const previous = { nudge: process.env.ARIES_CONNECTION_NUDGES_ENABLED, rollup: process.env.ARIES_USAGE_ROLLUP_ENABLED };
+  process.env.ARIES_CONNECTION_NUDGES_ENABLED = '1';
+  process.env.ARIES_USAGE_ROLLUP_ENABLED = '0';
+  const globals = globalThis as Record<string, unknown>;
+  const hookKey = '__ARIES_NOTIFICATION_EMAIL_TEST_HOOK__';
+  const previousHook = globals[hookKey];
+  const emails: NotificationEmailPayload[] = [];
+  globals[hookKey] = (email: NotificationEmailPayload) => { emails.push(email); };
+  t.after(() => {
+    if (previous.nudge === undefined) delete process.env.ARIES_CONNECTION_NUDGES_ENABLED;
+    else process.env.ARIES_CONNECTION_NUDGES_ENABLED = previous.nudge;
+    if (previous.rollup === undefined) delete process.env.ARIES_USAGE_ROLLUP_ENABLED;
+    else process.env.ARIES_USAGE_ROLLUP_ENABLED = previous.rollup;
+    if (previousHook === undefined) delete globals[hookKey];
+    else globals[hookKey] = previousHook;
+  });
+  const h = harness([{
+    source: 'connected_accounts', connection_id: '61', tenant_id: 61,
+    organization_name: 'Customer', platform: 'facebook', status: 'reauthorization_required',
+    status_changed_at: '2026-08-12T10:00:00.123456Z',
+  }]);
+  await tickSafe(h.db as unknown as pg.Pool);
+  assert.equal(emails.length, 1);
+  assert.equal(emails[0].to, 'owner@example.com');
+  assert.match(emails[0].html, /Reconnect account/);
+  assert.match(emails[0].text, /dashboard\/settings\/channel-integrations/);
+  assert.equal(h.calls.find((call) => call.sql.includes('INSERT INTO'))?.params[5], '2026-08-12T10:00:00.123456Z');
 });
 
 test('schema tracks status transitions and durably deduplicates each unhealthy state', () => {
