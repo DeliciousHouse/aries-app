@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.17.0] - 2026-09-10
+
+### Added
+
+- Operators can import a daily per-tenant estimated AI cost dashboard into Grafana,
+  with a visible $100/day reference and explicit missing-cost counts. Reported
+  estimates include failed and retry attempts; unknown costs never become $0.
+
 ## [0.2.15.1] - 2026-08-23
 
 ### Changed
