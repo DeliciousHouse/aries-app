@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Classify workspaces as production, test, or archived; keep test workspaces out
+  of fleet metrics and alerts by default and require a test workspace for canaries.
+- View connection status, last successful scheduled post, and reconnect actions
+  from Connections; optionally email workspace admins about unhealthy connections.
+- Generate evidence-backed duplicate-workspace proposals for owner sign-off,
+  without automatically merging, archiving, or deleting organizations.
+
+### Fixed
+
+- Preserve PostgreSQL transition precision so connection nudge attempts join the
+  correct health metric, including when fleet diagnostics explicitly include tests.
+
 ## [0.2.15.1] - 2026-08-23
 
 ### Changed

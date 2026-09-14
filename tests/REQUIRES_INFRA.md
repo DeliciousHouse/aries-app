@@ -59,6 +59,7 @@ All files below gate on the **superset** `DB_HOST` + `DB_PORT` + `DB_USER` + `DB
 
 | File | What it proves against real Postgres | Extra env |
 |---|---|---|
+| `tests/tenant-lifecycle.requires-infra.test.ts` | Both B7 migrations run twice; existing tenants default to production; transition timestamps retain microseconds across nudge claims and metric joins; repeated sweeps dedupe; test/archived tenants are excluded by default. Transaction-local schema, rolled back. **Runs in CI** (`feedback-postgres`) | — |
 | `tests/insights-sync-runs-sweep.requires-infra.test.ts` | the stranded-run sweep predicate flips only stale `'running'` rows, and the dispatcher's terminal-ok UPDATE overrides a mid-flight sweep + clears the abort message (rolled back) | — |
 | `tests/insights-summary-current-followers.requires-infra.test.ts` | `summary.currentFollowers` is the SUM of each platform's LATEST follower count (`CURRENT_FOLLOWERS_SUM_SQL`), not MAX across platforms and not SUM across dated snapshots — seeds older+latest FB/IG rows and asserts 16k, not 10k/29k (rolled back) | — |
 | `tests/publish-creative-asset-ids.test.ts` | `creative_asset_ids` round-trips through the real `posts` schema + `resolveMediaUrls` SQL (rolled back) | — |

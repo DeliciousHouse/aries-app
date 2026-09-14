@@ -20,6 +20,7 @@ import test from 'node:test';
 import {
   QUOTA_ALERT_THRESHOLDS,
   runQuotaThresholdAlerts,
+  SELECT_ALERT_CANDIDATES_SQL,
   type Queryable,
 } from '@/backend/billing/quota-alerts';
 
@@ -113,6 +114,25 @@ function harness(options: {
 
 test('the thresholds are exactly the two the AC names', () => {
   assert.deepEqual([...QUOTA_ALERT_THRESHOLDS], [80, 95]);
+});
+
+test('quota alerts exclude non-production tenants unless explicitly included', async () => {
+  assert.match(SELECT_ALERT_CANDIDATES_SQL, /JOIN organizations o ON o\.id = s\.company_id/i);
+  assert.match(SELECT_ALERT_CANDIDATES_SQL, /o\.kind\s*=\s*ANY\(\$2::text\[\]\)/i);
+
+  const defaultKinds = harness({ candidates: [] });
+  await runQuotaThresholdAlerts(defaultKinds.db, { env: ON, send: defaultKinds.send });
+  const defaultQuery = defaultKinds.calls.find((call) => call.sql.includes('FROM company_subscriptions'));
+  assert.deepEqual(defaultQuery?.params[1], ['production']);
+
+  const includedTest = harness({ candidates: [] });
+  await runQuotaThresholdAlerts(includedTest.db, {
+    env: ON,
+    send: includedTest.send,
+    tenantKinds: ['production', 'test'],
+  });
+  const includedQuery = includedTest.calls.find((call) => call.sql.includes('FROM company_subscriptions'));
+  assert.deepEqual(includedQuery?.params[1], ['production', 'test']);
 });
 
 test('flag OFF sends nothing and touches no table', async () => {
