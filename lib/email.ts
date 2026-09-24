@@ -124,6 +124,14 @@ export interface QuotaThresholdEmailParams {
   usageUrl: string;
 }
 
+export interface ConnectionHealthNudgeEmailParams {
+  to: string;
+  workspaceName: string;
+  platform: string;
+  kind: 'reauthorization_required' | 'pending_over_7_days';
+  reconnectUrl: string;
+}
+
 export interface WorkspaceInviteEmailParams {
   /** Invited teammate's email address */
   to: string;
@@ -500,6 +508,56 @@ export async function sendQuotaThresholdEmail(params: QuotaThresholdEmailParams)
     html: renderQuotaThresholdHtml(params),
     text: renderQuotaThresholdText(params),
     context: 'quota-threshold',
+  });
+}
+
+function connectionNudgeCopy(params: ConnectionHealthNudgeEmailParams) {
+  const platform = params.platform.charAt(0).toUpperCase() + params.platform.slice(1);
+  return params.kind === 'reauthorization_required'
+    ? {
+        title: `Reconnect ${platform}`,
+        subject: `${params.workspaceName}'s ${platform} connection needs attention`,
+        body: `${platform} needs to be reconnected before Aries can publish there again.`,
+        cta: 'Reconnect account',
+      }
+    : {
+        title: `Finish connecting ${platform}`,
+        subject: `${params.workspaceName}'s ${platform} connection is still waiting`,
+        body: `${platform} has been waiting for connection approval for more than seven days.`,
+        cta: 'Finish connecting',
+      };
+}
+
+export async function sendConnectionHealthNudgeEmail(
+  params: ConnectionHealthNudgeEmailParams,
+): Promise<void> {
+  const copy = connectionNudgeCopy(params);
+  const workspaceName = params.workspaceName
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+  const body = `
+    <p style="font-size:15px;line-height:1.5;color:rgba(255,255,255,0.7);margin:0 0 8px;">
+      <strong style="color:#ffffff;">${workspaceName}</strong>: ${copy.body}
+    </p>
+    ${renderCtaButton(copy.cta, params.reconnectUrl)}
+    <p style="font-size:13px;color:rgba(255,255,255,0.4);margin:24px 0 0;">
+      Or copy this link: ${params.reconnectUrl}
+    </p>`;
+  await sendEmail({
+    to: params.to,
+    subject: copy.subject,
+    html: renderEmailHtml(copy.title, body),
+    text: [
+      `Aries AI — ${copy.title}`,
+      '',
+      `${params.workspaceName}: ${copy.body}`,
+      '',
+      `${copy.cta}: ${params.reconnectUrl}`,
+    ].join('\n'),
+    context: 'connection-health-nudge',
   });
 }
 

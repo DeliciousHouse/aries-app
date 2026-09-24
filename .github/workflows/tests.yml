@@ -92,12 +92,13 @@ jobs:
         run: |
           set -euo pipefail
           npx --no-install tsx --test --test-reporter=tap --test-concurrency=1 \
-            tests/insights-llm-calls-drop.requires-infra.test.ts 2>&1 | tee /tmp/aa129-drop.log
+            tests/insights-llm-calls-drop.requires-infra.test.ts \
+            tests/tenant-lifecycle.requires-infra.test.ts 2>&1 | tee /tmp/aa129-drop.log
           skipped=$(awk '/^# skipped /{print $3; exit}' /tmp/aa129-drop.log)
           passed=$(awk  '/^# pass /{print $3; exit}'    /tmp/aa129-drop.log)
           echo "pass=${passed:-?} skipped=${skipped:-?}"
           if [ -z "${skipped:-}" ] || [ "$skipped" -ne 0 ]; then
-            echo "::error::the AA-129 drop test skipped — it verified nothing"
+            echo "::error::a live-DB drop/lifecycle test skipped — it verified nothing"
             exit 1
           fi
 
