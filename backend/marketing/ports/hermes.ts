@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
 import pool from '@/lib/db';
 import { hashCallbackToken } from '@/lib/internal-callback-auth';
+import { withTaskExecutionLog } from '@/backend/telemetry/task-execution-log';
 import { PROTOCOL_VERSION } from '@aries/hermes-protocol';
 import {
   createExecutionRunRecord,
@@ -907,6 +908,25 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     await this.persistCallbackTokenHash(input.ariesRunId, input.tenantId, input.callbackToken);
     const idempotencyKey = typeof wirePayload.idempotency_key === 'string' ? wirePayload.idempotency_key : '';
 
+    return withTaskExecutionLog(
+      {
+        engine: 'AI_LLM',
+        taskKey: `marketing.${input.workflowKey}`,
+        taskId: input.ariesRunId,
+        tenantId: input.tenantId,
+        targetProfile: null,
+        detailsFromResult: (result) => ({
+          externalRunId: (result as SubmitRawRunResult).hermesRunId,
+        }),
+        // Terminal callbacks own the success row; this boundary adds the
+        // otherwise-lost pre-callback failure row only.
+        outcomeFromResult: () => null,
+        errorCodeFromError: (error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          return message.split(':', 1)[0] || 'hermes_submission_failed';
+        },
+      },
+      async () => {
     let response: Response;
     try {
       response = await this.fetchImpl(`${this.gatewayUrl()}/v1/runs`, {
@@ -920,7 +940,10 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       });
     } catch (error) {
       markSubmissionFailed(input.ariesRunId, 'hermes_gateway_unreachable', error instanceof Error ? error.message : String(error));
-      throw new Error(`hermes_gateway_unreachable:${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `hermes_gateway_unreachable:${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
     }
 
     if (!response.ok) {
@@ -951,6 +974,9 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     }
 
     return { ariesRunId: input.ariesRunId, hermesRunId };
+      },
+      { env: this.env },
+    );
   }
 
   /**
@@ -1248,6 +1274,34 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     const gatewayAuthWarning = describeProfileGatewayKeyFallback(targetProfile, this.env);
     if (gatewayAuthWarning) console.warn(gatewayAuthWarning);
 
+    return withTaskExecutionLog(
+      {
+        engine: 'AI_LLM',
+        taskKey: `marketing.${workflowKey}`,
+        taskId: run.aries_run_id,
+        tenantId: input.tenantId,
+        targetProfile,
+        detailsFromResult: (result) => {
+          const execution = result as MarketingExecutionResult;
+          return {
+            externalRunId: execution.kind === 'submitted'
+              ? execution.hermesRunId ?? null
+              : execution.output.runId ?? null,
+          };
+        },
+        outcomeFromResult: (result) => {
+          const execution = result as MarketingExecutionResult;
+          if (execution.kind === 'submitted') return null;
+          if (execution.output.ok !== false) return { status: 'succeeded' };
+          return {
+            status: 'failed',
+            errorCode: execution.output.error?.code ?? 'hermes_invocation_failed',
+            errorClass: 'HermesGatewayError',
+            errorMessage: execution.output.error?.message ?? 'Hermes invocation failed.',
+          };
+        },
+      },
+      async () => {
     let response: Response;
     try {
       response = await this.fetchImpl(`${this.gatewayUrlForProfile(targetProfile)}/v1/runs`, {
@@ -1346,6 +1400,9 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       ariesRunId: run.aries_run_id,
       hermesRunId,
     };
+      },
+      { env: this.env },
+    );
   }
 
   private pollBridgeEnabled(): boolean {

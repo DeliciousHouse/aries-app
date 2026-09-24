@@ -1934,6 +1934,7 @@ export async function extractEnrichAndSaveTenantBrandKit(input: {
       : await extractBrandKitFromWebsite(input);
 
   const enrichmentResult = await enrichBrandKitWithGemini({
+    tenantId: input.tenantId,
     brandUrl: input.brandUrl,
     scrapedBrandKit: scraped,
     env: input.env,

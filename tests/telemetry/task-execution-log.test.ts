@@ -49,6 +49,8 @@ const COLUMNS = [
   'status',
   'attempt_number',
   'error_code',
+  'error_class',
+  'error_message',
   'duration_ms',
   'cpu_ms',
   'model_requested',
@@ -275,6 +277,37 @@ test('withTaskExecutionLog records the failure and re-throws the original error'
   const row = paramsByColumn(db.calls[0]);
   assert.equal(row.status, 'failed');
   assert.equal(row.error_code, 'ffmpeg_failed');
+  assert.equal(row.error_class, 'Error');
+  assert.equal(row.error_message, 'ffmpeg exited 1');
+});
+
+test('withTaskExecutionLog records a returned failure without changing the result', async () => {
+  const db = fakeDb();
+  const result = await withTaskExecutionLog(
+    {
+      engine: 'AI_LLM',
+      taskKey: 'execution.demo_start',
+      outcomeFromResult(value) {
+        const returned = value as { ok: false; reason: string; detail: string };
+        return {
+          status: 'failed',
+          errorCode: returned.reason,
+          errorClass: 'HermesGatewayError',
+          errorMessage: returned.detail,
+        };
+      },
+    },
+    async () => ({ ok: false as const, reason: 'ENOENT', detail: 'spawn hermes-engine ENOENT' }),
+    { db, env: ON },
+  );
+
+  assert.deepEqual(result, { ok: false, reason: 'ENOENT', detail: 'spawn hermes-engine ENOENT' });
+  assert.equal(db.calls.length, 1);
+  const row = paramsByColumn(db.calls[0]);
+  assert.equal(row.status, 'failed');
+  assert.equal(row.error_code, 'ENOENT');
+  assert.equal(row.error_class, 'HermesGatewayError');
+  assert.equal(row.error_message, 'spawn hermes-engine ENOENT');
 });
 
 test('a telemetry failure inside the wrapper still returns the task result', async () => {

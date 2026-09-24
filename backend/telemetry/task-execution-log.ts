@@ -78,6 +78,10 @@ export type TaskExecutionRecord = {
   attemptNumber?: number | null;
   /** Short machine-readable failure reason; null on success. */
   errorCode?: string | null;
+  /** Error constructor/name (for example Error or TypeError); null on success. */
+  errorClass?: string | null;
+  /** Bounded diagnostic message; null on success. */
+  errorMessage?: string | null;
   /** Wall-clock duration. */
   durationMs?: number | null;
   /** CPU time consumed in-process (user+system). Required in spirit for LOCAL_EDGE. */
@@ -98,6 +102,7 @@ export type TaskExecutionRecord = {
   promptTokens?: number | null;
   completionTokens?: number | null;
   totalTokens?: number | null;
+  /** Estimated cost in cents when a trusted estimate is available; otherwise NULL. */
   costCents?: number | null;
   startedAt?: Date | null;
   endTime?: Date | null;
@@ -112,6 +117,8 @@ export type TaskExecutionRow = {
   status: TaskExecutionStatus;
   attempt_number: number;
   error_code: string | null;
+  error_class: string | null;
+  error_message: string | null;
   duration_ms: number | null;
   cpu_ms: number | null;
   model_requested: string | null;
@@ -128,6 +135,11 @@ export type TaskExecutionRow = {
 
 function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function boundedText(value: unknown, maxLength = 2_000): string | null {
+  const valueText = text(value);
+  return valueText === null ? null : valueText.slice(0, maxLength);
 }
 
 function nonNegativeInt(value: unknown): number | null {
@@ -185,6 +197,8 @@ export function normalizeTaskExecutionRow(record: TaskExecutionRecord): TaskExec
     // tried again, so dropping its error code would lose why it is being retried.
     error_code:
       record.status === 'succeeded' ? null : (text(record.errorCode) ?? 'error'),
+    error_class: record.status === 'succeeded' ? null : boundedText(record.errorClass, 200),
+    error_message: record.status === 'succeeded' ? null : boundedText(record.errorMessage),
     duration_ms: nonNegativeInt(record.durationMs),
     cpu_ms: nonNegativeInt(record.cpuMs),
     // Model routing is meaningful only for AI runs; a model on a local/rule row
@@ -206,7 +220,7 @@ export function normalizeTaskExecutionRow(record: TaskExecutionRecord): TaskExec
 }
 
 /** Column order of one row's parameter tuple; shared by the single + batch path. */
-const COLUMN_COUNT = 20;
+const COLUMN_COUNT = 22;
 
 function rowParams(row: TaskExecutionRow): unknown[] {
   return [
@@ -218,6 +232,8 @@ function rowParams(row: TaskExecutionRow): unknown[] {
     row.status,
     row.attempt_number,
     row.error_code,
+    row.error_class,
+    row.error_message,
     row.duration_ms,
     row.cpu_ms,
     row.model_requested,
@@ -236,14 +252,14 @@ function rowParams(row: TaskExecutionRow): unknown[] {
 const INSERT_COLUMNS = `
   INSERT INTO task_execution_log (
     tenant_id, user_id, task_id, execution_engine, task_key,
-    status, attempt_number, error_code, duration_ms, cpu_ms,
+    status, attempt_number, error_code, error_class, error_message, duration_ms, cpu_ms,
     model_requested, model_reported, target_profile, external_run_id, prompt_tokens,
     completion_tokens, total_tokens, cost_cents, started_at, end_time
   ) VALUES `;
 
 /**
- * `VALUES ($1,...,$20), ($21,...)` for `count` rows. started_at (offset 19 of
- * 20) keeps its COALESCE-to-now default so a caller that omits it still lands a
+ * `VALUES ($1,...,$22), ($23,...)` for `count` rows. started_at (offset 21 of
+ * 22) keeps its COALESCE-to-now default so a caller that omits it still lands a
  * sane timestamp.
  */
 function insertSql(count: number): string {
@@ -252,7 +268,7 @@ function insertSql(count: number): string {
     const base = r * COLUMN_COUNT;
     const placeholders: string[] = [];
     for (let c = 1; c <= COLUMN_COUNT; c++) {
-      placeholders.push(c === 19 ? `COALESCE($${base + c}, now())` : `$${base + c}`);
+      placeholders.push(c === 21 ? `COALESCE($${base + c}, now())` : `$${base + c}`);
     }
     tuples.push(`(${placeholders.join(', ')})`);
   }
@@ -402,18 +418,79 @@ export function emitTaskExecution(
 
 export type TaskExecutionSpec = Omit<
   TaskExecutionRecord,
-  'status' | 'errorCode' | 'durationMs' | 'cpuMs' | 'startedAt' | 'endTime'
+  | 'status'
+  | 'errorCode'
+  | 'errorClass'
+  | 'errorMessage'
+  | 'durationMs'
+  | 'cpuMs'
+  | 'startedAt'
+  | 'endTime'
 > & {
   /** Derive extra AI metadata (model reported, usage, run id) from the result. */
   detailsFromResult?: (result: unknown) => Partial<TaskExecutionRecord>;
+  /**
+   * Map a returned result onto its real outcome. Return null when no engine
+   * invocation occurred (for example a disabled/not-configured gate).
+   */
+  outcomeFromResult?: (result: unknown) => {
+    status: TaskExecutionStatus;
+    errorCode?: string | null;
+    errorClass?: string | null;
+    errorMessage?: string | null;
+  } | null;
   /** Map a thrown error onto a short machine-readable code. */
   errorCodeFromError?: (error: unknown) => string;
 };
 
+/** Map the best-effort `{ ok, reason/error, detail }` Hermes client shape. */
+export function hermesResultOutcome(result: unknown): {
+  status: TaskExecutionStatus;
+  errorCode?: string | null;
+  errorClass?: string | null;
+  errorMessage?: string | null;
+} {
+  const value = result as {
+    ok?: unknown;
+    reason?: unknown;
+    error?: unknown;
+    detail?: unknown;
+    status?: unknown;
+  } | null;
+  if (value?.ok === true) return { status: 'succeeded' };
+  const errorCode = text(value?.reason)
+    ?? (typeof value?.status === 'number' ? `http_${value.status}` : null)
+    ?? 'hermes_invocation_failed';
+  return {
+    status: 'failed',
+    errorCode,
+    errorClass: 'HermesInvocationError',
+    errorMessage: boundedText(value?.detail) ?? boundedText(value?.error) ?? errorCode,
+  };
+}
+
+function errorDetail(error: unknown): unknown {
+  const cause = (error as { cause?: unknown } | null)?.cause;
+  return cause ?? error;
+}
+
 function errorCodeOf(error: unknown): string {
-  const code = (error as { code?: unknown } | null)?.code;
+  const code = (errorDetail(error) as { code?: unknown } | null)?.code;
   if (typeof code === 'string' && code.trim()) return code.trim();
   return 'error';
+}
+
+function errorClassOf(error: unknown): string {
+  const detail = errorDetail(error);
+  if (detail instanceof Error) return detail.name || detail.constructor.name || 'Error';
+  return typeof detail === 'object' && detail !== null
+    ? ((detail as { constructor?: { name?: string } }).constructor?.name ?? 'Error')
+    : typeof detail;
+}
+
+function errorMessageOf(error: unknown): string {
+  const detail = errorDetail(error);
+  return detail instanceof Error ? detail.message : String(detail);
 }
 
 /**
@@ -431,7 +508,7 @@ export async function withTaskExecutionLog<T>(
   if (!isTaskTelemetryEnabled(options.env ?? process.env)) {
     return fn();
   }
-  const { detailsFromResult, errorCodeFromError, ...base } = spec;
+  const { detailsFromResult, outcomeFromResult, errorCodeFromError, ...base } = spec;
   const startedAt = new Date();
   const startWall = Date.now();
   const startCpu = process.cpuUsage();
@@ -450,10 +527,15 @@ export async function withTaskExecutionLog<T>(
   try {
     const result = await fn();
     const extra = detailsFromResult ? (detailsFromResult(result) ?? {}) : {};
-    await recordTaskExecution(
-      { ...base, ...extra, ...measure(), startedAt, status: 'succeeded' },
-      options,
-    );
+    const outcome = outcomeFromResult
+      ? outcomeFromResult(result)
+      : { status: 'succeeded' as const };
+    if (outcome) {
+      await recordTaskExecution(
+        { ...base, ...extra, ...outcome, ...measure(), startedAt },
+        options,
+      );
+    }
     return result;
   } catch (error) {
     await recordTaskExecution(
@@ -463,6 +545,8 @@ export async function withTaskExecutionLog<T>(
         startedAt,
         status: 'failed',
         errorCode: errorCodeFromError ? errorCodeFromError(error) : errorCodeOf(error),
+        errorClass: errorClassOf(error),
+        errorMessage: errorMessageOf(error),
       },
       options,
     );
