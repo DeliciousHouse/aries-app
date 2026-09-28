@@ -2,7 +2,18 @@
 
 ## Overview
 
-Production deployment uses Docker and GitHub Actions. The GitHub Actions Deploy workflow builds and publishes `ghcr.io/delicioushouse/aries-app:<sha>` for each commit to `master`, then a self-hosted deploy host pulls the pinned image and force-recreates the live `aries-app` container.
+Production is the existing migrated Docker stack on ubuntu-docker at
+https://aries.deliciouswines.org. The checkout-based Deploy workflow is retired;
+merging to `master` and publishing an image do not update the running application.
+Use [the gated replacement protocol](runbooks/ubuntu-docker-release.md), which
+records the known inventory, unresolved ownership/compatibility and rollback
+checkpoints. Public ingress is healthy; it must not be repointed for this work.
+
+The Compose/env setup examples below are for a separate self-hosted installation,
+NOT instructions for the migrated production stack. Do not apply their mounts,
+ports, network, worker defaults, schema initialization or autoheal to ubuntu-docker.
+The older deploy configuration in `CLAUDE.md` is stale pending approval to edit
+that protected instruction file; this runbook is the production release reference.
 
 ## Docker image
 
@@ -38,7 +49,7 @@ OAUTH_TOKEN_ENCRYPTION_KEY   # Required for Aries-managed OAuth providers
 
 See `SELF_HOSTING.md` for the full variable reference and optional variables.
 
-## Docker Compose production run
+## Separate self-hosted Compose run (not ubuntu-docker)
 
 Create the external Docker network if it does not exist:
 
@@ -68,24 +79,18 @@ docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml
 
 ## GitHub Actions release flow
 
-Production deploys are triggered automatically on `master` pushes via `.github/workflows/deploy.yml`. The workflow runs on a `self-hosted, Linux, X64` runner and:
+`.github/workflows/release.yml` is the existing GitHub-hosted image publisher.
+Manual dispatch publishes `sha-<full SHA>`; version tags retain the self-hosted
+distribution aliases. Neither path deploys. Resolve a candidate's registry digest
+and verify its source revision; never use a mutable tag as rollout identity.
 
-1. Validates the deploy target branch.
-2. Builds and publishes `ghcr.io/delicioushouse/aries-app:<sha>` to GHCR.
-3. Pulls the pinned image on the deploy host.
-4. Force-recreates the `aries-app` service and waits for it to pass a health check (failure here fails the deploy).
-5. Force-recreates every worker sidecar in `docker-compose.yml` (`aries-scheduled-posts-worker`, `aries-weekly-trigger-worker`, `aries-draft-expiry-sweep-worker`, `aries-hermes-gc-worker`, `aries-feedback-retry-worker`, `aries-insights-sync-worker`, `aries-honcho-performance-worker`, `aries-composio-reconciler-worker`) onto the same pinned image. Sidecar recreate failures are non-fatal relative to the app deploy.
-6. Verifies each sidecar has a running container on the target image ID, iterating `docker compose config --services` so the list can never drift from `docker-compose.yml`. Mismatches stay non-fatal but surface as GitHub `::warning::` annotations and step-summary lines.
-
-Every service in `docker-compose.yml` must have a matching force-recreate block in the workflow: `tests/deploy-manifest-parity.test.ts` (run in `npm run verify` and CI) fails when a compose service is added, renamed, or removed without the workflow being updated. This closes the gap where a worker added to compose but omitted from the workflow would keep running a stale image across every deploy (its `restart: unless-stopped` container is never re-pulled).
-
-Manual dispatch with an explicit image tag:
-
-```bash
-gh workflow run Deploy --ref master \
-  -f image_tag=<full-commit-sha> \
-  -f git_ref=<full-commit-sha>
-```
+The former workflow lives only at `tests/fixtures/retired-deploy.yml` so existing
+schema/worker/cleanup regression tests still exercise their historical contract.
+It is not a deploy manifest and must not be copied back into Actions or run on
+the migrated host. Removal from the current branch does not alter old queued
+runs, whose recorded definitions remain unsafe to execute. Do not attach a
+runner or rerun those jobs. No replacement deployment job ships in this
+preparation-only change; compatibility and operational ownership remain gated.
 
 ## Process model and tuning
 

@@ -9,7 +9,8 @@ import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 const workflow = readFileSync(
-  path.join(PROJECT_ROOT, '.github', 'workflows', 'deploy.yml'),
+  // Keep the cleanup helper regressions without an executable deploy workflow.
+  path.join(PROJECT_ROOT, 'tests', 'fixtures', 'retired-deploy.yml'),
   'utf8',
 );
 const CLEANUP_MARKER = '# --- Disk hygiene: reclaim stale Docker artifacts before the preflight ---';

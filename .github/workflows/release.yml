@@ -1,8 +1,10 @@
 # Publish the public self-host image to GHCR.
 #
-# Distinct from deploy.yml (the self-hosted production pipeline): this runs on
+# Image publication only, NOT a production deployment. This runs on
 # GitHub-hosted runners and exists so the one-line installer (install.sh) can
 # `docker pull ghcr.io/delicioushouse/aries-app:latest` without building.
+# Manual runs publish sha-<full SHA>; resolve its registry digest before use.
+# Production replacement is gated by docs/runbooks/ubuntu-docker-release.md.
 #
 # One-time setup after the first run: flip the `aries-app` package to Public
 # in the org's GHCR package settings, or anonymous pulls will 401 and the

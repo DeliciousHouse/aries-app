@@ -688,11 +688,10 @@ const steps = [
     ],
   },
   {
-    // Compose-service vs deploy-workflow recreate parity. In verify (not just
-    // the CI full-suite) because the agent-automerge deploy path gates on
-    // verify alone — a compose/deploy drift must fail before that dispatch.
-    name: 'deploy manifest parity',
-    args: ['--test', 'tests/deploy-manifest-parity.test.ts'],
+    // Preserve the historical helper contract and fail closed on reintroducing
+    // the retired workflow while migrated-stack replacement is unproven.
+    name: 'release preparation and historical deploy manifest parity',
+    args: ['--test', 'tests/ubuntu-docker-release-preflight.test.ts', 'tests/deploy-manifest-parity.test.ts'],
   },
   {
     // The deploy must rewrite the host .env ARIES_APP_IMAGE pin (registry
