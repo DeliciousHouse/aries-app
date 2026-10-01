@@ -350,7 +350,7 @@ type Queryable = {
   query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[]; rowCount?: number | null }>;
 };
 
-type TriggerResponse = { status?: string; reason?: string; jobId?: string };
+type TriggerResponse = { status?: string; reason?: string; message?: string; jobId?: string };
 
 async function postTrigger(
   baseUrl: string,
@@ -490,6 +490,7 @@ export async function tick(
         report.failed += 1;
         console.error('[weekly-trigger-worker] trigger failed — reverted claim, will retry', {
           tenantId, httpStatus, reason: body.reason ?? body.status ?? 'unknown',
+          message: body.message ?? null,
         });
         continue;
       }
