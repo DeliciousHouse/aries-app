@@ -7,7 +7,7 @@ import path from 'node:path';
 
 const HERMES_IMAGE =
   'nousresearch/hermes-agent:v2026.9.24@sha256:fca358f12efd65bfaaca05884166f15c0e2788375ca30d77061ac1ebc96452b7';
-const HERMES_VERSION = '0.20.0';
+const HERMES_VERSION = '0.21.5';
 const API_KEY = 'aries-hermes-sidecar-contract-key-2026';
 const EXPECTED_OUTPUT = 'ARIES_HERMES_SIDECAR_OK';
 const MODEL = 'aries-sidecar-contract';
