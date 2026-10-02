@@ -636,7 +636,7 @@ services:
   # the temporary in-image CLI compatibility path keep working during cutover.
   # The release tag is paired with its immutable multi-arch manifest digest.
   aries-hermes:
-    image: ${ARIES_HERMES_IMAGE:-nousresearch/hermes-agent:v2026.8.3@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e}
+    image: ${ARIES_HERMES_IMAGE:-nousresearch/hermes-agent:v2026.9.24@sha256:fca358f12efd65bfaaca05884166f15c0e2788375ca30d77061ac1ebc96452b7}
     profiles: ["hermes-sidecar"]
     command: ["gateway", "run"]
     environment:
