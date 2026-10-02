@@ -6,8 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 const HERMES_IMAGE =
-  'nousresearch/hermes-agent:v2026.8.3@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e';
-const HERMES_VERSION = '0.20.0';
+  'nousresearch/hermes-agent:v2026.9.24@sha256:fca358f12efd65bfaaca05884166f15c0e2788375ca30d77061ac1ebc96452b7';
+const HERMES_VERSION = '0.21.5';
 const API_KEY = 'aries-hermes-sidecar-contract-key-2026';
 const EXPECTED_OUTPUT = 'ARIES_HERMES_SIDECAR_OK';
 const MODEL = 'aries-sidecar-contract';

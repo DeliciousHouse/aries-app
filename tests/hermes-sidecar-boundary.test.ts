@@ -12,7 +12,7 @@ const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 const COMPOSE_PATH = path.join(PROJECT_ROOT, 'docker-compose.yml');
 const HEALTHCHECK_PATH = path.join(PROJECT_ROOT, 'scripts', 'container-healthcheck.mjs');
 const HERMES_IMAGE =
-  'nousresearch/hermes-agent:v2026.8.3@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e';
+  'nousresearch/hermes-agent:v2026.9.24@sha256:fca358f12efd65bfaaca05884166f15c0e2788375ca30d77061ac1ebc96452b7';
 const SOURCE_ROOTS = ['app', 'backend', 'components', 'hooks', 'lib', 'packages', 'scripts'];
 const CHILD_PROCESS_COMMANDS = new Set([
   'exec',
