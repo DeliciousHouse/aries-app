@@ -1878,9 +1878,35 @@ export async function extractAndSaveTenantBrandKit(input: {
     };
   }
 
-  const brandKit = await extractBrandKitFromWebsite(input);
+  const brandKit = await extractBrandKitFromWebsiteOrStale(input, existing);
   const filePath = saveTenantBrandKit(input.tenantId, brandKit);
   return { brandKit, filePath };
+}
+
+/**
+ * Re-scrape the tenant website, but keep a previously extracted kit for the SAME
+ * url when the site cannot be fetched (bot-blocking 403, DNS failure, outage).
+ * Without this a stale-but-valid kit turned every fetch failure into a thrown
+ * job start, so the weekly trigger 500'd and retried forever. A kit for a
+ * different url is never reused: that would brand the tenant as another site.
+ */
+async function extractBrandKitFromWebsiteOrStale(
+  input: { tenantId: string; brandUrl: string; fetchImpl?: typeof fetch },
+  existing: TenantBrandKit | null | undefined,
+): Promise<TenantBrandKit> {
+  try {
+    return await extractBrandKitFromWebsite(input);
+  } catch (err) {
+    if (existing && existing.source_url === input.brandUrl) {
+      console.warn('[brand-kit] website fetch failed; reusing stale kit', {
+        tenantId: input.tenantId,
+        extractedAt: existing.extracted_at,
+        error: (err as Error)?.message ?? String(err),
+      });
+      return existing;
+    }
+    throw err;
+  }
 }
 
 function hasEnrichmentFields(kit: TenantBrandKit): boolean {
@@ -1931,7 +1957,7 @@ export async function extractEnrichAndSaveTenantBrandKit(input: {
   const scraped =
     existing && isFreshBrandKit(existing, input.brandUrl)
       ? existing
-      : await extractBrandKitFromWebsite(input);
+      : await extractBrandKitFromWebsiteOrStale(input, existing);
 
   const enrichmentResult = await enrichBrandKitWithGemini({
     tenantId: input.tenantId,
