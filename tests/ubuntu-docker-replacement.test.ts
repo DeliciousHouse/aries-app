@@ -4,8 +4,11 @@ import { createServer } from 'node:http';
 import { randomUUID, createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 // @ts-expect-error — operational .mjs module.
-import { dockerApi, replacementBody, replaceRelease, serviceNames, validateExecution, validateSources } from '../scripts/release/ubuntu-docker-replace.mjs';
+import { dockerApi, replacementBody, replaceRelease, serviceNames, validateExecution, validateSources, validateRehearsalTarget } from '../scripts/release/ubuntu-docker-replace.mjs';
 // @ts-expect-error — offline operational preflight.
 import { requiredCheckpoints } from '../scripts/release/ubuntu-docker-preflight.mjs';
 
@@ -51,6 +54,10 @@ function harness(fail = '') {
         containers.set(Id, { ...source(serviceNames[0]), Id, Image: candidate.Id, Config, HostConfig });
         return { Id };
       }
+      if (path.includes('/stop')) {
+        const container = containers.get(path.split('/')[2]);
+        if (container) containers.set(container.Id, { ...container, State: { Running: false } });
+      }
       return {};
     },
     verify: async (phase: string) => { calls.push(phase); if (fail === phase) throw new Error('private probe output'); },
@@ -78,7 +85,7 @@ test('failed quiescence has zero Docker mutations; failed replacement/health/pro
     const h = harness(failure);
     await assert.rejects(replaceRelease({ sha, image }, h.originals, h.candidate, h));
     assert.ok(!h.calls.some((c) => /\/containers\/aries-a3e604b4-.*\/start/.test(c)));
-    if (['/start', 'health', 'accepted', 'appReady'].includes(failure)) assert.ok(h.calls.at(-1)?.includes('/stop'));
+    if (['/start', 'health', 'accepted', 'appReady'].includes(failure)) assert.ok(h.calls.at(-1)?.includes('/json'));
   }
 });
 
@@ -119,12 +126,14 @@ test('post-quiescence drift refuses before mutation and parity failure contains 
 });
 
 test('Docker HTTP transport sends protected configuration only to local socket and suppresses daemon response errors', async () => {
-  const socket = process.platform === 'win32' ? `\\\\.\\pipe\\aries-release-${randomUUID()}` : path.join(tmpdir(), `aries-${randomUUID()}.sock`);
+  const socket = process.platform === 'win32' ? `\\\\.\\pipe\\aries-release-${randomUUID()}` : path.join(tmpdir(), `a-${randomUUID().slice(0, 8)}.sock`);
   const server = createServer((req, res) => {
     let body = '';
     req.on('data', (chunk) => { body += chunk; });
     req.on('end', () => {
       if (req.url?.endsWith('/fail')) { res.writeHead(500); res.end('unit-test-private-error'); return; }
+      if (req.url?.includes('/stop')) { res.writeHead(304); res.end(); return; }
+      if (req.url?.endsWith('/other304')) { res.writeHead(304); res.end(); return; }
       assert.equal(req.url, '/v1.45/containers/create');
       assert.equal(req.method, 'POST');
       assert.deepEqual(JSON.parse(body), { Env: ['PRIVATE_VALUE=unit-test-only'] });
@@ -135,5 +144,96 @@ test('Docker HTTP transport sends protected configuration only to local socket a
   try {
     assert.deepEqual(await dockerApi('POST', '/containers/create', { Env: ['PRIVATE_VALUE=unit-test-only'] }, socket), { Id: 'unit-test-container' });
     await assert.rejects(dockerApi('GET', '/fail', undefined, socket), { message: 'Docker request failed' });
+    assert.deepEqual(await dockerApi('POST', '/containers/fixture/stop?t=120', undefined, socket), {});
+    await assert.rejects(dockerApi('GET', '/other304', undefined, socket), { message: 'Docker request failed' });
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
+
+test('containment requires stopped-state readback even after stop success or already-stopped response', async () => {
+  for (const running of [false, true, undefined]) {
+    const h = harness('/start');
+    const api = h.api;
+    h.api = async (method: string, route: string, body?: any) => {
+      const result = await api(method, route, body);
+      if (route.includes('new-') && route.endsWith('/json')) return { ...result, State: { Running: running } };
+      return result;
+    };
+    await assert.rejects(replaceRelease({ sha, image }, h.originals, h.candidate, h),
+      running === false ? /candidates stopped/ : /containment failed/);
+  }
+});
+
+test('rehearsal refuses unlabelled/wrong daemon, external network and non-fixture sources', () => {
+  const token = 'f'.repeat(64);
+  const target = { socket: path.join(tmpdir(), 'isolated.sock'), token, daemonId: 'disposable-daemon' };
+  const info = { ID: target.daemonId, Labels: [`aries.replacement.rehearsal=${token}`] };
+  const network = { Internal: true, Driver: 'bridge' };
+  const original = { ...source(serviceNames[0]), Mounts: [],
+    Config: { ...source(serviceNames[0]).Config, Labels: { 'aries.replacement.rehearsal': token } },
+    HostConfig: { NetworkMode: 'aries-cutover-v1', PortBindings: {}, Privileged: false } };
+  validateRehearsalTarget(target, info, network, [original]);
+  for (const bad of [{ ...info, ID: 'other' }, { ...info, Labels: [] }]) {
+    assert.throws(() => validateRehearsalTarget(target, bad, network));
+  }
+  assert.throws(() => validateRehearsalTarget(target, info, { ...network, Internal: false }));
+  for (const bad of [{ ...original, Mounts: [{}] }, { ...original, Config: { ...original.Config, Labels: {} } },
+    { ...original, HostConfig: { ...original.HostConfig, PortBindings: { '3000/tcp': [{}] } } },
+    { ...original, HostConfig: { ...original.HostConfig, Privileged: true } }]) {
+    assert.throws(() => validateRehearsalTarget(target, info, network, [bad]));
+  }
+});
+
+test('Linux full CLI uses explicit isolated socket, separate lock and verifier health; never emits deployed true',
+  { skip: process.platform !== 'linux' }, async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'aries-cli-'));
+    const socket = path.join(dir, 'docker.sock');
+    const targetFile = path.join(dir, 'target.json');
+    const verifier = path.join(dir, 'fixture-verifier');
+    const phases = path.join(dir, 'phases');
+    const token = 'f'.repeat(64);
+    const target = { socket, token, daemonId: 'unit-test-daemon' };
+    writeFileSync(targetFile, JSON.stringify(target));
+    // Structural fixture only, explicitly not an Aries acceptance verifier.
+    writeFileSync(verifier, `#!/bin/sh\nprintf '%s\\n' "$1" >> '${phases}'\n`, { mode: 0o700 });
+    const h = harness();
+    for (const c of h.originals) Object.assign(c, { Mounts: [],
+      Config: { ...c.Config, Labels: { 'aries.replacement.rehearsal': token } },
+      HostConfig: { NetworkMode: 'aries-cutover-v1', PortBindings: {}, Privileged: false } });
+    let labelled = true;
+    const server = createServer((req, res) => {
+      let body = '';
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', async () => {
+        const route = req.url!.replace('/v1.45', '');
+        let result;
+        if (route === '/info') result = { ID: target.daemonId, Labels: labelled ? [`aries.replacement.rehearsal=${token}`] : [] };
+        else if (route === '/networks/aries-cutover-v1') result = { Internal: true, Driver: 'bridge' };
+        else if (route.startsWith('/images/')) result = h.candidate;
+        else if (serviceNames.some((name: string) => route === `/containers/${name}/json`)) {
+          result = h.originals.find((c) => route.includes(c.Name));
+        } else result = await h.api(req.method!, route, body ? JSON.parse(body) : undefined);
+        res.end(JSON.stringify(result));
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(socket, resolve));
+    const cli = path.resolve('scripts/release/ubuntu-docker-replace.mjs');
+    const run = (...args: string[]) => promisify(execFile)(process.execPath, [cli, '--rehearsal', targetFile, ...args]);
+    try {
+      const inventory = JSON.parse((await run('--inventory')).stdout);
+      const planFile = path.join(dir, 'plan.json');
+      writeFileSync(planFile, JSON.stringify({ host: 'ubuntu-docker', origin: 'https://aries.deliciouswines.org', sha, image,
+        checkpoints: Object.fromEntries(requiredCheckpoints.map((name: string) => [name, { sha, image, evidence: 'structural-fixture-only' }])),
+        sources: inventory, mode: 'compatible_image_only', schemaChanged: false, checkpointAt: new Date().toISOString(),
+        verifier: { path: verifier, sha256: createHash('sha256').update(readFileSync(verifier)).digest('hex') } }));
+      const receipt = JSON.parse((await run('--execute', planFile)).stdout);
+      assert.equal(receipt.deployed, false);
+      assert.equal(receipt.status, 'rehearsal_passed');
+      assert.equal(receipt.containers.length, 4);
+      assert.deepEqual(readFileSync(phases, 'utf8').trim().split('\n'), ['quiesced', 'appReady', 'health', 'accepted']);
+      assert.equal(existsSync(`${socket}.replacement.lock`), false);
+      labelled = false;
+      const callsBefore = h.calls.length;
+      await assert.rejects(run('--inventory'));
+      assert.equal(h.calls.length, callsBefore);
+    } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+  });

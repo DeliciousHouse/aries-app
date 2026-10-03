@@ -1,7 +1,7 @@
 import { request } from 'node:http';
 import { hostname } from 'node:os';
 import { createHash } from 'node:crypto';
-import { readFileSync, openSync, closeSync, unlinkSync } from 'node:fs';
+import { readFileSync, openSync, closeSync, unlinkSync, realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,7 +26,8 @@ export function dockerApi(method, route, body, socketPath = '/var/run/docker.soc
       res.setEncoding('utf8');
       res.on('data', (chunk) => { text += chunk; });
       res.on('end', () => {
-        if (res.statusCode < 200 || res.statusCode >= 300) return reject(new Error('Docker request failed'));
+        const alreadyStopped = res.statusCode === 304 && method === 'POST' && /^\/containers\/[^/]+\/stop\?t=120$/.test(route);
+        if (!alreadyStopped && (res.statusCode < 200 || res.statusCode >= 300)) return reject(new Error('Docker request failed'));
         try { resolve(text ? JSON.parse(text) : {}); } catch { reject(new Error('Invalid Docker response')); }
       });
     });
@@ -101,7 +102,11 @@ export async function replaceRelease(plan, originals, candidate, { api, verify, 
   } catch {
     // No automatic old-image restart: candidate may already have written data.
     // Stop every candidate; a failed stop requires explicit operator containment.
-    const stops = await Promise.allSettled(created.map((id) => api('POST', `/containers/${id}/stop?t=120`)));
+    const stops = await Promise.allSettled(created.map(async (id) => {
+      await api('POST', `/containers/${id}/stop?t=120`);
+      const current = await api('GET', `/containers/${id}/json`);
+      if (current.Id !== id || current.State?.Running !== false) throw new Error('Candidate not contained');
+    }));
     throw new Error(stops.some((result) => result.status === 'rejected')
       ? 'Replacement failed; candidate containment failed, operator intervention required'
       : 'Replacement failed; candidates stopped, originals retained; use reviewed recovery procedure');
@@ -127,28 +132,54 @@ export function validateExecution(plan, now = Date.now()) {
   if (!path.isAbsolute(plan.verifier?.path || '') || !/^[a-f0-9]{64}$/.test(plan.verifier?.sha256 || '')) throw new Error('Reviewed verifier required');
 }
 
+export function validateRehearsalTarget(target, info, isolatedNetwork, originals = []) {
+  if (!path.isAbsolute(target?.socket || '') || !/^[a-f0-9]{64}$/.test(target?.token || '')
+    || typeof target.daemonId !== 'string' || !target.daemonId || info.ID !== target.daemonId
+    || !info.Labels?.includes(`aries.replacement.rehearsal=${target.token}`)
+    || isolatedNetwork.Internal !== true || isolatedNetwork.Driver !== 'bridge') throw new Error('Invalid isolated target');
+  for (const original of originals) {
+    if (original.Config.Labels?.['aries.replacement.rehearsal'] !== target.token
+      || original.Mounts?.length !== 0 || Object.keys(original.HostConfig.PortBindings || {}).length
+      || original.HostConfig.Privileged || original.HostConfig.NetworkMode !== network) throw new Error('Non-fixture source');
+    replacementBody(original, original.Config.Image);
+  }
+}
+
 async function main() {
-  if (process.platform !== 'linux' || hostname() !== 'ubuntu-docker') throw new Error('Wrong execution host');
-  const mode = process.argv[2];
+  if (process.platform !== 'linux') throw new Error('Wrong execution platform');
+  const args = process.argv.slice(2);
+  let target;
+  if (args[0] === '--rehearsal') {
+    const targetPath = args[1];
+    target = JSON.parse(readFileSync(targetPath, 'utf8'));
+    // No DOCKER_HOST fallback or production socket alias (including symlinks).
+    target.socket = realpathSync(target.socket);
+    if (['/run/docker.sock', '/var/run/docker.sock'].includes(target.socket)) throw new Error('Production socket forbidden');
+    args.splice(0, 2);
+  } else if (hostname() !== 'ubuntu-docker') throw new Error('Wrong execution host');
+  const api = (method, route, body) => dockerApi(method, route, body, target?.socket);
+  if (target) validateRehearsalTarget(target, await api('GET', '/info'), await api('GET', `/networks/${network}`));
+  const mode = args[0];
   if (!['--inventory', '--execute'].includes(mode)) throw new Error('Use --inventory or --execute <plan.json>');
   // A local single-writer lock is also held for inventory. Stale lock removal is manual.
-  const lockPath = '/home/node/.aries-replacement.lock';
+  const lockPath = target ? `${target.socket}.replacement.lock` : '/home/node/.aries-replacement.lock';
   const lock = openSync(lockPath, 'wx', 0o600);
   try {
     let plan;
     if (mode === '--execute') {
-      plan = JSON.parse(readFileSync(process.argv[3], 'utf8'));
+      plan = JSON.parse(readFileSync(args[1], 'utf8'));
       validateExecution(plan);
       if (hash(readFileSync(plan.verifier.path)) !== plan.verifier.sha256) throw new Error('Verifier drift');
     }
-    const originals = await Promise.all(serviceNames.map((name) => dockerApi('GET', `/containers/${name}/json`)));
+    const originals = await Promise.all(serviceNames.map((name) => api('GET', `/containers/${name}/json`)));
+    if (target) validateRehearsalTarget(target, await api('GET', '/info'), await api('GET', `/networks/${network}`), originals);
     if (mode === '--inventory') {
       console.log(JSON.stringify(Object.fromEntries(originals.map((c) => [c.Name.slice(1), { id: c.Id, fingerprint: identity(c) }]))));
       return;
     }
     validateSources(originals, plan.sources);
     // Candidate must already be staged by digest; this command never pulls or builds.
-    const candidate = await dockerApi('GET', `/images/${encodeURIComponent(plan.image)}/json`);
+    const candidate = await api('GET', `/images/${encodeURIComponent(plan.image)}/json`);
     if (!candidate.RepoDigests?.includes(plan.image) || candidate.Config?.Labels?.['org.opencontainers.image.revision'] !== plan.sha) {
       throw new Error('Candidate digest/revision mismatch');
     }
@@ -161,7 +192,9 @@ async function main() {
       });
       if (result.status !== 0) throw new Error('Operations verifier failed');
     };
-    console.log(JSON.stringify(await replaceRelease(plan, originals, candidate, { api: dockerApi, verify, health })));
+    const receipt = await replaceRelease(plan, originals, candidate, { api, verify,
+      health: target ? () => verify('health') : health });
+    console.log(JSON.stringify(target ? { ...receipt, deployed: false, status: 'rehearsal_passed' } : receipt));
   } finally { closeSync(lock); unlinkSync(lockPath); }
 }
 

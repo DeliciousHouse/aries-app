@@ -75,6 +75,9 @@ historical, not live status. Also retain these merges or a deliberate descendant
 | #1074 / 36921171637 | dc8d384c1442e4ee01ebed4f022dbb8ed9ee0251 |
 | #1075 / 36978429668 | 29884c0142c0351582787b39fae88ffa088f4594 |
 | #1077 / 37110845482 | 722aebec6070e11788faff57ee83598a143cbb0d |
+| #1064 / 37112667476 | 232958ad8bc31a1afe78ec58e7f765e461cee6e3 |
+| #1070 / 37116654519 | 7e7a5ae760939d1068d50138d81cdaa0f35ab949 |
+| #1079 / 37118215971 | f015c476822c9fc1e45db85e26b882e271cc472a |
 
 Select a fresh reviewed master descendant at release. Reuse hosted release.yml:
 dispatch at full SHA, verify headSha, resolve sha-<full SHA> to registry digest,
@@ -150,6 +153,72 @@ it emit deployed:true, exact digest/SHA/new IDs/retained IDs. Preserve receipt,
 CI IDs, health times and probe evidence. Public 200 alone is never SHA proof.
 No success-only or permanent-failure Deploy job is introduced.
 
+### Full CLI isolated rehearsal
+
+Dora's 2026-10-03 structural rehearsal exercised the exported logic, not CLI
+main. Ten real-Docker trials recovered retained originals; they did NOT establish
+Aries schema/worker compatibility. Use the explicit full-CLI seam on the next
+disposable-daemon rehearsal, never DOCKER_HOST or a production socket proxy:
+
+    node scripts/release/ubuntu-docker-replace.mjs --rehearsal <target.json> --inventory
+    node scripts/release/ubuntu-docker-replace.mjs --rehearsal <target.json> --execute <plan.json>
+
+target.json has absolute socket, exact daemonId from that daemon's /info, and a
+random lowercase 64-hex token. Configure ONLY the disposable daemon with label
+aries.replacement.rehearsal=<token> and all four fixture containers with the
+same label. Keep its private mount/network namespace, distinct data/exec/socket
+roots and no default route. aries-cutover-v1 must be an internal bridge; fixtures
+must have no mounts, published ports or privilege and use that network mode.
+Standard production sockets and symlink aliases are refused. Identity/labels,
+network and fixture checks run before mutation. The single-writer lock lives
+beside that socket, not in production's lock location. No live secrets/data.
+
+This structural mode delegates health to verifier phase health instead of
+fetching production loopback/LAN/public origins. The reviewed fixture verifier
+must hardcode its disposable socket/targets, check / and DB health on the isolated
+app via that namespace and emit no private output. Existing quiesced, appReady
+and accepted phases still run. A successful receipt always has deployed:false,
+status:rehearsal_passed. Do not reuse fixture receipts/verifiers for production.
+Candidate restored-copy compatibility remains a separate authorized exercise;
+this no-mount structural seam is not permission to attach restored/live volumes.
+
+### Reviewable functional-verifier requirements (not a supplied acceptance probe)
+
+There is no common non-mutating functional check for all three workers. Do not
+replace this missing operations executable with uptime, an always-zero callback,
+unit tests alone or the historical PG restore. Review a host-local executable
+against these source-specific assertions before candidate acceptance:
+
+- scheduled-posts: run the existing ARIES_SCHEDULED_POSTS_READINESS_CHECK=1 path
+  in scripts/automations/scheduled-posts-worker.mjs. It checks schema/protocol
+  constraints and authenticated GET scheduled-dispatch readiness without a tick.
+  In the isolated restored copy, additionally exercise a synthetic claim/attempt,
+  dispatch idempotency and ambiguous-outcome reconciliation with provider egress
+  replaced by a local sink; assert no external publish or duplicate attempt.
+- insights-sync: startup immediately invokes runWorkerCycle/bridgeAndTick and
+  catches/logs tick failures. Exit status or a running process is NOT acceptance.
+  Exercise a synthetic connected-account projection plus one synchronization
+  against a local provider sink; assert persisted success/error and stranded-run
+  recovery, with sanitized aggregate receipts only.
+- weekly-trigger: enabled startup calls ensureClaimsTable even when app
+  ARIES_SKIP_DB_INIT=1. Prove marketing_weekly_claims already exists with compatible
+  constraints, and compare schema before/after; absence or DDL is a boundary,
+  not compatible_image_only. Exercise a synthetic due tenant/local slot with a
+  local Hermes sink; assert exactly one claim/async submission and duplicate-slot
+  refusal. RUN_ONCE alone is not acceptance because tickSafe catches failures.
+- quiesced must establish durable write/callback/publishing containment outside
+  recreated containers and reconcile in-flight work. accepted must assert all
+  three functional receipts plus unchanged schema and PG/Hermes/assets/config,
+  while containment stays held. appReady must verify scheduled readiness against
+  unchanged schema before any new worker starts. Bind each receipt to exact
+  source/digest/SHA, isolated target, phase, timestamps and executable hash.
+
+These requirements are reviewable design, NOT an executable verified probe.
+Dora/controller must supply the bounded host-local containment/reconciliation
+and synthetic-fixture mapping; code must not guess production firewall controls,
+private tenant identifiers or credential consumers. Return the executable/hash
+and phase receipts for canonical review before repeating candidate acceptance.
+
 ## Failure and recovery
 
 Preflight/quiescence failure leaves Docker unchanged. Replacement failure stops
@@ -162,6 +231,12 @@ config, prove old app/worker compatibility/consistency, then resume deliberately
 Do not delete retained originals before acceptance and retention expiry. At/after
 or unknown boundary, fail closed and forward-recover with proven compatible image.
 Any production-data migration/restore needs charter owner approval, not this card.
+
+Already-stopped Docker HTTP304 is accepted only for POST container stop. Every
+candidate then requires exact-ID readback with State.Running=false; running,
+missing, unreadable or mismatched state remains containment failure. A successful
+stop response alone is not proof. Rehearse start-failure/304, restart-after-stop
+and failed readback against the disposable daemon before operational acceptance.
 
 ## Exact bounded outstanding prerequisite for Dora/controller
 
