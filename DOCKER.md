@@ -21,8 +21,8 @@ test fixture preserves helper regression coverage, not permission to execute it.
 Merging to `master` no longer deploys. Existing queued runs retain their old
 workflow definition: do not attach a runner, rerun or repoint them.
 
-Follow [the replacement release protocol](docs/runbooks/ubuntu-docker-release.md).
-It records the sanitized inventory, missing compatibility evidence, offline
+Follow [the replacement release protocol](docs/runbooks/ubuntu-docker-replacement.md).
+It records the current three-worker inventory, missing compatibility evidence, offline
 preflight and rollback boundaries. The existing hosted `release-image` workflow
 can publish a SHA-addressable candidate, but image publication is not deployment.
 No production replacement is authorized until the evidence and executable path

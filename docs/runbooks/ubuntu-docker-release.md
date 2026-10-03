@@ -1,5 +1,13 @@
 # ubuntu-docker release preparation — NOT an executable deployment
 
+> Historical September preparation snapshot, retained for decision/run evidence.
+> Superseded by [the October replacement contract](ubuntu-docker-replacement.md).
+> There are now THREE active workers (including weekly-trigger), established
+> direct-Docker launch ownership, PG 999:999 metadata and historical restore
+> evidence. The missing-ownership/two-worker statements below are NOT current
+> instructions. The executable image-only path still requires candidate
+> compatibility, a fresh checkpoint, reviewed verifier and exact-head acceptance.
+
 Decision: adopt the existing healthy migrated Aries stack. Do not create another
 Compose project, repoint ingress or replace data. This preparation PR does not
 complete recovery. Keep implementation card `t_3c2cb3de` blocked until the missing

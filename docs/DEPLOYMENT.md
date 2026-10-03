@@ -5,8 +5,8 @@
 Production is the existing migrated Docker stack on ubuntu-docker at
 https://aries.deliciouswines.org. The checkout-based Deploy workflow is retired;
 merging to `master` and publishing an image do not update the running application.
-Use [the gated replacement protocol](runbooks/ubuntu-docker-release.md), which
-records the known inventory, unresolved ownership/compatibility and rollback
+Use [the gated replacement protocol](runbooks/ubuntu-docker-replacement.md), which
+records the current three-worker inventory, compatibility and rollback
 checkpoints. Public ingress is healthy; it must not be repointed for this work.
 
 The Compose/env setup examples below are for a separate self-hosted installation,

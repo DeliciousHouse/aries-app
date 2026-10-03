@@ -691,7 +691,7 @@ const steps = [
     // Preserve the historical helper contract and fail closed on reintroducing
     // the retired workflow while migrated-stack replacement is unproven.
     name: 'release preparation and historical deploy manifest parity',
-    args: ['--test', 'tests/ubuntu-docker-release-preflight.test.ts', 'tests/deploy-manifest-parity.test.ts'],
+    args: ['--test', 'tests/ubuntu-docker-release-preflight.test.ts', 'tests/ubuntu-docker-replacement.test.ts', 'tests/deploy-manifest-parity.test.ts'],
   },
   {
     // The deploy must rewrite the host .env ARIES_APP_IMAGE pin (registry
