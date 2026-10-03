@@ -4,7 +4,7 @@
 # GitHub-hosted runners and exists so the one-line installer (install.sh) can
 # `docker pull ghcr.io/delicioushouse/aries-app:latest` without building.
 # Manual runs publish sha-<full SHA>; resolve its registry digest before use.
-# Production replacement is gated by docs/runbooks/ubuntu-docker-release.md.
+# Production replacement is gated by docs/runbooks/ubuntu-docker-replacement.md.
 #
 # One-time setup after the first run: flip the `aries-app` package to Public
 # in the org's GHCR package settings, or anonymous pulls will 401 and the
