@@ -1,6 +1,8 @@
+# Historical regression fixture only. Never copy back into GitHub Actions or
+# execute on ubuntu-docker. See docs/runbooks/ubuntu-docker-release.md.
 name: Deploy
 
-# Operational contract (documented in DOCKER.md and docs/SYSTEM-REFERENCE.md):
+# Historical operational contract:
 # - Pushes to master build/publish and deploy the exact merge commit SHA.
 # - Pushes from deliberately merged PRs trigger this workflow through the normal
 #   protected-branch path.

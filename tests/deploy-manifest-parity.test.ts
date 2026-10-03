@@ -76,10 +76,10 @@ test('deploy workflow force-recreates every docker-compose service', () => {
   // indefinitely (restart: unless-stopped never re-pulls) — that gap caused
   // the 2026-06-09 incident where aries-insights-sync-worker ran a 6-day-old
   // image. This test fails when a compose service is added (or renamed)
-  // without a matching recreate block in .github/workflows/deploy.yml.
+  // in the retired workflow fixture. This is NOT the migrated stack contract.
   const composeSource = fs.readFileSync(path.join(repoRoot, 'docker-compose.yml'), 'utf8');
   const deploySource = fs.readFileSync(
-    path.join(repoRoot, '.github', 'workflows', 'deploy.yml'),
+    path.join(repoRoot, 'tests', 'fixtures', 'retired-deploy.yml'),
     'utf8',
   );
   const schemaFenceSource = fs.readFileSync(
@@ -197,7 +197,7 @@ test('deploy workflow force-recreates every docker-compose service', () => {
 
 test('deploy workflow fences scheduled publishing across schema/app rollout and fails closed', () => {
   const deploySource = fs.readFileSync(
-    path.join(repoRoot, '.github', 'workflows', 'deploy.yml'),
+    path.join(repoRoot, 'tests', 'fixtures', 'retired-deploy.yml'),
     'utf8',
   );
   const schemaFenceSource = fs.readFileSync(
