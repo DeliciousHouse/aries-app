@@ -80,7 +80,10 @@ historical, not live status. Also retain these merges or a deliberate descendant
 | #1079 / 37118215971 | f015c476822c9fc1e45db85e26b882e271cc472a |
 
 Select a fresh reviewed master descendant at release. Reuse hosted release.yml:
-dispatch at full SHA, verify headSha, resolve sha-<full SHA> to registry digest,
+workflow_dispatch accepts a branch/tag, NOT a raw commit SHA (GitHub returns
+HTTP422 No ref found for a full-SHA ref). Dispatch the exact-source branch/tag,
+then verify the resulting run headSha equals the intentionally selected full SHA;
+any mismatch refuses candidate adoption. Resolve sha-<full SHA> to registry digest,
 verify OCI full revision and stage by digest through authorized operations.
 Manual preparation does not move latest. Replacement never pulls/builds.
 
@@ -202,7 +205,7 @@ against these source-specific assertions before candidate acceptance:
   recovery, with sanitized aggregate receipts only.
 - weekly-trigger: enabled startup calls ensureClaimsTable even when app
   ARIES_SKIP_DB_INIT=1. Prove marketing_weekly_claims already exists with compatible
-  constraints, and compare schema before/after; absence or DDL is a boundary,
+  constraints, and compare schema before/after; absence or a schema change is a boundary,
   not compatible_image_only. Exercise a synthetic due tenant/local slot with a
   local Hermes sink; assert exactly one claim/async submission and duplicate-slot
   refusal. RUN_ONCE alone is not acceptance because tickSafe catches failures.
