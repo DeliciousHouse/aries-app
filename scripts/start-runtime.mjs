@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import cluster from 'node:cluster';
+import { lstatSync, mkdirSync, readlinkSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +12,11 @@ const defaultWorkerMaxRestarts = 5;
 const shutdownTimeoutMs = 10_000;
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDir, '..');
+// The image links cache into /data; create its target as the actual runtime UID.
+const cacheDir = path.join(projectRoot, '.next', 'cache');
+if (lstatSync(cacheDir, { throwIfNoEntry: false })?.isSymbolicLink()) {
+  mkdirSync(path.resolve(path.dirname(cacheDir), readlinkSync(cacheDir)), { recursive: true });
+}
 /** @type {import('node:child_process').ChildProcess | null} */
 let partnerOutboxChild = null;
 /** @type {import('node:child_process').ChildProcess | null} */

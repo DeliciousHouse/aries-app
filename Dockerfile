@@ -102,6 +102,10 @@ COPY --from=builder --chown=node:node /app/tailwind.config.ts ./tailwind.config.
 COPY --from=builder --chown=node:node /app/tsconfig.json ./tsconfig.json
 COPY --from=builder --chown=node:node /app/VERSION ./VERSION
 
+# Cache follows the writable data mount, including deployments overriding UID.
+RUN rm -rf /app/.next/cache \
+  && ln -s /data/next-cache /app/.next/cache
+
 USER node
 
 # Final-image gate runs as the real runtime user. Hermes stays root-owned and

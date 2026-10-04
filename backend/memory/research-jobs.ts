@@ -37,43 +37,8 @@ type Queryable = {
 };
 
 export async function ensureResearchJobSchema(client: Queryable = pool): Promise<void> {
-  await client.query(
-    `
-    CREATE TABLE IF NOT EXISTS aries_research_jobs (
-      id UUID PRIMARY KEY,
-      tenant_id TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending',
-      task_spec JSONB NOT NULL DEFAULT '{}',
-      callback_token_hash TEXT NOT NULL,
-      hermes_envelope JSONB,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-    `,
-    [],
-  );
-  await client.query(
-    `
-    CREATE TABLE IF NOT EXISTS aries_research_findings (
-      id UUID PRIMARY KEY,
-      job_id UUID NOT NULL REFERENCES aries_research_jobs(id) ON DELETE CASCADE,
-      raw JSONB NOT NULL,
-      curator_decision TEXT NOT NULL,
-      peer TEXT,
-      approved_message_id TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-    `,
-    [],
-  );
-  await client.query(
-    `CREATE INDEX IF NOT EXISTS idx_aries_research_jobs_tenant_id ON aries_research_jobs(tenant_id)`,
-    [],
-  );
-  await client.query(
-    `CREATE INDEX IF NOT EXISTS idx_aries_research_findings_job_id ON aries_research_findings(job_id)`,
-    [],
-  );
+  await client.query('SELECT id FROM aries_research_jobs LIMIT 0', []);
+  await client.query('SELECT id FROM aries_research_findings LIMIT 0', []);
 }
 
 const MARKETING_MEMORY_QUEUE_SEED_VERSION = 'aries-marketing-memory-queue-v1';
