@@ -18,21 +18,8 @@ type UserJourneyRow = {
 };
 
 export async function ensureUserJourneySchema(client: Queryable): Promise<void> {
-  await client.query(
-    `
-      ALTER TABLE users
-      ADD COLUMN IF NOT EXISTS onboarding_required BOOLEAN NOT NULL DEFAULT FALSE
-    `,
-    [],
-  );
-
-  await client.query(
-    `
-      ALTER TABLE users
-      ADD COLUMN IF NOT EXISTS onboarding_completed_at TIMESTAMPTZ
-    `,
-    [],
-  );
+  // Schema is installed by db:init, never by a request's database role.
+  await client.query('SELECT onboarding_required, onboarding_completed_at FROM users LIMIT 0', []);
 }
 
 export async function getUserJourneyRow(

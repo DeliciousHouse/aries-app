@@ -16,57 +16,10 @@ import type {
 
 let ensured = false;
 
-/**
- * Create the table on demand (mirrors app/api/early-access/route.ts). The
- * migration in migrations/20260623000000_feedback_submissions.sql is the
- * canonical schema; this keeps the feature working on databases where the
- * migration has not been run yet (e.g. local dev). Idempotent.
- */
+/** Read-only readiness check; db:init owns schema changes. */
 export async function ensureFeedbackTable(): Promise<void> {
   if (ensured) return;
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS feedback_submissions (
-      id BIGSERIAL PRIMARY KEY,
-      submission_id TEXT UNIQUE NOT NULL,
-      tenant_id TEXT NOT NULL DEFAULT 'unauthenticated',
-      auth_state TEXT NOT NULL DEFAULT 'unauthenticated',
-      user_id TEXT,
-      category TEXT NOT NULL,
-      severity TEXT NOT NULL,
-      comment TEXT NOT NULL,
-      page_url TEXT,
-      user_agent TEXT,
-      viewport TEXT,
-      console_errors JSONB NOT NULL DEFAULT '[]'::jsonb,
-      environment TEXT NOT NULL DEFAULT 'unknown',
-      ip_hash TEXT,
-      screenshot_bytes BYTEA,
-      screenshot_mime TEXT,
-      screenshot_link TEXT,
-      sheet_sync_status TEXT NOT NULL DEFAULT 'pending',
-      sheet_sync_error TEXT,
-      sheet_synced_at TIMESTAMPTZ,
-      jira_issue_key TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `);
-  // Existing deployments predate the JIRA mirror — CREATE TABLE IF NOT EXISTS is a
-  // no-op there, so add the column explicitly (idempotent) or the issue key write
-  // silently no-ops on a live DB (the is_replied-column incident).
-  await pool.query(`ALTER TABLE feedback_submissions ADD COLUMN IF NOT EXISTS jira_issue_key TEXT`);
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_feedback_submissions_created_at ON feedback_submissions (created_at DESC)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_feedback_submissions_sync_status ON feedback_submissions (sheet_sync_status)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_feedback_submissions_tenant ON feedback_submissions (tenant_id)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_feedback_submissions_ip_hash_created ON feedback_submissions (ip_hash, created_at DESC)`,
-  );
+  await pool.query('SELECT jira_issue_key FROM feedback_submissions LIMIT 0');
   ensured = true;
 }
 

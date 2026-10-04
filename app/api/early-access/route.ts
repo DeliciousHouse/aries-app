@@ -28,19 +28,6 @@ function normalizeSource(value: unknown): string {
   return value.trim().slice(0, 80) || 'website';
 }
 
-async function ensureEarlyAccessTable(): Promise<void> {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS early_access_signups (
-      id BIGSERIAL PRIMARY KEY,
-      email TEXT UNIQUE NOT NULL,
-      source TEXT NOT NULL DEFAULT 'website',
-      user_agent TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `);
-}
-
 export async function POST(req: Request) {
   let body: EarlyAccessRequestBody = {};
 
@@ -63,7 +50,6 @@ export async function POST(req: Request) {
   }
 
   try {
-    await ensureEarlyAccessTable();
     await pool.query(
       `
         INSERT INTO early_access_signups (email, source, user_agent)

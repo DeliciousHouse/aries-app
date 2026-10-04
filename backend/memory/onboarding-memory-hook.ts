@@ -11,14 +11,9 @@ import { seedOnboardingMemory } from './onboarding-seed';
 
 type MinimalCtx = Pick<TenantContext, 'tenantId' | 'tenantSlug' | 'userId' | 'role'>;
 
-/**
- * Ensures organizations.onboarding_memory_seeded_at exists (idempotent DDL).
- */
+/** Read-only readiness check; db:init owns schema changes. */
 export async function ensureOnboardingMemorySeedColumn(client: Pick<PoolClient, 'query'>): Promise<void> {
-  await client.query(
-    `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS onboarding_memory_seeded_at TIMESTAMPTZ`,
-    [],
-  );
+  await client.query('SELECT onboarding_memory_seeded_at FROM organizations LIMIT 0', []);
 }
 
 /**

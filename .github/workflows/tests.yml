@@ -92,6 +92,8 @@ jobs:
         run: |
           set -euo pipefail
           npx --no-install tsx --test --test-reporter=tap --test-concurrency=1 \
+            tests/request-schema-non-owner.requires-infra.test.ts \
+            tests/image-cache-permissions.test.mjs \
             tests/insights-llm-calls-drop.requires-infra.test.ts \
             tests/tenant-lifecycle.requires-infra.test.ts 2>&1 | tee /tmp/aa129-drop.log
           skipped=$(awk '/^# skipped /{print $3; exit}' /tmp/aa129-drop.log)

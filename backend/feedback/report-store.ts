@@ -70,123 +70,14 @@ const LAST_ERROR_MAX = 4000;
 
 let ensured = false;
 
-/**
- * Create the table on demand (mirrors lib/feedback/feedback-store.ts). The
- * migrations are the canonical schema; this keeps the feature working on
- * databases where a migration has
- * not run yet. Idempotent.
- */
+/** Read-only readiness check; db:init owns schema changes. */
 export async function ensureFeedbackReportsTable(pool: Pool): Promise<void> {
   if (ensured) return;
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS feedback_reports (
-      id TEXT PRIMARY KEY,
-      request_fingerprint TEXT NOT NULL DEFAULT '',
-      submitter_type TEXT NOT NULL DEFAULT 'authenticated'
-        CHECK (submitter_type IN ('authenticated','anonymous')),
-      tenant_id TEXT NOT NULL,
-      submitter_id TEXT NOT NULL,
-      submitter_email TEXT,
-      submitter_name TEXT,
-      customer_slug TEXT NOT NULL DEFAULT 'unknown',
-      category TEXT NOT NULL CHECK (category IN ('bug','question','other')),
-      impact TEXT NOT NULL CHECK (impact IN (
-        'p0_system_blocked','p1_account_blocked','p2_feature_degraded',
-        'p3_minor_glitch','p4_question'
-      )),
-      title VARCHAR(255) NOT NULL,
-      description TEXT NOT NULL,
-      page_path TEXT,
-      screenshot_bytes BYTEA,
-      screenshot_mime VARCHAR(64),
-      jira_ticket_key VARCHAR(50),
-      jira_create_state TEXT NOT NULL DEFAULT 'not_started'
-        CHECK (jira_create_state IN ('not_started','in_flight','uncertain','completed')),
-      jira_create_token TEXT,
-      attachment_state TEXT NOT NULL DEFAULT 'none'
-        CHECK (attachment_state IN ('none','in_flight','uncertain','completed','retained_private')),
-      status TEXT NOT NULL DEFAULT 'pending'
-        CHECK (status IN ('pending','synced','pending_retry','failed')),
-      attempts INT NOT NULL DEFAULT 0,
-      last_error TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
+    SELECT request_fingerprint, submitter_type, page_path, jira_create_state,
+           jira_create_token, attachment_state
+      FROM feedback_reports LIMIT 0
   `);
-  // CREATE TABLE IF NOT EXISTS is a no-op for existing production tables.
-  await pool.query(`
-    ALTER TABLE feedback_reports
-      ADD COLUMN IF NOT EXISTS submitter_type TEXT NOT NULL DEFAULT 'authenticated'
-        CHECK (submitter_type IN ('authenticated','anonymous'))
-  `);
-  await pool.query(`
-    ALTER TABLE feedback_reports
-      ADD COLUMN IF NOT EXISTS request_fingerprint TEXT NOT NULL DEFAULT ''
-  `);
-  await pool.query(`
-    ALTER TABLE feedback_reports
-      ADD COLUMN IF NOT EXISTS page_path TEXT
-  `);
-  await pool.query(`
-    DO $feedback_delivery_state$
-    DECLARE
-      jira_create_state_was_missing BOOLEAN;
-      attachment_state_was_missing BOOLEAN;
-    BEGIN
-      LOCK TABLE feedback_reports IN ACCESS EXCLUSIVE MODE;
-
-      SELECT NOT EXISTS (
-        SELECT 1
-          FROM information_schema.columns
-         WHERE table_schema = current_schema()
-           AND table_name = 'feedback_reports'
-           AND column_name = 'jira_create_state'
-      ) INTO jira_create_state_was_missing;
-      SELECT NOT EXISTS (
-        SELECT 1
-          FROM information_schema.columns
-         WHERE table_schema = current_schema()
-           AND table_name = 'feedback_reports'
-           AND column_name = 'attachment_state'
-      ) INTO attachment_state_was_missing;
-
-      ALTER TABLE feedback_reports
-        ADD COLUMN IF NOT EXISTS jira_create_state TEXT NOT NULL DEFAULT 'not_started'
-          CHECK (jira_create_state IN ('not_started','in_flight','uncertain','completed')),
-        ADD COLUMN IF NOT EXISTS jira_create_token TEXT,
-        ADD COLUMN IF NOT EXISTS attachment_state TEXT NOT NULL DEFAULT 'none'
-          CHECK (attachment_state IN ('none','in_flight','uncertain','completed','retained_private'));
-
-      IF jira_create_state_was_missing THEN
-        UPDATE feedback_reports
-           SET jira_create_state = 'completed'
-         WHERE jira_ticket_key IS NOT NULL;
-        UPDATE feedback_reports
-           SET jira_create_state = 'uncertain',
-               jira_create_token = COALESCE(jira_create_token, 'aries-sub-' || id)
-         WHERE jira_ticket_key IS NULL;
-      END IF;
-
-      IF attachment_state_was_missing THEN
-        UPDATE feedback_reports
-           SET attachment_state = 'uncertain'
-         WHERE screenshot_bytes IS NOT NULL;
-      END IF;
-    END
-    $feedback_delivery_state$
-  `);
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_feedback_reports_status_updated
-       ON feedback_reports (status, updated_at)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_feedback_reports_tenant_submitter_created
-       ON feedback_reports (tenant_id, submitter_id, created_at DESC)`,
-  );
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_feedback_reports_ticket_key
-       ON feedback_reports (jira_ticket_key)`,
-  );
   ensured = true;
 }
 
