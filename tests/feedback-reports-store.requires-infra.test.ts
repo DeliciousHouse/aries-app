@@ -97,6 +97,9 @@ test('feedback_reports store: limits, claim, boundary, and sync against real Pos
       'utf8',
     );
     const initDbSource = readFileSync(new URL('../scripts/init-db.js', import.meta.url), 'utf8');
+    const initDbReportsSchema =
+      /await client\.query\(`(\s*CREATE TABLE IF NOT EXISTS feedback_reports[\s\S]*?)`\);/.exec(initDbSource)?.[1];
+    assert.ok(initDbReportsSchema, 'scripts/init-db.js must carry the full reports schema');
     const initDbDeliveryState =
       /DO \$feedback_delivery_state\$[\s\S]*?\$feedback_delivery_state\$;/.exec(initDbSource)?.[0];
     assert.ok(initDbDeliveryState, 'scripts/init-db.js must carry the delivery-state bootstrap');
@@ -183,12 +186,14 @@ test('feedback_reports store: limits, claim, boundary, and sync against real Pos
     );
     assert.ok(initDbLegacyPaths.rows.every(({ page_path }) => page_path === null));
 
-    // The on-demand application bootstrap must make the same first-upgrade
-    // decision, without reclassifying future not_started rows on every restart.
+    // Deploy migrations make the first-upgrade decision; request readiness
+    // checks must never mutate or reclassify rows on subsequent restarts.
     await pool.query('DROP TABLE feedback_reports');
     await pool.query(legacySchema);
     await pool.query(legacyRowsSql, [Buffer.from('legacy-image')]);
     resetFeedbackReportsEnsuredForTests();
+    await assert.rejects(ensureFeedbackReportsTable(pool), /does not exist/);
+    await pool.query(initDbReportsSchema);
     await ensureFeedbackReportsTable(pool);
     const bootstrappedLegacy = await pool.query<{
       id: string;

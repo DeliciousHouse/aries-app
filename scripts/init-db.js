@@ -2241,6 +2241,32 @@ async function initDb() {
     `);
     // ─── End multi-workspace membership ──────────────────────────────────────────
 
+    // Research DDL used to run inside requests. Mirror the migration here,
+    // because db:init (not the migrations directory) runs during deployment.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS aries_research_jobs (
+        id UUID PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        task_spec JSONB NOT NULL DEFAULT '{}',
+        callback_token_hash TEXT NOT NULL,
+        hermes_envelope JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS aries_research_findings (
+        id UUID PRIMARY KEY,
+        job_id UUID NOT NULL REFERENCES aries_research_jobs(id) ON DELETE CASCADE,
+        raw JSONB NOT NULL,
+        curator_decision TEXT NOT NULL,
+        peer TEXT,
+        approved_message_id TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_aries_research_jobs_tenant_id ON aries_research_jobs(tenant_id);
+      CREATE INDEX IF NOT EXISTS idx_aries_research_findings_job_id ON aries_research_findings(job_id);
+    `);
+
     console.log('Database initialized successfully.');
   } catch (err) {
     console.error('Error initializing database:', err);

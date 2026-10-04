@@ -12,7 +12,33 @@ The `Dockerfile` uses a multi-stage build:
 2. **`builder`** — copies source and runs `npm run build` (Next.js production build)
 3. **`runner`** — Node 24 Bookworm; copies only the built output, production `node_modules`, and scripts; runs as non-root `node` user (UID/GID configurable via build args `ARIES_NODE_UID` / `ARIES_NODE_GID`)
 
-Application code is baked into the image at `/app`. Writable runtime artifacts live under `/data` only.
+Application code is baked into the image at `/app`. Writable runtime artifacts live under `/data` only. The image links `/app/.next/cache` to `/data/next-cache`; startup creates the target as the effective runtime UID. This includes the Next.js image optimizer cache. The data mount must be writable by that UID, even when the launcher overrides the image's `node` UID.
+
+## ubuntu-docker cutover: restore and schema ownership
+
+The cutover app (`aries-a3e604b4-app`) is launched by `run_cutover.py`, not the Compose commands below. Keep this restore contract in any copy of that launcher/runbook:
+
+```bash
+# Run against the intended empty restore target, using the existing admin login.
+# aries_app must already exist; do not replay archive ownership or ACLs.
+pg_restore --no-owner --no-acl --role=aries_app --exit-on-error \
+  --dbname="$RESTORE_DATABASE" "$BACKUP_ARCHIVE"
+```
+
+For a plain SQL dump, produce it with `pg_dump --no-owner --no-acl`, then restore through `psql -v ON_ERROR_STOP=1` as `aries_app`. Do not restore owner-changing statements from an old plain dump. If restoring a legacy archive with ownership preserved, transfer all restored tables, sequences and functions to `aries_app` before starting Aries; changing the database owner alone is insufficient.
+
+Run `npm run db:init` with the schema-owner role before starting requests/workers. The `.sql` files are migration records; normal deployment executes `scripts/init-db.js`. Request `ensure*Schema` helpers only perform read-only readiness checks. For a separate non-owner request role, grant schema USAGE, table SELECT/INSERT/UPDATE/DELETE and sequence USAGE/SELECT (including defaults for future objects), run db:init separately, and set `ARIES_SKIP_DB_INIT=1` on the app. Never grant table ownership to request roles to repair a failed sign-in.
+
+DDL removed from request paths:
+
+- `lib/auth-user-journey.ts`: users.onboarding_required and onboarding_completed_at.
+- `backend/memory/onboarding-memory-hook.ts`: organizations.onboarding_memory_seeded_at.
+- `backend/memory/research-jobs.ts`: aries_research_jobs / aries_research_findings and their indexes (now in db:init and the research migration).
+- `lib/feedback/feedback-store.ts`: feedback_submissions, jira_issue_key and its four indexes.
+- `backend/feedback/report-store.ts`: feedback_reports, submitter_type / request_fingerprint / page_path / delivery-state columns, legacy delivery-state backfill and three indexes.
+- `app/api/early-access/route.ts`: early_access_signups.
+
+After deploying the reviewed image, exercise an optimized image request and sign-in, record the exact deployed SHA and a timestamp-bounded container log excerpt, and confirm no `EACCES` or `must be owner` appears. A health 200 alone is not this verification. Do not loosen cache permissions or chown application code; `/data/next-cache` should inherit the data mount's effective runtime owner.
 
 ## Environment setup
 
