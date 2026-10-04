@@ -187,6 +187,13 @@ this no-mount structural seam is not permission to attach restored/live volumes.
 
 ### Reviewable functional-verifier requirements (not a supplied acceptance probe)
 
+The executable synthetic component mapping is now
+[ubuntu-docker-worker-fixture.md](ubuntu-docker-worker-fixture.md), with
+scripts/release/verify-worker-fixture.ts. It exercises real worker SQL/components
+against an empty schema companion and explicit local sinks. Its receipt is NOT
+a quiesced/appReady/accepted phase probe: real app routes, provider/Hermes
+protocols, restored private rows/assets and host containment remain separate.
+
 There is no common non-mutating functional check for all three workers. Do not
 replace this missing operations executable with uptime, an always-zero callback,
 unit tests alone or the historical PG restore. Review a host-local executable
