@@ -27,7 +27,6 @@ import {
   exchangeMetaAuthorizationCode,
   exchangeMetaShortForLongLived,
   MetaDiscoveryError,
-  type DiscoveredPage,
 } from './meta/discover';
 
 type OAuthCallbackQuery = {
@@ -647,79 +646,6 @@ function pickerRedirectUrl(state: string): string {
   }
 }
 
-async function persistMetaPageConnections(args: {
-  pending: DbPendingStateRow;
-  page: DiscoveredPage;
-  state: string;
-  flow: 'auto_single_page' | 'meta_page_picker';
-}): Promise<OAuthCallbackSuccess> {
-  const connectedAt = nowIso();
-  const facebookConnection = await dbUpsertConnection({
-    tenantId: args.pending.tenant_id,
-    provider: 'facebook',
-    status: 'connected',
-    grantedScopes: args.pending.scopes,
-    externalAccountId: args.page.id,
-    externalAccountName: args.page.name,
-    connectedAt,
-    disconnectedAt: null,
-    lastErrorCode: null,
-    lastErrorMessage: null,
-  });
-  await dbInsertOAuthToken({
-    connectionId: facebookConnection.id,
-    accessToken: args.page.pageAccessToken,
-    tokenType: 'page',
-    issuedAt: connectedAt,
-  });
-
-  let instagramConnectionId: string | null = null;
-  if (args.page.instagramBusinessAccountId) {
-    const instagramConnection = await dbUpsertConnection({
-      tenantId: args.pending.tenant_id,
-      provider: 'instagram',
-      status: 'connected',
-      grantedScopes: args.pending.scopes,
-      externalAccountId: args.page.instagramBusinessAccountId,
-      externalAccountName: args.page.name,
-      connectedAt,
-      disconnectedAt: null,
-      lastErrorCode: null,
-      lastErrorMessage: null,
-    });
-    await dbInsertOAuthToken({
-      connectionId: instagramConnection.id,
-      accessToken: args.page.pageAccessToken,
-      tokenType: 'page',
-      issuedAt: connectedAt,
-    });
-    instagramConnectionId = instagramConnection.id;
-  }
-
-  await dbDeletePendingState(args.state);
-  await dbAuditEvent({
-    tenantId: args.pending.tenant_id,
-    connectionId: facebookConnection.id,
-    provider: 'facebook',
-    eventType: 'oauth.callback.connected',
-    eventStatus: 'ok',
-    detail: {
-      selected_page_id: args.page.id,
-      instagram_connection_id: instagramConnectionId,
-      flow: args.flow,
-    },
-  });
-
-  return {
-    broker_status: 'ok',
-    provider: 'facebook',
-    connection_id: facebookConnection.id,
-    connection_status: 'connected',
-    connected_at: connectedAt,
-    granted_scopes: args.pending.scopes,
-  };
-}
-
 async function runFacebookCallbackFlow(
   state: string,
   code: string,
@@ -774,16 +700,8 @@ async function runFacebookCallbackFlow(
     });
   }
 
-  if (discovery.kind === 'single_page') {
-    return persistMetaPageConnections({
-      pending,
-      page: discovery.page,
-      state,
-      flow: 'auto_single_page',
-    });
-  }
-
-  const stashedPages = discovery.pages.map((page) => ({
+  const pages = discovery.kind === 'single_page' ? [discovery.page] : discovery.pages;
+  const stashedPages = pages.map((page) => ({
     id: page.id,
     name: page.name,
     pageAccessToken: page.pageAccessToken,
@@ -804,7 +722,7 @@ async function runFacebookCallbackFlow(
     provider: 'facebook',
     state,
     picker_url: pickerRedirectUrl(state),
-    pages: discovery.pages.map((page) => ({
+    pages: pages.map((page) => ({
       id: page.id,
       name: page.name,
       has_instagram: page.instagramBusinessAccountId != null,

@@ -31,8 +31,6 @@ import {
   ComposioConnectionMissingError,
   ComposioToolError,
 } from './errors';
-import { resolveFacebookManagedPage } from './facebook-page-resolver';
-import { resolveInstagramAccount } from './instagram-account-resolver';
 import { synthesizeStillToVideo, type StillToVideoResult } from '../still-to-video';
 import { MetaPublishError } from '../meta-publishing';
 import {
@@ -293,8 +291,7 @@ export class ComposioPublisherProvider implements PublisherProvider {
   private async resolveInstagramUserId(connectedAccountId: string, externalAccountId: string | null): Promise<string> {
     const stored = externalAccountId?.trim();
     if (stored) return stored;
-    const resolved = await resolveInstagramAccount(this.gateway, this.config, connectedAccountId);
-    return resolved?.igUserId ?? 'me';
+    throw new ComposioCapabilityMissingError('instagram', 'confirm the Instagram account in Connections');
   }
 
   async publishPost(input: PublishPostInput): Promise<PublishResult> {
@@ -319,6 +316,9 @@ export class ComposioPublisherProvider implements PublisherProvider {
     if (!input.approved) throw new PublishGuardError();
 
     const conn = await this.requireActiveConnection({ tenantId: input.tenantId, platform: input.platform });
+    if ((input.platform === 'facebook' || input.platform === 'instagram') && !conn.externalAccountId?.trim()) {
+      throw new ComposioCapabilityMissingError(input.platform, 'confirm the posting account in Connections');
+    }
 
     // ── Action slug + argument selection (#627) ────────────────────────────
     //
@@ -337,8 +337,7 @@ export class ComposioPublisherProvider implements PublisherProvider {
     // Instagram: single `publish_post` slug via caption + media_urls + placement.
     //
     // The page_id for Facebook is stored at connect-time in
-    // connected_accounts.external_account_id. When null (OAuth callback race),
-    // resolveFacebookManagedPage is called as a fallback.
+    // connected_accounts.external_account_id after explicit confirmation.
     let slug: string;
     let toolArgs: Record<string, unknown>;
     // The created post id lives at different keys per platform; a branch may
@@ -346,19 +345,11 @@ export class ComposioPublisherProvider implements PublisherProvider {
     let idKeys = DEFAULT_POST_ID_KEYS;
 
     if (input.platform === 'facebook') {
-      let pageId = conn.externalAccountId ?? null;
-      if (!pageId) {
-        const page = await resolveFacebookManagedPage(
-          this.gateway,
-          this.config,
-          conn.connectedAccountId!,
-        );
-        pageId = page?.pageId ?? null;
-      }
+      const pageId = conn.externalAccountId?.trim() || null;
       if (!pageId) {
         throw new ComposioCapabilityMissingError(
           'facebook',
-          'identify the posting Page — reconnect your Facebook account to resolve this',
+          'confirm the posting Page in Connections',
         );
       }
 

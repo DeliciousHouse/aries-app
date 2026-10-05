@@ -38,8 +38,6 @@ import type { Queryable } from '@/backend/integrations/composio/connection-store
 import { isPlatformInsightsEnabled } from '@/backend/insights/sync/adapter-factory';
 import { resolveComposioConfig, type ComposioConfig } from '@/backend/integrations/composio/composio-config';
 import { createComposioGateway, type ComposioGateway } from '@/backend/integrations/composio/composio-client';
-import { resolveFacebookManagedPage } from '@/backend/integrations/composio/facebook-page-resolver';
-import { resolveInstagramAccount } from '@/backend/integrations/composio/instagram-account-resolver';
 import { resolveYouTubeChannel } from '@/backend/integrations/composio/youtube-channel-resolver';
 import { resolveXUser } from '@/backend/integrations/composio/x-user-resolver';
 import { resolveRedditUser } from '@/backend/integrations/composio/reddit-user-resolver';
@@ -248,7 +246,7 @@ export async function ensureInsightsAccountsForConnectedPlatforms(
       // LinkedIn's URN is resolved at connect time via ensure-linkedin-urn.ts, so
       // a null id there is not back-heal-able here — skip and let a later
       // connect/re-auth populate it. Never invent an external account id.
-      if (!['facebook', 'instagram', 'youtube', 'x', 'reddit'].includes(row.platform)) {
+      if (!['youtube', 'x', 'reddit'].includes(row.platform)) {
         skippedNoPage++;
         log({ event: 'insights_bridge_page_unresolved', tenantId: row.tenant_id, platform: row.platform, reason: 'no_external_account_id' });
         continue;
@@ -291,24 +289,6 @@ export async function ensureInsightsAccountsForConnectedPlatforms(
             resolvedId = user.username;
             resolvedName = user.name;
             resolvedManagedCount = 1;
-          }
-        } else if (row.platform === 'instagram') {
-          // Resolve the IG user id (numeric) via INSTAGRAM_GET_USER_INFO('me').
-          // The 'me' resolution is UNVERIFIED live (IG is not connected yet as of
-          // #692/#693); if it fails on first live connect, the fail-safe null just
-          // skips this tenant — it never wedges the FB/X sync.
-          const account = await resolveInstagramAccount(r.gateway, r.config, row.connected_account_id);
-          if (account) {
-            resolvedId = account.igUserId;
-            resolvedName = account.username;
-            resolvedManagedCount = 1;
-          }
-        } else {
-          const page = await resolveFacebookManagedPage(r.gateway, r.config, row.connected_account_id);
-          if (page) {
-            resolvedId = page.pageId;
-            resolvedName = page.pageName;
-            resolvedManagedCount = page.managedCount;
           }
         }
       } catch (err) {

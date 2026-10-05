@@ -110,7 +110,7 @@ test('AA-242: a platform with no known id shape is left alone', () => {
 
 // ── Why null rather than throw, and why the stickiness matters ────────────────
 
-test('AA-242: rejecting to null leaves the back-heal path OPEN', () => {
+test('AA-242: Meta rejects metadata identity while LinkedIn still back-heals a missing URN', () => {
   // This is the whole reason the gate prefers null over a thrown error or a
   // persisted value. Both resolver branches are gated on `!externalAccountId`,
   // so null is the state in which repair happens; a wrong value is the state in
@@ -118,8 +118,8 @@ test('AA-242: rejecting to null leaves the back-heal path OPEN', () => {
   const provider = read('backend', 'integrations', 'composio', 'composio-account-provider.ts');
   assert.match(
     provider,
-    /if \(!externalAccountId && platform === 'facebook'/,
-    'the FB back-heal must still be gated on a MISSING id',
+    /let externalAccountId = isMeta \? null : active.externalAccountId/,
+    'Meta requires explicit selection, never automatic back-heal',
   );
   assert.match(provider, /!externalAccountId &&\s*\n\s*platform === 'linkedin'/, 'and the LinkedIn one');
 
@@ -139,7 +139,7 @@ test('AA-242: the store still preserves a good stored value against a later null
   const store = read('backend', 'integrations', 'composio', 'connection-store.ts');
   assert.match(
     store,
-    /external_account_id = COALESCE\(EXCLUDED\.external_account_id, connected_accounts\.external_account_id\)/,
+    /ELSE COALESCE\(EXCLUDED\.external_account_id, connected_accounts\.external_account_id\) END/,
   );
 });
 
