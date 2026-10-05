@@ -434,7 +434,7 @@ test('getBusinessProfile infers a polished coaching profile when the current-sou
       profile.offer,
       'Executive and transformational coaching memberships with private coaching support.',
     );
-    assert.deepEqual(profile.channels, ['meta-ads', 'instagram']);
+    assert.deepEqual(profile.channels, ['facebook', 'instagram']);
     assert.equal(typeof profile.notes, 'string');
     assert.equal((profile.notes || '').length > 0, true);
   } finally {

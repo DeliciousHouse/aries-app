@@ -54,7 +54,7 @@ type ListResponse = {
 };
 
 const PLATFORM_LABEL: Record<string, string> = {
-  facebook: 'Facebook',
+  facebook: 'Facebook Page',
   instagram: 'Instagram',
   meta_ads: 'Meta Ads',
   youtube: 'YouTube',
@@ -222,7 +222,7 @@ export default function ComposioConnectionsScreen() {
       <header className="mb-8">
         <h1 className="text-2xl font-semibold">Connections</h1>
         <p className="mt-2 text-sm text-slate-400">
-          Connect your social and advertising accounts so Aries can publish and report on your behalf. Just click
+          Connect your social accounts so Aries can publish and report on your behalf. Just click
           Connect, approve the permissions, and pick the account or page you want to use.
         </p>
       </header>
@@ -250,7 +250,12 @@ export default function ComposioConnectionsScreen() {
       )}
 
       <div className="space-y-4">
-        {data?.connections.map((conn) => {
+        <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-5">
+          <h2 className="text-lg font-medium">Meta Ads <span className="ml-2 rounded-full border border-slate-600 px-2 py-1 text-xs text-slate-300">Coming soon</span></h2>
+          <p className="mt-2 text-sm text-slate-400">Paid advertising is not available yet.</p>
+          <button type="button" disabled className="mt-3 rounded-full border border-slate-600 px-4 py-2 text-sm text-slate-400">Connect Meta Ads</button>
+        </div>
+        {data?.connections.filter((conn) => conn.platform !== 'meta_ads').map((conn) => {
           const caps = conn.capabilities;
           // Pass pollingPhase only for this platform's pending card.
           const cardPhase = conn.status === 'pending' ? pollingPhase : 'idle';

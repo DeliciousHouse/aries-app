@@ -44,7 +44,7 @@ type IntegrationPageCard = {
 
 function customerSafePlatformLabel(platform: keyof typeof PROVIDER_REGISTRY): string {
   if (platform === 'facebook') {
-    return 'Meta';
+    return 'Facebook Page';
   }
   if (platform === 'instagram') {
     return 'Instagram publishing';

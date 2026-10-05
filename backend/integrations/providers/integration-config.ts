@@ -300,7 +300,7 @@ export function publishablePlatforms(env: NodeJS.ProcessEnv = process.env): read
 export function connectablePlatforms(
   env: NodeJS.ProcessEnv = process.env,
 ): readonly IntegrationPlatform[] {
-  const excluded = new Set<IntegrationPlatform>();
+  const excluded = new Set<IntegrationPlatform>(['meta_ads']);
   if (!isXEnabled(env)) excluded.add('x');
   return INTEGRATION_PLATFORMS.filter((p) => !excluded.has(p));
 }

@@ -730,7 +730,8 @@ async function readStageStepPayload(
 
 function normalizePlatformSlug(value: string | null | undefined): string {
   const cleaned = slugify(value || '', 'social content')
-  if (['meta', 'facebook', 'facebook-ads', 'meta-ads'].includes(cleaned)) return 'meta-ads'
+  if (['meta', 'facebook', 'facebook-page'].includes(cleaned)) return 'facebook'
+  if (['facebook-ads', 'meta-ads'].includes(cleaned)) return 'meta-ads'
   if (['instagram', 'instagram-feed', 'instagram-reels'].includes(cleaned)) return 'instagram'
   if (['x', 'twitter', 'x-post'].includes(cleaned)) return 'x'
   if (['youtube', 'youtube-shorts', 'youtube-longform'].includes(cleaned)) return 'youtube'
@@ -743,6 +744,7 @@ function normalizePlatformSlug(value: string | null | undefined): string {
 }
 
 function platformLabel(platformSlug: string): string {
+  if (platformSlug === 'facebook') return 'Facebook Page'
   if (platformSlug === 'meta-ads') return 'Meta Ads'
   if (platformSlug === 'landing-page') return 'Landing Page'
   if (platformSlug === 'x') return 'X'
@@ -1252,7 +1254,8 @@ function loadContracts(explicitPaths: string[], directoryPath: string | null): C
 
 function extractPlatformFromFilename(filePath: string): string {
   const base = slugify(path.basename(filePath, path.extname(filePath)), 'asset')
-  if (base.startsWith('meta')) return 'meta-ads'
+  if (base.startsWith('meta-ads') || base.startsWith('facebook-ads')) return 'meta-ads'
+  if (base.startsWith('meta') || base.startsWith('facebook')) return 'facebook'
   if (base.startsWith('instagram')) return 'instagram'
   if (base.startsWith('youtube')) return 'youtube'
   if (base.startsWith('linkedin')) return 'linkedin'

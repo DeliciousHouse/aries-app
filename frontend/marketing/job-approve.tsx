@@ -20,11 +20,18 @@ import type {
 import { useMarketingJobApprove } from '@/hooks/use-marketing-job-approve';
 import { useMarketingJobStatus } from '@/hooks/use-marketing-job-status';
 import StatusBadge from '../components/status-badge';
+import { selectableMarketingChannels } from '@/lib/marketing-channels';
 
 type ApproveResult = ApproveJobResult | MarketingApiError;
 type JobStatusResult = GetSocialContentJobStatusResponse | MarketingApiError;
 type MarketingJobApproveScreenVariant = 'marketing' | 'social-content';
-const PLATFORM_VALUES = ['meta-ads', 'instagram', 'x', 'youtube', 'linkedin', 'reddit'] as const;
+const PLATFORM_VALUES = ['facebook', 'meta-ads', 'instagram', 'x', 'youtube', 'linkedin', 'reddit'] as const;
+
+function platformLabel(platform: string) {
+  if (platform === 'facebook') return 'Facebook Page';
+  if (platform === 'meta-ads') return <>Meta Ads <span className="ml-2 text-xs">Coming soon</span></>;
+  return platform;
+}
 
 export interface MarketingJobApproveScreenProps {
   baseUrl?: string;
@@ -466,8 +473,8 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
       if (result && !isErrorResult(result) && result.marketing_stage) {
         setLoadedStatusJobId(requestedJobId);
         setApprovedStages([result.marketing_stage as MarketingStage]);
-        setPlatforms(result.publishConfig.platforms);
-        setLivePublishPlatforms(result.publishConfig.livePublishPlatforms);
+        setPlatforms(selectableMarketingChannels(result.publishConfig.platforms));
+        setLivePublishPlatforms(selectableMarketingChannels(result.publishConfig.livePublishPlatforms));
         setVideoRenderPlatforms(result.publishConfig.videoRenderPlatforms);
       }
     } finally {
@@ -484,6 +491,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
   }
 
   function toggleValue(value: string, setter: Dispatch<SetStateAction<string[]>>) {
+    if (value === 'meta-ads') return;
     setter((prev) =>
       prev.includes(value) ? prev.filter((entry) => entry !== value) : [...prev, value]
     );
@@ -644,11 +652,12 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
                           key={platform}
                           type="button"
                           onClick={() => toggleValue(platform, setPlatforms)}
+                          disabled={platform === 'meta-ads'}
                           className={`px-4 py-2 rounded-full border transition-all ${
                             active ? 'border-primary/30 bg-primary/15 text-white' : 'border-white/10 bg-white/5 text-white/60'
                           }`}
                         >
-                          {platform}
+                          {platformLabel(platform)}
                         </button>
                       );
                     })}
@@ -665,11 +674,12 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
                           key={platform}
                           type="button"
                           onClick={() => toggleValue(platform, setLivePublishPlatforms)}
+                          disabled={platform === 'meta-ads'}
                           className={`px-4 py-2 rounded-full border transition-all ${
                             active ? 'border-primary/30 bg-primary/15 text-white' : 'border-white/10 bg-white/5 text-white/60'
                           }`}
                         >
-                          {platform}
+                          {platformLabel(platform)}
                         </button>
                       );
                     })}

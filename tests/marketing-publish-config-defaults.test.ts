@@ -14,16 +14,16 @@ import { defaultPublishConfig, publishConfigFromChannels } from '../backend/mark
  * though the pipeline renders no video by default.
  *
  * The default must reflect what actually happens: image posts for
- * Facebook + Instagram, no video. `live_publish_platforms` stays meta-ads only
+ * Facebook + Instagram, no video. `live_publish_platforms` stays Facebook only
  * (it is read by the real FB/IG publish handlers). The explicit-input
  * passthrough must be untouched — only the FALLBACK changed.
  */
 
 test('AA-76: default publish config is FB + IG only with no phantom video', () => {
   const cfg = defaultPublishConfig();
-  assert.deepEqual(cfg.platforms, ['meta-ads', 'instagram'], 'default platforms should be FB + IG only');
+  assert.deepEqual(cfg.platforms, ['facebook', 'instagram'], 'default platforms should be FB + IG only');
   assert.deepEqual(cfg.video_render_platforms, [], 'default must render no video (video is opt-in)');
-  assert.deepEqual(cfg.live_publish_platforms, ['meta-ads'], 'live publish default stays conservative');
+  assert.deepEqual(cfg.live_publish_platforms, ['facebook'], 'live publish default stays conservative');
 });
 
 test('AA-76: explicit publish-config input is still honored (only the fallback changed)', () => {
@@ -39,8 +39,8 @@ test('AA-76: explicit publish-config input is still honored (only the fallback c
 
 test('AA-76: channel-derived config for meta/instagram renders no video', () => {
   const cfg = publishConfigFromChannels(['meta', 'instagram']);
-  assert.deepEqual(cfg.platforms, ['meta-ads', 'instagram']);
-  assert.deepEqual(cfg.live_publish_platforms, ['meta-ads', 'instagram']);
+  assert.deepEqual(cfg.platforms, ['facebook', 'instagram']);
+  assert.deepEqual(cfg.live_publish_platforms, ['facebook', 'instagram']);
   assert.deepEqual(cfg.video_render_platforms, [], 'meta/instagram are image targets — no video render');
 });
 
@@ -53,7 +53,7 @@ test('AA-76: a genuine video channel (youtube) still drives video_render_platfor
 test('AA-76: empty/absent channels fall back to the no-video default', () => {
   assert.deepEqual(publishConfigFromChannels([]).video_render_platforms, []);
   assert.deepEqual(publishConfigFromChannels(null).video_render_platforms, []);
-  assert.deepEqual(publishConfigFromChannels(undefined).platforms, ['meta-ads', 'instagram']);
+  assert.deepEqual(publishConfigFromChannels(undefined).platforms, ['facebook', 'instagram']);
 });
 
 test('AA-76: the workspace panel only shows "Video render" when video was actually requested', () => {

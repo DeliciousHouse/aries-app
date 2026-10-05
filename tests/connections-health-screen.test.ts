@@ -99,7 +99,7 @@ test('reauthorization CTA starts the existing platform OAuth flow and follows it
   });
   assert.match(text(root), /Please reconnect/);
   assert.equal(posts, 0, 'reauthorization is never started without a click');
-  const reconnect = root.root.findByProps({ 'aria-label': 'Reconnect Facebook' });
+  const reconnect = root.root.findByProps({ 'aria-label': 'Reconnect Facebook Page' });
   assert.equal(reconnect.props.disabled, false);
   await act(async () => { await reconnect.props.onClick(); });
   assert.equal(posts, 1);
@@ -111,7 +111,11 @@ test('announces loading then renders an empty workspace without inventing connec
   const response = new Promise<Response>((done) => { resolve = done; });
   const root = await mount(t, () => response);
   assert.match(root.root.findByProps({ role: 'status' }).children.join(''), /Loading your connections/);
-  assert.equal(root.root.findAllByType('h2').length, 0);
+  assert.equal(root.root.findAllByType('h2').length, 1, 'Meta Ads remains visible while connection data loads');
+  assert.match(text(root), /Meta Ads.*Coming soon/);
+  const ads = root.root.find((node) => node.type === 'button' && node.children.includes('Connect Meta Ads'));
+  assert.equal(ads.props.disabled, true);
+  assert.equal(ads.props.onClick, undefined);
   await act(async () => { resolve(Response.json({ composioEnabled: true, connections: [] })); });
   assert.match(text(root), /No accounts connected yet/);
   assert.doesNotMatch(text(root), /Loading your connections|Connected and ready/);
@@ -134,7 +138,7 @@ test('pending health can be checked again and updates from fresh API data', asyn
   let calls = 0;
   const root = await mount(t, async () => healthResponse(++calls === 1 ? 'pending' : 'connected'));
   assert.match(text(root), /Finishing connecting/);
-  assert.equal(root.root.findByProps({ 'aria-label': 'Finish connecting Facebook' }).props.disabled, false);
+  assert.equal(root.root.findByProps({ 'aria-label': 'Finish connecting Facebook Page' }).props.disabled, false);
   const check = root.root.find((node) => node.type === 'button' && node.children.includes('Check again'));
   await act(async () => { check.props.onClick(); });
   assert.match(text(root), /Connected and ready/);
@@ -157,7 +161,7 @@ test('unconfigured workspaces cannot start reauthorization', async (t) => {
     return Response.json({ ...body, composioEnabled: false });
   });
   assert.match(text(root), /aren’t turned on for this workspace/);
-  assert.equal(root.root.findByProps({ 'aria-label': 'Reconnect Facebook' }).props.disabled, true);
+  assert.equal(root.root.findByProps({ 'aria-label': 'Reconnect Facebook Page' }).props.disabled, true);
 });
 
 test('OAuth failures keep the operator on the page with a usable reconnect button', async (t) => {
@@ -165,7 +169,7 @@ test('OAuth failures keep the operator on the page with a usable reconnect butto
     ? Response.json({ message: 'Could not start the connection.' }, { status: 503 })
     : healthResponse('error'));
   assert.match(text(root), /Something went wrong/);
-  const reconnect = root.root.findByProps({ 'aria-label': 'Reconnect Facebook' });
+  const reconnect = root.root.findByProps({ 'aria-label': 'Reconnect Facebook Page' });
   await act(async () => { await reconnect.props.onClick(); });
   assert.match(text(root), /Could not start the connection/);
   assert.equal(root.root.findAllByProps({ role: 'alert' }).length, 1);

@@ -55,7 +55,7 @@ test('onboarding draft store persists customer intake fields and materialization
     const updated = await store.updateOnboardingDraft(created.draftId, {
       businessType: 'Custom framing studio',
       approverName: 'Avery Frame',
-      channels: ['meta-ads', 'instagram'],
+      channels: ['meta', 'instagram'],
       goal: 'Book more design consultations',
       offer: 'Museum-grade framing',
       brandVoice: 'Warm, precise, and design-literate.',
@@ -75,7 +75,8 @@ test('onboarding draft store persists customer intake fields and materialization
     assert.equal(updated.status, 'ready_for_auth');
     assert.equal(updated.businessType, 'Custom framing studio');
     assert.equal(updated.approverName, 'Avery Frame');
-    assert.deepEqual(updated.channels, ['meta-ads', 'instagram']);
+    assert.deepEqual(updated.channels, ['facebook', 'instagram']);
+    await assert.rejects(store.updateOnboardingDraft(created.draftId, { channels: ['meta-ads'] }), /meta_ads_coming_soon/);
     assert.equal(updated.goal, 'Book more design consultations');
     assert.equal(updated.offer, 'Museum-grade framing');
     assert.equal(updated.brandVoice, 'Warm, precise, and design-literate.');

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import pool from '@/lib/db';
+import { assertNoMetaAdsChannels, normalizeMarketingChannel } from '@/lib/marketing-channels';
 import { normalizeMarketingWebsiteUrl } from '@/lib/marketing-public-mode';
 import { resolveDataPath } from '@/lib/runtime-paths';
 import { isValidTimeZone } from '@/lib/format-timestamp';
@@ -252,6 +253,7 @@ function draftSourceFingerprint(input: {
 }
 
 function applyDraftMutation(draft: OnboardingDraft, mutation: OnboardingDraftMutation): OnboardingDraft {
+  assertNoMetaAdsChannels(mutation.channels);
   if (mutation.timezone && !isValidTimeZone(mutation.timezone)) throw new Error('invalid_profile_context');
   if (mutation.reelAudioMode && !parseReelAudioMode(mutation.reelAudioMode)) throw new Error('invalid_profile_context');
   if (mutation.goalType && !isCanonicalGoalType(mutation.goalType)) throw new Error('invalid_profile_context');
@@ -281,7 +283,7 @@ function applyDraftMutation(draft: OnboardingDraft, mutation: OnboardingDraftMut
     businessName: mutation.businessName === undefined ? draft.businessName : stringValue(mutation.businessName),
     businessType: mutation.businessType === undefined ? draft.businessType : stringValue(mutation.businessType),
     approverName: mutation.approverName === undefined ? draft.approverName : stringValue(mutation.approverName),
-    channels: mutation.channels === undefined ? draft.channels : stringArray(mutation.channels),
+    channels: mutation.channels === undefined ? draft.channels : Array.from(new Set(stringArray(mutation.channels).map(normalizeMarketingChannel))),
     goal: mutation.goal === undefined ? draft.goal : stringValue(mutation.goal),
     offer: mutation.offer === undefined ? draft.offer : stringValue(mutation.offer),
     brandVoice: mutation.brandVoice === undefined ? draft.brandVoice : stringValue(mutation.brandVoice),
@@ -509,7 +511,9 @@ export function draftTenantId(draftId: string): string {
 }
 
 export async function createOnboardingDraft(initial?: Partial<OnboardingDraft>): Promise<OnboardingDraft> {
+  assertNoMetaAdsChannels(initial?.channels);
   const draft = emptyDraft(initial);
+  draft.channels = Array.from(new Set(draft.channels.map(normalizeMarketingChannel)));
   if (!hasDatabaseConfig()) {
     return writeFallbackDraft(draft);
   }
