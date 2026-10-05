@@ -95,7 +95,8 @@ jobs:
             tests/request-schema-non-owner.requires-infra.test.ts \
             tests/image-cache-permissions.test.mjs \
             tests/insights-llm-calls-drop.requires-infra.test.ts \
-            tests/tenant-lifecycle.requires-infra.test.ts 2>&1 | tee /tmp/aa129-drop.log
+            tests/tenant-lifecycle.requires-infra.test.ts \
+            tests/composio-meta-page-choice-postgres.test.ts 2>&1 | tee /tmp/aa129-drop.log
           skipped=$(awk '/^# skipped /{print $3; exit}' /tmp/aa129-drop.log)
           passed=$(awk  '/^# pass /{print $3; exit}'    /tmp/aa129-drop.log)
           echo "pass=${passed:-?} skipped=${skipped:-?}"

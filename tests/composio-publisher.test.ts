@@ -114,32 +114,10 @@ test('#624 FB publishPost sends `message` + `page_id` from stored external_accou
   assert.equal(args.caption, undefined, '`caption` must not be sent to the Facebook tool');
 });
 
-test('#624 FB publishPost with null external_account_id falls back to resolveFacebookManagedPage', async () => {
-  // Simulate a connect-time race where external_account_id was not yet populated.
-  // The gateway is called twice: once for list_pages (FACEBOOK_LIST_MANAGED_PAGES)
-  // and once for publish_post. Both return the same executeResult here; the
-  // list_pages call is stateless and we only need it to return a valid page array.
-  const pageListResponse = {
-    data: { data: [{ id: 'page_from_api', name: 'API Page' }] },
-    successful: true,
-    error: null,
-  };
-  const publishResponse = { data: { id: 'post_999' }, successful: true, error: null };
-
-  // Sequence: call[0]=list_pages, call[1]=publish_post
-  const results = [pageListResponse, publishResponse];
-  const gateway = fakeGateway({
-    onExecute: () => {/* track only */},
-  });
-  // Override executeTool to return sequenced results
-  let callIdx = 0;
-  const origExecute = gateway.executeTool.bind(gateway);
-  gateway.executeTool = async (slug, opts) => {
-    const result = results[callIdx] ?? publishResponse;
-    callIdx++;
-    gateway.calls.push({ slug, options: opts });
-    return result;
-  };
+test('#624 FB publishPost with null external_account_id requires explicit confirmation', async () => {
+  const gateway = fakeGateway({ executeResult: {
+    data: { data: [{ id: 'page_from_api', name: 'API Page' }] }, successful: true, error: null,
+  } });
 
   // A row with null external_account_id
   const nullPageRow = {
@@ -163,15 +141,8 @@ test('#624 FB publishPost with null external_account_id falls back to resolveFac
     fakeConfig({ actions: { publish_post: 'FB_POST' } }),
     fakeDb({ connectionRow: nullPageRow }),
   );
-  const result = await provider.publishPost({ tenantId, platform: 'facebook', content: 'hi', mediaUrls: [], approved: true });
-
-  assert.equal(result.externalPostId, 'post_999', 'publish must succeed using the API-resolved page_id');
-  // Second call is the publish; its args must carry the page_id from the API response
-  const publishCall = gateway.calls.find((c) => c.slug === 'FB_POST');
-  assert.ok(publishCall, 'FB_POST must have been called');
-  const publishArgs = publishCall!.options.arguments as Record<string, unknown>;
-  assert.equal(publishArgs.page_id, 'page_from_api', 'page_id must come from resolveFacebookManagedPage fallback');
-  assert.equal(publishArgs.message, 'hi', 'content must still be in `message`');
+  await assert.rejects(provider.publishPost({ tenantId, platform: 'facebook', content: 'hi', mediaUrls: [], approved: true }), /confirm/);
+  assert.equal(gateway.calls.length, 0);
 });
 
 test('#624 FB publishPost with null external_account_id and no page returned throws capability-missing', async () => {

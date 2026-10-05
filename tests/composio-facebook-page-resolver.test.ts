@@ -14,12 +14,12 @@ import {
 } from '@composio/core';
 
 import {
-  resolveFacebookManagedPage,
+  listFacebookManagedPages,
   DEFAULT_LIST_MANAGED_PAGES_SLUG,
 } from '@/backend/integrations/composio/facebook-page-resolver';
 import { fakeConfig, fakeGateway } from './composio/helpers';
 
-test('resolves the first managed page (deterministic) and reports the managed count', async () => {
+test('never silently chooses the first of multiple managed pages', async () => {
   const gateway = fakeGateway({
     executeResult: {
       successful: true,
@@ -27,8 +27,8 @@ test('resolves the first managed page (deterministic) and reports the managed co
       data: { data: [{ id: 'P1', name: 'Primary' }, { id: 'P2', name: 'Second' }] },
     },
   });
-  const page = await resolveFacebookManagedPage(gateway, fakeConfig({ actions: {} }), 'ca_1');
-  assert.deepEqual(page, { pageId: 'P1', pageName: 'Primary', managedCount: 2 });
+  const pages = await listFacebookManagedPages(gateway, fakeConfig({ actions: {} }), 'ca_1');
+  assert.deepEqual(pages, [{ id: 'P1', name: 'Primary' }, { id: 'P2', name: 'Second' }]);
   assert.equal(gateway.calls[0].slug, DEFAULT_LIST_MANAGED_PAGES_SLUG);
   assert.equal(gateway.calls[0].options.connectedAccountId, 'ca_1');
   assert.equal((gateway.calls[0].options.arguments as Record<string, unknown>).user_id, 'me');
@@ -38,23 +38,23 @@ test('honors the COMPOSIO_FACEBOOK_LIST_PAGES_ACTION override slug', async () =>
   const gateway = fakeGateway({
     executeResult: { successful: true, error: null, data: { data: [{ id: 'P1', name: 'X' }] } },
   });
-  await resolveFacebookManagedPage(gateway, fakeConfig({ actions: { list_pages: 'CUSTOM_PAGES' } }), 'ca_1');
+  await listFacebookManagedPages(gateway, fakeConfig({ actions: { list_pages: 'CUSTOM_PAGES' } }), 'ca_1');
   assert.equal(gateway.calls[0].slug, 'CUSTOM_PAGES');
 });
 
 test('returns null on an unsuccessful tool call (never invents a page)', async () => {
   const gateway = fakeGateway({ executeResult: { successful: false, error: 'scope missing', data: null } });
-  const page = await resolveFacebookManagedPage(gateway, fakeConfig({ actions: {} }), 'ca_1');
+  const page = await listFacebookManagedPages(gateway, fakeConfig({ actions: {} }), 'ca_1');
   assert.equal(page, null);
 });
 
-test('returns null when no managed pages are returned (empty data)', async () => {
+test('returns an empty list when no managed pages are returned', async () => {
   const gateway = fakeGateway({ executeResult: { successful: true, error: null, data: { data: [] } } });
-  const page = await resolveFacebookManagedPage(gateway, fakeConfig({ actions: {} }), 'ca_1');
-  assert.equal(page, null);
+  const pages = await listFacebookManagedPages(gateway, fakeConfig({ actions: {} }), 'ca_1');
+  assert.deepEqual(pages, []);
 });
 
-test('skips entries without a string id and picks the first valid one', async () => {
+test('lists only entries with valid string ids', async () => {
   const gateway = fakeGateway({
     executeResult: {
       successful: true,
@@ -62,8 +62,8 @@ test('skips entries without a string id and picks the first valid one', async ()
       data: { data: [{ name: 'no id' }, { id: 'P9', name: 'Valid' }] },
     },
   });
-  const page = await resolveFacebookManagedPage(gateway, fakeConfig({ actions: {} }), 'ca_1');
-  assert.equal(page?.pageId, 'P9');
+  const pages = await listFacebookManagedPages(gateway, fakeConfig({ actions: {} }), 'ca_1');
+  assert.deepEqual(pages, [{ id: 'P9', name: 'Valid' }]);
 });
 
 // ── AA-243: a thrown executeTool is swallowed to null, never leaked ─────────
@@ -84,7 +84,7 @@ test('AA-243: returns null when executeTool throws ComposioToolNotFoundError (to
       );
     },
   });
-  const page = await resolveFacebookManagedPage(gateway, fakeConfig({ actions: {} }), 'ca_1');
+  const page = await listFacebookManagedPages(gateway, fakeConfig({ actions: {} }), 'ca_1');
   assert.equal(page, null);
   assert.equal(gateway.calls.length, 1, 'the tool call was attempted before the throw');
 });
@@ -102,6 +102,6 @@ test('AA-243: returns null when executeTool throws the handleToolExecutionError-
       throw thrown;
     },
   });
-  const page = await resolveFacebookManagedPage(gateway, fakeConfig({ actions: {} }), 'ca_1');
+  const page = await listFacebookManagedPages(gateway, fakeConfig({ actions: {} }), 'ca_1');
   assert.equal(page, null);
 });

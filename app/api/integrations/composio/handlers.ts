@@ -220,6 +220,7 @@ export async function handleComposioList(
     const account = byPlatform.get(platform) ?? notConnectedAccount(tenantId, externalUserId, platform, 'composio');
     return {
       ...account,
+      selectionRequired: ['facebook', 'instagram'].includes(platform) && account.status === 'connected' && !account.externalAccountId?.trim(),
       lastSuccessfulPostAt: lastSuccessfulPostByPlatform.get(platform) ?? null,
       reauthorizationPath: `/api/integrations/composio/${platform}/connect`,
       prerequisites: platformPrerequisites(platform),
@@ -234,6 +235,37 @@ export async function handleComposioList(
     analyticsProvider: config.analyticsProvider,
     connections,
   });
+}
+
+export async function handleComposioPages(
+  req: Request,
+  platformRaw: string,
+  loader?: TenantContextLoader,
+  provider: AccountConnectionProvider | null = getAccountConnectionProvider(),
+): Promise<Response> {
+  const platform = platformOr400(platformRaw);
+  if (platform instanceof Response) return platform;
+  if (platform !== 'facebook' && platform !== 'instagram') {
+    return json({ status: 'error', message: 'Page selection is only available for Facebook and Instagram.' }, 400);
+  }
+  const tenantResult = await loadTenantContextOrResponse(loader);
+  if ('response' in tenantResult) return tenantResult.response;
+  const { tenantId } = tenantResult.tenantContext;
+  if (!provider?.listAccountPages || !provider.selectAccountPage) return composioDisabledResponse();
+  try {
+    if (req.method === 'GET') return json({ status: 'ok', ...await provider.listAccountPages(tenantId, platform) });
+    if (req.method !== 'POST') return json({ status: 'error', message: 'Method not allowed.' }, 405);
+    let body;
+    try { body = await req.json(); } catch { return json({ status: 'error', message: 'Invalid selection.' }, 400); }
+    if (!body || typeof body.pageId !== 'string' || !body.pageId.trim() || body.pageId.length > 200 ||
+        typeof body.connectedAccountId !== 'string' || !body.connectedAccountId.trim() || body.connectedAccountId.length > 200) {
+      return json({ status: 'error', message: 'Choose a page from the current connection.' }, 400);
+    }
+    await provider.selectAccountPage(tenantId, platform, body.connectedAccountId, body.pageId);
+    return json({ status: 'ok' });
+  } catch (error) {
+    return errorResponse(error);
+  }
 }
 
 export async function handleComposioCapabilities(platformRaw: string, loader?: TenantContextLoader): Promise<Response> {

@@ -106,12 +106,11 @@ for (const { label, make } of sdkThrows) {
       publishNeverReachedPlatform(caught),
       'the failure must classify as definitely-never-posted',
     );
-    // Only the read-only page enumeration was attempted — no publish call was
-    // ever made, which is what makes never-posted provable here.
+    // No enumeration or publish call: selection must be confirmed beforehand.
     assert.deepEqual(
       gateway.calls.map((c) => c.slug),
-      [DEFAULT_LIST_MANAGED_PAGES_SLUG],
-      'no publish tool call may be attempted after the fallback fails',
+      [],
+      'no provider call may be attempted before page confirmation',
     );
   });
 }

@@ -31,8 +31,7 @@ import {
   ComposioConnectionMissingError,
   ComposioToolError,
 } from './errors';
-import { resolveFacebookManagedPage } from './facebook-page-resolver';
-import { resolveInstagramAccount } from './instagram-account-resolver';
+
 import { synthesizeStillToVideo, type StillToVideoResult } from '../still-to-video';
 import { MetaPublishError } from '../meta-publishing';
 import {
@@ -236,6 +235,9 @@ export class ComposioPublisherProvider implements PublisherProvider {
     if (!conn || conn.status !== 'connected' || !conn.connectedAccountId) {
       throw new ComposioConnectionMissingError(input.platform);
     }
+    if (['facebook', 'instagram'].includes(input.platform) && !conn.externalAccountId?.trim()) {
+      throw new ComposioCapabilityMissingError(input.platform, 'publish until you confirm a page or business account in Connections');
+    }
     return conn;
   }
 
@@ -283,19 +285,6 @@ export class ComposioPublisherProvider implements PublisherProvider {
     }
   }
 
-  /**
-   * The IG user id (numeric) the container/publish actions need as `ig_user_id`.
-   * `connected_accounts.external_account_id` is null for IG (it is not in the
-   * connection metadata), so fall back to the verified INSTAGRAM_GET_USER_INFO
-   * resolver, then to `'me'` (the actions accept the literal `'me'`). The resolver
-   * is a read-only pre-publish call that never creates a post.
-   */
-  private async resolveInstagramUserId(connectedAccountId: string, externalAccountId: string | null): Promise<string> {
-    const stored = externalAccountId?.trim();
-    if (stored) return stored;
-    const resolved = await resolveInstagramAccount(this.gateway, this.config, connectedAccountId);
-    return resolved?.igUserId ?? 'me';
-  }
 
   async publishPost(input: PublishPostInput): Promise<PublishResult> {
     // Dry-run never touches Composio.
@@ -337,8 +326,7 @@ export class ComposioPublisherProvider implements PublisherProvider {
     // Instagram: single `publish_post` slug via caption + media_urls + placement.
     //
     // The page_id for Facebook is stored at connect-time in
-    // connected_accounts.external_account_id. When null (OAuth callback race),
-    // resolveFacebookManagedPage is called as a fallback.
+    // connected_accounts.external_account_id after explicit confirmation.
     let slug: string;
     let toolArgs: Record<string, unknown>;
     // The created post id lives at different keys per platform; a branch may
@@ -346,21 +334,7 @@ export class ComposioPublisherProvider implements PublisherProvider {
     let idKeys = DEFAULT_POST_ID_KEYS;
 
     if (input.platform === 'facebook') {
-      let pageId = conn.externalAccountId ?? null;
-      if (!pageId) {
-        const page = await resolveFacebookManagedPage(
-          this.gateway,
-          this.config,
-          conn.connectedAccountId!,
-        );
-        pageId = page?.pageId ?? null;
-      }
-      if (!pageId) {
-        throw new ComposioCapabilityMissingError(
-          'facebook',
-          'identify the posting Page — reconnect your Facebook account to resolve this',
-        );
-      }
+      const pageId = conn.externalAccountId!.trim();
 
       if (input.mediaType === 'video') {
         // Video post: FACEBOOK_CREATE_VIDEO_POST via the `publish_video` op slot
@@ -724,7 +698,7 @@ export class ComposioPublisherProvider implements PublisherProvider {
       const validationSurface: MediaSurface = isVideo && surface === 'feed' ? 'reel' : surface;
       this.validateMediaSurfaceOrNeverPosted(input, validationSurface, isVideo ? 'video' : 'image', containerSlug);
 
-      const igUserId = await this.resolveInstagramUserId(conn.connectedAccountId!, conn.externalAccountId ?? null);
+      const igUserId = conn.externalAccountId!.trim();
 
       // ── Step 1: create the media container (single clean public URL) ──────
       const containerArgs: Record<string, unknown> = {

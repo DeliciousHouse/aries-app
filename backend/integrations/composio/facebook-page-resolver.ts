@@ -1,19 +1,17 @@
 /**
- * Resolve a tenant's Facebook Page id from Composio.
+ * List a tenant's accessible Facebook Pages from Composio.
  *
  * The Facebook Page id (needed for analytics/comments) is NOT part of the
  * Composio connection metadata, so connect-time reconciliation can leave
  * connected_accounts.external_account_id null. This helper calls the verified
  * FACEBOOK_LIST_MANAGED_PAGES action (env-overridable via the `list_pages` op)
- * using the connection's connectedAccountId and returns the managed Page.
+ * using the connection's connectedAccountId.
  *
- * Single-page SMB case = the one Page. When several are managed we pick the
- * first deterministically and report the full set so the caller can log it.
+ * Enumerate every granted Page for explicit operator selection. Never return
+ * tokens or fetch the Graph API's secret-bearing paging.next URL.
  *
  * Fail-safe: returns null on a THROWN tool call, an unsuccessful tool call, or
- * when no Page is returned (e.g. missing pages_show_list scope, which silently
- * returns []). Throwing is the caller's call to make — this never invents a
- * Page.
+ * when pagination cannot be completed. Empty successful responses return [].
  *
  * The thrown-call leg is load-bearing (AA-243): @composio/core throws raw on
  * transport failure (`ComposioToolNotFoundError` from the tool-schema retrieve,
@@ -33,13 +31,6 @@
 import type { ComposioGateway } from './composio-client';
 import type { ComposioConfig } from './composio-config';
 
-export interface ResolvedFacebookPage {
-  pageId: string;
-  pageName: string | null;
-  /** Total managed pages returned (>1 means we picked the first). */
-  managedCount: number;
-}
-
 /** Default verified slug; overridable via COMPOSIO_FACEBOOK_LIST_PAGES_ACTION. */
 export const DEFAULT_LIST_MANAGED_PAGES_SLUG = 'FACEBOOK_LIST_MANAGED_PAGES';
 
@@ -54,29 +45,41 @@ function unwrapToArray(raw: unknown): Array<Record<string, unknown>> {
   return Array.isArray(cur) ? (cur as Array<Record<string, unknown>>) : [];
 }
 
-export async function resolveFacebookManagedPage(
+export async function listFacebookManagedPages(
   gateway: ComposioGateway,
   config: ComposioConfig,
   connectedAccountId: string,
-): Promise<ResolvedFacebookPage | null> {
+): Promise<Array<{ id: string; name: string | null }> | null> {
   const slug = config.actionSlugFor('facebook', 'list_pages') ?? DEFAULT_LIST_MANAGED_PAGES_SLUG;
-  let result;
+  const pages = new Map<string, { id: string; name: string | null }>();
+  const cursors = new Set<string>();
+  let after: string | undefined;
   try {
-    result = await gateway.executeTool(slug, {
-      connectedAccountId,
-      arguments: { user_id: 'me', limit: 25, fields: 'id,name' },
-    });
+    do {
+      const result = await gateway.executeTool(slug, {
+        connectedAccountId,
+        arguments: { user_id: 'me', limit: 100, fields: 'id,name', ...(after ? { after } : {}) },
+      });
+      if (!result.successful) return null;
+      for (const page of unwrapToArray(result.data)) {
+        if (!page || typeof page.id !== 'string' || !page.id.trim()) continue;
+        const id = page.id.trim();
+        const name = typeof page.name === 'string' && page.name.trim() ? page.name.trim() : null;
+        pages.set(id, { id, name });
+      }
+      let payload = result.data;
+      for (let i = 0; i < 3 && payload && typeof payload === 'object'; i += 1) {
+        const envelope = payload as { paging?: { next?: unknown; cursors?: { after?: unknown } }; data?: unknown };
+        if (envelope.paging) break;
+        payload = envelope.data;
+      }
+      const paging = (payload as { paging?: { next?: unknown; cursors?: { after?: unknown } } } | null)?.paging;
+      after = paging?.next && typeof paging.cursors?.after === 'string' ? paging.cursors.after : undefined;
+      if (paging?.next && (!after || cursors.has(after))) return null;
+      if (after) cursors.add(after);
+    } while (after);
   } catch {
     return null;
   }
-  if (!result.successful) return null;
-
-  const pages = unwrapToArray(result.data);
-  for (const page of pages) {
-    const id = typeof page.id === 'string' && page.id.trim() ? page.id.trim() : null;
-    if (!id) continue;
-    const name = typeof page.name === 'string' && page.name.trim() ? page.name.trim() : null;
-    return { pageId: id, pageName: name, managedCount: pages.length };
-  }
-  return null;
+  return [...pages.values()];
 }

@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import MetaAccountPicker from './meta-account-picker';
 
 // Extended backoff schedule covering up to ~5 minutes of post-OAuth polling.
 // Composio can take up to ~9 minutes to activate a connection; we poll at
@@ -36,6 +37,7 @@ type Connection = {
   provider: string;
   status: 'not_connected' | 'pending' | 'connected' | 'reauthorization_required' | 'error';
   externalAccountName: string | null;
+  selectionRequired?: boolean;
   capabilities: Capabilities | null;
   prerequisites?: string[];
   reconcileError?: string | null;
@@ -254,7 +256,9 @@ export default function ComposioConnectionsScreen() {
           const caps = conn.capabilities;
           // Pass pollingPhase only for this platform's pending card.
           const cardPhase = conn.status === 'pending' ? pollingPhase : 'idle';
-          const st = statusText(conn.status, caps, cardPhase);
+          const st = conn.selectionRequired
+            ? { label: 'Confirm your page before publishing', tone: 'amber' }
+            : statusText(conn.status, caps, cardPhase);
           const isConnected = conn.status === 'connected';
           const lastPost = conn.lastSuccessfulPostAt ? new Date(conn.lastSuccessfulPostAt) : null;
           const connectLabel = conn.status === 'reauthorization_required' || conn.status === 'error'
@@ -346,7 +350,11 @@ export default function ComposioConnectionsScreen() {
                 ) : conn.lastSuccessfulPostAt === null ? 'No successful posts yet' : 'History unavailable'}
               </p>
 
-              {caps && isConnected && (
+              {isConnected && (conn.platform === 'facebook' || conn.platform === 'instagram') && (
+                <MetaAccountPicker platform={conn.platform} required={Boolean(conn.selectionRequired)} onSelected={load} onReconnect={() => connect(conn.platform)} />
+              )}
+
+              {caps && isConnected && !conn.selectionRequired && (
                 <>
                   <div className="mt-4 flex flex-wrap gap-2">
                     <Chip on={caps.canPublishOrganic} label="Publishing" />

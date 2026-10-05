@@ -89,6 +89,8 @@ export interface UpsertConnectionInput {
   externalAccountId?: string | null;
   externalAccountName?: string | null;
   status: ConnectionStatus;
+  /** Reconciliation must not replace a newer OAuth attempt. */
+  expectedConnection?: { connectedAccountId: string | null; status: ConnectionStatus };
 }
 
 export async function upsertConnection(
@@ -105,10 +107,24 @@ export async function upsertConnection(
        provider = EXCLUDED.provider,
        connected_account_id = EXCLUDED.connected_account_id,
        auth_config_id = EXCLUDED.auth_config_id,
-       external_account_id = COALESCE(EXCLUDED.external_account_id, connected_accounts.external_account_id),
-       external_account_name = COALESCE(EXCLUDED.external_account_name, connected_accounts.external_account_name),
+       external_account_id = CASE
+         WHEN EXCLUDED.platform IN ('facebook', 'instagram') AND
+           (EXCLUDED.status = 'pending' OR EXCLUDED.connected_account_id IS DISTINCT FROM connected_accounts.connected_account_id)
+         THEN EXCLUDED.external_account_id
+         ELSE COALESCE(EXCLUDED.external_account_id, connected_accounts.external_account_id) END,
+       external_account_name = CASE
+         WHEN EXCLUDED.platform IN ('facebook', 'instagram') AND
+           (EXCLUDED.status = 'pending' OR EXCLUDED.connected_account_id IS DISTINCT FROM connected_accounts.connected_account_id)
+         THEN EXCLUDED.external_account_name
+         ELSE COALESCE(EXCLUDED.external_account_name, connected_accounts.external_account_name) END,
+       capabilities_json = CASE
+         WHEN EXCLUDED.platform IN ('facebook', 'instagram') AND
+           (EXCLUDED.status = 'pending' OR EXCLUDED.connected_account_id IS DISTINCT FROM connected_accounts.connected_account_id)
+         THEN NULL ELSE connected_accounts.capabilities_json END,
        status = EXCLUDED.status,
        updated_at = NOW()
+     WHERE NOT $10::boolean OR
+       (connected_accounts.connected_account_id IS NOT DISTINCT FROM $11::text AND connected_accounts.status = $12)
      RETURNING *`,
     [
       input.tenantId,
@@ -120,9 +136,14 @@ export async function upsertConnection(
       input.externalAccountId ?? null,
       input.externalAccountName ?? null,
       input.status,
+      Boolean(input.expectedConnection),
+      input.expectedConnection?.connectedAccountId ?? null,
+      input.expectedConnection?.status ?? null,
     ],
   );
-  return rowToConnectedAccount(result.rows[0]);
+  if (result.rows[0]) return rowToConnectedAccount(result.rows[0]);
+  return await getConnectionRow(input.tenantId, input.platform, db)
+    ?? notConnectedAccount(input.tenantId, input.externalUserId, input.platform, input.provider);
 }
 
 export async function getConnectionRow(

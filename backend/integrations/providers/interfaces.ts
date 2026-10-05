@@ -31,6 +31,11 @@ import type {
 
 export interface AccountConnectionProvider {
   readonly kind: 'composio' | 'direct_meta';
+  listAccountPages?(tenantId: string, platform: IntegrationPlatform): Promise<{
+    connectedAccountId: string;
+    pages: Array<{ id: string; name: string | null }>;
+  }>;
+  selectAccountPage?(tenantId: string, platform: IntegrationPlatform, connectedAccountId: string, pageId: string): Promise<void>;
   createConnectLink(
     externalUserId: string,
     platform: IntegrationPlatform,

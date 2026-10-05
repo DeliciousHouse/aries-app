@@ -110,17 +110,10 @@ test('AA-242: a platform with no known id shape is left alone', () => {
 
 // ── Why null rather than throw, and why the stickiness matters ────────────────
 
-test('AA-242: rejecting to null leaves the back-heal path OPEN', () => {
-  // This is the whole reason the gate prefers null over a thrown error or a
-  // persisted value. Both resolver branches are gated on `!externalAccountId`,
-  // so null is the state in which repair happens; a wrong value is the state in
-  // which repair is permanently suppressed.
+test('AA-242: metadata rejection leaves Meta confirmation required and LinkedIn back-heal open', () => {
   const provider = read('backend', 'integrations', 'composio', 'composio-account-provider.ts');
-  assert.match(
-    provider,
-    /if \(!externalAccountId && platform === 'facebook'/,
-    'the FB back-heal must still be gated on a MISSING id',
-  );
+  assert.match(provider, /let externalAccountId = isMeta \? null : active.externalAccountId/);
+  assert.doesNotMatch(provider, /resolveFacebookManagedPage/);
   assert.match(provider, /!externalAccountId &&\s*\n\s*platform === 'linkedin'/, 'and the LinkedIn one');
 
   // …and a rejected value really is null, so that gate is reachable.
@@ -131,15 +124,12 @@ test('AA-242: rejecting to null leaves the back-heal path OPEN', () => {
 });
 
 test('AA-242: the store still preserves a good stored value against a later null', () => {
-  // The COALESCE is correct and must stay: connect can legitimately report null
-  // (the id is not in the connection metadata for FB/LinkedIn), and clobbering
-  // a resolved URN with that null would break publishing every reconcile.
-  // It is only dangerous in combination with a WRONG value, which is what the
-  // gate above now prevents.
+  // Ordinary reconciliation preserves ids; a Meta reconnect explicitly clears
+  // the choice. LinkedIn keeps its existing URN-preserving behavior.
   const store = read('backend', 'integrations', 'composio', 'connection-store.ts');
   assert.match(
     store,
-    /external_account_id = COALESCE\(EXCLUDED\.external_account_id, connected_accounts\.external_account_id\)/,
+    /ELSE COALESCE\(EXCLUDED\.external_account_id, connected_accounts\.external_account_id\) END/,
   );
 });
 

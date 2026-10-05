@@ -42,7 +42,9 @@ export class ComposioCapabilityProvider implements CapabilityProvider {
       }
     }
 
-    const caps = computeCapabilities({ config: this.config, platform, active });
+    const needsSelection = ['facebook', 'instagram'].includes(platform) && !stored?.externalAccountId?.trim();
+    const caps = computeCapabilities({ config: this.config, platform, active: active && !needsSelection });
+    if (needsSelection && active) caps.warnings.push('Confirm a page or business account in Connections before publishing.');
 
     if (stored) {
       try {
