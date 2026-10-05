@@ -212,6 +212,10 @@ test('buildBrandKitPayload normalizes persisted runtime brand kit voice fragment
   assert.equal(typeof rawVoice, 'string');
   assert.match(rawVoice ?? '', /^A, approval-safe/i);
 
+  const operator = buildBrandKitPayload(doc, doc.brand_kit, null);
+  assert.equal(operator.brand.voice, doc.inputs.request.brandVoice);
+  delete (doc.inputs.request as Record<string, unknown>).brandVoice;
+  delete (doc.inputs.request as Record<string, unknown>).notes;
   const payload = buildBrandKitPayload(doc, doc.brand_kit, null);
 
   assert.match(payload.brand.voice, /^Approval-safe social content operating system/i);
@@ -226,7 +230,7 @@ test('buildBrandKitPayload carries helper-only defaults without mutating weekly 
   assert.ok(payload.brand.must_avoid_aesthetics.includes('grainy mockups'));
   assert.ok(payload.brand.must_avoid_aesthetics.includes('washed out stock'));
   assert.ok(payload.brand.must_avoid_aesthetics.includes('split-screen'));
-  assert.equal(payload.brand.voice, 'Warm, direct guidance for ambitious operators. Tone: Grounded and premium..');
+  assert.equal(payload.brand.voice, 'Warm, direct guidance for ambitious operators.');
 });
 
 test('buildSocialContentWeeklyRequest keeps the weekly payload byte-shape stable after brand-kit helper extraction', () => {
@@ -248,7 +252,7 @@ test('buildSocialContentWeeklyRequest keeps the weekly payload byte-shape stable
         url: 'https://brand.example/',
         name: 'Brand Example',
         business_type: 'Operator coaching',
-        voice: 'Warm, direct guidance for ambitious operators. Tone: Grounded and premium..',
+        voice: 'Warm, direct guidance for ambitious operators.',
         style_vibe: 'Editorial warmth with sharp proof points.',
         visual_references: [
           'https://brand.example/lookbook',
@@ -368,7 +372,7 @@ test('buildProductionResumeContext keeps the production resume shape byte-stable
     '',
     'Brand: Brand Example',
     'Offer: Operator coaching intensives',
-    'Brand voice: Warm, direct guidance for ambitious operators. Tone: Grounded and premium..',
+    'Brand voice: Warm, direct guidance for ambitious operators.',
     'Style and vibe: Editorial warmth with sharp proof points.',
     'Brand palette: #111111, #f4f4f4, #c24d2c',
     'Brand logo: https://brand.example/logo.svg — use the actual brand logo when a mark is shown; do NOT invent, redraw, or substitute a different logo.',

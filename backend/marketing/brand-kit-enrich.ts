@@ -292,14 +292,14 @@ export function applyBrandKitEnrichment(
   const styleVibe = stripLeadingDanglingArticleFragment(opStyleVibe ?? base.style_vibe ?? enrichment.styleVibe) ?? null;
 
   // tone_of_voice: operator brandVoice is authoritative for tone — if operator supplied it,
-  // preserve the existing base value (or null) and never let enrichment fill it in.
+  // remove scraped tone so it cannot contradict the new operator voice.
   // The operator's brandVoice string is their explicit tone preference; we must not let
   // LLM-scraped adjectives contradict it.
   const toneOfVoice = opBrandVoice
     ? null
     : (stripLeadingDanglingArticleFragment(enrichment.toneOfVoice ?? base.tone_of_voice) ?? null);
 
-  // brand_voice_summary: operator brandVoice is authoritative — preserve base, never let enrichment overwrite
+  // brand_voice_summary: operator brandVoice replaces the old summary.
   const brandVoiceSummary = opBrandVoice
     ? opBrandVoice
     : stripLeadingDanglingArticleFragment(enrichment.brandVoiceSummary ?? base.brand_voice_summary);

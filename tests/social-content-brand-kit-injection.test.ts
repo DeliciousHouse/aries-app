@@ -104,15 +104,14 @@ test('weekly payload includes logo_urls, colors, fonts from brand kit', () => {
   assert.deepEqual(request.input.brand.font_families, ['Manrope', 'Cormorant Garamond']);
 });
 
-test('weekly payload: brandKit.brand_voice_summary wins over req.brandVoice; falls back to req.brandVoice when summary absent', () => {
-  // brand_voice_summary set → wins over operator brandVoice (new priority per v0.1.3.25)
+test('weekly payload: operator brandVoice wins over kit summary; missing operator voice falls back to the kit', () => {
   const docWithOverride = fullyPopulatedDoc();
   const requestWithOverride = buildSocialContentWeeklyRequest({
     doc: docWithOverride,
     ariesRunId: 'arun_voice_override',
     callbackUrl: 'https://aries.example.com/api/internal/hermes/runs',
   });
-  assert.equal(requestWithOverride.input.brand.voice, 'Warm, confident, craft-led storytelling.');
+  assert.equal(requestWithOverride.input.brand.voice, 'Operator-supplied voice override.');
 
   // brand_voice_summary absent → falls back to req.brandVoice
   const docWithoutSummary = fullyPopulatedDoc();
@@ -123,6 +122,14 @@ test('weekly payload: brandKit.brand_voice_summary wins over req.brandVoice; fal
     callbackUrl: 'https://aries.example.com/api/internal/hermes/runs',
   });
   assert.equal(requestFallback.input.brand.voice, 'Operator-supplied voice override.');
+  const docWithoutOverride = fullyPopulatedDoc();
+  delete (docWithoutOverride.inputs.request as Record<string, unknown>).brandVoice;
+  const kitFallback = buildSocialContentWeeklyRequest({
+    doc: docWithoutOverride,
+    ariesRunId: 'arun_kit_voice_fallback',
+    callbackUrl: 'https://aries.example.com/api/internal/hermes/runs',
+  });
+  assert.equal(kitFallback.input.brand.voice, 'Warm, confident, craft-led storytelling.');
 });
 
 test('weekly payload prefers operator offer but falls back to brand-kit summary', () => {
