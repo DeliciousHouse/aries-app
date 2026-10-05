@@ -274,6 +274,35 @@ test('dashboard adapter derives proposal-backed content and calendar without liv
   });
 });
 
+test('dashboard keeps organic Meta/Facebook posts and filenames separate from explicit paid ads', async () => {
+  await withDashboardEnv(async (env) => {
+    const jobId = 'organic-facebook';
+    const doc: any = baseRuntimeDoc(jobId, 'tenant_dashboard');
+    doc.current_stage = 'production';
+    doc.stages.production = stageRecord('production', 'completed', 'prod-run');
+    await writeJson(path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, 'tenant_dashboard', 'plan-run', 'campaign_planner.json'), {
+      brand_slug: 'brand-example',
+      campaign_plan: {
+        campaign_name: 'brand-example-stage2-plan',
+        channel_plans: ['meta', 'facebook', 'meta-ads', 'facebook-ads'].map(channel => ({ channel, message: channel })),
+      },
+    });
+    for (const name of ['meta-feed.png', 'facebook-feed.png', 'meta-ads-feed.png']) {
+      await writeText(path.join(env.artifactRoot, 'output', 'brand-example-campaign', 'ad-images', name), 'fixture-image');
+    }
+    await writeRuntimeDoc(jobId, doc);
+    const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
+    const content = await getMarketingDashboardContent(jobId, { referenceDate: new Date('2026-03-27T00:00:00.000Z') });
+    const concepts = content.posts.filter(post => post.provenance.sourceKind === 'proposal');
+    assert.deepEqual(concepts.map(post => post.platform).sort(), ['facebook', 'facebook', 'meta-ads', 'meta-ads']);
+    assert.ok(concepts.filter(post => post.platform === 'facebook').every(post => post.platformLabel === 'Facebook'));
+    assert.ok(concepts.filter(post => post.platform === 'meta-ads').every(post => post.platformLabel === 'Meta Ads'));
+    const images = content.assets.filter(asset => asset.type === 'image_ad');
+    assert.deepEqual(images.map(asset => asset.platform).sort(), ['facebook', 'facebook', 'meta-ads']);
+    assert.ok(images.filter(asset => asset.platform === 'facebook').every(asset => !/\bad\b/i.test(asset.summary)));
+  });
+});
+
 test('dashboard adapter recovers proposal artifacts from live Lobster logs when strategy run_id is missing', async () => {
   await withDashboardEnv(async (env) => {
     const jobId = 'proposal-inferred-run';
@@ -373,7 +402,8 @@ test('dashboard adapter uses human-readable campaign and proposal concept labels
     assert.equal(content.socialContentJobs[0]?.name, 'Brand Example');
     assert.equal(content.socialContentJobs[0]?.objective, 'performance-first paid acquisition testing');
     assert.equal(content.socialContentJobs[0]?.summary, 'performance-first paid acquisition testing');
-    assert.equal(content.posts[0]?.title, 'Meta Ads concept');
+    assert.equal(content.posts[0]?.title, 'Facebook concept');
+    assert.equal(content.posts[0]?.platform, 'facebook');
     assert.equal(content.posts[0]?.summary, 'performance-first paid acquisition testing');
   });
 });

@@ -730,7 +730,8 @@ async function readStageStepPayload(
 
 function normalizePlatformSlug(value: string | null | undefined): string {
   const cleaned = slugify(value || '', 'social content')
-  if (['meta', 'facebook', 'facebook-ads', 'meta-ads'].includes(cleaned)) return 'meta-ads'
+  if (['meta', 'facebook'].includes(cleaned)) return 'facebook'
+  if (['facebook-ads', 'meta-ads'].includes(cleaned)) return 'meta-ads'
   if (['instagram', 'instagram-feed', 'instagram-reels'].includes(cleaned)) return 'instagram'
   if (['x', 'twitter', 'x-post'].includes(cleaned)) return 'x'
   if (['youtube', 'youtube-shorts', 'youtube-longform'].includes(cleaned)) return 'youtube'
@@ -1252,7 +1253,8 @@ function loadContracts(explicitPaths: string[], directoryPath: string | null): C
 
 function extractPlatformFromFilename(filePath: string): string {
   const base = slugify(path.basename(filePath, path.extname(filePath)), 'asset')
-  if (base.startsWith('meta')) return 'meta-ads'
+  if (/^(meta|facebook)-ads?(?:-|$)/.test(base)) return 'meta-ads'
+  if (base.startsWith('meta') || base.startsWith('facebook')) return 'facebook'
   if (base.startsWith('instagram')) return 'instagram'
   if (base.startsWith('youtube')) return 'youtube'
   if (base.startsWith('linkedin')) return 'linkedin'
@@ -1876,7 +1878,7 @@ async function buildSocialContentJobContentInternal(context: SocialContentBuildC
       jobId: postId,
       type: 'image_ad',
       title: `${platformLabel(platform)} image`,
-      summary: 'Generated ad image ready for publishing workflows.',
+      summary: 'Generated image creative ready for publishing workflows.',
       platform,
       platformLabel: platformLabel(platform),
       postName,

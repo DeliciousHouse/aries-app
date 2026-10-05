@@ -43,6 +43,15 @@ test('business profile screen replaces the comma-list channel editor with curate
   assert.equal(source.includes('meta-ads, instagram, linkedin'), false);
 });
 
+test('business profile distinguishes organic Facebook Page posts from paid Meta Ads', () => {
+  const facebook = source.match(/id: 'meta',\s+label: 'Facebook \(Meta\)',\s+description: '([^']+)'/);
+  assert.ok(facebook, 'the organic Meta channel must be named Facebook (Meta)');
+  assert.match(facebook[1], /organic.*Page posts/i);
+  assert.doesNotMatch(facebook[1], /paid|retargeting/i);
+  assert.match(source, /id: 'meta-ads',\s+label: 'Meta Ads'/);
+  assert.match(source, /DEFAULT_CHANNEL_IDS = \['meta', 'instagram'\]/);
+});
+
 test('business profile screen offers Add Profile CTA and mirrors connected social profiles', () => {
   assert.equal(
     source.includes('Add Profile'),

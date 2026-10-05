@@ -25,8 +25,13 @@ type ChannelOption = {
 
 const CHANNEL_OPTIONS: ChannelOption[] = [
   {
+    id: 'meta',
+    label: 'Facebook (Meta)',
+    description: 'Organic Facebook Page posts for sharing updates, building awareness, and engaging your audience.',
+  },
+  {
     id: 'meta-ads',
-    label: 'Meta',
+    label: 'Meta Ads',
     description: 'Paid social for direct-response demand capture and retargeting.',
   },
   {
@@ -46,7 +51,7 @@ const CHANNEL_OPTIONS: ChannelOption[] = [
   },
 ];
 
-const DEFAULT_CHANNEL_IDS = ['meta-ads', 'instagram'];
+const DEFAULT_CHANNEL_IDS = ['meta', 'instagram'];
 
 // A4: operator-selected IANA business timezone. A curated North-America-first
 // list covering the common cases; the value is validated server-side against
@@ -85,7 +90,7 @@ function firstPresent(...values: Array<string | null | undefined>): string | nul
 }
 
 function channelLabel(channelId: string): string {
-  return CHANNEL_OPTIONS.find((option) => option.id === channelId)?.label || channelId;
+  return CHANNEL_OPTIONS.find((option) => option.id === (channelId === 'facebook' ? 'meta' : channelId))?.label || channelId;
 }
 
 function joinedValues(values: string[], connectedProfileLabels: string[] = []): string {
@@ -147,7 +152,7 @@ export default function AriesBusinessProfileScreen() {
     setGoalType(profile.goalType ?? '');
     setOffer(profile.offer || '');
     setCompetitorUrl(profile.competitorUrl || '');
-    setSelectedChannels(profile.channels);
+    setSelectedChannels(Array.from(new Set(profile.channels.map(channel => channel === 'facebook' ? 'meta' : channel))));
     setBrandVoice(profile.brandVoice || '');
     setStyleVibe(profile.styleVibe || '');
     setNotes(profile.notes || '');
