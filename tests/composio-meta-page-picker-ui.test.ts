@@ -42,6 +42,30 @@ for (const pages of [
   });
 }
 
+for (const body of [
+  { connections: [] },
+  { connectedAccountId: 'ca_current', pages: null },
+  { connectedAccountId: 'ca_current', pages: [{ name: 'Missing id' }] },
+]) {
+  test(`malformed page response stays retryable: ${JSON.stringify(body)}`, async (t) => {
+    let reads = 0;
+    let renderer!: TestRenderer.ReactTestRenderer;
+    t.mock.method(globalThis, 'fetch', async () => Response.json(++reads === 1 ? body : {
+      connectedAccountId: 'ca_current', pages: [{ id: 'one', name: 'Only page' }],
+    }));
+    t.after(async () => { if (renderer) await act(async () => renderer.unmount()); });
+    await act(async () => { renderer = TestRenderer.create(React.createElement(MetaAccountPicker, {
+      platform: 'facebook', required: true, onSelected: async () => {}, onReconnect: () => {},
+    })); });
+    assert.equal(renderer.root.findByProps({ role: 'alert' }).children.join(''), 'Could not load pages.');
+    assert.equal(renderer.root.findAllByType('select').length, 0);
+    assert.equal(renderer.root.findAllByType('button').find(b => b.children.includes('Confirm page'))!.props.disabled, true);
+    await act(async () => renderer.root.findAllByType('button').find(b => b.children.includes('Refresh pages'))!.props.onClick());
+    assert.equal(renderer.root.findAllByProps({ role: 'alert' }).length, 0);
+    assert.equal(renderer.root.findByType('select').props.value, 'one');
+  });
+}
+
 test('Change page re-lists; failed save keeps the chooser and does not claim success', async () => {
   const original = globalThis.fetch;
   let reads = 0;

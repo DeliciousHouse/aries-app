@@ -30,6 +30,11 @@ export default function MetaAccountPicker({ platform, required, onSelected, onRe
         const res = await fetch(endpoint, { cache: 'no-store' });
         const body = await res.json();
         if (!res.ok) throw new Error(body.message ?? 'Could not load pages.');
+        if (!body || typeof body.connectedAccountId !== 'string' || !body.connectedAccountId.trim() ||
+            !Array.isArray(body.pages) || !body.pages.every((page: PageList['pages'][number]) =>
+              page && typeof page.id === 'string' && page.id.trim() && (page.name === null || typeof page.name === 'string'))) {
+          throw new Error('Could not load pages.');
+        }
         if (!cancelled) {
           setList(body);
           setChoice(body.pages.length === 1 ? body.pages[0].id : '');

@@ -9,10 +9,11 @@ import { notConnectedAccount } from '@/backend/integrations/composio/connection-
 import type { AccountConnectionProvider } from '@/backend/integrations/providers/interfaces';
 import type { ConnectedAccount } from '@/backend/integrations/providers/types';
 
-async function healthResponse(status: ConnectedAccount['status'], tenantId = '61') {
+async function healthResponse(status: ConnectedAccount['status'], tenantId = '61', externalAccountId: string | null = `page-${tenantId}`) {
   const account = {
     ...notConnectedAccount(tenantId, `aries-tenant-${tenantId}`, 'facebook', 'composio'),
     status,
+    externalAccountId,
     externalAccountName: `Workspace ${tenantId} Page`,
   };
   const provider: AccountConnectionProvider = {
@@ -80,6 +81,22 @@ for (const tenantId of ['61', '12']) {
     assert.doesNotMatch(text(root), /Reconnect Facebook/);
   });
 }
+
+test('connected health without a confirmed page requires selection before claiming readiness', async (t) => {
+  const calls: string[] = [];
+  const root = await mount(t, async (url, init) => {
+    calls.push(String(url));
+    assert.equal(init?.cache, 'no-store');
+    if (url === '/api/integrations/composio') return healthResponse('connected', '61', null);
+    assert.equal(url, '/api/integrations/composio/facebook/pages');
+    return Response.json({ connectedAccountId: 'ca_current', pages: [{ id: 'page-61', name: 'Workspace 61 Page' }] });
+  });
+  assert.deepEqual(calls, ['/api/integrations/composio', '/api/integrations/composio/facebook/pages']);
+  assert.match(text(root), /Confirm your page before publishing/);
+  assert.doesNotMatch(text(root), /Connected and ready/);
+  assert.equal(root.root.findByType('select').props.value, 'page-61');
+  assert.equal(root.root.find((node) => node.type === 'button' && node.children.includes('Confirm page')).props.disabled, false);
+});
 
 test('reauthorization CTA starts the existing platform OAuth flow and follows its URL', async (t) => {
   const connectUrl = 'https://composio.example/connect/tenant-61-facebook';
