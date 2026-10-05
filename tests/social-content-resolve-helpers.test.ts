@@ -63,12 +63,12 @@ function buildWeeklyPayload(req: Record<string, unknown>, brandKit: MarketingBra
 
 // Tests 16-18: resolveBrandStyleVibe
 
-test('resolveBrandStyleVibe: brandKit.style_vibe wins when present; req.styleVibe falls back when brandKit is null', () => {
+test('resolveBrandStyleVibe: operator styleVibe wins over the kit', () => {
   const payload = buildWeeklyPayload(
     { styleVibe: 'operator vibe' },
     makeRef({ style_vibe: 'kit vibe' }),
   );
-  assert.equal(payload.input.brand.style_vibe, 'kit vibe');
+  assert.equal(payload.input.brand.style_vibe, 'operator vibe');
 });
 
 test('resolveBrandStyleVibe falls back to req.styleVibe when brandKit.style_vibe is null', () => {
@@ -117,20 +117,20 @@ test('resolveBrandAudience: empty string when both absent', () => {
 
 // Tests 22-26: resolveBrandVoice
 
-test('resolveBrandVoice: brandKit.brand_voice_summary wins over req.brandVoice when present, tone always appends', () => {
+test('resolveBrandVoice: operator voice wins over both kit summary and tone', () => {
   const payload = buildWeeklyPayload(
     { brandVoice: 'operator voice' },
     makeRef({ brand_voice_summary: 'kit voice', tone_of_voice: 'warm, bold' }),
   );
-  assert.equal(payload.input.brand.voice, 'kit voice Tone: warm, bold.');
+  assert.equal(payload.input.brand.voice, 'operator voice');
 });
 
-test('resolveBrandVoice appends Tone: even when req.brandVoice is set (because tone is a separate dimension)', () => {
+test('resolveBrandVoice does not append scraped tone to the operator voice', () => {
   const payload = buildWeeklyPayload(
     { brandVoice: 'operator voice' },
     makeRef({ brand_voice_summary: null, tone_of_voice: 'warm, bold' }),
   );
-  assert.equal(payload.input.brand.voice, 'operator voice Tone: warm, bold.');
+  assert.equal(payload.input.brand.voice, 'operator voice');
 });
 
 test('resolveBrandVoice: brand_voice_summary + tone_of_voice both present → "summary Tone: tone."', () => {

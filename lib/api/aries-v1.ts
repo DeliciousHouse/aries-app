@@ -144,6 +144,7 @@ export type RuntimeReviewItem = {
 export type ReelAudioMode = 'music' | 'voiceover' | 'both';
 
 export type BusinessProfileView = {
+  storedFields?: Partial<BusinessProfileView>;
   tenantId: string;
   businessName: string;
   tenantSlug: string;
@@ -227,6 +228,11 @@ export type OnboardingDraftStatus =
   | 'materialized';
 
 export type OnboardingDraft = {
+  styleVibe?: string;
+  timezone?: string;
+  reelAudioMode?: ReelAudioMode;
+  goalType?: GoalType | null;
+  launchApprover?: 'self' | 'none';
   draftId: string;
   status: OnboardingDraftStatus;
   websiteUrl: string;
@@ -352,6 +358,11 @@ export type ScheduledPostsResponse = {
   range: { from: string; to: string };
 };
 export type OnboardingDraftPatch = {
+  styleVibe?: string | null;
+  timezone?: string | null;
+  reelAudioMode?: ReelAudioMode | null;
+  goalType?: GoalType | null;
+  launchApprover?: 'self' | 'none';
   status?: OnboardingDraftStatus;
   websiteUrl?: string | null;
   businessName?: string | null;

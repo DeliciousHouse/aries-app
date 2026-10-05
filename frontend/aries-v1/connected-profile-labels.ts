@@ -1,5 +1,6 @@
 const CONNECTED_PROFILE_LABELS: Record<string, string> = {
-  facebook: 'Meta',
+  facebook: 'Facebook Page',
+  meta: 'Facebook Page',
   instagram: 'Instagram',
   linkedin: 'LinkedIn',
   x: 'X',

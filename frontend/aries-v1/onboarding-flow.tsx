@@ -22,8 +22,9 @@ import {
 } from 'lucide-react';
 
 import { useBusinessProfile } from '@/hooks/use-business-profile';
-import { createAriesV1Api, type UrlPreviewBrandKitPreview, type UrlPreviewResponse } from '@/lib/api/aries-v1';
-import { ONBOARDING_GOAL_PRESETS, presetLabelForGoalType } from '@/backend/insights/goal/goal-options';
+import { createAriesV1Api, type UrlPreviewBrandKitPreview, type UrlPreviewResponse, type OnboardingDraft, type ReelAudioMode } from '@/lib/api/aries-v1';
+import { CANONICAL_GOAL_OPTIONS, ONBOARDING_GOAL_PRESETS, presetLabelForGoalType } from '@/backend/insights/goal/goal-options';
+import { isValidTimeZone } from '@/lib/format-timestamp';
 import type { GoalType } from '@/backend/insights/goal/goal-type-classification';
 import {
   getRequiredFieldError,
@@ -37,6 +38,7 @@ import {
 import { BUSINESS_NAME_FIELD, BUSINESS_TYPE_FIELD } from './business-field-copy';
 import { profileApiErrorMessage } from './customer-safe-copy';
 import { VISUAL_BOARD_EMPTY_STATE_COPY } from './onboarding-flow.copy';
+import { selectableMarketingChannels } from '@/lib/marketing-channels';
 
 export { VISUAL_BOARD_EMPTY_STATE_COPY } from './onboarding-flow.copy';
 
@@ -53,6 +55,7 @@ type ChannelOption = {
   id: string;
   label: string;
   description: string;
+  disabled?: boolean;
 };
 
 type GoalOption = {
@@ -95,8 +98,14 @@ const STEP_DEFINITIONS: StepDefinition[] = [
 
 const CHANNEL_OPTIONS: ChannelOption[] = [
   {
+    id: 'facebook',
+    label: 'Facebook Page',
+    description: 'Organic posts to your connected Facebook Page.',
+  },
+  {
     id: 'meta-ads',
-    label: 'Meta (Facebook + Instagram Ads)',
+    label: 'Meta Ads',
+    disabled: true,
     description: 'Paid ads on Facebook and Instagram via Meta Business Suite.',
   },
   {
@@ -218,21 +227,21 @@ function urlChipFromValue(value: string): UrlChipState {
 function recommendedChannelsForBusinessType(businessType: string): string[] {
   const normalized = businessType.trim().toLowerCase();
   if (!normalized) {
-    return ['meta-ads', 'instagram'];
+    return ['facebook', 'instagram'];
   }
   const localKeywords = ['local', 'restaurant', 'retail', 'service', 'salon', 'clinic', 'store', 'shop'];
   const saasKeywords = ['saas', 'software', 'b2b', 'agency', 'platform', 'technology', 'tech'];
   const ecomKeywords = ['ecommerce', 'e-commerce', 'commerce', 'dtc', 'direct-to-consumer', 'online store', 'brand'];
   if (localKeywords.some((kw) => normalized.includes(kw))) {
-    return ['meta-ads', 'instagram', 'google-business'];
+    return ['facebook', 'instagram', 'google-business'];
   }
   if (saasKeywords.some((kw) => normalized.includes(kw))) {
-    return ['linkedin', 'meta-ads', 'email'];
+    return ['linkedin', 'facebook', 'email'];
   }
   if (ecomKeywords.some((kw) => normalized.includes(kw))) {
-    return ['meta-ads', 'instagram', 'email'];
+    return ['facebook', 'instagram', 'email'];
   }
-  return ['meta-ads', 'instagram'];
+  return ['facebook', 'instagram'];
 }
 
 function firstPresent(...values: Array<string | null | undefined>): string | null {
@@ -346,7 +355,13 @@ export function stepValidationMessage(stepKey: StepKey, values?: {
 const LOCAL_DRAFT_KEY = 'aries:v1-onboarding-draft';
 const LOCAL_DRAFT_VERSION = 1;
 
+type ProfileContext = Pick<OnboardingDraft, 'styleVibe' | 'timezone' | 'reelAudioMode' | 'goalType' | 'launchApprover'>;
+const DEFAULT_PROFILE_CONTEXT: ProfileContext = {
+  styleVibe: '', timezone: 'America/New_York', reelAudioMode: 'music', goalType: null, launchApprover: 'self',
+};
+
 type LocalDraftSnapshot = {
+  profileContext?: ProfileContext;
   version: number;
   updatedAt: number;
   businessName: string;
@@ -375,6 +390,7 @@ function readLocalDraft(): LocalDraftSnapshot | null {
     return {
       version: LOCAL_DRAFT_VERSION,
       updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
+      profileContext: { ...DEFAULT_PROFILE_CONTEXT, ...parsed.profileContext },
       businessName: parsed.businessName || '',
       businessType: parsed.businessType || '',
       websiteUrl: parsed.websiteUrl || '',
@@ -600,6 +616,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   const [customGoal, setCustomGoal] = useState('');
   const [offer, setOffer] = useState('');
   const [brandVoice, setBrandVoice] = useState('');
+  const [profileContext, setProfileContext] = useState<ProfileContext>(DEFAULT_PROFILE_CONTEXT);
   const [notes, setNotes] = useState('');
   const [competitorUrl, setCompetitorUrl] = useState('');
   const [websiteChip, setWebsiteChip] = useState<UrlChipState>({ kind: 'idle' });
@@ -693,7 +710,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   const previewDomain = hostnameFromUrl(preview?.canonicalUrl || websiteUrl) || urlPreview?.domain || 'Website preview';
   const previewColors = Array.from(new Set(preview?.colors.palette.filter(Boolean) || []));
   const previewFonts = preview?.fontFamilies.filter(Boolean) || [];
-  const canFinish = STEP_DEFINITIONS.every((step) =>
+  const canFinish = isValidTimeZone(profileContext.timezone) && STEP_DEFINITIONS.every((step) =>
     stepReady(step.key, {
       businessName,
       businessType,
@@ -705,7 +722,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
       competitorUrl,
     }),
   );
-  const currentStepIsReady = stepReady(currentStep.key, {
+  const currentStepIsReady = (currentStep.key !== 'brand' || isValidTimeZone(profileContext.timezone)) && stepReady(currentStep.key, {
     businessName,
     businessType,
     websiteUrl,
@@ -831,7 +848,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         setWebsiteUrl(normalizeHttpsUrlInput(draft.websiteUrl));
         setBusinessType(draft.businessType);
         setApproverName(draft.approverName);
-        setSelectedChannels(draft.channels);
+        setSelectedChannels(selectableMarketingChannels(draft.channels));
         const knownGoalLabels = GOAL_OPTIONS.map((o) => o.label);
         if (draft.goal && !knownGoalLabels.includes(draft.goal)) {
           setGoal('Other');
@@ -842,6 +859,9 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         }
         setOffer(draft.offer);
         setBrandVoice(draft.brandVoice);
+        setProfileContext({ ...DEFAULT_PROFILE_CONTEXT, styleVibe: draft.styleVibe || '',
+          timezone: draft.timezone || 'America/New_York', reelAudioMode: draft.reelAudioMode || 'music',
+          goalType: draft.goalType || null, launchApprover: draft.launchApprover || 'self' });
         setNotes(draft.notes);
         brandVoiceEditedRef.current = isBrandVoiceManuallyEdited(
           draft.brandVoice,
@@ -927,19 +947,22 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
           return;
         }
 
-        const nextProfile = result.profileResponse.profile;
+        const nextProfile = { ...result.profileResponse.profile, ...result.profileResponse.profile.storedFields };
         if (!draftParam) {
           setBusinessName(nextProfile.businessName?.trim() ? nextProfile.businessName.trim() : '');
-          setWebsiteUrl(normalizeHttpsUrlInput(nextProfile.websiteUrl || nextProfile.brandKit?.source_url || ''));
+          setWebsiteUrl(normalizeHttpsUrlInput(nextProfile.websiteUrl || ''));
           setBusinessType(nextProfile.businessType || '');
           setApproverName(nextProfile.launchApproverName || '');
           setGoal(goalFromBusinessProfile(nextProfile.primaryGoal, nextProfile.goalType));
-          setOffer(nextProfile.offer || nextProfile.brandIdentity?.offer || nextProfile.brandKit?.offer_summary || '');
+          setOffer(nextProfile.offer || '');
           setBrandVoice(nextProfile.brandVoice || '');
+          setProfileContext({ styleVibe: nextProfile.styleVibe || '', timezone: nextProfile.timezone,
+            reelAudioMode: nextProfile.reelAudioMode, goalType: nextProfile.goalType,
+            launchApprover: nextProfile.launchApproverUserId ? 'self' : 'none' });
           setNotes(nextProfile.notes || '');
           brandVoiceEditedRef.current = Boolean(nextProfile.brandVoice?.trim());
           setCompetitorUrl(nextProfile.competitorUrl || '');
-          setSelectedChannels(nextProfile.channels.length > 0 ? nextProfile.channels : []);
+          setSelectedChannels(selectableMarketingChannels(nextProfile.channels));
         }
         setProfileHydrated(true);
       })
@@ -970,6 +993,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     const timer = window.setTimeout(() => {
       const autosaveWebsiteUrl = normalizeHttpsUrlInput(websiteUrl);
       void ariesApi.updateOnboardingDraft(draftId, {
+        ...profileContext,
         websiteUrl: autosaveWebsiteUrl,
         businessName,
         businessType,
@@ -1022,6 +1046,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     selectedChannels,
     urlPreview,
     websiteUrl,
+    profileContext,
     loadedDraftId,
     markSaved,
   ]);
@@ -1051,6 +1076,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     }
     localSaveTimerRef.current = window.setTimeout(() => {
       const snapshot = {
+        profileContext,
         businessName,
         businessType,
         websiteUrl,
@@ -1104,6 +1130,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     notes,
     offer,
     preview?.brandVoiceSummary,
+    profileContext,
     resumeChecked,
     resumePromptOpen,
     selectedChannels,
@@ -1206,7 +1233,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     // `instagram-organic` that aren't rendered in this flow's option list,
     // pass the channels step's canProceed check (selectedChannels.length > 0),
     // and send unsupported ids downstream with no visible selection.
-    const availableIds = new Set(CHANNEL_OPTIONS.map((option) => option.id));
+    const availableIds = new Set(CHANNEL_OPTIONS.filter((option) => !option.disabled).map((option) => option.id));
     const recommended = recommendedChannelsForBusinessType(businessType).filter(
       (id) => availableIds.has(id),
     );
@@ -1254,6 +1281,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   }, [ariesApi, deferredWebsiteUrl, draftId, previewRefreshCounter]);
 
   function toggleChannel(channelId: string) {
+    if (CHANNEL_OPTIONS.find((option) => option.id === channelId)?.disabled) return;
     setSelectedChannels((current) =>
       current.includes(channelId)
         ? current.filter((value) => value !== channelId)
@@ -1271,11 +1299,12 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     setBusinessType(snap.businessType);
     setWebsiteUrl(snap.websiteUrl);
     setApproverName(snap.approverName);
-    setSelectedChannels(snap.selectedChannels);
+    setSelectedChannels(selectableMarketingChannels(snap.selectedChannels));
     setGoal(snap.goal);
     setCustomGoal(snap.customGoal);
     setOffer(snap.offer);
     setBrandVoice(snap.brandVoice);
+    setProfileContext({ ...DEFAULT_PROFILE_CONTEXT, ...snap.profileContext });
     setNotes(snap.notes);
     brandVoiceEditedRef.current = isBrandVoiceManuallyEdited(
       snap.brandVoice,
@@ -1375,6 +1404,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         setWebsiteUrl(normalizedWebsiteUrl);
       }
       await ariesApi.updateOnboardingDraft(activeDraftId, {
+        ...profileContext,
         status: 'ready_for_auth',
         websiteUrl: normalizeHttpsUrlInput(websiteUrl),
         businessName,
@@ -1788,16 +1818,18 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                     </Field>
                     <Field
                       label="Launch approver"
-                      hint="Who should have the final say before anything goes live?"
+                      hint="Use your signed-in account as the final approver, or leave this unassigned until you invite your team."
                       optional
                     >
-                      <input
-                        value={approverName}
-                        onChange={(event) => setApproverName(event.target.value)}
-                        onBlur={() => markTouched('approverName')}
+                      <select
+                        aria-label="Launch approver"
+                        value={profileContext.launchApprover}
+                        onChange={(event) => setProfileContext({ ...profileContext, launchApprover: event.target.value as 'self' | 'none' })}
                         className={fieldInputClassName}
-                        placeholder="Your name"
-                      />
+                      >
+                        <option value="self">Me — the account completing onboarding</option>
+                        <option value="none">Not assigned yet</option>
+                      </select>
                     </Field>
                     <Field
                       label="Current source"
@@ -1942,6 +1974,25 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
 
               {currentStep.key === 'brand' ? (
                 <div className="space-y-6">
+                  <div className="grid gap-5 sm:grid-cols-2 rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-6">
+                    <Field label="Style / vibe" htmlFor="onboarding-style-vibe" optional hint="Describe colors, photography, mood, and anything to avoid. More context helps Aries stay on-brand.">
+                      <textarea id="onboarding-style-vibe" rows={3} value={profileContext.styleVibe} onChange={(event) => setProfileContext({ ...profileContext, styleVibe: event.target.value })} className={fieldInputClassName} placeholder="Clean vineyard photography, warm natural light; no neon or stock party scenes." />
+                    </Field>
+                    <Field label="Business timezone" htmlFor="onboarding-timezone" hint="Scheduling and calendar times use this IANA zone, not your browser clock." error={isValidTimeZone(profileContext.timezone) ? null : 'Enter a valid IANA timezone, such as America/Los_Angeles.'}>
+                      <input id="onboarding-timezone" value={profileContext.timezone} onChange={(event) => setProfileContext({ ...profileContext, timezone: event.target.value })} className={fieldInputClassName} placeholder="America/Los_Angeles" />
+                    </Field>
+                    <Field label="Reel audio" htmlFor="onboarding-reel-audio" hint="Choose the default for generated reels. You can change it later.">
+                      <select id="onboarding-reel-audio" value={profileContext.reelAudioMode} onChange={(event) => setProfileContext({ ...profileContext, reelAudioMode: event.target.value as ReelAudioMode })} className={fieldInputClassName}>
+                        <option value="music">Music</option><option value="voiceover">Voiceover</option><option value="both">Music and voiceover</option>
+                      </select>
+                    </Field>
+                    <Field label="Goal metric" htmlFor="onboarding-goal-type" optional hint="Pick what Aries should measure. Leave automatic to use the goal you choose in the next step.">
+                      <select id="onboarding-goal-type" value={profileContext.goalType || ''} onChange={(event) => setProfileContext({ ...profileContext, goalType: event.target.value as GoalType || null })} className={fieldInputClassName}>
+                        <option value="">Use the selected goal</option>
+                        {CANONICAL_GOAL_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    </Field>
+                  </div>
                   {previewLoading ? (
                     <div className="rounded-[2rem] border border-white/10 bg-[linear-gradient(160deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] p-6 animate-pulse">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#ba8cff] mb-4">Analyzing your site...</p>
@@ -1965,7 +2016,8 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         </div>
                       </div>
                     </div>
-                  ) : previewError ? (
+                  ) : null}
+                  {previewError ? (
                     <div className="rounded-[2rem] border border-amber-400/20 bg-amber-400/[0.06] p-6">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-amber-300 mb-3">Brand analysis failed</p>
                       <p className="text-sm leading-7 text-amber-100/80 mb-4">{previewError}</p>
@@ -1985,7 +2037,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         Retry analysis
                       </button>
                     </div>
-                  ) : (
+                  ) : null}
                   <div className="rounded-[2rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(151,93,255,0.12),transparent_28%),linear-gradient(160deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] p-6">
                     <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
                       <div className="space-y-4">
@@ -2049,7 +2101,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                           <Field
                             label="Revision notes"
                             htmlFor="onboarding-revision-notes"
-                            hint="Optional instructions to carry into the first weekly social content job. Brand voice is never copied here automatically."
+                            hint="Context and constraints for every new weekly job. Include claims to avoid, audience details, and examples."
                             optional
                           >
                             <textarea
@@ -2058,7 +2110,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                               onChange={(event) => setNotes(event.target.value)}
                               rows={3}
                               className={fieldInputClassName}
-                              placeholder="Add any one-off corrections or constraints for the first weekly job."
+                              placeholder="Audience details, preferred wording, claims to avoid, or anything else Aries should know."
                             />
                           </Field>
                           <div className="grid gap-4 sm:grid-cols-2">
@@ -2088,8 +2140,6 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                       </div>
                     </div>
                   </div>
-                  )}
-
                   {preview?.externalLinks && preview.externalLinks.length > 0 ? (
                     <div className="rounded-[1.6rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-5">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#ba8cff]">Visible brand links</p>
@@ -2130,6 +2180,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                           type="button"
                           role="checkbox"
                           aria-checked={selected}
+                          disabled={channel.disabled}
                           tabIndex={0}
                           onClick={() => toggleChannel(channel.id)}
                           onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
@@ -2147,7 +2198,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div>
-                              <p className="text-base font-semibold">{channel.label}</p>
+                              <p className="text-base font-semibold">{channel.label} {channel.disabled ? <span className="ml-2 rounded-full border border-white/15 px-2 py-1 text-xs text-white/70">Coming soon</span> : null}</p>
                               <p className="mt-2 text-sm leading-7 text-white/58">{channel.description}</p>
                             </div>
                             {selected ? <Check className="mt-1 h-4 w-4 text-[#d6b8ff]" aria-hidden /> : null}

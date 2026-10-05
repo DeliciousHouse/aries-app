@@ -608,7 +608,7 @@ test('/api/marketing/jobs rejects Facebook URLs in competitorUrl with a precise 
   });
 });
 
-test('/api/marketing/jobs persists present onboarding setup fields into the authenticated business-profile record', async () => {
+test('/api/marketing/jobs keeps manual brief overrides job-local without overwriting the business profile', async () => {
   await withRuntimeEnv(async () => {
     const { handlePostMarketingJobs } = await import('../app/api/marketing/jobs/handler');
     const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
@@ -674,12 +674,13 @@ test('/api/marketing/jobs persists present onboarding setup fields into the auth
       const persistedRecord = JSON.parse(await readFile(businessProfilePath, 'utf8')) as Record<string, unknown>;
 
       assert.equal(response.status, 202);
-      assert.equal(persistedRecord.business_type, 'coaching');
-      assert.equal(persistedRecord.primary_goal, 'book more calls');
-      assert.equal(persistedRecord.launch_approver_name, 'Avery Example');
-      assert.equal(persistedRecord.offer, 'Operator-led launch intensives');
-      assert.equal(persistedRecord.competitor_url, 'https://competitor.example/');
-      assert.deepEqual(persistedRecord.channels, ['meta-ads', 'instagram']);
+      assert.equal(persistedRecord.business_type, 'legacy-type');
+      assert.equal(persistedRecord.primary_goal, 'legacy-goal');
+      assert.equal(persistedRecord.launch_approver_name, 'Legacy Approver');
+      assert.equal(persistedRecord.offer, 'Legacy offer');
+      assert.equal(persistedRecord.competitor_url, 'https://legacy.example/');
+      assert.deepEqual(persistedRecord.channels, ['legacy-channel']);
+      assert.equal(persistedRecord.updated_at, '2026-03-30T10:00:00.000Z');
       assert.equal(runtimeDoc?.inputs.request.primaryGoal, 'book more calls');
       assert.equal(runtimeDoc?.inputs.request.goal, 'book more calls');
       assert.equal(runtimeDoc?.inputs.request.launchApproverName, 'Avery Example');
@@ -1514,10 +1515,10 @@ test('/api/marketing/jobs/:jobId canonicalizes aliased publish review platform s
     const statusBody = (await statusResponse.json()) as Record<string, any>;
 
     assert.equal(statusResponse.status, 200);
-    assert.equal(statusBody.assetPreviewCards[0].platformSlug, 'meta-ads');
-    assert.equal(statusBody.assetPreviewCards[0].previewHref, `/marketing/job-approve?jobId=${jobId}&preview=platform-preview-meta-ads-1`);
-    assert.equal(statusBody.reviewBundle.platformPreviews[0].id, 'platform-preview-meta-ads-1');
-    assert.equal(statusBody.reviewBundle.platformPreviews[0].mediaAssets[0].url, `/api/marketing/jobs/${jobId}/assets/platform-preview-meta-ads-1-media-1`);
+    assert.equal(statusBody.assetPreviewCards[0].platformSlug, 'facebook');
+    assert.equal(statusBody.assetPreviewCards[0].previewHref, `/marketing/job-approve?jobId=${jobId}&preview=platform-preview-facebook-1`);
+    assert.equal(statusBody.reviewBundle.platformPreviews[0].id, 'platform-preview-facebook-1');
+    assert.equal(statusBody.reviewBundle.platformPreviews[0].mediaAssets[0].url, `/api/marketing/jobs/${jobId}/assets/platform-preview-facebook-1-media-1`);
   });
 });
 

@@ -181,7 +181,7 @@ test('buildProductionResumeContext falls back gracefully with null research and 
 });
 
 
-test('buildSocialContentWeeklyRequest repairs stale leather-goods offer before research dispatch', async () => {
+test('buildSocialContentWeeklyRequest preserves an explicit offer and repairs stale kit fallback before research dispatch', async () => {
   const { buildSocialContentWeeklyRequest } = await import('@/backend/social-content/workflow-request');
   const doc = makeMinimalDoc({
     inputs: {
@@ -221,12 +221,26 @@ test('buildSocialContentWeeklyRequest repairs stale leather-goods offer before r
     },
   }) as Parameters<typeof buildSocialContentWeeklyRequest>[0]['doc'];
 
-  const request = buildSocialContentWeeklyRequest({
+  const operatorRequest = buildSocialContentWeeklyRequest({
     doc,
     ariesRunId: 'arun_test',
     callbackUrl: 'https://aries.example.com/api/internal/hermes/runs',
   });
 
+  assert.equal(operatorRequest.input.brand.offer, doc.inputs.request.offer);
+  assert.equal(operatorRequest.input.objective.offer, doc.inputs.request.offer);
+  const operatorImage = operatorRequest.input.media_requests?.find((r) => r.type === 'image.generate');
+  assert.ok((operatorImage as { creative_briefs?: string[] }).creative_briefs?.includes(String(doc.inputs.request.offer)));
+
+  // No operator offer: repair the stale scraped fallback using current positioning.
+  delete (doc.inputs.request as Record<string, unknown>).offer;
+  doc.brand_kit!.offer_summary = 'Handcrafted leather goods including bags, wallets, and accessories.';
+  doc.brand_kit!.positioning = 'Elite coaching network for women leaders and executives.';
+  const request = buildSocialContentWeeklyRequest({
+    doc,
+    ariesRunId: 'arun_fallback',
+    callbackUrl: 'https://aries.example.com/api/internal/hermes/runs',
+  });
   assert.equal(request.input.brand.offer, 'Elite coaching network for women leaders and executives.');
   assert.equal(request.input.objective.offer, 'Elite coaching network for women leaders and executives.');
 

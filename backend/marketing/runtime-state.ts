@@ -232,18 +232,18 @@ export function defaultPublishConfig(input: Partial<MarketingPublishConfig> = {}
   // videoRenderCount / renderVideoAfterApproval). Older defaults surfaced a
   // platform the tenant never chose plus a phantom video-render entry and a
   // planned-video count on the dashboard (AA-76).
-  // `live_publish_platforms` stays meta-ads only — it is read by the real FB/IG
+  // `live_publish_platforms` stays Facebook only — it is read by the real FB/IG
   // publish handlers, so its default is deliberately conservative to avoid any
   // auto-publish surprise.
   return {
-    platforms: normalizePlatformList(input.platforms, ['meta-ads', 'instagram']),
-    live_publish_platforms: normalizePlatformList(input.live_publish_platforms, ['meta-ads']),
+    platforms: normalizePlatformList(input.platforms, ['facebook', 'instagram']),
+    live_publish_platforms: normalizePlatformList(input.live_publish_platforms, ['facebook']),
     video_render_platforms: normalizePlatformList(input.video_render_platforms, []),
   };
 }
 
 /**
- * Map onboarding/business-profile channel ids (e.g. `meta-ads`, `instagram`,
+ * Map onboarding/business-profile channel ids (e.g. `facebook`, `instagram`,
  * `email`, `google-business`, `linkedin`) into a publish config. Channels that
  * do not correspond to a publish platform (e.g. `email`, `google-business`)
  * are retained in `platforms` so downstream surfaces can display them, but
@@ -263,7 +263,7 @@ export function publishConfigFromChannels(
       channels
         .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
         .map((entry) => entry.trim().toLowerCase())
-        .map((entry) => (entry === 'facebook' || entry === 'meta' ? 'meta-ads' : entry)),
+        .map((entry) => (entry === 'meta' ? 'facebook' : entry)),
     ),
   );
 
@@ -272,7 +272,7 @@ export function publishConfigFromChannels(
   }
 
   const videoPlatforms = new Set(['youtube']);
-  const livePublishPlatforms = new Set(['meta-ads', 'instagram', 'linkedin', 'x', 'youtube']);
+  const livePublishPlatforms = new Set(['facebook', 'instagram', 'linkedin', 'x', 'youtube']);
 
   return {
     platforms: normalized,

@@ -16,9 +16,10 @@ test('auth.ts jwt callback writes timezone onto the token', () => {
   assert.match(authSrc, /token\.timezone\s*=\s*loadTenantTimezoneOrFallback/, 'jwt callback must write token.timezone via loadTenantTimezoneOrFallback');
 });
 
-test('auth.ts session callback projects token.timezone onto session.user.timezone', () => {
+test('auth.ts session callback reads current tenant timezone instead of the stale sign-in claim', () => {
   const authSrc = readRepoFile('auth.ts');
-  assert.match(authSrc, /session\.user\.timezone\s*=\s*String\(token\.timezone\)/, 'session callback must project token.timezone to session.user.timezone');
+  assert.match(authSrc, /session\.user\.timezone\s*=\s*loadTenantTimezoneOrFallback\(String\(token\.tenantId\)\)/, 'session callback must refresh timezone from the tenant profile');
+  assert.doesNotMatch(authSrc, /session\.user\.timezone\s*=\s*String\(token\.timezone\)/);
 });
 
 test('next-auth type augmentation includes timezone on Session.user', () => {

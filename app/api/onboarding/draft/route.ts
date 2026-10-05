@@ -49,6 +49,12 @@ function onboardingDraftErrorResponse(error: unknown) {
   if (message === 'invalid_draft_token') {
     return NextResponse.json({ error: 'invalid_draft_token' }, { status: 400 });
   }
+  if (message === 'invalid_profile_context') {
+    return NextResponse.json({ error: 'invalid_profile_context' }, { status: 400 });
+  }
+  if (message === 'meta_ads_coming_soon') {
+    return NextResponse.json({ error: 'meta_ads_coming_soon' }, { status: 400 });
+  }
 
   console.error('[onboarding-draft] persistence error', redactDiagnostic(message));
   return NextResponse.json({ error: 'onboarding_draft_unavailable' }, { status: 503 });
@@ -105,6 +111,11 @@ export async function PATCH(req: Request) {
       goal: payload.goal === undefined ? undefined : stringValue(payload.goal),
       offer: payload.offer === undefined ? undefined : stringValue(payload.offer),
       brandVoice: payload.brandVoice === undefined ? undefined : stringValue(payload.brandVoice),
+      styleVibe: payload.styleVibe === undefined ? undefined : stringValue(payload.styleVibe),
+      timezone: payload.timezone === undefined ? undefined : stringValue(payload.timezone),
+      reelAudioMode: payload.reelAudioMode === undefined ? undefined : stringValue(payload.reelAudioMode),
+      goalType: payload.goalType === undefined ? undefined : stringValue(payload.goalType),
+      launchApprover: payload.launchApprover === undefined ? undefined : stringValue(payload.launchApprover),
       notes: payload.notes === undefined ? undefined : stringValue(payload.notes),
       competitorUrl: payload.competitorUrl === undefined ? undefined : stringValue(payload.competitorUrl),
       preview: payload.preview === undefined ? undefined : (payload.preview as OnboardingDraftPreview | null),

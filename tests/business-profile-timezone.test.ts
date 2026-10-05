@@ -64,18 +64,18 @@ test('mergePersistedTimezoneField rejects a non-IANA update with a typed error',
   );
 });
 
-test('mergePersistedTimezoneField leaves the current value when input is absent/blank', () => {
+test('mergePersistedTimezoneField preserves omitted input and clears explicit blanks', () => {
   assert.deepEqual(mergePersistedTimezoneField('America/Denver', undefined), {
     value: 'America/Denver',
     changed: false,
   });
   assert.deepEqual(mergePersistedTimezoneField('America/Denver', null), {
-    value: 'America/Denver',
-    changed: false,
+    value: null,
+    changed: true,
   });
   assert.deepEqual(mergePersistedTimezoneField('America/Denver', '   '), {
-    value: 'America/Denver',
-    changed: false,
+    value: null,
+    changed: true,
   });
 });
 

@@ -189,7 +189,7 @@ test('/api/onboarding/draft creates, reads, and updates an onboarding draft by e
         body: JSON.stringify({
           businessName: 'The FrameX',
           websiteUrl: 'https://theframex.com',
-          channels: ['meta-ads'],
+          channels: ['meta'],
           goal: 'Book more design consultations',
           status: 'ready_for_auth',
         }),
@@ -202,9 +202,19 @@ test('/api/onboarding/draft creates, reads, and updates an onboarding draft by e
     assert.equal(patchResponse.status, 200);
     assert.equal(patchedBody.draft.businessName, 'The FrameX');
     assert.equal(patchedBody.draft.websiteUrl, 'https://theframex.com/');
-    assert.deepEqual(patchedBody.draft.channels, ['meta-ads']);
+    assert.deepEqual(patchedBody.draft.channels, ['facebook']);
     assert.equal(patchedBody.draft.goal, 'Book more design consultations');
     assert.equal(patchedBody.draft.status, 'ready_for_auth');
+
+    const adsResponse = await route.PATCH(
+      new Request(`http://localhost/api/onboarding/draft?draft=${encodeURIComponent(createdBody.draft.draftId)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ channels: ['meta-ads'] }),
+      }),
+    );
+    assert.equal(adsResponse.status, 400);
+    assert.deepEqual(await adsResponse.json(), { error: 'meta_ads_coming_soon' });
 
     const getResponse = await route.GET(
       new Request(`http://localhost/api/onboarding/draft?draft=${encodeURIComponent(createdBody.draft.draftId)}`),

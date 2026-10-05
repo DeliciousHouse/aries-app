@@ -917,7 +917,7 @@ test('review decisions still resolve after the runtime preview id changes betwee
         jobId,
         tenantId: 'tenant_review',
         launchPreviewPath,
-        platformSlug: 'meta-ads',
+        platformSlug: 'facebook',
       }), null, 2),
     );
 

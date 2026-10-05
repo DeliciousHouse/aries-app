@@ -42,6 +42,7 @@ export class ComposioCapabilityProvider implements CapabilityProvider {
       }
     }
 
+    if ((platform === 'facebook' || platform === 'instagram') && !stored?.externalAccountId) active = false;
     const caps = computeCapabilities({ config: this.config, platform, active });
 
     if (stored) {

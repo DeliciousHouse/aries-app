@@ -13,6 +13,7 @@ import {
 } from '@/lib/marketing-competitor';
 import { parseReelAudioMode } from '@/backend/marketing/reel-audio-mode';
 import { isCanonicalGoalType } from '@/backend/insights/goal/goal-options';
+import { isMetaAdsChannel } from '@/lib/marketing-channels';
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -40,6 +41,9 @@ function stringArray(value: unknown): string[] {
 // Returns literal codes / imported constants only — never the raw message,
 // which CodeQL flags as stack-trace exposure (js/stack-trace-exposure).
 function classifyClientError(message: string): { error: string; status: number } {
+  if (message === 'meta_ads_coming_soon') {
+    return { error: 'meta_ads_coming_soon', status: 400 };
+  }
   if (message === 'missing_required_fields:businessName') {
     return { error: 'missing_required_fields:businessName', status: 400 };
   }
@@ -141,6 +145,10 @@ export async function PATCH(req: Request) {
     payload = {};
   }
 
+  if (stringArray(payload.channels).some(isMetaAdsChannel)) {
+    return json({ error: 'meta_ads_coming_soon' }, 400);
+  }
+
   const normalizedWebsiteUrl = payload.websiteUrl === undefined
     ? undefined
     : normalizeMarketingWebsiteUrl(payload.websiteUrl) || null;
@@ -169,10 +177,10 @@ export async function PATCH(req: Request) {
     });
     const resolved = await updateBusinessProfileWithDiagnostics(client, {
       tenantId: tenantContext.tenantId,
-      businessName: stringOrNull(payload.businessName),
+      businessName: payload.businessName === undefined ? undefined : stringOrNull(payload.businessName),
       websiteUrl: normalizedWebsiteUrl,
-      businessType: stringOrNull(payload.businessType),
-      primaryGoal: stringOrNull(payload.primaryGoal),
+      businessType: payload.businessType === undefined ? undefined : stringOrNull(payload.businessType),
+      primaryGoal: payload.primaryGoal === undefined ? undefined : stringOrNull(payload.primaryGoal),
       // AA-114: undefined = the caller did not touch the goal select; null
       // clears it; anything outside the canonical vocabulary is rejected to
       // null rather than persisted, since the column has a CHECK constraint
@@ -183,13 +191,13 @@ export async function PATCH(req: Request) {
           : isCanonicalGoalType(payload.goalType)
             ? payload.goalType
             : null,
-      launchApproverUserId: stringOrNull(payload.launchApproverUserId),
-      launchApproverName: stringOrNull(payload.launchApproverName),
-      offer: stringOrNull(payload.offer),
+      launchApproverUserId: payload.launchApproverUserId === undefined ? undefined : stringOrNull(payload.launchApproverUserId),
+      launchApproverName: payload.launchApproverName === undefined ? undefined : stringOrNull(payload.launchApproverName),
+      offer: payload.offer === undefined ? undefined : stringOrNull(payload.offer),
       brandVoice: payload.brandVoice === undefined ? undefined : stringOrNull(payload.brandVoice),
-      styleVibe: stringOrNull(payload.styleVibe),
+      styleVibe: payload.styleVibe === undefined ? undefined : stringOrNull(payload.styleVibe),
       notes: payload.notes === undefined ? undefined : stringOrNull(payload.notes),
-      competitorUrl: stringOrNull(payload.competitorUrl),
+      competitorUrl: payload.competitorUrl === undefined ? undefined : stringOrNull(payload.competitorUrl),
       channels: payload.channels === undefined ? undefined : stringArray(payload.channels),
       timezone: payload.timezone === undefined ? undefined : stringOrNull(payload.timezone),
       // undefined = no change; a recognized value sets the default; an
