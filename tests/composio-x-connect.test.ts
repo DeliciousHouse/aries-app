@@ -81,7 +81,7 @@ test('connectablePlatforms flag-OFF: does not include x', () => {
     !platforms.includes('x'),
     "'x' must not be in connectablePlatforms when ARIES_X_ENABLED is unset",
   );
-  assert.equal(platforms.length, 6, 'exactly 6 platforms when flag is off (no x)');
+  assert.equal(platforms.length, 5, 'exactly 5 platforms when flag is off (no x or ads)');
 });
 
 test('isXEnabled: returns false when ARIES_X_ENABLED is unset', () => {
@@ -128,19 +128,19 @@ test('handleComposioList flag-OFF: response connections do not include x', async
       !platforms.includes('x'),
       "x must not appear in connection list when ARIES_X_ENABLED is off",
     );
-    assert.equal(platforms.length, 6, '6 connection slots when flag is off (no x)');
+    assert.equal(platforms.length, 5, '5 connection slots when flag is off (no x or ads)');
   });
 });
 
 // ── 2. Fix proof: flag ON ────────────────────────────────────────────────────
 
-test('connectablePlatforms flag-ON: includes x (7 total)', () => {
+test('connectablePlatforms flag-ON: includes x (6 total)', () => {
   const platforms = connectablePlatforms(mkEnv({ ARIES_X_ENABLED: '1' }));
   assert.ok(
     platforms.includes('x'),
     "'x' must be in connectablePlatforms when ARIES_X_ENABLED=1",
   );
-  assert.equal(platforms.length, 7, '7 platforms when flag is on');
+  assert.equal(platforms.length, 6, '6 platforms when flag is on (no ads)');
 });
 
 test('isXEnabled: true for all canonical truthy values', () => {
@@ -193,7 +193,7 @@ test('handleComposioList flag-ON: response connections include x (7 slots)', asy
       platforms.includes('x'),
       "x must appear in connection list when ARIES_X_ENABLED=1",
     );
-    assert.equal(platforms.length, 7, '7 connection slots when flag is on');
+    assert.equal(platforms.length, 6, '6 connection slots when flag is on (no ads)');
   });
 });
 
@@ -261,12 +261,11 @@ test('composioAuthConfigId regression: managed platforms still fall back to COMP
 
 // ── 4. Regression guard: the other 6 still-connectable platforms remain byte-identical ──
 
-test('connectablePlatforms flag-OFF: all 6 still-connectable platforms present (no x)', () => {
+test('connectablePlatforms flag-OFF: all organic platforms present (no x or ads)', () => {
   const off = connectablePlatforms(mkEnv({}));
   const original6 = [
     'facebook',
     'instagram',
-    'meta_ads',
     'youtube',
     'linkedin',
     'reddit',
@@ -276,12 +275,11 @@ test('connectablePlatforms flag-OFF: all 6 still-connectable platforms present (
   }
 });
 
-test('connectablePlatforms flag-ON: all 7 platforms present (6 base + x)', () => {
+test('connectablePlatforms flag-ON: all organic platforms present including x', () => {
   const on = connectablePlatforms(mkEnv({ ARIES_X_ENABLED: '1' }));
   const all7 = [
     'facebook',
     'instagram',
-    'meta_ads',
     'youtube',
     'linkedin',
     'reddit',

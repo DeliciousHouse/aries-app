@@ -12,6 +12,7 @@ import {
 } from '@/lib/validation/business-profile';
 
 import { connectedProfileLabel } from './connected-profile-labels';
+import { selectableMarketingChannels } from '@/lib/marketing-channels';
 import { customerSafeUiErrorMessage, profileApiErrorMessage } from './customer-safe-copy';
 import { DashboardHero, EmptyStatePanel, LoadingStateGrid, ShellPanel } from './components';
 import { CANONICAL_GOAL_OPTIONS } from '@/backend/insights/goal/goal-options';
@@ -21,13 +22,20 @@ type ChannelOption = {
   id: string;
   label: string;
   description: string;
+  disabled?: boolean;
 };
 
 const CHANNEL_OPTIONS: ChannelOption[] = [
   {
+    id: 'facebook',
+    label: 'Facebook Page',
+    description: 'Organic posts to your connected Facebook Page.',
+  },
+  {
     id: 'meta-ads',
-    label: 'Meta',
-    description: 'Paid social for direct-response demand capture and retargeting.',
+    label: 'Meta Ads',
+    disabled: true,
+    description: 'Paid advertising on Facebook and Instagram is not available yet.',
   },
   {
     id: 'instagram',
@@ -46,7 +54,7 @@ const CHANNEL_OPTIONS: ChannelOption[] = [
   },
 ];
 
-const DEFAULT_CHANNEL_IDS = ['meta-ads', 'instagram'];
+const DEFAULT_CHANNEL_IDS = ['facebook', 'instagram'];
 
 // A4: operator-selected IANA business timezone. A curated North-America-first
 // list covering the common cases; the value is validated server-side against
@@ -147,7 +155,7 @@ export default function AriesBusinessProfileScreen() {
     setGoalType(profile.goalType ?? '');
     setOffer(profile.offer || '');
     setCompetitorUrl(profile.competitorUrl || '');
-    setSelectedChannels(profile.channels);
+    setSelectedChannels(selectableMarketingChannels(profile.channels));
     setBrandVoice(profile.brandVoice || '');
     setStyleVibe(profile.styleVibe || '');
     setNotes(profile.notes || '');
@@ -200,6 +208,7 @@ export default function AriesBusinessProfileScreen() {
   const hasErrors = hasValidationErrors(fieldErrors);
 
   function toggleChannel(channelId: string) {
+    if (CHANNEL_OPTIONS.find((option) => option.id === channelId)?.disabled) return;
     setSelectedChannels((current) =>
       current.includes(channelId)
         ? current.filter((value) => value !== channelId)
@@ -469,11 +478,13 @@ export default function AriesBusinessProfileScreen() {
                       key={channel.id}
                       type="button"
                       onClick={() => toggleChannel(channel.id)}
+                      disabled={channel.disabled}
+                      aria-pressed={selected}
                       className={selected
                         ? 'rounded-[1.3rem] border border-white/20 bg-white/[0.08] px-4 py-4 text-left text-white transition'
                         : 'rounded-[1.3rem] border border-white/8 bg-black/18 px-4 py-4 text-left text-white/62 transition hover:border-white/16 hover:text-white'}
                     >
-                      <p className="font-medium">{channel.label}</p>
+                      <p className="font-medium">{channel.label} {channel.disabled ? <span className="ml-2 rounded-full border border-white/15 px-2 py-1 text-xs text-white/70">Coming soon</span> : null}</p>
                       <p className="mt-2 text-sm leading-7 text-white/56">{channel.description}</p>
                     </button>
                   );

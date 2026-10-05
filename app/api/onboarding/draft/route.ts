@@ -52,6 +52,9 @@ function onboardingDraftErrorResponse(error: unknown) {
   if (message === 'invalid_profile_context') {
     return NextResponse.json({ error: 'invalid_profile_context' }, { status: 400 });
   }
+  if (message === 'meta_ads_coming_soon') {
+    return NextResponse.json({ error: 'meta_ads_coming_soon' }, { status: 400 });
+  }
 
   console.error('[onboarding-draft] persistence error', redactDiagnostic(message));
   return NextResponse.json({ error: 'onboarding_draft_unavailable' }, { status: 503 });

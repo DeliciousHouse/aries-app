@@ -794,7 +794,8 @@ function normalizePublishPreviewPlatform(value: string | null | undefined): stri
     .trim()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
-  if (['meta', 'facebook', 'facebook-ads', 'meta-ads'].includes(normalized)) {
+  if (['meta', 'facebook', 'facebook-page'].includes(normalized)) return 'facebook';
+  if (['facebook-ads', 'meta-ads'].includes(normalized)) {
     return 'meta-ads';
   }
   return normalized || 'preview';

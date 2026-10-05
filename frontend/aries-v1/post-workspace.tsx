@@ -142,9 +142,9 @@ const PLATFORM_VIDEO_LABELS: Record<string, string> = {
   'youtube-shorts': 'YouTube Shorts',
   instagram: 'Instagram',
   'instagram-reels': 'Instagram Reels',
-  meta: 'Meta',
+  meta: 'Facebook Page',
   'meta-ads': 'Meta Ads',
-  facebook: 'Facebook',
+  facebook: 'Facebook Page',
 };
 
 function isRenderedVideoArtifact(artifact: MarketingArtifactCard): artifact is MarketingVideoArtifactCard {

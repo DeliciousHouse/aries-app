@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { PoolClient } from 'pg';
 
 import pool from '@/lib/db';
+import { assertNoMetaAdsChannels, normalizeMarketingChannel } from '@/lib/marketing-channels';
 import {
   extractAndSaveTenantBrandKit,
   loadTenantBrandKit,
@@ -190,7 +191,7 @@ type MarketingProfilePersistenceInput = {
   primaryGoalProvenance?: 'authenticated_operator';
 };
 
-const DEFAULT_MARKETING_CHANNELS = ['meta-ads', 'instagram'];
+const DEFAULT_MARKETING_CHANNELS = ['facebook', 'instagram'];
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -330,7 +331,8 @@ function mergePersistedStringArrayField(
     return { value: currentValue, changed: false };
   }
 
-  const normalized = stringArray(nextValue);
+  assertNoMetaAdsChannels(nextValue);
+  const normalized = stringArray(nextValue).map(normalizeMarketingChannel);
 
   const resolved = Array.from(new Set(normalized));
   return {
@@ -971,6 +973,7 @@ export async function updateBusinessProfileWithDiagnostics(
   client: PoolClient,
   input: BusinessProfileUpdateInput,
 ): Promise<ResolvedBusinessProfile> {
+  assertNoMetaAdsChannels(input.channels);
   const current = await getBusinessProfileWithDiagnostics(client, input.tenantId);
   const currentStoredRecord = loadBusinessProfileRecord(input.tenantId);
   // Merge stored operator fields, never kit/job suggestions from the resolved view.
@@ -1157,6 +1160,7 @@ export async function getPublicBusinessProfile(websiteUrl?: string | null): Prom
 }
 
 export async function updatePublicBusinessProfile(input: Omit<BusinessProfileUpdateInput, 'tenantId'>): Promise<ResolvedBusinessProfile> {
+  assertNoMetaAdsChannels(input.channels);
   const normalizedWebsiteUrl = normalizeMarketingWebsiteUrl(input.websiteUrl);
   if (!normalizedWebsiteUrl) {
     throw new Error('missing_required_fields:websiteUrl');

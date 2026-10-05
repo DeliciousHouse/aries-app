@@ -1515,10 +1515,10 @@ test('/api/marketing/jobs/:jobId canonicalizes aliased publish review platform s
     const statusBody = (await statusResponse.json()) as Record<string, any>;
 
     assert.equal(statusResponse.status, 200);
-    assert.equal(statusBody.assetPreviewCards[0].platformSlug, 'meta-ads');
-    assert.equal(statusBody.assetPreviewCards[0].previewHref, `/marketing/job-approve?jobId=${jobId}&preview=platform-preview-meta-ads-1`);
-    assert.equal(statusBody.reviewBundle.platformPreviews[0].id, 'platform-preview-meta-ads-1');
-    assert.equal(statusBody.reviewBundle.platformPreviews[0].mediaAssets[0].url, `/api/marketing/jobs/${jobId}/assets/platform-preview-meta-ads-1-media-1`);
+    assert.equal(statusBody.assetPreviewCards[0].platformSlug, 'facebook');
+    assert.equal(statusBody.assetPreviewCards[0].previewHref, `/marketing/job-approve?jobId=${jobId}&preview=platform-preview-facebook-1`);
+    assert.equal(statusBody.reviewBundle.platformPreviews[0].id, 'platform-preview-facebook-1');
+    assert.equal(statusBody.reviewBundle.platformPreviews[0].mediaAssets[0].url, `/api/marketing/jobs/${jobId}/assets/platform-preview-facebook-1-media-1`);
   });
 });
 

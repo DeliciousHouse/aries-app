@@ -13,6 +13,7 @@ import {
 } from '@/lib/marketing-competitor';
 import { parseReelAudioMode } from '@/backend/marketing/reel-audio-mode';
 import { isCanonicalGoalType } from '@/backend/insights/goal/goal-options';
+import { isMetaAdsChannel } from '@/lib/marketing-channels';
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -40,6 +41,9 @@ function stringArray(value: unknown): string[] {
 // Returns literal codes / imported constants only — never the raw message,
 // which CodeQL flags as stack-trace exposure (js/stack-trace-exposure).
 function classifyClientError(message: string): { error: string; status: number } {
+  if (message === 'meta_ads_coming_soon') {
+    return { error: 'meta_ads_coming_soon', status: 400 };
+  }
   if (message === 'missing_required_fields:businessName') {
     return { error: 'missing_required_fields:businessName', status: 400 };
   }
@@ -139,6 +143,10 @@ export async function PATCH(req: Request) {
     payload = await req.json();
   } catch {
     payload = {};
+  }
+
+  if (stringArray(payload.channels).some(isMetaAdsChannel)) {
+    return json({ error: 'meta_ads_coming_soon' }, 400);
   }
 
   const normalizedWebsiteUrl = payload.websiteUrl === undefined

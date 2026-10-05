@@ -38,6 +38,7 @@ import {
 import { BUSINESS_NAME_FIELD, BUSINESS_TYPE_FIELD } from './business-field-copy';
 import { profileApiErrorMessage } from './customer-safe-copy';
 import { VISUAL_BOARD_EMPTY_STATE_COPY } from './onboarding-flow.copy';
+import { selectableMarketingChannels } from '@/lib/marketing-channels';
 
 export { VISUAL_BOARD_EMPTY_STATE_COPY } from './onboarding-flow.copy';
 
@@ -54,6 +55,7 @@ type ChannelOption = {
   id: string;
   label: string;
   description: string;
+  disabled?: boolean;
 };
 
 type GoalOption = {
@@ -96,8 +98,14 @@ const STEP_DEFINITIONS: StepDefinition[] = [
 
 const CHANNEL_OPTIONS: ChannelOption[] = [
   {
+    id: 'facebook',
+    label: 'Facebook Page',
+    description: 'Organic posts to your connected Facebook Page.',
+  },
+  {
     id: 'meta-ads',
-    label: 'Meta (Facebook + Instagram Ads)',
+    label: 'Meta Ads',
+    disabled: true,
     description: 'Paid ads on Facebook and Instagram via Meta Business Suite.',
   },
   {
@@ -219,21 +227,21 @@ function urlChipFromValue(value: string): UrlChipState {
 function recommendedChannelsForBusinessType(businessType: string): string[] {
   const normalized = businessType.trim().toLowerCase();
   if (!normalized) {
-    return ['meta-ads', 'instagram'];
+    return ['facebook', 'instagram'];
   }
   const localKeywords = ['local', 'restaurant', 'retail', 'service', 'salon', 'clinic', 'store', 'shop'];
   const saasKeywords = ['saas', 'software', 'b2b', 'agency', 'platform', 'technology', 'tech'];
   const ecomKeywords = ['ecommerce', 'e-commerce', 'commerce', 'dtc', 'direct-to-consumer', 'online store', 'brand'];
   if (localKeywords.some((kw) => normalized.includes(kw))) {
-    return ['meta-ads', 'instagram', 'google-business'];
+    return ['facebook', 'instagram', 'google-business'];
   }
   if (saasKeywords.some((kw) => normalized.includes(kw))) {
-    return ['linkedin', 'meta-ads', 'email'];
+    return ['linkedin', 'facebook', 'email'];
   }
   if (ecomKeywords.some((kw) => normalized.includes(kw))) {
-    return ['meta-ads', 'instagram', 'email'];
+    return ['facebook', 'instagram', 'email'];
   }
-  return ['meta-ads', 'instagram'];
+  return ['facebook', 'instagram'];
 }
 
 function firstPresent(...values: Array<string | null | undefined>): string | null {
@@ -840,7 +848,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         setWebsiteUrl(normalizeHttpsUrlInput(draft.websiteUrl));
         setBusinessType(draft.businessType);
         setApproverName(draft.approverName);
-        setSelectedChannels(draft.channels);
+        setSelectedChannels(selectableMarketingChannels(draft.channels));
         const knownGoalLabels = GOAL_OPTIONS.map((o) => o.label);
         if (draft.goal && !knownGoalLabels.includes(draft.goal)) {
           setGoal('Other');
@@ -954,7 +962,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
           setNotes(nextProfile.notes || '');
           brandVoiceEditedRef.current = Boolean(nextProfile.brandVoice?.trim());
           setCompetitorUrl(nextProfile.competitorUrl || '');
-          setSelectedChannels(nextProfile.channels.length > 0 ? nextProfile.channels : []);
+          setSelectedChannels(selectableMarketingChannels(nextProfile.channels));
         }
         setProfileHydrated(true);
       })
@@ -1225,7 +1233,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     // `instagram-organic` that aren't rendered in this flow's option list,
     // pass the channels step's canProceed check (selectedChannels.length > 0),
     // and send unsupported ids downstream with no visible selection.
-    const availableIds = new Set(CHANNEL_OPTIONS.map((option) => option.id));
+    const availableIds = new Set(CHANNEL_OPTIONS.filter((option) => !option.disabled).map((option) => option.id));
     const recommended = recommendedChannelsForBusinessType(businessType).filter(
       (id) => availableIds.has(id),
     );
@@ -1273,6 +1281,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   }, [ariesApi, deferredWebsiteUrl, draftId, previewRefreshCounter]);
 
   function toggleChannel(channelId: string) {
+    if (CHANNEL_OPTIONS.find((option) => option.id === channelId)?.disabled) return;
     setSelectedChannels((current) =>
       current.includes(channelId)
         ? current.filter((value) => value !== channelId)
@@ -1290,7 +1299,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     setBusinessType(snap.businessType);
     setWebsiteUrl(snap.websiteUrl);
     setApproverName(snap.approverName);
-    setSelectedChannels(snap.selectedChannels);
+    setSelectedChannels(selectableMarketingChannels(snap.selectedChannels));
     setGoal(snap.goal);
     setCustomGoal(snap.customGoal);
     setOffer(snap.offer);
@@ -2171,6 +2180,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                           type="button"
                           role="checkbox"
                           aria-checked={selected}
+                          disabled={channel.disabled}
                           tabIndex={0}
                           onClick={() => toggleChannel(channel.id)}
                           onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
@@ -2188,7 +2198,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div>
-                              <p className="text-base font-semibold">{channel.label}</p>
+                              <p className="text-base font-semibold">{channel.label} {channel.disabled ? <span className="ml-2 rounded-full border border-white/15 px-2 py-1 text-xs text-white/70">Coming soon</span> : null}</p>
                               <p className="mt-2 text-sm leading-7 text-white/58">{channel.description}</p>
                             </div>
                             {selected ? <Check className="mt-1 h-4 w-4 text-[#d6b8ff]" aria-hidden /> : null}

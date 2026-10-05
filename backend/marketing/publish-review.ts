@@ -479,6 +479,9 @@ function platformSlug(value: string | null | undefined): string {
 
 function platformNameFromSlug(slug: string): string {
   switch (slug) {
+    case 'facebook':
+    case 'meta':
+      return 'Facebook Page';
     case 'meta-ads':
       return 'Meta Ads';
     case 'youtube':

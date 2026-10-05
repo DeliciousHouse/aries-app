@@ -32,7 +32,8 @@ export function canonicalizePublishReviewPlatformSlug(value: unknown, fallback =
     return fallback;
   }
 
-  if (['meta', 'facebook', 'facebook-ads', 'meta-ads', 'meta-ads-manager'].includes(normalized)) {
+  if (['meta', 'facebook', 'facebook-page'].includes(normalized)) return 'facebook';
+  if (['facebook-ads', 'meta-ads', 'meta-ads-manager'].includes(normalized)) {
     return 'meta-ads';
   }
   if (['instagram', 'instagram-feed', 'instagram-reels'].includes(normalized)) {

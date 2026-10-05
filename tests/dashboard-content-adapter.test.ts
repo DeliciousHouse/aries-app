@@ -373,7 +373,9 @@ test('dashboard adapter uses human-readable campaign and proposal concept labels
     assert.equal(content.socialContentJobs[0]?.name, 'Brand Example');
     assert.equal(content.socialContentJobs[0]?.objective, 'performance-first paid acquisition testing');
     assert.equal(content.socialContentJobs[0]?.summary, 'performance-first paid acquisition testing');
-    assert.equal(content.posts[0]?.title, 'Meta Ads concept');
+    assert.equal(content.posts[0]?.title, 'Facebook Page concept');
+    assert.equal(content.posts[0]?.platform, 'facebook');
+    assert.equal(content.posts[0]?.platformLabel, 'Facebook Page');
     assert.equal(content.posts[0]?.summary, 'performance-first paid acquisition testing');
   });
 });
