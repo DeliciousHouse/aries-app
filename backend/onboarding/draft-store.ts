@@ -6,6 +6,10 @@ import * as path from 'node:path';
 import pool from '@/lib/db';
 import { normalizeMarketingWebsiteUrl } from '@/lib/marketing-public-mode';
 import { resolveDataPath } from '@/lib/runtime-paths';
+import { isValidTimeZone } from '@/lib/format-timestamp';
+import { isCanonicalGoalType } from '@/backend/insights/goal/goal-options';
+import type { GoalType } from '@/backend/insights/goal/goal-type-classification';
+import { parseReelAudioMode, type ReelAudioMode } from '@/backend/marketing/reel-audio-mode';
 
 export type OnboardingDraftStatus =
   | 'draft'
@@ -51,6 +55,11 @@ export type OnboardingDraftProvenance = {
 };
 
 export type OnboardingDraft = {
+  styleVibe?: string;
+  timezone?: string;
+  reelAudioMode?: ReelAudioMode;
+  goalType?: GoalType | null;
+  launchApprover?: 'self' | 'none';
   draftId: string;
   status: OnboardingDraftStatus;
   websiteUrl: string;
@@ -72,6 +81,11 @@ export type OnboardingDraft = {
 };
 
 type OnboardingDraftMutation = Partial<{
+  styleVibe: string | null;
+  timezone: string | null;
+  reelAudioMode: string | null;
+  goalType: string | null;
+  launchApprover: string | null;
   status: OnboardingDraftStatus;
   websiteUrl: string | null;
   businessName: string | null;
@@ -141,6 +155,11 @@ function emptyDraft(input?: Partial<OnboardingDraft>): OnboardingDraft {
     goal: stringValue(input?.goal),
     offer: stringValue(input?.offer),
     brandVoice: stringValue(input?.brandVoice),
+    styleVibe: stringValue(input?.styleVibe),
+    timezone: input?.timezone || 'America/New_York',
+    reelAudioMode: parseReelAudioMode(input?.reelAudioMode) ?? 'music',
+    goalType: isCanonicalGoalType(input?.goalType) ? input.goalType : null,
+    launchApprover: input?.launchApprover === 'none' ? 'none' : 'self',
     notes: stringValue(input?.notes),
     competitorUrl: stringValue(input?.competitorUrl),
     preview: input?.preview || null,
@@ -233,6 +252,10 @@ function draftSourceFingerprint(input: {
 }
 
 function applyDraftMutation(draft: OnboardingDraft, mutation: OnboardingDraftMutation): OnboardingDraft {
+  if (mutation.timezone && !isValidTimeZone(mutation.timezone)) throw new Error('invalid_profile_context');
+  if (mutation.reelAudioMode && !parseReelAudioMode(mutation.reelAudioMode)) throw new Error('invalid_profile_context');
+  if (mutation.goalType && !isCanonicalGoalType(mutation.goalType)) throw new Error('invalid_profile_context');
+  if (mutation.launchApprover && !['self', 'none'].includes(mutation.launchApprover)) throw new Error('invalid_profile_context');
   const nextWebsiteUrl = mutation.websiteUrl === undefined
     ? draft.websiteUrl
     : normalizeMarketingWebsiteUrl(mutation.websiteUrl) || stringValue(mutation.websiteUrl);
@@ -262,6 +285,11 @@ function applyDraftMutation(draft: OnboardingDraft, mutation: OnboardingDraftMut
     goal: mutation.goal === undefined ? draft.goal : stringValue(mutation.goal),
     offer: mutation.offer === undefined ? draft.offer : stringValue(mutation.offer),
     brandVoice: mutation.brandVoice === undefined ? draft.brandVoice : stringValue(mutation.brandVoice),
+    styleVibe: mutation.styleVibe === undefined ? draft.styleVibe : stringValue(mutation.styleVibe),
+    timezone: mutation.timezone === undefined ? draft.timezone : mutation.timezone || 'America/New_York',
+    reelAudioMode: mutation.reelAudioMode === undefined ? draft.reelAudioMode : parseReelAudioMode(mutation.reelAudioMode) ?? 'music',
+    goalType: mutation.goalType === undefined ? draft.goalType : isCanonicalGoalType(mutation.goalType) ? mutation.goalType : null,
+    launchApprover: mutation.launchApprover === undefined ? draft.launchApprover : mutation.launchApprover === 'none' ? 'none' : 'self',
     notes: mutation.notes === undefined ? draft.notes : stringValue(mutation.notes),
     competitorUrl:
       mutation.competitorUrl === undefined
@@ -283,6 +311,7 @@ function applyDraftMutation(draft: OnboardingDraft, mutation: OnboardingDraftMut
 }
 
 type DraftRow = {
+  profile_context?: Pick<OnboardingDraft, 'styleVibe' | 'timezone' | 'reelAudioMode' | 'goalType' | 'launchApprover'>;
   draft_id: string;
   status: string;
   website_url: string;
@@ -310,6 +339,7 @@ function toIsoString(value: string | Date): string {
 
 function rowToDraft(row: DraftRow): OnboardingDraft {
   return emptyDraft({
+    ...row.profile_context,
     draftId: row.draft_id,
     status: row.status as OnboardingDraftStatus,
     websiteUrl: row.website_url,
@@ -343,6 +373,8 @@ function draftToRow(draft: OnboardingDraft) {
     goal: draft.goal,
     offer: draft.offer,
     brand_voice: draft.brandVoice,
+    profile_context: JSON.stringify({ styleVibe: draft.styleVibe, timezone: draft.timezone,
+      reelAudioMode: draft.reelAudioMode, goalType: draft.goalType, launchApprover: draft.launchApprover }),
     notes: draft.notes,
     competitor_url: draft.competitorUrl,
     preview: draft.preview ? JSON.stringify(draft.preview) : null,
@@ -453,7 +485,8 @@ async function readFallbackDraft(draftId: string): Promise<OnboardingDraft | nul
 function rowHasConfirmedIdentityColumns(row: DraftRow): boolean {
   return (
     Object.prototype.hasOwnProperty.call(row, 'brand_voice') &&
-    Object.prototype.hasOwnProperty.call(row, 'notes')
+    Object.prototype.hasOwnProperty.call(row, 'notes') &&
+    Object.prototype.hasOwnProperty.call(row, 'profile_context')
   );
 }
 
@@ -489,13 +522,14 @@ export async function createOnboardingDraft(initial?: Partial<OnboardingDraft>):
       `INSERT INTO onboarding_drafts (
         draft_id, status, website_url, business_name, business_type,
         approver_name, channels, goal, offer, brand_voice, notes, competitor_url,
-        preview, provenance, materialized_tenant_id, materialized_job_id
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+        preview, provenance, materialized_tenant_id, materialized_job_id, profile_context
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
       RETURNING *`,
       [
         row.draft_id, row.status, row.website_url, row.business_name, row.business_type,
         row.approver_name, row.channels, row.goal, row.offer, row.brand_voice, row.notes,
         row.competitor_url, row.preview, row.provenance, row.materialized_tenant_id, row.materialized_job_id,
+        row.profile_context,
       ],
     );
   } catch (error) {
@@ -695,13 +729,14 @@ export async function updateOnboardingDraft(
         approver_name = $6, channels = $7, goal = $8, offer = $9,
         brand_voice = $10, notes = $11, competitor_url = $12,
         preview = $13, provenance = $14, materialized_tenant_id = $15,
-        materialized_job_id = $16, updated_at = now()
+        materialized_job_id = $16, profile_context = $17, updated_at = now()
       WHERE draft_id = $1
       RETURNING *`,
       [
         row.draft_id, row.status, row.website_url, row.business_name, row.business_type,
         row.approver_name, row.channels, row.goal, row.offer, row.brand_voice, row.notes,
         row.competitor_url, row.preview, row.provenance, row.materialized_tenant_id, row.materialized_job_id,
+        row.profile_context,
       ],
     );
   } catch (error) {

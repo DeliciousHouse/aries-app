@@ -296,12 +296,12 @@ export function applyBrandKitEnrichment(
   // The operator's brandVoice string is their explicit tone preference; we must not let
   // LLM-scraped adjectives contradict it.
   const toneOfVoice = opBrandVoice
-    ? (stripLeadingDanglingArticleFragment(base.tone_of_voice) ?? null)
+    ? null
     : (stripLeadingDanglingArticleFragment(enrichment.toneOfVoice ?? base.tone_of_voice) ?? null);
 
   // brand_voice_summary: operator brandVoice is authoritative — preserve base, never let enrichment overwrite
   const brandVoiceSummary = opBrandVoice
-    ? stripLeadingDanglingArticleFragment(base.brand_voice_summary)
+    ? opBrandVoice
     : stripLeadingDanglingArticleFragment(enrichment.brandVoiceSummary ?? base.brand_voice_summary);
 
   // Colors: if operator supplied a palette, preserve the base colors (which were set from the operator palette

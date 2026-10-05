@@ -22,6 +22,7 @@ import {
   updateBusinessProfileWithDiagnostics,
 } from '@/backend/tenant/business-profile';
 import { provisionDefaultMarketingSchedule } from '@/backend/marketing/schedule-store';
+import { goalTypeForPresetLabel } from '@/backend/insights/goal/goal-options';
 import { listSocialContentJobIdsForTenant } from '@/backend/marketing/runtime-state';
 import { listMarketingReviewItemsForTenant } from '@/backend/marketing/runtime-views';
 import { startSocialContentJob } from '@/backend/marketing/orchestrator';
@@ -332,10 +333,16 @@ export default async function OnboardingResumePage(
         websiteUrl: claim.draft.websiteUrl,
         businessType: claim.draft.businessType,
         primaryGoal: claim.draft.goal,
-        launchApproverName: claim.draft.approverName || null,
+        launchApproverUserId: claim.draft.launchApprover === 'none' ? null : session.user.id,
+        launchApproverName: claim.draft.launchApprover === 'none' ? null : session.user.name || null,
         offer: claim.draft.offer || null,
         brandVoice: claim.draft.brandVoice,
         notes: claim.draft.notes,
+        styleVibe: claim.draft.styleVibe,
+        timezone: claim.draft.timezone,
+        reelAudioMode: claim.draft.reelAudioMode,
+        // Automatic follows the final selected goal, not an earlier autosave.
+        goalType: claim.draft.goalType ?? goalTypeForPresetLabel(claim.draft.goal) ?? undefined,
         competitorUrl: claim.draft.competitorUrl || null,
         channels: claim.draft.channels,
         // The user has just created their account; a website we cannot scrape
@@ -371,14 +378,18 @@ export default async function OnboardingResumePage(
       websiteUrl: claim.draft.websiteUrl,
       businessName: claim.draft.businessName,
       businessType: claim.draft.businessType,
-      approverName: claim.draft.approverName,
-      launchApproverName: claim.draft.approverName,
+      approverName: claim.draft.launchApprover === 'none' ? '' : session.user.name || '',
+      launchApproverName: claim.draft.launchApprover === 'none' ? '' : session.user.name || '',
       competitorUrl: claim.draft.competitorUrl,
       goal: claim.draft.goal,
       primaryGoal: claim.draft.goal,
       offer: claim.draft.offer,
       brandVoice: claim.draft.brandVoice,
       notes: claim.draft.notes,
+      styleVibe: claim.draft.styleVibe,
+      timezone: claim.draft.timezone,
+      reelAudioMode: claim.draft.reelAudioMode,
+      goalType: claim.draft.goalType,
       channels: claim.draft.channels,
       mode: 'guided',
     };

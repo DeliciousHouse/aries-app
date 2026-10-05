@@ -60,6 +60,11 @@ test('onboarding draft store persists customer intake fields and materialization
       offer: 'Museum-grade framing',
       brandVoice: 'Warm, precise, and design-literate.',
       notes: 'Avoid discount-led language in the first week.',
+      styleVibe: 'Warm studio photography',
+      timezone: 'Europe/Paris',
+      reelAudioMode: 'both',
+      goalType: 'product_sales',
+      launchApprover: 'none',
       competitorUrl: 'https://competitor.example',
       status: 'ready_for_auth',
       materializedTenantId: '42',
@@ -81,6 +86,14 @@ test('onboarding draft store persists customer intake fields and materialization
     assert.equal(reloaded?.businessName, 'The FrameX');
     assert.equal(reloaded?.brandVoice, 'Warm, precise, and design-literate.');
     assert.equal(reloaded?.notes, 'Avoid discount-led language in the first week.');
+    assert.equal(reloaded?.styleVibe, 'Warm studio photography');
+    assert.equal(reloaded?.timezone, 'Europe/Paris');
+    assert.equal(reloaded?.reelAudioMode, 'both');
+    assert.equal(reloaded?.goalType, 'product_sales');
+    assert.equal(reloaded?.launchApprover, 'none');
+    await assert.rejects(store.updateOnboardingDraft(created.draftId, { timezone: 'invalid' }), /invalid_profile_context/);
+    await assert.rejects(store.updateOnboardingDraft(created.draftId, { reelAudioMode: 'invalid' }), /invalid_profile_context/);
+    await assert.rejects(store.updateOnboardingDraft(created.draftId, { launchApprover: 'other-user' }), /invalid_profile_context/);
     assert.equal(store.draftTenantId(created.draftId).startsWith('draft_'), true);
   });
 });

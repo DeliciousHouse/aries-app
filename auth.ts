@@ -337,8 +337,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         session.user.tenantSlug = String(token.tenantSlug);
         session.user.role = isTenantRole(token.tenantRole) ? token.tenantRole : undefined;
       }
-      if (session.user && token.timezone) {
-        session.user.timezone = String(token.timezone);
+      if (session.user && token.tenantId) {
+        session.user.timezone = loadTenantTimezoneOrFallback(String(token.tenantId));
       }
       // Multi-workspace: only ever present when the membership-aware
       // resolution (flag ON) stamped it on the token; lets the shell decide
