@@ -31,6 +31,11 @@ import type {
 
 export interface AccountConnectionProvider {
   readonly kind: 'composio' | 'direct_meta';
+  listAccountPages?(externalUserId: string, platform: 'facebook' | 'instagram', options?: { tenantId: string }): Promise<{
+    connectedAccountId: string;
+    pages: { id: string; name: string; hasInstagram: boolean }[];
+  }>;
+  selectAccountPage?(externalUserId: string, platform: 'facebook' | 'instagram', connectedAccountId: string, pageId: string, options?: { tenantId: string }): Promise<void>;
   createConnectLink(
     externalUserId: string,
     platform: IntegrationPlatform,

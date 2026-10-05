@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import ComposioPageSelection from './composio-page-selection';
 
 // Extended backoff schedule covering up to ~5 minutes of post-OAuth polling.
 // Composio can take up to ~9 minutes to activate a connection; we poll at
@@ -33,6 +34,8 @@ type Capabilities = {
 
 type Connection = {
   platform: string;
+  connectedAccountId: string | null;
+  externalAccountId: string | null;
   provider: string;
   status: 'not_connected' | 'pending' | 'connected' | 'reauthorization_required' | 'error';
   externalAccountName: string | null;
@@ -114,6 +117,7 @@ export default function ComposioConnectionsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [changingPage, setChangingPage] = useState<string | null>(null);
   // pollingPhase drives the enhanced "Finishing connecting…" copy.
   const [pollingPhase, setPollingPhase] = useState<PollingPhase>('idle');
   // Bounded retry bookkeeping for the eager reconcile (refs so changing them
@@ -256,6 +260,9 @@ export default function ComposioConnectionsScreen() {
           const cardPhase = conn.status === 'pending' ? pollingPhase : 'idle';
           const st = statusText(conn.status, caps, cardPhase);
           const isConnected = conn.status === 'connected';
+          const metaPlatform = conn.platform === 'facebook' || conn.platform === 'instagram' ? conn.platform : null;
+          const needsChoice = isConnected && metaPlatform && !conn.externalAccountId;
+          if (needsChoice) { st.label = 'Connected — confirm your account before publishing'; st.tone = 'amber'; }
           const lastPost = conn.lastSuccessfulPostAt ? new Date(conn.lastSuccessfulPostAt) : null;
           const connectLabel = conn.status === 'reauthorization_required' || conn.status === 'error'
             ? 'Reconnect' : conn.status === 'pending' ? 'Finish connecting' : 'Connect';
@@ -268,7 +275,7 @@ export default function ComposioConnectionsScreen() {
             conn.status === 'error';
           return (
             <div key={conn.platform} className="rounded-xl border border-slate-700 bg-slate-900/40 p-5">
-              <div className="flex items-start justify-between gap-4">
+              <div className="flex flex-col items-start justify-between gap-4 sm:flex-row">
                 <div>
                   <h2 className="text-lg font-medium">{PLATFORM_LABEL[conn.platform] ?? conn.platform}</h2>
                   {conn.externalAccountName && (
@@ -280,6 +287,10 @@ export default function ComposioConnectionsScreen() {
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2">
                   {isConnected ? (
+                    <>
+                    {metaPlatform && <button type="button" onClick={() => setChangingPage(conn.platform)} className="min-h-11 rounded-lg border border-slate-600 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-800">
+                      {metaPlatform === 'facebook' ? 'Change page' : 'Change account'}
+                    </button>}
                     <button
                       type="button"
                       onClick={() => disconnect(conn.platform)}
@@ -288,6 +299,7 @@ export default function ComposioConnectionsScreen() {
                     >
                       {busy === conn.platform ? '…' : 'Disconnect'}
                     </button>
+                    </>
                   ) : (
                     <>
                       <button
@@ -336,6 +348,11 @@ export default function ComposioConnectionsScreen() {
                   )}
                 </div>
               </div>
+
+              {isConnected && metaPlatform && (needsChoice || changingPage === conn.platform) && <>
+                <ComposioPageSelection key={conn.connectedAccountId} platform={metaPlatform} onSaved={async () => { setChangingPage(null); await load(); }} />
+                <button type="button" onClick={() => connect(conn.platform)} disabled={busy === conn.platform} className="mt-3 text-sm text-sky-300 underline">Reconnect {PLATFORM_LABEL[conn.platform]}</button>
+              </>}
 
               <p className="mt-4 text-xs text-slate-400">
                 Last successful post:{' '}

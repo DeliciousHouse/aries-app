@@ -9,11 +9,13 @@ export type PickerPage = {
 };
 
 type Props = {
-  state: string;
+  state?: string;
   pages: PickerPage[];
+  onSelect?: (pageId: string) => Promise<void>;
+  accountLabel?: string;
 };
 
-export default function MetaPagePickerForm({ state, pages }: Props) {
+export default function MetaPagePickerForm({ state, pages, onSelect, accountLabel = 'Page' }: Props) {
   const [selectedPageId, setSelectedPageId] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,6 +26,11 @@ export default function MetaPagePickerForm({ state, pages }: Props) {
     setSubmitting(true);
     setError(null);
     try {
+      if (onSelect) {
+        await onSelect(selectedPageId);
+        setSubmitting(false);
+        return;
+      }
       const response = await fetch('/api/oauth/meta/select-page', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -51,14 +58,14 @@ export default function MetaPagePickerForm({ state, pages }: Props) {
   return (
     <form onSubmit={onSubmit} className="space-y-4">
       <fieldset className="space-y-3">
-        <legend className="sr-only">Available Facebook Pages</legend>
+        <legend className="sr-only">Available {accountLabel}s</legend>
         {pages.map((page) => {
           const checked = selectedPageId === page.id;
           return (
             <label
               key={page.id}
               data-testid={`meta-page-option-${page.id}`}
-              className={`flex items-start gap-3 rounded-xl border p-4 transition-all duration-200 cursor-pointer ${
+              className={`flex items-start gap-3 rounded-xl border p-4 transition-colors duration-200 cursor-pointer ${
                 checked
                   ? 'border-aries-crimson bg-[#1a0e16]'
                   : 'border-[#1e1e2e] bg-[#111118] hover:border-[#2a2a3e]'
@@ -70,14 +77,14 @@ export default function MetaPagePickerForm({ state, pages }: Props) {
                 value={page.id}
                 checked={checked}
                 onChange={() => setSelectedPageId(page.id)}
-                className="mt-1 accent-aries-crimson"
-                aria-label={`Select Page ${page.name}`}
+                className="mt-1 h-5 w-5 shrink-0 accent-aries-crimson"
+                aria-label={`Select ${accountLabel} ${page.name}`}
               />
               <span className="flex-1">
                 <span className="block text-white font-semibold">{page.name}</span>
-                <span className="block text-xs text-[#888] mt-1" data-testid={`meta-page-ig-status-${page.id}`}>
+                {accountLabel === 'Page' && <span className="block text-sm text-[#aaa] mt-1" data-testid={`meta-page-ig-status-${page.id}`}>
                   {page.hasInstagram ? 'Instagram Business Account ready' : 'No Instagram Business Account'}
-                </span>
+                </span>}
               </span>
             </label>
           );
@@ -100,7 +107,7 @@ export default function MetaPagePickerForm({ state, pages }: Props) {
               : 'bg-[#1e1e2e] text-[#444] cursor-not-allowed'
           }`}
         >
-          {submitting ? 'Connecting…' : 'Use this Page'}
+          {submitting ? 'Connecting…' : `Use this ${accountLabel}`}
         </button>
       </div>
     </form>

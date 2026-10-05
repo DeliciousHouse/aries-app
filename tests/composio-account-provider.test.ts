@@ -48,14 +48,14 @@ test("createConnectLink returns the redirect URL and persists a pending row", as
 test("refreshConnectionStatus picks the toolkit-matching connection under a shared default auth config", async () => {
   // Both an instagram and a facebook connection come back (shared default
   // auth config). Refreshing facebook must NOT store the instagram account id.
-  const gateway = fakeGateway({ connections: [conn("ca_ig", "instagram"), conn("ca_fb", "facebook")] });
+  const gateway = fakeGateway({ connections: [conn("ca_ig", "instagram"), conn("ca_123", "facebook")] });
   const db = fakeDb();
   const provider = new ComposioAccountProvider(gateway, fakeConfig(), db);
   await provider.refreshConnectionStatus(userId, "facebook", { tenantId });
-  const upsert = db.queries.find((q) => /insert into connected_accounts/i.test(q.text));
+  const upsert = db.queries.find((q) => /UPDATE connected_accounts/i.test(q.text));
   assert.ok(upsert, "expected an upsert");
   // connected_account_id is param index 5 (1-based $5) -> array index 4.
-  assert.equal(upsert!.params[4], "ca_fb", "must persist the facebook connected-account id, not instagram");
+  assert.equal(upsert!.params[2], "ca_123", "must reconcile the pinned facebook connection, not instagram");
 });
 
 // ── Fix A: #699 — platform-scoped authConfig admits non-exact-slug ACTIVE conn ──
@@ -70,7 +70,7 @@ test("#699 Fix A: platform-scoped authConfig with non-exact toolkitSlug ACTIVE c
   // (they are already this-platform-only). Pre-fix: no upsert fired. Post-fix:
   // the ACTIVE connection is persisted as 'connected'.
   const gateway = fakeGateway({
-    connections: [conn("ca_ig_biz", "instagram_business", "ACTIVE")],
+    connections: [conn("ca_123", "instagram_business", "ACTIVE")],
   });
   const db = fakeDb();
   // authConfigId is platform-specific; defaultAuthConfigId stays null (the default
@@ -81,13 +81,13 @@ test("#699 Fix A: platform-scoped authConfig with non-exact toolkitSlug ACTIVE c
     db,
   );
   await provider.refreshConnectionStatus(userId, "instagram", { tenantId });
-  const upsert = db.queries.find((q) => /insert into connected_accounts/i.test(q.text));
-  assert.ok(upsert, "expected an upsert INSERT for the ACTIVE connection");
+  const upsert = db.queries.find((q) => /UPDATE connected_accounts/i.test(q.text));
+  assert.ok(upsert, "expected an UPDATE for the ACTIVE connection");
   // $5 = connectedAccountId (array index 4, 0-based)
-  assert.equal(upsert!.params[4], "ca_ig_biz",
+  assert.equal(upsert!.params[2], "ca_123",
     "must persist the instagram_business connected-account id, not leave it as pending");
   // $9 = status (array index 8)
-  assert.equal(upsert!.params[8], "connected",
+  assert.equal(upsert!.params[3], "connected",
     "status must be persisted as 'connected' for an ACTIVE Composio connection");
 });
 

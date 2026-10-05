@@ -312,7 +312,7 @@ const META_ENV: Partial<Record<(typeof OAUTH_ENV_KEYS)[number], string>> = {
   APP_BASE_URL: 'https://aries.example.com',
 };
 
-test('meta callback: short→long exchange persists Page Access Token (single page with IG BA)', async (t) => {
+test('meta callback: single Page with IG requires named confirmation before token persistence', async (t) => {
   await withEnv(META_ENV, async () => {
     const db = createDbHarness();
     seedPendingFacebook(db, 'state_single_page');
@@ -332,11 +332,12 @@ test('meta callback: short→long exchange persists Page Access Token (single pa
     assert.equal(scenario.longTokenCalls.count, 1, 'long-lived exchange must be invoked exactly once');
     assert.equal(scenario.meAccountsCalls.count, 1, '/me/accounts must be called exactly once');
 
-    assert.equal(result.broker_status, 'ok');
-    if (result.broker_status === 'ok') {
-      assert.equal(result.provider, 'facebook');
-      assert.equal(result.connection_status, 'connected');
-    }
+    assert.equal(result.broker_status, 'picker_required');
+    assert.equal(db.tokens.length, 0);
+    const response = await handleMetaSelectPageHttp(new Request('https://aries.example.com/api/oauth/meta/select-page', {
+      method: 'POST', body: JSON.stringify({ state: 'state_single_page', page_id: 'page_alpha' }),
+    }), { tenantContextLoader: async () => ({ userId: 'u', tenantId: '7', tenantSlug: 'test', role: 'tenant_admin' }) });
+    assert.equal(response.status, 200);
 
     assert.equal(db.connections.size, 2, 'must create both facebook and instagram connections');
     const facebookConn = [...db.connections.values()].find((c) => c.provider === 'facebook');
@@ -356,13 +357,13 @@ test('meta callback: short→long exchange persists Page Access Token (single pa
       assert.notEqual(decryptToken(token.access_token_enc || ''), scenario.longToken);
     }
     const okAudit = db.audits.find((a) => a.eventType === 'oauth.callback.connected');
-    assert.ok(okAudit, 'expected oauth.callback.connected audit');
+    assert.ok(okAudit, 'expected explicit selection audit');
 
     assert.equal(db.pendingStates.size, 0, 'pending state must be deleted after success');
   });
 });
 
-test('meta callback: single page without IG BA persists Page Token, no Instagram sibling', async (t) => {
+test('meta callback: single Page without IG also requires confirmation', async (t) => {
   await withEnv(META_ENV, async () => {
     const db = createDbHarness();
     seedPendingFacebook(db, 'state_no_ig');
@@ -379,7 +380,12 @@ test('meta callback: single page without IG BA persists Page Token, no Instagram
 
     const result = await oauthCallback('facebook', { code: 'auth-code-2', state: 'state_no_ig' });
 
-    assert.equal(result.broker_status, 'ok');
+    assert.equal(result.broker_status, 'picker_required');
+    assert.equal(db.tokens.length, 0);
+    const response = await handleMetaSelectPageHttp(new Request('https://aries.example.com/api/oauth/meta/select-page', {
+      method: 'POST', body: JSON.stringify({ state: 'state_no_ig', page_id: 'page_beta' }),
+    }), { tenantContextLoader: async () => ({ userId: 'u', tenantId: '7', tenantSlug: 'test', role: 'tenant_admin' }) });
+    assert.equal(response.status, 200);
     assert.equal(db.connections.size, 1, 'no instagram sibling when page has no IG BA');
     const facebookConn = [...db.connections.values()][0];
     assert.equal(facebookConn.provider, 'facebook');

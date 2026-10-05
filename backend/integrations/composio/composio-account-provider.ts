@@ -30,10 +30,11 @@ import {
 } from './connection-store';
 import { ComposioConfigError, ComposioError } from './errors';
 import { isActiveStatus, mapComposioStatus } from './status-map';
-import { resolveFacebookManagedPage } from './facebook-page-resolver';
+
 import { resolveLinkedInAuthorUrn } from './linkedin-author-resolver';
 import { isLinkedInEnabled } from '../providers/integration-config';
 import pool from '@/lib/db';
+import { listMetaAccountChoices } from './meta-account-choices';
 
 // Genuinely no Composio-managed shared credentials → operator must register a
 // custom OAuth app. Today only X/twitter. (Reddit HAS managed auth.)
@@ -90,7 +91,7 @@ export class ComposioAccountProvider implements AccountConnectionProvider {
       }
     }
 
-    const initiated = await this.gateway.initiateConnection(externalUserId, authConfigId, options?.callbackUrl);
+    const initiated = await this.gateway.initiateConnection(externalUserId, authConfigId, options?.callbackUrl, platform === 'facebook' || platform === 'instagram');
 
     await upsertConnection(
       {
@@ -98,7 +99,7 @@ export class ComposioAccountProvider implements AccountConnectionProvider {
         externalUserId,
         platform,
         provider: 'composio',
-        connectedAccountId: null,
+        connectedAccountId: platform === 'facebook' || platform === 'instagram' ? initiated.connectionRequestId : null,
         authConfigId,
         status: 'pending',
       },
@@ -202,29 +203,20 @@ export class ComposioAccountProvider implements AccountConnectionProvider {
             ? []
             : connections;
 
-    const active = candidates.find((c) => isActiveStatus(c.status)) ?? candidates[0];
+    const stored = await getConnectionRow(tenantId, platform, this.db);
+    const pinned = (platform === 'facebook' || platform === 'instagram') && stored?.connectedAccountId;
+    const active = pinned
+      ? candidates.find(c => c.id === stored.connectedAccountId)
+      : candidates.find((c) => isActiveStatus(c.status)) ?? candidates[0];
     if (!active) {
       return getConnectionRow(tenantId, platform, this.db) ?? notConnectedAccount(tenantId, externalUserId, platform, 'composio');
     }
 
-    // The Facebook Page id is not part of the connection metadata, so
-    // active.externalAccountId is usually null for FB. Resolve + capture it here
-    // so future connections store the Page id at connect time (the bridge's
-    // back-heal then only covers legacy rows). Best-effort: a failure leaves it
-    // null and the bridge resolves it later.
-    let externalAccountId = active.externalAccountId;
-    let externalAccountName = active.externalAccountName;
-    if (!externalAccountId && platform === 'facebook' && active.id && isActiveStatus(active.status)) {
-      try {
-        const page = await resolveFacebookManagedPage(this.gateway, this.config, active.id);
-        if (page) {
-          externalAccountId = page.pageId;
-          externalAccountName = externalAccountName ?? page.pageName;
-        }
-      } catch {
-        // best-effort — leave null, the sync bridge will back-heal it
-      }
-    } else if (
+    // Meta identity is selected by the operator, never inferred from OAuth metadata.
+    const isMeta = platform === 'facebook' || platform === 'instagram';
+    let externalAccountId = isMeta ? null : active.externalAccountId;
+    let externalAccountName = isMeta ? null : active.externalAccountName;
+    if (
       // LinkedIn's member person URN is likewise absent from the connection
       // metadata. Resolve it via LINKEDIN_GET_MY_INFO and store the FULL
       // `urn:li:person:<id>` so the publisher (#646) reads it straight into
@@ -248,6 +240,18 @@ export class ComposioAccountProvider implements AccountConnectionProvider {
       }
     }
 
+    if (isMeta) {
+      // Reconciliation must not resurrect a disconnected or replaced OAuth grant.
+      if (stored?.connectedAccountId && stored.externalUserId === externalUserId) {
+        await this.db.query(
+          `UPDATE connected_accounts SET status = $4, updated_at = NOW()
+           WHERE tenant_id = $1 AND platform = $2 AND connected_account_id = $3 AND external_user_id = $5`,
+          [tenantId, platform, active.id, mapComposioStatus(active.status), externalUserId],
+        );
+      }
+      return getConnectionRow(tenantId, platform, this.db);
+    }
+
     return upsertConnection(
       {
         tenantId,
@@ -262,5 +266,34 @@ export class ComposioAccountProvider implements AccountConnectionProvider {
       },
       this.db,
     );
+  }
+
+  async listAccountPages(externalUserId: string, platform: 'facebook' | 'instagram', options?: { tenantId: string }) {
+    const tenantId = this.requireTenant(options);
+    const stored = await getConnectionRow(tenantId, platform, this.db);
+    if (!stored?.connectedAccountId || stored.status !== 'connected' || stored.externalUserId !== externalUserId || stored.tenantId !== tenantId) {
+      throw new ComposioError('connection_changed', 'Reconnect before choosing an account.', { status: 409 });
+    }
+    return {
+      connectedAccountId: stored.connectedAccountId,
+      pages: await listMetaAccountChoices(this.gateway, this.config, stored.connectedAccountId, platform),
+    };
+  }
+
+  async selectAccountPage(externalUserId: string, platform: 'facebook' | 'instagram', connectedAccountId: string, pageId: string, options?: { tenantId: string }) {
+    const tenantId = this.requireTenant(options);
+    const available = await this.listAccountPages(externalUserId, platform, options);
+    const page = available.pages.find(p => p.id === pageId);
+    if (available.connectedAccountId !== connectedAccountId || !page) {
+      throw new ComposioError('invalid_account_choice', 'Choose an available account from the current connection.', { status: 409 });
+    }
+    const result = await this.db.query(
+      `UPDATE connected_accounts SET external_account_id = $4, external_account_name = $5,
+         capabilities_json = NULL, updated_at = NOW()
+       WHERE tenant_id = $1 AND platform = $2 AND connected_account_id = $3
+         AND external_user_id = $6 AND status = 'connected' RETURNING id`,
+      [tenantId, platform, connectedAccountId, page.id, page.name, externalUserId],
+    );
+    if (!result.rowCount) throw new ComposioError('connection_changed', 'Connection changed. Reload and choose again.', { status: 409 });
   }
 }

@@ -80,7 +80,7 @@ test('the bridge upserts an insights_accounts row from a connected Composio FB c
   assert.deepEqual(insert.params, [15, 'facebook', 'PAGE123', 'Sugar & Leather']);
 });
 
-test('the bridge resolves + persists the Page id from Composio when external_account_id is null', async () => {
+test('the bridge skips an unconfirmed Facebook Page without automatic selection', async () => {
   const db = recordingDb([
     {
       id: 9,
@@ -104,23 +104,11 @@ test('the bridge resolves + persists the Page id from Composio when external_acc
     config: fakeConfig({ actions: {} }),
   });
 
-  assert.equal(result.resolved, 1);
-  assert.equal(result.upserted, 1);
-  assert.equal(result.skippedNoPage, 0);
-
-  // It called FACEBOOK_LIST_MANAGED_PAGES with the connection's connectedAccountId.
-  assert.equal(gateway.calls[0].slug, DEFAULT_LIST_MANAGED_PAGES_SLUG);
-  assert.equal(gateway.calls[0].options.connectedAccountId, 'ca_live');
-
-  // It persisted the resolved Page id back to connected_accounts.
-  const update = db.queries.find((q) => /UPDATE connected_accounts/i.test(q.text));
-  assert.ok(update, 'persists the resolved page id back to connected_accounts');
-  assert.equal(update!.params[0], 'PAGE777');
-  assert.equal(update!.params[2], 9); // keyed on the connection row id
-
-  // And upserted insights_accounts with the resolved Page id + name.
-  const insert = db.queries.find((q) => /INSERT INTO insights_accounts/i.test(q.text));
-  assert.deepEqual(insert!.params, [15, 'facebook', 'PAGE777', 'Aries Page']);
+  assert.equal(result.resolved, 0);
+  assert.equal(result.upserted, 0);
+  assert.equal(result.skippedNoPage, 1);
+  assert.equal(gateway.calls.length, 0);
+  assert.equal(db.queries.find(q => /UPDATE connected_accounts|INSERT INTO insights_accounts/i.test(q.text)), undefined);
 });
 
 test('the bridge skips safely (no upsert, no throw) when Composio returns no managed page', async () => {
@@ -859,7 +847,7 @@ test('(d) IG LIVE-ON-CONNECT (external_account_id present): direct upsert, no re
   assert.deepEqual(insert!.params, [15, 'instagram', '12345678901', 'sugarleather']);
 });
 
-test('(d) IG LIVE-ON-CONNECT (external_account_id null): back-heals via resolveInstagramAccount ({ig_user_id:"me"}), upserts', async () => {
+test('(d) IG LIVE-ON-CONNECT requires explicit account confirmation', async () => {
   // The connect flow did not populate external_account_id (common for legacy or
   // first-time IG connections). The bridge must call INSTAGRAM_GET_USER_INFO with
   // {ig_user_id:'me'} to resolve the IG user id, persist it back to
@@ -887,30 +875,11 @@ test('(d) IG LIVE-ON-CONNECT (external_account_id null): back-heals via resolveI
     config: fakeConfig({ actions: {} }),
   });
 
-  assert.equal(result.resolved, 1, 'IG user id was resolved via back-heal');
-  assert.equal(result.upserted, 1);
-  assert.equal(result.skippedNoPage, 0);
-
-  // It called INSTAGRAM_GET_USER_INFO with {ig_user_id:'me'} and the right connectedAccountId.
-  assert.equal(gateway.calls.length, 1);
-  assert.equal(gateway.calls[0].slug, DEFAULT_INSTAGRAM_GET_ME_SLUG);
-  assert.equal(gateway.calls[0].options.connectedAccountId, 'ca_ig_heal');
-  assert.deepEqual(
-    gateway.calls[0].options.arguments,
-    { ig_user_id: 'me', fields: 'id,username,followers_count' },
-    'resolver sends {ig_user_id:"me"} to get the authenticated account',
-  );
-
-  // It persisted the resolved IG user id back to connected_accounts.
-  const update = db.queries.find((q) => /UPDATE connected_accounts/i.test(q.text));
-  assert.ok(update, 'persists the resolved IG user id back to connected_accounts');
-  assert.equal(update!.params[0], '98765432101', 'ig user id is persisted');
-  assert.equal(update!.params[2], 23, 'keyed on the connection row id');
-
-  // And upserted insights_accounts with the resolved IG user id + username.
-  const insert = db.queries.find((q) => /INSERT INTO insights_accounts/i.test(q.text));
-  assert.ok(insert, 'an INSERT INTO insights_accounts was issued');
-  assert.deepEqual(insert!.params, [15, 'instagram', '98765432101', 'sugarleather_ig']);
+  assert.equal(result.resolved, 0);
+  assert.equal(result.upserted, 0);
+  assert.equal(result.skippedNoPage, 1);
+  assert.equal(gateway.calls.length, 0);
+  assert.equal(db.queries.find(q => /UPDATE connected_accounts|INSERT INTO insights_accounts/i.test(q.text)), undefined);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
