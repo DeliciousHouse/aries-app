@@ -457,6 +457,7 @@ async function initDb() {
 
       ALTER TABLE onboarding_drafts ADD COLUMN IF NOT EXISTS brand_voice TEXT NOT NULL DEFAULT '';
       ALTER TABLE onboarding_drafts ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT '';
+      ALTER TABLE onboarding_drafts ADD COLUMN IF NOT EXISTS profile_context JSONB NOT NULL DEFAULT '{}'::jsonb;
 
       CREATE TABLE IF NOT EXISTS business_profiles (
         tenant_id INTEGER PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
@@ -484,6 +485,7 @@ async function initDb() {
       -- timestamp label render and convert in this one zone. Nullable; an
       -- unset value falls back to the fixed default in lib/format-timestamp.ts.
       ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS timezone TEXT;
+      ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS operator_updated BOOLEAN NOT NULL DEFAULT false;
 
       -- Per-tenant default reel audio mode (music | voiceover | both). Governs
       -- every reel for the tenant (automated weekly companion + create-form

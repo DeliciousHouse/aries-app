@@ -119,7 +119,8 @@ export default function AriesBusinessProfileScreen() {
     { kind: 'success' | 'error'; message: string } | null
   >(null);
 
-  const profile = business.profile.data?.profile ?? null;
+  const resolvedProfile = business.profile.data?.profile ?? null;
+  const profile = resolvedProfile ? { ...resolvedProfile, ...resolvedProfile.storedFields } : null;
   const teamProfiles = business.team.data?.profiles ?? [];
   const integrationCards = integrations.data?.status === 'ok' ? integrations.data.cards : [];
   const integrationsUnavailable = integrations.error || integrations.data?.status === 'error';
@@ -140,19 +141,19 @@ export default function AriesBusinessProfileScreen() {
   useEffect(() => {
     if (!profile) return;
     setBusinessName(profile.businessName);
-    setWebsiteUrl(profile.websiteUrl || profile.brandKit?.source_url || '');
+    setWebsiteUrl(profile.websiteUrl || '');
     setBusinessType(profile.businessType || '');
     setPrimaryGoal(profile.primaryGoal || '');
     setGoalType(profile.goalType ?? '');
-    setOffer(profile.offer || profile.brandIdentity?.offer || profile.brandKit?.offer_summary || '');
+    setOffer(profile.offer || '');
     setCompetitorUrl(profile.competitorUrl || '');
-    setSelectedChannels(profile.channels.length > 0 ? profile.channels : DEFAULT_CHANNEL_IDS);
-    setBrandVoice(profile.brandVoice || profile.brandIdentity?.toneOfVoice || '');
-    setStyleVibe(profile.styleVibe || profile.brandIdentity?.styleVibe || '');
-    setNotes(profile.notes || profile.brandIdentity?.summary || '');
+    setSelectedChannels(profile.channels);
+    setBrandVoice(profile.brandVoice || '');
+    setStyleVibe(profile.styleVibe || '');
+    setNotes(profile.notes || '');
     setLaunchApproverUserId(profile.launchApproverUserId || '');
     setTimezone(profile.timezone || 'America/New_York');
-  }, [profile]);
+  }, [resolvedProfile]);
 
   async function saveProfile() {
     const errors = validateBusinessProfileForm({ businessName, websiteUrl });

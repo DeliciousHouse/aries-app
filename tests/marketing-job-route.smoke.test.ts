@@ -99,6 +99,36 @@ function seedOpenAiConnection(input: { tenantId: string; connectionId: string; u
   store.connectedByTenantProvider.set(`${input.tenantId}::openai`, input.connectionId);
 }
 
+test('a manual social job inherits profile notes without overwriting settings with its brief', async () => {
+  const tenantId = 'tenant_manual_profile';
+  await withMarketingRuntimeEnv(tenantId, async (dataRoot) => {
+    const profilePath = path.join(dataRoot, 'generated', 'validated', tenantId, 'business-profile.json');
+    const stored = JSON.stringify({ tenant_id: tenantId, operator_updated: true,
+      business_name: 'Saved Brand', website_url: 'https://brand.example/',
+      business_type: 'Saved type', primary_goal: 'Saved goal', notes: 'No health claims',
+      brand_voice: 'Saved voice', style_vibe: 'Saved style', channels: ['instagram'] });
+    await writeFile(profilePath, stored);
+    (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__ = () => ({
+      ok: true, status: 'needs_approval', output: [{ run_id: 'manual-profile-run' }],
+      requiresApproval: { resumeToken: 'resume_strategy', prompt: 'Approve strategy.' },
+    });
+    const { handlePostSocialContentJobs } = await import('../app/api/social-content/jobs/route');
+    const { loadSocialContentJobRuntime } = await import('../backend/marketing/runtime-state');
+    const response = await handlePostSocialContentJobs(new Request('http://aries.example.test/api/social-content/jobs', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jobType: 'weekly_social_content', payload: {
+        businessType: 'Job-only type', primaryGoal: 'Job-only goal', brandVoice: 'Job-only voice',
+      } }),
+    }), async () => ({ userId: 'manual-test', tenantId, tenantSlug: 'manual-test', role: 'tenant_admin' }));
+    assert.equal(response.status, 202);
+    const body = await response.json();
+    const doc = await loadSocialContentJobRuntime(String(body.jobId));
+    assert.equal(doc?.inputs.request.notes, 'No health claims');
+    assert.equal(doc?.inputs.request.brandVoice, 'Job-only voice');
+    assert.equal(await readFile(profilePath, 'utf8'), stored);
+  });
+});
+
 test('/api/marketing/jobs reaches the first approval checkpoint through the real handler path', async () => {
   await withMarketingRuntimeEnv('tenant_route_smoke', async (dataRoot) => {
     const captured: Array<Record<string, unknown>> = [];
@@ -365,6 +395,7 @@ test('/api/social-content/jobs waits for explicit PostgreSQL provenance, invalid
     formData.set('businessType', 'Test vertical');
     formData.set('primaryGoal', 'Increase social media presence');
     formData.set('goal', 'Increase social media presence');
+    formData.set('persistProfileGoal', 'true');
 
     const { handlePostSocialContentJobs } = await import('../app/api/social-content/jobs/route');
     const responsePromise = handlePostSocialContentJobs(
@@ -549,6 +580,7 @@ test('/api/social-content/jobs fails closed when explicit PostgreSQL provenance 
     formData.set('primaryGoal', 'Increase social media presence');
 
     const { handlePostSocialContentJobs } = await import('../app/api/social-content/jobs/route');
+    formData.set('persistProfileGoal', 'true');
     const response = await handlePostSocialContentJobs(
       new Request('http://aries.example.test/api/social-content/jobs', {
         method: 'POST',

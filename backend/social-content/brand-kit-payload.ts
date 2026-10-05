@@ -161,6 +161,7 @@ function brandKitFontFamilies(brandKit: MarketingBrandKitReference | null | unde
 }
 
 function resolveBrandVoice(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
+  if (Object.hasOwn(req, 'brandVoice')) return stringValue(req.brandVoice);
   const summary = brandKitStringValue(brandKit?.brand_voice_summary);
   const tone = brandKitStringValue(brandKit?.tone_of_voice);
   const operatorVoice = stringValue(req.brandVoice);
@@ -179,6 +180,7 @@ function resolveBusinessName(req: UnknownRecord, brandKit: MarketingBrandKitRefe
 }
 
 function resolveNotes(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
+  if (Object.hasOwn(req, 'notes')) return stringValue(req.notes);
   const operatorNotes = stringValue(req.notes);
   if (operatorNotes) return operatorNotes;
   const summary = brandKit?.brand_voice_summary;
@@ -190,6 +192,7 @@ function resolveNotes(req: UnknownRecord, brandKit: MarketingBrandKitReference |
 }
 
 function resolveBrandOffer(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
+  if (Object.hasOwn(req, 'offer')) return stringValue(req.offer);
   return (
     repairStaleMarketingOffer({
       offer: stringValue(req.offer) || brandKitStringValue(brandKit?.offer_summary) || null,
@@ -204,6 +207,7 @@ function resolveBrandOffer(req: UnknownRecord, brandKit: MarketingBrandKitRefere
 }
 
 function resolveBrandStyleVibe(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
+  if (Object.hasOwn(req, 'styleVibe')) return stringValue(req.styleVibe);
   const enriched = brandKitStringValue(brandKit?.style_vibe);
   if (enriched) return enriched;
   return stringValue(req.styleVibe) || '';

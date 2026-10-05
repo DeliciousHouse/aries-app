@@ -169,9 +169,9 @@ async function enrichPayloadFromBusinessProfile(
     if (Array.isArray(nextPayload[key]) && nextPayload[key].length > 0) {
       return;
     }
-    if (typeof value === 'string' && value.trim().length > 0) {
+    if (typeof value === 'string') {
       nextPayload[key] = value;
-    } else if (Array.isArray(value) && value.length > 0) {
+    } else if (Array.isArray(value)) {
       nextPayload[key] = value;
     }
   };
@@ -189,6 +189,9 @@ async function enrichPayloadFromBusinessProfile(
   applyIfMissing('channels', defaults.channels);
   applyIfMissing('brandVoice', defaults.brandVoice);
   applyIfMissing('styleVibe', defaults.styleVibe);
+  applyIfMissing('notes', defaults.notes);
+  applyIfMissing('timezone', defaults.timezone);
+  applyIfMissing('reelAudioMode', defaults.reelAudioMode);
 
   return nextPayload;
 }
@@ -239,6 +242,7 @@ async function parseCreateJobRequest(req: Request): Promise<{
         mustAvoidAesthetics: coerceFieldValue(formData.get('mustAvoidAesthetics')),
         notes: coerceFieldValue(formData.get('notes')),
         primaryGoal: coerceFieldValue(formData.get('primaryGoal')) || coerceFieldValue(formData.get('goal')),
+        persistProfileGoal: formData.get('persistProfileGoal') === 'true',
         goal: coerceFieldValue(formData.get('goal')),
         offer: coerceFieldValue(formData.get('offer')),
         audience: coerceFieldValue(formData.get('audience')),
@@ -521,6 +525,8 @@ export async function handlePostMarketingJobs(
   const requestedPrimaryGoal = [requestBody.payload.primaryGoal, requestBody.payload.goal]
     .find((value): value is string => typeof value === 'string' && value.trim().length > 0);
   const primaryGoalProvenance: PrimaryGoalProvenance | undefined =
+    (requestBody.payload.persistProfileGoal === true || requestBody.payload.persistProfileGoal === 'true') &&
+    tenantResult.tenantContext.role === 'tenant_admin' &&
     options?.primaryGoalProvenance === 'authenticated_operator' &&
     requestedJobType === 'weekly_social_content' &&
     typeof tenantResult.tenantContext.userId === 'string' &&
@@ -536,12 +542,15 @@ export async function handlePostMarketingJobs(
   });
 
   try {
-    await persistBusinessProfileFieldsFromMarketingPayload({
-      tenantId: resolvedTenantId,
-      tenantSlug: tenantResult.tenantContext.tenantSlug,
-      payload: normalizedPayload,
-      primaryGoalProvenance,
-    });
+    // Only the explicit weekly goal-confirmation action may change settings.
+    // Ordinary manual-job briefs are job-local overrides, never profile writes.
+    if (primaryGoalProvenance) {
+      await persistBusinessProfileFieldsFromMarketingPayload({
+        tenantId: resolvedTenantId,
+        payload: { primaryGoal: requestedPrimaryGoal },
+        primaryGoalProvenance,
+      });
+    }
     const hydratedPayload = await enrichPayloadFromBusinessProfile(resolvedTenantId, normalizedPayload);
 
     // One-off campaigns: validate the brief and convert the form's YYYY-MM-DD

@@ -95,8 +95,7 @@ export async function triggerWeeklyJobForTenant(
       publishRequested: true,
     };
     const carry = (key: string, value: string | string[] | undefined) => {
-      if (typeof value === 'string' && value.trim().length > 0) payload[key] = value;
-      else if (Array.isArray(value) && value.length > 0) payload[key] = value;
+      if (value !== undefined) payload[key] = value;
     };
     carry('businessName', defaults.businessName);
     carry('primaryGoal', defaults.primaryGoal);
@@ -106,6 +105,9 @@ export async function triggerWeeklyJobForTenant(
     carry('channels', defaults.channels);
     carry('brandVoice', defaults.brandVoice);
     carry('styleVibe', defaults.styleVibe);
+    carry('notes', defaults.notes);
+    carry('timezone', defaults.timezone);
+    carry('reelAudioMode', defaults.reelAudioMode);
     carry('launchApproverName', defaults.launchApproverName);
     carry('approverName', defaults.approverName);
 

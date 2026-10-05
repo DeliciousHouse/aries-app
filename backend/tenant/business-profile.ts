@@ -7,6 +7,7 @@ import pool from '@/lib/db';
 import {
   extractAndSaveTenantBrandKit,
   loadTenantBrandKit,
+  saveTenantBrandKit,
   repairLegacyMarketingText,
   repairStaleMarketingOffer,
   sanitizeBrandKitSummaryText,
@@ -34,6 +35,7 @@ import {
   validateCanonicalCompetitorUrl,
 } from '@/lib/marketing-competitor';
 import { invalidateGoalNarrativeCache } from '@/backend/insights/goal/cache-invalidation';
+import { updateBusinessProfileMemory } from '@/backend/memory/business-profile-memory';
 import { deriveStoredGoalType, type GoalType } from '@/backend/insights/goal/goal-type-classification';
 import {
   goalTypeForWrittenText,
@@ -51,6 +53,7 @@ import {
 export type PrimaryGoalSource = 'explicit' | 'inferred';
 
 export type BusinessProfileRecord = {
+  operator_updated?: boolean;
   tenant_id: string;
   business_name: string | null;
   tenant_slug: string | null;
@@ -83,6 +86,7 @@ export type BusinessProfileRecord = {
 };
 
 export type BusinessProfileView = {
+  storedFields?: Partial<BusinessProfileView>;
   tenantId: string;
   businessName: string;
   tenantSlug: string;
@@ -127,6 +131,9 @@ export type ResolvedBusinessProfile = {
 };
 
 export type PersistedMarketingProfileDefaults = {
+  notes?: string;
+  timezone?: string;
+  reelAudioMode?: ReelAudioMode;
   websiteUrl?: string;
   businessName?: string;
   businessType?: string;
@@ -262,13 +269,13 @@ function mergePersistedStringField(
   nextValue: string | null | undefined,
   normalize?: (value: string) => string | null,
 ): { value: string | null; changed: boolean } {
-  if (nextValue === undefined || nextValue === null) {
+  if (nextValue === undefined) {
     return { value: currentValue, changed: false };
   }
 
-  const trimmed = nextValue.trim();
+  const trimmed = nextValue?.trim() || '';
   if (!trimmed) {
-    return { value: currentValue, changed: false };
+    return { value: null, changed: currentValue !== null };
   }
 
   const resolved = normalize ? normalize(trimmed) || trimmed : trimmed;
@@ -300,12 +307,12 @@ export function mergePersistedTimezoneField(
   currentValue: string | null,
   nextValue: string | null | undefined,
 ): { value: string | null; changed: boolean } {
-  if (nextValue === undefined || nextValue === null) {
+  if (nextValue === undefined) {
     return { value: currentValue, changed: false };
   }
-  const trimmed = nextValue.trim();
+  const trimmed = nextValue?.trim() || '';
   if (!trimmed) {
-    return { value: currentValue, changed: false };
+    return { value: null, changed: currentValue !== null };
   }
   if (!isValidTimeZone(trimmed)) {
     throw new Error(`${INVALID_TIMEZONE_ERROR}:${trimmed}`);
@@ -319,14 +326,11 @@ function mergePersistedStringArrayField(
   currentValue: string[],
   nextValue: string[] | null | undefined,
 ): { value: string[]; changed: boolean } {
-  if (nextValue === undefined || nextValue === null) {
+  if (nextValue === undefined) {
     return { value: currentValue, changed: false };
   }
 
   const normalized = stringArray(nextValue);
-  if (normalized.length === 0) {
-    return { value: currentValue, changed: false };
-  }
 
   const resolved = Array.from(new Set(normalized));
   return {
@@ -351,6 +355,7 @@ function normalizeBusinessProfileRecord(
 
   return {
     tenant_id: stringOrNull(value.tenant_id) || tenantId,
+    operator_updated: value.operator_updated === true,
     business_name: stringOrNull(value.business_name),
     tenant_slug: stringOrNull(value.tenant_slug),
     website_url: normalizeMarketingWebsiteUrl(stringOrNull(value.website_url)) || null,
@@ -390,13 +395,13 @@ function mergePersistedCompetitorUrlField(
   currentValue: string | null,
   nextValue: string | null | undefined,
 ): { value: string | null; changed: boolean } {
-  if (nextValue === undefined || nextValue === null) {
+  if (nextValue === undefined) {
     return { value: currentValue, changed: false };
   }
 
-  const trimmed = nextValue.trim();
+  const trimmed = nextValue?.trim() || '';
   if (!trimmed) {
-    return { value: currentValue, changed: false };
+    return { value: null, changed: currentValue !== null };
   }
 
   const validation = validateCanonicalCompetitorUrl(trimmed);
@@ -474,8 +479,8 @@ async function upsertBusinessProfileRecord(
       tenant_id, business_name, tenant_slug, website_url, business_type,
       primary_goal, primary_goal_source, goal_type, launch_approver_user_id, launch_approver_name, offer,
       brand_voice, style_vibe, notes, competitor_url, channels, timezone,
-      reel_audio_mode, updated_at
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,now())
+      reel_audio_mode, operator_updated, updated_at
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,now())
     ON CONFLICT (tenant_id) DO UPDATE SET
       business_name = EXCLUDED.business_name,
       tenant_slug = EXCLUDED.tenant_slug,
@@ -496,6 +501,7 @@ async function upsertBusinessProfileRecord(
       channels = EXCLUDED.channels,
       timezone = EXCLUDED.timezone,
       reel_audio_mode = EXCLUDED.reel_audio_mode,
+      operator_updated = EXCLUDED.operator_updated,
       updated_at = now()`,
     [
       numericId, record.business_name, record.tenant_slug,
@@ -505,6 +511,7 @@ async function upsertBusinessProfileRecord(
       record.brand_voice, record.style_vibe, record.notes,
       record.competitor_url, record.channels, record.timezone,
       record.reel_audio_mode,
+      record.operator_updated === true,
     ],
   );
 }
@@ -618,7 +625,7 @@ export async function resolveBusinessProfileBrandKit(tenantId: string): Promise<
   latestJobId: string | null;
 }> {
   const runtime = await runtimeBrandKitAsTenantBrandKit(tenantId);
-  if (runtime.brandKit) {
+  if (runtime.brandKit && !loadBusinessProfileRecord(tenantId)?.operator_updated) {
     return {
       brandKit: runtime.brandKit,
       source: 'runtime_brand_kit',
@@ -749,9 +756,26 @@ function buildBusinessProfileView(input: {
   validatedProfile: ValidatedMarketingProfileSnapshot;
   workspaceBrandContext: WorkspaceBrandContext;
 }): BusinessProfileView {
+  const storedFields: Partial<BusinessProfileView> = {
+    businessName: input.record?.business_name ?? input.businessName,
+    websiteUrl: input.record?.website_url ?? null,
+    businessType: input.record?.business_type ?? null,
+    primaryGoal: input.record?.primary_goal ?? null,
+    goalType: input.record?.goal_type ?? null,
+    launchApproverUserId: input.record?.launch_approver_user_id ?? null,
+    launchApproverName: input.record?.launch_approver_name ?? null,
+    offer: input.record?.offer ?? null,
+    brandVoice: input.record?.brand_voice ?? null,
+    styleVibe: input.record?.style_vibe ?? null,
+    notes: input.record?.notes ?? null,
+    competitorUrl: input.record?.competitor_url ?? null,
+    channels: input.record?.channels ?? [],
+    timezone: resolveTenantTimeZone(input.record?.timezone),
+    reelAudioMode: parseReelAudioMode(input.record?.reel_audio_mode) ?? DEFAULT_REEL_AUDIO_MODE,
+  };
   const websiteUrl =
-    input.validatedProfile.websiteUrl ??
     input.record?.website_url ??
+    input.validatedProfile.websiteUrl ??
     input.brandKit?.source_url ??
     null;
   const businessName =
@@ -777,18 +801,18 @@ function buildBusinessProfileView(input: {
     input.brandKit?.external_links.map((link) => link.platform).join(' '),
   ]);
   const effectiveBusinessType =
-    input.validatedProfile.businessType ??
     input.record?.business_type ??
+    input.validatedProfile.businessType ??
     inferredBusinessType;
   const effectivePrimaryGoal =
-    input.validatedProfile.primaryGoal ??
     input.record?.primary_goal ??
+    input.validatedProfile.primaryGoal ??
     inferredPrimaryGoal;
   const effectiveChannels = resolvedChannels(
-    input.validatedProfile.channels.length > 0 ? input.validatedProfile.channels : (input.record?.channels ?? []),
+    input.record?.channels.length ? input.record.channels : input.validatedProfile.channels,
   );
   const effectiveOffer = repairStaleMarketingOffer({
-    offer: input.validatedProfile.offer ?? input.record?.offer ?? input.brandKit?.offer_summary ?? null,
+    offer: input.record?.offer ?? input.validatedProfile.offer ?? input.brandKit?.offer_summary ?? null,
     brandName: businessName,
     businessType: effectiveBusinessType,
     primaryGoal: effectivePrimaryGoal,
@@ -825,6 +849,7 @@ function buildBusinessProfileView(input: {
 
   return {
     tenantId: input.tenantId,
+    storedFields,
     businessName,
     tenantSlug: input.tenantSlug,
     websiteUrl,
@@ -840,17 +865,18 @@ function buildBusinessProfileView(input: {
     brandVoice: effectiveBrandVoice,
     styleVibe: effectiveStyleVibe,
     notes: effectiveNotes,
-    competitorUrl: input.validatedProfile.competitorUrl ?? input.record?.competitor_url ?? null,
+    competitorUrl: input.record?.competitor_url ?? input.validatedProfile.competitorUrl ?? null,
     channels: effectiveChannels,
     timezone: resolveTenantTimeZone(input.record?.timezone),
     reelAudioMode: parseReelAudioMode(input.record?.reel_audio_mode) ?? DEFAULT_REEL_AUDIO_MODE,
     brandIdentity: input.validatedProfile.brandIdentity,
     brandKit: input.brandKit,
+    ...(input.record?.operator_updated ? storedFields : {}),
     incomplete: incompleteProfile({
-      businessName,
-      websiteUrl,
-      businessType: effectiveBusinessType,
-      primaryGoal: effectivePrimaryGoal,
+      businessName: input.record?.operator_updated ? storedFields.businessName! : businessName,
+      websiteUrl: input.record?.operator_updated ? storedFields.websiteUrl! : websiteUrl,
+      businessType: input.record?.operator_updated ? storedFields.businessType! : effectiveBusinessType,
+      primaryGoal: input.record?.operator_updated ? storedFields.primaryGoal! : effectivePrimaryGoal,
     }),
   };
 }
@@ -920,7 +946,7 @@ export async function getBusinessProfileWithDiagnostics(client: PoolClient, tena
   return {
     profile: buildBusinessProfileView({
       tenantId,
-      businessName: validatedProfile.businessName || record?.business_name || tenantRow.name || brandKit?.brand_name || '',
+      businessName: record?.business_name || tenantRow.name || validatedProfile.businessName || brandKit?.brand_name || '',
       tenantSlug: record?.tenant_slug || tenantRow.slug,
       record,
       brandKit,
@@ -947,6 +973,8 @@ export async function updateBusinessProfileWithDiagnostics(
 ): Promise<ResolvedBusinessProfile> {
   const current = await getBusinessProfileWithDiagnostics(client, input.tenantId);
   const currentStoredRecord = loadBusinessProfileRecord(input.tenantId);
+  // Merge stored operator fields, never kit/job suggestions from the resolved view.
+  current.profile = { ...current.profile, ...current.profile.storedFields };
 
   const nextBusinessName =
     mergePersistedStringField(current.profile.businessName || null, input.businessName).value ||
@@ -987,10 +1015,9 @@ export async function updateBusinessProfileWithDiagnostics(
       throw new Error('invalid_launch_approver');
     }
   }
-  const nextApproverName = mergePersistedStringField(
-    current.profile.launchApproverName,
-    input.launchApproverName,
-  ).value;
+  const nextApproverName = input.launchApproverUserId !== undefined
+    ? await launchApproverName(client, nextApproverUserId)
+    : mergePersistedStringField(current.profile.launchApproverName, input.launchApproverName).value;
   const nextOffer = mergePersistedStringField(current.profile.offer, input.offer).value;
   const nextBrandVoice = replacePersistedStringField(current.profile.brandVoice, input.brandVoice).value;
   const nextStyleVibe = mergePersistedStringField(current.profile.styleVibe, input.styleVibe).value;
@@ -1011,7 +1038,7 @@ export async function updateBusinessProfileWithDiagnostics(
   const nextReelAudioMode: ReelAudioMode | null =
     input.reelAudioMode === undefined
       ? currentStoredRecord?.reel_audio_mode ?? null
-      : parseReelAudioMode(input.reelAudioMode) ?? currentStoredRecord?.reel_audio_mode ?? null;
+      : input.reelAudioMode === null ? null : parseReelAudioMode(input.reelAudioMode) ?? currentStoredRecord?.reel_audio_mode ?? null;
 
   if (!nextBusinessName?.trim()) {
     throw new Error('missing_required_fields:businessName');
@@ -1020,6 +1047,7 @@ export async function updateBusinessProfileWithDiagnostics(
   await client.query('UPDATE organizations SET name = $1 WHERE id = $2', [nextBusinessName, Number(input.tenantId)]);
 
   await saveAuthenticatedBusinessProfileRecord(client, {
+    operator_updated: true,
     tenant_id: input.tenantId,
     business_name: nextBusinessName,
     tenant_slug: current.profile.tenantSlug,
@@ -1053,10 +1081,25 @@ export async function updateBusinessProfileWithDiagnostics(
   // persisted) and never throws, so a cache miss can't fail the user's save.
   await invalidateGoalNarrativeCache(client, input.tenantId);
 
-  await persistBrandKitIfNeeded(input.tenantId, nextWebsiteUrl, current.profile.websiteUrl, {
-    tolerateFetchFailure: input.tolerateBrandKitFailure === true,
-  });
-  return getBusinessProfileWithDiagnostics(client, input.tenantId);
+  if (nextWebsiteUrl !== current.profile.websiteUrl || !await loadTenantBrandKit(input.tenantId)) {
+    await persistBrandKitIfNeeded(input.tenantId, nextWebsiteUrl, current.profile.websiteUrl, {
+      tolerateFetchFailure: input.tolerateBrandKitFailure === true,
+    });
+  }
+  const kit = await loadTenantBrandKit(input.tenantId);
+  if (kit) {
+    saveTenantBrandKit(input.tenantId, {
+      ...kit, brand_name: nextBusinessName, brand_voice_summary: nextBrandVoice,
+      tone_of_voice: null, style_vibe: nextStyleVibe, offer_summary: nextOffer,
+    });
+  }
+  const saved = await getBusinessProfileWithDiagnostics(client, input.tenantId);
+  try {
+    await updateBusinessProfileMemory(saved.profile);
+  } catch {
+    console.warn('[business-profile] Honcho profile update failed', { tenantId: input.tenantId });
+  }
+  return saved;
 }
 
 export async function tenantHasStoredBusinessProfileState(tenantId: string): Promise<boolean> {
@@ -1202,6 +1245,7 @@ export async function persistBusinessProfileFieldsFromMarketingPayload(
 
   const nextRecord: BusinessProfileRecord = {
     tenant_id: input.tenantId,
+    operator_updated: current?.operator_updated,
     business_name: current?.business_name ?? null,
     tenant_slug: current?.tenant_slug ?? stringOrNull(input.tenantSlug),
     website_url: current?.website_url ?? null,
@@ -1352,6 +1396,19 @@ export async function persistBusinessProfileFieldsFromMarketingPayload(
 
 export async function marketingPayloadDefaultsFromBusinessProfile(tenantId: string): Promise<PersistedMarketingProfileDefaults> {
   const record = loadBusinessProfileRecord(tenantId);
+  // Explicit clears are saved values, not requests for enrichment fallback.
+  if (record?.operator_updated) {
+    return {
+      websiteUrl: record.website_url ?? '', businessName: record.business_name ?? '',
+      businessType: record.business_type ?? '', primaryGoal: record.primary_goal ?? '',
+      goal: record.primary_goal ?? '', launchApproverName: record.launch_approver_name ?? '',
+      approverName: record.launch_approver_name ?? '', offer: record.offer ?? '',
+      brandVoice: record.brand_voice ?? '', styleVibe: record.style_vibe ?? '',
+      notes: record.notes ?? '', competitorUrl: record.competitor_url ?? '',
+      channels: [...record.channels], timezone: resolveTenantTimeZone(record.timezone),
+      reelAudioMode: record.reel_audio_mode ?? DEFAULT_REEL_AUDIO_MODE,
+    };
+  }
   const { brandKit, latestJobId } = await resolveBusinessProfileBrandKit(tenantId);
   const validatedProfile = await loadValidatedMarketingProfileSnapshot(tenantId, {
     currentSourceUrl: record?.website_url ?? brandKit?.canonical_url ?? brandKit?.source_url ?? null,
@@ -1410,6 +1467,7 @@ export async function marketingPayloadDefaultsFromBusinessProfile(tenantId: stri
     offer,
     brandVoice,
     styleVibe: record?.style_vibe ?? workspaceBrandContext.styleVibe ?? validatedProfile.brandIdentity?.styleVibe ?? undefined,
+    notes: record?.notes ?? undefined,
     competitorUrl: record?.competitor_url ?? validatedProfile.competitorUrl ?? undefined,
     channels,
   };

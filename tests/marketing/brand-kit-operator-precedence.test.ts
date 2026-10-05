@@ -104,7 +104,7 @@ test('applyBrandKitEnrichment: operator brandVoice prevents enrichment from over
   );
 });
 
-test('applyBrandKitEnrichment: operator brandVoice preserves existing base tone_of_voice', () => {
+test('applyBrandKitEnrichment: operator brandVoice replaces stale summary and removes scraped tone', () => {
   const base = makeBaseBrandKit({ tone_of_voice: 'Dark minimal tone from prior scrape' });
   const enrichment = makeEnrichment({ toneOfVoice: 'casual, friendly, bright' });
   const operatorOverrides = { brandVoice: 'Dark minimal, authoritative' };
@@ -113,9 +113,10 @@ test('applyBrandKitEnrichment: operator brandVoice preserves existing base tone_
 
   assert.strictEqual(
     result.tone_of_voice,
-    'Dark minimal tone from prior scrape',
-    'When operator provided brandVoice, existing base tone_of_voice must be preserved over enrichment',
+    null,
+    'Scraped tone must not contradict the operator voice',
   );
+  assert.equal(result.brand_voice_summary, operatorOverrides.brandVoice);
 });
 
 // ---------------------------------------------------------------------------

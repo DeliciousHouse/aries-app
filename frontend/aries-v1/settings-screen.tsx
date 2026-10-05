@@ -107,7 +107,8 @@ export default function AriesSettingsScreen() {
   const [launchApproverUserId, setLaunchApproverUserId] = useState('');
   const [reelAudioMode, setReelAudioMode] = useState<ReelAudioMode>('music');
 
-  const profile = business.profile.data?.profile ?? null;
+  const resolvedProfile = business.profile.data?.profile ?? null;
+  const profile = resolvedProfile ? { ...resolvedProfile, ...resolvedProfile.storedFields } : null;
   const teamProfiles = business.team.data?.profiles ?? [];
   const integrationCards = integrations.data?.status === 'ok' ? integrations.data.cards : [];
   const integrationsUnavailable = integrations.error || integrations.data?.status === 'error';
