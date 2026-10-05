@@ -13,6 +13,8 @@ async function healthResponse(status: ConnectedAccount['status'], tenantId = '61
   const account = {
     ...notConnectedAccount(tenantId, `aries-tenant-${tenantId}`, 'facebook', 'composio'),
     status,
+    connectedAccountId: 'ca_current',
+    externalAccountId: status === 'connected' ? `page-${tenantId}` : null,
     externalAccountName: `Workspace ${tenantId} Page`,
   };
   const provider: AccountConnectionProvider = {

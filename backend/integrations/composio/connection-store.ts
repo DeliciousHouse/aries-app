@@ -105,8 +105,15 @@ export async function upsertConnection(
        provider = EXCLUDED.provider,
        connected_account_id = EXCLUDED.connected_account_id,
        auth_config_id = EXCLUDED.auth_config_id,
-       external_account_id = COALESCE(EXCLUDED.external_account_id, connected_accounts.external_account_id),
-       external_account_name = COALESCE(EXCLUDED.external_account_name, connected_accounts.external_account_name),
+       external_account_id = CASE WHEN EXCLUDED.platform IN ('facebook', 'instagram') AND
+         (EXCLUDED.status = 'pending' OR EXCLUDED.connected_account_id IS DISTINCT FROM connected_accounts.connected_account_id)
+         THEN EXCLUDED.external_account_id ELSE COALESCE(EXCLUDED.external_account_id, connected_accounts.external_account_id) END,
+       external_account_name = CASE WHEN EXCLUDED.platform IN ('facebook', 'instagram') AND
+         (EXCLUDED.status = 'pending' OR EXCLUDED.connected_account_id IS DISTINCT FROM connected_accounts.connected_account_id)
+         THEN EXCLUDED.external_account_name ELSE COALESCE(EXCLUDED.external_account_name, connected_accounts.external_account_name) END,
+       capabilities_json = CASE WHEN EXCLUDED.platform IN ('facebook', 'instagram') AND
+         (EXCLUDED.status = 'pending' OR EXCLUDED.connected_account_id IS DISTINCT FROM connected_accounts.connected_account_id)
+         THEN NULL ELSE connected_accounts.capabilities_json END,
        status = EXCLUDED.status,
        updated_at = NOW()
      RETURNING *`,

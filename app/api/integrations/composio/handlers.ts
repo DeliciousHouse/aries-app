@@ -253,6 +253,32 @@ export async function handleComposioCapabilities(platformRaw: string, loader?: T
   }
 }
 
+export async function handleComposioPages(
+  req: Request,
+  platformRaw: string,
+  loader?: TenantContextLoader,
+  provider: AccountConnectionProvider | null = getAccountConnectionProvider(),
+): Promise<Response> {
+  if (platformRaw !== 'facebook' && platformRaw !== 'instagram') return json({ status: 'error', message: 'Unsupported account picker.' }, 400);
+  const tenantResult = await loadTenantContextOrResponse(loader);
+  if ('response' in tenantResult) return tenantResult.response;
+  const { tenantId } = tenantResult.tenantContext;
+  if (!provider?.listAccountPages || !provider.selectAccountPage) return composioDisabledResponse();
+  try {
+    const userId = externalUserIdFor(tenantId);
+    if (req.method === 'GET') return json({ status: 'ok', ...await provider.listAccountPages(userId, platformRaw, { tenantId }) });
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body.pageId !== 'string' || !body.pageId.trim() || typeof body.connectedAccountId !== 'string' || !body.connectedAccountId.trim()) {
+      return json({ status: 'error', message: 'Select an available account.' }, 400);
+    }
+    await provider.selectAccountPage(userId, platformRaw, body.connectedAccountId, body.pageId, { tenantId });
+    return json({ status: 'ok' });
+  } catch (error) {
+    if (error instanceof IntegrationError) return errorResponse(error);
+    return json({ status: 'error', message: 'Could not confirm the account. Please retry.' }, 500);
+  }
+}
+
 export async function handleComposioDisconnect(platformRaw: string, loader?: TenantContextLoader): Promise<Response> {
   const platform = platformOr400(platformRaw);
   if (platform instanceof Response) return platform;

@@ -116,11 +116,11 @@ test('#703: composio-connections-screen connected branch renders Disconnect (not
   const isConnectedBranchIdx = composioConnectionsScreenSource.indexOf('isConnected ?');
   assert.ok(isConnectedBranchIdx >= 0, 'screen must have an isConnected branch');
 
-  // Within ~450 chars of the isConnected branch the Disconnect label appears
-  // (the button text is inside the button children, after the className prop).
+  // Read the connected branch up to the non-connected alternative, allowing
+  // the shared picker Change button to precede Disconnect.
   const connectedBlock = composioConnectionsScreenSource.slice(
     isConnectedBranchIdx,
-    isConnectedBranchIdx + 500,
+    composioConnectionsScreenSource.indexOf(') : (', isConnectedBranchIdx),
   );
   assert.ok(
     connectedBlock.includes("'Disconnect'") || connectedBlock.includes('"Disconnect"'),

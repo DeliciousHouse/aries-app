@@ -66,6 +66,7 @@ export interface ComposioGateway {
     userId: string,
     authConfigId: string,
     callbackUrl?: string,
+    allowMultiple?: boolean,
   ): Promise<GatewayInitiateResult>;
   listConnections(filter: {
     userIds?: string[];
@@ -244,7 +245,7 @@ export class LiveComposioGateway implements ComposioGateway {
     return created.id;
   }
 
-  async initiateConnection(userId: string, authConfigId: string, callbackUrl?: string): Promise<GatewayInitiateResult> {
+  async initiateConnection(userId: string, authConfigId: string, callbackUrl?: string, allowMultiple = false): Promise<GatewayInitiateResult> {
     const composio = await this.client();
     // Use `link()`, not the retired `initiate()`: initiate() returns 400 for
     // Composio-managed OAuth as of 2026-05-08. `link()` is the modern hosted-auth
@@ -253,7 +254,7 @@ export class LiveComposioGateway implements ComposioGateway {
     const req = await composio.connectedAccounts.link(
       userId,
       authConfigId,
-      callbackUrl ? { callbackUrl } : undefined,
+      allowMultiple ? { callbackUrl, allowMultiple: true } : callbackUrl ? { callbackUrl } : undefined,
     );
     return { connectionRequestId: req.id, redirectUrl: req.redirectUrl ?? null };
   }

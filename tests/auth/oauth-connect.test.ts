@@ -504,7 +504,7 @@ test('oauth reconnect routes reject requests without tenant context', async () =
   assert.equal(body.reason, 'tenant_context_required');
 });
 
-test('oauth callback redirects browser requests to the branded OAuth screen', async (t) => {
+test('single-page OAuth callback redirects browser requests to named confirmation without saving a connection', async (t) => {
   await withMetaEnv(async () => {
     resetOauthStore();
 
@@ -512,9 +512,11 @@ test('oauth callback redirects browser requests to the branded OAuth screen', as
     const createdAt = new Date().toISOString();
     const now = createdAt;
 
+    let accountWrites = 0;
     // Mock pool.query: serve dbGetPendingState, then handle all writes
     t.mock.method(pool, 'query', (async (sql: string, params: unknown[] = []) => {
       const text = String(sql);
+      if (text.includes('INSERT INTO oauth_connections') || text.includes('INSERT INTO oauth_tokens')) accountWrites++;
 
       if (text.includes('FROM oauth_pending_states') && text.includes('WHERE state = $1')) {
         if (String(params[0]) === 'state_valid123') {
@@ -631,8 +633,8 @@ test('oauth callback redirects browser requests to the branded OAuth screen', as
 
       assert.equal(response.status, 302);
       const location = response.headers.get('location') || '';
-      assert.match(location, /^https:\/\/aries\.example\.com\/oauth\/connect\/facebook\?/);
-      assert.match(location, /result=connected/);
+      assert.equal(location, 'https://aries.example.com/onboarding/connect/meta/select-page?state=state_valid123');
+      assert.equal(accountWrites, 0, 'discovery must not save a connection/token before named confirmation');
     } finally {
       if (previousAppBaseUrl === undefined) {
         delete process.env.APP_BASE_URL;

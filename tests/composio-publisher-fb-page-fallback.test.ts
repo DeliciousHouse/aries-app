@@ -110,8 +110,8 @@ for (const { label, make } of sdkThrows) {
     // ever made, which is what makes never-posted provable here.
     assert.deepEqual(
       gateway.calls.map((c) => c.slug),
-      [DEFAULT_LIST_MANAGED_PAGES_SLUG],
-      'no publish tool call may be attempted after the fallback fails',
+      [],
+      'unconfirmed Page must not enumerate or publish',
     );
   });
 }
