@@ -7,7 +7,8 @@ import test from 'node:test';
 const PROJECT_ROOT = process.cwd();
 const composeSource = readFileSync(path.join(PROJECT_ROOT, 'docker-compose.yml'), 'utf8');
 const deploySource = readFileSync(
-  path.join(PROJECT_ROOT, '.github', 'workflows', 'deploy.yml'),
+  // Historical contract only; the migrated stack does not run autoheal.
+  path.join(PROJECT_ROOT, 'tests', 'fixtures', 'retired-deploy.yml'),
   'utf8',
 );
 const deployParitySource = readFileSync(

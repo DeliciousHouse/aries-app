@@ -7,35 +7,32 @@
 - `docker-compose.selfhost.yml`
 - `.dockerignore`
 
-## Deployment contract
+## Repository Compose contract (not the migrated production manifest)
 - Application code is baked into the image and mounted internally at `/app`.
 - Writable runtime data lives under `/data` only.
-- Production Compose mounts `/data` from `${ARIES_SHARED_DATA_ROOT:-/home/node/data}` so generated artifacts survive container replacement.
+- Repository Compose mounts `/data` from `${ARIES_SHARED_DATA_ROOT:-/home/node/data}`. This is not the adopted production bind path.
 - Source bind mounts are development-only.
 
 ## Production release
 
-For `aries-app`, deploy by merging or pushing to `master`. The GitHub Actions Deploy workflow builds and publishes `ghcr.io/delicioushouse/aries-app:<sha>` for the exact target commit, then the self-hosted deploy host starts the pinned `aries-autoheal` external sidecar, pulls that pinned app image, force-recreates the `aries-app` service, and — once the app passes its health check — force-recreates every app-image worker sidecar in `docker-compose.yml` onto the same pinned image. A post-deploy check then verifies each app-image sidecar has a running container on the target image ID; sidecar failures are non-fatal to the deploy but surface as GitHub `::warning::` annotations and step-summary lines. `tests/deploy-manifest-parity.test.ts` (in `npm run verify` and CI) fails when an app-image compose service is added without a matching recreate block in the workflow.
+Production is the existing ubuntu-docker stack at https://aries.deliciouswines.org.
+The former checkout-based Deploy workflow is retired from GitHub Actions; its
+test fixture preserves helper regression coverage, not permission to execute it.
+Merging to `master` no longer deploys. Existing queued runs retain their old
+workflow definition: do not attach a runner, rerun or repoint them.
 
-After the app and every sidecar are verified on the target image, the deploy rewrites `ARIES_APP_IMAGE` in the deploy checkout's `.env` (`scripts/release/sync-env-image-pin.sh`) to the hybrid `ghcr.io/…/aries-app:<git-sha>@sha256:<registry-digest>` reference, so the pin always describes what is actually running. Before that existed, the pin went stale on every deploy and a bare `docker compose up` in the checkout silently rolled production back to the old pinned image (this happened twice on 2026-08-12).
+Follow [the replacement release protocol](docs/runbooks/ubuntu-docker-replacement.md).
+It records the current three-worker inventory, missing compatibility evidence, offline
+preflight and rollback boundaries. The existing hosted `release-image` workflow
+can publish a SHA-addressable candidate, but image publication is not deployment.
+No production replacement is authorized until the evidence and executable path
+are reviewed. Do not run the repo Compose defaults, mutate `.env`, initialize
+schema, recreate absent workers or start autoheal on the migrated host.
 
-Before any **manual** `docker compose up`/restart in the deploy checkout, run the pre-flight guard:
+### Boot resilience and repository Compose unhealthy-container recovery
 
-```bash
-./scripts/check-image-pin.sh
-```
-
-It exits non-zero when the `.env` pin disagrees with the image the running containers actually run — the state where a compose up is a silent rollback — and prints how to fix the pin. To intentionally change what runs, use the Deploy workflow, not a bare compose up.
-
-Manual deploys still use workflow dispatch with an explicit image tag. Use the full commit SHA for normal production recovery so the workflow can build and verify the exact image before restart:
-
-```bash
-gh workflow run Deploy --ref master \
-  -f image_tag=<full-commit-sha> \
-  -f git_ref=<full-commit-sha>
-```
-
-### Boot resilience and unhealthy-container recovery
+The autoheal configuration below applies to repository Compose only. The adopted
+ubuntu-docker stack has no autoheal; do not introduce Docker-socket access there.
 
 The production instrumentation hook probes the configured Hermes gateway's
 `/health` and `/v1/capabilities` endpoints. It retries a boot-time failure three
@@ -53,8 +50,8 @@ manifest and the in-repo `scripts/aries-autoheal.sh` policy. It allows at most t
 successful restarts per container in 15 minutes; further checks leave the
 container unhealthy and emit one operator-visible error until the window expires.
 Restart history lives in the `aries-autoheal-state` volume, so restarting the
-watcher does not reset the budget. The deploy workflow starts and verifies the
-watcher before recreating the web container.
+watcher does not reset the budget. The retired deploy fixture started the
+watcher before recreating the web container; it is not the current release path.
 
 The watcher needs read/write access to `/var/run/docker.sock` to issue a restart,
 which is effectively host-level Docker control. Its Docker query requires both the

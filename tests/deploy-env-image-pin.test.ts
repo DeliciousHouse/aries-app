@@ -10,7 +10,8 @@ import { resolveProjectRoot } from './helpers/project-root';
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
 const workflow = readFileSync(
-  path.join(PROJECT_ROOT, '.github', 'workflows', 'deploy.yml'),
+  // Historical checkout contract, not the migrated production environment.
+  path.join(PROJECT_ROOT, 'tests', 'fixtures', 'retired-deploy.yml'),
   'utf8',
 );
 

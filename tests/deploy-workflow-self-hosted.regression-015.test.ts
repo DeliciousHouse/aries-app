@@ -10,7 +10,8 @@ import { resolveProjectRoot } from './helpers/project-root';
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
 const workflow = readFileSync(
-  path.join(PROJECT_ROOT, '.github', 'workflows', 'deploy.yml'),
+  // Preserve schema/worker rollback regressions; this workflow is retired.
+  path.join(PROJECT_ROOT, 'tests', 'fixtures', 'retired-deploy.yml'),
   'utf8',
 );
 
