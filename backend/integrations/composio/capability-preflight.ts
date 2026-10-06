@@ -77,7 +77,7 @@ export function computeCapabilities(ctx: PreflightContext): Capabilities {
   caps.canUploadMedia = has('upload_media') || has('publish_post');
   caps.canReadPostInsights = canAnalytics('post_insights');
   caps.canReadAdInsights = canAnalytics('ad_insights');
-  caps.canPublishAds = has('create_ad');
+  caps.canPublishAds = platform !== 'meta_ads' && has('create_ad');
 
   if (!caps.canPublishOrganic) {
     caps.missingPermissions.push(`${platform}.publish_post action slug`);

@@ -72,17 +72,11 @@ test('publishPost approved + slug executes and normalizes the post id', async ()
   assert.equal(gateway.calls[0].slug, 'FB_POST');
 });
 
-test('publishAd ALWAYS creates PAUSED and forces PAUSED status args', async () => {
+test('Meta Ads creation is disabled until campaign and budget approval is implemented', async () => {
   const gateway = fakeGateway({ executeResult: { data: { campaign_id: 'c1', ad_id: 'a1' }, successful: true, error: null } });
   const provider = new ComposioPublisherProvider(gateway, fakeConfig({ actions: { create_ad: 'META_CREATE_AD' } }), fakeDb());
-  const result = await provider.publishAd({ tenantId, platform: 'meta_ads', name: 'Promo' });
-  assert.equal(result.status, 'paused');
-  assert.equal(result.externalCampaignId, 'c1');
-  assert.equal(result.externalAdId, 'a1');
-  const args = gateway.calls[0].options.arguments as Record<string, unknown>;
-  assert.equal(args.status, 'PAUSED');
-  assert.equal(args.campaign_status, 'PAUSED');
-  assert.equal(args.adset_status, 'PAUSED');
+  await assert.rejects(() => provider.publishAd({ tenantId, platform: 'meta_ads', name: 'Promo', campaign: { status: 'ACTIVE' } }), PublishGuardError);
+  assert.equal(gateway.calls.length, 0);
 });
 
 test('uploadMedia with no configured slug is a documented no-op preview', async () => {

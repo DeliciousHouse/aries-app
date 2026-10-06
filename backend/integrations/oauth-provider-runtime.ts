@@ -19,6 +19,7 @@ export type ProviderOAuthAvailability = {
 const SHARED_TOKEN_ENV = 'OAUTH_TOKEN_ENCRYPTION_KEY';
 
 const PROVIDER_ENV_CONTRACT: Record<ProviderKey, ProviderEnvContract> = {
+  meta_ads: { authEnv: ['META_APP_ID', 'META_APP_SECRET'], connectionMode: 'oauth' },
   facebook: { authEnv: ['META_APP_ID', 'META_APP_SECRET'], connectionMode: 'oauth' },
   instagram: { authEnv: ['META_PAGE_ID', 'META_ACCESS_TOKEN'], connectionMode: 'env_managed' },
   linkedin: { authEnv: ['LINKEDIN_CLIENT_ID', 'LINKEDIN_CLIENT_SECRET'], connectionMode: 'oauth' },
