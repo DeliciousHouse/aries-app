@@ -212,19 +212,8 @@ export function oauthStatus(provider: string, tenantId?: string): PlatformConnec
     return buildMisconfiguredStatus(provider, tenantId.trim(), now, availability.message, availability.missingEnv);
   }
   if (!availability.connectable) {
-    return {
-      schema_name: 'platform_connection_status_schema',
-      schema_version: '1.0.0',
-      tenant_id: tenantId.trim(),
-      integration_id: undefined,
-      platform: provider,
-      connection_status: 'connected',
-      status_reason: 'env_managed',
-      health: 'unknown',
-      updated_at: now,
-      capabilities: [],
-      metadata: {},
-    };
+    return buildMisconfiguredStatus(provider, tenantId.trim(), now,
+      'Global Meta credentials are not a tenant connection. Connect this channel via Composio.', []);
   }
   return {
     schema_name: 'platform_connection_status_schema',
@@ -266,35 +255,8 @@ export async function oauthStatusAsync(provider: string, tenantId?: string): Pro
     return buildMisconfiguredStatus(provider, normalizedTenantId, new Date().toISOString(), availability.message, availability.missingEnv);
   }
   if (!availability.connectable) {
-    // Env-managed providers (Instagram, via META_PAGE_ID/META_ACCESS_TOKEN)
-    // have no per-tenant OAuth record in oauth_connections by design. The
-    // Composio-active consult that used to live here has moved to
-    // `accountProviderStatus`, invoked at the top of this function BEFORE the
-    // availability checks (Instagram is an IntegrationPlatform, so when Composio
-    // is active that guard already returned this tenant's connected_accounts
-    // status). Reaching here therefore means Composio is disabled — there is no
-    // per-tenant record to check at all, so the legacy unconditional "connected"
-    // behavior is preserved byte-identically (#808).
-    //
-    // NOTE: the deprecated sync `oauthStatus` twin below intentionally keeps its
-    // legacy unconditional env-managed behavior even when Composio is enabled —
-    // a known limitation, not fixed here (out of scope; no remaining callers rely
-    // on it for env-managed correctness).
-    const now = new Date().toISOString();
-
-    return {
-      schema_name: 'platform_connection_status_schema',
-      schema_version: '1.0.0',
-      tenant_id: normalizedTenantId,
-      integration_id: undefined,
-      platform: provider,
-      connection_status: 'connected',
-      status_reason: 'env_managed',
-      health: 'unknown',
-      updated_at: now,
-      capabilities: [],
-      metadata: {},
-    };
+    return buildMisconfiguredStatus(provider, normalizedTenantId, new Date().toISOString(),
+      'Global Meta credentials are not a tenant connection. Connect this channel via Composio.', []);
   }
 
   const row = await dbGetConnection({ tenantId: normalizedTenantId, provider });
