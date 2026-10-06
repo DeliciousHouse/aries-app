@@ -6,6 +6,7 @@ import AriesOnboardingFlow from '@/frontend/aries-v1/onboarding-flow';
 import { evaluateOnboardingGate } from '@/lib/onboarding-gate';
 import { resolveTenantContextForSession, TenantContextError } from '@/lib/tenant-context';
 import { isMultiWorkspaceEnabled } from '@/backend/tenant/multi-workspace-env';
+import { isOnboardingVariantBoardEnabled } from '@/backend/onboarding/variant-board-env';
 
 export default async function OnboardingStartPage({
   searchParams,
@@ -44,5 +45,10 @@ export default async function OnboardingStartPage({
     }
   }
 
-  return <AriesOnboardingFlow initialAuthenticated={Boolean(session?.user?.id)} />;
+  return (
+    <AriesOnboardingFlow
+      initialAuthenticated={Boolean(session?.user?.id)}
+      initialVariantBoardEnabled={isOnboardingVariantBoardEnabled()}
+    />
+  );
 }

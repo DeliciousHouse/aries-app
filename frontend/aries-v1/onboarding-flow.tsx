@@ -585,7 +585,7 @@ function writeOnboardingUrlState(input: {
   window.history.replaceState(window.history.state, '', nextUrl);
 }
 
-export default function AriesOnboardingFlow(props: { initialAuthenticated?: boolean }) {
+export default function AriesOnboardingFlow(props: { initialAuthenticated?: boolean; initialVariantBoardEnabled?: boolean }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const ariesApi = useMemo(() => createAriesV1Api(), []);
@@ -2403,6 +2403,13 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
               </button>
 
               <div className="flex flex-wrap items-center gap-3">
+                {props.initialAuthenticated && stepIndex === STEP_DEFINITIONS.length - 1 ? (
+                  <p id="onboarding-generation-explanation" className="w-full max-w-lg text-sm leading-6 text-white/78">
+                    {props.initialVariantBoardEnabled
+                      ? 'Aries will generate 3 drafts for you to review. Nothing is published automatically.'
+                      : 'Aries will generate your first content plan for you to review. Nothing is published automatically.'}
+                  </p>
+                ) : null}
                 {/*
                   The advance button is disabled until the step validates, and
                   clicking a disabled button cannot surface the reason — so the
@@ -2429,14 +2436,17 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                   <button
                     type="button"
                     onClick={() => void handleFinish()}
-                    aria-describedby={error || blockingRequirement ? 'onboarding-advance-blocker' : undefined}
+                    aria-describedby={[
+                      props.initialAuthenticated ? 'onboarding-generation-explanation' : null,
+                      error || blockingRequirement ? 'onboarding-advance-blocker' : null,
+                    ].filter(Boolean).join(' ') || undefined}
                     disabled={finishDisabled}
                     className="inline-flex items-center gap-2 rounded-full border border-[#a96cff]/40 bg-[linear-gradient(90deg,#5c2e96,#7a41c2,#a96cff)] px-6 py-3 text-sm font-semibold text-white shadow-[0_0_24px_rgba(169,108,255,0.2)] transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {submitting
                       ? 'Saving setup...'
                       : props.initialAuthenticated
-                        ? 'Continue to Dashboard'
+                        ? 'Create my first post'
                         : 'Save and continue'}
                     <ArrowRight className="h-4 w-4" />
                   </button>
