@@ -46,7 +46,9 @@ async function mount(t: TestContext, fetcher: typeof fetch) {
   globals.IS_REACT_ACT_ENVIRONMENT = true;
   globals.window = { location: { search: '', href: '' } };
   process.env.COMPOSIO_ENABLED = 'true';
-  t.mock.method(globalThis, 'fetch', fetcher);
+  t.mock.method(globalThis, 'fetch', (url: Parameters<typeof fetch>[0], init?: RequestInit) => url === '/api/integrations/meta-ads'
+    ? Promise.resolve(Response.json({ connected: false, connectionId: null, accounts: [], accountId: null }))
+    : fetcher(url, init));
   let root!: ReactTestRenderer;
   t.after(async () => {
     if (root) await act(async () => root.unmount());
@@ -114,10 +116,10 @@ test('announces loading then renders an empty workspace without inventing connec
   const root = await mount(t, () => response);
   assert.match(root.root.findByProps({ role: 'status' }).children.join(''), /Loading your connections/);
   assert.equal(root.root.findAllByType('h2').length, 1, 'Meta Ads remains visible while connection data loads');
-  assert.match(text(root), /Meta Ads.*Coming soon/);
-  const ads = root.root.find((node) => node.type === 'button' && node.children.includes('Connect Meta Ads'));
-  assert.equal(ads.props.disabled, true);
-  assert.equal(ads.props.onClick, undefined);
+  assert.match(text(root), /Meta Ads account.*Reporting only/);
+  const ads = root.root.find((node) => node.type === 'button' && node.children.includes('Connect Meta Ads account'));
+  assert.equal(ads.props.disabled, false);
+  assert.equal(typeof ads.props.onClick, 'function');
   await act(async () => { resolve(Response.json({ composioEnabled: true, connections: [] })); });
   assert.match(text(root), /No accounts connected yet/);
   assert.doesNotMatch(text(root), /Loading your connections|Connected and ready/);

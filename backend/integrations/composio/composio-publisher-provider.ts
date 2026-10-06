@@ -843,6 +843,8 @@ export class ComposioPublisherProvider implements PublisherProvider {
   }
 
   async publishAd(input: PublishAdInput): Promise<PublishResult> {
+    // Read-only rollout: no campaign/budget approval contract exists yet.
+    if (input.platform === 'meta_ads') throw new PublishGuardError();
     const conn = await this.requireActiveConnection({ tenantId: input.tenantId, platform: input.platform });
     const slug = this.requireSlug(input.platform, 'create_ad', 'create ads');
 

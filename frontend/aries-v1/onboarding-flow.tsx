@@ -104,9 +104,9 @@ const CHANNEL_OPTIONS: ChannelOption[] = [
   },
   {
     id: 'meta-ads',
-    label: 'Meta Ads',
+    label: 'Meta Ads account',
     disabled: true,
-    description: 'Paid ads on Facebook and Instagram via Meta Business Suite.',
+    description: 'Connect a read-only ad account in your business profile after onboarding. Creating or boosting ads is not enabled.',
   },
   {
     id: 'instagram',
