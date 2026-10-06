@@ -109,12 +109,12 @@ test('#703: composio-connections-screen renders a Clear button gated on hasClear
   );
 });
 
-test('#703: composio-connections-screen connected branch renders Disconnect (not Clear)', () => {
+test('#703: composio-connections-screen connected and unconfirmed branch renders Disconnect (not Clear)', () => {
   // The connected branch renders a Disconnect button. This is distinct from the
   // non-connected branch's Clear button: a live connection must say "Disconnect",
   // not "Clear" (which is for stuck/partial rows).
-  const isConnectedBranchIdx = composioConnectionsScreenSource.indexOf('isConnected ?');
-  assert.ok(isConnectedBranchIdx >= 0, 'screen must have an isConnected branch');
+  const isConnectedBranchIdx = composioConnectionsScreenSource.indexOf('isConnected || isUnconfirmed ?');
+  assert.ok(isConnectedBranchIdx >= 0, 'screen must offer Disconnect for connected and unconfirmed grants');
 
   // Read the connected branch up to the non-connected alternative, allowing
   // the shared picker Change button to precede Disconnect.
