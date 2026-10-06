@@ -3,6 +3,8 @@ import type { ComposioConfig } from './composio-config';
 import { DEFAULT_LIST_MANAGED_PAGES_SLUG } from './facebook-page-resolver';
 import { resolveInstagramAccount } from './instagram-account-resolver';
 import { ComposioError } from './errors';
+import { resolveLinkedInAuthorUrn } from './linkedin-author-resolver';
+import { resolveXUser } from './x-user-resolver';
 
 export type MetaAccountChoice = { id: string; name: string; hasInstagram: boolean };
 
@@ -15,8 +17,20 @@ export async function listMetaAccountChoices(
   gateway: ComposioGateway,
   config: ComposioConfig,
   connectedAccountId: string,
-  platform: 'facebook' | 'instagram',
+  platform: 'facebook' | 'instagram' | 'linkedin' | 'x',
 ): Promise<MetaAccountChoice[]> {
+  if (platform === 'linkedin' || platform === 'x') {
+    try {
+      if (platform === 'linkedin') {
+        const author = await resolveLinkedInAuthorUrn(gateway, config, connectedAccountId);
+        if (!author?.name) return unavailable();
+        return [{ id: author.urn, name: author.name, hasInstagram: false }];
+      }
+      const user = await resolveXUser(gateway, config, connectedAccountId);
+      if (!user) return unavailable();
+      return [{ id: user.username, name: user.name ? `${user.name} (@${user.username})` : `@${user.username}`, hasInstagram: false }];
+    } catch { return unavailable(); }
+  }
   if (platform === 'instagram') {
     // Instagram Login grants one authenticated business account per connection.
     const account = await resolveInstagramAccount(gateway, config, connectedAccountId);

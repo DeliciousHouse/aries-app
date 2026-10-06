@@ -85,3 +85,45 @@ for (const platform of ['facebook', 'instagram'] as const) {
     } finally { await act(async () => root.unmount()); }
   });
 }
+
+for (const platform of ['linkedin', 'x'] as const) {
+  test(`${platform} shows Post as, Confirm/Disconnect and never confirms until clicked`, async t => {
+    (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+    const oldFlag = process.env[platform === 'x' ? 'ARIES_X_ENABLED' : 'ARIES_LINKEDIN_ENABLED'];
+    const flag = platform === 'x' ? 'ARIES_X_ENABLED' : 'ARIES_LINKEDIN_ENABLED';
+    process.env[flag] = 'true';
+    t.after(() => { if (oldFlag === undefined) delete process.env[flag]; else process.env[flag] = oldFlag; });
+    const calls: unknown[][] = [];
+    let confirmed = false;
+    const identity = platform === 'x' ? 'shop_owner' : 'urn:li:person:member';
+    const provider: AccountConnectionProvider = {
+      kind: 'composio', createConnectLink: async () => { throw new Error('unused'); },
+      listConnections: async () => [], getConnection: async () => null,
+      disconnectConnection: async () => ({ disconnected: true }), refreshConnectionStatus: async () => null,
+      listAccountPages: async (...args) => { calls.push(args); return { connectedAccountId: 'ca_current', pages: [{ id: identity, name: 'Shop Owner', hasInstagram: false }] }; },
+      selectAccountPage: async (...args) => { calls.push(args); confirmed = true; },
+    };
+    t.mock.method(globalThis, 'fetch', async (url: unknown, init?: RequestInit) => {
+      if (String(url).endsWith('/pages')) return handleComposioPages(new Request(`https://example.com${url}`, init), platform, tenant, provider);
+      return Response.json({ status: 'ok', composioEnabled: true, connections: [{
+        ...notConnectedAccount('42', 'aries-tenant-42', platform, 'composio'),
+        connectedAccountId: 'ca_current', status: confirmed ? 'connected' : 'unconfirmed',
+        externalAccountId: confirmed ? identity : null,
+      }] });
+    });
+    let root!: ReturnType<typeof create>;
+    await act(async () => { root = create(React.createElement(ComposioConnectionsScreen)); });
+    try {
+      assert.equal(confirmed, false);
+      assert.match(JSON.stringify(root.toJSON()), /Post as Shop Owner\?/);
+      assert.match(JSON.stringify(root.toJSON()), /Unconfirmed/);
+      assert.ok(root.root.findAllByType('button').find(b => b.children.join('') === 'Disconnect'));
+      assert.equal(root.root.findAllByType('button').find(b => b.children.join('') === 'Confirm')!.props.disabled, false);
+      await act(async () => root.root.findByType('form').props.onSubmit({ preventDefault() {} }));
+      assert.deepEqual(calls.at(-1), ['aries-tenant-42', platform, 'ca_current', identity, { tenantId: '42' }]);
+      assert.equal(confirmed, true);
+      assert.match(JSON.stringify(root.toJSON()), /Connected and ready/);
+      assert.equal(root.root.findAllByType('form').length, 0);
+    } finally { await act(async () => root.unmount()); }
+  });
+}

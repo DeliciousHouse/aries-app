@@ -390,7 +390,7 @@ test('LinkedIn bridge: when ARIES_LINKEDIN_ENABLED is off, the DB query does NOT
 
 // ── X back-heal (#670) ────────────────────────────────────────────────────────
 
-test('X bridge back-heals the username and upserts an insights_accounts row', async () => {
+test('X bridge cannot back-heal an identity before explicit confirmation', async () => {
   const db = recordingDb([
     {
       id: 20,
@@ -415,24 +415,11 @@ test('X bridge back-heals the username and upserts an insights_accounts row', as
     { gateway, config: fakeConfig({ actions: {} }) },
   );
 
-  assert.equal(result.resolved, 1);
-  assert.equal(result.upserted, 1);
-  assert.equal(result.skippedNoPage, 0);
-
-  // It called TWITTER_USER_LOOKUP_ME with the connection's connectedAccountId.
-  assert.equal(gateway.calls.length, 1);
-  assert.equal(gateway.calls[0].slug, DEFAULT_X_GET_ME_SLUG);
-  assert.equal(gateway.calls[0].options.connectedAccountId, 'ca_x');
-
-  // It persisted the resolved username back to connected_accounts.
-  const update = db.queries.find((q) => /UPDATE connected_accounts/i.test(q.text));
-  assert.ok(update, 'persists the resolved username back to connected_accounts');
-  assert.equal(update!.params[0], 'sugarleather');
-  assert.equal(update!.params[2], 20); // keyed on the connection row id
-
-  // And upserted insights_accounts with the resolved username + display name.
-  const insert = db.queries.find((q) => /INSERT INTO insights_accounts/i.test(q.text));
-  assert.deepEqual(insert!.params, [15, 'x', 'sugarleather', 'Sugar & Leather']);
+  assert.equal(result.resolved, 0);
+  assert.equal(result.upserted, 0);
+  assert.equal(result.skippedNoPage, 1);
+  assert.equal(gateway.calls.length, 0);
+  assert.equal(db.queries.filter(q => /UPDATE connected_accounts|INSERT INTO insights_accounts/i.test(q.text)).length, 0);
 });
 
 test('Reddit bridge back-heals the username and upserts an insights_accounts row', async () => {

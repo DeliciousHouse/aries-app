@@ -259,7 +259,9 @@ export async function handleComposioPages(
   loader?: TenantContextLoader,
   provider: AccountConnectionProvider | null = getAccountConnectionProvider(),
 ): Promise<Response> {
-  if (platformRaw !== 'facebook' && platformRaw !== 'instagram') return json({ status: 'error', message: 'Unsupported account picker.' }, 400);
+  if (platformRaw !== 'facebook' && platformRaw !== 'instagram' && platformRaw !== 'linkedin' && platformRaw !== 'x') return json({ status: 'error', message: 'Unsupported account picker.' }, 400);
+  const platform = platformOr400(platformRaw);
+  if (platform instanceof Response) return platform;
   const tenantResult = await loadTenantContextOrResponse(loader);
   if ('response' in tenantResult) return tenantResult.response;
   const { tenantId } = tenantResult.tenantContext;

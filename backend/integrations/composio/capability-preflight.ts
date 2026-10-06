@@ -37,7 +37,7 @@ const PLATFORM_WARNINGS: Partial<Record<IntegrationPlatform, string[]>> = {
     'Deep YouTube Analytics requires the YouTube Analytics API; basic video/channel stats only unless Composio exposes equivalent access.',
   ],
   linkedin: [
-    'For business use, connect an Organization Page — personal-profile posting and analytics are limited.',
+    'LinkedIn supports personal profiles only. Company and Organization Pages are not supported.',
   ],
   reddit: [
     'Reddit exposes public engagement only; full impressions/reach analytics are unavailable.',

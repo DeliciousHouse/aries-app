@@ -31,8 +31,6 @@ import {
 import { ComposioConfigError, ComposioError } from './errors';
 import { isActiveStatus, mapComposioStatus } from './status-map';
 
-import { resolveLinkedInAuthorUrn } from './linkedin-author-resolver';
-import { isLinkedInEnabled } from '../providers/integration-config';
 import pool from '@/lib/db';
 import { listMetaAccountChoices } from './meta-account-choices';
 
@@ -91,7 +89,8 @@ export class ComposioAccountProvider implements AccountConnectionProvider {
       }
     }
 
-    const initiated = await this.gateway.initiateConnection(externalUserId, authConfigId, options?.callbackUrl, platform === 'facebook' || platform === 'instagram');
+    const requiresConfirmation = ['facebook', 'instagram', 'linkedin', 'x'].includes(platform);
+    const initiated = await this.gateway.initiateConnection(externalUserId, authConfigId, options?.callbackUrl, requiresConfirmation);
 
     await upsertConnection(
       {
@@ -99,7 +98,7 @@ export class ComposioAccountProvider implements AccountConnectionProvider {
         externalUserId,
         platform,
         provider: 'composio',
-        connectedAccountId: platform === 'facebook' || platform === 'instagram' ? initiated.connectionRequestId : null,
+        connectedAccountId: requiresConfirmation ? initiated.connectionRequestId : null,
         authConfigId,
         status: 'pending',
       },
@@ -204,7 +203,8 @@ export class ComposioAccountProvider implements AccountConnectionProvider {
             : connections;
 
     const stored = await getConnectionRow(tenantId, platform, this.db);
-    const pinned = (platform === 'facebook' || platform === 'instagram') && stored?.connectedAccountId;
+    const requiresConfirmation = ['facebook', 'instagram', 'linkedin', 'x'].includes(platform);
+    const pinned = requiresConfirmation && stored?.connectedAccountId;
     const active = pinned
       ? candidates.find(c => c.id === stored.connectedAccountId)
       : candidates.find((c) => isActiveStatus(c.status)) ?? candidates[0];
@@ -212,35 +212,8 @@ export class ComposioAccountProvider implements AccountConnectionProvider {
       return getConnectionRow(tenantId, platform, this.db) ?? notConnectedAccount(tenantId, externalUserId, platform, 'composio');
     }
 
-    // Meta identity is selected by the operator, never inferred from OAuth metadata.
-    const isMeta = platform === 'facebook' || platform === 'instagram';
-    let externalAccountId = isMeta ? null : active.externalAccountId;
-    let externalAccountName = isMeta ? null : active.externalAccountName;
-    if (
-      // LinkedIn's member person URN is likewise absent from the connection
-      // metadata. Resolve it via LINKEDIN_GET_MY_INFO and store the FULL
-      // `urn:li:person:<id>` so the publisher (#646) reads it straight into
-      // `author`. Gated by ARIES_LINKEDIN_ENABLED (default OFF → no executeTool
-      // call, connect byte-identical). Best-effort: a 429 throttle / empty
-      // payload leaves it null and never breaks connect.
-      !externalAccountId &&
-      platform === 'linkedin' &&
-      isLinkedInEnabled() &&
-      active.id &&
-      isActiveStatus(active.status)
-    ) {
-      try {
-        const author = await resolveLinkedInAuthorUrn(this.gateway, this.config, active.id);
-        if (author) {
-          externalAccountId = author.urn;
-          externalAccountName = externalAccountName ?? author.name;
-        }
-      } catch {
-        // best-effort — leave null, never break connect
-      }
-    }
-
-    if (isMeta) {
+    // Reconciliation updates OAuth state only; the shared picker owns identity.
+    if (requiresConfirmation) {
       // Reconciliation must not resurrect a disconnected or replaced OAuth grant.
       if (stored?.connectedAccountId && stored.externalUserId === externalUserId) {
         await this.db.query(
@@ -260,18 +233,18 @@ export class ComposioAccountProvider implements AccountConnectionProvider {
         provider: 'composio',
         connectedAccountId: active.id,
         authConfigId: active.authConfigId ?? authConfigId ?? null,
-        externalAccountId,
-        externalAccountName,
+        externalAccountId: active.externalAccountId,
+        externalAccountName: active.externalAccountName,
         status: mapComposioStatus(active.status),
       },
       this.db,
     );
   }
 
-  async listAccountPages(externalUserId: string, platform: 'facebook' | 'instagram', options?: { tenantId: string }) {
+  async listAccountPages(externalUserId: string, platform: 'facebook' | 'instagram' | 'linkedin' | 'x', options?: { tenantId: string }) {
     const tenantId = this.requireTenant(options);
     const stored = await getConnectionRow(tenantId, platform, this.db);
-    if (!stored?.connectedAccountId || stored.status !== 'connected' || stored.externalUserId !== externalUserId || stored.tenantId !== tenantId) {
+    if (!stored?.connectedAccountId || !['connected', 'unconfirmed'].includes(stored.status) || stored.externalUserId !== externalUserId || stored.tenantId !== tenantId) {
       throw new ComposioError('connection_changed', 'Reconnect before choosing an account.', { status: 409 });
     }
     return {
@@ -280,7 +253,7 @@ export class ComposioAccountProvider implements AccountConnectionProvider {
     };
   }
 
-  async selectAccountPage(externalUserId: string, platform: 'facebook' | 'instagram', connectedAccountId: string, pageId: string, options?: { tenantId: string }) {
+  async selectAccountPage(externalUserId: string, platform: 'facebook' | 'instagram' | 'linkedin' | 'x', connectedAccountId: string, pageId: string, options?: { tenantId: string }) {
     const tenantId = this.requireTenant(options);
     const available = await this.listAccountPages(externalUserId, platform, options);
     const page = available.pages.find(p => p.id === pageId);

@@ -13,10 +13,11 @@ type Props = {
   pages: PickerPage[];
   onSelect?: (pageId: string) => Promise<void>;
   accountLabel?: string;
+  confirmIdentity?: boolean;
 };
 
-export default function MetaPagePickerForm({ state, pages, onSelect, accountLabel = 'Page' }: Props) {
-  const [selectedPageId, setSelectedPageId] = useState<string>('');
+export default function MetaPagePickerForm({ state, pages, onSelect, accountLabel = 'Page', confirmIdentity = false }: Props) {
+  const [selectedPageId, setSelectedPageId] = useState<string>(confirmIdentity && pages.length === 1 ? pages[0].id : '');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -81,7 +82,7 @@ export default function MetaPagePickerForm({ state, pages, onSelect, accountLabe
                 aria-label={`Select ${accountLabel} ${page.name}`}
               />
               <span className="flex-1">
-                <span className="block text-white font-semibold">{page.name}</span>
+                <span className="block text-white font-semibold">{confirmIdentity ? `Post as ${page.name}?` : page.name}</span>
                 {accountLabel === 'Page' && <span className="block text-sm text-[#aaa] mt-1" data-testid={`meta-page-ig-status-${page.id}`}>
                   {page.hasInstagram ? 'Instagram Business Account ready' : 'No Instagram Business Account'}
                 </span>}
@@ -107,7 +108,7 @@ export default function MetaPagePickerForm({ state, pages, onSelect, accountLabe
               : 'bg-[#1e1e2e] text-[#444] cursor-not-allowed'
           }`}
         >
-          {submitting ? 'Connecting…' : `Use this ${accountLabel}`}
+          {submitting ? 'Connecting…' : confirmIdentity ? 'Confirm' : `Use this ${accountLabel}`}
         </button>
       </div>
     </form>
