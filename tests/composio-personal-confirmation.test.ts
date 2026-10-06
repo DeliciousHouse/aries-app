@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ComposioAccountProvider } from '@/backend/integrations/composio/composio-account-provider';
 import { ComposioPublisherProvider } from '@/backend/integrations/composio/composio-publisher-provider';
+import { ComposioCapabilityProvider } from '@/backend/integrations/composio/composio-capability-provider';
 import { getConnectionRow } from '@/backend/integrations/composio/connection-store';
 import { platformPrerequisites } from '@/backend/integrations/composio/capability-preflight';
 import { fakeConfig, fakeDb, fakeGateway } from './composio/helpers';
@@ -44,6 +45,26 @@ for (const platform of ['linkedin', 'x'] as const) {
     const gateway = fakeGateway();
     const publisher = new ComposioPublisherProvider(gateway, fakeConfig({ actions: { publish_post: 'PUBLISH' } }), fakeDb({ connectionRow: row }));
     await assert.rejects(publisher.publishPost({ tenantId: '42', platform, content: 'Synthetic', mediaUrls: [], approved: true }), /confirm/i);
+    assert.equal(gateway.calls.length, 0);
+  });
+
+  test(`${platform} ACTIVE grant cannot advertise publishing before confirmation`, async () => {
+    const db = fakeDb({ connectionRow: row });
+    const gateway = fakeGateway({ connections: [{ id: 'ca_current', toolkitSlug: platform, status: 'ACTIVE',
+      statusReason: null, authConfigId: 'auth_cfg_test', externalAccountId: 'metadata', externalAccountName: 'Metadata', raw: {} }] });
+    const provider = new ComposioCapabilityProvider(gateway, fakeConfig({ actions: { publish_post: 'PUBLISH' } }), db);
+    assert.equal((await provider.checkCapabilities('aries-tenant-42', platform, { tenantId: '42' })).canPublishOrganic, false);
+  });
+
+  test(`${platform} legacy unpinned pending attempt requires reconnect rather than adopting an arbitrary grant`, async () => {
+    const db = fakeDb({ connectionRow: { ...row, status: 'pending', connected_account_id: null } });
+    const gateway = fakeGateway({ connections: [{ id: 'ca_old', toolkitSlug: platform, status: 'ACTIVE',
+      statusReason: null, authConfigId: 'auth_cfg_test', externalAccountId: identity, externalAccountName: 'Old', raw: {} }] });
+    await new ComposioAccountProvider(gateway, fakeConfig(), db).refreshConnectionStatus('aries-tenant-42', platform, { tenantId: '42' });
+    const write = db.queries.find(q => /UPDATE/.test(q.text))!;
+    assert.match(write.text, /status = 'reauthorization_required'/);
+    assert.match(write.text, /connected_account_id IS NULL AND status = 'pending'/);
+    assert.deepEqual(write.params, ['42', platform, 'aries-tenant-42']);
     assert.equal(gateway.calls.length, 0);
   });
 

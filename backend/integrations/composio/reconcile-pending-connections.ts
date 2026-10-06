@@ -142,7 +142,7 @@ export async function reconcilePendingConnections(deps?: ReconcileDeps): Promise
           row.platform as IntegrationPlatform,
           { tenantId: String(row.tenant_id) },
         );
-        if (refreshed?.status === 'connected') {
+        if (refreshed?.status === 'connected' || refreshed?.status === 'unconfirmed') {
           summary.reconciled += 1;
         } else {
           summary.stillPending += 1;
@@ -190,7 +190,7 @@ export async function reconcilePendingConnections(deps?: ReconcileDeps): Promise
           { tenantId: String(row.tenant_id) },
         );
         const now = refreshed?.status ?? null;
-        if (was === 'connected' && now !== 'connected') {
+        if (was === 'connected' && now !== 'connected' && now !== 'unconfirmed') {
           // The case this pass exists for. Log loudly: a tenant just lost a
           // channel and every downstream gate (publish eligibility, the UI)
           // reads this row.

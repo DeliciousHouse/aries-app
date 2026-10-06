@@ -135,6 +135,23 @@ test('reconcilePendingConnections: two pending rows both become connected → re
   assert.equal(provider.refreshCalls.length, 2);
 });
 
+test('reconcilePendingConnections: unconfirmed OAuth is reconciled and never falsely demoted', async (t) => {
+  const db = fakeDb([makePendingRow('linkedin', 42)], [{ ...makePendingRow('x', 42), status: 'connected' }]);
+  const provider = fakeProvider();
+  const refresh = provider.refreshConnectionStatus.bind(provider);
+  t.mock.method(provider, 'refreshConnectionStatus', async (...args: Parameters<typeof refresh>) => {
+    const account = await refresh(...args);
+    return account ? { ...account, status: 'unconfirmed' as const } : null;
+  });
+  const warn = t.mock.method(console, 'warn', () => {});
+  const summary = await reconcilePendingConnections({ db, provider });
+  assert.equal(summary.reconciled, 1);
+  assert.equal(summary.stillPending, 0);
+  assert.equal(summary.rechecked, 1);
+  assert.equal(summary.demoted, 0);
+  assert.equal(warn.mock.callCount(), 0);
+});
+
 test('reconcilePendingConnections: refresh returns null → stillPending incremented', async () => {
   const rows = [makePendingRow('instagram', 15)];
   const db = fakeDb(rows);

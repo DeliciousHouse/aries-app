@@ -214,6 +214,39 @@ test('a stale second tab refreshes on focus and visibility, ignoring hidden even
   assert.equal(calls, after);
 });
 
+for (const failStale of [false, true]) {
+  test(`coalesces tab-return reads and ignores superseded ${failStale ? 'errors' : 'snapshots'} after Disconnect`, async t => {
+    const globals = globalThis as unknown as Record<string, unknown>;
+    const originalDocument = globals.document;
+    const doc = Object.assign(new EventTarget(), { visibilityState: 'visible' });
+    globals.document = doc;
+    t.after(() => { globals.document = originalDocument; });
+    let calls = 0;
+    let resolve!: (response: Response) => void;
+    const delayed = new Promise<Response>(done => { resolve = done; });
+    const root = await mount(t, async (_url, init) => {
+      if (init?.method === 'DELETE') return Response.json({ disconnected: true });
+      calls++;
+      if (calls === 2) return delayed;
+      return healthResponse(calls === 1 ? 'connected' : 'not_connected');
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+      doc.dispatchEvent(new Event('visibilitychange'));
+    });
+    assert.equal(calls, 2, 'focus and visibility must share the outstanding background refresh');
+    const disconnect = root.root.find(node => node.type === 'button' && node.children.includes('Disconnect'));
+    await act(async () => { await disconnect.props.onClick(); });
+    assert.equal(calls, 3, 'mutation must issue a fresh read rather than reusing the old snapshot');
+    assert.doesNotMatch(text(root), /Connected and ready|Loading your connections/);
+    await act(async () => {
+      resolve(failStale ? Response.json({ message: 'Stale failure' }, { status: 503 }) : await healthResponse('connected'));
+    });
+    assert.doesNotMatch(text(root), /Connected and ready|Stale failure|Loading your connections/);
+    assert.equal(root.root.findAllByProps({ role: 'alert' }).length, 0);
+  });
+}
+
 test('pending attempt shows explicit expiry after the bounded poll window', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const root = await mount(t, async () => healthResponse('pending'));

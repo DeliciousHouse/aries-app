@@ -122,19 +122,26 @@ export default function ComposioConnectionsScreen() {
   // never re-renders / re-runs the polling effect).
   const reconcileAttemptsRef = useRef(0);
   const justReturnedFromOAuthRef = useRef(false);
+  const loadVersionRef = useRef(0);
+  const loadingRef = useRef(false);
 
   const load = useCallback(async () => {
+    const version = ++loadVersionRef.current;
+    loadingRef.current = true;
     setLoading(true);
     setError(null);
     try {
       const res = await fetch('/api/integrations/composio', { cache: 'no-store' });
       const body = (await res.json()) as ListResponse & { message?: string };
       if (!res.ok) throw new Error(body.message ?? 'Could not load connections.');
-      setData(body);
+      if (version === loadVersionRef.current) setData(body);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not load connections.');
+      if (version === loadVersionRef.current) setError(e instanceof Error ? e.message : 'Could not load connections.');
     } finally {
-      setLoading(false);
+      if (version === loadVersionRef.current) {
+        loadingRef.current = false;
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -144,12 +151,14 @@ export default function ComposioConnectionsScreen() {
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return;
-    const refresh = () => { if (document.visibilityState === 'visible') void load(); };
-    window.addEventListener('focus', refresh);
-    document.addEventListener('visibilitychange', refresh);
+    const win = window;
+    const doc = document;
+    const refresh = () => { if (doc.visibilityState === 'visible' && !loadingRef.current) void load(); };
+    win.addEventListener('focus', refresh);
+    doc.addEventListener('visibilitychange', refresh);
     return () => {
-      window.removeEventListener('focus', refresh);
-      document.removeEventListener('visibilitychange', refresh);
+      win.removeEventListener('focus', refresh);
+      doc.removeEventListener('visibilitychange', refresh);
     };
   }, [load]);
 

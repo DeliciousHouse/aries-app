@@ -204,6 +204,17 @@ export class ComposioAccountProvider implements AccountConnectionProvider {
 
     const stored = await getConnectionRow(tenantId, platform, this.db);
     const requiresConfirmation = ['facebook', 'instagram', 'linkedin', 'x'].includes(platform);
+    // Pre-confirmation releases did not pin personal OAuth attempts. We cannot
+    // safely infer their intended grant from a list containing older accounts.
+    if ((platform === 'linkedin' || platform === 'x') && stored?.status === 'pending' && !stored.connectedAccountId && stored.externalUserId === externalUserId) {
+      await this.db.query(
+        `UPDATE connected_accounts SET status = 'reauthorization_required', updated_at = NOW()
+         WHERE tenant_id = $1 AND platform = $2 AND external_user_id = $3
+           AND connected_account_id IS NULL AND status = 'pending'`,
+        [tenantId, platform, externalUserId],
+      );
+      return getConnectionRow(tenantId, platform, this.db);
+    }
     const pinned = requiresConfirmation && stored?.connectedAccountId;
     const active = pinned
       ? candidates.find(c => c.id === stored.connectedAccountId)
