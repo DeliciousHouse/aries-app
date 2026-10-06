@@ -17,8 +17,8 @@ import {
 const mkEnv = (o: Record<string, string>): NodeJS.ProcessEnv => o as unknown as NodeJS.ProcessEnv;
 const DISABLED = mkEnv({});
 
-test('Composio disabled => direct Meta everywhere, no account provider', () => {
-  assert.equal(getPublisherProvider(DISABLED).kind, 'direct_meta');
+test('Composio disabled => publishing fails closed, no account provider', () => {
+  assert.throws(() => getPublisherProvider(DISABLED), /direct_meta_unscoped/);
   assert.equal(getAnalyticsProvider(DISABLED).kind, 'direct_meta');
   assert.equal(getCapabilityProvider(DISABLED).kind, 'direct_meta');
   assert.equal(getAccountConnectionProvider(DISABLED), null);
@@ -28,7 +28,7 @@ test('master switch: COMPOSIO_ENABLED=false forces direct_meta even when PUBLISH
   const env = mkEnv({ COMPOSIO_ENABLED: 'false', PUBLISH_PROVIDER: 'composio', ANALYTICS_PROVIDER: 'composio' });
   assert.equal(effectivePublishProvider(env), 'direct_meta');
   assert.equal(effectiveAnalyticsProvider(env), 'direct_meta');
-  assert.equal(getPublisherProvider(env).kind, 'direct_meta');
+  assert.throws(() => getPublisherProvider(env), /direct_meta_unscoped/);
 });
 
 test('PUBLISH_PROVIDER=composio with Composio enabled => composio publisher', () => {
@@ -39,11 +39,10 @@ test('PUBLISH_PROVIDER=composio with Composio enabled => composio publisher', ()
   assert.equal(provider.supports('reddit'), true);
 });
 
-test('PUBLISH_PROVIDER=auto => composite that still supports direct Meta platforms', () => {
+test('PUBLISH_PROVIDER=auto => refuses unscoped direct Meta fallback', () => {
   const env = mkEnv({ COMPOSIO_ENABLED: 'true', COMPOSIO_API_KEY: 'k', PUBLISH_PROVIDER: 'auto' });
   assert.equal(effectivePublishProvider(env), 'auto');
-  const provider = getPublisherProvider(env);
-  assert.equal(provider.supports('facebook'), true);
+  assert.throws(() => getPublisherProvider(env), /direct_meta_unscoped/);
 });
 
 // This test exercises the COMPOSIO_ENABLED=false fail-safe on the *effective* functions.

@@ -2,14 +2,9 @@
  * Provider selection — the one place that turns flags into concrete providers.
  *
  * Selection rules (see docs/integrations/composio.md):
- *  - COMPOSIO_ENABLED is the master switch. When false, the factory ALWAYS
- *    returns the direct Meta provider, regardless of PUBLISH_PROVIDER /
- *    ANALYTICS_PROVIDER. This guarantees the legacy behavior with a single env.
- *  - With Composio enabled:
- *      direct_meta -> direct Meta provider (Composio code never constructed)
- *      composio    -> Composio provider only
- *      auto        -> Composio first, fall back to direct Meta on failure or
- *                     for any platform Composio cannot service.
+ *  - Publishing requires Composio. Unscoped direct_meta/auto selection and
+ *    the Composio-disabled fallback fail closed, never using global Meta env.
+ *  - Analytics retains its unavailable direct Meta adapter when disabled.
  *
  * The Composio adapter is statically imported but its providers are only
  * CONSTRUCTED when actually selected, and the heavy @composio/core SDK is only
@@ -30,7 +25,8 @@ import {
   type ProviderSelector,
 } from './integration-config';
 import { DirectMetaProvider } from '../direct/direct-meta-provider';
-import { AutoPublisherProvider, AutoAnalyticsProvider } from './auto-providers';
+import { AutoAnalyticsProvider } from './auto-providers';
+import { ProviderUnavailableError } from './errors';
 // Static import of the Composio adapter factories. This is intentionally NOT a
 // runtime require(): under Turbopack's production build, require() of this
 // compiled ES module does not expose its named exports (it returned a module
@@ -62,14 +58,14 @@ export function effectiveAnalyticsProvider(env: NodeJS.ProcessEnv = process.env)
 }
 
 export function getPublisherProvider(env: NodeJS.ProcessEnv = process.env): PublisherProvider {
-  const direct = new DirectMetaProvider();
   const selector = effectivePublishProvider(env);
-  if (selector === 'direct_meta') return direct;
-
-  const composio = createComposioPublisherProvider(env);
-  if (selector === 'composio') return composio;
-  // auto: Composio first, direct Meta fallback.
-  return new AutoPublisherProvider(composio, direct);
+  if (selector !== 'composio') {
+    throw new ProviderUnavailableError(
+      'direct_meta_unscoped',
+      'direct_meta_unscoped: Publishing requires a tenant-connected Composio account; direct_meta and auto are disabled.',
+    );
+  }
+  return createComposioPublisherProvider(env);
 }
 
 export function getAnalyticsProvider(env: NodeJS.ProcessEnv = process.env): AnalyticsProvider {
@@ -104,7 +100,7 @@ export function getCapabilityProvider(
 /**
  * Platforms that must ALWAYS route through Composio for publishing, regardless
  * of the global PUBLISH_PROVIDER selector. Facebook and Instagram keep the
- * selector-driven path (direct_meta by default) — no change to their behavior.
+ * selector-driven path, which refuses unscoped direct_meta/auto publishing.
  *
  */
 const COMPOSIO_ONLY_PUBLISH_PLATFORMS = new Set<IntegrationPlatform>(['x', 'reddit', 'linkedin', 'youtube']);
@@ -118,8 +114,7 @@ export function isComposioOnlyPublishPlatform(platform: IntegrationPlatform): bo
  * Platform-aware publisher factory. Composio-only platforms (x, reddit,
  * linkedin, youtube) always return the Composio publisher, regardless of the
  * global PUBLISH_PROVIDER selector. All other platforms (facebook, instagram, …)
- * delegate to the existing selector-driven getPublisherProvider so their
- * behavior is byte-identical to before this change.
+ * delegate to getPublisherProvider and its fail-closed selection guard.
  */
 export function getPublisherProviderForPlatform(
   platform: IntegrationPlatform,
