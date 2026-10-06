@@ -2404,7 +2404,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
 
               <div className="flex flex-wrap items-center gap-3">
                 {props.initialAuthenticated && stepIndex === STEP_DEFINITIONS.length - 1 ? (
-                  <p id="onboarding-generation-explanation" className="w-full max-w-lg text-sm leading-6 text-white/78">
+                  <p id="onboarding-generation-explanation" className="w-full max-w-lg text-sm leading-6 text-white/90">
                     {props.initialVariantBoardEnabled
                       ? 'Aries will generate 3 drafts for you to review. Nothing is published automatically.'
                       : 'Aries will generate your first content plan for you to review. Nothing is published automatically.'}

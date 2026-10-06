@@ -160,6 +160,7 @@ for (const scenario of [
       await act(async () => { button.props.onClick(); });
       const busy = root.root.find((node) => node.type === 'button' && text(node) === 'Saving setup...');
       assert.equal(busy.props.disabled, true);
+      await act(async () => { busy.props.onClick(); });
       assert.equal(pushes.length, 0);
       await act(async () => { resolveSave(); });
       assert.equal(writes.filter((body) => body.status === 'ready_for_auth').length, 1);
