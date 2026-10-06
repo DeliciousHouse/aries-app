@@ -104,7 +104,9 @@ export default function MetaPagePickerForm({ state, pages, onSelect, accountLabe
           disabled={!selectedPageId || submitting}
           className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm transition-all duration-200 ml-auto ${
             selectedPageId && !submitting
-              ? 'bg-aries-crimson text-white hover:bg-aries-deep shadow-lg shadow-aries-crimson/20 hover:shadow-aries-crimson/30'
+              ? confirmIdentity
+                ? 'bg-rose-600 text-white hover:bg-rose-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400'
+                : 'bg-aries-crimson text-white hover:bg-aries-deep shadow-lg shadow-aries-crimson/20 hover:shadow-aries-crimson/30'
               : 'bg-[#1e1e2e] text-[#444] cursor-not-allowed'
           }`}
         >

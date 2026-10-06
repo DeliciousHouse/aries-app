@@ -118,7 +118,9 @@ for (const platform of ['linkedin', 'x'] as const) {
       assert.match(JSON.stringify(root.toJSON()), /Post as Shop Owner\?/);
       assert.match(JSON.stringify(root.toJSON()), /Unconfirmed/);
       assert.ok(root.root.findAllByType('button').find(b => b.children.join('') === 'Disconnect'));
-      assert.equal(root.root.findAllByType('button').find(b => b.children.join('') === 'Confirm')!.props.disabled, false);
+      const confirm = root.root.findAllByType('button').find(b => b.children.join('') === 'Confirm')!;
+      assert.equal(confirm.props.disabled, false);
+      assert.match(confirm.props.className, /bg-rose-600/);
       await act(async () => root.root.findByType('form').props.onSubmit({ preventDefault() {} }));
       assert.deepEqual(calls.at(-1), ['aries-tenant-42', platform, 'ca_current', identity, { tenantId: '42' }]);
       assert.equal(confirmed, true);
