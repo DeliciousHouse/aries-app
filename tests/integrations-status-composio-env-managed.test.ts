@@ -266,18 +266,16 @@ test('#808: Composio ON + a connected_accounts row with status=error -> oauthSta
   });
 });
 
-test('#808: Composio OFF -> Instagram env-managed branch stays unconditionally connected (legacy behavior unchanged)', async (t) => {
+test('Composio OFF -> Instagram global env credentials are not a tenant connection', async (t) => {
   await withComposioDisabledEnv(async () => {
     resetOauthStore();
-    // No connected_accounts/oauth_connections row exists anywhere — if the fix
-    // regressed the Composio-disabled path, this proves it: the legacy branch
-    // must never touch the DB and must always report connected.
+    // No per-tenant connection exists; global credentials must not imply one.
     t.mock.method(pool, 'query', makeQueryMock({ connectedAccounts: [] }) as typeof pool.query);
 
     const status = await oauthStatusAsync('instagram', '999');
     assert.ok(!('broker_status' in status), 'expected a status shape, not a broker error');
-    assert.equal(status.connection_status, 'connected');
-    assert.equal(status.status_reason, 'env_managed');
+    assert.equal(status.connection_status, 'misconfigured');
+    assert.equal(status.status_reason, 'provider_unavailable');
   });
 });
 

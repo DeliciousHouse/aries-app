@@ -37,14 +37,15 @@ test('direct Meta supports only organic facebook/instagram', () => {
   assert.equal(provider.supports('meta_ads'), false);
 });
 
-test('direct Meta capabilities reflect env config and never claim insights', async () => {
+test('direct Meta capabilities never trust global env config or claim insights', async () => {
   const prevToken = process.env.META_ACCESS_TOKEN;
   const prevPage = process.env.META_PAGE_ID;
   process.env.META_ACCESS_TOKEN = 'tok';
   process.env.META_PAGE_ID = 'page';
   try {
     const caps = await new DirectMetaProvider().checkCapabilities('aries-tenant-42', 'facebook');
-    assert.equal(caps.canPublishOrganic, true);
+    assert.equal(caps.canPublishOrganic, false);
+    assert.equal(caps.canUploadMedia, false);
     assert.equal(caps.canReadPostInsights, false);
     assert.equal(caps.canPublishAds, false);
     assert.ok(caps.missingPermissions.includes('read_insights'));

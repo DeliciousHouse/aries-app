@@ -3,11 +3,11 @@
 Composio is an **optional, isolated** provider layer that lets end users connect
 their own social and advertising accounts (Facebook, Instagram, Meta Ads,
 YouTube, LinkedIn, Reddit) for publishing and analytics. It sits behind
-Aries-owned abstractions and **never replaces** the existing direct Meta path —
-which remains the default and the fallback.
+Aries-owned abstractions. Publishing through the factory requires Composio;
+unscoped direct Meta selection and fallback are disabled.
 
 > **Default state: OFF.** With `COMPOSIO_ENABLED=false` (or unset), no Composio
-> code is loaded and Aries behaves exactly as before.
+> SDK is loaded. Facebook/Instagram factory publishing fails closed.
 
 ## What Composio does
 
@@ -56,18 +56,23 @@ COMPOSIO_YOUTUBE_AUTH_CONFIG_ID=
 COMPOSIO_LINKEDIN_AUTH_CONFIG_ID=
 COMPOSIO_REDDIT_AUTH_CONFIG_ID=
 
-PUBLISH_PROVIDER=direct_meta           # direct_meta | composio | auto
+PUBLISH_PROVIDER=composio              # direct_meta / auto publishing is disabled
 ANALYTICS_PROVIDER=direct_meta         # direct_meta | composio | auto
 ```
 
 Provider selection:
 
-- `direct_meta` — use the existing Meta flow (default).
-- `composio` — use Composio only (requires `COMPOSIO_ENABLED=true`).
-- `auto` — try Composio first, fall back to direct Meta where applicable.
+- Publishing: `composio` requires `COMPOSIO_ENABLED=true`; `direct_meta` and
+  `auto` throw `direct_meta_unscoped`. There is no global-credential exception.
+- Analytics: `direct_meta` reports unavailable; `auto` can fall back to those
+  unavailable metrics, never fabricated insights.
 
 **The master switch wins:** `COMPOSIO_ENABLED=false` forces `direct_meta`
-regardless of `PUBLISH_PROVIDER` / `ANALYTICS_PROVIDER`.
+regardless of the selectors. The publisher factory rejects that selection.
+Global `META_PAGE_ID` / `META_ACCESS_TOKEN` do not establish a tenant connection
+or publishing capabilities. Remove both from production environment sources
+and verify key absence on every app/worker container during deployment. Never
+print their values or restore unscoped publishing as a rollback.
 
 ### Action (tool) slugs
 
@@ -189,10 +194,10 @@ UI: `/connections` (`frontend/integrations/composio-connections-screen.tsx`).
 
 ## Fallback behavior
 
-In `auto` mode, a Composio failure (or an unsupported platform) falls back to
-the direct Meta provider **only for platforms it supports** (Facebook,
-Instagram). For Composio-only platforms (YouTube, LinkedIn, Reddit, Meta
-Ads) a failure surfaces as-is — there is nothing to fall back to.
+There is no direct Meta publishing fallback. Facebook/Instagram `auto`
+selection fails before constructing a publisher. Composio-only platforms keep
+their existing tenant-connected Composio routing. The legacy direct Graph
+adapter resolves tenant-scoped OAuth DB credentials, never global env tokens.
 
 ## Security notes
 
@@ -205,14 +210,14 @@ Ads) a failure surfaces as-is — there is nothing to fall back to.
 
 ## How to disable Composio
 
-Set `COMPOSIO_ENABLED=false` (and optionally `PUBLISH_PROVIDER=direct_meta`,
-`ANALYTICS_PROVIDER=direct_meta`). No code change required.
+Set `COMPOSIO_ENABLED=false`. Facebook/Instagram factory publishing will be
+unavailable, not silently routed to a global Meta account.
 
 ## How to remove Composio entirely
 
 1. Delete `backend/integrations/composio/` and
    `backend/integrations/providers/` (or keep providers and just delete the
-   composio dir — the factory degrades to direct Meta).
+   composio dir only after replacing its factory imports; no publishing fallback).
 2. Delete `app/api/integrations/composio/`, `app/connections/`, and
    `frontend/integrations/composio-connections-screen.tsx`.
 3. `DROP TABLE connected_accounts;`

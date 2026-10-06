@@ -26,8 +26,7 @@ function withMetaEnv(fn: () => Promise<void>): Promise<void> {
   }
   process.env.META_APP_ID = 'test-app-id';
   process.env.META_APP_SECRET = 'test-app-secret';
-  // Instagram is env_managed — needs META_PAGE_ID + META_ACCESS_TOKEN to show as
-  // 'connected' (env_managed path) rather than 'misconfigured' (missing env path).
+  // Global Meta env must not imply a tenant connection, even when populated.
   process.env.META_PAGE_ID = 'test-page-id';
   process.env.META_ACCESS_TOKEN = 'test-access-token';
   process.env.OAUTH_TOKEN_ENCRYPTION_KEY = BASE64_KEY;
@@ -294,7 +293,7 @@ test('/api/integrations loads one tenant-scoped, account-keyed sync telemetry ba
     assert.equal(facebook?.sync_state, 'current');
 
     const instagram = body.cards.find((card) => card.platform === 'instagram');
-    assert.equal(instagram?.health, 'unknown');
+    assert.equal(instagram?.health, 'error');
     assert.equal(instagram?.expires_at ?? null, null);
 
     const insightsQueries = seenQueries.filter(({ sql }) => sql.includes('FROM insights_accounts'));

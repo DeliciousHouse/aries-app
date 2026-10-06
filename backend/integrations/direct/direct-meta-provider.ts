@@ -51,14 +51,6 @@ function metaProviderArg(platform: IntegrationPlatform): 'facebook' | 'instagram
   return platform === 'instagram' ? 'instagram' : 'facebook';
 }
 
-function metaEnvConfigured(): { token: boolean; page: boolean; adAccount: boolean } {
-  return {
-    token: Boolean(process.env.META_ACCESS_TOKEN?.trim()),
-    page: Boolean(process.env.META_PAGE_ID?.trim()),
-    adAccount: Boolean(process.env.META_AD_ACCOUNT_ID?.trim()),
-  };
-}
-
 export class DirectMetaProvider
   implements PublisherProvider, AnalyticsProvider, CapabilityProvider
 {
@@ -221,14 +213,7 @@ export class DirectMetaProvider
       );
       return caps;
     }
-    const env = metaEnvConfigured();
-    if (env.token && env.page) {
-      caps.canPublishOrganic = true;
-      caps.canUploadMedia = true;
-    } else {
-      caps.missingPermissions.push('META_PAGE_ID', 'META_ACCESS_TOKEN');
-      caps.warnings.push('Direct Meta publishing is not configured (META_PAGE_ID / META_ACCESS_TOKEN missing).');
-    }
+    caps.warnings.push('Global Meta credentials are not a tenant connection. Connect via Composio to publish.');
     // Insights are not granted; ads are owned by Hermes, not this provider.
     caps.canReadPostInsights = false;
     caps.canReadAdInsights = false;
