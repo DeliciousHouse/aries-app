@@ -428,7 +428,8 @@ test('/onboarding/start wires the guided intake workflow behind auth-aware serve
   );
 
   assert.match(source, /auth\(\)/);
-  assert.match(source, /<AriesOnboardingFlow initialAuthenticated=\{Boolean\(session\?\.user\?\.id\)\} \/>/);
+  assert.match(source, /<AriesOnboardingFlow\s+initialAuthenticated=\{Boolean\(session\?\.user\?\.id\)\}/);
+  assert.match(source, /initialVariantBoardEnabled=\{isOnboardingVariantBoardEnabled\(\)\}/);
 });
 
 test('/onboarding/pipeline-intake redirects to /onboarding/start for backwards compatibility', () => {

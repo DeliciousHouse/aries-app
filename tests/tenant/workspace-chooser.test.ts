@@ -110,7 +110,7 @@ test('onboarding gate: zero-membership (flag ON) redirects to the chooser, NEVER
   );
 });
 
-test('post-login journey: zero-membership (flag ON) lands on the chooser instead of onboarding', () => {
+test('post-login journey: zero-membership (flag ON) checks invitations before choosing onboarding', () => {
   const src = read('app/auth/post-login/page.tsx');
   assert.ok(src.includes('isMultiWorkspaceEnabled()'), 'flag-gated');
   assert.ok(
@@ -118,6 +118,8 @@ test('post-login journey: zero-membership (flag ON) lands on the chooser instead
     'keys on the typed zero-membership state',
   );
   assert.ok(src.includes('WORKSPACE_CHOOSER_PATH'), 'routes to the chooser');
+  assert.match(src, /listPendingWorkspaceInvites\(client, session.user.id\)/);
+  assert.match(src, /invites.length > 0 \? WORKSPACE_CHOOSER_PATH : '\/onboarding\/start'/);
 });
 
 test('chooser page is invite-aware with the spec fallback copy', () => {
