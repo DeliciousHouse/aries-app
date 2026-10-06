@@ -24,9 +24,9 @@
  *   facebook  → FACEBOOK_LIST_MANAGED_PAGES       → page id
  *   instagram → INSTAGRAM_GET_USER_INFO ('me')     → ig user id + username (#692/#693)
  *   youtube   → YOUTUBE_LIST_CHANNELS             → channel id
- *   x         → TWITTER_USER_LOOKUP_ME            → username/handle (#670)
+ *   x         → no back-heal (identity requires operator confirmation)
  *   reddit    → REDDIT_GET_REDDIT_USER_ABOUT      → username (#670)
- *   linkedin  → no back-heal (URN resolved at connect via ensure-linkedin-urn.ts)
+ *   linkedin  → no back-heal (identity requires operator confirmation)
  *
  * Instagram is now bridged (#692/#693): both facebook and instagram are governed
  * by the ANALYTICS_PROVIDER=composio gate (no separate ARIES_INSTAGRAM_ENABLED
@@ -39,7 +39,6 @@ import { isPlatformInsightsEnabled } from '@/backend/insights/sync/adapter-facto
 import { resolveComposioConfig, type ComposioConfig } from '@/backend/integrations/composio/composio-config';
 import { createComposioGateway, type ComposioGateway } from '@/backend/integrations/composio/composio-client';
 import { resolveYouTubeChannel } from '@/backend/integrations/composio/youtube-channel-resolver';
-import { resolveXUser } from '@/backend/integrations/composio/x-user-resolver';
 import { resolveRedditUser } from '@/backend/integrations/composio/reddit-user-resolver';
 
 /**
@@ -242,11 +241,9 @@ export async function ensureInsightsAccountsForConnectedPlatforms(
     let pageName = row.external_account_name;
 
     if (!pageId) {
-      // Back-heal is available for facebook, instagram, youtube, x, and reddit.
-      // LinkedIn's URN is resolved at connect time via ensure-linkedin-urn.ts, so
-      // a null id there is not back-heal-able here — skip and let a later
-      // connect/re-auth populate it. Never invent an external account id.
-      if (!['youtube', 'x', 'reddit'].includes(row.platform)) {
+      // Meta and personal LinkedIn/X identities must be explicitly confirmed.
+      // Only YouTube and Reddit may discover identities without a picker.
+      if (!['youtube', 'reddit'].includes(row.platform)) {
         skippedNoPage++;
         log({ event: 'insights_bridge_page_unresolved', tenantId: row.tenant_id, platform: row.platform, reason: 'no_external_account_id' });
         continue;
@@ -270,15 +267,6 @@ export async function ensureInsightsAccountsForConnectedPlatforms(
             resolvedId = channel.channelId;
             resolvedName = channel.channelName;
             resolvedManagedCount = channel.managedCount;
-          }
-        } else if (row.platform === 'x') {
-          // Resolve the X username (handle); stored as external_account_id so the
-          // fetchComments `-from:<handle>` filter in the X adapter works correctly.
-          const user = await resolveXUser(r.gateway, r.config, row.connected_account_id);
-          if (user) {
-            resolvedId = user.username;
-            resolvedName = user.name;
-            resolvedManagedCount = 1;
           }
         } else if (row.platform === 'reddit') {
           // Resolve the Reddit username; stored as external_account_id to satisfy

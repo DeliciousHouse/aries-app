@@ -259,7 +259,7 @@ test('Composio ON: linkedin connected_accounts=connected beats legacy oauth_conn
       pool,
       'query',
       makeQueryMock({
-        connectedAccounts: [connectedAccount({ tenant_id: '15', platform: 'linkedin', status: 'connected' })],
+        connectedAccounts: [connectedAccount({ tenant_id: '15', platform: 'linkedin', status: 'connected', external_account_id: 'urn:li:person:member_15' })],
         oauthConnections: [legacyConnection({ tenant_id: '15', provider: 'linkedin', status: 'pending' })],
       }) as typeof pool.query,
     );
@@ -268,6 +268,28 @@ test('Composio ON: linkedin connected_accounts=connected beats legacy oauth_conn
     assert.ok(!('broker_status' in status), 'expected a status shape');
     assert.equal(status.connection_status, 'connected');
     assert.equal(status.status_reason, 'env_managed');
+  });
+});
+
+test('Composio ON: personal grants without confirmation never report connected through the consolidated reader', async (t) => {
+  await withComposioEnabled({}, async () => {
+    resetOauthStore();
+    t.mock.method(
+      pool,
+      'query',
+      makeQueryMock({
+        connectedAccounts: ['linkedin', 'x'].map((platform) => connectedAccount({ tenant_id: '15', platform, status: 'connected' })),
+        oauthConnections: ['linkedin', 'x'].map((provider) => legacyConnection({ tenant_id: '15', provider, status: 'connected' })),
+      }) as typeof pool.query,
+    );
+
+    for (const platform of ['linkedin', 'x']) {
+      const status = await oauthStatusAsync(platform, '15');
+      assert.ok(!('broker_status' in status), 'expected a status shape');
+      assert.equal(status.connection_status, 'disconnected');
+      assert.equal(status.status_reason, 'account_provider_not_connected');
+      assert.equal(status.external_account_id, undefined);
+    }
   });
 });
 

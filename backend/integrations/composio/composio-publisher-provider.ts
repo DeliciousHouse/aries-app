@@ -231,6 +231,9 @@ export class ComposioPublisherProvider implements PublisherProvider {
 
   private async requireActiveConnection(input: { tenantId: string; platform: IntegrationPlatform }) {
     const conn = await getConnectionRow(input.tenantId, input.platform, this.db);
+    if (conn?.status === 'unconfirmed') {
+      throw new ComposioCapabilityMissingError(input.platform, 'confirm the posting account in Connections');
+    }
     if (!conn || conn.status !== 'connected' || !conn.connectedAccountId) {
       throw new ComposioConnectionMissingError(input.platform);
     }

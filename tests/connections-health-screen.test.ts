@@ -44,7 +44,7 @@ async function mount(t: TestContext, fetcher: typeof fetch) {
   const originalAct = globals.IS_REACT_ACT_ENVIRONMENT;
   const originalEnabled = process.env.COMPOSIO_ENABLED;
   globals.IS_REACT_ACT_ENVIRONMENT = true;
-  globals.window = { location: { search: '', href: '' } };
+  globals.window = Object.assign(new EventTarget(), { location: { search: '', href: '' } });
   process.env.COMPOSIO_ENABLED = 'true';
   t.mock.method(globalThis, 'fetch', fetcher);
   let root!: ReactTestRenderer;
@@ -99,7 +99,7 @@ test('reauthorization CTA starts the existing platform OAuth flow and follows it
     reauthorizationPath = body.connections.find((conn: ConnectedAccount) => conn.platform === 'facebook').reauthorizationPath;
     return response;
   });
-  assert.match(text(root), /Please reconnect/);
+  assert.match(text(root), /Connection attempt expired — try again/);
   assert.equal(posts, 0, 'reauthorization is never started without a click');
   const reconnect = root.root.findByProps({ 'aria-label': 'Reconnect Facebook Page' });
   assert.equal(reconnect.props.disabled, false);
@@ -139,12 +139,12 @@ test('failed health reads show an alert and can be retried instead of looking em
 test('pending health can be checked again and updates from fresh API data', async (t) => {
   let calls = 0;
   const root = await mount(t, async () => healthResponse(++calls === 1 ? 'pending' : 'connected'));
-  assert.match(text(root), /Finishing connecting/);
+  assert.match(text(root), /Waiting for you to finish on Facebook/);
   assert.equal(root.root.findByProps({ 'aria-label': 'Finish connecting Facebook Page' }).props.disabled, false);
   const check = root.root.find((node) => node.type === 'button' && node.children.includes('Check again'));
   await act(async () => { check.props.onClick(); });
   assert.match(text(root), /Connected and ready/);
-  assert.doesNotMatch(text(root), /Finishing connecting/);
+  assert.doesNotMatch(text(root), /Waiting for you to finish/);
 });
 
 test('missing and invalid history stays unavailable rather than claiming no successful posts', async (t) => {
@@ -177,4 +177,82 @@ test('OAuth failures keep the operator on the page with a usable reconnect butto
   assert.equal(root.root.findAllByProps({ role: 'alert' }).length, 1);
   assert.equal(reconnect.props.disabled, false);
   assert.equal(window.location.href, '');
+});
+
+test('a stale second tab refreshes on focus and visibility, ignoring hidden events and removing listeners', async t => {
+  const globals = globalThis as unknown as Record<string, unknown>;
+  const originalDocument = globals.document;
+  const doc = Object.assign(new EventTarget(), { visibilityState: 'visible' });
+  globals.document = doc;
+  t.after(() => { globals.document = originalDocument; });
+  let status: ConnectedAccount['status'] = 'connected';
+  let calls = 0;
+  const root = await mount(t, async () => { calls++; return healthResponse(status); });
+  // mount's window stub is sufficient for location; supply event methods before
+  // remounting so this test exercises real add/removeEventListener behavior.
+  const win = Object.assign(new EventTarget(), { location: { search: '', href: '' } });
+  await act(async () => root.unmount());
+  globals.window = win;
+  let second!: ReactTestRenderer;
+  await act(async () => { second = create(React.createElement(ComposioConnectionsScreen)); });
+  assert.match(text(second), /Connected and ready/);
+  status = 'not_connected';
+  await act(async () => { win.dispatchEvent(new Event('focus')); });
+  assert.doesNotMatch(text(second), /Connected and ready/);
+  status = 'connected';
+  doc.visibilityState = 'hidden';
+  const before = calls;
+  await act(async () => { doc.dispatchEvent(new Event('visibilitychange')); });
+  assert.equal(calls, before);
+  doc.visibilityState = 'visible';
+  await act(async () => { doc.dispatchEvent(new Event('visibilitychange')); });
+  assert.match(text(second), /Connected and ready/);
+  await act(async () => second.unmount());
+  const after = calls;
+  win.dispatchEvent(new Event('focus'));
+  doc.dispatchEvent(new Event('visibilitychange'));
+  assert.equal(calls, after);
+});
+
+for (const failStale of [false, true]) {
+  test(`coalesces tab-return reads and ignores superseded ${failStale ? 'errors' : 'snapshots'} after Disconnect`, async t => {
+    const globals = globalThis as unknown as Record<string, unknown>;
+    const originalDocument = globals.document;
+    const doc = Object.assign(new EventTarget(), { visibilityState: 'visible' });
+    globals.document = doc;
+    t.after(() => { globals.document = originalDocument; });
+    let calls = 0;
+    let resolve!: (response: Response) => void;
+    const delayed = new Promise<Response>(done => { resolve = done; });
+    const root = await mount(t, async (_url, init) => {
+      if (init?.method === 'DELETE') return Response.json({ disconnected: true });
+      calls++;
+      if (calls === 2) return delayed;
+      return healthResponse(calls === 1 ? 'connected' : 'not_connected');
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+      doc.dispatchEvent(new Event('visibilitychange'));
+    });
+    assert.equal(calls, 2, 'focus and visibility must share the outstanding background refresh');
+    const disconnect = root.root.find(node => node.type === 'button' && node.children.includes('Disconnect'));
+    await act(async () => { await disconnect.props.onClick(); });
+    assert.equal(calls, 3, 'mutation must issue a fresh read rather than reusing the old snapshot');
+    assert.doesNotMatch(text(root), /Connected and ready|Loading your connections/);
+    await act(async () => {
+      resolve(failStale ? Response.json({ message: 'Stale failure' }, { status: 503 }) : await healthResponse('connected'));
+    });
+    assert.doesNotMatch(text(root), /Connected and ready|Stale failure|Loading your connections/);
+    assert.equal(root.root.findAllByProps({ role: 'alert' }).length, 0);
+  });
+}
+
+test('pending attempt shows explicit expiry after the bounded poll window', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const root = await mount(t, async () => healthResponse('pending'));
+  assert.match(text(root), /Waiting for you to finish on Facebook/);
+  for (const delay of [2000, 5000, 10000, 20000, 40000, 60000, 80000, 90000]) {
+    await act(async () => { t.mock.timers.tick(delay); });
+  }
+  assert.match(text(root), /Connection attempt expired — try again/);
 });

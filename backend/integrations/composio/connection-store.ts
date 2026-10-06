@@ -71,7 +71,9 @@ function rowToConnectedAccount(row: ConnectedAccountRow): ConnectedAccount {
     authConfigId: row.auth_config_id,
     externalAccountId: row.external_account_id,
     externalAccountName: row.external_account_name,
-    status: row.status as ConnectionStatus,
+    // OAuth can be active without authorizing Aries to post as this identity.
+    status: row.status === 'connected' && (row.platform === 'linkedin' || row.platform === 'x') && !row.external_account_id?.trim()
+      ? 'unconfirmed' : row.status as ConnectionStatus,
     capabilities: parseCapabilities(row.capabilities_json),
     lastCapabilityCheckAt: toIso(row.last_capability_check_at),
     createdAt: toIso(row.created_at) ?? new Date(0).toISOString(),
@@ -105,13 +107,13 @@ export async function upsertConnection(
        provider = EXCLUDED.provider,
        connected_account_id = EXCLUDED.connected_account_id,
        auth_config_id = EXCLUDED.auth_config_id,
-       external_account_id = CASE WHEN EXCLUDED.platform IN ('facebook', 'instagram') AND
+       external_account_id = CASE WHEN EXCLUDED.platform IN ('facebook', 'instagram', 'linkedin', 'x') AND
          (EXCLUDED.status = 'pending' OR EXCLUDED.connected_account_id IS DISTINCT FROM connected_accounts.connected_account_id)
          THEN EXCLUDED.external_account_id ELSE COALESCE(EXCLUDED.external_account_id, connected_accounts.external_account_id) END,
-       external_account_name = CASE WHEN EXCLUDED.platform IN ('facebook', 'instagram') AND
+       external_account_name = CASE WHEN EXCLUDED.platform IN ('facebook', 'instagram', 'linkedin', 'x') AND
          (EXCLUDED.status = 'pending' OR EXCLUDED.connected_account_id IS DISTINCT FROM connected_accounts.connected_account_id)
          THEN EXCLUDED.external_account_name ELSE COALESCE(EXCLUDED.external_account_name, connected_accounts.external_account_name) END,
-       capabilities_json = CASE WHEN EXCLUDED.platform IN ('facebook', 'instagram') AND
+       capabilities_json = CASE WHEN EXCLUDED.platform IN ('facebook', 'instagram', 'linkedin', 'x') AND
          (EXCLUDED.status = 'pending' OR EXCLUDED.connected_account_id IS DISTINCT FROM connected_accounts.connected_account_id)
          THEN NULL ELSE connected_accounts.capabilities_json END,
        status = EXCLUDED.status,

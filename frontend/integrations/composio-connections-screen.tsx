@@ -37,7 +37,7 @@ type Connection = {
   connectedAccountId: string | null;
   externalAccountId: string | null;
   provider: string;
-  status: 'not_connected' | 'pending' | 'connected' | 'reauthorization_required' | 'error';
+  status: 'not_connected' | 'pending' | 'unconfirmed' | 'connected' | 'reauthorization_required' | 'error';
   externalAccountName: string | null;
   capabilities: Capabilities | null;
   prerequisites?: string[];
@@ -46,7 +46,7 @@ type Connection = {
 };
 
 /** Whether we are actively polling after an OAuth return. */
-type PollingPhase = 'idle' | 'active';
+type PollingPhase = 'idle' | 'active' | 'expired';
 
 type ListResponse = {
   status: string;
@@ -70,7 +70,10 @@ function statusText(
   status: Connection['status'],
   caps: Capabilities | null,
   pollingPhase: PollingPhase = 'idle',
+  network = 'the network',
+  hasConfirmedIdentity = false,
 ): { label: string; tone: string } {
+  if (status === 'unconfirmed') return { label: 'Unconfirmed — confirm your identity before publishing', tone: 'amber' };
   if (status === 'connected') {
     const missing = caps && caps.missingPermissions.length > 0;
     return missing
@@ -78,15 +81,10 @@ function statusText(
       : { label: 'Connected and ready', tone: 'green' };
   }
   if (status === 'pending') {
-    if (pollingPhase === 'active') {
-      return {
-        label: 'Finishing connecting… you can leave this page — we’ll confirm it automatically once the platform finishes',
-        tone: 'blue',
-      };
-    }
-    return { label: 'Waiting for you to finish connecting', tone: 'blue' };
+    if (pollingPhase === 'expired') return { label: 'Connection attempt expired — try again', tone: 'amber' };
+    return { label: `Waiting for you to finish on ${network}`, tone: 'blue' };
   }
-  if (status === 'reauthorization_required') return { label: 'Please reconnect', tone: 'amber' };
+  if (status === 'reauthorization_required') return { label: hasConfirmedIdentity ? 'Please reconnect' : 'Connection attempt expired — try again', tone: 'amber' };
   if (status === 'error') return { label: 'Something went wrong — try reconnecting', tone: 'red' };
   return { label: 'Not connected', tone: 'gray' };
 }
@@ -118,30 +116,50 @@ export default function ComposioConnectionsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [changingPage, setChangingPage] = useState<string | null>(null);
-  // pollingPhase drives the enhanced "Finishing connecting…" copy.
+  // Show an explicit retry state when the bounded polling window ends.
   const [pollingPhase, setPollingPhase] = useState<PollingPhase>('idle');
   // Bounded retry bookkeeping for the eager reconcile (refs so changing them
   // never re-renders / re-runs the polling effect).
   const reconcileAttemptsRef = useRef(0);
   const justReturnedFromOAuthRef = useRef(false);
+  const loadVersionRef = useRef(0);
+  const loadingRef = useRef(false);
 
   const load = useCallback(async () => {
+    const version = ++loadVersionRef.current;
+    loadingRef.current = true;
     setLoading(true);
     setError(null);
     try {
       const res = await fetch('/api/integrations/composio', { cache: 'no-store' });
       const body = (await res.json()) as ListResponse & { message?: string };
       if (!res.ok) throw new Error(body.message ?? 'Could not load connections.');
-      setData(body);
+      if (version === loadVersionRef.current) setData(body);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not load connections.');
+      if (version === loadVersionRef.current) setError(e instanceof Error ? e.message : 'Could not load connections.');
     } finally {
-      setLoading(false);
+      if (version === loadVersionRef.current) {
+        loadingRef.current = false;
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    const win = window;
+    const doc = document;
+    const refresh = () => { if (doc.visibilityState === 'visible' && !loadingRef.current) void load(); };
+    win.addEventListener('focus', refresh);
+    doc.addEventListener('visibilitychange', refresh);
+    return () => {
+      win.removeEventListener('focus', refresh);
+      doc.removeEventListener('visibilitychange', refresh);
+    };
   }, [load]);
 
   // Detect a return from OAuth (?connected=<platform>) once on mount. This runs
@@ -156,8 +174,7 @@ export default function ComposioConnectionsScreen() {
   // card flips to "Connected" on its own. Covers up to ~5 minutes of post-OAuth
   // polling (see RECONCILE_DELAYS_MS above). Stops as soon as no row is pending
   // or the budget is spent, leaving the reconnect affordance + any advisory
-  // visible (#699). While polling, sets pollingPhase='active' so the card shows
-  // the "you can leave this page" copy.
+  // visible (#699). Expired attempts keep an explicit retry message.
   useEffect(() => {
     if (!data) return;
     const hasPending = data.connections.some((c) => c.status === 'pending');
@@ -173,7 +190,7 @@ export default function ComposioConnectionsScreen() {
     }
     if (reconcileAttemptsRef.current >= RECONCILE_DELAYS_MS.length) {
       // Budget exhausted — the server-side reconciler will catch it; stop.
-      setPollingPhase('idle');
+      setPollingPhase('expired');
       return;
     }
     setPollingPhase('active');
@@ -263,9 +280,11 @@ export default function ComposioConnectionsScreen() {
           const caps = conn.capabilities;
           // Pass pollingPhase only for this platform's pending card.
           const cardPhase = conn.status === 'pending' ? pollingPhase : 'idle';
-          const st = statusText(conn.status, caps, cardPhase);
+          const st = statusText(conn.status, caps, cardPhase, conn.platform === 'facebook' ? 'Facebook' : PLATFORM_LABEL[conn.platform], !!conn.externalAccountId);
           const isConnected = conn.status === 'connected';
+          const isUnconfirmed = conn.status === 'unconfirmed';
           const metaPlatform = conn.platform === 'facebook' || conn.platform === 'instagram' ? conn.platform : null;
+          const pickerPlatform = metaPlatform ?? (conn.platform === 'linkedin' || conn.platform === 'x' ? conn.platform : null);
           const needsChoice = isConnected && metaPlatform && !conn.externalAccountId;
           if (needsChoice) { st.label = 'Connected — confirm your account before publishing'; st.tone = 'amber'; }
           const lastPost = conn.lastSuccessfulPostAt ? new Date(conn.lastSuccessfulPostAt) : null;
@@ -291,7 +310,7 @@ export default function ComposioConnectionsScreen() {
                   </span>
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2">
-                  {isConnected ? (
+                  {isConnected || isUnconfirmed ? (
                     <>
                     {metaPlatform && <button type="button" onClick={() => setChangingPage(conn.platform)} className="min-h-11 rounded-lg border border-slate-600 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-800">
                       {metaPlatform === 'facebook' ? 'Change page' : 'Change account'}
@@ -354,8 +373,8 @@ export default function ComposioConnectionsScreen() {
                 </div>
               </div>
 
-              {isConnected && metaPlatform && (needsChoice || changingPage === conn.platform) && <>
-                <ComposioPageSelection key={conn.connectedAccountId} platform={metaPlatform} onSaved={async () => { setChangingPage(null); await load(); }} />
+              {pickerPlatform && (isUnconfirmed || (isConnected && (needsChoice || changingPage === conn.platform))) && <>
+                <ComposioPageSelection key={conn.connectedAccountId} platform={pickerPlatform} onSaved={async () => { setChangingPage(null); await load(); }} />
                 <button type="button" onClick={() => connect(conn.platform)} disabled={busy === conn.platform} className="mt-3 text-sm text-sky-300 underline">Reconnect {PLATFORM_LABEL[conn.platform]}</button>
               </>}
 

@@ -93,6 +93,7 @@ export function emptyCapabilities(provider: ProviderKind): Capabilities {
 export type ConnectionStatus =
   | 'not_connected'
   | 'pending'
+  | 'unconfirmed'
   | 'connected'
   | 'reauthorization_required'
   | 'error';
