@@ -106,6 +106,24 @@ For weekly social content media generation, Hermes owns ChatGPT/OpenAI auth and 
 
 Prerequisites: Node.js 24.x, npm, PostgreSQL 16, and a Hermes endpoint for live execution.
 
+Select the project runtime before installing, developing, or verifying. The existing
+`.nvmrc` pins Node 24; `package.json` requires `>=24 <25`, matching Docker and CI.
+With nvm, run `nvm install` then `nvm use` from the repository root.
+In Windows Git Bash without nvm, use a subshell with your installed Node 24
+directory first on PATH (adjust the path if installed elsewhere):
+
+```bash
+(
+  export PATH="/c/Program Files/nodejs:$PATH"
+  node --version # must print v24.x before continuing
+  NODE_ENV=development npm ci
+  npm run verify
+)
+```
+
+Use the same subshell for `npm run dev`. This leaves the parent shell and
+host-global PATH unchanged; do not upgrade the project to the host's Node 26.
+
 ```bash
 # 1. Install dependencies (force dev mode so devDependencies install)
 NODE_ENV=development npm ci
