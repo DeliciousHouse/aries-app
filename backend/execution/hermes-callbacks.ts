@@ -1,9 +1,11 @@
+import { createHash } from 'node:crypto';
 import {
   ExecutionRunLockError,
   hasExecutionRunEvent,
   isTerminalExecutionStatus,
   loadExecutionRunRecord,
   markExecutionRunEventApplied,
+  saveExecutionRunRecord,
   type ExecutionRunStatus,
   type ExecutionRunRecord,
   withExecutionRunLock,
@@ -228,7 +230,31 @@ export async function handleHermesRunCallback(
         return { status: 'error', reason: 'execution_run_not_found' };
       }
 
-      if (hasExecutionRunEvent(payload.aries_run_id, payload.event_id)) {
+      // Transport IDs differ between HTTP, bridge and reconciler. Hash the
+      // semantic payload; never persist callback credentials or bodies here.
+      const { event_id: _eventId, callback_token: _token, ...semanticPayload } = payload as HermesRunCallbackPayload & { callback_token?: unknown };
+      const payloadHash = createHash('sha256').update(JSON.stringify(semanticPayload, (_key, value) => (
+        value && typeof value === 'object' && !Array.isArray(value)
+          ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)))
+          : value
+      ))).digest('hex');
+      const receipts = run.callback_receipts ??= [];
+      const sameEvent = receipts.find((receipt) => receipt.event_id === payload.event_id);
+      const existing = receipts.find((receipt) => receipt.payload_sha256 === payloadHash);
+      if (sameEvent && sameEvent.payload_sha256 !== payloadHash) {
+        if (!existing) {
+          receipts.push({ event_id: payload.event_id, payload_sha256: payloadHash,
+            external_run_id: payload.hermes_run_id ?? null, state: 'rejected' });
+          saveExecutionRunRecord(run);
+        }
+        return { status: 'error', reason: 'callback_identity_conflict' };
+      }
+      if (existing && ['pending', 'applying'].includes(existing.state)) {
+        existing.state = 'unknown';
+        saveExecutionRunRecord(run);
+        return { status: 'error', reason: 'callback_outcome_unknown' };
+      }
+      if (hasExecutionRunEvent(payload.aries_run_id, payload.event_id) && existing) {
         return {
           status: 'accepted',
           ariesRunId: payload.aries_run_id,
@@ -236,15 +262,48 @@ export async function handleHermesRunCallback(
         };
       }
 
+      if (existing) return { status: 'error', reason: 'callback_outcome_unknown' };
+      const unresolvedApplication = receipts.some((item) => (
+        ['pending', 'applying', 'unknown'].includes(item.state) && !run.event_ids.includes(item.event_id)
+      ));
+      const receipt: NonNullable<ExecutionRunRecord['callback_receipts']>[number] = {
+        event_id: payload.event_id, payload_sha256: payloadHash,
+        external_run_id: payload.hermes_run_id ?? null, state: 'pending',
+      };
+      receipts.push(receipt);
+      saveExecutionRunRecord(run);
+
+      if (unresolvedApplication) {
+        receipt.state = 'unknown';
+        saveExecutionRunRecord(run);
+        return { status: 'error', reason: 'callback_outcome_unknown' };
+      }
+
       const correlationError = validateRunCorrelation(run, payload);
       if (correlationError) {
+        receipt.state = 'rejected';
+        saveExecutionRunRecord(run);
         return correlationError;
       }
 
       const approvalError = validateApprovalTransition(run, payload);
       if (approvalError) {
+        receipt.state = 'rejected';
+        saveExecutionRunRecord(run);
         return approvalError;
       }
+      if (isTerminalExecutionStatus(run.status) || run.event_ids.includes(payload.event_id)) {
+        receipt.state = 'unknown';
+        saveExecutionRunRecord(run);
+        return { status: 'error', reason: 'callback_terminal_outcome_unknown' };
+      }
+      if (run.submission && !run.external_run_id) {
+        receipt.state = 'unknown';
+        saveExecutionRunRecord(run);
+        return { status: 'error', reason: 'callback_binding_unknown' };
+      }
+      receipt.state = 'applying';
+      saveExecutionRunRecord(run);
 
       // The shared Hermes protocol emits `stopped`; Aries persists the canonical
       // cancellation state everywhere, including the marketing runtime that is
@@ -304,6 +363,14 @@ export async function handleHermesRunCallback(
         externalRunId: payload.hermes_run_id,
         error: appliedError,
       });
+      // Cross-store effect proof is unavailable. HTTP 200/event_ids are not
+      // delivery evidence; there is deliberately no delivered transition.
+      const appliedRun = loadExecutionRunRecord(payload.aries_run_id);
+      if (!appliedRun) throw new Error('execution run unavailable after callback');
+      const appliedReceipt = appliedRun.callback_receipts?.find((item) => item.payload_sha256 === payloadHash);
+      if (!appliedReceipt) throw new Error('callback receipt unavailable');
+      appliedReceipt.state = 'unknown';
+      saveExecutionRunRecord(appliedRun);
 
       // AA-159: this is the ONE post-dedup convergence point for every Hermes
       // run of either domain, so it is where an AI_LLM execution-log row belongs.

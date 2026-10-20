@@ -192,7 +192,7 @@ test('HermesMarketingPort.submitRawRun dispatches social_copy_finalize payload a
   });
 });
 
-test('HermesMarketingPort.submitRawRun throws with hermes_gateway_unreachable code on fetch failure', async () => {
+test('protects lost raw submission; fails_when terminal failure inferred; no_claim remote outcome', async () => {
   await withDataRoot(async () => {
     const { createExecutionRunRecord, loadExecutionRunRecord } = await import('../../backend/execution/run-store');
 
@@ -233,11 +233,13 @@ test('HermesMarketingPort.submitRawRun throws with hermes_gateway_unreachable co
     );
 
     const record = loadExecutionRunRecord(run.aries_run_id);
-    assert.equal(record?.status, 'failed');
+    assert.equal(record?.status, 'submitted');
+    assert.equal(record?.submission?.state, 'unknown');
+    assert.equal(record?.submission?.idempotency_key, 'key-unreachable');
   });
 });
 
-test('HermesMarketingPort.submitRawRun throws with hermes_gateway_request_failed code on non-ok response', async () => {
+test('protects non-ok raw submission; fails_when retryable outcome inferred; no_claim remote outcome', async () => {
   await withDataRoot(async () => {
     const { createExecutionRunRecord, loadExecutionRunRecord } = await import('../../backend/execution/run-store');
 
@@ -278,7 +280,9 @@ test('HermesMarketingPort.submitRawRun throws with hermes_gateway_request_failed
     );
 
     const record = loadExecutionRunRecord(run.aries_run_id);
-    assert.equal(record?.status, 'failed');
+    assert.equal(record?.status, 'submitted');
+    assert.equal(record?.submission?.state, 'unknown');
+    assert.equal(record?.submission?.idempotency_key, 'key-bad-request');
   });
 });
 

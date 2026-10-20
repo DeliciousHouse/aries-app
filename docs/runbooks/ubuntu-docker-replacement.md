@@ -9,6 +9,17 @@ CI and canonical review acceptance exist. No premature rollout or QA release.
 
 ## Current sanitized contract
 
+Implementation checkpoint, not acceptance: the marketing execution-run store has
+optional submission identity and callback receipt fields (no SQL migration).
+Legacy absence is unknown; null submission marks a newly created, never-dispatched
+record. The wire-body and endpoint/key-epoch hashes are NOT native runtime identity
+proof. Callback pending/applying/unknown/rejected records are conservative local
+inventory; no delivered transition exists. The existing handler's accepted response
+is not a per-effect receipt. Interrupted writes/locks make strict inventory fail.
+No compatibility, bootstrap, host hold or production release follows from these
+fields. See `dora-pull-deploy.md` for uncovered sibling submission paths; retain all
+runtime, host-fence and isolated all-worker acceptance gates below.
+
 Controller-reviewed metadata discovery: 2026-10-03 09:09–09:13 UTC,
 aries-replacement-prerequisites-20261003/prerequisites.md in protected local evidence.
 This supersedes the September snapshot in ubuntu-docker-release.md.

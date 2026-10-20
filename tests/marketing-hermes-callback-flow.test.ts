@@ -235,7 +235,7 @@ test('Hermes marketing callbacks advance runtime docs and create provider-neutra
   });
 });
 
-test('execution run records ignore late terminal callbacks after completion', async () => {
+test('protects late terminal callback inventory; fails_when recorded applied; no_claim reconciled effects', async () => {
   await withRuntimeEnv(async () => {
     const { createExecutionRunRecord, loadExecutionRunRecord } = await import('../backend/execution/run-store');
     const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
@@ -294,11 +294,13 @@ test('execution run records ignore late terminal callbacks after completion', as
     assert.equal(afterLateCancelled?.status, 'completed');
     assert.deepEqual(afterLateCancelled?.result, [{ ok: true }]);
     assert.equal(afterLateCancelled?.last_error, null);
-    assert.deepEqual(afterLateCancelled?.event_ids, [
+    assert.deepEqual(afterLateCancelled?.event_ids, ['evt-run-completed']);
+    assert.deepEqual(afterLateCancelled?.callback_receipts?.map((receipt) => receipt.event_id), [
       'evt-run-completed',
       'evt-run-failed-late',
       'evt-run-cancelled-late',
     ]);
+    assert.ok(afterLateCancelled?.callback_receipts?.every((receipt) => receipt.state === 'unknown'));
   });
 });
 

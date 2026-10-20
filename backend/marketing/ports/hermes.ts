@@ -10,6 +10,8 @@ import {
   loadExecutionRunRecord,
   markExecutionRunFailed,
   markExecutionRunSubmitted,
+  prepareExecutionRunSubmission,
+  withExecutionRunLock,
   type ExecutionRunRecord,
 } from '../../execution/run-store';
 import {
@@ -303,7 +305,8 @@ function providerErrorOutput(
     error: {
       code,
       message,
-      retryable: code === 'hermes_gateway_unreachable' || code === 'hermes_gateway_request_failed',
+      // A transport failure does not establish that remote work was rejected.
+      retryable: false,
     },
     output: detail,
   };
@@ -337,7 +340,7 @@ function markSubmissionFailed(ariesRunId: string, code: string, message: string)
   markExecutionRunFailed(ariesRunId, {
     code,
     message,
-    retryable: code === 'hermes_gateway_unreachable' || code === 'hermes_gateway_request_failed',
+    retryable: false,
   });
 }
 
@@ -905,8 +908,10 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       throw error;
     }
 
-    await this.persistCallbackTokenHash(input.ariesRunId, input.tenantId, input.callbackToken);
     const idempotencyKey = typeof wirePayload.idempotency_key === 'string' ? wirePayload.idempotency_key : '';
+    const requestBody = JSON.stringify(wirePayload);
+    await this.prepareSubmission(input.ariesRunId, idempotencyKey, requestBody, null);
+    await this.persistCallbackTokenHash(input.ariesRunId, input.tenantId, input.callbackToken);
 
     return withTaskExecutionLog(
       {
@@ -936,7 +941,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
           'content-type': 'application/json',
           'idempotency-key': idempotencyKey,
         },
-        body: JSON.stringify(wirePayload),
+        body: requestBody,
       });
     } catch (error) {
       markSubmissionFailed(input.ariesRunId, 'hermes_gateway_unreachable', error instanceof Error ? error.message : String(error));
@@ -962,7 +967,9 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     // submitRawRun posts to the DEFAULT gateway (this.gatewayUrl()), so record
     // target_profile=null — the reconciler must poll that same default gateway,
     // not a stage-derived per-profile one.
-    markExecutionRunSubmitted(input.ariesRunId, { externalRunId: hermesRunId, targetProfile: null });
+    await withExecutionRunLock(input.ariesRunId, async () => {
+      markExecutionRunSubmitted(input.ariesRunId, { externalRunId: hermesRunId, targetProfile: null });
+    });
     if (this.pollBridgeEnabled()) {
       void this.runPollBridge(hermesRunId, input.ariesRunId, input.workflowKey, input.stage).catch((error) => {
         console.error('[hermes-port] poll-bridge failed (submitRawRun)', {
@@ -1040,6 +1047,21 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     const missing = ['HERMES_GATEWAY_URL', 'HERMES_API_SERVER_KEY', 'INTERNAL_API_SECRET', 'APP_BASE_URL']
       .filter((key) => !readEnvValue(this.env, key));
     return missing.length > 0 ? missingConfigResult(missing.join(', ')) : null;
+  }
+
+  private async prepareSubmission(ariesRunId: string, key: string, body: string, profile: HermesTargetProfile | null): Promise<void> {
+    const gateway = profile === null ? this.gatewayUrl() : this.gatewayUrlForProfile(profile);
+    const authorization = profile === null ? this.authHeader() : this.authHeaderForProfile(profile);
+    await withExecutionRunLock(ariesRunId, async () => {
+      prepareExecutionRunSubmission(ariesRunId, {
+        idempotency_key: key,
+        request_sha256: createHash('sha256').update(body).digest('hex'),
+        // Local endpoint/key-epoch binding, NOT the native runtime fingerprint
+        // or proof of effective remote profile ownership/history coverage.
+        gateway_scope_sha256: createHash('sha256').update(`${gateway}\0${authorization}`).digest('hex'),
+        target_profile: profile,
+      });
+    });
   }
 
   private gatewayUrl(): string {
@@ -1263,6 +1285,8 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     // Route this stage's submission to its dedicated Hermes profile gateway.
     // Defaults to HERMES_GATEWAY_URL when per-profile vars are unset.
     const targetProfile = targetProfileForStage(effectiveStage);
+    const requestBody = JSON.stringify(payload);
+    await this.prepareSubmission(run.aries_run_id, idempotencyKey, requestBody, targetProfile);
 
     // A per-profile URL with no per-profile key silently signs this POST with
     // the DEFAULT gateway's key and earns a 401 from a gateway that is up and
@@ -1311,7 +1335,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
           'content-type': 'application/json',
           'idempotency-key': idempotencyKey,
         },
-        body: JSON.stringify(payload),
+        body: requestBody,
       });
     } catch (error) {
       const message = 'Hermes gateway is unreachable.';
@@ -1373,7 +1397,9 @@ export class HermesMarketingPort implements MarketingExecutionPort {
 
     // invoke() posts to the per-profile gateway (gatewayUrlForProfile(targetProfile)),
     // so record that profile — the reconciler polls the same gateway later.
-    markExecutionRunSubmitted(run.aries_run_id, { externalRunId: hermesRunId, targetProfile });
+    await withExecutionRunLock(run.aries_run_id, async () => {
+      markExecutionRunSubmitted(run.aries_run_id, { externalRunId: hermesRunId, targetProfile });
+    });
     if (this.syncPollingEnabled()) {
       return this.pollRunUntilTerminal(hermesRunId, run.aries_run_id, targetProfile);
     }
@@ -2224,12 +2250,10 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       const message = typeof record.error === 'string' && record.error
         ? record.error
         : `Hermes run ${runId} failed without an error message.`;
-      markSubmissionFailed(ariesRunId, 'hermes_run_failed', message);
       return gatewayErrorResult('hermes_run_failed', message, { run_id: runId });
     }
     if (status === 'cancelled' || status === 'stopped') {
       const message = `Hermes run ${runId} ended with status ${status}.`;
-      markSubmissionFailed(ariesRunId, 'hermes_run_cancelled', message);
       return gatewayErrorResult('hermes_run_cancelled', message, { run_id: runId });
     }
 
@@ -2237,7 +2261,6 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     const output = this.workflowOutputFromRunRecord(runId, record);
     if (!output) {
       const message = `Hermes run ${runId} returned unparseable output.`;
-      markSubmissionFailed(ariesRunId, 'hermes_output_invalid', message);
       return gatewayErrorResult('hermes_output_invalid', message, { run_id: runId });
     }
     return { kind: 'completed', provider: 'hermes', output };

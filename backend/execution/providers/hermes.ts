@@ -1,8 +1,11 @@
+import { createHash } from 'node:crypto';
 import { ExecutionError } from '../errors';
 import {
   createExecutionRunRecord,
   markExecutionRunFailed,
   markExecutionRunSubmitted,
+  prepareExecutionRunSubmission,
+  withExecutionRunLock,
 } from '../run-store';
 import type { WorkflowEnvelope, WorkflowExecutionResult } from '../types';
 import { ARIES_WORKFLOWS } from '../workflow-catalog';
@@ -363,7 +366,9 @@ export class HermesExecutionAdapter {
     if (submission.kind !== 'submitted') {
       return submission.result;
     }
-    markExecutionRunSubmitted(run.aries_run_id, { externalRunId: submission.runId });
+    await withExecutionRunLock(run.aries_run_id, async () => {
+      markExecutionRunSubmitted(run.aries_run_id, { externalRunId: submission.runId, targetProfile: null });
+    });
     return this.pollRunUntilTerminal(submission.runId, run.aries_run_id);
   }
 
@@ -371,6 +376,19 @@ export class HermesExecutionAdapter {
     envelope: HermesRunRequestEnvelope,
     ariesRunId: string,
   ): Promise<{ kind: 'submitted'; runId: string } | { kind: 'error'; result: WorkflowExecutionResult }> {
+    const requestBody = JSON.stringify({
+      input: promptForWorkflow(envelope, ariesRunId),
+      instructions: instructionsForWorkflow(envelope.workflowId),
+      session_id: this.sessionKey(),
+    });
+    await withExecutionRunLock(ariesRunId, async () => {
+      prepareExecutionRunSubmission(ariesRunId, {
+        idempotency_key: ariesRunId,
+        request_sha256: createHash('sha256').update(requestBody).digest('hex'),
+        gateway_scope_sha256: createHash('sha256').update(`${this.gatewayUrl()}\0${this.authHeader()}`).digest('hex'),
+        target_profile: null,
+      });
+    });
     let response: Response;
     try {
       response = await this.fetchImpl(`${this.gatewayUrl()}/v1/runs`, {
@@ -378,12 +396,9 @@ export class HermesExecutionAdapter {
         headers: {
           authorization: this.authHeader(),
           'content-type': 'application/json',
+          'idempotency-key': ariesRunId,
         },
-        body: JSON.stringify({
-          input: promptForWorkflow(envelope, ariesRunId),
-          instructions: instructionsForWorkflow(envelope.workflowId),
-          session_id: this.sessionKey(),
-        }),
+        body: requestBody,
       });
     } catch (error) {
       return {

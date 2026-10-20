@@ -43,6 +43,23 @@ startup checks pre-existing claims columns/constraints without DDL. Strict local
 execution-run inventory refuses missing/corrupt records and age-truncated scans;
 it cannot recover remotely pruned history or prove provider outcomes.
 
+The marketing port now persists the original submission key, exact wire-body
+SHA256 and endpoint/key-epoch hash before POST. These are local bindings, NOT the
+native Hermes fingerprint or authenticated profile/history proof. Missing legacy
+identity stays unknown; same-record redispatch is refused. All transports converge
+on the existing callback handler, which persists pending/applying before effects
+and unknown afterward. A crash/interrupted write is unresolved, not replayable.
+HTTP accepted, event_ids and native terminal state do not mean delivered. There
+is no delivered transition until per-effect reconciliation exists. Strict inventory
+also refuses leftover temporary writes and active locks.
+
+The route execution provider also persists its new run's original identity before
+dispatch, using the existing Aries run ID as its native idempotency header. This
+checkpoint does NOT cover comment classification, brand-kit enrichment or
+posting-time advisor submission paths.
+Their native admission/history and original-identity coverage must be established
+before a whole-Aries hold/release is possible. Do not install this checkpoint.
+
 Schema changes are refused: the controller writes `~/.local/share/aries-deploy/blocked`,
 and the unit fails. Resolve the compatibility boundary through the existing operations lane;
 this is not permission for a manual release or a production-data restore

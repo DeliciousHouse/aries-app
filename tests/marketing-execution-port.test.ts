@@ -426,7 +426,7 @@ test('HermesMarketingPort requires INTERNAL_API_SECRET for social-content execut
   assert.match(result.output.error?.message ?? '', /INTERNAL_API_SECRET/);
 });
 
-test('HermesMarketingPort marks accepted Aries runs failed when Hermes submission fails', async () => {
+test('protects ambiguous HTTP failures; fails_when marked terminal; no_claim remote rejection', async () => {
   await withDataRoot(async () => {
     const { loadExecutionRunRecord } = await import('../backend/execution/run-store');
     const { fetchImpl } = recordingFetchSequence([
@@ -452,10 +452,13 @@ test('HermesMarketingPort marks accepted Aries runs failed when Hermes submissio
 
     assert.equal(result.kind, 'completed');
     assert.equal(result.output.ok, false);
+    assert.equal(result.output.error?.retryable, false);
     const detail = result.output.output as Record<string, unknown>;
     const ariesRunId = String(detail.aries_run_id);
     const stored = loadExecutionRunRecord(ariesRunId);
-    assert.equal(stored?.status, 'failed');
+    assert.equal(stored?.status, 'submitted');
+    assert.equal(stored?.submission?.state, 'unknown');
+    assert.match(stored?.submission?.request_sha256 ?? '', /^[a-f0-9]{64}$/);
     assert.equal(stored?.last_error?.code, 'hermes_gateway_request_failed');
   });
 });

@@ -2,10 +2,12 @@ import { randomUUID } from 'node:crypto';
 import {
   closeSync,
   existsSync,
+  fsyncSync,
   mkdirSync,
   openSync,
   readdirSync,
   readFileSync,
+  renameSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -58,6 +60,20 @@ export type ExecutionRunRecord = {
    * the reconciler falls back to deriving the profile from `stage` for those.
    */
   target_profile?: string | null;
+  // Absent = legacy/unknown; null = newly created, never dispatched.
+  submission?: null | {
+    idempotency_key: string;
+    request_sha256: string;
+    gateway_scope_sha256: string;
+    target_profile: string | null;
+    state: 'unknown' | 'accepted';
+  };
+  callback_receipts?: Array<{
+    event_id: string;
+    payload_sha256: string;
+    external_run_id: string | null;
+    state: 'pending' | 'applying' | 'unknown' | 'delivered' | 'rejected';
+  }>;
   /**
    * AA-159 processing-engine classification. Every execution run is submitted to
    * Hermes and executed by a model, so this is always 'AI_LLM' — it is stamped
@@ -198,6 +214,9 @@ export function listExecutionRunRecords(
       : null;
   const records: ExecutionRunRecord[] = [];
   for (const entry of entries) {
+    if (options.strict && (entry.endsWith('.tmp') || entry.endsWith('.lock'))) {
+      throw new Error('execution inventory has interrupted or active writes');
+    }
     if (!entry.endsWith('.json')) {
       continue;
     }
@@ -249,8 +268,40 @@ export function saveExecutionRunRecord(record: ExecutionRunRecord): string {
   record.updated_at = nowIso();
   const filePath = executionRunPath(record.aries_run_id);
   mkdirSync(path.dirname(filePath), { recursive: true });
-  writeFileSync(filePath, JSON.stringify(record, null, 2));
+  const temporary = `${filePath}.${randomUUID()}.tmp`;
+  const fd = openSync(temporary, 'wx', 0o600);
+  try {
+    writeFileSync(fd, JSON.stringify(record, null, 2));
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  renameSync(temporary, filePath);
+  // Windows cannot fsync directories. Linux production must persist the rename.
+  if (process.platform !== 'win32') {
+    const directory = openSync(path.dirname(filePath), 'r');
+    try { fsyncSync(directory); } finally { closeSync(directory); }
+  }
   return filePath;
+}
+
+/** Call under withExecutionRunLock before dispatch; never retry an ambiguous POST. */
+export function prepareExecutionRunSubmission(
+  ariesRunId: string,
+  identity: Omit<NonNullable<ExecutionRunRecord['submission']>, 'state'>,
+): void {
+  const record = loadExecutionRunRecord(ariesRunId);
+  if (!record) throw new Error('execution run unavailable');
+  if (record.submission !== null || record.external_run_id || record.event_ids.length) {
+    throw new Error('execution run already dispatched; reconciliation required');
+  }
+  if (!identity.idempotency_key || !/^[a-f0-9]{64}$/.test(identity.request_sha256)
+    || !/^[a-f0-9]{64}$/.test(identity.gateway_scope_sha256)) {
+    throw new Error('submission identity invalid');
+  }
+  record.submission = { ...identity, state: 'unknown' };
+  record.target_profile = identity.target_profile;
+  saveExecutionRunRecord(record);
 }
 
 export function createExecutionRunRecord(input: CreateExecutionRunRecordInput): ExecutionRunRecord {
@@ -269,6 +320,7 @@ export function createExecutionRunRecord(input: CreateExecutionRunRecordInput): 
     stage: input.stage ?? null,
     workflow_step_id: nonEmpty(input.workflowStepId),
     external_run_id: null,
+    submission: null,
     execution_engine: 'AI_LLM',
     status: 'submitted',
     event_ids: [],
@@ -289,7 +341,12 @@ export function markExecutionRunSubmitted(
   if (!record) {
     return null;
   }
-  record.external_run_id = nonEmpty(input.externalRunId);
+  const externalRunId = nonEmpty(input.externalRunId);
+  if (record.external_run_id && record.external_run_id !== externalRunId) {
+    throw new Error('execution run binding conflict');
+  }
+  record.external_run_id = externalRunId;
+  if (record.submission && externalRunId) record.submission.state = 'accepted';
   // Record which gateway the run was submitted to so a later reconcile polls the
   // same one. Only overwrite when the caller supplies it (undefined = leave as-is).
   if (input.targetProfile !== undefined) {
@@ -316,7 +373,8 @@ export function markExecutionRunFailed(
   if (TERMINAL_EXECUTION_STATUSES.has(record.status)) {
     return record;
   }
-  record.status = 'failed';
+  // A transport error is not proof the remote did not accept the submission.
+  if (record.submission?.state !== 'unknown') record.status = 'failed';
   record.last_error = error;
   saveExecutionRunRecord(record);
   return record;

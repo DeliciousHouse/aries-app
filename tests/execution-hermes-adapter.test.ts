@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -10,6 +11,7 @@ import {
   buildHermesRequestEnvelope,
 } from '../backend/execution/providers/hermes';
 import { TEST_HERMES_GATEWAY_URL, TEST_UNREACHABLE_URL } from './fixtures/service-urls';
+import { listExecutionRunRecords } from '../backend/execution/run-store';
 
 type FetchCall = { url: string; init: RequestInit };
 
@@ -26,6 +28,32 @@ function recordingFetchSequence(responses: Array<() => Response>) {
 }
 
 const NO_SLEEP = async () => {};
+
+test('protects route submission identity; fails_when lost reply loses original key; no_claim native acceptance', async () => {
+  await withDataRoot(async () => {
+    let calls = 0;
+    let dispatched: RequestInit | undefined;
+    let beforeDispatch: ReturnType<typeof listExecutionRunRecords> = [];
+    const adapter = new HermesExecutionAdapter({
+      HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL,
+      HERMES_API_SERVER_KEY: 'fixture-key',
+    }, async (_url, init) => {
+      calls++;
+      dispatched = init;
+      beforeDispatch = listExecutionRunRecords({ strict: true });
+      throw new Error('lost response');
+    }, NO_SLEEP);
+    const result = await adapter.runWorkflow('calendar_sync', { tenant_id: 'tenant-fixture' });
+    assert.equal(result.kind, 'gateway_error');
+    assert.equal(calls, 1);
+    assert.equal(beforeDispatch[0].submission?.state, 'unknown');
+    assert.equal(beforeDispatch[0].submission?.idempotency_key, new Headers(dispatched?.headers).get('idempotency-key'));
+    assert.equal(beforeDispatch[0].submission?.request_sha256, createHash('sha256').update(String(dispatched?.body)).digest('hex'));
+    const [record] = listExecutionRunRecords({ strict: true });
+    assert.equal(record.submission?.state, 'unknown');
+    assert.equal(record.status, 'submitted');
+  });
+});
 
 async function withDataRoot<T>(run: () => Promise<T>): Promise<T> {
   const previousDataRoot = process.env.DATA_ROOT;

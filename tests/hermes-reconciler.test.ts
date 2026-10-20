@@ -311,27 +311,25 @@ test('reconcileExecutionRun polls the per-profile gateway for the run stage', as
   });
 });
 
-test('reconcileExecutionRun uses a deterministic event_id so repeated passes dedupe', async () => {
+test('protects legacy event ambiguity; fails_when event_ids prove delivery; no_claim provider acceptance', async () => {
   await withDataRoot(async () => {
     const store = await import('../backend/execution/run-store');
 
     const rec = store.createExecutionRunRecord({ provider: 'hermes', domain: 'marketing', workflowKey: 'marketing_pipeline', action: 'run', stage: 'research', marketingJobId: 'job-1' });
     store.markExecutionRunSubmitted(rec.aries_run_id, { externalRunId: 'hrun-det' });
-    // Keep the run non-terminal but pre-seed the deterministic event_id a prior
-    // reconcile pass would have written. If reconcileExecutionRun built a random
-    // event_id (the bridge's behavior) this would NOT dedupe and would fall
-    // through to applyHermesMarketingCallback; duplicate:true proves the id is
-    // exactly `reconcile-<hermesRunId>`.
+    // Legacy event IDs have no payload/application receipt: do not replay or
+    // infer successful delivery from the old marker alone.
     store.markExecutionRunEventApplied(rec.aries_run_id, { eventId: 'reconcile-hrun-det', status: 'running' });
 
     const port = await makePort((async () => new Response(JSON.stringify({ run_id: 'hrun-det', status: 'completed' }), { status: 200 })) as unknown as typeof fetch);
 
     const outcome = await port.reconcileExecutionRun(rec.aries_run_id);
-    assert.deepEqual(outcome, { status: 'ingested', callbackStatus: 'completed', duplicate: true });
+    assert.deepEqual(outcome, { status: 'error', reason: 'callback_terminal_outcome_unknown' });
 
     // The run record was not double-applied: still exactly one reconcile event.
     const reloaded = store.loadExecutionRunRecord(rec.aries_run_id);
     assert.equal(reloaded?.event_ids.filter((e) => e === 'reconcile-hrun-det').length, 1);
+    assert.equal(reloaded?.callback_receipts?.[0].state, 'unknown');
   });
 });
 
