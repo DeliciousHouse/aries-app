@@ -1,0 +1,11 @@
+[Unit]
+Description=Check Aries master for a tested, published revision
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=10min
+RandomizedDelaySec=60
+Persistent=true
+
+[Install]
+WantedBy=timers.target

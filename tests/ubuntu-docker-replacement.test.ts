@@ -32,6 +32,9 @@ test('replacement carries protected live configuration in memory, changes only i
   assert.equal(body.Image, image);
   assert.deepEqual(body.NetworkingConfig.EndpointsConfig, { 'aries-cutover-v1': { Aliases: [serviceNames[0]] } });
   assert.equal(original.Config.Image, 'old');
+  const labelled = source(serviceNames[0]);
+  (labelled.Config as any).Labels = { 'org.opencontainers.image.revision': 'old-sha', 'operator.keep': '1' };
+  assert.deepEqual(replacementBody(labelled, image).Labels, { 'operator.keep': '1' });
   const unexpected = source(serviceNames[0]);
   unexpected.NetworkSettings.Networks['aries-cutover-v1'].IPAMConfig = {} as never;
   assert.throws(() => replacementBody(unexpected, image), /static/);

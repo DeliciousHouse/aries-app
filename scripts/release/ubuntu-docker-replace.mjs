@@ -12,6 +12,13 @@ export const serviceNames = ['app', 'scheduled-posts', 'insights-sync', 'weekly-
   .map((name) => `aries-a3e604b4-${name}`);
 const network = 'aries-cutover-v1';
 const hash = (value) => createHash('sha256').update(value).digest('hex');
+// Labels inherited from the old image (OCI revision etc.) must not be cloned onto
+// the candidate, or every replaced container keeps reporting the old revision.
+const imageLabelPrefix = 'org.opencontainers.image.';
+export function withoutImageLabels(config) {
+  const Labels = Object.fromEntries(Object.entries(config.Labels || {}).filter(([key]) => !key.startsWith(imageLabelPrefix)));
+  return { ...config, Labels };
+}
 const identity = (container) => hash(JSON.stringify({
   Config: container.Config, HostConfig: container.HostConfig,
   Networks: container.NetworkSettings.Networks,
@@ -43,7 +50,7 @@ export function replacementBody(original, image) {
   const endpoint = networks[network];
   if (endpoint.IPAMConfig) throw new Error('Unsupported static endpoint');
   const aliases = (endpoint.Aliases || []).filter((alias) => alias !== original.Id && alias !== original.Id.slice(0, 12));
-  return { ...structuredClone(original.Config), Image: image,
+  return { ...withoutImageLabels(structuredClone(original.Config)), Image: image,
     HostConfig: structuredClone(original.HostConfig),
     NetworkingConfig: { EndpointsConfig: { [network]: { Aliases: aliases } } } };
 }
@@ -89,7 +96,7 @@ export async function replaceRelease(plan, originals, candidate, { api, verify, 
       const current = await api('GET', `/containers/${id}/json`);
       const { HostConfig, NetworkingConfig, ...config } = replacementBody(originals[index], plan.image);
       if (!current.State.Running || current.Image !== candidate.Id
-        || !isDeepStrictEqual(current.Config, config)
+        || !isDeepStrictEqual(withoutImageLabels(current.Config), config)
         || !isDeepStrictEqual(current.HostConfig, HostConfig)
         || Object.keys(current.NetworkSettings.Networks).join() !== Object.keys(NetworkingConfig.EndpointsConfig).join()) {
         throw new Error('Replacement parity failed');

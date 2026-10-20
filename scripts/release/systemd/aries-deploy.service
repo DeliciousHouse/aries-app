@@ -1,0 +1,10 @@
+[Unit]
+Description=Aries production pull deploy from tested master
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/.local/lib/aries-deploy/dora_pull_deploy.py
+TimeoutStartSec=50min
+UMask=0077
+NoNewPrivileges=true
