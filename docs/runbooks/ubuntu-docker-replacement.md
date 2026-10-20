@@ -19,7 +19,13 @@ is not a per-effect receipt. Approval intent now records the exact approval ID a
 expected digest before the write; read-only approval reconciliation checks the
 bound record without replay. Asset checksum/row IDs, post idempotency keys, intended
 schedule slots and child execution IDs now have write-ahead intents and source-specific
-readback. These individual proofs do not establish complete effect coverage; class-level
+readback. Runtime documents, dashboard projections and pending-approval counts now
+record digest-qualified snapshot intents before mutation, with read-only persisted
+state checks. Superseded snapshots remain unknown, not proof of historical application.
+Content-addressed ingested media records tenant/key/byte-count/SHA-256 intent before
+rename; reconciliation hashes the local file and refuses missing, changed or aliased
+paths. This proves local bytes only, not remote storage or provider completion.
+These individual proofs do not establish complete effect coverage; class-level
 unknowns remain and no delivered transition is enabled. Interrupted writes/locks make strict inventory fail.
 No compatibility, bootstrap, host hold or production release follows from these
 fields. See `dora-pull-deploy.md` for direct-submission coverage and remaining retry,

@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { resolveDataPath } from '@/lib/runtime-paths';
+import { callbackEffectDigest, recordCallbackEffectIntent } from '@/backend/execution/callback-effects';
 import { repairLegacyMarketingText, repairStaleMarketingOffer } from '@/backend/marketing/brand-kit';
 import { marketingPayloadDefaultsFromBusinessProfile } from '@/backend/tenant/business-profile';
 // Type-only import (erased at runtime) — avoids a runtime cycle with
@@ -478,11 +479,15 @@ export function persistPendingApprovalCount(
   tenantId: string,
   count: number,
 ): boolean {
+  const normalized = Number.isFinite(count) && count >= 0 ? Math.floor(count) : 0;
+  const expected = {
+    job_id: jobId, tenant_id: tenantId, pending_approval_count: normalized,
+  };
+  recordCallbackEffectIntent('pending_approval_count', `${jobId}:${callbackEffectDigest(expected)}`, expected);
   const record = loadSocialContentWorkspaceRecord(jobId, tenantId);
   if (!record) {
     return false;
   }
-  const normalized = Number.isFinite(count) && count >= 0 ? Math.floor(count) : 0;
   if (record.pending_approval_count === normalized) {
     return false;
   }
@@ -503,6 +508,12 @@ export function persistDashboardListProjection(
   tenantId: string,
   projection: PersistedDashboardListProjection,
 ): boolean {
+  const expected = {
+    job_id: jobId, tenant_id: tenantId, dashboard_list_projection: projection,
+  };
+  // A callback can recompute more than once. Preserve each snapshot intent;
+  // superseded snapshots remain unresolved rather than rejecting a valid write.
+  recordCallbackEffectIntent('dashboard_projection', `${jobId}:${callbackEffectDigest(expected)}`, expected);
   const record = loadSocialContentWorkspaceRecord(jobId, tenantId);
   if (!record) {
     return false;

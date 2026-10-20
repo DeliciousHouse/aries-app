@@ -7,6 +7,7 @@ import pool from '@/lib/db';
 import { normalizeMetaLocatorUrl, normalizeMetaPageId } from '@/lib/marketing-competitor';
 import { describeSpecResolution, resolveDataPath } from '@/lib/runtime-paths';
 import { ingestRuntimeDocAssets } from './asset-ingest';
+import { callbackEffectDigest, recordCallbackEffectIntent } from '@/backend/execution/callback-effects';
 import { loadTenantBrandKit, tenantBrandKitPath, type TenantBrandKit } from './brand-kit';
 import { stripLeadingDanglingArticleFragment } from './brand-kit-enrich';
 import { recordMarketingFailureRuntimeIncident } from './runtime-error-bridge';
@@ -1104,6 +1105,7 @@ export function saveSocialContentJobRuntime(jobId: string, doc: SocialContentJob
     });
   }
   doc.updated_at = nowIso();
+  recordCallbackEffectIntent('marketing_runtime_snapshot', `${jobId}:${callbackEffectDigest(doc)}`, doc);
   const filePath = marketingRuntimePath(jobId);
   mkdirSync(path.dirname(filePath), { recursive: true });
   writeFileSync(filePath, JSON.stringify(doc, null, 2));

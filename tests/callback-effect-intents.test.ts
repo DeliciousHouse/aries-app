@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import fs from 'node:fs';
 import { createExecutionRunRecord, loadExecutionRunRecord, saveExecutionRunRecord, type ExecutionRunRecord } from '../backend/execution/run-store';
 import { callbackEffectDigest, recordCallbackEffectIntent, withCallbackEffectScope } from '../backend/execution/callback-effects';
 import type { SocialContentJobRuntimeDocument } from '../backend/marketing/runtime-state';
@@ -165,6 +166,115 @@ test('protects child identity before actual Hermes port POST; fails_when missing
     assert.equal((await reconcileHermesMarketingCallbackReceipt(saved, receipt))[0].disposition, 'unknown');
     assert.equal(posts, 1);
   });
+});
+
+test('protects projection writer intent and readback; fails_when missing changed corrupt or cross-tenant; no_claim whole callback delivery', async () => {
+  const store = await import('../backend/marketing/workspace-store');
+  const { reconcileHermesMarketingCallbackReceipt } = await import('../backend/marketing/hermes-callbacks');
+  await withEffectRun(async (run) => {
+    const record = { schema_name: 'marketing_campaign_workspace', schema_version: '1.0.0',
+      job_id: 'job-effect', tenant_id: '7', brief: {}, stage_reviews: {}, creative_asset_reviews: {},
+      status_history: [] } as unknown as Parameters<typeof store.saveSocialContentWorkspaceRecord>[0];
+    const file = store.saveSocialContentWorkspaceRecord(record);
+    const projection = { post: null, sourceUpdatedAt: '2030-01-01T00:00:00.000Z',
+      listRow: { dashboard: { posts: [], assets: [], publishItems: [], calendarEvents: [],
+        statuses: { countsByStatus: {} } } } } as unknown as Parameters<typeof store.persistDashboardListProjection>[2];
+    store.persistDashboardListProjection('job-effect', '7', projection);
+    store.persistPendingApprovalCount('job-effect', '7', 3);
+    const saved = loadExecutionRunRecord(run.aries_run_id)!;
+    const receipt = saved.callback_receipts![0];
+    assert.deepEqual(receipt.effects!.map((effect) => effect.target), ['dashboard_projection', 'pending_approval_count']);
+    assert.deepEqual((await reconcileHermesMarketingCallbackReceipt(saved, receipt)).map((effect) => effect.disposition), ['verified', 'verified']);
+    assert.equal(store.persistPendingApprovalCount('job-effect', '7', 3), false);
+    assert.equal(store.persistPendingApprovalCount('job-effect', '7', 4), true);
+    const changed = loadExecutionRunRecord(run.aries_run_id)!;
+    assert.deepEqual((await reconcileHermesMarketingCallbackReceipt(changed, changed.callback_receipts![0]))
+      .map((effect) => effect.disposition), ['verified', 'unknown', 'verified']);
+    for (const bad of [
+      { ...record, tenant_id: '8', dashboard_list_projection: projection, pending_approval_count: 3 },
+      { ...record, dashboard_list_projection: { ...projection, sourceUpdatedAt: 'changed' }, pending_approval_count: 4 },
+      { ...record },
+    ]) {
+      writeFileSync(file, JSON.stringify(bad));
+      assert.deepEqual((await reconcileHermesMarketingCallbackReceipt(saved, receipt)).map((effect) => effect.disposition), ['unknown', 'unknown']);
+    }
+    writeFileSync(file, '{');
+    assert.deepEqual((await reconcileHermesMarketingCallbackReceipt(saved, receipt)).map((effect) => effect.disposition), ['unknown', 'unknown']);
+    rmSync(file);
+    assert.deepEqual((await reconcileHermesMarketingCallbackReceipt(saved, receipt)).map((effect) => effect.disposition), ['unknown', 'unknown']);
+    assert.equal(JSON.stringify(loadExecutionRunRecord(run.aries_run_id)), JSON.stringify(changed));
+  });
+});
+
+test('protects runtime snapshot before file mutation; fails_when missing corrupt changed or wrong tenant; no_claim historical delivery', async (t) => {
+  const runtime = await import('../backend/marketing/runtime-state');
+  const { reconcileHermesMarketingCallbackReceipt } = await import('../backend/marketing/hermes-callbacks');
+  await withEffectRun(async (run) => {
+    const doc = runtime.createSocialContentJobRuntimeDocument({ jobId: 'job-effect', tenantId: '7',
+      payload: { brandUrl: 'https://example.com' }, brandKit: { source_url: 'https://example.com',
+        extracted_at: '2030-01-01T00:00:00.000Z' } as Parameters<typeof runtime.createSocialContentJobRuntimeDocument>[0]['brandKit'] });
+    const file = runtime.marketingRuntimePath(doc.job_id);
+    const write = fs.writeFileSync;
+    const fault = t.mock.method(fs, 'writeFileSync', (...args: Parameters<typeof fs.writeFileSync>) => {
+      if (args[0] === file) {
+        assert.ok(loadExecutionRunRecord(run.aries_run_id)!.callback_receipts![0].effects!
+          .some((effect) => effect.target === 'marketing_runtime_snapshot'));
+        throw new Error('injected runtime write failure');
+      }
+      return write(...args);
+    });
+    assert.throws(() => runtime.saveSocialContentJobRuntime(doc.job_id, doc), /injected runtime write failure/);
+    fault.mock.restore();
+    const saved = loadExecutionRunRecord(run.aries_run_id)!;
+    const receipt = saved.callback_receipts![0];
+    assert.equal((await reconcileHermesMarketingCallbackReceipt(saved, receipt))[0].disposition, 'unknown');
+    writeFileSync(file, JSON.stringify(doc));
+    assert.equal((await reconcileHermesMarketingCallbackReceipt(saved, receipt))[0].disposition, 'verified');
+    for (const bad of [{ ...doc, tenant_id: '8' }, { ...doc, state: 'failed' }, { ...doc, job_id: 'other' }]) {
+      writeFileSync(file, JSON.stringify(bad));
+      assert.equal((await reconcileHermesMarketingCallbackReceipt(saved, receipt))[0].disposition, 'unknown');
+    }
+    writeFileSync(file, '{');
+    assert.equal((await reconcileHermesMarketingCallbackReceipt(saved, receipt))[0].disposition, 'unknown');
+    assert.equal(JSON.stringify(loadExecutionRunRecord(run.aries_run_id)), JSON.stringify(saved));
+  });
+});
+
+test('protects ingested media bytes and tenant intent before rename; fails_when changed or missing; no_claim remote storage', async (t) => {
+  const { ingestSinglePath, readIngestedAssetEvidence } = await import('../backend/marketing/asset-ingest');
+  const { reconcileHermesMarketingCallbackReceipt } = await import('../backend/marketing/hermes-callbacks');
+  const sourceRoot = mkdtempSync(path.join(tmpdir(), 'callback-source-'));
+  const source = path.join(sourceRoot, 'image.png');
+  writeFileSync(source, 'isolated media bytes');
+  try {
+    await withEffectRun(async (run) => {
+      const rename = fs.renameSync;
+      let observed = false;
+      const probe = t.mock.method(fs, 'renameSync', (...args: Parameters<typeof fs.renameSync>) => {
+        if (String(args[1]).includes('ingested-assets')) {
+          observed = true;
+          assert.ok(loadExecutionRunRecord(run.aries_run_id)!.callback_receipts![0].effects!
+            .some((effect) => effect.target === 'ingested_asset'));
+        }
+        return rename(...args);
+      });
+      const destination = ingestSinglePath(source, '7');
+      probe.mock.restore();
+      assert.equal(observed, true);
+      const saved = loadExecutionRunRecord(run.aries_run_id)!;
+      const receipt = saved.callback_receipts![0];
+      const key = receipt.effects![0].key!;
+      assert.equal(await readIngestedAssetEvidence('8', key), null);
+      assert.equal(await readIngestedAssetEvidence('7', `../${key}`), null);
+      assert.equal(await readIngestedAssetEvidence('7', key.replace('ingested-assets/', 'ingested-assets\\')), null);
+      assert.equal((await reconcileHermesMarketingCallbackReceipt(saved, receipt))[0].disposition, 'verified');
+      writeFileSync(destination, 'changed bytes');
+      assert.equal((await reconcileHermesMarketingCallbackReceipt(saved, receipt))[0].disposition, 'unknown');
+      rmSync(destination);
+      assert.equal((await reconcileHermesMarketingCallbackReceipt(saved, receipt))[0].disposition, 'unknown');
+      assert.equal(JSON.stringify(loadExecutionRunRecord(run.aries_run_id)), JSON.stringify(saved));
+    });
+  } finally { rmSync(sourceRoot, { recursive: true, force: true }); }
 });
 
 test('protects durable callback effect identity; fails_when changed or late intent writes; no_claim provider acceptance', async () => {

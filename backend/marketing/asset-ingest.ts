@@ -1,5 +1,6 @@
 import {
   closeSync,
+  createReadStream,
   existsSync,
   mkdirSync,
   openSync,
@@ -11,6 +12,8 @@ import {
 } from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
+import { realpath } from 'node:fs/promises';
+import { recordCallbackEffectIntent } from '@/backend/execution/callback-effects';
 
 const INGEST_CHUNK_BYTES = 64 * 1024;
 
@@ -205,6 +208,10 @@ function ingestOne(original: string, ctx: IngestContext): string {
   const sha = hash.digest('hex');
   const ext = path.extname(normalized);
   const dest = destinationFor(ctx, sha, ext);
+  const storageKey = path.relative(ctx.dataRoot, dest).split(path.sep).join('/');
+  recordCallbackEffectIntent('ingested_asset', storageKey, {
+    tenant_id: ctx.tenantSegment, storage_key: storageKey, sha256: sha, bytes: totalBytes,
+  });
 
   if (existsSync(dest)) {
     // Content-addressed dedupe: another save already landed these exact
@@ -300,4 +307,23 @@ export function ingestRuntimeDocAssets<T extends Record<string, unknown>>(
 export function ingestSinglePath(original: string, tenantId?: string): string {
   const ctx = buildContext(normalizeTenantSegment(tenantId));
   return ingestOne(original, ctx);
+}
+
+/** Read-only local-byte proof; never ingest, repair, fetch or follow outside DATA_ROOT. */
+export async function readIngestedAssetEvidence(tenantId: string, storageKey: string) {
+  const parts = storageKey.split('/');
+  if (parts.length !== 4 || parts[0] !== INGEST_SUBDIR || parts[1] !== tenantId
+    || !/^[a-zA-Z0-9_-]+$/.test(tenantId) || !/^[a-f0-9]{2}$/.test(parts[2])
+    || !/^[a-f0-9]{64}\.[^/\\]+$/.test(parts[3]) || !parts[3].startsWith(parts[2])) return null;
+  const root = await realpath(resolveDataRoot());
+  const file = await realpath(path.join(root, ...parts));
+  // Reject symlink aliases as well as traversal: the evidence names this exact file.
+  if (file !== path.join(root, ...parts)) return null;
+  const hash = crypto.createHash('sha256');
+  let bytes = 0;
+  for await (const chunk of createReadStream(file)) {
+    hash.update(chunk);
+    bytes += chunk.length;
+  }
+  return { tenant_id: tenantId, storage_key: storageKey, sha256: hash.digest('hex'), bytes };
 }

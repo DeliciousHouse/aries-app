@@ -1,5 +1,6 @@
 import type { HermesRunCallbackPayload } from '@/backend/execution/hermes-callbacks';
 import { createHash, randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { callbackEffectDigest } from '@/backend/execution/callback-effects';
 import { loadExecutionRunRecord, saveExecutionRunRecord, type ExecutionRunRecord, type CallbackEffectReceipt } from '@/backend/execution/run-store';
 import { SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY } from '@/backend/social-content/defaults';
@@ -27,6 +28,7 @@ import {
 import {
   clearApprovalCheckpoint,
   loadSocialContentJobRuntime,
+  marketingRuntimePath,
   markStageAwaitingApproval,
   markStageCompleted,
   markStageRequiresChannelConnection,
@@ -47,6 +49,8 @@ import type { ApproveSocialContentJobRequest, ApproveSocialContentJobResponse } 
 import { ingestProductionCreativeAssetsToDb, isVariantBoardJobAwaitingPick } from './ingest-production-assets';
 import { enforceReelCompanionVideoOutcome } from './reel-video-outcome';
 import { recomputeAndPersistPendingApprovalCount } from './runtime-views';
+import { loadSocialContentWorkspaceRecord } from './workspace-store';
+import { readIngestedAssetEvidence } from './asset-ingest';
 import { synthesizePublishPostsFromContentPackage } from './synthesize-publish-posts';
 import { isSynthesizeOnPublishSkipEnabled } from './synthesize-on-publish-skip-env';
 import { composeStoryAssetForBaseCreative, resolveStoryCtaText } from './story-composer';
@@ -2342,6 +2346,25 @@ export async function reconcileHermesMarketingCallbackReceipt(
         if (approval && approval.approval_id === effect.key
           && approval.tenant_id === run.tenant_id && approval.marketing_job_id === run.marketing_job_id
           && approvalEffectDigest(approval) === effect.expected_sha256) result.disposition = 'verified';
+      } else if (effect.target === 'ingested_asset') {
+        if (!run.tenant_id) return result;
+        const media = await readIngestedAssetEvidence(run.tenant_id, effect.key);
+        if (media && callbackEffectDigest(media) === effect.expected_sha256) result.disposition = 'verified';
+      } else if (effect.target === 'marketing_runtime_snapshot') {
+        if (!run.marketing_job_id || !run.tenant_id
+          || effect.key !== `${run.marketing_job_id}:${effect.expected_sha256}`) return result;
+        // Read the raw persisted state, not the loader's legacy hydration/repair.
+        const doc = JSON.parse(await readFile(marketingRuntimePath(run.marketing_job_id), 'utf8'));
+        if (doc?.job_id === run.marketing_job_id && doc.tenant_id === run.tenant_id
+          && callbackEffectDigest(doc) === effect.expected_sha256) result.disposition = 'verified';
+      } else if (effect.target === 'dashboard_projection' || effect.target === 'pending_approval_count') {
+        if (!run.marketing_job_id || !run.tenant_id
+          || effect.key !== `${run.marketing_job_id}:${effect.expected_sha256}`) return result;
+        const workspace = loadSocialContentWorkspaceRecord(run.marketing_job_id, run.tenant_id);
+        const field = effect.target === 'dashboard_projection' ? 'dashboard_list_projection' : 'pending_approval_count';
+        if (workspace && workspace[field] !== undefined
+          && callbackEffectDigest({ job_id: workspace.job_id, tenant_id: workspace.tenant_id,
+            [field]: workspace[field] }) === effect.expected_sha256) result.disposition = 'verified';
       } else if (effect.target === 'child_submission') {
         const child = loadExecutionRunRecord(effect.key);
         if (child && child.tenant_id === run.tenant_id && child.marketing_job_id === run.marketing_job_id
