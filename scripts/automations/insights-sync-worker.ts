@@ -28,6 +28,7 @@
 import 'dotenv/config';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createDrainingWorker } from './worker-drain';
 import pool from '@/lib/db';
 import { syncAllAccountsForTenant } from '@/backend/insights/sync/dispatcher';
 import { sweepAbandonedSyncRuns } from '@/backend/insights/sync/sweep-stranded-runs';
@@ -280,25 +281,26 @@ function main(): void {
   // insights_accounts (otherwise the sync no-ops), then runs tickSafe — which
   // never rejects: failures are logged as insights_sync_fatal and the overlap
   // guard is released so the next interval retries.
-  const runCycle = () => runWorkerCycle(
-    pool as unknown as WeeklyEngagementQueryable,
-    () => bridgeAndTick(pool),
-  );
-
-  void runCycle();
-
-  const intervalHandle = setInterval(() => void runCycle(), INTERVAL_MS);
+  const runtime = createDrainingWorker(async () => {
+    await runWorkerCycle(pool as unknown as WeeklyEngagementQueryable, () => bridgeAndTick(pool));
+  }, () => pool.end());
+  const runCycle = () => void runtime.run().catch(() => log({ event: 'insights_cycle_unresolved' }));
+  const intervalHandle = setInterval(runCycle, INTERVAL_MS);
 
   // ── Graceful shutdown ───────────────────────────────────────────────────────
 
   function shutdown(signal: string): void {
     log({ event: 'insights_sync_worker_shutdown', signal });
     clearInterval(intervalHandle);
-    pool.end().then(() => process.exit(0)).catch(() => process.exit(1));
+    void runtime.shutdown().then((drained) => {
+      log({ event: 'insights_shutdown_drain', drained, unresolved: drained ? 0 : 1 });
+      process.exit(drained ? 0 : 1);
+    }).catch(() => process.exit(1));
   }
 
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT',  () => shutdown('SIGINT'));
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
+  process.once('SIGINT',  () => shutdown('SIGINT'));
+  runCycle();
 }
 
 // Only auto-start when run directly as a script; importing this module (e.g.

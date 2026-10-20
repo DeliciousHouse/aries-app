@@ -215,7 +215,9 @@ against these source-specific assertions before candidate acceptance:
   constraints, and compare schema before/after; absence or a schema change is a boundary,
   not compatible_image_only. Exercise a synthetic due tenant/local slot with a
   local Hermes sink; assert exactly one claim/async submission and duplicate-slot
-  refusal. RUN_ONCE alone is not acceptance because tickSafe catches failures.
+  refusal. Startup now performs a read-only catalog readiness check and refuses
+  missing/incompatible claims constraints; it never provisions the table.
+  RUN_ONCE returns nonzero for a failed cycle, but alone is not acceptance.
 - quiesced must establish durable write/callback/publishing containment outside
   recreated containers and reconcile in-flight work. accepted must assert all
   three functional receipts plus unchanged schema and PG/Hermes/assets/config,

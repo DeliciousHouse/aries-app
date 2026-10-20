@@ -3,6 +3,12 @@
 Owner-authorized on 2026-10-20: every master commit whose `full-suite`
 check passes ships to https://aries.deliciouswines.org without a manual release.
 
+Implementation is not yet installation-ready. PR #1123 remains closed pending
+the full containment/reconciliation contract and operational rehearsal. Current
+source still lacks authoritative all-worker/runtime acceptance; do not enable
+the timer from this intermediate revision. Health and synthetic component tests
+are not release acceptance.
+
 1. `Tests` passes on a master push. `publish-master-image.yml` then pushes
    `ghcr.io/delicioushouse/aries-app:sha-<full SHA>` with the matching OCI revision label.
 2. Every 10 minutes the user timer `aries-deploy.timer` on ubuntu-docker runs
@@ -22,16 +28,24 @@ check passes ships to https://aries.deliciouswines.org without a manual release.
      - appReady: binds the new app container to the exact candidate image ID and OCI revision.
      - accepted: binds all four services the same way, then requires root, DB and Hermes
        health, `ARIES_SCHEDULED_POSTS_READINESS_CHECK=1` and no unresolved claims.
-4. If the swap fails, the candidates are stopped and renamed `*-failed-<sha>`, and the
-   retained originals are restored and health-checked. That SHA is then skipped until
-   master moves.
+4. A failed or interrupted swap leaves its transaction unresolved. Keep the journal,
+   plan and originals. Never restart old images, restore production data or mark
+   deployed from HTTP health/schema regex. The replacement tool owns candidate
+   stop/readback; uncertain identities or stop outcomes require forward recovery
+   under the retained host fence. No incidental retained-container deletion.
 
 Not covered: durable outside-container ingress/egress containment. Code must not guess
 production firewall controls (replacement runbook). Workers drain on SIGTERM during the
-120 s stop.
+stop budget. Insights and weekly now await their active cycle before closing the
+pool, reject new cycles while stopping, and exit nonzero on drain timeout. This
+process-local drain is not authoritative reconciliation or a host fence. Weekly
+startup checks pre-existing claims columns/constraints without DDL. Strict local
+execution-run inventory refuses missing/corrupt records and age-truncated scans;
+it cannot recover remotely pruned history or prove provider outcomes.
 
 Schema changes are refused: the controller writes `~/.local/share/aries-deploy/blocked`,
-the unit fails, and an operator must migrate and deploy by hand
+and the unit fails. Resolve the compatibility boundary through the existing operations lane;
+this is not permission for a manual release or a production-data restore
 (`apply-schema-with-worker-restore.sh` and the replacement runbook).
 
 ## Install or upgrade (from a reviewed master commit, on ubuntu-docker)

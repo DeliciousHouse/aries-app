@@ -177,13 +177,19 @@ export function isTerminalExecutionStatus(status: ExecutionRunStatus): boolean {
  * old terminal files is a separate, sign-off-gated GC.)
  */
 export function listExecutionRunRecords(
-  options: { modifiedWithinMs?: number } = {},
+  options: { modifiedWithinMs?: number; strict?: boolean } = {},
 ): ExecutionRunRecord[] {
+  // Deployment reconciliation cannot infer absence from a partial scan. This
+  // is local inventory only, not proof of remote retention/provider outcomes.
+  if (options.strict && options.modifiedWithinMs !== undefined) {
+    throw new Error('execution inventory cannot truncate history');
+  }
   const root = executionRunsRoot();
   let entries: string[];
   try {
     entries = readdirSync(root);
   } catch {
+    if (options.strict) throw new Error('execution inventory unavailable');
     return [];
   }
   const cutoffMs =
@@ -204,10 +210,21 @@ export function listExecutionRunRecords(
         }
       }
       const record = loadExecutionRunRecord(ariesRunId);
+      if (options.strict && (!record || record.aries_run_id !== ariesRunId
+        || record.schema_version !== '1.0.0' || record.provider !== 'hermes'
+        || !['route', 'marketing'].includes(record.domain)
+        || !['run', 'resume', 'cancel'].includes(record.action)
+        || !['submitted', 'running', 'awaiting_approval', 'completed', 'failed', 'cancelled'].includes(record.status)
+        || !Array.isArray(record.event_ids) || record.event_ids.some((id) => typeof id !== 'string')
+        || !Number.isFinite(Date.parse(record.created_at)) || !Number.isFinite(Date.parse(record.updated_at))
+        || !(record.external_run_id === null || typeof record.external_run_id === 'string'))) {
+        throw new Error('execution inventory record invalid');
+      }
       if (record) {
         records.push(record);
       }
     } catch {
+      if (options.strict) throw new Error('execution inventory record invalid');
       // Malformed filename (path-traversal guard) or unreadable file — skip.
       continue;
     }

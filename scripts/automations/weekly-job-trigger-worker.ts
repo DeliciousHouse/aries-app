@@ -41,6 +41,7 @@ import 'dotenv/config';
 import pg from 'pg';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createDrainingWorker } from './worker-drain';
 
 import { wallTimeToUtc, DEFAULT_TENANT_TIMEZONE } from '@/lib/format-timestamp';
 import { loadTenantTimezoneOrFallback } from '@/backend/tenant/business-profile';
@@ -203,17 +204,32 @@ export const ENABLED_ROWS_SQL = `SELECT tenant_id, day_of_week, hour, timezone,
      FROM marketing_schedule
     WHERE enabled`;
 
-// In-flight claim marker table. The worker self-provisions it at startup
-// (prod currently runs with ARIES_SKIP_DB_INIT=1, so init-db alone would not
-// land it); the same DDL ships in scripts/init-db.js + migrations/ for record.
-export const ENSURE_CLAIMS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS marketing_weekly_claims (
-        tenant_id INTEGER PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
-        claimed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        prior_last_triggered_at TIMESTAMPTZ
-      )`;
+// Startup is read-only. Provisioning belongs to the existing migration, never
+// a compatible-image replacement or a worker restart.
+export const CLAIMS_READINESS_SQL = `WITH columns AS (
+  SELECT attname, attnum, atttypid, attnotnull FROM pg_attribute
+  WHERE attrelid = to_regclass('marketing_weekly_claims') AND NOT attisdropped
+), constraints AS (
+  SELECT * FROM pg_constraint WHERE conrelid = to_regclass('marketing_weekly_claims')
+)
+SELECT (
+  EXISTS (SELECT 1 FROM columns WHERE attname='tenant_id' AND atttypid='integer'::regtype AND attnotnull)
+  AND EXISTS (SELECT 1 FROM columns WHERE attname='claimed_at' AND atttypid='timestamptz'::regtype AND attnotnull)
+  AND EXISTS (SELECT 1 FROM columns WHERE attname='prior_last_triggered_at' AND atttypid='timestamptz'::regtype)
+  AND EXISTS (SELECT 1 FROM constraints WHERE contype='p' AND convalidated
+    AND conkey=ARRAY[(SELECT attnum FROM columns WHERE attname='tenant_id')])
+  AND EXISTS (SELECT 1 FROM constraints WHERE contype='f' AND convalidated
+    AND conkey=ARRAY[(SELECT attnum FROM columns WHERE attname='tenant_id')]
+    AND confrelid=to_regclass('organizations') AND confdeltype='c'
+    AND confkey=ARRAY[(SELECT attnum FROM pg_attribute
+      WHERE attrelid=to_regclass('organizations') AND attname='id' AND NOT attisdropped)])
+) AS ready`;
 
 export async function ensureClaimsTable(pool: Queryable): Promise<void> {
-  await pool.query(ENSURE_CLAIMS_TABLE_SQL);
+  const result = await pool.query(CLAIMS_READINESS_SQL);
+  if (result.rows.length !== 1 || (result.rows[0] as { ready?: unknown }).ready !== true) {
+    throw new Error('weekly claims schema not ready; migration required outside image replacement');
+  }
 }
 
 // Atomic conditional claim. The `prev` CTE captures the pre-update
@@ -399,7 +415,7 @@ export type WeeklyTriggerTickReport = {
  */
 export async function tick(
   pool: Queryable,
-  opts: { now?: Date; fetchImpl?: typeof fetch } = {},
+  opts: { now?: Date; fetchImpl?: typeof fetch; shouldStop?: () => boolean } = {},
 ): Promise<WeeklyTriggerTickReport> {
   const now = opts.now ?? new Date();
   const fetchImpl = opts.fetchImpl ?? fetch;
@@ -437,6 +453,7 @@ export async function tick(
   report.scanned = rows.length;
 
   for (const row of rows) {
+    if (opts.shouldStop?.()) break;
     const tenantId = String(row.tenant_id);
     const unsuccessfulAttempt = unsuccessfulAttemptAt(row);
     const failedAttemptAgeMs = unsuccessfulAttempt
@@ -533,27 +550,6 @@ export async function tick(
 // Main loop
 // ---------------------------------------------------------------------------
 
-let running = false;
-let intervalHandle: NodeJS.Timeout | null = null;
-
-async function tickSafe(pool: pg.Pool): Promise<void> {
-  if (running) {
-    console.warn('[weekly-trigger-worker] previous tick still running; skipping');
-    return;
-  }
-  running = true;
-  try {
-    const report = await tick(pool);
-    if (report.claimed > 0 || report.failed > 0 || report.healed > 0) {
-      console.log(`[weekly-trigger-worker] summary ${JSON.stringify(report)}`);
-    }
-  } catch (error) {
-    console.error('[weekly-trigger-worker] tick error', error);
-  } finally {
-    running = false;
-  }
-}
-
 async function main(): Promise<void> {
   if (!weeklyTriggerEnabled()) {
     // IDLE, do not exit. This runs as a docker-compose service with
@@ -580,30 +576,32 @@ async function main(): Promise<void> {
   const pool = buildPool();
   console.log(`[weekly-trigger-worker] starting; interval=${intervalMs}ms`);
 
-  // Self-provision the claim-marker table: prod runs init-db with
-  // ARIES_SKIP_DB_INIT=1, so the worker cannot assume the migration applied.
-  try {
+  const runtime = createDrainingWorker(async () => {
     await ensureClaimsTable(pool);
-  } catch (error) {
-    console.error('[weekly-trigger-worker] failed to ensure marketing_weekly_claims table', error);
-  }
-
-  await tickSafe(pool);
-
-  if (process.env.ARIES_WEEKLY_TRIGGER_RUN_ONCE?.trim() === '1') {
-    await pool.end();
-    process.exit(0);
-  }
-
-  intervalHandle = setInterval(() => void tickSafe(pool), intervalMs);
-
+    if (runtime.shouldStop()) return;
+    const report = await tick(pool, { shouldStop: runtime.shouldStop });
+    console.log(`[weekly-trigger-worker] summary ${JSON.stringify(report)}`);
+    if (report.failed) throw new Error('weekly cycle has unresolved failures');
+  }, () => pool.end());
+  let intervalHandle: NodeJS.Timeout | undefined;
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-    process.once(signal, async () => {
+    process.once(signal, () => {
       if (intervalHandle) clearInterval(intervalHandle);
-      await pool.end().catch(() => {});
-      process.exit(0);
+      void runtime.shutdown().then((drained) => {
+        console.log(JSON.stringify({ event: 'weekly_shutdown_drain', drained, unresolved: drained ? 0 : 1 }));
+        process.exit(drained ? 0 : 1);
+      }).catch(() => process.exit(1));
     });
   }
+  const runCycle = () => runtime.run().catch(() => {
+    console.error('[weekly-trigger-worker] cycle unresolved');
+    process.exitCode = 1;
+  });
+  await runCycle();
+  if (process.env.ARIES_WEEKLY_TRIGGER_RUN_ONCE?.trim() === '1') {
+    process.exit(await runtime.shutdown() ? 0 : 1);
+  }
+  if (!runtime.shouldStop()) intervalHandle = setInterval(() => void runCycle(), intervalMs);
 }
 
 // Only auto-start when run directly; importing this module (e.g. from a unit

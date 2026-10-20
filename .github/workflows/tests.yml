@@ -279,7 +279,9 @@ jobs:
           python3 ops/aries-pipeline-monitor.py --self-test 2>&1 | tee "${ARTIFACT_DIR}/pipeline-monitor-selftest.log"
 
       - name: Dora pull-deploy controller self-test
-        run: python3 scripts/release/dora_pull_deploy.py --self-test
+        run: |
+          python3 scripts/release/dora_pull_deploy.py --self-test
+          python3 -m unittest discover -s tests -p test_dora_deploy_recovery.py
 
       - name: Full test suite (all tests/**, concurrency=1)
         shell: bash

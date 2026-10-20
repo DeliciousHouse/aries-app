@@ -157,60 +157,42 @@ def build_plan(sha, image, sources, base, check_id, backup_path, verifier, now):
 
 def stamp(state, name, value):
     tmp = state / (name + ".tmp")
-    tmp.write_text(value)
+    with tmp.open('w') as stream:
+        stream.write(value)
+        stream.flush()
+        os.fsync(stream.fileno())
     os.replace(tmp, state / name)
-
-
-def wait_healthy(seconds=240):
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        if subprocess.run([str(LIB / "dora_deploy_verifier.py"), "health"], capture_output=True).returncode == 0:
-            return
-        time.sleep(10)
-    raise RuntimeError("production unhealthy after rollback; operator intervention required")
+    if os.name == 'posix':
+        directory = os.open(state, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
 
 
 def rollback(journal):
-    # ponytail: restarts the old image once the candidate is stopped. Safe only because the
-    # schema gate refused any migration/DDL change; the runbook's no-restart rule covers schema moves.
-    for name in SERVICES:
-        original = journal["originals"][name]
+    """Contain recorded candidates only. Never infer old-image safety from health/DDL."""
+    for name, original in journal["originals"].items():
         current = inspect(name)
+        if not current:
+            raise RuntimeError("container identity unresolved; retain journal and fence")
         if current and current["Id"] == original:
-            if not current["State"]["Running"]:
-                run("docker", "start", original)
             continue
-        if current:
-            run("docker", "stop", "-t", "60", current["Id"])
-            run("docker", "rename", current["Id"], f"{name}-failed-{journal['sha'][:12]}")
-        run("docker", "rename", original, name)
-        if NETWORK not in (inspect(original)["NetworkSettings"]["Networks"] or {}):
-            run("docker", "network", "connect", NETWORK, original)
-        run("docker", "start", original)
-    wait_healthy()
+        candidate = journal.get("candidates", {}).get(name)
+        if not candidate or current["Id"] != candidate:
+            raise RuntimeError("candidate identity unresolved; retain journal and fence")
+        try:
+            run("docker", "stop", "-t", "360", candidate)
+        finally:
+            stopped = inspect(candidate)
+            if not stopped or stopped.get("Id") != candidate or stopped.get("State", {}).get("Running") is not False:
+                raise RuntimeError("candidate stop unverified; retain journal and fence")
 
 
 def finish_or_recover(state):
-    journal = json.loads((state / "transaction.json").read_text())
-    app = inspect(SERVICES[0])
-    if (app and app["State"]["Running"] and app["Id"] != journal["originals"][SERVICES[0]]
-            and image_revision(app["Image"]) == journal["sha"]
-            and all((c := inspect(n)) and c["State"]["Running"] for n in SERVICES)):
-        wait_healthy(60)
-        stamp(state, "deployed", journal["sha"])
-        print("Interrupted deploy had completed; production healthy at " + journal["sha"])
-    else:
-        rollback(journal)
-        stamp(state, "failed", journal["sha"])
-        print("Recovered interrupted deploy; original containers restored and healthy")
-    (state / "transaction.json").unlink()
-
-
-def prune_retained(keep):
-    for line in text("docker", "ps", "-a", "--format", "{{.ID}} {{.Names}}").splitlines():
-        cid, name = line.split(" ", 1)
-        if "-retained-" in name and name.startswith("aries-a3e604b4-") and not any(k.startswith(cid) for k in keep):
-            run("docker", "rm", cid)
+    # A crash can occur after a provider accepted work but before its receipt.
+    # Preserve all evidence. Health, image labels and schema regex cannot resume.
+    raise RuntimeError("interrupted transaction unresolved; retain originals and fence for explicit reconciliation")
 
 
 def poll(state, dry_run=False):
@@ -256,18 +238,18 @@ def poll(state, dry_run=False):
         if receipt.get("deployed") is not True or receipt.get("sha") != sha:
             raise RuntimeError("replacement receipt is not a deployment")
     except Exception:
-        rollback(json.loads((state / "transaction.json").read_text()))
         stamp(state, "failed", sha)
-        (state / "transaction.json").unlink()
-        raise RuntimeError(f"deploy of {sha[:12]} failed; originals restored and healthy") from None
-    finally:
-        plan_path.unlink(missing_ok=True)
+        # The replacement tool contains its exact candidate IDs on failure.
+        # A failed/missing receipt cannot authorize restarting originals here.
+        raise RuntimeError(f"deploy of {sha[:12]} unresolved; retain transaction, originals and fence") from None
+
     stamp(state, "deployed", sha)
     stamp(state, "result.json", json.dumps({"sha": sha, "image": image, "backup": str(path), "previous": deployed,
                                            "containers": receipt["containers"], "retained": receipt["retained"],
                                            "at": now}))
     (state / "transaction.json").unlink()
-    prune_retained(receipt["retained"])
+    plan_path.unlink(missing_ok=True)
+
     print(f"Deployed {sha} ({image}); previous {deployed[:12]} retained; backup {path.name}")
 
 
