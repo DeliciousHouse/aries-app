@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 """Dora pull deploy for Aries production on ubuntu-docker (owner-authorized 2026-10-20).
 
-Each tick: newest master commit -> its own `full-suite / full-suite` check passed ->
+Each tick: newest master commit -> its own `full-suite` check passed ->
 ghcr sha-<SHA> image published (publish-master-image.yml) -> no schema/DDL change
 since the running revision -> verified pg_dump -> ubuntu-docker-replace.mjs swap ->
 health. Schema changes are refused and left for an operator; nothing here migrates.
@@ -25,7 +25,7 @@ import urllib.request
 REPO = "DeliciousHouse/aries-app"
 IMAGE = "ghcr.io/delicioushouse/aries-app"
 REGISTRY_REPO = IMAGE.split("/", 1)[1]
-CHECK = "full-suite / full-suite"
+CHECK = "full-suite"
 SERVICES = ["aries-a3e604b4-" + s for s in ("app", "scheduled-posts", "insights-sync", "weekly-trigger")]
 NETWORK = "aries-cutover-v1"
 PG, DB = "aries-a3e604b4-pg", "aries_snapshot"
@@ -283,10 +283,15 @@ def self_test():
     assert "behind" in schema_change({"status": "behind", "files": []})
     assert schema_change({"status": "ahead", "files": [{"filename": "a.ts"}] * 300})
     sha = "a" * 40
-    run_ok = {"name": CHECK, "head_sha": sha, "app": {"slug": "github-actions"}, "id": 1, "status": "completed", "conclusion": "success"}
+    # GitHub's check-runs API reports the job name, not the composite UI label.
+    run_ok = {"name": "full-suite", "head_sha": sha, "app": {"slug": "github-actions"}, "id": 1, "status": "completed", "conclusion": "success"}
     assert ci_passed([run_ok], sha)
     assert not ci_passed([run_ok, dict(run_ok, id=2, conclusion="failure")], sha)
     assert not ci_passed([dict(run_ok, head_sha="b" * 40)], sha)
+    assert not ci_passed([], sha)
+    assert not ci_passed([dict(run_ok, name="full-suite / full-suite")], sha)
+    assert not ci_passed([dict(run_ok, app={"slug": "other-app"})], sha)
+    assert not ci_passed([run_ok, dict(run_ok, id=2, status="in_progress", conclusion=None)], sha)
     verifier = Path(__file__)
     plan = build_plan(sha, IMAGE + "@sha256:" + "b" * 64, {}, "c" * 40, 7, Path("/x/auto.dump"), verifier, "2026-10-20T00:00:00Z")
     assert plan["mode"] == "compatible_image_only" and plan["schemaChanged"] is False

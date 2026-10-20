@@ -1,6 +1,6 @@
 # Dora pull deploy (master -> production)
 
-Owner-authorized on 2026-10-20: every master commit whose `full-suite / full-suite`
+Owner-authorized on 2026-10-20: every master commit whose `full-suite`
 check passes ships to https://aries.deliciouswines.org without a manual release.
 
 1. `Tests` passes on a master push. `publish-master-image.yml` then pushes

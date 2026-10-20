@@ -278,6 +278,9 @@ jobs:
           # on ubuntu (it is POSIX-only, which is why this cannot run on Windows).
           python3 ops/aries-pipeline-monitor.py --self-test 2>&1 | tee "${ARTIFACT_DIR}/pipeline-monitor-selftest.log"
 
+      - name: Dora pull-deploy controller self-test
+        run: python3 scripts/release/dora_pull_deploy.py --self-test
+
       - name: Full test suite (all tests/**, concurrency=1)
         shell: bash
         run: |
