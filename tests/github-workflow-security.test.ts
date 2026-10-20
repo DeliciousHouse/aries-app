@@ -88,7 +88,7 @@ test('official OpenSSF Scorecard publishing is configured with a public badge', 
   assert.match(scorecard, /^\s{6}id-token:\s*write\s*$/m);
   assert.match(
     scorecard,
-    /^\s*uses:\s*ossf\/scorecard-action@[0-9a-f]{40}\s+# v2\.4\.4\s*$/m,
+    /^\s*uses:\s*ossf\/scorecard-action@[0-9a-f]{40}\s+# v2\.5\.0\s*$/m,
   );
   assert.match(scorecard, /^\s*publish_results:\s*true\s*$/m);
   assert.match(
