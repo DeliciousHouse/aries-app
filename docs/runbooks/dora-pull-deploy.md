@@ -86,6 +86,15 @@ row proofs never yield `delivered`. Crash-before/after-write
 tests exercise the actual handler, not a replacement delivery endpoint. Do not
 install this checkpoint or release the existing rehearsal/reviewer gates.
 
+Deferred Slack approval notifications and Honcho approval/publish/schedule/performance
+writes persist target/key/input-digest intent before the first await or setImmediate.
+Enabled dispatch remains unknown even if a local dedup row exists: that row is not
+exact remote payload/delivery proof. Disabled dispatch records not_applicable before
+returning, and readback preserves only that exact stored decision, never today's flags.
+Receipt persistence failure prevents dispatch. No message bodies or credentials are
+stored in these intents. Class-level unknowns still prevent whole-callback acceptance;
+these changes neither establish exclusive ingress nor release host/runtime holds.
+
 Schema changes are refused: the controller writes `~/.local/share/aries-deploy/blocked`,
 and the unit fails. Resolve the compatibility boundary through the existing operations lane;
 this is not permission for a manual release or a production-data restore

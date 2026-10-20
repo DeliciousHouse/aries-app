@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { callbackEffectDigest, recordCallbackEffectIntent } from '@/backend/execution/callback-effects';
 
 import pool from '@/lib/db';
 import type { TenantContext } from '@/lib/tenant-context';
@@ -500,7 +501,10 @@ export async function recordDenialEvent(
 }
 
 export function scheduleMarketingApprovalHonchoWrites(input: MarketingApprovalHonchoMirrorInput): void {
-  if (!isHonchoEnabled() || !isHonchoWriteApprovalsEnabled()) return;
+  const enabled = isHonchoEnabled() && isHonchoWriteApprovalsEnabled();
+  recordCallbackEffectIntent('honcho_approval', callbackEffectDigest(input), { ...input, enabled },
+    enabled ? 'unknown' : 'not_applicable');
+  if (!enabled) return;
   if (!input.memoryActorUserId?.trim()) {
     console.warn('[honcho-write-events] schedule skipped: memoryActorUserId missing');
     return;
@@ -702,7 +706,10 @@ export async function recordPublishEvent(
 }
 
 export function schedulePublishVerificationHonchoWrite(input: RecordPublishVerificationHonchoWriteInput): void {
-  if (!isHonchoEnabled() || !isHonchoWritePublishEnabled()) return;
+  const enabled = isHonchoEnabled() && isHonchoWritePublishEnabled();
+  recordCallbackEffectIntent('honcho_publish', callbackEffectDigest(input), { ...input, enabled },
+    enabled ? 'unknown' : 'not_applicable');
+  if (!enabled) return;
   setImmediate(() => {
     void (async () => {
       try {
@@ -786,7 +793,10 @@ export async function recordScheduleEvent(
 }
 
 export function scheduleScheduledPostHonchoWrite(input: RecordScheduledPostHonchoWriteInput): void {
-  if (!isHonchoEnabled() || !isHonchoWritePublishEnabled()) return;
+  const enabled = isHonchoEnabled() && isHonchoWritePublishEnabled();
+  recordCallbackEffectIntent('honcho_schedule', callbackEffectDigest(input), { ...input, enabled },
+    enabled ? 'unknown' : 'not_applicable');
+  if (!enabled) return;
   setImmediate(() => {
     void (async () => {
       try {
@@ -1004,7 +1014,10 @@ export function scheduleHermesPublishPerformanceHonchoWrite(input: {
   doc: SocialContentJobRuntimeDocument;
   payloadRecord: Record<string, unknown> | null;
 }): void {
-  if (!isHonchoEnabled() || !isHonchoWritePublishEnabled()) return;
+  const enabled = isHonchoEnabled() && isHonchoWritePublishEnabled();
+  recordCallbackEffectIntent('honcho_performance', callbackEffectDigest(input), { ...input, enabled },
+    enabled ? 'unknown' : 'not_applicable');
+  if (!enabled) return;
   setImmediate(() => {
     void (async () => {
       try {

@@ -19,7 +19,9 @@ export function withCallbackEffectScope<T>(run: ExecutionRunRecord, receipt: Rec
 }
 
 /** Persist intent BEFORE the effect, using the callback's existing durable file. */
-export function recordCallbackEffectIntent(target: string, key: string, expected: unknown): void {
+export function recordCallbackEffectIntent(
+  target: string, key: string, expected: unknown, disposition: 'unknown' | 'not_applicable' = 'unknown',
+): void {
   const context = scope.getStore();
   if (!context) return;
   const latest = loadExecutionRunRecord(context.runId);
@@ -28,9 +30,11 @@ export function recordCallbackEffectIntent(target: string, key: string, expected
   if (!latest || !stored || stored.state !== 'applying') throw new Error('callback effect receipt unavailable');
   const digest = callbackEffectDigest(expected);
   const existing = stored.effects?.find((item) => item.target === target && item.key === key);
-  if (existing && existing.expected_sha256 !== digest) throw new Error('conflicting callback effect intent');
+  if (existing && (existing.expected_sha256 !== digest || existing.disposition !== disposition)) {
+    throw new Error('conflicting callback effect intent');
+  }
   if (existing) return;
-  stored.effects = [...(stored.effects ?? []), { target, key, expected_sha256: digest, disposition: 'unknown' }];
+  stored.effects = [...(stored.effects ?? []), { target, key, expected_sha256: digest, disposition }];
   saveExecutionRunRecord(latest);
   context.receipt.effects = stored.effects;
 }

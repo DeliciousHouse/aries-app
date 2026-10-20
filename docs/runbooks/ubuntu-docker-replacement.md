@@ -25,6 +25,10 @@ state checks. Superseded snapshots remain unknown, not proof of historical appli
 Content-addressed ingested media records tenant/key/byte-count/SHA-256 intent before
 rename; reconciliation hashes the local file and refuses missing, changed or aliased
 paths. This proves local bytes only, not remote storage or provider completion.
+Deferred Slack and Honcho writers also persist intent before asynchronous dispatch.
+Disabled decisions are explicitly not_applicable; enabled effects remain unknown
+without exact remote delivery evidence, including when a local dedup marker exists.
+Readback never infers prior disablement from current environment flags.
 These individual proofs do not establish complete effect coverage; class-level
 unknowns remain and no delivered transition is enabled. Interrupted writes/locks make strict inventory fail.
 No compatibility, bootstrap, host hold or production release follows from these

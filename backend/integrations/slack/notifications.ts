@@ -10,7 +10,8 @@
  *
  * Design rules (match the repo's callback ethos):
  *   - Best-effort + non-fatal. Slack is a convenience; the dashboard remains the
- *     source of truth. Every path returns a result and never throws.
+ *     source of truth. Callback receipt persistence must succeed before dispatch;
+ *     its failure rejects the call instead of allowing an unrecorded effect.
  *   - Idempotent across re-delivery. The Hermes callback is re-delivered by the
  *     reconciler under a DIFFERENT event_id than the original poll-bridge
  *     delivery, so a per-approval-id key would not dedupe (the id regenerates per
@@ -18,9 +19,10 @@
  *     `slack_notifications` table (INSERT ... ON CONFLICT DO NOTHING), mirroring
  *     the inbound `slack_event_ids` pattern.
  *   - Flag-gated (`ARIES_SLACK_NOTIFICATIONS_ENABLED`, default OFF). When off this
- *     module is a no-op and the callback path is byte-identical to today.
+ *     module does not dispatch; an active callback records the disabled decision.
  */
 import type { Pool } from 'pg';
+import { recordCallbackEffectIntent } from '@/backend/execution/callback-effects';
 
 import { pool as defaultPool } from '@/lib/db';
 import type { MarketingStage } from '@/backend/marketing/runtime-state';
@@ -192,13 +194,23 @@ export interface NotifyApprovalRequiredInput {
 /**
  * Post a "needs approval" message for a marketing job stage. No-op when the flag
  * is off, no per-tenant Slack config resolves, or the (job, stage) notification
- * was already sent. Never throws. Call fire-and-forget from the callback path.
+ * was already sent. Receipt failures reject before dispatch; callers may catch
+ * rejection without turning it into successful delivery evidence.
  */
 export async function notifyApprovalRequired(
   input: NotifyApprovalRequiredInput,
 ): Promise<SlackNotificationResult> {
   const env = input.env ?? process.env;
-  if (!isSlackNotificationsEnabled(env)) {
+  const enabled = isSlackNotificationsEnabled(env);
+  const dedupKey = `approval:${input.jobId}:${input.stage}`;
+  // Persist before the first await: the callback may finish while this deferred
+  // notification is still resolving configuration. A dedup row is not payload proof.
+  recordCallbackEffectIntent('slack_notification', dedupKey, {
+    tenant_id: String(input.tenantId ?? ''), job_id: input.jobId, stage: input.stage,
+    prompt: input.prompt ?? null, brand_name: input.brandName ?? null,
+    app_base_url: input.appBaseUrl, enabled,
+  }, enabled ? 'unknown' : 'not_applicable');
+  if (!enabled) {
     return { delivered: false, reason: 'disabled' };
   }
 
@@ -214,7 +226,6 @@ export async function notifyApprovalRequired(
   // failed post leaves no row and the next re-delivery retries (the reconciler
   // is the durable backstop); the rare race double-ping is cheap (the dashboard
   // is the source of truth).
-  const dedupKey = `approval:${input.jobId}:${input.stage}`;
   if (await alreadyDelivered(pool, dedupKey)) {
     return { delivered: false, reason: 'duplicate' };
   }

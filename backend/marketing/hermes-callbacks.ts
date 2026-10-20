@@ -2335,11 +2335,19 @@ export async function reconcileHermesMarketingCallbackReceipt(
     && run.callback_receipts?.some((item) => item.payload_sha256 === receipt.payload_sha256
       && item.event_id === receipt.event_id && item.external_run_id === receipt.external_run_id);
   return Promise.all((receipt.effects ?? []).map(async (effect) => {
-    // A stored disposition is not evidence. Missing/unsupported identity stays unknown.
+    // A stored success is not evidence. Missing/unsupported identity stays unknown.
     const result: CallbackEffectReceipt = { ...effect, disposition: 'unknown' };
     if (!bound || !effect.key || !effect.expected_sha256
       || !storedReceipt?.effects?.some((item) => item.target === effect.target && item.key === effect.key
         && item.expected_sha256 === effect.expected_sha256)) return result;
+    // These writers record the disabled decision before returning without dispatch.
+    // Never infer it from today's flags or upgrade a persisted unknown.
+    if (['slack_notification', 'honcho_approval', 'honcho_publish', 'honcho_schedule', 'honcho_performance'].includes(effect.target)
+      && effect.disposition === 'not_applicable'
+      && storedReceipt.effects?.some((item) => item.target === effect.target && item.key === effect.key
+        && item.expected_sha256 === effect.expected_sha256 && item.disposition === 'not_applicable')) {
+      return { ...result, disposition: 'not_applicable' };
+    }
     try {
       if (effect.target === 'marketing_approval') {
         const approval = loadMarketingApprovalRecord(effect.key);
