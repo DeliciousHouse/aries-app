@@ -43,6 +43,7 @@
  */
 
 import pool from '@/lib/db';
+import { submitDirectHermesRun } from '@/backend/execution/direct-hermes-submission';
 import {
   hermesResultOutcome,
   withTaskExecutionLog,
@@ -462,22 +463,17 @@ export async function deriveCompetitorPostingTimes(input: {
     // hold this promise (and the caller's in-flight guard) open indefinitely.
     const submitController = new AbortController();
     const submitTimer = setTimeout(() => submitController.abort(), timeoutMs);
-    let submitJson: Record<string, unknown> | null;
     try {
-      const submit = await fetchImpl(`${gatewayUrl}/v1/runs`, {
-        method: 'POST',
-        headers: { authorization: auth, 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: submitController.signal,
+      const submit = await submitDirectHermesRun({
+        workflowKey: 'marketing.competitor_posting_times', tenantId: input.tenantId,
+        gatewayUrl, authorization: auth, body: JSON.stringify(body),
+        signal: submitController.signal, fetchImpl,
       });
-      if (!submit.ok) return { ok: false, reason: 'submit_rejected', detail: `HTTP ${submit.status}` };
-      submitJson = (await submit.json().catch(() => null)) as Record<string, unknown> | null;
+      if (!submit.ok) return submit;
+      runId = submit.runId;
     } finally {
       clearTimeout(submitTimer);
     }
-    const candidate = submitJson && typeof submitJson.run_id === 'string' ? submitJson.run_id.trim() : '';
-    if (!candidate) return { ok: false, reason: 'submit_invalid' };
-    runId = candidate;
   } catch (error) {
     return { ok: false, reason: 'unreachable', detail: error instanceof Error ? error.message : String(error) };
   }

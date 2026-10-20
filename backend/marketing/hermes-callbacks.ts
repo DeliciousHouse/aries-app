@@ -1,5 +1,6 @@
 import type { HermesRunCallbackPayload } from '@/backend/execution/hermes-callbacks';
-import type { ExecutionRunRecord } from '@/backend/execution/run-store';
+import { createHash, randomUUID } from 'node:crypto';
+import { loadExecutionRunRecord, saveExecutionRunRecord, type ExecutionRunRecord, type CallbackEffectReceipt } from '@/backend/execution/run-store';
 import { SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY } from '@/backend/social-content/defaults';
 import {
   approvalStepFromWorkflowStepId,
@@ -19,6 +20,7 @@ import type { SocialContentApprovalStep, SocialContentArtifact, SocialContentSta
 
 import {
   createMarketingApprovalRecord,
+  loadMarketingApprovalRecord,
   saveMarketingApprovalRecord,
 } from './approval-store';
 import {
@@ -2226,6 +2228,7 @@ function createApprovalCheckpoint(
   payload: HermesRunCallbackPayload,
   socialApprovalStep: SocialContentApprovalStep | null,
   completedSocialStage: SocialContentStage | null,
+  receipt?: NonNullable<ExecutionRunRecord['callback_receipts']>[number],
 ): MarketingStage | null {
   const approval = payload.approval;
   if (!approval) {
@@ -2236,6 +2239,7 @@ function createApprovalCheckpoint(
     ? marketingStageForSocialApprovalStep(socialApprovalStep)
     : normalizeApprovalStage(approval.stage);
   const approvalRecord = createMarketingApprovalRecord({
+    approvalId: `mkta_${randomUUID()}`,
     tenantId: doc.tenant_id,
     marketingJobId: doc.job_id,
     workflowName: run.workflow_key,
@@ -2250,6 +2254,11 @@ function createApprovalCheckpoint(
       sessionKey: 'marketing',
     },
   });
+  if (receipt) {
+    receipt.effects!.push({ target: 'marketing_approval', key: approvalRecord.approval_id,
+      expected_sha256: approvalEffectDigest(approvalRecord), disposition: 'unknown' });
+    persistCallbackEffects(run, receipt);
+  }
   saveMarketingApprovalRecord(approvalRecord);
 
   markStageAwaitingApproval(
@@ -2287,11 +2296,62 @@ function createApprovalCheckpoint(
   return marketingApprovalStage;
 }
 
+type CallbackReceipt = NonNullable<ExecutionRunRecord['callback_receipts']>[number];
+
+function approvalEffectDigest(record: NonNullable<ReturnType<typeof loadMarketingApprovalRecord>>): string {
+  // updated_at is assigned on save; all other fields must match the intent.
+  const { updated_at: _updatedAt, ...effect } = record;
+  return createHash('sha256').update(JSON.stringify(effect, (_key, value) => (
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) : value
+  ))).digest('hex');
+}
+
+function persistCallbackEffects(run: ExecutionRunRecord, receipt: CallbackReceipt): void {
+  const latest = loadExecutionRunRecord(run.aries_run_id);
+  const stored = latest?.callback_receipts?.find((item) => item.payload_sha256 === receipt.payload_sha256);
+  if (!latest || !stored || stored.state !== 'applying') throw new Error('callback effect receipt unavailable');
+  stored.effects = receipt.effects;
+  saveExecutionRunRecord(latest);
+}
+
+/** Readback only: never invoke the callback, its next stage, or a provider. */
+export async function reconcileHermesMarketingCallbackReceipt(
+  run: ExecutionRunRecord,
+  receipt: CallbackReceipt,
+): Promise<CallbackEffectReceipt[]> {
+  const bound = run.domain === 'marketing' && !!run.external_run_id
+    && receipt.external_run_id === run.external_run_id
+    && run.callback_receipts?.some((item) => item.payload_sha256 === receipt.payload_sha256
+      && item.event_id === receipt.event_id && item.external_run_id === receipt.external_run_id);
+  return (receipt.effects ?? []).map((effect) => {
+    // A stored disposition is not evidence. Missing/unsupported identity stays unknown.
+    const result: CallbackEffectReceipt = { ...effect, disposition: 'unknown' };
+    if (!bound || effect.target !== 'marketing_approval' || !effect.key || !effect.expected_sha256) return result;
+    try {
+      const approval = loadMarketingApprovalRecord(effect.key);
+      if (approval && approval.approval_id === effect.key
+        && approval.tenant_id === run.tenant_id && approval.marketing_job_id === run.marketing_job_id
+        && approvalEffectDigest(approval) === effect.expected_sha256) result.disposition = 'verified';
+    } catch { /* Missing, corrupt or invalid identity is unresolved, never replayed. */ }
+    return result;
+  });
+}
+
 export async function applyHermesMarketingCallback(
   run: ExecutionRunRecord,
   payload: HermesRunCallbackPayload,
-): Promise<void> {
-  await applyHermesMarketingCallbackInner(run, payload);
+  receipt?: CallbackReceipt,
+): Promise<CallbackEffectReceipt[]> {
+  if (receipt) {
+    // Approval readback alone cannot certify uninstrumented/best-effort effects.
+    receipt.effects = ['marketing_runtime', 'media', 'creative_assets', 'posts', 'schedule',
+      'child_execution', 'slack', 'honcho', 'projection', 'reel_recovery'].map((target) => (
+      { target, key: null, expected_sha256: null, disposition: 'unknown' }
+    ));
+    persistCallbackEffects(run, receipt);
+  }
+  await applyHermesMarketingCallbackInner(run, payload, receipt);
 
   // WRITE SITES #2 + #3 (Hermes stage advances + production creative_assets
   // ingestion): this callback is the single entry point for every Hermes-driven
@@ -2314,11 +2374,18 @@ export async function applyHermesMarketingCallback(
       });
     }
   }
+  const effects = receipt ? await reconcileHermesMarketingCallbackReceipt(run, receipt) : [];
+  if (receipt) {
+    receipt.effects = effects;
+    persistCallbackEffects(run, receipt);
+  }
+  return effects;
 }
 
 async function applyHermesMarketingCallbackInner(
   run: ExecutionRunRecord,
   payload: HermesRunCallbackPayload,
+  receipt?: CallbackReceipt,
 ): Promise<void> {
   if (!run.marketing_job_id || !run.stage) {
     return;
@@ -2591,7 +2658,7 @@ async function applyHermesMarketingCallbackInner(
       saveSocialContentJobRuntime(doc.job_id, doc);
       return;
     }
-    const gatedStage = createApprovalCheckpoint(doc, run, payload, socialApprovalStep, completedSocialStage);
+    const gatedStage = createApprovalCheckpoint(doc, run, payload, socialApprovalStep, completedSocialStage, receipt);
     saveSocialContentJobRuntime(doc.job_id, doc);
     await maybeAutoApproveMarketingCheckpoint(doc, undefined, undefined, payload);
     // PR2: outbound Slack ping ONLY when a human still has to act — i.e. the gate

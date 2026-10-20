@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import fs from 'node:fs';
 
 async function withRuntimeEnv<T>(run: () => Promise<T>): Promise<T> {
   const previousDataRoot = process.env.DATA_ROOT;
@@ -58,6 +59,87 @@ async function seedMarketingJob() {
   saveSocialContentJobRuntime(doc.job_id, doc);
   return doc;
 }
+
+test('protects approval intent before write and read-only effect reconciliation; fails_when replayed or mismatched; no_claim provider delivery', async () => {
+  await withRuntimeEnv(async () => {
+    const store = await import('../backend/execution/run-store');
+    const approvals = await import('../backend/marketing/approval-store');
+    const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
+    const { reconcileHermesMarketingCallbackReceipt } = await import('../backend/marketing/hermes-callbacks');
+    const doc = await seedMarketingJob();
+    const run = store.createExecutionRunRecord({ provider: 'hermes', domain: 'marketing',
+      workflowKey: 'social_content_weekly', action: 'run', tenantId: doc.tenant_id,
+      marketingJobId: doc.job_id, stage: 'research' });
+    store.markExecutionRunSubmitted(run.aries_run_id, { externalRunId: 'native-effect-test' });
+    const payload = { aries_run_id: run.aries_run_id, hermes_run_id: 'native-effect-test',
+      event_id: 'http-effect', status: 'requires_approval' as const, stage: 'planning' as const,
+      approval: { stage: 'plan' as const, approval_step: 'approve_weekly_plan' as const,
+        workflow_step_id: 'approve_stage_2', prompt: 'Approve strategy?', resume_token: 'test-resume' } };
+    assert.equal((await handleHermesRunCallback(payload)).status, 'accepted');
+    const saved = store.loadExecutionRunRecord(run.aries_run_id)!;
+    const receipt = saved.callback_receipts![0];
+    const effect = receipt.effects?.find((item) => item.target === 'marketing_approval');
+    assert.ok(effect?.key);
+    assert.match(effect.expected_sha256!, /^[a-f0-9]{64}$/);
+    const before = JSON.stringify(saved);
+    const reconciled = await reconcileHermesMarketingCallbackReceipt(saved, receipt);
+    assert.equal(reconciled.find((item) => item.target === 'marketing_approval')?.disposition, 'verified');
+    assert.equal(JSON.stringify(store.loadExecutionRunRecord(run.aries_run_id)), before);
+    assert.equal(receipt.state, 'unknown'); // Other effects are not proved by approval readback.
+    await handleHermesRunCallback({ ...payload, event_id: 'bridge-effect' });
+    assert.equal(approvals.listMarketingApprovalRecordsForJob(doc.job_id).length, 1);
+    const approval = approvals.loadMarketingApprovalRecord(effect.key)!;
+    approval.approval_prompt = 'changed';
+    approvals.saveMarketingApprovalRecord(approval);
+    assert.equal((await reconcileHermesMarketingCallbackReceipt(saved, receipt))
+      .find((item) => item.target === 'marketing_approval')?.disposition, 'unknown');
+    assert.deepEqual(await reconcileHermesMarketingCallbackReceipt(saved, { ...receipt, effects: undefined }), []);
+  });
+});
+
+test('protects approval crash boundaries; fails_when missing intent or automatic replay; no_claim all effects reconciled', async (t) => {
+  for (const afterWrite of [false, true]) {
+    await withRuntimeEnv(async () => {
+      const store = await import('../backend/execution/run-store');
+      const approvals = await import('../backend/marketing/approval-store');
+      const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
+      const { reconcileHermesMarketingCallbackReceipt } = await import('../backend/marketing/hermes-callbacks');
+      const doc = await seedMarketingJob();
+      const run = store.createExecutionRunRecord({ provider: 'hermes', domain: 'marketing',
+        workflowKey: 'social_content_weekly', action: 'run', tenantId: doc.tenant_id,
+        marketingJobId: doc.job_id, stage: 'research' });
+      store.markExecutionRunSubmitted(run.aries_run_id, { externalRunId: 'native-crash' });
+      const payload = { aries_run_id: run.aries_run_id, hermes_run_id: 'native-crash',
+        event_id: 'crash-effect', status: 'requires_approval' as const, stage: 'planning' as const,
+        approval: { stage: 'plan' as const, approval_step: 'approve_weekly_plan' as const,
+          workflow_step_id: 'approve_stage_2', prompt: 'Approve strategy?', resume_token: 'test-resume' } };
+      const original = fs.writeFileSync;
+      let observed = false;
+      const fault = t.mock.method(fs, 'writeFileSync', (...args: Parameters<typeof fs.writeFileSync>) => {
+        if (typeof args[0] === 'string' && args[0].includes('marketing-approvals')) {
+          const effect = store.loadExecutionRunRecord(run.aries_run_id)!.callback_receipts![0].effects!
+            .find((item) => item.target === 'marketing_approval')!;
+          assert.equal(args[0], approvals.marketingApprovalPath(effect.key!));
+          assert.equal(effect.disposition, 'unknown');
+          observed = true;
+          if (afterWrite) original(...args);
+          throw new Error('approval write crash');
+        }
+        return original(...args);
+      });
+      await assert.rejects(handleHermesRunCallback(payload), /approval write crash/);
+      fault.mock.restore();
+      assert.equal(observed, true);
+      const saved = store.loadExecutionRunRecord(run.aries_run_id)!;
+      assert.equal(saved.callback_receipts![0].state, 'applying');
+      const effects = await reconcileHermesMarketingCallbackReceipt(saved, saved.callback_receipts![0]);
+      assert.equal(effects.find((item) => item.target === 'marketing_approval')?.disposition,
+        afterWrite ? 'verified' : 'unknown');
+      assert.deepEqual(await handleHermesRunCallback(payload), { status: 'error', reason: 'callback_outcome_unknown' });
+      assert.equal(approvals.listMarketingApprovalRecordsForJob(doc.job_id).length, afterWrite ? 1 : 0);
+    });
+  }
+});
 
 test('Hermes marketing callbacks advance runtime docs and create provider-neutral approvals', async () => {
   await withRuntimeEnv(async () => {

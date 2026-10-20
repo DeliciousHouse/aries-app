@@ -15,9 +15,13 @@ Legacy absence is unknown; null submission marks a newly created, never-dispatch
 record. The wire-body and endpoint/key-epoch hashes are NOT native runtime identity
 proof. Callback pending/applying/unknown/rejected records are conservative local
 inventory; no delivered transition exists. The existing handler's accepted response
-is not a per-effect receipt. Interrupted writes/locks make strict inventory fail.
+is not a per-effect receipt. Approval intent now records the exact approval ID and
+expected digest before the write; read-only approval reconciliation checks the
+bound record without replay. Other effect classes remain unresolved and no
+delivered transition is enabled. Interrupted writes/locks make strict inventory fail.
 No compatibility, bootstrap, host hold or production release follows from these
-fields. See `dora-pull-deploy.md` for uncovered sibling submission paths; retain all
+fields. See `dora-pull-deploy.md` for direct-submission coverage and remaining retry,
+effect and runtime-authority gaps; retain all
 runtime, host-fence and isolated all-worker acceptance gates below.
 
 Controller-reviewed metadata discovery: 2026-10-03 09:09–09:13 UTC,

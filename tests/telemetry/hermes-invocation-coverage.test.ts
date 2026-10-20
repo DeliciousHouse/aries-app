@@ -24,15 +24,27 @@ test('every direct Hermes run submission is execution-log instrumented', () => {
     .sort();
 
   assert.deepEqual(submissionFiles, [
+    'backend/execution/direct-hermes-submission.ts',
     'backend/execution/providers/hermes.ts',
+    'backend/marketing/ports/hermes.ts',
+  ]);
+
+  // The shared transport persists identity; its four callers own execution
+  // logging around submit + poll + parsing. Assert every caller, not a bypass
+  // for the helper (nor a second log of the same invocation).
+  const helper = 'backend/execution/direct-hermes-submission.ts';
+  const callers = ROOTS.flatMap(sourceFiles)
+    .map((filePath) => filePath.replaceAll('\\', '/'))
+    .filter((filePath) => filePath !== helper
+      && readFileSync(filePath, 'utf8').includes('submitDirectHermesRun(')).sort();
+  assert.deepEqual(callers, [
     'backend/insights/sync/classify-comments.ts',
     'backend/marketing/brand-kit-enrich.ts',
-    'backend/marketing/ports/hermes.ts',
     'backend/marketing/posting-time-advisor.ts',
     'lib/feedback/severity-classifier.ts',
   ]);
-
-  for (const filePath of submissionFiles) {
+  assert.match(readFileSync(helper, 'utf8'), /prepareExecutionRunSubmission/);
+  for (const filePath of [...submissionFiles.filter((file) => file !== helper), ...callers]) {
     const source = readFileSync(filePath, 'utf8');
     assert.match(
       source,

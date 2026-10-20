@@ -313,7 +313,7 @@ export async function handleHermesRunCallback(
         : payload;
 
       if (run.domain === 'marketing') {
-        await applyHermesMarketingCallback(run, canonicalPayload);
+        await applyHermesMarketingCallback(run, canonicalPayload, receipt);
       }
 
       let appliedStatus = executionStatus(canonicalPayload.status);

@@ -38,6 +38,13 @@ const CALLBACK_ADVANCED_STATUSES = new Set<ExecutionRunStatus>([
 ]);
 const TERMINAL_EXECUTION_STATUSES = new Set<ExecutionRunStatus>(['completed', 'failed', 'cancelled']);
 
+export type CallbackEffectReceipt = {
+  target: string;
+  key: string | null;
+  expected_sha256: string | null;
+  disposition: 'unknown' | 'verified' | 'not_applicable';
+};
+
 export type ExecutionRunRecord = {
   schema_name: 'aries_execution_run';
   schema_version: '1.0.0';
@@ -73,6 +80,7 @@ export type ExecutionRunRecord = {
     payload_sha256: string;
     external_run_id: string | null;
     state: 'pending' | 'applying' | 'unknown' | 'delivered' | 'rejected';
+    effects?: CallbackEffectReceipt[];
   }>;
   /**
    * AA-159 processing-engine classification. Every execution run is submitted to

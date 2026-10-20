@@ -16,6 +16,7 @@ import {
 } from './options';
 import type { FeedbackSeverityLlmConfig } from './feedback-config';
 import { withTaskExecutionLog } from '@/backend/telemetry/task-execution-log';
+import { submitDirectHermesRun } from '@/backend/execution/direct-hermes-submission';
 
 const INSTRUCTIONS =
   'You triage product feedback severity for an app called Aries. ' +
@@ -99,11 +100,10 @@ async function classifyViaHermes(
       try {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
-        let submit: Response;
         try {
-          submit = await deps.fetchImpl(`${cfg.gatewayUrl}/v1/runs`, {
-            method: 'POST',
-            headers: { authorization: auth, 'content-type': 'application/json' },
+          const submit = await submitDirectHermesRun({
+            workflowKey: 'feedback.severity_classification', tenantId: telemetry.tenantId,
+            gatewayUrl: cfg.gatewayUrl, authorization: auth, fetchImpl: deps.fetchImpl,
             body: JSON.stringify({
               input: `Category: ${category}\nComment: ${comment}`,
               instructions: INSTRUCTIONS,
@@ -111,20 +111,18 @@ async function classifyViaHermes(
             }),
             signal: controller.signal,
           });
+          if (!submit.ok) {
+            failure = { ...failure, errorCode: submit.reason === 'submit_rejected'
+              ? `http_${submit.detail?.slice('HTTP '.length)}` : 'submit_invalid',
+            errorMessage: submit.reason === 'submit_rejected'
+              ? `Hermes returned ${submit.detail} while submitting severity classification.`
+              : 'Hermes severity submission response is missing run_id.' };
+            return null;
+          }
+          runId = submit.runId;
         } finally {
           clearTimeout(timer);
         }
-        if (!submit.ok) {
-          failure = { ...failure, errorCode: `http_${submit.status}`, errorMessage: `Hermes returned HTTP ${submit.status} while submitting severity classification.` };
-          return null;
-        }
-        const json = (await submit.json().catch(() => null)) as Record<string, unknown> | null;
-        const candidate = json && typeof json.run_id === 'string' ? json.run_id.trim() : '';
-        if (!candidate) {
-          failure = { ...failure, errorCode: 'submit_invalid', errorMessage: 'Hermes severity submission response is missing run_id.' };
-          return null;
-        }
-        runId = candidate;
       } catch (error) {
         failure = failureFromError(error);
         return null;

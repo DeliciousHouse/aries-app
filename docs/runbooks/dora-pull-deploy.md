@@ -55,10 +55,26 @@ also refuses leftover temporary writes and active locks.
 
 The route execution provider also persists its new run's original identity before
 dispatch, using the existing Aries run ID as its native idempotency header. This
-checkpoint does NOT cover comment classification, brand-kit enrichment or
-posting-time advisor submission paths.
-Their native admission/history and original-identity coverage must be established
-before a whole-Aries hold/release is possible. Do not install this checkpoint.
+checkpoint also records direct comment classification, brand-kit enrichment,
+posting-time advisor and feedback-severity submissions through
+`backend/execution/direct-hermes-submission.ts`. The original ID, exact wire hash
+and local gateway/key binding are durable before POST. Lost replies remain unknown.
+Reusing that original ID refuses unknown outcomes or returns its already-bound
+native ID without POST. A new invocation is a new admission; equal prompt text
+is not identity, and these consumers do not yet carry durable retry identity
+across separate invocations. Polling and downstream result application are not
+per-effect acceptance. Native admission/history still require runtime authority.
+
+`callback_receipts.effects` now includes approval intent: explicit approval ID and
+expected-record SHA256, persisted before writing the approval store. The exported
+`reconcileHermesMarketingCallbackReceipt` beside the marketing callback reads that
+exact approval, checks tenant/job/native receipt binding and digest, and returns
+effect outcomes without writing or replaying the callback. Missing legacy intent,
+changed records and unsupported targets remain unknown. Runtime/media/assets/posts/
+schedules/child runs/Slack/Honcho/projection/reel recovery remain explicitly
+unresolved; approval proof alone never yields `delivered`. Crash-before/after-write
+tests exercise the actual handler, not a replacement delivery endpoint. Do not
+install this checkpoint or release the existing rehearsal/reviewer gates.
 
 Schema changes are refused: the controller writes `~/.local/share/aries-deploy/blocked`,
 and the unit fails. Resolve the compatibility boundary through the existing operations lane;
