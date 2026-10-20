@@ -17,8 +17,10 @@ proof. Callback pending/applying/unknown/rejected records are conservative local
 inventory; no delivered transition exists. The existing handler's accepted response
 is not a per-effect receipt. Approval intent now records the exact approval ID and
 expected digest before the write; read-only approval reconciliation checks the
-bound record without replay. Other effect classes remain unresolved and no
-delivered transition is enabled. Interrupted writes/locks make strict inventory fail.
+bound record without replay. Asset checksum/row IDs, post idempotency keys, intended
+schedule slots and child execution IDs now have write-ahead intents and source-specific
+readback. These individual proofs do not establish complete effect coverage; class-level
+unknowns remain and no delivered transition is enabled. Interrupted writes/locks make strict inventory fail.
 No compatibility, bootstrap, host hold or production release follows from these
 fields. See `dora-pull-deploy.md` for direct-submission coverage and remaining retry,
 effect and runtime-authority gaps; retain all

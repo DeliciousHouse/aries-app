@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { recordCallbackEffectIntent } from '@/backend/execution/callback-effects';
 
 import pool from '@/lib/db';
 import { hashCallbackToken } from '@/lib/internal-callback-auth';
@@ -1187,6 +1188,10 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       approvalId: input.approvalId,
       stage: effectiveStage ?? null,
       workflowStepId: input.workflowStepId,
+    });
+    recordCallbackEffectIntent('child_submission', run.aries_run_id, {
+      aries_run_id: run.aries_run_id, tenant_id: run.tenant_id, marketing_job_id: run.marketing_job_id,
+      workflow_key: run.workflow_key, action: run.action, stage: run.stage,
     });
 
     const callbackToken = randomBytes(32).toString('hex');

@@ -70,9 +70,19 @@ expected-record SHA256, persisted before writing the approval store. The exporte
 `reconcileHermesMarketingCallbackReceipt` beside the marketing callback reads that
 exact approval, checks tenant/job/native receipt binding and digest, and returns
 effect outcomes without writing or replaying the callback. Missing legacy intent,
-changed records and unsupported targets remain unknown. Runtime/media/assets/posts/
-schedules/child runs/Slack/Honcho/projection/reel recovery remain explicitly
-unresolved; approval proof alone never yields `delivered`. Crash-before/after-write
+changed records and unsupported targets remain unknown. The actual callback carries
+its receipt through nested async writers with Node AsyncLocalStorage. Asset ingestion
+records checksum intent before SQL and captures its returned row ID; all three post
+synthesis paths record exact idempotency keys and field digests before SQL; the shared
+schedule writer records the post, platforms and exact slot before mutation. The
+Hermes execution port records child Aries identity before dispatch. Readback queries
+are tenant/job-scoped, bounded to detect duplicate rows, and never replay. Child
+readback joins its local accepted submission binding, not authenticated native history
+or child completion. Caller-invented effects cannot substitute for persisted intent.
+This does not yet prove complete effect enumeration, durable media bytes, runtime
+document/projection state, direct-consumer retry lineage, Slack/Honcho/provider outcomes
+or reel recovery. The class-level unresolved entries deliberately remain; individual
+row proofs never yield `delivered`. Crash-before/after-write
 tests exercise the actual handler, not a replacement delivery endpoint. Do not
 install this checkpoint or release the existing rehearsal/reviewer gates.
 

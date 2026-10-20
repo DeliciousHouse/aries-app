@@ -68,6 +68,7 @@ import {
   saveMarketingApprovalRecord,
 } from './approval-store';
 import { isPostEditTasteLearningEnabled } from './post-edit-taste-learning-env';
+import { recordCallbackEffectIntent } from '@/backend/execution/callback-effects';
 import { resolvePrimaryPublishPlatforms } from './primary-publish-platforms';
 import type { SocialContentJobRuntimeDocument } from './runtime-state';
 import { visualStyleLens } from './taste-profile-store';
@@ -621,6 +622,13 @@ export async function synthesizePublishPostsFromContentPackage(
   args: SynthesizePublishPostsArgs,
 ): Promise<SynthesizePublishPostsResult> {
   const { jobId, tenantId, doc, publishRunId, pool, composeStoryAsset } = args;
+  const insertPost = (values: unknown[]) => {
+    const fields = ['tenant_id', 'job_id', 'hermes_run_id', 'platform', 'caption', 'idempotency_key',
+      'creative_asset_ids', 'media_type', 'surface', 'style_dimension', 'style_value',
+      'width_px', 'height_px', 'duration_seconds'];
+    recordCallbackEffectIntent('post', String(values[5]), Object.fromEntries(fields.map((key, i) => [key, values[i]])));
+    return pool.query(INSERT_SYNTHESIZED_POST_SQL, values);
+  };
 
   if (!Number.isFinite(tenantId) || tenantId <= 0) {
     return { inserted: 0, skipped: 0, total: 0, approvalRecordReady: false, droppedVideoNoAsset: 0, droppedStoryPromised: 0, reason: 'no_tenant' };
@@ -941,7 +949,7 @@ export async function synthesizePublishPostsFromContentPackage(
       // segment (it slices to the first colon after the job id).
       const idempotencyKey = `${jobId}:${entry.postNumber}:${platform}:${shape.surface}`;
       try {
-        const result = await pool.query(INSERT_SYNTHESIZED_POST_SQL, [
+        const result = await insertPost([
           tenantId,           // $1
           jobId,              // $2
           publishRunId,       // $3
@@ -997,7 +1005,7 @@ export async function synthesizePublishPostsFromContentPackage(
         try {
           const adaptedCaption = entry.platformCaptions[platform]
             ?? adaptCaptionForPlatform(platform, entry.caption, entry.hashtags);
-          const result = await pool.query(INSERT_SYNTHESIZED_POST_SQL, [
+          const result = await insertPost([
             tenantId,           // $1
             jobId,              // $2
             publishRunId,       // $3
@@ -1109,7 +1117,7 @@ export async function synthesizePublishPostsFromContentPackage(
         total++;
         const idempotencyKey = `${jobId}:${entry.postNumber}:${platform}:story`;
         try {
-          const result = await pool.query(INSERT_SYNTHESIZED_POST_SQL, [
+          const result = await insertPost([
             tenantId,        // $1
             jobId,           // $2
             publishRunId,    // $3

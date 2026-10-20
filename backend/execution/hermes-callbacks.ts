@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { withCallbackEffectScope } from './callback-effects';
 import {
   ExecutionRunLockError,
   hasExecutionRunEvent,
@@ -313,7 +314,7 @@ export async function handleHermesRunCallback(
         : payload;
 
       if (run.domain === 'marketing') {
-        await applyHermesMarketingCallback(run, canonicalPayload, receipt);
+        await withCallbackEffectScope(run, receipt, () => applyHermesMarketingCallback(run, canonicalPayload, receipt));
       }
 
       let appliedStatus = executionStatus(canonicalPayload.status);

@@ -1,5 +1,6 @@
 import type { HermesRunCallbackPayload } from '@/backend/execution/hermes-callbacks';
 import { createHash, randomUUID } from 'node:crypto';
+import { callbackEffectDigest } from '@/backend/execution/callback-effects';
 import { loadExecutionRunRecord, saveExecutionRunRecord, type ExecutionRunRecord, type CallbackEffectReceipt } from '@/backend/execution/run-store';
 import { SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY } from '@/backend/social-content/defaults';
 import {
@@ -2320,22 +2321,68 @@ export async function reconcileHermesMarketingCallbackReceipt(
   run: ExecutionRunRecord,
   receipt: CallbackReceipt,
 ): Promise<CallbackEffectReceipt[]> {
-  const bound = run.domain === 'marketing' && !!run.external_run_id
+  const source = loadExecutionRunRecord(run.aries_run_id);
+  const storedReceipt = source?.callback_receipts?.find((item) => item.payload_sha256 === receipt.payload_sha256
+    && item.event_id === receipt.event_id && item.external_run_id === receipt.external_run_id);
+  const bound = source?.domain === 'marketing' && source.tenant_id === run.tenant_id
+    && source.marketing_job_id === run.marketing_job_id && source.external_run_id === run.external_run_id
+    && run.domain === 'marketing' && !!run.external_run_id
     && receipt.external_run_id === run.external_run_id
     && run.callback_receipts?.some((item) => item.payload_sha256 === receipt.payload_sha256
       && item.event_id === receipt.event_id && item.external_run_id === receipt.external_run_id);
-  return (receipt.effects ?? []).map((effect) => {
+  return Promise.all((receipt.effects ?? []).map(async (effect) => {
     // A stored disposition is not evidence. Missing/unsupported identity stays unknown.
     const result: CallbackEffectReceipt = { ...effect, disposition: 'unknown' };
-    if (!bound || effect.target !== 'marketing_approval' || !effect.key || !effect.expected_sha256) return result;
+    if (!bound || !effect.key || !effect.expected_sha256
+      || !storedReceipt?.effects?.some((item) => item.target === effect.target && item.key === effect.key
+        && item.expected_sha256 === effect.expected_sha256)) return result;
     try {
-      const approval = loadMarketingApprovalRecord(effect.key);
-      if (approval && approval.approval_id === effect.key
-        && approval.tenant_id === run.tenant_id && approval.marketing_job_id === run.marketing_job_id
-        && approvalEffectDigest(approval) === effect.expected_sha256) result.disposition = 'verified';
+      if (effect.target === 'marketing_approval') {
+        const approval = loadMarketingApprovalRecord(effect.key);
+        if (approval && approval.approval_id === effect.key
+          && approval.tenant_id === run.tenant_id && approval.marketing_job_id === run.marketing_job_id
+          && approvalEffectDigest(approval) === effect.expected_sha256) result.disposition = 'verified';
+      } else if (effect.target === 'child_submission') {
+        const child = loadExecutionRunRecord(effect.key);
+        if (child && child.tenant_id === run.tenant_id && child.marketing_job_id === run.marketing_job_id
+          && child.submission?.state === 'accepted' && child.external_run_id
+          && callbackEffectDigest({ aries_run_id: child.aries_run_id, tenant_id: child.tenant_id,
+            marketing_job_id: child.marketing_job_id, workflow_key: child.workflow_key,
+            action: child.action, stage: child.stage }) === effect.expected_sha256) result.disposition = 'verified';
+      } else {
+        const tenant = Number(run.tenant_id);
+        if (!Number.isSafeInteger(tenant) || tenant <= 0 || !run.marketing_job_id) return result;
+        let rows: Record<string, unknown>[] = [];
+        if (effect.target === 'creative_asset_checksum' || effect.target === 'creative_asset_row') {
+          const column = effect.target === 'creative_asset_checksum' ? 'checksum' : 'id';
+          rows = (await pool.query(`SELECT tenant_id, source_job_id, source_asset_id, storage_key, checksum,
+            variant_batch_id, variant_index, storage_kind, media_type, aspect_ratio,
+            width_px, height_px, duration_seconds::float8 AS duration_seconds
+            FROM creative_assets WHERE ${column} = $1 AND tenant_id = $2 AND source_job_id = $3 LIMIT 2`,
+          [effect.key, tenant, run.marketing_job_id])).rows;
+        } else if (effect.target === 'post') {
+          rows = (await pool.query(`SELECT tenant_id, job_id, hermes_run_id, platform, caption, idempotency_key,
+            creative_asset_ids, media_type, surface, style_dimension, style_value, width_px, height_px,
+            duration_seconds::float8 AS duration_seconds FROM posts
+            WHERE idempotency_key = $1 AND tenant_id = $2 AND job_id = $3 LIMIT 2`,
+          [effect.key, tenant, run.marketing_job_id])).rows;
+        } else if (effect.target === 'scheduled_post') {
+          rows = (await pool.query(`SELECT s.post_id::text, s.tenant_id, s.scheduled_for, s.target_platforms,
+            s.campaign_end_date, s.surface, s.media_type, s.width_px, s.height_px,
+            s.duration_seconds::float8 AS duration_seconds FROM scheduled_posts s
+            JOIN posts p ON p.id = s.post_id AND p.tenant_id = s.tenant_id
+            WHERE s.post_id = $1 AND s.tenant_id = $2 AND p.job_id = $3 LIMIT 2`,
+          [effect.key, tenant, run.marketing_job_id])).rows;
+          for (const row of rows) {
+            row.scheduled_for = new Date(row.scheduled_for as string).toISOString();
+            row.campaign_end_date = row.campaign_end_date == null ? null : new Date(row.campaign_end_date as string).toISOString();
+          }
+        }
+        if (rows.length === 1 && callbackEffectDigest(rows[0]) === effect.expected_sha256) result.disposition = 'verified';
+      }
     } catch { /* Missing, corrupt or invalid identity is unresolved, never replayed. */ }
     return result;
-  });
+  }));
 }
 
 export async function applyHermesMarketingCallback(

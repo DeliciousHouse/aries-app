@@ -1,4 +1,5 @@
 import { isLinkedInEnabled, isRedditEnabled, isXEnabled, isYouTubeEnabled } from '@/backend/integrations/providers/integration-config';
+import { recordCallbackEffectIntent } from '@/backend/execution/callback-effects';
 
 type ScheduledPostQueryExecutor = {
   query: (sql: string, params: unknown[]) => Promise<{
@@ -152,6 +153,14 @@ async function upsertScheduledPostInCanonicalTransaction(
     }
   }
 
+  recordCallbackEffectIntent('scheduled_post', String(input.postId), {
+    post_id: String(input.postId), tenant_id: input.tenantId,
+    scheduled_for: input.scheduledFor.toISOString(), target_platforms: input.platforms,
+    campaign_end_date: input.campaignEndDate?.toISOString() ?? null,
+    surface: input.surface ?? 'feed', media_type: input.mediaType ?? 'image',
+    width_px: input.widthPx ?? null, height_px: input.heightPx ?? null,
+    duration_seconds: input.durationSeconds ?? null,
+  });
   const result = await queryable.query(UPSERT_SCHEDULED_POST_SQL, [
     input.postId,
     input.tenantId,

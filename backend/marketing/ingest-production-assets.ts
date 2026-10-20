@@ -20,6 +20,7 @@
  */
 
 import crypto from 'node:crypto';
+import { recordCallbackEffectIntent } from '@/backend/execution/callback-effects';
 import { mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isMarketingLayerEnabled } from './marketing-layer/marketing-layer-env';
@@ -610,6 +611,11 @@ export async function ingestProductionCreativeAssetsToDb(
 
       // served_asset_ref is built inside the INSERT from the row's own (subselect-
       // generated) id, so it is not passed as a parameter here.
+      const assetIntent = { tenant_id: tenantId, source_job_id: jobId, source_asset_id: sourceAssetId,
+        storage_key: storageKey, checksum, variant_batch_id: variantBatchId, variant_index: variantIndex,
+        storage_kind: storageKind, media_type: mediaType, aspect_ratio: aspectRatio,
+        width_px: entryWidth, height_px: entryHeight, duration_seconds: entryDuration };
+      recordCallbackEffectIntent('creative_asset_checksum', checksum, assetIntent);
       const result = await pool.query(INSERT_PRODUCTION_ASSET_SQL, [
         tenantId,      // $1
         jobId,         // $2
@@ -625,6 +631,8 @@ export async function ingestProductionCreativeAssetsToDb(
         entryHeight,   // $12
         entryDuration, // $13
       ]);
+      const assetId = (result.rows[0] as { id?: unknown } | undefined)?.id;
+      if (typeof assetId === 'string') recordCallbackEffectIntent('creative_asset_row', assetId, assetIntent);
 
       const rowCount = result.rowCount ?? 0;
       if (rowCount > 0) {
