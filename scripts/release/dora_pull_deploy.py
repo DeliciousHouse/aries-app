@@ -164,7 +164,7 @@ def stamp(state, name, value):
 def wait_healthy(seconds=240):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
-        if subprocess.run([str(LIB / "dora_deploy_verifier.py"), "accepted", "-", "-"], capture_output=True).returncode == 0:
+        if subprocess.run([str(LIB / "dora_deploy_verifier.py"), "health"], capture_output=True).returncode == 0:
             return
         time.sleep(10)
     raise RuntimeError("production unhealthy after rollback; operator intervention required")

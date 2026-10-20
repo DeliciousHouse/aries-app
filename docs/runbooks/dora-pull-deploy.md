@@ -16,10 +16,19 @@ check passes ships to https://aries.deliciouswines.org without a manual release.
    - writes a `pg_dump` of `aries_snapshot`, verified with `pg_restore --list` (the last
      5 are kept in `~/backups-aries/auto-*.dump`);
    - runs `ubuntu-docker-replace.mjs --execute`, with `dora_deploy_verifier.py` as the
-     verifier.
+     verifier. Its phases:
+     - quiesced: refuses the swap while `assert-no-unresolved-scheduled-claims.mjs` reports any
+       in-flight or unknown-outcome publish.
+     - appReady: binds the new app container to the exact candidate image ID and OCI revision.
+     - accepted: binds all four services the same way, then requires root, DB and Hermes
+       health, `ARIES_SCHEDULED_POSTS_READINESS_CHECK=1` and no unresolved claims.
 4. If the swap fails, the candidates are stopped and renamed `*-failed-<sha>`, and the
    retained originals are restored and health-checked. That SHA is then skipped until
    master moves.
+
+Not covered: durable outside-container ingress/egress containment. Code must not guess
+production firewall controls (replacement runbook). Workers drain on SIGTERM during the
+120 s stop.
 
 Schema changes are refused: the controller writes `~/.local/share/aries-deploy/blocked`,
 the unit fails, and an operator must migrate and deploy by hand
