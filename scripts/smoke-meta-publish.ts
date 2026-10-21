@@ -16,7 +16,7 @@
  * In --dry-run mode: steps 1-3 run; the actual publish call (step 4+) is skipped.
  *
  * Environment required at runtime:
- *   APP_BASE_URL        -- e.g. https://aries.sugarandleather.com (or http://localhost:3000)
+ *   APP_BASE_URL        -- e.g. https://aries.deliciouswines.org (or http://localhost:3000)
  *   INTERNAL_API_SECRET -- must match the running server's secret
  *   DATA_ROOT           -- where runtime files live (defaults per lib/runtime-paths.ts)
  */

@@ -40,7 +40,7 @@ const BOLD_ADVANCE = 0.62;
 const SIDE_MARGIN = 64;
 const HEADLINE_MAX_CHARS = 140; // hard cap; longer hooks are truncated with an ellipsis.
 
-const FALLBACK_CTA = 'aries.sugarandleather.com';
+const FALLBACK_CTA = 'aries.deliciouswines.org';
 const FALLBACK_PRIMARY_HEX = '#0f172a'; // slate-900
 const HEX_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
@@ -84,7 +84,7 @@ export function wrapText(text: string, maxChars: number): string[] {
 
 /**
  * The CTA text to render on the story. Derives the bare host from APP_BASE_URL
- * (e.g. "https://aries.sugarandleather.com" -> "aries.sugarandleather.com") and
+ * (e.g. "https://aries.deliciouswines.org" -> "aries.deliciouswines.org") and
  * falls back to the canonical Aries host. NEVER returns a bare
  * "sugarandleather.com" — that is the wrong (leather-goods) site.
  */
@@ -111,7 +111,7 @@ export interface ComposeStoryImageInput {
   baseImageBytes: Buffer;
   /** Headline copy (typically the post hook). Truncated to a sane length. */
   headline: string;
-  /** CTA text, usually a bare host like "aries.sugarandleather.com". */
+  /** CTA text, usually a bare host like "aries.deliciouswines.org". */
   ctaText: string;
   /** Brand primary color (hex) for the CTA pill; falls back to slate-900. */
   brandPrimaryHex?: string | null;

@@ -18,7 +18,7 @@ Open-source components include:
 The following are **not** part of this open-source release:
 
 - **Hermes** — the AI workflow execution engine that Aries submits runs to. Hermes is a separate service developed and operated by Sugar & Leather, LLC. This repository contains only the client-side adapter code that calls the Hermes gateway API; the Hermes server itself is not open-source.
-- **Managed cloud hosting** — the production instance of Aries AI at [aries.sugarandleather.com](https://aries.sugarandleather.com) is operated by Sugar & Leather, LLC and is not covered by this open-source license.
+- **Managed cloud hosting** — the production instance of Aries AI at [aries.deliciouswines.org](https://aries.deliciouswines.org) is operated by Sugar & Leather, LLC and is not covered by this open-source license.
 - **Paid support and SLA** — commercial support agreements, SLA-backed deployments, and professional services are available separately.
 - **Proprietary automation scripts** — internal automation scripts that interact with the production environment, internal dashboards, or confidential customer data are not included.
 

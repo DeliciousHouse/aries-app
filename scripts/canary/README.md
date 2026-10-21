@@ -13,19 +13,19 @@ reports under `.gstack/canary-reports/` (gitignored — local per-machine state)
 Capture a baseline **before** deploying (do this once per major UI change):
 
 ```
-/canary https://aries.sugarandleather.com --baseline --pages /,/dashboard,/dashboard/posts,/marketing/new-job
+/canary https://aries.deliciouswines.org --baseline --pages /,/dashboard,/dashboard/posts,/marketing/new-job
 ```
 
 Watch production for 10 minutes **after** deploy (the default for `/land-and-deploy`):
 
 ```
-/canary https://aries.sugarandleather.com --duration 10m --pages /,/dashboard,/dashboard/posts,/marketing/new-job
+/canary https://aries.deliciouswines.org --duration 10m --pages /,/dashboard,/dashboard/posts,/marketing/new-job
 ```
 
 Single-pass quick health check (no continuous monitoring):
 
 ```
-/canary https://aries.sugarandleather.com --quick --pages /,/dashboard
+/canary https://aries.deliciouswines.org --quick --pages /,/dashboard
 ```
 
 The full canonical page list and the thresholds we alert on are in

@@ -1,8 +1,8 @@
 {
   "$schema": "https://gstack.dev/schemas/canary-config.json",
   "production": {
-    "url": "https://aries.sugarandleather.com",
-    "health_check": "curl -sf https://aries.sugarandleather.com -o /dev/null -w \"%{http_code}\""
+    "url": "https://aries.deliciouswines.org",
+    "health_check": "curl -sf https://aries.deliciouswines.org -o /dev/null -w \"%{http_code}\""
   },
   "pages": [
     { "path": "/", "name": "home", "auth_required": false },
@@ -29,8 +29,8 @@
   },
   "default_duration": "10m",
   "invocation_examples": {
-    "baseline": "/canary https://aries.sugarandleather.com --baseline --pages /,/dashboard,/dashboard/posts,/marketing/new-job",
-    "post_deploy_watch": "/canary https://aries.sugarandleather.com --duration 10m --pages /,/dashboard,/dashboard/posts,/marketing/new-job",
-    "quick_health": "/canary https://aries.sugarandleather.com --quick --pages /,/dashboard"
+    "baseline": "/canary https://aries.deliciouswines.org --baseline --pages /,/dashboard,/dashboard/posts,/marketing/new-job",
+    "post_deploy_watch": "/canary https://aries.deliciouswines.org --duration 10m --pages /,/dashboard,/dashboard/posts,/marketing/new-job",
+    "quick_health": "/canary https://aries.deliciouswines.org --quick --pages /,/dashboard"
   }
 }

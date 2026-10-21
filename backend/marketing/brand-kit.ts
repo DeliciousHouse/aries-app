@@ -680,7 +680,7 @@ function weightedHtmlColors(html: string): Array<[string, number]> {
  * Hex equivalents for the dark/light Tailwind background utility classes a
  * marketing site is most likely to set on its <body>/<html>/page wrapper.
  * Used to recover the brand's real background when it is expressed only as a
- * utility class (e.g. aries.sugarandleather.com uses `bg-black`) and never
+ * utility class (e.g. aries.deliciouswines.org uses `bg-black`) and never
  * appears as an inline color, CSS var, or theme-color meta — the cases the
  * palette extractor below already covers.
  */

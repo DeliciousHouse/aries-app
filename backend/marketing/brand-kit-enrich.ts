@@ -114,7 +114,7 @@ async function fetchSourceText(brandUrl: string, fetchImpl: EnrichmentFetch): Pr
       method: 'GET',
       headers: {
         accept: 'text/html,application/xhtml+xml',
-        'user-agent': 'AriesBrandEnricher/1.0 (+https://aries.sugarandleather.com)',
+        'user-agent': 'AriesBrandEnricher/1.0 (+https://aries.deliciouswines.org)',
       },
       redirect: 'follow',
       signal: controller.signal,

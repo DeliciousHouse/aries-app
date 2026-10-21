@@ -11,6 +11,9 @@ COPY package*.json ./
 RUN npm ci
 
 FROM deps AS builder
+# Metadata (og:image, sitemap, robots) is prerendered at build time, so bake the public origin in.
+ARG APP_BASE_URL=
+ENV APP_BASE_URL=${APP_BASE_URL}
 COPY . .
 RUN npm run build
 

@@ -28,9 +28,9 @@ cd /home/node/docker-stack/aries-app && npx tsx scripts/qa/seed-qa-tenant.ts
 
 # per QA session — mint a cookie file, import it into gstack /browse:
 npx tsx scripts/qa/mint-qa-session.ts --out /tmp/qa-cookies.json --ttl-minutes 120
-browse goto https://aries.sugarandleather.com   # visit site first (cookie domain check)
+browse goto https://aries.deliciouswines.org   # visit site first (cookie domain check)
 browse cookie-import /tmp/qa-cookies.json
-browse goto https://aries.sugarandleather.com/dashboard
+browse goto https://aries.deliciouswines.org/dashboard
 # → authenticated as the QA bot; a fresh sandbox tenant lands on /onboarding/start
 ```
 

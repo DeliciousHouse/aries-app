@@ -51,7 +51,7 @@ Resolve config in this order: command argument → environment variable → defa
 
 | Purpose | Env var | Default | Notes |
 |---|---|---|---|
-| Production base URL | `ARIES_QA_BASE_URL` | `https://aries.sugarandleather.com` | `$1` overrides |
+| Production base URL | `ARIES_QA_BASE_URL` | `https://aries.deliciouswines.org` | `$1` overrides |
 | Chrome CDP endpoint | `ARIES_QA_CDP_URL` | `http://100.96.83.96:9223` | `$2` overrides. Real, logged-in Chrome on the personal machine, reached over Tailscale — see §2. |
 | GitHub repo (the kanban) | `ARIES_QA_REPO` | `delicioushouse/aries-app` | merged-PR watch + defect issues |
 | Defect issue label | `ARIES_QA_DEFECT_LABEL` | `qa-defect` | label the dev-team orchestrator pulls from — see §6 |

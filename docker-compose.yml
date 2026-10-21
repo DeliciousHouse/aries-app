@@ -6,6 +6,7 @@ services:
       args:
         ARIES_NODE_UID: 1004
         ARIES_NODE_GID: 1004
+        APP_BASE_URL: ${APP_BASE_URL:-}
     image: ${ARIES_APP_IMAGE:-aries-app:local}
     environment:
       HOME: /home/node
@@ -61,7 +62,7 @@ services:
       HERMES_CONTENT_GATEWAY_URL: ${HERMES_CONTENT_GATEWAY_URL:-http://host.docker.internal:8655}
       HERMES_CONTENT_API_SERVER_KEY: ${HERMES_CONTENT_API_SERVER_KEY:-}
       # 1200s (20 min): tuned to the actual production-stage cost on real
-      # tenants. Observed end-to-end durations on aries.sugarandleather.com
+      # tenants. Observed end-to-end durations on aries.deliciouswines.org
       # one-off campaigns (mkt_3e04f5d1 production run on 2026-05-27):
       #   - research: ~2 min
       #   - strategy: ~1 min

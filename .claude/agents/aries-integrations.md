@@ -58,7 +58,7 @@ protocol/token-race work.
 
 ## Domain gotchas that bite this surface
 
-- **Brand URL:** the brand is `https://aries.sugarandleather.com` — **never** the bare
+- **Brand URL:** the brand is `https://aries.deliciouswines.org` — **never** the bare
   `sugarandleather.com` (a different leather-goods site). Use the correct host in any Meta/OAuth
   redirect, scope, or research path.
 - **Meta publish surface:** Aries publishes **single-image feed posts** (+ FB text) by default.

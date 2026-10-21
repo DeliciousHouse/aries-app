@@ -68,7 +68,7 @@ function resolveAppBaseUrl(): string {
     process.env.APP_BASE_URL ||
     process.env.NEXTAUTH_URL ||
     process.env.AUTH_URL ||
-    'https://aries.sugarandleather.com'
+    'https://aries.deliciouswines.org'
   ).replace(/\/+$/, '');
 }
 

@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const BASE_URL = process.env.APP_BASE_URL || 'https://aries.sugarandleather.com';
+const BASE_URL = process.env.APP_BASE_URL || 'https://aries.deliciouswines.org';
 
 export default defineConfig({
   testDir: './tests',

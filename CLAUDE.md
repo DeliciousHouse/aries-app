@@ -149,9 +149,9 @@ This repo uses Conventional Commits with a scope (e.g. `fix(ci): ...`, `refactor
 ## Deploy Configuration
 
 - platform: docker (self-hosted via GitHub Actions Deploy workflow)
-- production.url: https://aries.sugarandleather.com
+- production.url: https://aries.deliciouswines.org
 - deploy.workflow: .github/workflows/deploy.yml
-- health.check: curl -sf https://aries.sugarandleather.com -o /dev/null -w "%{http_code}"
+- health.check: curl -sf https://aries.deliciouswines.org -o /dev/null -w "%{http_code}"
 
 ## Environment Variables
 

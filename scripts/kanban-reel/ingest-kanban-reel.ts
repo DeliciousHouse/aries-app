@@ -63,7 +63,7 @@ async function main() {
         content_package: [
           { post_number: 1, theme: 'Aries reel', hook: 'Marketing on autopilot',
             body: 'Aries plans your week, drafts the creative, holds an approval queue, and publishes safely.',
-            cta: 'See it at aries.sugarandleather.com',
+            cta: 'See it at aries.deliciouswines.org',
             hashtags: ['#AriesAI', '#MarketingAutomation', '#SocialMedia'],
             platforms: ['instagram', 'facebook'], format: 'reel', placement: 'reel', media_type: 'video' },
         ],
@@ -81,7 +81,7 @@ async function main() {
     approvals: { current: null, history: [] },
     publish_config: { platforms: ['instagram', 'facebook'], live_publish_platforms: ['instagram', 'facebook'], video_render_platforms: [] },
     brand_kit: brandKit,
-    inputs: { brand_url: 'https://aries.sugarandleather.com', request: { videoRenderCount: 1, imageCreativeCount: 0, channels: ['instagram', 'facebook'] } },
+    inputs: { brand_url: 'https://aries.deliciouswines.org', request: { videoRenderCount: 1, imageCreativeCount: 0, channels: ['instagram', 'facebook'] } },
     history: [], errors: [], last_error: null,
   } as unknown as SocialContentJobRuntimeDocument;
 

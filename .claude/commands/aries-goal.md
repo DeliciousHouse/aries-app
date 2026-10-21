@@ -23,7 +23,7 @@ the team before running this goal.
 ## Definition of Done (the only exit)
 
 The five-gate first-time-user golden journey works in **live production**
-(`https://aries.sugarandleather.com`), verified by the QA loop, for **every target
+(`https://aries.deliciouswines.org`), verified by the QA loop, for **every target
 platform**: `facebook`, `instagram`, `x`, `youtube`, `reddit`, `linkedin`. For each
 platform:
 

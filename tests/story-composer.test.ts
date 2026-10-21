@@ -29,12 +29,12 @@ test('wrapText wraps on word boundaries and hard-splits overlong words', () => {
 });
 
 test('resolveStoryCtaText derives host, strips www, never returns bare sugarandleather.com', () => {
-  assert.equal(resolveStoryCtaText('https://aries.sugarandleather.com'), 'aries.sugarandleather.com');
-  assert.equal(resolveStoryCtaText('https://www.aries.sugarandleather.com/x'), 'aries.sugarandleather.com');
+  assert.equal(resolveStoryCtaText('https://aries.deliciouswines.org'), 'aries.deliciouswines.org');
+  assert.equal(resolveStoryCtaText('https://www.aries.deliciouswines.org/x'), 'aries.deliciouswines.org');
   // Bare leather-goods host is rejected -> canonical fallback.
-  assert.equal(resolveStoryCtaText('https://sugarandleather.com'), 'aries.sugarandleather.com');
-  assert.equal(resolveStoryCtaText(''), 'aries.sugarandleather.com');
-  assert.equal(resolveStoryCtaText('not a url'), 'aries.sugarandleather.com');
+  assert.equal(resolveStoryCtaText('https://sugarandleather.com'), 'aries.deliciouswines.org');
+  assert.equal(resolveStoryCtaText(''), 'aries.deliciouswines.org');
+  assert.equal(resolveStoryCtaText('not a url'), 'aries.deliciouswines.org');
 });
 
 test('composeStoryImage produces a valid 1080x1920 PNG from a 4:5 base', async () => {
@@ -42,7 +42,7 @@ test('composeStoryImage produces a valid 1080x1920 PNG from a 4:5 base', async (
   const out = await composeStoryImage({
     baseImageBytes: base,
     headline: 'Marketing that runs itself — research to live posts, on autopilot.',
-    ctaText: 'aries.sugarandleather.com',
+    ctaText: 'aries.deliciouswines.org',
     brandPrimaryHex: '#6d28d9',
   });
   const meta = await sharp(out).metadata();
@@ -57,7 +57,7 @@ test('composeStoryImage tolerates a very long headline (truncates, still 9:16)',
   const out = await composeStoryImage({
     baseImageBytes: base,
     headline: 'x'.repeat(400),
-    ctaText: 'aries.sugarandleather.com',
+    ctaText: 'aries.deliciouswines.org',
   });
   const meta = await sharp(out).metadata();
   assert.equal(meta.width, STORY_WIDTH);
@@ -112,7 +112,7 @@ test('composeStoryAssetForBaseCreative: runtime_asset base -> composes + persist
     jobId: 'mkt_x',
     baseAssetId: 'img_1',
     headline: 'Hook goes here',
-    ctaText: 'aries.sugarandleather.com',
+    ctaText: 'aries.deliciouswines.org',
     brandPrimaryHex: '#6d28d9',
     readBytes: async (p) => { assert.equal(p, '/hermes-media/img_1.png'); return base; },
     writeBytes: async () => {},
