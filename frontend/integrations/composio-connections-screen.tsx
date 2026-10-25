@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ComposioPageSelection from './composio-page-selection';
+import MetaAdsChannel from './meta-ads-channel';
 
 // Extended backoff schedule covering up to ~5 minutes of post-OAuth polling.
 // Composio can take up to ~9 minutes to activate a connection; we poll at
@@ -254,11 +255,7 @@ export default function ComposioConnectionsScreen() {
       )}
 
       <div className="space-y-4">
-        <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-5">
-          <h2 className="text-lg font-medium">Meta Ads <span className="ml-2 rounded-full border border-slate-600 px-2 py-1 text-xs text-slate-300">Coming soon</span></h2>
-          <p className="mt-2 text-sm text-slate-400">Paid advertising is not available yet.</p>
-          <button type="button" disabled className="mt-3 rounded-full border border-slate-600 px-4 py-2 text-sm text-slate-400">Connect Meta Ads</button>
-        </div>
+        <MetaAdsChannel />
         {data?.connections.filter((conn) => conn.platform !== 'meta_ads').map((conn) => {
           const caps = conn.capabilities;
           // Pass pollingPhase only for this platform's pending card.

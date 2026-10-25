@@ -151,6 +151,8 @@ async function accountProviderStatus(
   provider: string,
   tenantId: string,
 ): Promise<PlatformConnectionStatusShape | null> {
+  // Ads uses a separate direct Meta user grant, never the organic Composio row.
+  if (provider === 'meta_ads') return null;
   if (!isIntegrationPlatform(provider)) return null;
   if (!isComposioEnabled(process.env)) return null;
 

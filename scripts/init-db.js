@@ -253,7 +253,7 @@ async function initDb() {
       CREATE TABLE IF NOT EXISTS oauth_connections (
         id BIGSERIAL PRIMARY KEY,
         tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-        provider TEXT NOT NULL CHECK (provider IN ('facebook','instagram','linkedin','x','youtube','tiktok','reddit','slack')),
+        provider TEXT NOT NULL CHECK (provider IN ('facebook','instagram','linkedin','x','youtube','tiktok','reddit','slack','meta_ads')),
         external_account_id TEXT,
         external_account_name TEXT,
         -- Per-tenant Slack notification target (Phase 4 Option A): the channel the
@@ -314,8 +314,8 @@ async function initDb() {
       SELECT pg_temp.ensure_check_constraint(
         'oauth_connections'::regclass,
         'oauth_connections_provider_check',
-        'slack',
-        $check$provider IN ('facebook','instagram','linkedin','x','youtube','tiktok','reddit','slack')$check$
+        'meta_ads',
+        $check$provider IN ('facebook','instagram','linkedin','x','youtube','tiktok','reddit','slack','meta_ads')$check$
       );
       ALTER TABLE oauth_connections
         ADD COLUMN IF NOT EXISTS notify_channel_id TEXT;

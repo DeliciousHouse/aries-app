@@ -22,6 +22,7 @@ import {
   xClientCredentials,
 } from './oauth-provider-runtime';
 import { dbInsertOAuthToken } from './oauth-tokens-db';
+import { verifyMetaAdsPermissions } from './meta/ads';
 import {
   discoverMetaPages,
   exchangeMetaAuthorizationCode,
@@ -816,6 +817,18 @@ export async function oauthCallback(
 
   try {
     switch (provider) {
+      case 'meta_ads': {
+        const short = await exchangeMetaAuthorizationCode({ code: query.code.trim(), redirectUri: pending.redirect_uri });
+        const long = await exchangeMetaShortForLongLived(short.shortLivedAccessToken);
+        const scopes = await verifyMetaAdsPermissions(long.longLivedAccessToken);
+        exchangedToken = {
+          accessToken: long.longLivedAccessToken,
+          expiresIn: long.expiresInSeconds,
+          tokenType: long.tokenType,
+          scope: scopes.join(','),
+        };
+        break;
+      }
       case 'x': {
         const xToken = await exchangeXCodeForToken({
           code: query.code.trim(),
@@ -866,7 +879,8 @@ export async function oauthCallback(
         exchangedToken = null;
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = provider === 'meta_ads' ? 'Could not authorize Meta Ads. Reconnect and allow ad account access.'
+      : error instanceof Error ? error.message : String(error);
     const normalizedMessage =
       /_oauth_not_(configured|supported)$/.test(message) && isAllowedProvider(provider)
         ? getProviderOAuthAvailability(provider).message || message
@@ -968,7 +982,7 @@ export async function handleOauthCallbackHttp(req: Request, providerFromPath?: s
       );
       return Response.redirect(pickerUrl.toString(), 302);
     }
-    const redirectUrl = new URL(`/oauth/connect/${encodeURIComponent(provider)}`, resolveBaseUrl(req));
+    const redirectUrl = new URL(provider === 'meta_ads' ? '/dashboard/settings/channel-integrations' : `/oauth/connect/${encodeURIComponent(provider)}`, resolveBaseUrl(req));
     if (result.broker_status === 'ok') {
       redirectUrl.searchParams.set('result', 'connected');
       redirectUrl.searchParams.set('connection_id', result.connection_id);

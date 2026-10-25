@@ -12,6 +12,7 @@ import { updateBusinessProfileWithDiagnostics } from '../backend/tenant/business
 import { PATCH as saveProfile } from '../app/api/business/profile/route';
 import { handleComposioConnect } from '../app/api/integrations/composio/handlers';
 import { selectableMarketingChannels } from '../lib/marketing-channels';
+import MetaAdsChannel from '../frontend/integrations/meta-ads-channel';
 
 const source = (file: string) => readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
 
@@ -26,7 +27,7 @@ test('Facebook Page and legacy meta generate organic Facebook publishing, never 
   assert.equal(canonicalizePublishReviewPlatformSlug('meta-ads'), 'meta-ads');
 });
 
-test('Meta Ads cannot be connected or written to a business profile', async () => {
+test('Meta Ads cannot use organic Composio connect or be selected as an organic generation target', async () => {
   assert.equal(connectablePlatforms({ NODE_ENV: 'test' }).includes('meta_ads'), false);
   const connect = await handleComposioConnect(new Request('https://aries.example.com/api/integrations/composio/meta_ads/connect', { method: 'POST' }), 'meta_ads');
   assert.equal(connect.status, 400);
@@ -48,24 +49,24 @@ test('resumed legacy selections use Facebook and never reselect disabled ads', (
   assert.deepEqual(selectableMarketingChannels(['meta', 'facebook', 'meta-ads', 'instagram']), ['facebook', 'instagram']);
 });
 
-test('onboarding and profile offer Facebook Page and visibly disable Meta Ads', () => {
+test('paid generation stays disabled; profile and integrations expose the separate Ads connection', () => {
   for (const file of ['frontend/aries-v1/onboarding-flow.tsx', 'frontend/aries-v1/business-profile-screen.tsx']) {
     const text = source(file);
     assert.match(text, /id: 'facebook',[\s\S]*?label: 'Facebook Page'/);
-    assert.match(text, /id: 'meta-ads',[\s\S]*?label: 'Meta Ads',[\s\S]*?disabled: true/);
+
     assert.match(text, /disabled=\{channel.disabled\}/);
     assert.match(text, /Coming soon/);
     assert.match(text, /if \(CHANNEL_OPTIONS.find\(.*\)\?\.disabled\) return;/);
     assert.doesNotMatch(text, /Paid social for direct-response demand capture and retargeting/);
   }
+  assert.match(source('frontend/aries-v1/onboarding-flow.tsx'), /id: 'meta-ads',[\s\S]*?label: 'Meta Ads account',[\s\S]*?disabled: true/);
+  assert.match(source('frontend/aries-v1/business-profile-screen.tsx'), /<MetaAdsChannel \/>/);
   const connections = source('frontend/integrations/composio-connections-screen.tsx');
   assert.match(connections, /facebook: 'Facebook Page'/);
-  assert.match(connections, /Meta Ads/);
-  assert.match(connections, /Coming soon/);
-  assert.match(connections, /disabled[\s\S]*Connect Meta Ads/);
+  assert.match(connections, /<MetaAdsChannel \/>/);
 });
 
-test('rendered business profile selects Facebook Page, disables ads and saves facebook', async (t) => {
+test('rendered business profile keeps the Ads account separate from organic channel saves', async (t) => {
   const globals = globalThis as unknown as Record<string, unknown>;
   const originalAct = globals.IS_REACT_ACT_ENVIRONMENT;
   const originalSelf = globals.self;
@@ -97,13 +98,10 @@ test('rendered business profile selects Facebook Page, disables ads and saves fa
     typeof child === 'string' ? child : child && typeof child === 'object' && 'children' in child ? text(child as { children: unknown[] }) : '',
   ).join(' ');
   const page = root.root.find((node) => node.type === 'button' && text(node).includes('Facebook Page'));
-  const ads = root.root.find((node) => node.type === 'button' && text(node).includes('Meta Ads'));
+  assert.ok(root.root.findByType(MetaAdsChannel));
   assert.equal(page.props.disabled, undefined);
   assert.equal(page.props['aria-pressed'], true, 'legacy meta loads as the organic selection');
-  assert.equal(ads.props.disabled, true);
-  assert.match(text(ads), /Coming soon/);
-  await act(async () => { ads.props.onClick(); });
-  assert.equal(ads.props['aria-pressed'], false);
+
   await act(async () => { page.props.onClick(); });
   assert.equal(page.props['aria-pressed'], false);
   await act(async () => { page.props.onClick(); });

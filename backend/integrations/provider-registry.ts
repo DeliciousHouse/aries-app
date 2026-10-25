@@ -1,4 +1,5 @@
 export type ProviderKey =
+  | 'meta_ads'
   | 'facebook'
   | 'instagram'
   | 'linkedin'
@@ -17,6 +18,13 @@ export interface ProviderConfig {
 }
 
 export const PROVIDER_REGISTRY: Record<ProviderKey, ProviderConfig> = {
+  meta_ads: {
+    key: 'meta_ads',
+    family: 'meta',
+    display_name: 'Meta Ads account',
+    default_scopes: ['ads_read', 'ads_management'],
+    adapter: 'meta',
+  },
   facebook: {
     key: 'facebook',
     family: 'meta',
