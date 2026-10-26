@@ -1,0 +1,974 @@
+diff --git a/app/api/integrations/meta-ads/route.ts b/app/api/integrations/meta-ads/route.ts
+new file mode 100644
+index 000000000..55287ba9f
+--- /dev/null
++++ b/app/api/integrations/meta-ads/route.ts
+@@ -0,0 +1,4 @@
++import { handleMetaAds } from '@/backend/integrations/meta/ads';
++
++export const GET = (req: Request) => handleMetaAds(req);
++export const POST = (req: Request) => handleMetaAds(req);
+diff --git a/backend/integrations/callback.ts b/backend/integrations/callback.ts
+index f02f2a477..47f82c140 100644
+--- a/backend/integrations/callback.ts
++++ b/backend/integrations/callback.ts
+@@ -22,6 +22,7 @@ import {
+   xClientCredentials,
+ } from './oauth-provider-runtime';
+ import { dbInsertOAuthToken } from './oauth-tokens-db';
++import { verifyMetaAdsPermissions } from './meta/ads';
+ import {
+   discoverMetaPages,
+   exchangeMetaAuthorizationCode,
+@@ -816,6 +817,18 @@ export async function oauthCallback(
+ 
+   try {
+     switch (provider) {
++      case 'meta_ads': {
++        const short = await exchangeMetaAuthorizationCode({ code: query.code.trim(), redirectUri: pending.redirect_uri });
++        const long = await exchangeMetaShortForLongLived(short.shortLivedAccessToken);
++        const scopes = await verifyMetaAdsPermissions(long.longLivedAccessToken);
++        exchangedToken = {
++          accessToken: long.longLivedAccessToken,
++          expiresIn: long.expiresInSeconds,
++          tokenType: long.tokenType,
++          scope: scopes.join(','),
++        };
++        break;
++      }
+       case 'x': {
+         const xToken = await exchangeXCodeForToken({
+           code: query.code.trim(),
+@@ -866,7 +879,8 @@ export async function oauthCallback(
+         exchangedToken = null;
+     }
+   } catch (error) {
+-    const message = error instanceof Error ? error.message : String(error);
++    const message = provider === 'meta_ads' ? 'Could not authorize Meta Ads. Reconnect and allow ad account access.'
++      : error instanceof Error ? error.message : String(error);
+     const normalizedMessage =
+       /_oauth_not_(configured|supported)$/.test(message) && isAllowedProvider(provider)
+         ? getProviderOAuthAvailability(provider).message || message
+@@ -968,7 +982,7 @@ export async function handleOauthCallbackHttp(req: Request, providerFromPath?: s
+       );
+       return Response.redirect(pickerUrl.toString(), 302);
+     }
+-    const redirectUrl = new URL(`/oauth/connect/${encodeURIComponent(provider)}`, resolveBaseUrl(req));
++    const redirectUrl = new URL(provider === 'meta_ads' ? '/dashboard/settings/channel-integrations' : `/oauth/connect/${encodeURIComponent(provider)}`, resolveBaseUrl(req));
+     if (result.broker_status === 'ok') {
+       redirectUrl.searchParams.set('result', 'connected');
+       redirectUrl.searchParams.set('connection_id', result.connection_id);
+diff --git a/backend/integrations/composio/capability-preflight.ts b/backend/integrations/composio/capability-preflight.ts
+index 0b9d4ba2e..2fbe4dbe4 100644
+--- a/backend/integrations/composio/capability-preflight.ts
++++ b/backend/integrations/composio/capability-preflight.ts
+@@ -77,7 +77,7 @@ export function computeCapabilities(ctx: PreflightContext): Capabilities {
+   caps.canUploadMedia = has('upload_media') || has('publish_post');
+   caps.canReadPostInsights = canAnalytics('post_insights');
+   caps.canReadAdInsights = canAnalytics('ad_insights');
+-  caps.canPublishAds = has('create_ad');
++  caps.canPublishAds = platform !== 'meta_ads' && has('create_ad');
+ 
+   if (!caps.canPublishOrganic) {
+     caps.missingPermissions.push(`${platform}.publish_post action slug`);
+diff --git a/backend/integrations/composio/composio-publisher-provider.ts b/backend/integrations/composio/composio-publisher-provider.ts
+index 06a0464af..67e7b28ae 100644
+--- a/backend/integrations/composio/composio-publisher-provider.ts
++++ b/backend/integrations/composio/composio-publisher-provider.ts
+@@ -843,6 +843,8 @@ export class ComposioPublisherProvider implements PublisherProvider {
+   }
+ 
+   async publishAd(input: PublishAdInput): Promise<PublishResult> {
++    // Read-only rollout: no campaign/budget approval contract exists yet.
++    if (input.platform === 'meta_ads') throw new PublishGuardError();
+     const conn = await this.requireActiveConnection({ tenantId: input.tenantId, platform: input.platform });
+     const slug = this.requireSlug(input.platform, 'create_ad', 'create ads');
+ 
+diff --git a/backend/integrations/connect.ts b/backend/integrations/connect.ts
+index 5a5601b0d..8104de4f0 100644
+--- a/backend/integrations/connect.ts
++++ b/backend/integrations/connect.ts
+@@ -72,7 +72,7 @@ type PendingAuthRecord = {
+   code_verifier?: string;
+ };
+ 
+-const PROVIDERS = ['facebook', 'instagram', 'linkedin', 'x', 'youtube', 'reddit', 'openai', 'slack'] as const;
++const PROVIDERS = ['meta_ads', 'facebook', 'instagram', 'linkedin', 'x', 'youtube', 'reddit', 'openai', 'slack'] as const;
+ 
+ function nowIso(): string {
+   return new Date().toISOString();
+diff --git a/backend/integrations/meta/ads.ts b/backend/integrations/meta/ads.ts
+new file mode 100644
+index 000000000..7257cc996
+--- /dev/null
++++ b/backend/integrations/meta/ads.ts
+@@ -0,0 +1,138 @@
++import pool from '@/lib/db';
++import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
++import { dbGetConnection } from '../oauth-db';
++import { dbGetLatestOAuthToken } from '../oauth-tokens-db';
++
++export type AdAccount = { id: string; name: string; currency: string | null };
++export type AdCampaign = {
++  id: string; name: string; status: string; spend: number | null;
++  impressions: number | null; clicks: number | null;
++};
++
++type GraphRow = Record<string, unknown>;
++class AdsError extends Error {
++  constructor(readonly status: number, message: string) { super(message); }
++}
++
++function object(value: unknown): GraphRow | null {
++  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as GraphRow : null;
++}
++
++/** Only GETs, fixed Graph host, cursor pagination; never follow secret-bearing next URLs. */
++async function graphRows(token: string, path: string, params: Record<string, string> = {}): Promise<GraphRow[]> {
++  const rows: GraphRow[] = [];
++  const cursors = new Set<string>();
++  let after: string | undefined;
++  for (let page = 0; page < 100; page++) {
++    const version = (process.env.META_GRAPH_API_VERSION || 'v21.0').trim();
++    if (!/^v?\d+\.\d+$/.test(version)) throw new AdsError(503, 'Meta Ads is not configured.');
++    const url = new URL(`https://graph.facebook.com/${version.startsWith('v') ? version : `v${version}`}/${path}`);
++    for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
++    url.searchParams.set('limit', '100');
++    if (after) url.searchParams.set('after', after);
++    let response: Response;
++    try {
++      response = await fetch(url, { method: 'GET', headers: { authorization: `Bearer ${token}` }, cache: 'no-store', signal: AbortSignal.timeout(15000) });
++    } catch { throw new AdsError(502, 'Could not reach Meta Ads. Please retry.'); }
++    const body = object(await response.json().catch(() => null));
++    if (!response.ok || body?.error) throw new AdsError(response.status === 401 || response.status === 403 ? 409 : 502, 'Could not read Meta Ads. Reconnect or retry.');
++    if (!Array.isArray(body?.data) || body.data.some(row => !object(row))) throw new AdsError(502, 'Meta Ads returned incomplete results. Please retry.');
++    rows.push(...body.data as GraphRow[]);
++    const paging = body.paging == null ? null : object(body.paging);
++    if (body.paging != null && !paging) throw new AdsError(502, 'Meta Ads returned incomplete results. Please retry.');
++    if (!paging?.next) return rows;
++    const cursor = object(paging.cursors)?.after;
++    if (typeof cursor !== 'string' || !cursor || cursors.has(cursor)) throw new AdsError(502, 'Meta Ads returned incomplete results. Please retry.');
++    cursors.add(cursor);
++    after = cursor;
++  }
++  throw new AdsError(502, 'Meta Ads results exceed the supported limit.');
++}
++
++export async function verifyMetaAdsPermissions(token: string): Promise<string[]> {
++  const permissions = await graphRows(token, 'me/permissions');
++  const scopes = ['ads_read', 'ads_management'];
++  if (!scopes.every(scope => permissions.some(row => row.permission === scope && row.status === 'granted'))) {
++    throw new AdsError(409, 'Allow ad account access when reconnecting Meta Ads.');
++  }
++  return scopes;
++}
++
++async function adAccounts(token: string): Promise<AdAccount[]> {
++  const rows = await graphRows(token, 'me/adaccounts', { fields: 'id,name,currency' });
++  const accounts = new Map<string, AdAccount>();
++  for (const row of rows) {
++    if (typeof row.id !== 'string' || !/^act_\d+$/.test(row.id) || typeof row.name !== 'string' || !row.name.trim()) {
++      throw new AdsError(502, 'Meta Ads returned incomplete account choices.');
++    }
++    accounts.set(row.id, { id: row.id, name: row.name, currency: typeof row.currency === 'string' ? row.currency : null });
++  }
++  return [...accounts.values()];
++}
++
++function metric(value: unknown): number | null {
++  if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return null;
++  const parsed = Number(value);
++  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
++}
++
++const DATE_PRESETS: Record<string, string> = { '7day': 'last_7d', '30day': 'last_30d', '90day': 'last_90d' };
++
++export async function handleMetaAds(req: Request, loader?: TenantContextLoader): Promise<Response> {
++  const tenantResult = await loadTenantContextOrResponse(loader);
++  if ('response' in tenantResult) return tenantResult.response;
++  const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { 'cache-control': 'no-store' } });
++  if (req.method !== 'GET' && req.method !== 'POST') return json({ message: 'Paid campaign actions are not available.' }, 405);
++  try {
++    const { tenantId } = tenantResult.tenantContext;
++    const connection = await dbGetConnection({ tenantId, provider: 'meta_ads' });
++    if (!connection || connection.status !== 'connected') {
++      if (req.method === 'POST') throw new AdsError(409, 'Connect Meta Ads before choosing an account.');
++      return json({ connected: false, accounts: [], accountId: null, connectionId: null });
++    }
++    const token = await dbGetLatestOAuthToken(connection.id);
++    if (!token?.access_token || token.revoked_at || !token.expires_at || !Number.isFinite(new Date(token.expires_at).getTime()) || new Date(token.expires_at).getTime() <= Date.now()) {
++      throw new AdsError(409, 'Reconnect Meta Ads to refresh account access.');
++    }
++    const accounts = await adAccounts(token.access_token);
++    if (req.method === 'POST') {
++      const body = object(await req.json().catch(() => null));
++      if (typeof body?.accountId !== 'string' || !/^act_\d+$/.test(body.accountId) || typeof body.connectionId !== 'string') throw new AdsError(400, 'Choose an available ad account.');
++      const account = accounts.find(account => account.id === body.accountId);
++      if (!account || body.connectionId !== connection.id) throw new AdsError(409, 'Account access changed. Reload and choose again.');
++      const updated = await pool.query(
++        `UPDATE oauth_connections SET external_account_id = $3, external_account_name = $4, updated_at = now()
++         WHERE tenant_id = $1 AND id = $2 AND provider = 'meta_ads' AND status = 'connected'
++           AND EXISTS (SELECT 1 FROM oauth_tokens WHERE id = $5 AND connection_id = $2 AND revoked_at IS NULL
++             AND expires_at > now() AND id = (SELECT id FROM oauth_tokens WHERE connection_id = $2 ORDER BY created_at DESC LIMIT 1))
++         RETURNING id`,
++        [tenantId, connection.id, account.id, account.name, token.id],
++      );
++      if (!updated.rowCount) throw new AdsError(409, 'Connection changed. Reload and choose again.');
++      return json({ status: 'ok', accountId: account.id });
++    }
++    const url = new URL(req.url);
++    const selected = accounts.find(account => account.id === connection.external_account_id);
++    const result = { connected: true, connectionId: connection.id, accounts, accountId: selected?.id ?? null };
++    if (url.searchParams.get('performance') !== '1' || !selected) return json(result);
++    const period = url.searchParams.get('period') || '30day';
++    const datePreset = DATE_PRESETS[period];
++    if (!datePreset) throw new AdsError(400, 'Choose a supported reporting period.');
++    const [campaignRows, insights] = await Promise.all([
++      graphRows(token.access_token, `${selected.id}/campaigns`, { fields: 'id,name,status' }),
++      graphRows(token.access_token, `${selected.id}/insights`, { fields: 'campaign_id,spend,impressions,clicks', level: 'campaign', date_preset: datePreset }),
++    ]);
++    const campaigns: AdCampaign[] = campaignRows.map(row => {
++      if (typeof row.id !== 'string' || !/^\d+$/.test(row.id) || typeof row.name !== 'string' || typeof row.status !== 'string') throw new AdsError(502, 'Meta Ads returned incomplete campaigns.');
++      const metrics = insights.filter(insight => insight.campaign_id === row.id);
++      const total = (key: string): number | null => {
++        const values = metrics.map(insight => metric(insight[key]));
++        return values.length && values.every(value => value !== null) ? values.reduce<number>((sum, value) => sum + value!, 0) : null;
++      };
++      return { id: row.id, name: row.name, status: row.status, spend: total('spend'), impressions: total('impressions'), clicks: total('clicks') };
++    });
++    return json({ ...result, currency: selected.currency, period, campaigns });
++  } catch (error) {
++    return json({ message: error instanceof AdsError ? error.message : 'Could not load Meta Ads. Please retry.' }, error instanceof AdsError ? error.status : 500);
++  }
++}
+diff --git a/backend/integrations/oauth-authorize-urls.ts b/backend/integrations/oauth-authorize-urls.ts
+index 05caf5c13..687d4abf5 100644
+--- a/backend/integrations/oauth-authorize-urls.ts
++++ b/backend/integrations/oauth-authorize-urls.ts
+@@ -77,6 +77,7 @@ export function buildProviderAuthorizationUrl(input: BuildAuthorizeUrlInput): UR
+       return url;
+     }
+ 
++    case 'meta_ads':
+     case 'facebook': {
+       const clientId = metaAppId();
+       if (!clientId) {
+diff --git a/backend/integrations/oauth-db.ts b/backend/integrations/oauth-db.ts
+index efbe952c6..c5eb94ffa 100644
+--- a/backend/integrations/oauth-db.ts
++++ b/backend/integrations/oauth-db.ts
+@@ -1,6 +1,6 @@
+ import pool from '@/lib/db';
+ 
+-export type DbProvider = 'facebook' | 'instagram' | 'linkedin' | 'x' | 'youtube' | 'reddit' | 'openai' | 'slack';
++export type DbProvider = 'meta_ads' | 'facebook' | 'instagram' | 'linkedin' | 'x' | 'youtube' | 'reddit' | 'openai' | 'slack';
+ export type DbConnectionStatus = 'pending' | 'connected' | 'reauthorization_required' | 'disconnected' | 'error';
+ 
+ export type DbConnectionRow = {
+@@ -95,8 +95,10 @@ export async function dbUpsertConnection(args: {
+         refresh_expires_at = COALESCE(EXCLUDED.refresh_expires_at, oauth_connections.refresh_expires_at),
+         connected_at = COALESCE(EXCLUDED.connected_at, oauth_connections.connected_at),
+         disconnected_at = EXCLUDED.disconnected_at,
+-        external_account_id = COALESCE(EXCLUDED.external_account_id, oauth_connections.external_account_id),
+-        external_account_name = COALESCE(EXCLUDED.external_account_name, oauth_connections.external_account_name),
++        external_account_id = CASE WHEN EXCLUDED.provider = 'meta_ads' THEN EXCLUDED.external_account_id
++          ELSE COALESCE(EXCLUDED.external_account_id, oauth_connections.external_account_id) END,
++        external_account_name = CASE WHEN EXCLUDED.provider = 'meta_ads' THEN EXCLUDED.external_account_name
++          ELSE COALESCE(EXCLUDED.external_account_name, oauth_connections.external_account_name) END,
+         last_error_code = EXCLUDED.last_error_code,
+         last_error_message = EXCLUDED.last_error_message,
+         updated_at = now()
+diff --git a/backend/integrations/oauth-provider-runtime.ts b/backend/integrations/oauth-provider-runtime.ts
+index 44a5e5820..f35aa351c 100644
+--- a/backend/integrations/oauth-provider-runtime.ts
++++ b/backend/integrations/oauth-provider-runtime.ts
+@@ -19,6 +19,7 @@ export type ProviderOAuthAvailability = {
+ const SHARED_TOKEN_ENV = 'OAUTH_TOKEN_ENCRYPTION_KEY';
+ 
+ const PROVIDER_ENV_CONTRACT: Record<ProviderKey, ProviderEnvContract> = {
++  meta_ads: { authEnv: ['META_APP_ID', 'META_APP_SECRET'], connectionMode: 'oauth' },
+   facebook: { authEnv: ['META_APP_ID', 'META_APP_SECRET'], connectionMode: 'oauth' },
+   instagram: { authEnv: ['META_PAGE_ID', 'META_ACCESS_TOKEN'], connectionMode: 'env_managed' },
+   linkedin: { authEnv: ['LINKEDIN_CLIENT_ID', 'LINKEDIN_CLIENT_SECRET'], connectionMode: 'oauth' },
+diff --git a/backend/integrations/provider-registry.ts b/backend/integrations/provider-registry.ts
+index 037a4dc81..8e51b54ac 100644
+--- a/backend/integrations/provider-registry.ts
++++ b/backend/integrations/provider-registry.ts
+@@ -1,4 +1,5 @@
+ export type ProviderKey =
++  | 'meta_ads'
+   | 'facebook'
+   | 'instagram'
+   | 'linkedin'
+@@ -17,6 +18,13 @@ export interface ProviderConfig {
+ }
+ 
+ export const PROVIDER_REGISTRY: Record<ProviderKey, ProviderConfig> = {
++  meta_ads: {
++    key: 'meta_ads',
++    family: 'meta',
++    display_name: 'Meta Ads account',
++    default_scopes: ['ads_read', 'ads_management'],
++    adapter: 'meta',
++  },
+   facebook: {
+     key: 'facebook',
+     family: 'meta',
+diff --git a/backend/integrations/status.ts b/backend/integrations/status.ts
+index 1cf22b560..45e6ecdeb 100644
+--- a/backend/integrations/status.ts
++++ b/backend/integrations/status.ts
+@@ -151,6 +151,8 @@ async function accountProviderStatus(
+   provider: string,
+   tenantId: string,
+ ): Promise<PlatformConnectionStatusShape | null> {
++  // Ads uses a separate direct Meta user grant, never the organic Composio row.
++  if (provider === 'meta_ads') return null;
+   if (!isIntegrationPlatform(provider)) return null;
+   if (!isComposioEnabled(process.env)) return null;
+ 
+diff --git a/docs/integrations/meta-ads.md b/docs/integrations/meta-ads.md
+new file mode 100644
+index 000000000..d4582956e
+--- /dev/null
++++ b/docs/integrations/meta-ads.md
+@@ -0,0 +1,29 @@
++# Meta Ads account (read-only)
++
++Meta Ads is a separate channel from the organic Facebook Page and Instagram publishing. Connecting or disconnecting it does not change those channels. The provider key is `meta_ads`; the business-profile label is **Meta Ads account**.
++
++## Setup
++
++- Use the existing `META_APP_ID`, `META_APP_SECRET`, `OAUTH_TOKEN_ENCRYPTION_KEY`, and `APP_BASE_URL` configuration. `META_GRAPH_API_VERSION` is optional (default `v21.0`). Never put credential values in documentation or client code.
++- Register `${APP_BASE_URL}/api/auth/oauth/meta_ads/callback` as a valid OAuth redirect URI in the Meta app. Meta must permit `ads_read` and `ads_management` for the tenant/user; production access may require Meta app review. Both permissions are requested and verified before storing a connection.
++- Apply `migrations/20261006210000_meta_ads_oauth_provider.sql` through the normal reviewed migration process before enabling the new provider on an existing database. `scripts/init-db.js` includes the same provider constraint for fresh databases.
++- This release uses direct Meta OAuth. Composio documents Marketing API tools in its `metaads` toolkit but says Composio-managed OAuth is unavailable. Existing organic Composio connections remain unchanged.
++
++## Use
++
++1. In **Business Profile** or **Settings → Channel Integrations**, connect **Meta Ads account**. It is a separate reporting card, not a selectable weekly organic-content destination; existing generation-channel guards remain in place.
++2. Choose one available `act_...` account and confirm it. Aries verifies access against Meta and stores its ID/name on the tenant's separate `oauth_connections` row. Reconnecting clears the selection; choose the account again.
++3. In **Insights → All channels**, read **Meta Ads performance** beside organic results. Reporting follows the selected 7-, 30-, or 90-day preset and shows campaigns, status, spend in account currency, impressions and clicks. Missing metrics are **Unavailable**, never fabricated zeroes. Existing campaigns may spend independently of Aries.
++4. Disconnect/reconnect when the user grant expires, is revoked, or loses account access. Aries never falls back to a global ad account or an organic Page token.
++
++`GET /api/integrations/meta-ads` returns account choices; `?performance=1&period=7day|30day|90day` additionally reports the selected account. `POST` accepts only account selection (`accountId`, `connectionId`) and revalidates tenant/account ownership. No API to boost, create, activate or change a budget is provided.
++
++## Paid actions are deferred
++
++The requested campaign-specific owner approval, budget and idempotent provider execution are tracked on follow-up `t_6218b254`. Even the legacy Composio Meta Ads creation path is disabled until that contract exists. This source release grants no spending authorization. Live OAuth/account access and the migration must still be validated on the reviewed deployment; mocked tests and local component fixtures are not production acceptance.
++
++## Checks
++
++`NODE_ENV=test npx tsx --test tests/meta-ads-channel.test.ts tests/meta-ads-channel-ui.test.ts tests/composio-publisher.test.ts tests/direct-meta-provider.test.ts`
++
++Also run the affected OAuth/integration regression tests and `npm run verify`. Required CI uses Node 24 and PostgreSQL on Ubuntu.
+diff --git a/frontend/aries-v1/business-profile-screen.tsx b/frontend/aries-v1/business-profile-screen.tsx
+index b81909a7c..0c463b06b 100644
+--- a/frontend/aries-v1/business-profile-screen.tsx
++++ b/frontend/aries-v1/business-profile-screen.tsx
+@@ -13,6 +13,7 @@ import {
+ 
+ import { connectedProfileLabel } from './connected-profile-labels';
+ import { selectableMarketingChannels } from '@/lib/marketing-channels';
++import MetaAdsChannel from '@/frontend/integrations/meta-ads-channel';
+ import { customerSafeUiErrorMessage, profileApiErrorMessage } from './customer-safe-copy';
+ import { DashboardHero, EmptyStatePanel, LoadingStateGrid, ShellPanel } from './components';
+ import { CANONICAL_GOAL_OPTIONS } from '@/backend/insights/goal/goal-options';
+@@ -31,12 +32,7 @@ const CHANNEL_OPTIONS: ChannelOption[] = [
+     label: 'Facebook Page',
+     description: 'Organic posts to your connected Facebook Page.',
+   },
+-  {
+-    id: 'meta-ads',
+-    label: 'Meta Ads',
+-    disabled: true,
+-    description: 'Paid advertising on Facebook and Instagram is not available yet.',
+-  },
++
+   {
+     id: 'instagram',
+     label: 'Instagram',
+@@ -490,6 +486,7 @@ export default function AriesBusinessProfileScreen() {
+                   );
+                 })}
+               </div>
++              <MetaAdsChannel />
+               <div className="rounded-[1.3rem] border border-white/8 bg-black/18 px-4 py-4 text-white">
+                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                   <div>
+diff --git a/frontend/aries-v1/onboarding-flow.tsx b/frontend/aries-v1/onboarding-flow.tsx
+index 4fa81ce77..57ba14c7e 100644
+--- a/frontend/aries-v1/onboarding-flow.tsx
++++ b/frontend/aries-v1/onboarding-flow.tsx
+@@ -104,9 +104,9 @@ const CHANNEL_OPTIONS: ChannelOption[] = [
+   },
+   {
+     id: 'meta-ads',
+-    label: 'Meta Ads',
++    label: 'Meta Ads account',
+     disabled: true,
+-    description: 'Paid ads on Facebook and Instagram via Meta Business Suite.',
++    description: 'Connect a read-only ad account in your business profile after onboarding. Creating or boosting ads is not enabled.',
+   },
+   {
+     id: 'instagram',
+diff --git a/frontend/insights/InsightsDashboard.tsx b/frontend/insights/InsightsDashboard.tsx
+index 3f9ae421c..f74a1443e 100644
+--- a/frontend/insights/InsightsDashboard.tsx
++++ b/frontend/insights/InsightsDashboard.tsx
+@@ -20,6 +20,7 @@ import { TopPostsSection }      from "@/frontend/insights/TopPostsSection";
+ import { ConversationsSection } from "@/frontend/insights/ConversationsSection";
+ import { AriesSection }         from "@/frontend/insights/AriesSection";
+ import { AudienceSection }      from "@/frontend/insights/AudienceSection";
++import MetaAdsChannel from "@/frontend/integrations/meta-ads-channel";
+ 
+ /**
+  * Client body for the /insights route. Renders the full insights dashboard
+@@ -103,6 +104,7 @@ export function InsightsDashboard({
+               axis, not period/platform, so it takes no props from the filter
+               row. */}
+           {weeklyRecapEnabled && <WeeklyRecapSection />}
++          {platform === 'all' && <MetaAdsChannel performance period={period} />}
+ 
+           {/* 2 — Goal */}
+           <GoalSection period={period} platform={platform} />
+diff --git a/frontend/integrations/composio-connections-screen.tsx b/frontend/integrations/composio-connections-screen.tsx
+index e01e094fe..7cd9cb17c 100644
+--- a/frontend/integrations/composio-connections-screen.tsx
++++ b/frontend/integrations/composio-connections-screen.tsx
+@@ -11,6 +11,7 @@
+ 
+ import { useCallback, useEffect, useRef, useState } from 'react';
+ import ComposioPageSelection from './composio-page-selection';
++import MetaAdsChannel from './meta-ads-channel';
+ 
+ // Extended backoff schedule covering up to ~5 minutes of post-OAuth polling.
+ // Composio can take up to ~9 minutes to activate a connection; we poll at
+@@ -254,11 +255,7 @@ export default function ComposioConnectionsScreen() {
+       )}
+ 
+       <div className="space-y-4">
+-        <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-5">
+-          <h2 className="text-lg font-medium">Meta Ads <span className="ml-2 rounded-full border border-slate-600 px-2 py-1 text-xs text-slate-300">Coming soon</span></h2>
+-          <p className="mt-2 text-sm text-slate-400">Paid advertising is not available yet.</p>
+-          <button type="button" disabled className="mt-3 rounded-full border border-slate-600 px-4 py-2 text-sm text-slate-400">Connect Meta Ads</button>
+-        </div>
++        <MetaAdsChannel />
+         {data?.connections.filter((conn) => conn.platform !== 'meta_ads').map((conn) => {
+           const caps = conn.capabilities;
+           // Pass pollingPhase only for this platform's pending card.
+diff --git a/frontend/integrations/meta-ads-channel.tsx b/frontend/integrations/meta-ads-channel.tsx
+new file mode 100644
+index 000000000..53bf51085
+--- /dev/null
++++ b/frontend/integrations/meta-ads-channel.tsx
+@@ -0,0 +1,96 @@
++'use client';
++
++import { useEffect, useState } from 'react';
++import { requestJson } from '@/lib/api/http';
++import type { AdAccount, AdCampaign } from '@/backend/integrations/meta/ads';
++
++type AdsData = {
++  connected: boolean; connectionId: string | null; accounts: AdAccount[]; accountId: string | null;
++  currency?: string | null; campaigns?: AdCampaign[];
++};
++
++/** Same tenant-owned account on settings and insights; no paid actions in this release. */
++export default function MetaAdsChannel({ performance = false, period = '30day' }: { performance?: boolean; period?: string }) {
++  const [data, setData] = useState<AdsData | null>(null);
++  const [accountId, setAccountId] = useState('');
++  const [error, setError] = useState<string | null>(null);
++  const [busy, setBusy] = useState(false);
++  const [attempt, setAttempt] = useState(0);
++  useEffect(() => {
++    const controller = new AbortController();
++    setData(null);
++    setError(null);
++    void requestJson<AdsData>('/api/integrations/meta-ads', {
++      query: performance ? { performance: 1, period: period === 'week' ? '7day' : period } : {},
++      cache: 'no-store', signal: controller.signal,
++    }).then(body => {
++      if (!controller.signal.aborted) { setData(body); setAccountId(body.accountId ?? ''); }
++    }).catch(error => { if (!controller.signal.aborted) setError(error instanceof Error ? error.message : 'Could not load Meta Ads.'); });
++    return () => controller.abort();
++  }, [performance, period, attempt]);
++
++  async function connect() {
++    setBusy(true);
++    setError(null);
++    try {
++      const response = await requestJson<{ authorization_url: string }>('/api/auth/oauth/meta_ads/connect', { method: 'POST', body: '{}' });
++      window.location.href = response.authorization_url;
++    } catch (error) { setError(error instanceof Error ? error.message : 'Could not connect Meta Ads.'); setBusy(false); }
++  }
++
++  async function save() {
++    setBusy(true);
++    setError(null);
++    try {
++      await requestJson('/api/integrations/meta-ads', { method: 'POST', body: JSON.stringify({ accountId, connectionId: data?.connectionId }) });
++      setAttempt(value => value + 1);
++    } catch (error) { setError(error instanceof Error ? error.message : 'Could not confirm the account.'); }
++    finally { setBusy(false); }
++  }
++
++  async function disconnect() {
++    setBusy(true);
++    setError(null);
++    try {
++      await requestJson('/api/integrations/disconnect', { method: 'POST', body: JSON.stringify({ platform: 'meta_ads' }) });
++      setAttempt(value => value + 1);
++    } catch (error) { setError(error instanceof Error ? error.message : 'Could not disconnect Meta Ads.'); }
++    finally { setBusy(false); }
++  }
++
++  const button = 'min-h-11 rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200 disabled:opacity-50';
++  const value = (metric: number | null) => metric === null ? 'Unavailable' : metric.toLocaleString();
++  return <section aria-label="Meta Ads account" className="min-w-0 rounded-xl border border-slate-700 bg-slate-900/40 p-5 text-slate-100">
++    <div className="flex flex-wrap items-center justify-between gap-3">
++      <h2 className="text-lg font-medium">{performance ? 'Meta Ads performance' : 'Meta Ads account'}</h2>
++      <span className="rounded-full bg-sky-500/15 px-3 py-1 text-xs text-sky-300">{performance ? 'Read-only' : 'Reporting only'}</span>
++    </div>
++    <p className="mt-2 text-sm text-slate-400">Separate from your organic Facebook Page. Aries can report on existing campaigns; creating or boosting ads is not enabled.</p>
++    {error ? <div role="alert" className="mt-4 text-sm text-rose-300">{error} <button className={button} onClick={() => setAttempt(value => value + 1)}>Retry</button>
++      {!performance && <button className={button} onClick={disconnect} disabled={busy}>Disconnect to reconnect</button>}</div>
++      : !data ? <p role="status" className="mt-4 text-sm">Loading ad account…</p>
++      : !data.connected ? <div className="mt-4">{performance ? <a className="text-sm text-sky-300 underline" href="/dashboard/settings/channel-integrations">Connect a Meta Ads account to see paid results</a>
++        : <button className={button} onClick={connect} disabled={busy}>{busy ? 'Starting…' : 'Connect Meta Ads account'}</button>}</div>
++      : performance ? !data.accountId ? <a className="mt-4 block text-sm text-sky-300 underline" href="/dashboard/settings/channel-integrations">Choose an ad account in Connections</a>
++        : <div className="mt-4">
++          <p className="text-sm text-slate-300">{data.accounts.find(account => account.id === data.accountId)?.name} · {data.accountId} · Last {period === 'week' ? '7' : period === '90day' ? '90' : '30'} days</p>
++          {!data.campaigns?.length ? <p role="status" className="mt-3 text-sm text-slate-400">No campaigns available for this account.</p>
++            : <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-sm">
++              <caption className="sr-only">Paid campaign performance, separate from organic results</caption>
++              <thead className="text-slate-400"><tr>{['Campaign', 'Status', `Spend (${data.currency ?? 'currency unavailable'})`, 'Impressions', 'Clicks'].map(label => <th className="px-3 py-2" scope="col" key={label}>{label}</th>)}</tr></thead>
++              <tbody>{data.campaigns.map(campaign => <tr className="border-t border-slate-700" key={campaign.id}>
++                <th scope="row" className="px-3 py-3 font-medium">{campaign.name}</th><td className="px-3 py-3">{campaign.status}</td><td className="px-3 py-3">{value(campaign.spend)}</td><td className="px-3 py-3">{value(campaign.impressions)}</td><td className="px-3 py-3">{value(campaign.clicks)}</td>
++              </tr>)}</tbody>
++            </table></div>}
++        </div>
++      : <div className="mt-4 space-y-3">
++        <label className="block text-sm" htmlFor="meta-ads-account">Ad account</label>
++        <select id="meta-ads-account" className="min-h-11 w-full rounded-lg border border-slate-600 bg-slate-900 px-3" value={accountId} onChange={event => setAccountId(event.target.value)} disabled={busy}>
++          <option value="">Choose an account</option>{data.accounts.map(account => <option value={account.id} key={account.id}>{account.name} · {account.id}{account.currency ? ` · ${account.currency}` : ''}</option>)}
++        </select>
++        {!data.accounts.length && <p className="text-sm text-slate-400">No ad accounts available. Reconnect and allow access to the account you want to use.</p>}
++        {data.accountId && <p role="status" className="text-sm text-emerald-300">Selected: {data.accounts.find(account => account.id === data.accountId)?.name} · {data.accountId}</p>}
++        <div className="flex flex-wrap gap-2"><button className={button} disabled={busy || !accountId} onClick={save}>{busy ? 'Saving…' : 'Confirm ad account'}</button><button className={button} onClick={disconnect} disabled={busy}>Disconnect</button><a className={`${button} inline-flex items-center`} href="/insights">View ad performance</a></div>
++      </div>}
++  </section>;
++}
+diff --git a/migrations/20261006210000_meta_ads_oauth_provider.sql b/migrations/20261006210000_meta_ads_oauth_provider.sql
+new file mode 100644
+index 000000000..c069800d4
+--- /dev/null
++++ b/migrations/20261006210000_meta_ads_oauth_provider.sql
+@@ -0,0 +1,4 @@
++-- A separate tenant-owned Meta user grant; organic Facebook Page rows are unchanged.
++ALTER TABLE oauth_connections DROP CONSTRAINT IF EXISTS oauth_connections_provider_check;
++ALTER TABLE oauth_connections ADD CONSTRAINT oauth_connections_provider_check
++  CHECK (provider IN ('facebook','instagram','linkedin','x','youtube','tiktok','reddit','slack','meta_ads'));
+diff --git a/scripts/init-db.js b/scripts/init-db.js
+index df67faabf..ee175ccbb 100644
+--- a/scripts/init-db.js
++++ b/scripts/init-db.js
+@@ -253,7 +253,7 @@ async function initDb() {
+       CREATE TABLE IF NOT EXISTS oauth_connections (
+         id BIGSERIAL PRIMARY KEY,
+         tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+-        provider TEXT NOT NULL CHECK (provider IN ('facebook','instagram','linkedin','x','youtube','tiktok','reddit','slack')),
++        provider TEXT NOT NULL CHECK (provider IN ('facebook','instagram','linkedin','x','youtube','tiktok','reddit','slack','meta_ads')),
+         external_account_id TEXT,
+         external_account_name TEXT,
+         -- Per-tenant Slack notification target (Phase 4 Option A): the channel the
+@@ -314,8 +314,8 @@ async function initDb() {
+       SELECT pg_temp.ensure_check_constraint(
+         'oauth_connections'::regclass,
+         'oauth_connections_provider_check',
+-        'slack',
+-        $check$provider IN ('facebook','instagram','linkedin','x','youtube','tiktok','reddit','slack')$check$
++        'meta_ads',
++        $check$provider IN ('facebook','instagram','linkedin','x','youtube','tiktok','reddit','slack','meta_ads')$check$
+       );
+       ALTER TABLE oauth_connections
+         ADD COLUMN IF NOT EXISTS notify_channel_id TEXT;
+diff --git a/tests/composio-publisher.test.ts b/tests/composio-publisher.test.ts
+index 0bc31d6c7..c3c8fc680 100644
+--- a/tests/composio-publisher.test.ts
++++ b/tests/composio-publisher.test.ts
+@@ -72,17 +72,11 @@ test('publishPost approved + slug executes and normalizes the post id', async ()
+   assert.equal(gateway.calls[0].slug, 'FB_POST');
+ });
+ 
+-test('publishAd ALWAYS creates PAUSED and forces PAUSED status args', async () => {
++test('Meta Ads creation is disabled until campaign and budget approval is implemented', async () => {
+   const gateway = fakeGateway({ executeResult: { data: { campaign_id: 'c1', ad_id: 'a1' }, successful: true, error: null } });
+   const provider = new ComposioPublisherProvider(gateway, fakeConfig({ actions: { create_ad: 'META_CREATE_AD' } }), fakeDb());
+-  const result = await provider.publishAd({ tenantId, platform: 'meta_ads', name: 'Promo' });
+-  assert.equal(result.status, 'paused');
+-  assert.equal(result.externalCampaignId, 'c1');
+-  assert.equal(result.externalAdId, 'a1');
+-  const args = gateway.calls[0].options.arguments as Record<string, unknown>;
+-  assert.equal(args.status, 'PAUSED');
+-  assert.equal(args.campaign_status, 'PAUSED');
+-  assert.equal(args.adset_status, 'PAUSED');
++  await assert.rejects(() => provider.publishAd({ tenantId, platform: 'meta_ads', name: 'Promo', campaign: { status: 'ACTIVE' } }), PublishGuardError);
++  assert.equal(gateway.calls.length, 0);
+ });
+ 
+ test('uploadMedia with no configured slug is a documented no-op preview', async () => {
+diff --git a/tests/connections-health-screen.test.ts b/tests/connections-health-screen.test.ts
+index e2a25150a..9f52f7f67 100644
+--- a/tests/connections-health-screen.test.ts
++++ b/tests/connections-health-screen.test.ts
+@@ -46,7 +46,9 @@ async function mount(t: TestContext, fetcher: typeof fetch) {
+   globals.IS_REACT_ACT_ENVIRONMENT = true;
+   globals.window = { location: { search: '', href: '' } };
+   process.env.COMPOSIO_ENABLED = 'true';
+-  t.mock.method(globalThis, 'fetch', fetcher);
++  t.mock.method(globalThis, 'fetch', (url: Parameters<typeof fetch>[0], init?: RequestInit) => url === '/api/integrations/meta-ads'
++    ? Promise.resolve(Response.json({ connected: false, connectionId: null, accounts: [], accountId: null }))
++    : fetcher(url, init));
+   let root!: ReactTestRenderer;
+   t.after(async () => {
+     if (root) await act(async () => root.unmount());
+@@ -114,10 +116,10 @@ test('announces loading then renders an empty workspace without inventing connec
+   const root = await mount(t, () => response);
+   assert.match(root.root.findByProps({ role: 'status' }).children.join(''), /Loading your connections/);
+   assert.equal(root.root.findAllByType('h2').length, 1, 'Meta Ads remains visible while connection data loads');
+-  assert.match(text(root), /Meta Ads.*Coming soon/);
+-  const ads = root.root.find((node) => node.type === 'button' && node.children.includes('Connect Meta Ads'));
+-  assert.equal(ads.props.disabled, true);
+-  assert.equal(ads.props.onClick, undefined);
++  assert.match(text(root), /Meta Ads account.*Reporting only/);
++  const ads = root.root.find((node) => node.type === 'button' && node.children.includes('Connect Meta Ads account'));
++  assert.equal(ads.props.disabled, false);
++  assert.equal(typeof ads.props.onClick, 'function');
+   await act(async () => { resolve(Response.json({ composioEnabled: true, connections: [] })); });
+   assert.match(text(root), /No accounts connected yet/);
+   assert.doesNotMatch(text(root), /Loading your connections|Connected and ready/);
+diff --git a/tests/facebook-page-channel.test.ts b/tests/facebook-page-channel.test.ts
+index d1efad1f3..f5fd0a8d7 100644
+--- a/tests/facebook-page-channel.test.ts
++++ b/tests/facebook-page-channel.test.ts
+@@ -12,6 +12,7 @@ import { updateBusinessProfileWithDiagnostics } from '../backend/tenant/business
+ import { PATCH as saveProfile } from '../app/api/business/profile/route';
+ import { handleComposioConnect } from '../app/api/integrations/composio/handlers';
+ import { selectableMarketingChannels } from '../lib/marketing-channels';
++import MetaAdsChannel from '../frontend/integrations/meta-ads-channel';
+ 
+ const source = (file: string) => readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
+ 
+@@ -26,7 +27,7 @@ test('Facebook Page and legacy meta generate organic Facebook publishing, never
+   assert.equal(canonicalizePublishReviewPlatformSlug('meta-ads'), 'meta-ads');
+ });
+ 
+-test('Meta Ads cannot be connected or written to a business profile', async () => {
++test('Meta Ads cannot use organic Composio connect or be selected as an organic generation target', async () => {
+   assert.equal(connectablePlatforms({ NODE_ENV: 'test' }).includes('meta_ads'), false);
+   const connect = await handleComposioConnect(new Request('https://aries.example.com/api/integrations/composio/meta_ads/connect', { method: 'POST' }), 'meta_ads');
+   assert.equal(connect.status, 400);
+@@ -48,24 +49,24 @@ test('resumed legacy selections use Facebook and never reselect disabled ads', (
+   assert.deepEqual(selectableMarketingChannels(['meta', 'facebook', 'meta-ads', 'instagram']), ['facebook', 'instagram']);
+ });
+ 
+-test('onboarding and profile offer Facebook Page and visibly disable Meta Ads', () => {
++test('paid generation stays disabled; profile and integrations expose the separate Ads connection', () => {
+   for (const file of ['frontend/aries-v1/onboarding-flow.tsx', 'frontend/aries-v1/business-profile-screen.tsx']) {
+     const text = source(file);
+     assert.match(text, /id: 'facebook',[\s\S]*?label: 'Facebook Page'/);
+-    assert.match(text, /id: 'meta-ads',[\s\S]*?label: 'Meta Ads',[\s\S]*?disabled: true/);
++
+     assert.match(text, /disabled=\{channel.disabled\}/);
+     assert.match(text, /Coming soon/);
+     assert.match(text, /if \(CHANNEL_OPTIONS.find\(.*\)\?\.disabled\) return;/);
+     assert.doesNotMatch(text, /Paid social for direct-response demand capture and retargeting/);
+   }
++  assert.match(source('frontend/aries-v1/onboarding-flow.tsx'), /id: 'meta-ads',[\s\S]*?label: 'Meta Ads account',[\s\S]*?disabled: true/);
++  assert.match(source('frontend/aries-v1/business-profile-screen.tsx'), /<MetaAdsChannel \/>/);
+   const connections = source('frontend/integrations/composio-connections-screen.tsx');
+   assert.match(connections, /facebook: 'Facebook Page'/);
+-  assert.match(connections, /Meta Ads/);
+-  assert.match(connections, /Coming soon/);
+-  assert.match(connections, /disabled[\s\S]*Connect Meta Ads/);
++  assert.match(connections, /<MetaAdsChannel \/>/);
+ });
+ 
+-test('rendered business profile selects Facebook Page, disables ads and saves facebook', async (t) => {
++test('rendered business profile keeps the Ads account separate from organic channel saves', async (t) => {
+   const globals = globalThis as unknown as Record<string, unknown>;
+   const originalAct = globals.IS_REACT_ACT_ENVIRONMENT;
+   const originalSelf = globals.self;
+@@ -97,13 +98,10 @@ test('rendered business profile selects Facebook Page, disables ads and saves fa
+     typeof child === 'string' ? child : child && typeof child === 'object' && 'children' in child ? text(child as { children: unknown[] }) : '',
+   ).join(' ');
+   const page = root.root.find((node) => node.type === 'button' && text(node).includes('Facebook Page'));
+-  const ads = root.root.find((node) => node.type === 'button' && text(node).includes('Meta Ads'));
++  assert.ok(root.root.findByType(MetaAdsChannel));
+   assert.equal(page.props.disabled, undefined);
+   assert.equal(page.props['aria-pressed'], true, 'legacy meta loads as the organic selection');
+-  assert.equal(ads.props.disabled, true);
+-  assert.match(text(ads), /Coming soon/);
+-  await act(async () => { ads.props.onClick(); });
+-  assert.equal(ads.props['aria-pressed'], false);
++
+   await act(async () => { page.props.onClick(); });
+   assert.equal(page.props['aria-pressed'], false);
+   await act(async () => { page.props.onClick(); });
+diff --git a/tests/integrations-provider-availability.test.ts b/tests/integrations-provider-availability.test.ts
+index 32c045e5d..e0dae4519 100644
+--- a/tests/integrations-provider-availability.test.ts
++++ b/tests/integrations-provider-availability.test.ts
+@@ -67,8 +67,12 @@ test('/api/integrations marks unconfigured providers as disabled and unavailable
+ 
+     assert.equal(response.status, 200);
+     assert.equal(body.status, 'ok');
+-    assert.equal(body.summary.total, 6);
+-    assert.equal(body.summary.not_connected, 6);
++    assert.equal(body.summary.total, 7);
++    assert.equal(body.summary.not_connected, 7);
++    const ads = body.cards.find((card) => card.platform === 'meta_ads');
++    assert.equal(ads?.connection_state, 'disabled');
++    assert.deepEqual(ads?.available_actions, []);
++    assert.equal(ads?.error?.code, 'provider_unavailable');
+ 
+     const linkedin = body.cards.find((card) => card.platform === 'linkedin');
+     assert.equal(linkedin?.connection_state, 'disabled');
+diff --git a/tests/meta-ads-channel-ui.test.ts b/tests/meta-ads-channel-ui.test.ts
+new file mode 100644
+index 000000000..823a0347c
+--- /dev/null
++++ b/tests/meta-ads-channel-ui.test.ts
+@@ -0,0 +1,57 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import React from 'react';
++import { act, create, type ReactTestRenderer } from 'react-test-renderer';
++import MetaAdsChannel from '../frontend/integrations/meta-ads-channel';
++
++(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
++
++const account = { id: 'act_123', name: 'Test account', currency: 'USD' };
++const connected = { connected: true, connectionId: '19', accounts: [account], accountId: 'act_123' };
++
++async function mount(t: any, props: { performance?: boolean; period?: string } = {}, data: unknown = connected) {
++  const calls: { url: string; init: RequestInit }[] = [];
++  t.mock.method(globalThis, 'fetch', async (url: string, init: RequestInit) => {
++    calls.push({ url, init });
++    return Response.json(data);
++  });
++  let renderer!: ReactTestRenderer;
++  await act(async () => { renderer = create(React.createElement(MetaAdsChannel, props)); });
++  t.after(async () => { await act(async () => renderer.unmount()); });
++  return { renderer, calls };
++}
++
++test('settings renders a separate ad account picker and submits verified account/connection identifiers', async t => {
++  const { renderer, calls } = await mount(t);
++  const select = renderer.root.findByType('select');
++  assert.equal(select.props.value, 'act_123');
++  assert.equal(select.props.id, 'meta-ads-account');
++  const save = renderer.root.findAllByType('button').find(button => button.children.includes('Confirm ad account'))!;
++  await act(async () => save.props.onClick());
++  const mutation = calls.find(call => call.init.method === 'POST')!;
++  assert.equal(mutation.url, '/api/integrations/meta-ads');
++  assert.deepEqual(JSON.parse(mutation.init.body as string), { accountId: 'act_123', connectionId: '19' });
++  assert.equal(calls.some(call => /boost|campaign.*create/.test(call.url)), false);
++});
++
++test('insights displays campaign spend separately from organic results with the chosen period', async t => {
++  const { renderer, calls } = await mount(t, { performance: true, period: 'week' }, {
++    ...connected, currency: 'USD', campaigns: [{ id: '1', name: 'Spring', status: 'PAUSED', spend: 12.5, impressions: 100, clicks: null }],
++  });
++  const url = new URL(calls[0].url, 'https://aries.example.com');
++  assert.equal(url.searchParams.get('period'), '7day');
++  assert.equal(url.searchParams.get('performance'), '1');
++  const text = JSON.stringify(renderer.toJSON());
++  assert.match(text, /Spring/);
++  assert.match(text, /Spend \(USD\)/);
++  assert.match(text, /12.5/);
++  assert.match(text, /Unavailable/);
++  assert.equal(renderer.root.findAllByType('button').length, 0);
++});
++
++test('disconnected insights offers settings, not a spend action or invented zero metrics', async t => {
++  const { renderer } = await mount(t, { performance: true }, { connected: false, accounts: [], accountId: null });
++  assert.equal(renderer.root.findByType('a').props.href, '/dashboard/settings/channel-integrations');
++  assert.equal(renderer.root.findAllByType('table').length, 0);
++  assert.match(JSON.stringify(renderer.toJSON()), /Read-only/);
++});
+diff --git a/tests/meta-ads-channel.test.ts b/tests/meta-ads-channel.test.ts
+new file mode 100644
+index 000000000..c659ce9dd
+--- /dev/null
++++ b/tests/meta-ads-channel.test.ts
+@@ -0,0 +1,168 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import pool from '../lib/db';
++import { encryptToken } from '../backend/integrations/oauth-crypto';
++import { buildProviderAuthorizationUrl } from '../backend/integrations/oauth-authorize-urls';
++import { PROVIDER_REGISTRY } from '../backend/integrations/provider-registry';
++import { handleMetaAds } from '../backend/integrations/meta/ads';
++import { oauthCallback } from '../backend/integrations/callback';
++import { handleIntegrationsConnect } from '../app/api/integrations/handlers';
++
++const loader = async () => ({ tenantId: '75', tenantSlug: 'test', userId: '1', role: 'tenant_admin' as const });
++
++function setup(t: any, selected: string | null = null) {
++  for (const [key, value] of Object.entries({ META_APP_ID: 'test-app', META_APP_SECRET: 'test-secret', OAUTH_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') })) {
++    const previous = process.env[key];
++    process.env[key] = value;
++    t.after(() => { if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
++  }
++  const queries: { sql: string; params: any[] }[] = [];
++  t.mock.method(pool, 'query', async (sql: string, params: any[] = []) => {
++    queries.push({ sql, params });
++    if (sql.includes('UPDATE oauth_connections')) return { rows: [{ id: '19' }], rowCount: 1 };
++    if (sql.includes('FROM oauth_connections')) return { rows: [{ id: '19', tenant_id: '75', provider: 'meta_ads', status: 'connected', external_account_id: selected, granted_scopes: ['ads_read', 'ads_management'] }], rowCount: 1 };
++    if (sql.includes('FROM oauth_tokens')) return { rows: [{ id: '20', connection_id: '19', access_token_enc: encryptToken('test-token'), revoked_at: null, expires_at: new Date(Date.now() + 3600000).toISOString() }], rowCount: 1 };
++    throw new Error('Unexpected SQL');
++  });
++  return queries;
++}
++
++test('Meta Ads requests its own ad scopes without organic Page scopes', t => {
++  setup(t);
++  const url = buildProviderAuthorizationUrl({ provider: 'meta_ads', redirectUri: 'https://aries.example.com/api/auth/oauth/meta_ads/callback', state: 'state-test', scopes: PROVIDER_REGISTRY.meta_ads.default_scopes });
++  assert.equal(url.hostname, 'www.facebook.com');
++  assert.deepEqual(url.searchParams.get('scope')?.split(','), ['ads_read', 'ads_management']);
++  assert.equal(PROVIDER_REGISTRY.facebook.default_scopes.includes('ads_management'), false);
++});
++
++test('account selection is tenant scoped and verifies membership, not a supplied name', async t => {
++  const queries = setup(t);
++  t.mock.method(globalThis, 'fetch', async (url: URL, options: RequestInit) => {
++    assert.equal(url.hostname, 'graph.facebook.com');
++    assert.equal(url.pathname.endsWith('/me/adaccounts'), true);
++    assert.equal(options.method, 'GET');
++    assert.equal(url.searchParams.has('access_token'), false);
++    return Response.json({ data: [{ id: 'act_123', name: 'Verified account', currency: 'USD' }] });
++  });
++  const response = await handleMetaAds(new Request('https://aries.example.com/api/integrations/meta-ads', { method: 'POST', body: JSON.stringify({ accountId: 'act_123', connectionId: '19', name: 'Untrusted' }) }), loader);
++  assert.equal(response.status, 200);
++  const update = queries.find(q => q.sql.includes('UPDATE oauth_connections'))!;
++  assert.deepEqual(update.params, ['75', '19', 'act_123', 'Verified account', '20']);
++  assert.match(update.sql, /provider = 'meta_ads'/);
++  assert.match(update.sql, /status = 'connected'/);
++});
++
++test('connect authenticates the tenant, persists a separate pending grant and requests only ad scopes', async t => {
++  setup(t);
++  const queries: { sql: string; params: any[] }[] = [];
++  t.mock.method(pool, 'query', async (sql: string, params: any[] = []) => {
++    queries.push({ sql, params });
++    return { rows: [{ id: '19', status: 'pending' }], rowCount: 1 };
++  });
++  const response = await handleIntegrationsConnect(new Request('https://aries.example.com/api/auth/oauth/meta_ads/connect', {
++    method: 'POST', body: JSON.stringify({ tenant_id: '999' }),
++  }), 'meta_ads', loader);
++  assert.equal(response.status, 200);
++  const body = await response.json();
++  const url = new URL(body.authorization_url);
++  assert.deepEqual(url.searchParams.get('scope')?.split(','), ['ads_read', 'ads_management']);
++  assert.ok(url.searchParams.get('state'));
++  const pending = queries.find(query => query.sql.includes('INSERT INTO oauth_pending_states'))!;
++  assert.equal(pending.params[1], 75);
++  assert.equal(pending.params[2], 'meta_ads');
++  assert.match(pending.params[3], /\/api\/auth\/oauth\/meta_ads\/callback$/);
++  assert.equal(queries.some(query => query.params.includes('facebook')), false);
++});
++
++test('foreign account or stale connection cannot be selected', async t => {
++  const queries = setup(t);
++  t.mock.method(globalThis, 'fetch', async () => Response.json({ data: [{ id: 'act_123', name: 'Available' }] }));
++  for (const body of [{ accountId: 'act_999', connectionId: '19' }, { accountId: 'act_123', connectionId: '18' }]) {
++    const response = await handleMetaAds(new Request('https://aries.example.com/api/integrations/meta-ads', { method: 'POST', body: JSON.stringify(body) }), loader);
++    assert.equal(response.status, 409);
++  }
++  assert.equal(queries.some(q => q.sql.includes('UPDATE oauth_connections')), false);
++});
++
++test('read campaigns and spend only for the selected account, with pagination', async t => {
++  setup(t, 'act_123');
++  const paths: string[] = [];
++  t.mock.method(globalThis, 'fetch', async (url: URL, options: RequestInit) => {
++    paths.push(url.pathname);
++    assert.equal(options.method, 'GET');
++    if (url.pathname.endsWith('/campaigns')) return Response.json({ data: [{ id: '1', name: 'Spring', status: 'PAUSED' }] });
++    if (url.pathname.endsWith('/insights')) return Response.json({ data: [{ campaign_id: '1', spend: '12.50', impressions: '100', clicks: '3', date_start: '2026-10-01', date_stop: '2026-10-06' }] });
++    if (!url.searchParams.has('after')) return Response.json({ data: [{ id: 'act_123', name: 'Available', currency: 'USD' }], paging: { next: 'https://untrusted.example', cursors: { after: 'next' } } });
++    return Response.json({ data: [] });
++  });
++  const response = await handleMetaAds(new Request('https://aries.example.com/api/integrations/meta-ads?performance=1&period=7day'), loader);
++  assert.equal(response.status, 200);
++  const body = await response.json();
++  assert.equal(body.currency, 'USD');
++  assert.equal(body.campaigns[0].spend, 12.5);
++  assert.equal(body.campaigns[0].status, 'PAUSED');
++  assert.equal(paths.filter(p => p.endsWith('/me/adaccounts')).length, 2);
++});
++
++test('lost access to the selected account never reads its campaigns or substitutes a different account', async t => {
++  setup(t, 'act_999');
++  const calls = t.mock.method(globalThis, 'fetch', async () => Response.json({ data: [{ id: 'act_123', name: 'Available' }] }));
++  const response = await handleMetaAds(new Request('https://aries.example.com/api/integrations/meta-ads?performance=1'), loader);
++  assert.equal(response.status, 200);
++  assert.equal((await response.json()).accountId, null);
++  assert.equal(calls.mock.callCount(), 1);
++});
++
++test('expired or revoked grants fail before any Meta request', async t => {
++  setup(t);
++  const calls = t.mock.method(globalThis, 'fetch', async () => { throw new Error('Must not execute'); });
++  for (const token of [{ revoked_at: new Date().toISOString(), expires_at: new Date(Date.now() + 60000).toISOString() }, { revoked_at: null, expires_at: new Date(0).toISOString() }]) {
++    t.mock.method(pool, 'query', async (sql: string) => ({ rows: sql.includes('FROM oauth_connections')
++      ? [{ id: '19', status: 'connected' }]
++      : [{ id: '20', access_token_enc: encryptToken('test-token'), ...token }], rowCount: 1 }));
++    assert.equal((await handleMetaAds(new Request('https://aries.example.com/api/integrations/meta-ads'), loader)).status, 409);
++  }
++  assert.equal(calls.mock.callCount(), 0);
++});
++
++test('malformed or incomplete provider lists fail closed and never leak provider errors', async t => {
++  setup(t);
++  t.mock.method(globalThis, 'fetch', async () => Response.json({ data: [], paging: { next: 'secret-bearing-next-url' } }));
++  const response = await handleMetaAds(new Request('https://aries.example.com/api/integrations/meta-ads'), loader);
++  assert.equal(response.status, 502);
++  assert.equal((await response.text()).includes('secret-bearing'), false);
++});
++
++test('unauthenticated requests and spend methods perform no provider or DB work', async t => {
++  const queries = setup(t);
++  const fetchMock = t.mock.method(globalThis, 'fetch', async () => { throw new Error('Must not execute'); });
++  const response = await handleMetaAds(new Request('https://aries.example.com/api/integrations/meta-ads', { method: 'PUT', body: JSON.stringify({ approved: true, budget: 100 }) }), loader);
++  assert.equal(response.status, 405);
++  assert.equal(queries.length, 0);
++  assert.equal(fetchMock.mock.callCount(), 0);
++  const unauthenticated = await handleMetaAds(new Request('https://aries.example.com/api/integrations/meta-ads'), async () => { throw new Error('Authentication required'); });
++  assert.equal(unauthenticated.status, 403);
++  assert.equal(queries.length, 0);
++});
++
++test('Meta Ads callback stores an encrypted user grant, verifies permissions, never discovers Pages', async t => {
++  setup(t);
++  const queries: { sql: string; params: any[] }[] = [];
++  t.mock.method(pool, 'query', async (sql: string, params: any[] = []) => {
++    queries.push({ sql, params });
++    if (sql.includes('FROM oauth_pending_states')) return { rows: [{ state: 'state-test', tenant_id: '75', provider: 'meta_ads', redirect_uri: 'https://aries.example.com/api/auth/oauth/meta_ads/callback', scopes: ['ads_read', 'ads_management'], expires_at: new Date(Date.now() + 60000).toISOString() }], rowCount: 1 };
++    return { rows: [{ id: '19' }], rowCount: 1 };
++  });
++  t.mock.method(globalThis, 'fetch', async (url: URL) => {
++    if (url.pathname.endsWith('/oauth/access_token')) return Response.json({ access_token: 'test-user-token', expires_in: 3600 });
++    assert.equal(url.pathname.endsWith('/me/permissions'), true);
++    return Response.json({ data: [{ permission: 'ads_read', status: 'granted' }, { permission: 'ads_management', status: 'granted' }] });
++  });
++  const result = await oauthCallback('meta_ads', { state: 'state-test', code: 'test-code' });
++  assert.equal(result.broker_status, 'ok');
++  const tokenInsert = queries.find(q => q.sql.includes('INSERT INTO oauth_tokens'))!;
++  assert.notEqual(tokenInsert.params[1], 'test-user-token');
++  const connection = queries.find(q => q.sql.includes('INSERT INTO oauth_connections'))!;
++  assert.equal(connection.params[1], 'meta_ads');
++  assert.equal(connection.params[8], null);
++});
