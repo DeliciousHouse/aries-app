@@ -1,0 +1,26 @@
+{
+  "field-contract.json": {
+    "bytes": 209497,
+    "sha256": "e56a0fda18be745bddd81e891f3a29b039718317b72ad5b424dc0045f3e0d55c"
+  },
+  "owner-approval-brief.txt": {
+    "bytes": 4703,
+    "sha256": "1b57aa0bce98d73131837cfef23f288fb63408deea8cce5ceb8feae8e2cbbe5b"
+  },
+  "security-verdict.txt": {
+    "bytes": 1663,
+    "sha256": "246f62f7970ddc4c7e274f36faf6cd14ef79305ff80a272b9431ed8713dbf758"
+  },
+  "scheduler-and-schema-evidence.txt": {
+    "bytes": 8348,
+    "sha256": "bcd39f01034c28fb295710577bf550eb48b6cfa367f0e545f82f4f0b9268ba78"
+  },
+  "observed-field-shapes.json": {
+    "bytes": 93537,
+    "sha256": "6d2e3aada3fd2af270a1f319ec8134e3c72aa65e483b1fe47d9c9e4c202499fc"
+  },
+  "contract-validation.json": {
+    "bytes": 305,
+    "sha256": "515731e633745231a255148a723ac1b194af06346cf94ba92f39bee681bbbc90"
+  }
+}

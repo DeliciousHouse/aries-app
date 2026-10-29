@@ -1,0 +1,2824 @@
+{
+  "fields": [
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "model.default",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "model.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "model.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "terminal.backend",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "terminal.modal_mode",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "terminal.cwd",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "terminal.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "terminal.env_passthrough[]",
+      "source_type": "list"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "terminal.shell_init_files[]",
+      "source_type": "list"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "terminal.auto_source_bashrc",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "terminal.docker_image",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "terminal.docker_forward_env[]",
+      "source_type": "list"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "terminal.singularity_image",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "terminal.modal_image",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "terminal.daytona_image",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "terminal.container_cpu",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "terminal.container_memory",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "terminal.container_disk",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "terminal.container_persistent",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "terminal.docker_volumes[]",
+      "source_type": "list"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "terminal.docker_mount_cwd_to_workspace",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "terminal.persistent_shell",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "terminal.lifetime_seconds",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "browser.inactivity_timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "browser.command_timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "browser.record_sessions",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "browser.allow_private_urls",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "browser.cdp_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "browser.camofox.managed_persistence",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "browser.headless",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "browser.cloud_provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "browser.use_gateway",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.vision.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.vision.model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.vision.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.vision.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.vision.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.vision.download_timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.web_extract.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.web_extract.model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.web_extract.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.web_extract.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.web_extract.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.compression.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.compression.model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.compression.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.compression.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.compression.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.skills_hub.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.skills_hub.model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.skills_hub.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.skills_hub.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.skills_hub.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.approval.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.approval.model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.approval.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.approval.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.approval.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.mcp.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.mcp.model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.mcp.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.mcp.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.mcp.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.title_generation.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.title_generation.model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.title_generation.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.title_generation.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.title_generation.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.session_search.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.session_search.model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.session_search.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.session_search.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.session_search.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.session_search.max_concurrency",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.flush_memories.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.flush_memories.model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.flush_memories.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.flush_memories.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "auxiliary.flush_memories.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "memory.memory_enabled",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "memory.user_profile_enabled",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "memory.memory_char_limit",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "memory.user_char_limit",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "memory.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "memory.nudge_interval",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "memory.flush_min_turns",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "delegation.model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "delegation.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "delegation.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "delegation.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "delegation.max_iterations",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "delegation.reasoning_effort",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "delegation.max_concurrent_children",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "delegation.max_spawn_depth",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "delegation.orchestrator_enabled",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "skills.external_dirs[0]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "skills.external_dirs[1]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "skills.template_vars",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "skills.inline_shell",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "skills.inline_shell_timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "skills.creation_nudge_interval",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "approvals.mode",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "approvals.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "approvals.cron_mode",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "security.redact_secrets",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "security.tirith_enabled",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "security.tirith_path",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "security.tirith_timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "security.tirith_fail_open",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "security.website_blocklist.enabled",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "security.website_blocklist.domains[]",
+      "source_type": "list"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "security.website_blocklist.shared_files[]",
+      "source_type": "list"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "cron.wrap_response",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "plugins.enabled[0]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "plugins.hermes-memory-store.db_path",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "plugins.hermes-memory-store.auto_extract",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "plugins.hermes-memory-store.default_trust",
+      "source_type": "float"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "plugins.hermes-memory-store.hrr_dim",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/config.yaml",
+      "field": "platforms.telegram.enabled",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "version",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "providers.openai-codex.tokens.id_token",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "providers.openai-codex.tokens.access_token",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "providers.openai-codex.tokens.refresh_token",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "providers.openai-codex.tokens.account_id",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "providers.openai-codex.last_refresh",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "providers.openai-codex.auth_mode",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "providers.xai-oauth.tokens.access_token",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "providers.xai-oauth.tokens.refresh_token",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "providers.xai-oauth.last_refresh",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "providers.xai-oauth.auth_mode",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.openrouter[]",
+      "source_type": "list"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.anthropic[]",
+      "source_type": "list"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.copilot[0].id",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.copilot[0].label",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.copilot[0].auth_type",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.copilot[0].priority",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.copilot[0].source",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.copilot[0].last_status",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.copilot[0].last_status_at",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.copilot[0].last_error_code",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.copilot[0].last_error_reason",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.copilot[0].last_error_message",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.copilot[0].last_error_reset_at",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.copilot[0].base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.copilot[0].request_count",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.copilot[0].secret_fingerprint",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[0].id",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[0].label",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[0].auth_type",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[0].priority",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[0].source",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[0].last_status",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[0].last_status_at",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[0].last_error_code",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[0].last_error_reason",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[0].last_error_message",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[0].last_error_reset_at",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[0].base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[0].request_count",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[0].secret_fingerprint",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[1].id",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[1].label",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[1].auth_type",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[1].priority",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[1].source",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[1].last_status",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[1].last_status_at",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[1].last_error_code",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[1].last_error_reason",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[1].last_error_message",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[1].last_error_reset_at",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[1].base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[1].request_count",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.gemini[1].secret_fingerprint",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.openai-codex[0].id",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.openai-codex[0].label",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.openai-codex[0].auth_type",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.openai-codex[0].priority",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.openai-codex[0].source",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.openai-codex[0].access_token",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.openai-codex[0].refresh_token",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.openai-codex[0].last_status",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.openai-codex[0].last_status_at",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.openai-codex[0].last_error_code",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.openai-codex[0].last_error_reason",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.openai-codex[0].last_error_message",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.openai-codex[0].last_error_reset_at",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.openai-codex[0].base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.openai-codex[0].last_refresh",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.openai-codex[0].request_count",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.openai-codex[0].failure_reason",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.xai-oauth[0].id",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.xai-oauth[0].label",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.xai-oauth[0].auth_type",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.xai-oauth[0].priority",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.xai-oauth[0].source",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.xai-oauth[0].access_token",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.xai-oauth[0].refresh_token",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.xai-oauth[0].last_status",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.xai-oauth[0].last_status_at",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.xai-oauth[0].last_error_code",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.xai-oauth[0].last_error_reason",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.xai-oauth[0].last_error_message",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.xai-oauth[0].last_error_reset_at",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.xai-oauth[0].base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.xai-oauth[0].last_refresh",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "credential_pool.xai-oauth[0].request_count",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "updated_at",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/auth.json",
+      "field": "active_provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/.env",
+      "field": "TERMINAL_MODAL_IMAGE",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/.env",
+      "field": "TERMINAL_TIMEOUT",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/.env",
+      "field": "TERMINAL_LIFETIME_SECONDS",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/.env",
+      "field": "BROWSERBASE_PROXIES",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/.env",
+      "field": "BROWSERBASE_ADVANCED_STEALTH",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/.env",
+      "field": "BROWSER_SESSION_TIMEOUT",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/.env",
+      "field": "BROWSER_INACTIVITY_TIMEOUT",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/.env",
+      "field": "WEB_TOOLS_DEBUG",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/.env",
+      "field": "VISION_TOOLS_DEBUG",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/.env",
+      "field": "MOA_TOOLS_DEBUG",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/.env",
+      "field": "IMAGE_TOOLS_DEBUG",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/.env",
+      "field": "TELEGRAM_HOME_CHANNEL",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/.env",
+      "field": "TELEGRAM_BOT_TOKEN",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/.env",
+      "field": "TELEGRAM_ALLOWED_USERS",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "model.default",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "model.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "model.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "providers.app.manifest.build.api",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "providers.app.manifest.build.name",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "providers.app.manifest.build.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "providers.app.manifest.build.default_model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "terminal.backend",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "terminal.modal_mode",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "terminal.cwd",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "terminal.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "terminal.env_passthrough[]",
+      "source_type": "list"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "terminal.home_mode",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "terminal.shell_init_files[]",
+      "source_type": "list"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "terminal.auto_source_bashrc",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "terminal.docker_image",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "terminal.docker_forward_env[]",
+      "source_type": "list"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "terminal.singularity_image",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "terminal.modal_image",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "terminal.daytona_image",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "terminal.container_cpu",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "terminal.container_memory",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "terminal.container_disk",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "terminal.container_persistent",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "terminal.docker_volumes[]",
+      "source_type": "list"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "terminal.docker_mount_cwd_to_workspace",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "terminal.docker_extra_args[]",
+      "source_type": "list"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "terminal.docker_run_as_host_user",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "terminal.persistent_shell",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "terminal.vercel_runtime",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "terminal.lifetime_seconds",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "browser.inactivity_timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "browser.command_timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "browser.record_sessions",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "browser.allow_private_urls",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "browser.engine",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "browser.auto_local_for_private_urls",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "browser.cdp_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "browser.dialog_policy",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "browser.dialog_timeout_s",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "browser.camofox.managed_persistence",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "browser.camofox.user_id",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "browser.camofox.session_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "browser.camofox.adopt_existing_tab",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "browser.camofox.rewrite_loopback_urls",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "browser.camofox.loopback_host_alias",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "browser.cloud_provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "browser.use_gateway",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "kanban.dispatch_in_gateway",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "kanban.dispatch_interval_seconds",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "kanban.failure_limit",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "kanban.worker_log_rotate_bytes",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "kanban.worker_log_backup_count",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "kanban.orchestrator_profile",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "kanban.default_assignee",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "kanban.auto_decompose",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "kanban.auto_decompose_per_tick",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "kanban.dispatch_stale_timeout_seconds",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.vision.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.vision.model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.vision.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.vision.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.vision.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.vision.download_timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.web_extract.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.web_extract.model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.web_extract.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.web_extract.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.web_extract.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.compression.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.compression.model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.compression.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.compression.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.compression.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.skills_hub.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.skills_hub.model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.skills_hub.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.skills_hub.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.skills_hub.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.approval.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.approval.model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.approval.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.approval.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.approval.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.mcp.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.mcp.model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.mcp.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.mcp.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.mcp.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.title_generation.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.title_generation.model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.title_generation.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.title_generation.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.title_generation.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.title_generation.language",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.tts_audio_tags.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.tts_audio_tags.model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.tts_audio_tags.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.tts_audio_tags.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.tts_audio_tags.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.triage_specifier.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.triage_specifier.model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.triage_specifier.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.triage_specifier.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.triage_specifier.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.kanban_decomposer.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.kanban_decomposer.model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.kanban_decomposer.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.kanban_decomposer.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.kanban_decomposer.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.profile_describer.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.profile_describer.model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.profile_describer.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.profile_describer.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.profile_describer.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.curator.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.curator.model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.curator.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.curator.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.curator.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.monitor.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.monitor.model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.monitor.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.monitor.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.monitor.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.session_search.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.session_search.model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.session_search.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.session_search.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.session_search.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "auxiliary.session_search.max_concurrency",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "memory.memory_enabled",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "memory.user_profile_enabled",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "memory.write_approval",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "memory.memory_char_limit",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "memory.user_char_limit",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "memory.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "memory.flush_min_turns",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "memory.nudge_interval",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "delegation.model",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "delegation.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "delegation.base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "delegation.api_key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "delegation.api_mode",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "delegation.inherit_mcp_toolsets",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "delegation.max_iterations",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "delegation.child_timeout_seconds",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "delegation.reasoning_effort",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "delegation.max_concurrent_children",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "delegation.max_spawn_depth",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "delegation.orchestrator_enabled",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "delegation.subagent_auto_approve",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.external_dirs[0]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.template_vars",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.inline_shell",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.inline_shell_timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.guard_agent_created",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.write_approval",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.creation_nudge_interval",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.disabled[0]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.disabled[1]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.disabled[2]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.disabled[3]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.disabled[4]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.disabled[5]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.disabled[6]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.disabled[7]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.disabled[8]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.disabled[9]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.disabled[10]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.disabled[11]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.disabled[12]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.disabled[13]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.disabled[14]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.disabled[15]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.disabled[16]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.disabled[17]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.disabled[18]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.disabled[19]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.disabled[20]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "skills.disabled[21]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "approvals.mode",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "approvals.timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "approvals.cron_mode",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "approvals.mcp_reload_confirm",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "approvals.destructive_slash_confirm",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "security.allow_private_urls",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "security.redact_secrets",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "security.tirith_enabled",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "security.tirith_path",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "security.tirith_timeout",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "security.tirith_fail_open",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "security.website_blocklist.enabled",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "security.website_blocklist.domains[]",
+      "source_type": "list"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "security.website_blocklist.shared_files[]",
+      "source_type": "list"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "security.acked_advisories[]",
+      "source_type": "list"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "security.allow_lazy_installs",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "cron.provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "cron.chronos.portal_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "cron.chronos.callback_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "cron.chronos.expected_audience",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "cron.chronos.nas_jwks_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "cron.wrap_response",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "cron.max_parallel_jobs",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "plugins.enabled[0]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "plugins.enabled[1]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "plugins.enabled[2]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "plugins.enabled[3]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "plugins.disabled[0]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "plugins.disabled[1]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "plugins.disabled[2]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "platforms.api_server.extra.host",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "platforms.api_server.extra.port",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "platforms.api_server.extra.key",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "platforms.api_server.enabled",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "platforms.telegram.enabled",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "platforms.webhook.enabled",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "mcp_servers.firecrawl.command",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "mcp_servers.firecrawl.args[0]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "mcp_servers.firecrawl.args[1]",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "mcp_servers.firecrawl.env.FIRECRAWL_API_URL",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "mcp_servers.firecrawl.enabled",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "mcp_servers.composio.url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "mcp_servers.composio.auth",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/config.yaml",
+      "field": "mcp_servers.composio.enabled",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "version",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "active_provider",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "updated_at",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.anthropic[]",
+      "source_type": "list"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[0].id",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[0].label",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[0].auth_type",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[0].priority",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[0].source",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[0].last_status",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[0].last_status_at",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[0].last_error_code",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[0].last_error_reason",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[0].last_error_message",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[0].last_error_reset_at",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[0].base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[0].request_count",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[0].secret_fingerprint",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[1].id",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[1].label",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[1].auth_type",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[1].priority",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[1].source",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[1].last_status",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[1].last_status_at",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[1].last_error_code",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[1].last_error_reason",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[1].last_error_message",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[1].last_error_reset_at",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[1].base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[1].request_count",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.copilot[1].secret_fingerprint",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.custom:app.manifest.build[0].id",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.custom:app.manifest.build[0].label",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.custom:app.manifest.build[0].auth_type",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.custom:app.manifest.build[0].priority",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.custom:app.manifest.build[0].source",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.custom:app.manifest.build[0].last_status",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.custom:app.manifest.build[0].last_status_at",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.custom:app.manifest.build[0].last_error_code",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.custom:app.manifest.build[0].last_error_reason",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.custom:app.manifest.build[0].last_error_message",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.custom:app.manifest.build[0].last_error_reset_at",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.custom:app.manifest.build[0].base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.custom:app.manifest.build[0].request_count",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.custom:app.manifest.build[0].secret_fingerprint",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.openai-api[0].id",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.openai-api[0].label",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.openai-api[0].auth_type",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.openai-api[0].priority",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.openai-api[0].source",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.openai-api[0].last_status",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.openai-api[0].last_status_at",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.openai-api[0].last_error_code",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.openai-api[0].last_error_reason",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.openai-api[0].last_error_message",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.openai-api[0].last_error_reset_at",
+      "source_type": "NoneType"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.openai-api[0].base_url",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.openai-api[0].request_count",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.openai-api[0].secret_fingerprint",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/auth.json",
+      "field": "credential_pool.xai-oauth[]",
+      "source_type": "list"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/honcho.json",
+      "field": "enabled",
+      "source_type": "bool"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/honcho.json",
+      "field": "baseUrl",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/honcho.json",
+      "field": "workspace",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/honcho.json",
+      "field": "aiPeer",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/honcho.json",
+      "field": "memoryMode",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/honcho.json",
+      "field": "writeFrequency",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/honcho.json",
+      "field": "dialecticReasoningLevel",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/honcho.json",
+      "field": "dialecticMaxChars",
+      "source_type": "int"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/honcho.json",
+      "field": "recallMode",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/honcho.json",
+      "field": "sessionStrategy",
+      "source_type": "str"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/honcho.json",
+      "field": "hosts",
+      "source_type": "dict"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "TERMINAL_MODAL_IMAGE",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "TERMINAL_TIMEOUT",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "TERMINAL_LIFETIME_SECONDS",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "BROWSERBASE_PROXIES",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "BROWSERBASE_ADVANCED_STEALTH",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "BROWSER_SESSION_TIMEOUT",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "BROWSER_INACTIVITY_TIMEOUT",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "GATEWAY_ALLOW_ALL_USERS",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "WEB_TOOLS_DEBUG",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "VISION_TOOLS_DEBUG",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "MOA_TOOLS_DEBUG",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "IMAGE_TOOLS_DEBUG",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "FIRECRAWL_API_KEY",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "API_SERVER_ENABLED",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "API_SERVER_KEY",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "API_SERVER_HOST",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "API_SERVER_PORT",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "SCRAPECREATORS_API_KEY",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "WEBHOOK_ENABLED",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "WEBHOOK_PORT",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "WEBHOOK_SECRET",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "HERMES_YOLO_MODE",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "HERMES_ALLOW_PRIVATE_URLS",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "HERMES_ENABLE_PROJECT_PLUGINS",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "OPENAI_API_KEY",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "FIRECRAWL_API_URL",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "TELEGRAM_BOT_TOKEN",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/.hermes/profiles/aries-default/.env",
+      "field": "TELEGRAM_ALLOWED_USERS",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/aries-app/.env",
+      "field": "HERMES_GATEWAY_URL",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/aries-app/.env",
+      "field": "HERMES_API_SERVER_KEY",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/aries-app/.env",
+      "field": "HERMES_SESSION_KEY",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/aries-app/.env",
+      "field": "HERMES_RUN_TIMEOUT_MS",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/aries-app/.env",
+      "field": "HERMES_POLL_INTERVAL_MS",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/aries-app/.env",
+      "field": "APP_BASE_URL",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/aries-app/.env",
+      "field": "INTERNAL_API_SECRET",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/aries-app/.env",
+      "field": "HERMES_RESEARCH_WEBHOOK_URL",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/aries-app/.env",
+      "field": "HERMES_STRATEGIST_GATEWAY_URL",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/aries-app/.env",
+      "field": "HERMES_CONTENT_GATEWAY_URL",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/aries-app/.env",
+      "field": "HERMES_RESEARCH_GATEWAY_URL",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/aries-app/.env",
+      "field": "HERMES_STRATEGIST_API_SERVER_KEY",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/aries-app/.env",
+      "field": "HERMES_CONTENT_API_SERVER_KEY",
+      "source_type": "env"
+    },
+    {
+      "source_location": "/home/node/aries-app/.env",
+      "field": "HERMES_RESEARCH_API_SERVER_KEY",
+      "source_type": "env"
+    }
+  ],
+  "code_hashes": {
+    "/home/node/aries-app/backend/marketing/ports/hermes.ts": "a8698df287d5c6e3f924e9c02b4966ab2fdefcd74e464ee6c714a5afd495643e",
+    "/home/node/aries-app/backend/marketing/hermes-runtime-contract.ts": "0f1c6383de90040522a98e43550893e61a5e86fe1be7d905202ca2b86378b971",
+    "/home/node/aries-app/backend/memory/hermes-dispatch.ts": "b71c61fef99bb858c755b6a10f57a1c3a529fea29f6b830b49da1fe6758fc688",
+    "/home/node/aries-app/docker-compose.yml": "d87744e89ceaa85332e6977c3137f8eea176d6ab85acbf310a78758205c70abe",
+    "/home/node/.hermes/hermes-agent/cron/jobs.py": "bedc0a7bad306df456b6c84d44b26ebfad2320725d2175f6cf6512b9b5d7ef9a",
+    "/home/node/.hermes/hermes-agent/gateway/platforms/api_server.py": "7ec405dc2a59789582ad9f61a189a41079e621f14642d3c9dc754e312616a868",
+    "/home/node/.hermes/hermes-agent/gateway/platforms/api_server_runs.py": "dd7303663f8062ece1a08b03b2010a7737500162c9b1e7a7f5e802b4b80504c0",
+    "/home/node/.hermes/hermes-agent/gateway/platforms/api_server_run_idempotency.py": "c3f25711695a5aad97b207581e0c532d1291bb9f12ca3c1e32add19e5f0f153a"
+  }
+}

@@ -1,0 +1,25 @@
+Security decision brief — t_e0c7a290
+
+ASK
+Approve only specifically needed account capabilities for an isolated Aries-only default gateway, or require dedicated Aries-only credentials. This brief grants no authority itself.
+
+WHY GATED
+The app consumes HERMES_API_SERVER_KEY, but its presence in Aries .env does not prove the credential grants only Aries capabilities. The shared default gateway home and aries-default contain generic multi-provider accounts, messaging and MCP. Source config shape review establishes field names, not exclusive account ownership. No credential values were emitted.
+
+SCOPE — owner decisions, independently scoped
+1. Gateway authentication: /home/node/aries-app/.env::HERMES_API_SERVER_KEY and /home/node/.hermes/profiles/aries-default/{.env::API_SERVER_KEY,config.yaml::platforms.api_server.extra.key}. Authorize copying only after the source owner proves effective account/capability scope and equality, or authorize a separately scoped Aries credential through secure provisioning. Installed config.extra.key overrides environment; current inactive shared default gateway lacks these keys in the inspected root config/.env, so effective historical key provenance remains unresolved. INTERNAL_API_SECRET is a separate app callback secret, not automatically a gateway credential.
+2. Inference: choose necessary account(s), not whole auth.json. Root auth.json exposes provider paths openai-codex and xai-oauth plus pool slots copilot, gemini, openai-codex and xai-oauth. aries-default auth.json exposes pool slots copilot, custom:app.manifest.build and openai-api. Purpose is default-gateway inference for Aries marketing/default raw runs. No evidence yet proves every slot necessary or Aries-exclusive. Account identities/credential values must stay in the private approval channel. Approval must identify exact source slot, Aries consumer, scope and permitted target use; it must not authorize every enumerated provider.
+3. Research tooling: aries-default config.yaml::mcp_servers.composio.{url,auth,enabled} and mcp_servers.firecrawl.{command,args,env.FIRECRAWL_API_URL,enabled}; .env::{FIRECRAWL_API_KEY,SCRAPECREATORS_API_KEY}. Composio exposes connected-account tools; Firecrawl/ScrapeCreators enable research service/account access. Require demonstrated default-gateway consumer and exact account scope before duplication; unrelated connections remain excluded. Do not enable MCP or discover/invoke tools during this review.
+4. Delivery: .env::{TELEGRAM_BOT_TOKEN,TELEGRAM_ALLOWED_USERS} in both homes, root .env::TELEGRAM_HOME_CHANNEL, preserved job jobs[0].{deliver,origin}. Owner must approve bot capability and intended recipient privately before any later daily-count delivery. The user-count script is no_agent=true and therefore does not justify copying any LLM provider credential. No messages or activation authorized.
+
+ENGINEERING GATES — not generic owner questions
+- Source owner needs effective app/gateway auth precedence proof and per-item memory/session/run ownership evidence. Do not export raw shared memory to obtain it.
+- Research webhook uses HERMES_API_SERVER_KEY Bearer in backend/memory/hermes-dispatch.ts:29-69. Actual receiver compatibility is not proven; generic WEBHOOK_SECRET is not a demonstrated substitute.
+- Dora reserved future rehearsal HOME /home/node/.hermes-migration-workspaces/t_a3e604b4/aries-only-home and app container aries-a3e604b4-app; rehearsal DB aries_snapshot in aries-a3e604b4-pg. These are not created/activated gateway or approved production job bindings. Target production binding, pinned Hermes version/config parity and denied egress still need verification. Optional compose sidecar defaults to the shared home mount; do not activate that unchanged.
+- Preserved source user-count job is enabled=true/state=scheduled. Only a separately reviewed disabled representation may eventually be installed; original stays immutable and quarantined. No installation this task.
+
+ROLLBACK / SAFE DEFAULT
+No production change to undo. Preserve all source originals and existing protected packages, keep target jobs/listeners/integrations disabled and deny egress. Veto leaves affected capability unresolved, not silently omitted permanently. App-only authorized isolated restore may proceed independently; full-functionality/cutover certification remains blocked.
+
+REPLY
+Dev-lead must send Brendan the charter-compliant private decision brief with separate APPROVE/VETO options, retain precise capability scope and timestamp, and relay no secrets into Kanban. Approval is not execution permission for this review task. No new login/refresh/rotation, spend or account changes were performed.

@@ -1,0 +1,8 @@
+{
+  "field-contract-v3.json": "c97d6bf19dc1477eb37682901f27250abb46cdc851a23955b4c9a757953a85a8",
+  "security-verdict-v3.txt": "d712fc0b40c92e81f2b2ae2bea2b703136c56e78a32f1488b094efeb245ad2f1",
+  "contract-validation-v3.json": "a463fc4e23f1c89f9af40422c650009b3ba314d14be731a2ec588c0b82356f07",
+  "source-handoff-review.json": "c0ad95801d41d4f4b87fcc75a8df0b00126d1e748fa2a05b0d0eb8e182aded10",
+  "verify_source_handoff.py": "76b03121de5034b19cdb9a91b9308b09513ca75f348f51f606de6b068f012691",
+  "build_contract_v3.py": "567a777ecd3285a0b750d62a8da25e6af33111b9041aa37363655d6f62a35eaf"
+}

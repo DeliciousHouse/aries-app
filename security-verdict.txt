@@ -1,0 +1,11 @@
+Security verdict: NOT APPROVED for full-functionality reconstruction or cutover.
+
+SOURCE-EXISTS  PASS  Protected proposal SHA256 matches; actual app e5ee8b8e and installed Hermes 5eb99eb2 caller/config/scheduler sources read over strict SSH.
+CLAIMS-TRACE  FAIL  Exclusive gateway/provider/MCP/delivery capability ownership, per-item shared-memory provenance, research receiver auth and production job binding and target Hermes version parity remain unproved; field-contract.json denies transfer/activation pending those gates.
+REVERT-SAFE  PASS  No source/target production writes or activation; originals retained, job remains quarantine-only and new target home is isolated by contract, not deployed.
+
+Contract is a field-scoped review deliverable, not runnable configuration. No source values, memory records, auth material or destination identifiers are included. Actual-source scheduler predicate passed three synthetic controls after correcting the local harness to select is_job_runnable rather than effective_job_state; no production module imported.
+
+Read-only schema/provenance inspection is not live runtime proof. No target restore, boot, network or account tests were performed. Two wider source scans timed out (60s and 20s); exact bounded module reads succeeded. Local read_file/write_file backend failed; artifacts were written through the persistent Python kernel in the assigned workspace.
+
+Dora subsequently supplied explicit reserved rehearsal HOME/container/DB mappings, recorded in field-contract.json. This resolves naming for rehearsal only; no reviewer target inspection or production binding/version certification is implied.

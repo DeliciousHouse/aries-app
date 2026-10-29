@@ -1,0 +1,12 @@
+{
+  "field_count": 270,
+  "unique_fields": 270,
+  "classification_counts": {
+    "shared requires owner approval": 198,
+    "Aries-owned required": 51,
+    "unrelated exclude": 21
+  },
+  "schema_and_disable_assertions": "PASS",
+  "activation_authorized": false,
+  "memory_records_approved": 0
+}
